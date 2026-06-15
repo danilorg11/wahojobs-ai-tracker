@@ -82,6 +82,7 @@ def crawl_outlier(careers_url):
                     jobs=jobs,
                     used_sample_data=False,
                     source_message=f"Fetched live Outlier jobs from {url}.",
+                    source_type="html",
                 )
             errors.append(f"{url}: fetched but no job links were recognized")
         except (HTTPError, URLError, TimeoutError, ValueError) as exc:
@@ -90,6 +91,7 @@ def crawl_outlier(careers_url):
     return CompanyCrawlResult(
         jobs=SAMPLE_JOBS,
         used_sample_data=True,
+        source_type="sample",
         source_message=(
             "Using SAMPLE DATA because live Outlier jobs could not be fetched or parsed. "
             + " | ".join(errors)
@@ -220,4 +222,3 @@ def extract_id_from_url(url):
 
 def clean_text(value):
     return re.sub(r"\s+", " ", str(value)).strip()
-

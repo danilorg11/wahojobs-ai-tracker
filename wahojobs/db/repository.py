@@ -10,22 +10,41 @@ OUTLIER_SEED = {
     "careers_url": "https://outlier.ai/opportunities",
 }
 
+APPEN_SEED = {
+    "name": "Appen",
+    "slug": "appen",
+    "careers_url": "https://api.lever.co/v0/postings/appen?mode=json&expand=location",
+}
+
 
 def initialize_database(db_path=DB_PATH):
     schema_path = Path(__file__).with_name("schema.sql")
     with get_connection(db_path) as conn:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
-        conn.execute(
-            """
-            INSERT INTO companies (name, slug, careers_url)
-            VALUES (:name, :slug, :careers_url)
-            ON CONFLICT(slug) DO UPDATE SET
-              name = excluded.name,
-              careers_url = excluded.careers_url,
-              updated_at = CURRENT_TIMESTAMP
-            """,
-            OUTLIER_SEED,
-        )
+        ensure_job_optional_columns(conn)
+        for seed in (APPEN_SEED, OUTLIER_SEED):
+            conn.execute(
+                """
+                INSERT INTO companies (name, slug, careers_url)
+                VALUES (:name, :slug, :careers_url)
+                ON CONFLICT(slug) DO UPDATE SET
+                  name = excluded.name,
+                  careers_url = excluded.careers_url,
+                  updated_at = CURRENT_TIMESTAMP
+                """,
+                seed,
+            )
+
+
+def ensure_job_optional_columns(conn):
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    if "department" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN department TEXT")
+    if "commitment" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN commitment TEXT")
 
 
 def get_company_by_slug(conn, slug):
@@ -101,16 +120,18 @@ def insert_job(conn, company_id, candidate, now):
     conn.execute(
         """
         INSERT INTO jobs (
-          company_id, external_id, title, location, url, source_hash,
+          company_id, external_id, title, location, department, commitment, url, source_hash,
           first_seen_at, last_seen_at, is_active, removed_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
         """,
         (
             company_id,
             candidate.external_id,
             candidate.title,
             candidate.location,
+            candidate.department,
+            candidate.commitment,
             candidate.url,
             candidate.source_hash,
             now,
@@ -127,6 +148,8 @@ def update_seen_job(conn, job_id, candidate, now):
         SET external_id = ?,
             title = ?,
             location = ?,
+            department = ?,
+            commitment = ?,
             url = ?,
             last_seen_at = ?,
             is_active = 1,
@@ -138,6 +161,8 @@ def update_seen_job(conn, job_id, candidate, now):
             candidate.external_id,
             candidate.title,
             candidate.location,
+            candidate.department,
+            candidate.commitment,
             candidate.url,
             now,
             now,
@@ -200,4 +225,3 @@ def get_last_successful_crawl(conn, company_id):
         """,
         (company_id,),
     ).fetchone()
-

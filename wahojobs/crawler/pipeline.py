@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from wahojobs.crawler.companies.appen import crawl_appen
 from wahojobs.crawler.companies.outlier import crawl_outlier
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import (
@@ -15,7 +16,13 @@ def utc_now():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def run_crawl(company_slug="outlier"):
+CRAWLERS = {
+    "appen": crawl_appen,
+    "outlier": crawl_outlier,
+}
+
+
+def run_crawl(company_slug="appen"):
     with get_connection() as conn:
         company = get_company_by_slug(conn, company_slug)
         if company is None:
@@ -28,10 +35,11 @@ def run_crawl(company_slug="outlier"):
         conn.commit()
 
         try:
-            if company_slug != "outlier":
+            crawler = CRAWLERS.get(company_slug)
+            if crawler is None:
                 raise ValueError(f"No crawler is implemented for '{company_slug}'.")
 
-            crawl_result = crawl_outlier(company["careers_url"])
+            crawl_result = crawler(company["careers_url"])
             summary = track_crawl_result(conn, company["id"], crawl_result, utc_now())
             finish_crawl_run(conn, crawl_run_id, summary, utc_now())
             conn.commit()
@@ -40,4 +48,3 @@ def run_crawl(company_slug="outlier"):
             fail_crawl_run(conn, crawl_run_id, str(exc), utc_now())
             conn.commit()
             raise
-

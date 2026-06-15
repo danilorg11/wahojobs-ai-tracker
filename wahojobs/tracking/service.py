@@ -48,6 +48,7 @@ def track_crawl_result(conn, company_id, crawl_result: CompanyCrawlResult, now):
     active_jobs_total = count_active_jobs(conn, company_id)
 
     return TrackingSummary(
+        source_type=crawl_result.source_type,
         jobs_found=len(candidates),
         jobs_new=jobs_new,
         jobs_reactivated=jobs_reactivated,

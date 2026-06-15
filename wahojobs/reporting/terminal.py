@@ -7,9 +7,10 @@ def print_crawl_summary(company, summary):
     print("Wahojobs Phase 1 Crawl Summary")
     print("=" * 34)
     print(f"Company: {company['name']}")
+    print(f"Source type: {summary.source_type}")
     print(f"Source: {summary.source_message}")
     if summary.used_sample_data:
-        print("Data mode: SAMPLE DATA - live Outlier jobs were not available.")
+        print("Data mode: SAMPLE DATA - live jobs were not available.")
     else:
         print("Data mode: LIVE")
     print("")
@@ -25,4 +26,3 @@ def print_crawl_summary(company, summary):
         if last_run:
             print(f"Last crawl:       {last_run['finished_at']}")
     print("")
-

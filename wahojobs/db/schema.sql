@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   external_id TEXT,
   title TEXT NOT NULL,
   location TEXT,
+  department TEXT,
+  commitment TEXT,
   url TEXT NOT NULL,
   source_hash TEXT NOT NULL,
   first_seen_at TEXT NOT NULL,
@@ -57,4 +59,3 @@ ON jobs(last_seen_at);
 
 CREATE INDEX IF NOT EXISTS idx_crawl_runs_company_started
 ON crawl_runs(company_id, started_at);
-

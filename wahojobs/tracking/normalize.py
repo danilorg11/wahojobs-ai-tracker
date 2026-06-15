@@ -23,6 +23,7 @@ def with_source_hash(company_slug, candidate):
         location=(candidate.location or "").strip(),
         url=candidate.url.strip(),
         external_id=candidate.external_id,
+        department=candidate.department,
+        commitment=candidate.commitment,
         source_hash=source_hash,
     )
-

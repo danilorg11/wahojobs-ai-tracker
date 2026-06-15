@@ -7,6 +7,8 @@ class JobCandidate:
     location: str
     url: str
     external_id: str | None = None
+    department: str | None = None
+    commitment: str | None = None
     source_hash: str = ""
 
 
@@ -15,10 +17,12 @@ class CompanyCrawlResult:
     jobs: list[JobCandidate]
     used_sample_data: bool
     source_message: str
+    source_type: str
 
 
 @dataclass(frozen=True)
 class TrackingSummary:
+    source_type: str
     jobs_found: int
     jobs_new: int
     jobs_reactivated: int
@@ -27,4 +31,3 @@ class TrackingSummary:
     active_jobs_total: int
     used_sample_data: bool
     source_message: str
-

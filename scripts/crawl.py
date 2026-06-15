@@ -8,7 +8,8 @@ from wahojobs.reporting.terminal import print_crawl_summary
 
 
 def main():
-    company, summary = run_crawl("outlier")
+    company_slug = sys.argv[1] if len(sys.argv) > 1 else "appen"
+    company, summary = run_crawl(company_slug)
     print_crawl_summary(company, summary)
 
 
