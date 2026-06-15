@@ -16,13 +16,25 @@ APPEN_SEED = {
     "careers_url": "https://api.lever.co/v0/postings/appen?mode=json&expand=location",
 }
 
+INVISIBLE_SEED = {
+    "name": "Invisible Technologies",
+    "slug": "invisible",
+    "careers_url": "https://boards-api.greenhouse.io/v1/boards/invisibletech/jobs",
+}
+
+MERIDIAL_SEED = {
+    "name": "Meridial",
+    "slug": "meridial",
+    "careers_url": "https://boards-api.greenhouse.io/v1/boards/agency/departments/4012485101?render_as=tree",
+}
+
 
 def initialize_database(db_path=DB_PATH):
     schema_path = Path(__file__).with_name("schema.sql")
     with get_connection(db_path) as conn:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
         ensure_job_optional_columns(conn)
-        for seed in (APPEN_SEED, OUTLIER_SEED):
+        for seed in (APPEN_SEED, INVISIBLE_SEED, MERIDIAL_SEED, OUTLIER_SEED):
             conn.execute(
                 """
                 INSERT INTO companies (name, slug, careers_url)
@@ -43,6 +55,8 @@ def ensure_job_optional_columns(conn):
     }
     if "department" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN department TEXT")
+    if "expertise" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN expertise TEXT")
     if "commitment" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN commitment TEXT")
 
@@ -120,10 +134,10 @@ def insert_job(conn, company_id, candidate, now):
     conn.execute(
         """
         INSERT INTO jobs (
-          company_id, external_id, title, location, department, commitment, url, source_hash,
+          company_id, external_id, title, location, department, expertise, commitment, url, source_hash,
           first_seen_at, last_seen_at, is_active, removed_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
         """,
         (
             company_id,
@@ -131,6 +145,7 @@ def insert_job(conn, company_id, candidate, now):
             candidate.title,
             candidate.location,
             candidate.department,
+            candidate.expertise,
             candidate.commitment,
             candidate.url,
             candidate.source_hash,
@@ -149,6 +164,7 @@ def update_seen_job(conn, job_id, candidate, now):
             title = ?,
             location = ?,
             department = ?,
+            expertise = ?,
             commitment = ?,
             url = ?,
             last_seen_at = ?,
@@ -162,6 +178,7 @@ def update_seen_job(conn, job_id, candidate, now):
             candidate.title,
             candidate.location,
             candidate.department,
+            candidate.expertise,
             candidate.commitment,
             candidate.url,
             now,

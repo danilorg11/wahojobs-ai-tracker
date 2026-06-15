@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   title TEXT NOT NULL,
   location TEXT,
   department TEXT,
+  expertise TEXT,
   commitment TEXT,
   url TEXT NOT NULL,
   source_hash TEXT NOT NULL,

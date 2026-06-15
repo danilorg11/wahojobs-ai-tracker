@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
 from wahojobs.crawler.companies.appen import crawl_appen
+from wahojobs.crawler.companies.invisible import crawl_invisible
+from wahojobs.crawler.companies.meridial import crawl_meridial
 from wahojobs.crawler.companies.outlier import crawl_outlier
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import (
@@ -18,6 +20,8 @@ def utc_now():
 
 CRAWLERS = {
     "appen": crawl_appen,
+    "invisible": crawl_invisible,
+    "meridial": crawl_meridial,
     "outlier": crawl_outlier,
 }
 

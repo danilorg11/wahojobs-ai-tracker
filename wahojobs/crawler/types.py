@@ -8,6 +8,7 @@ class JobCandidate:
     url: str
     external_id: str | None = None
     department: str | None = None
+    expertise: str | None = None
     commitment: str | None = None
     source_hash: str = ""
 
