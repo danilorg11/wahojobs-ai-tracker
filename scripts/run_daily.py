@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from wahojobs.crawler.pipeline import run_crawl
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import initialize_database
+from wahojobs.reporting.market import get_market_size_summary
 from wahojobs.reporting.terminal import print_crawl_summary
 
 
@@ -65,7 +66,7 @@ def main():
     run_script("scripts/export_jobs.py", "Export Jobs")
     run_script("scripts/export_events.py", "Export Events")
 
-    print_final_summary(succeeded, failed)
+    print_final_summary(succeeded, failed, args.include_experimental)
 
 
 def parse_args():
@@ -89,50 +90,15 @@ def run_script(script_path, title):
         print(f"{title} failed with exit code {result.returncode}.")
 
 
-def get_market_summary():
+def get_market_summary(include_experimental=False):
     with get_connection() as conn:
-        total_raw = conn.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM jobs
-            WHERE is_active = 1
-              AND title NOT LIKE '[SIMULATION]%'
-            """
-        ).fetchone()
-        canonical_total = conn.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM canonical_opportunities co
-            WHERE co.is_active = 1
-            """
-        ).fetchone()
-        alignerr = conn.execute(
-            """
-            SELECT
-              COUNT(j.id) AS raw_postings,
-              COUNT(DISTINCT co.id) AS canonical_opportunities
-            FROM companies c
-            LEFT JOIN jobs j
-              ON j.company_id = c.id
-             AND j.is_active = 1
-             AND j.title NOT LIKE '[SIMULATION]%'
-            LEFT JOIN canonical_opportunities co
-              ON co.id = j.canonical_opportunity_id
-             AND co.is_active = 1
-            WHERE c.slug = 'alignerr'
-            """
-        ).fetchone()
-
-    return {
-        "total_raw_active_jobs": total_raw["count"],
-        "total_canonical_opportunities": canonical_total["count"],
-        "alignerr_raw_postings": alignerr["raw_postings"],
-        "alignerr_canonical_opportunities": alignerr["canonical_opportunities"],
-    }
+        return get_market_size_summary(
+            conn, include_experimental=include_experimental
+        )
 
 
-def print_final_summary(succeeded, failed):
-    market_summary = get_market_summary()
+def print_final_summary(succeeded, failed, include_experimental=False):
+    market_summary = get_market_summary(include_experimental)
 
     print("")
     print("Final Summary")
@@ -145,16 +111,18 @@ def print_final_summary(succeeded, failed):
     else:
         print("Sources failed: None")
 
-    print(f"Total raw active jobs: {market_summary['total_raw_active_jobs']}")
+    print(f"Raw active postings: {market_summary['raw_active_postings']}")
     print(
-        "Total canonical opportunities where available: "
-        f"{market_summary['total_canonical_opportunities']}"
+        "Estimated market opportunities: "
+        f"{market_summary['estimated_market_opportunities']}"
     )
+    print("Estimate: canonicalized sources where available; raw active jobs elsewhere.")
     print(f"Alignerr raw postings: {market_summary['alignerr_raw_postings']}")
     print(
         "Alignerr canonical opportunities: "
         f"{market_summary['alignerr_canonical_opportunities']}"
     )
+    print(f"Alignerr posting variants: {market_summary['alignerr_posting_variants']}")
     print("Export files written:")
     for path in EXPORT_FILES:
         status = "yes" if path.exists() else "no"

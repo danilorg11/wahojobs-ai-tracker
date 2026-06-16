@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
+from wahojobs.reporting.market import get_market_size_summary
 
 
 def main():
@@ -13,8 +14,10 @@ def main():
     report_date = args.report_date
 
     with get_connection() as conn:
-        total_active = count_total_active_jobs(
-            conn, args.include_simulation, args.include_experimental
+        market_summary = get_market_size_summary(
+            conn,
+            include_experimental=args.include_experimental,
+            include_simulation=args.include_simulation,
         )
         discovered = count_events(
             conn, report_date, "discovered", args.include_simulation,
@@ -56,7 +59,18 @@ def main():
     print(f"Simulation: {'included' if args.include_simulation else 'excluded'}")
     print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
     print("")
-    print(f"Total active jobs:        {total_active}")
+    print(f"Raw active postings:              {market_summary['raw_active_postings']}")
+    print(
+        "Estimated market opportunities:   "
+        f"{market_summary['estimated_market_opportunities']}"
+    )
+    print("Estimate: canonicalized sources where available; raw active jobs elsewhere.")
+    print(f"Alignerr raw postings:            {market_summary['alignerr_raw_postings']}")
+    print(
+        "Alignerr canonical opportunities: "
+        f"{market_summary['alignerr_canonical_opportunities']}"
+    )
+    print(f"Alignerr posting variants:        {market_summary['alignerr_posting_variants']}")
     print(f"New jobs today:           {discovered}")
     print(f"Removed jobs today:       {removed}")
     print(f"Reactivated jobs today:   {reactivated}")
@@ -110,21 +124,6 @@ def company_label(alias):
         f"CASE WHEN {alias}.slug = 'invisible' "
         f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
     )
-
-
-def count_total_active_jobs(conn, include_simulation, include_experimental):
-    simulation_filter = "" if include_simulation else "AND j.title NOT LIKE '[SIMULATION]%'"
-    row = conn.execute(
-        f"""
-        SELECT COUNT(*) AS count
-        FROM jobs j
-        JOIN companies c ON c.id = j.company_id
-        WHERE j.is_active = 1
-          {simulation_filter}
-          {experimental_filter("c", include_experimental)}
-        """
-    ).fetchone()
-    return row["count"]
 
 
 def count_events(conn, report_date, event_type, include_simulation, include_experimental):

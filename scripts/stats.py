@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
+from wahojobs.reporting.market import get_market_size_summary
 
 
 def main():
@@ -20,12 +21,7 @@ def main():
         print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
         print("")
 
-        print(f"Total active raw postings: {count_total_active_jobs(conn, args.include_experimental)}")
-        alignerr = get_alignerr_canonical_summary(conn)
-        if alignerr:
-            print(f"Alignerr active raw postings: {alignerr['raw_postings']}")
-            print(f"Alignerr active canonical opportunities: {alignerr['canonical_opportunities']}")
-            print(f"Alignerr active posting variants: {alignerr['variant_count']}")
+        print_market_size_summary(conn, args.include_experimental)
         print("")
 
         print_section("Jobs by company", get_jobs_by_company(conn, args.include_experimental))
@@ -60,41 +56,21 @@ def company_label(alias):
         f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
     )
 
-
-def count_total_active_jobs(conn, include_experimental):
-    row = conn.execute(
-        f"""
-        SELECT COUNT(*) AS count
-        FROM jobs j
-        JOIN companies c ON c.id = j.company_id
-        WHERE j.is_active = 1
-          {experimental_filter("c", include_experimental)}
-        """
-    ).fetchone()
-    return row["count"]
-
-
-def get_alignerr_canonical_summary(conn):
-    row = conn.execute(
-        """
-        SELECT
-          COUNT(j.id) AS raw_postings,
-          COUNT(DISTINCT co.id) AS canonical_opportunities,
-          COUNT(j.id) - COUNT(DISTINCT co.id) AS variant_count
-        FROM companies c
-        LEFT JOIN jobs j
-          ON j.company_id = c.id
-         AND j.is_active = 1
-         AND j.title NOT LIKE '[SIMULATION]%'
-        LEFT JOIN canonical_opportunities co
-          ON co.id = j.canonical_opportunity_id
-         AND co.is_active = 1
-        WHERE c.slug = 'alignerr'
-        """
-    ).fetchone()
-    if row is None or row["raw_postings"] == 0:
-        return None
-    return row
+def print_market_size_summary(conn, include_experimental):
+    summary = get_market_size_summary(
+        conn,
+        include_experimental=include_experimental,
+        include_simulation=False,
+    )
+    print(f"Raw active postings: {summary['raw_active_postings']}")
+    print(f"Estimated market opportunities: {summary['estimated_market_opportunities']}")
+    print(
+        "Estimate: canonicalized sources where available; "
+        "raw active jobs elsewhere."
+    )
+    print(f"Alignerr raw postings: {summary['alignerr_raw_postings']}")
+    print(f"Alignerr canonical opportunities: {summary['alignerr_canonical_opportunities']}")
+    print(f"Alignerr posting variants: {summary['alignerr_posting_variants']}")
 
 
 def get_jobs_by_company(conn, include_experimental):
