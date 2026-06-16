@@ -20,6 +20,7 @@ def main():
             conn,
             include_inactive=args.include_inactive,
             include_simulation=args.include_simulation,
+            include_experimental=args.include_experimental,
         )
 
     write_csv(output_path, rows)
@@ -43,22 +44,32 @@ def parse_args():
         action="store_true",
         help="Include local simulation jobs.",
     )
+    parser.add_argument(
+        "--include-experimental",
+        action="store_true",
+        help="Include non-core/experimental sources such as Invisible.",
+    )
     return parser.parse_args()
 
 
-def get_jobs(conn, include_inactive=False, include_simulation=False):
+def get_jobs(conn, include_inactive=False, include_simulation=False, include_experimental=False):
     where = []
     if not include_inactive:
         where.append("j.is_active = 1")
     if not include_simulation:
         where.append("j.title NOT LIKE '[SIMULATION]%'")
+    if not include_experimental:
+        where.append("c.slug != 'invisible'")
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
     return conn.execute(
         f"""
         SELECT
-          c.name AS company,
+          CASE WHEN c.slug = 'invisible'
+               THEN c.name || ' [EXPERIMENTAL]'
+               ELSE c.name
+          END AS company,
           j.title,
           j.location,
           COALESCE(NULLIF(TRIM(j.expertise), ''), NULLIF(TRIM(j.department), ''), 'Unknown') AS expertise_department,

@@ -1,3 +1,4 @@
+import argparse
 import sys
 from pathlib import Path
 
@@ -7,13 +8,14 @@ from wahojobs.db.connection import get_connection
 
 
 def main():
+    args = parse_args()
     with get_connection() as conn:
-        summary = get_summary(conn)
-        duplicate_external_ids = get_duplicate_external_ids(conn)
-        duplicate_urls = get_duplicate_urls(conn)
-        companies_without_success = get_companies_without_successful_crawl(conn)
-        failed_crawls = get_failed_crawls(conn)
-        last_statuses = get_last_crawl_status_by_company(conn)
+        summary = get_summary(conn, args.include_experimental)
+        duplicate_external_ids = get_duplicate_external_ids(conn, args.include_experimental)
+        duplicate_urls = get_duplicate_urls(conn, args.include_experimental)
+        companies_without_success = get_companies_without_successful_crawl(conn, args.include_experimental)
+        failed_crawls = get_failed_crawls(conn, args.include_experimental)
+        last_statuses = get_last_crawl_status_by_company(conn, args.include_experimental)
         alignerr_summary = get_alignerr_canonical_summary(conn)
         top_alignerr_variants = get_top_alignerr_variants(conn)
         multi_location_groups = get_multi_location_alignerr_groups(conn)
@@ -23,6 +25,7 @@ def main():
     print("")
     print("Wahojobs Data Quality Report")
     print("============================")
+    print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
     print("")
 
     print("Job Checks")
@@ -96,28 +99,90 @@ def main():
     )
 
 
-def get_summary(conn):
+def parse_args():
+    parser = argparse.ArgumentParser(description="Show Wahojobs data quality checks.")
+    parser.add_argument(
+        "--include-experimental",
+        action="store_true",
+        help="Include non-core/experimental sources such as Invisible.",
+    )
+    return parser.parse_args()
+
+
+def experimental_filter(alias, include_experimental):
+    if include_experimental:
+        return ""
+    return f"AND {alias}.slug != 'invisible'"
+
+
+def company_label(alias):
+    return (
+        f"CASE WHEN {alias}.slug = 'invisible' "
+        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
+    )
+
+
+def scalar_count(conn, sql):
+    return conn.execute(sql).fetchone()[0]
+
+
+def get_summary(conn, include_experimental):
+    source_filter = experimental_filter("c", include_experimental)
     checks = [
-        ("Total jobs", "SELECT COUNT(*) FROM jobs"),
-        ("Active jobs", "SELECT COUNT(*) FROM jobs WHERE is_active = 1"),
-        ("Inactive jobs", "SELECT COUNT(*) FROM jobs WHERE is_active = 0"),
-        ("Jobs missing title", "SELECT COUNT(*) FROM jobs WHERE title IS NULL OR TRIM(title) = ''"),
-        ("Jobs missing URL", "SELECT COUNT(*) FROM jobs WHERE url IS NULL OR TRIM(url) = ''"),
-        ("Jobs missing location", "SELECT COUNT(*) FROM jobs WHERE location IS NULL OR TRIM(location) = ''"),
+        ("Total jobs", f"SELECT COUNT(*) FROM jobs j JOIN companies c ON c.id = j.company_id WHERE 1 = 1 {source_filter}"),
+        ("Active jobs", f"SELECT COUNT(*) FROM jobs j JOIN companies c ON c.id = j.company_id WHERE j.is_active = 1 {source_filter}"),
+        ("Inactive jobs", f"SELECT COUNT(*) FROM jobs j JOIN companies c ON c.id = j.company_id WHERE j.is_active = 0 {source_filter}"),
         (
-            "Jobs with Unknown expertise/department",
-            """
+            "Jobs missing title",
+            f"""
             SELECT COUNT(*)
-            FROM jobs
-            WHERE COALESCE(NULLIF(TRIM(expertise), ''), NULLIF(TRIM(department), ''), 'Unknown') = 'Unknown'
+            FROM jobs j JOIN companies c ON c.id = j.company_id
+            WHERE (j.title IS NULL OR TRIM(j.title) = '')
+              {source_filter}
             """,
         ),
-        ("Jobs with simulation titles", "SELECT COUNT(*) FROM jobs WHERE title LIKE '[SIMULATION]%'"),
+        (
+            "Jobs missing URL",
+            f"""
+            SELECT COUNT(*)
+            FROM jobs j JOIN companies c ON c.id = j.company_id
+            WHERE (j.url IS NULL OR TRIM(j.url) = '')
+              {source_filter}
+            """,
+        ),
+        (
+            "Jobs missing location",
+            f"""
+            SELECT COUNT(*)
+            FROM jobs j JOIN companies c ON c.id = j.company_id
+            WHERE (j.location IS NULL OR TRIM(j.location) = '')
+              {source_filter}
+            """,
+        ),
+        (
+            "Active jobs with Unknown expertise/department",
+            f"""
+            SELECT COUNT(*)
+            FROM jobs j JOIN companies c ON c.id = j.company_id
+            WHERE COALESCE(NULLIF(TRIM(j.expertise), ''), NULLIF(TRIM(j.department), ''), 'Unknown') = 'Unknown'
+              AND j.is_active = 1
+              {source_filter}
+            """,
+        ),
+        (
+            "Jobs with simulation titles",
+            f"""
+            SELECT COUNT(*)
+            FROM jobs j JOIN companies c ON c.id = j.company_id
+            WHERE j.title LIKE '[SIMULATION]%'
+              {source_filter}
+            """,
+        ),
     ]
 
     rows = []
     for label, sql in checks:
-        count = conn.execute(sql).fetchone()[0]
+        count = scalar_count(conn, sql)
         rows.append((label, count))
     return rows
 
@@ -208,14 +273,15 @@ def get_unknown_alignerr_canonical_groups(conn):
     ).fetchall()
 
 
-def get_duplicate_external_ids(conn):
+def get_duplicate_external_ids(conn, include_experimental):
     return conn.execute(
-        """
-        SELECT c.name AS company, j.external_id, COUNT(*) AS count
+        f"""
+        SELECT {company_label("c")} AS company, j.external_id, COUNT(*) AS count
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.external_id IS NOT NULL
           AND TRIM(j.external_id) != ''
+          {experimental_filter("c", include_experimental)}
         GROUP BY j.company_id, j.external_id
         HAVING COUNT(*) > 1
         ORDER BY count DESC, c.name ASC, j.external_id ASC
@@ -223,14 +289,15 @@ def get_duplicate_external_ids(conn):
     ).fetchall()
 
 
-def get_duplicate_urls(conn):
+def get_duplicate_urls(conn, include_experimental):
     return conn.execute(
-        """
-        SELECT c.name AS company, j.url, COUNT(*) AS count
+        f"""
+        SELECT {company_label("c")} AS company, j.url, COUNT(*) AS count
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.url IS NOT NULL
           AND TRIM(j.url) != ''
+          {experimental_filter("c", include_experimental)}
         GROUP BY j.company_id, j.url
         HAVING COUNT(*) > 1
         ORDER BY count DESC, c.name ASC, j.url ASC
@@ -238,10 +305,10 @@ def get_duplicate_urls(conn):
     ).fetchall()
 
 
-def get_companies_without_successful_crawl(conn):
+def get_companies_without_successful_crawl(conn, include_experimental):
     return conn.execute(
-        """
-        SELECT c.name AS company
+        f"""
+        SELECT {company_label("c")} AS company
         FROM companies c
         WHERE NOT EXISTS (
           SELECT 1
@@ -249,29 +316,31 @@ def get_companies_without_successful_crawl(conn):
           WHERE cr.company_id = c.id
             AND cr.status = 'success'
         )
+          {experimental_filter("c", include_experimental)}
         ORDER BY c.name ASC
         """
     ).fetchall()
 
 
-def get_failed_crawls(conn):
+def get_failed_crawls(conn, include_experimental):
     return conn.execute(
-        """
-        SELECT c.name AS company, cr.started_at, cr.error_message
+        f"""
+        SELECT {company_label("c")} AS company, cr.started_at, cr.error_message
         FROM crawl_runs cr
         JOIN companies c ON c.id = cr.company_id
         WHERE cr.status = 'failed'
+          {experimental_filter("c", include_experimental)}
         ORDER BY cr.started_at DESC
         LIMIT 20
         """
     ).fetchall()
 
 
-def get_last_crawl_status_by_company(conn):
+def get_last_crawl_status_by_company(conn, include_experimental):
     return conn.execute(
-        """
+        f"""
         SELECT
-          c.name AS company,
+          {company_label("c")} AS company,
           cr.status,
           cr.started_at,
           cr.finished_at
@@ -284,6 +353,8 @@ def get_last_crawl_status_by_company(conn):
             ORDER BY cr2.started_at DESC
             LIMIT 1
           )
+        WHERE 1 = 1
+          {experimental_filter("c", include_experimental)}
         ORDER BY c.name ASC
         """
     ).fetchall()

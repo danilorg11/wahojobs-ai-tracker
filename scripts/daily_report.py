@@ -13,21 +13,48 @@ def main():
     report_date = args.report_date
 
     with get_connection() as conn:
-        total_active = count_total_active_jobs(conn, args.include_simulation)
-        discovered = count_events(conn, report_date, "discovered", args.include_simulation)
-        removed = count_events(conn, report_date, "removed", args.include_simulation)
-        reactivated = count_events(conn, report_date, "reactivated", args.include_simulation)
-        new_by_company = group_events(conn, report_date, "discovered", "company", args.include_simulation)
-        removed_by_company = group_events(conn, report_date, "removed", "company", args.include_simulation)
-        new_by_expertise = group_events(conn, report_date, "discovered", "expertise", args.include_simulation)
-        removed_by_expertise = group_events(conn, report_date, "removed", "expertise", args.include_simulation)
-        recent_events = get_recent_events(conn, report_date, args.include_simulation, limit=10)
+        total_active = count_total_active_jobs(
+            conn, args.include_simulation, args.include_experimental
+        )
+        discovered = count_events(
+            conn, report_date, "discovered", args.include_simulation,
+            args.include_experimental
+        )
+        removed = count_events(
+            conn, report_date, "removed", args.include_simulation,
+            args.include_experimental
+        )
+        reactivated = count_events(
+            conn, report_date, "reactivated", args.include_simulation,
+            args.include_experimental
+        )
+        new_by_company = group_events(
+            conn, report_date, "discovered", "company",
+            args.include_simulation, args.include_experimental
+        )
+        removed_by_company = group_events(
+            conn, report_date, "removed", "company",
+            args.include_simulation, args.include_experimental
+        )
+        new_by_expertise = group_events(
+            conn, report_date, "discovered", "expertise",
+            args.include_simulation, args.include_experimental
+        )
+        removed_by_expertise = group_events(
+            conn, report_date, "removed", "expertise",
+            args.include_simulation, args.include_experimental
+        )
+        recent_events = get_recent_events(
+            conn, report_date, args.include_simulation,
+            args.include_experimental, limit=10
+        )
 
     print("")
     print("Wahojobs Daily Market Report")
     print("============================")
     print(f"Report date: {report_date} UTC")
     print(f"Simulation: {'included' if args.include_simulation else 'excluded'}")
+    print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
     print("")
     print(f"Total active jobs:        {total_active}")
     print(f"New jobs today:           {discovered}")
@@ -55,6 +82,11 @@ def parse_args():
         action="store_true",
         help="Include local simulation events and sample jobs in the report.",
     )
+    parser.add_argument(
+        "--include-experimental",
+        action="store_true",
+        help="Include non-core/experimental sources such as Invisible.",
+    )
     args = parser.parse_args()
     validate_date(args.report_date)
     return args
@@ -67,38 +99,58 @@ def validate_date(value):
         raise SystemExit("--date must use YYYY-MM-DD format")
 
 
-def count_total_active_jobs(conn, include_simulation):
-    simulation_filter = "" if include_simulation else "AND title NOT LIKE '[SIMULATION]%'"
+def experimental_filter(alias, include_experimental):
+    if include_experimental:
+        return ""
+    return f"AND {alias}.slug != 'invisible'"
+
+
+def company_label(alias):
+    return (
+        f"CASE WHEN {alias}.slug = 'invisible' "
+        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
+    )
+
+
+def count_total_active_jobs(conn, include_simulation, include_experimental):
+    simulation_filter = "" if include_simulation else "AND j.title NOT LIKE '[SIMULATION]%'"
     row = conn.execute(
         f"""
         SELECT COUNT(*) AS count
-        FROM jobs
-        WHERE is_active = 1
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.is_active = 1
           {simulation_filter}
+          {experimental_filter("c", include_experimental)}
         """
     ).fetchone()
     return row["count"]
 
 
-def count_events(conn, report_date, event_type, include_simulation):
+def count_events(conn, report_date, event_type, include_simulation, include_experimental):
     simulation_filter = "" if include_simulation else "AND j.title NOT LIKE '[SIMULATION]%'"
     row = conn.execute(
         f"""
         SELECT COUNT(*) AS count
         FROM job_events je
         JOIN jobs j ON j.id = je.job_id
+        JOIN companies c ON c.id = j.company_id
         WHERE date(je.created_at) = ?
           AND je.event_type = ?
           {simulation_filter}
+          {experimental_filter("c", include_experimental)}
         """,
         (report_date, event_type),
     ).fetchone()
     return row["count"]
 
 
-def group_events(conn, report_date, event_type, group_by, include_simulation):
+def group_events(
+    conn, report_date, event_type, group_by,
+    include_simulation, include_experimental
+):
     label_sql = {
-        "company": "c.name",
+        "company": company_label("c"),
         "expertise": "COALESCE(NULLIF(TRIM(j.expertise), ''), NULLIF(TRIM(j.department), ''), 'Unknown')",
     }[group_by]
     simulation_filter = "" if include_simulation else "AND j.title NOT LIKE '[SIMULATION]%'"
@@ -112,6 +164,7 @@ def group_events(conn, report_date, event_type, group_by, include_simulation):
         WHERE date(je.created_at) = ?
           AND je.event_type = ?
           {simulation_filter}
+          {experimental_filter("c", include_experimental)}
         GROUP BY label
         ORDER BY count DESC, label ASC
         """,
@@ -119,14 +172,14 @@ def group_events(conn, report_date, event_type, group_by, include_simulation):
     ).fetchall()
 
 
-def get_recent_events(conn, report_date, include_simulation, limit=10):
+def get_recent_events(conn, report_date, include_simulation, include_experimental, limit=10):
     simulation_filter = "" if include_simulation else "AND j.title NOT LIKE '[SIMULATION]%'"
     return conn.execute(
         f"""
         SELECT
           je.event_type,
           je.created_at,
-          c.name AS company_name,
+          {company_label("c")} AS company_name,
           j.title,
           j.location,
           COALESCE(NULLIF(TRIM(j.expertise), ''), NULLIF(TRIM(j.department), ''), 'Unknown') AS expertise_label,
@@ -137,6 +190,7 @@ def get_recent_events(conn, report_date, include_simulation, limit=10):
         JOIN companies c ON c.id = j.company_id
         WHERE date(je.created_at) = ?
           {simulation_filter}
+          {experimental_filter("c", include_experimental)}
         ORDER BY je.created_at DESC, je.id DESC
         LIMIT ?
         """,
