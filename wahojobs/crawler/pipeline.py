@@ -44,7 +44,13 @@ def run_crawl(company_slug="appen"):
                 raise ValueError(f"No crawler is implemented for '{company_slug}'.")
 
             crawl_result = crawler(company["careers_url"])
-            summary = track_crawl_result(conn, company["id"], crawl_result, utc_now())
+            summary = track_crawl_result(
+                conn,
+                company["id"],
+                crawl_run_id,
+                crawl_result,
+                utc_now(),
+            )
             finish_crawl_run(conn, crawl_run_id, summary, utc_now())
             conn.commit()
             return company, summary

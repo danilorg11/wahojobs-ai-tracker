@@ -1,6 +1,7 @@
 from wahojobs.crawler.types import CompanyCrawlResult, TrackingSummary
 from wahojobs.db.repository import (
     count_active_jobs,
+    create_job_event,
     get_job_by_hash,
     insert_job,
     mark_missing_jobs_inactive,
@@ -9,7 +10,7 @@ from wahojobs.db.repository import (
 from wahojobs.tracking.normalize import with_source_hash
 
 
-def track_crawl_result(conn, company_id, crawl_result: CompanyCrawlResult, now):
+def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCrawlResult, now):
     company = conn.execute(
         "SELECT slug FROM companies WHERE id = ?",
         (company_id,),
@@ -32,19 +33,24 @@ def track_crawl_result(conn, company_id, crawl_result: CompanyCrawlResult, now):
         seen_hashes.append(candidate.source_hash)
 
         if existing is None:
-            insert_job(conn, company_id, candidate, now)
+            job_id = insert_job(conn, company_id, candidate, now)
+            create_job_event(conn, job_id, crawl_run_id, "discovered", now)
             jobs_new += 1
             continue
 
         if existing["is_active"] == 0:
             jobs_reactivated += 1
+            create_job_event(conn, existing["id"], crawl_run_id, "reactivated", now)
         else:
             jobs_updated += 1
         update_seen_job(conn, existing["id"], candidate, now)
 
     jobs_removed = 0
     if not crawl_result.used_sample_data:
-        jobs_removed = mark_missing_jobs_inactive(conn, company_id, seen_hashes, now)
+        removed_job_ids = mark_missing_jobs_inactive(conn, company_id, seen_hashes, now)
+        jobs_removed = len(removed_job_ids)
+        for job_id in removed_job_ids:
+            create_job_event(conn, job_id, crawl_run_id, "removed", now)
     active_jobs_total = count_active_jobs(conn, company_id)
 
     return TrackingSummary(

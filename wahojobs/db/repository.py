@@ -131,7 +131,7 @@ def get_job_by_hash(conn, company_id, source_hash):
 
 
 def insert_job(conn, company_id, candidate, now):
-    conn.execute(
+    cursor = conn.execute(
         """
         INSERT INTO jobs (
           company_id, external_id, title, location, department, expertise, commitment, url, source_hash,
@@ -154,6 +154,7 @@ def insert_job(conn, company_id, candidate, now):
             now,
         ),
     )
+    return cursor.lastrowid
 
 
 def update_seen_job(conn, job_id, candidate, now):
@@ -188,35 +189,59 @@ def update_seen_job(conn, job_id, candidate, now):
     )
 
 
+def create_job_event(conn, job_id, crawl_run_id, event_type, created_at):
+    conn.execute(
+        """
+        INSERT INTO job_events (job_id, crawl_run_id, event_type, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (job_id, crawl_run_id, event_type, created_at),
+    )
+
+
 def mark_missing_jobs_inactive(conn, company_id, seen_hashes, now):
+    jobs_to_remove = get_missing_active_jobs(conn, company_id, seen_hashes)
+    if not jobs_to_remove:
+        return []
+
+    job_ids = [row["id"] for row in jobs_to_remove]
+    placeholders = ",".join("?" for _ in job_ids)
+    conn.execute(
+        f"""
+        UPDATE jobs
+        SET is_active = 0,
+            removed_at = ?,
+            updated_at = ?
+        WHERE id IN ({placeholders})
+        """,
+        [now, now, *job_ids],
+    )
+    return job_ids
+
+
+def get_missing_active_jobs(conn, company_id, seen_hashes):
     if seen_hashes:
         placeholders = ",".join("?" for _ in seen_hashes)
-        params = [now, now, company_id, *seen_hashes]
-        cursor = conn.execute(
+        return conn.execute(
             f"""
-            UPDATE jobs
-            SET is_active = 0,
-                removed_at = ?,
-                updated_at = ?
+            SELECT id
+            FROM jobs
             WHERE company_id = ?
               AND is_active = 1
               AND source_hash NOT IN ({placeholders})
             """,
-            params,
-        )
-    else:
-        cursor = conn.execute(
-            """
-            UPDATE jobs
-            SET is_active = 0,
-                removed_at = ?,
-                updated_at = ?
-            WHERE company_id = ?
-              AND is_active = 1
-            """,
-            (now, now, company_id),
-        )
-    return cursor.rowcount
+            [company_id, *seen_hashes],
+        ).fetchall()
+
+    return conn.execute(
+        """
+        SELECT id
+        FROM jobs
+        WHERE company_id = ?
+          AND is_active = 1
+        """,
+        (company_id,),
+    ).fetchall()
 
 
 def count_active_jobs(conn, company_id):

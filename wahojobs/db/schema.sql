@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS crawl_runs (
   FOREIGN KEY (company_id) REFERENCES companies(id)
 );
 
+CREATE TABLE IF NOT EXISTS job_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL,
+  crawl_run_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('discovered', 'removed', 'reactivated')),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (job_id) REFERENCES jobs(id),
+  FOREIGN KEY (crawl_run_id) REFERENCES crawl_runs(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_company_active
 ON jobs(company_id, is_active);
 
@@ -60,3 +71,12 @@ ON jobs(last_seen_at);
 
 CREATE INDEX IF NOT EXISTS idx_crawl_runs_company_started
 ON crawl_runs(company_id, started_at);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_job
+ON job_events(job_id);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_crawl_run
+ON job_events(crawl_run_id);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_type_created
+ON job_events(event_type, created_at);
