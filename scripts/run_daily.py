@@ -1,3 +1,4 @@
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -10,11 +11,17 @@ from wahojobs.db.repository import initialize_database
 from wahojobs.reporting.terminal import print_crawl_summary
 
 
-SOURCES = ["appen", "invisible", "meridial", "mercor", "outlier"]
+CORE_SOURCES = ["appen", "meridial", "mercor", "outlier"]
+EXPERIMENTAL_SOURCES = ["invisible"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]
 
 
 def main():
+    args = parse_args()
+    sources = list(CORE_SOURCES)
+    if args.include_experimental:
+        sources.extend(EXPERIMENTAL_SOURCES)
+
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
 
@@ -22,6 +29,14 @@ def main():
     print("Wahojobs Daily Workflow")
     print("=======================")
     print("Simulation: excluded")
+    print(f"Core sources: {', '.join(CORE_SOURCES)}")
+    if args.include_experimental:
+        print(f"Experimental sources included: {', '.join(EXPERIMENTAL_SOURCES)}")
+    else:
+        print(
+            "Experimental sources skipped: invisible "
+            "(non-core corporate careers source)"
+        )
     print("")
 
     print("Initializing database and seed companies...")
@@ -31,7 +46,7 @@ def main():
     succeeded = []
     failed = []
 
-    for source in SOURCES:
+    for source in sources:
         print("")
         print(f"Running crawler: {source}")
         print("-" * (17 + len(source)))
@@ -51,6 +66,18 @@ def main():
     run_script("scripts/export_events.py", "Export Events")
 
     print_final_summary(succeeded, failed)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run the local Wahojobs daily market tracker workflow."
+    )
+    parser.add_argument(
+        "--include-experimental",
+        action="store_true",
+        help="Also run non-core/experimental sources such as Invisible.",
+    )
+    return parser.parse_args()
 
 
 def run_script(script_path, title):
