@@ -10,6 +10,12 @@ OUTLIER_SEED = {
     "careers_url": "https://app.outlier.ai/internal/experts/job-board/jobs",
 }
 
+ALIGNERR_SEED = {
+    "name": "Alignerr",
+    "slug": "alignerr",
+    "careers_url": "https://www.alignerr.com/api/jobs",
+}
+
 APPEN_SEED = {
     "name": "Appen",
     "slug": "appen",
@@ -40,7 +46,14 @@ def initialize_database(db_path=DB_PATH):
     with get_connection(db_path) as conn:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
         ensure_job_optional_columns(conn)
-        for seed in (APPEN_SEED, INVISIBLE_SEED, MERIDIAL_SEED, MERCOR_SEED, OUTLIER_SEED):
+        for seed in (
+            ALIGNERR_SEED,
+            APPEN_SEED,
+            INVISIBLE_SEED,
+            MERIDIAL_SEED,
+            MERCOR_SEED,
+            OUTLIER_SEED,
+        ):
             conn.execute(
                 """
                 INSERT INTO companies (name, slug, careers_url)

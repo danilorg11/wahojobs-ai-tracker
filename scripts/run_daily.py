@@ -11,7 +11,7 @@ from wahojobs.db.repository import initialize_database
 from wahojobs.reporting.terminal import print_crawl_summary
 
 
-CORE_SOURCES = ["appen", "meridial", "mercor", "outlier"]
+CORE_SOURCES = ["alignerr", "appen", "meridial", "mercor", "outlier"]
 EXPERIMENTAL_SOURCES = ["invisible"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]
 

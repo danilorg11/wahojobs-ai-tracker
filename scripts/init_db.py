@@ -10,7 +10,10 @@ from wahojobs.db.repository import initialize_database
 def main():
     initialize_database()
     print(f"Initialized SQLite database at {DB_PATH}")
-    print("Seeded companies: Appen, Invisible Technologies, Meridial, Mercor, Outlier")
+    print(
+        "Seeded companies: Alignerr, Appen, Invisible Technologies, "
+        "Meridial, Mercor, Outlier"
+    )
 
 
 if __name__ == "__main__":
