@@ -89,9 +89,9 @@ def run_script(script_path, title):
         print(f"{title} failed with exit code {result.returncode}.")
 
 
-def get_total_active_jobs():
+def get_market_summary():
     with get_connection() as conn:
-        row = conn.execute(
+        total_raw = conn.execute(
             """
             SELECT COUNT(*) AS count
             FROM jobs
@@ -99,10 +99,41 @@ def get_total_active_jobs():
               AND title NOT LIKE '[SIMULATION]%'
             """
         ).fetchone()
-    return row["count"]
+        canonical_total = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM canonical_opportunities co
+            WHERE co.is_active = 1
+            """
+        ).fetchone()
+        alignerr = conn.execute(
+            """
+            SELECT
+              COUNT(j.id) AS raw_postings,
+              COUNT(DISTINCT co.id) AS canonical_opportunities
+            FROM companies c
+            LEFT JOIN jobs j
+              ON j.company_id = c.id
+             AND j.is_active = 1
+             AND j.title NOT LIKE '[SIMULATION]%'
+            LEFT JOIN canonical_opportunities co
+              ON co.id = j.canonical_opportunity_id
+             AND co.is_active = 1
+            WHERE c.slug = 'alignerr'
+            """
+        ).fetchone()
+
+    return {
+        "total_raw_active_jobs": total_raw["count"],
+        "total_canonical_opportunities": canonical_total["count"],
+        "alignerr_raw_postings": alignerr["raw_postings"],
+        "alignerr_canonical_opportunities": alignerr["canonical_opportunities"],
+    }
 
 
 def print_final_summary(succeeded, failed):
+    market_summary = get_market_summary()
+
     print("")
     print("Final Summary")
     print("=============")
@@ -114,7 +145,16 @@ def print_final_summary(succeeded, failed):
     else:
         print("Sources failed: None")
 
-    print(f"Total active jobs: {get_total_active_jobs()}")
+    print(f"Total raw active jobs: {market_summary['total_raw_active_jobs']}")
+    print(
+        "Total canonical opportunities where available: "
+        f"{market_summary['total_canonical_opportunities']}"
+    )
+    print(f"Alignerr raw postings: {market_summary['alignerr_raw_postings']}")
+    print(
+        "Alignerr canonical opportunities: "
+        f"{market_summary['alignerr_canonical_opportunities']}"
+    )
     print("Export files written:")
     for path in EXPORT_FILES:
         status = "yes" if path.exists() else "no"
