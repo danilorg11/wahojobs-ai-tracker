@@ -15,6 +15,7 @@ def main():
 
     with get_connection() as conn:
         total_active = count_total_active_jobs(conn, args.include_simulation)
+        alignerr_canonical = get_alignerr_canonical_summary(conn, args.include_simulation)
         active_by_company = group_active_jobs(conn, "company", args.include_simulation)
         active_by_expertise = group_active_jobs(conn, "expertise", args.include_simulation)
         new_by_company = group_events(conn, start_date, end_date, "discovered", "company", args.include_simulation)
@@ -29,7 +30,14 @@ def main():
     print(f"Period: {start_date.isoformat()} to {end_date.isoformat()} UTC ({args.days} days)")
     print(f"Simulation: {'included' if args.include_simulation else 'excluded'}")
     print("")
-    print(f"Total active jobs: {total_active}")
+    print(f"Total active raw postings: {total_active}")
+    if alignerr_canonical:
+        print(f"Alignerr active raw postings: {alignerr_canonical['raw_postings']}")
+        print(
+            "Alignerr active canonical opportunities: "
+            f"{alignerr_canonical['canonical_opportunities']}"
+        )
+        print(f"Alignerr active posting variants: {alignerr_canonical['variant_count']}")
     print("")
 
     print_count_section("Active jobs by company", active_by_company)
@@ -83,6 +91,29 @@ def count_total_active_jobs(conn, include_simulation):
         """
     ).fetchone()
     return row["count"]
+
+
+def get_alignerr_canonical_summary(conn, include_simulation):
+    row = conn.execute(
+        f"""
+        SELECT
+          COUNT(j.id) AS raw_postings,
+          COUNT(DISTINCT co.id) AS canonical_opportunities,
+          COUNT(j.id) - COUNT(DISTINCT co.id) AS variant_count
+        FROM companies c
+        LEFT JOIN jobs j
+          ON j.company_id = c.id
+         AND j.is_active = 1
+         {simulation_filter("j", include_simulation)}
+        LEFT JOIN canonical_opportunities co
+          ON co.id = j.canonical_opportunity_id
+         AND co.is_active = 1
+        WHERE c.slug = 'alignerr'
+        """
+    ).fetchone()
+    if row is None or row["raw_postings"] == 0:
+        return None
+    return row
 
 
 def group_active_jobs(conn, group_by, include_simulation):

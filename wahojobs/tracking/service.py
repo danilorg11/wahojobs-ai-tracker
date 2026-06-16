@@ -1,3 +1,4 @@
+from wahojobs.canonical.service import sync_alignerr_canonical_opportunities
 from wahojobs.crawler.types import CompanyCrawlResult, TrackingSummary
 from wahojobs.db.repository import (
     count_active_jobs,
@@ -51,6 +52,10 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         jobs_removed = len(removed_job_ids)
         for job_id in removed_job_ids:
             create_job_event(conn, job_id, crawl_run_id, "removed", now)
+
+    if company["slug"] == "alignerr":
+        sync_alignerr_canonical_opportunities(conn, company_id)
+
     active_jobs_total = count_active_jobs(conn, company_id)
 
     return TrackingSummary(

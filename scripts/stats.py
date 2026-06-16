@@ -17,7 +17,12 @@ def main():
         print(f"Date: {today} UTC")
         print("")
 
-        print(f"Total active jobs: {count_total_active_jobs(conn)}")
+        print(f"Total active raw postings: {count_total_active_jobs(conn)}")
+        alignerr = get_alignerr_canonical_summary(conn)
+        if alignerr:
+            print(f"Alignerr active raw postings: {alignerr['raw_postings']}")
+            print(f"Alignerr active canonical opportunities: {alignerr['canonical_opportunities']}")
+            print(f"Alignerr active posting variants: {alignerr['variant_count']}")
         print("")
 
         print_section("Jobs by company", get_jobs_by_company(conn))
@@ -39,6 +44,29 @@ def count_total_active_jobs(conn):
         """
     ).fetchone()
     return row["count"]
+
+
+def get_alignerr_canonical_summary(conn):
+    row = conn.execute(
+        """
+        SELECT
+          COUNT(j.id) AS raw_postings,
+          COUNT(DISTINCT co.id) AS canonical_opportunities,
+          COUNT(j.id) - COUNT(DISTINCT co.id) AS variant_count
+        FROM companies c
+        LEFT JOIN jobs j
+          ON j.company_id = c.id
+         AND j.is_active = 1
+         AND j.title NOT LIKE '[SIMULATION]%'
+        LEFT JOIN canonical_opportunities co
+          ON co.id = j.canonical_opportunity_id
+         AND co.is_active = 1
+        WHERE c.slug = 'alignerr'
+        """
+    ).fetchone()
+    if row is None or row["raw_postings"] == 0:
+        return None
+    return row
 
 
 def get_jobs_by_company(conn):

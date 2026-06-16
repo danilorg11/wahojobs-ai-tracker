@@ -14,6 +14,11 @@ def main():
         companies_without_success = get_companies_without_successful_crawl(conn)
         failed_crawls = get_failed_crawls(conn)
         last_statuses = get_last_crawl_status_by_company(conn)
+        alignerr_summary = get_alignerr_canonical_summary(conn)
+        top_alignerr_variants = get_top_alignerr_variants(conn)
+        multi_location_groups = get_multi_location_alignerr_groups(conn)
+        multi_rate_groups = get_multi_rate_alignerr_groups(conn)
+        unknown_canonical_groups = get_unknown_alignerr_canonical_groups(conn)
 
     print("")
     print("Wahojobs Data Quality Report")
@@ -51,6 +56,44 @@ def main():
         last_statuses,
         lambda row: f"{row['company']}: {row['status'] or 'Never'} at {row['finished_at'] or row['started_at'] or 'N/A'}",
     )
+    print("")
+    print("Alignerr Canonical Checks")
+    print("-------------------------")
+    if alignerr_summary:
+        print(f"Raw active postings: {alignerr_summary['raw_postings']}")
+        print(f"Canonical active opportunities: {alignerr_summary['canonical_opportunities']}")
+        print(f"Posting variants: {alignerr_summary['variant_count']}")
+        print(f"Unlinked active postings: {alignerr_summary['unlinked_postings']}")
+    else:
+        print("No active Alignerr postings found.")
+    print("")
+
+    print_rows(
+        "Top Alignerr canonical opportunities by variant count",
+        top_alignerr_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "Alignerr multi-location canonical opportunities",
+        multi_location_groups,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['location_count']} locations, {row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "Alignerr multi-rate canonical opportunities",
+        multi_rate_groups,
+        lambda row: f"{row['canonical_title']}: {row['rate_count']} rate groups",
+    )
+    print_rows(
+        "Unknown/low-confidence Alignerr canonical groups",
+        unknown_canonical_groups,
+        lambda row: f"{row['canonical_title']} ({row['source_category']}): {row['variant_count']} variants",
+    )
 
 
 def get_summary(conn):
@@ -77,6 +120,92 @@ def get_summary(conn):
         count = conn.execute(sql).fetchone()[0]
         rows.append((label, count))
     return rows
+
+
+def get_alignerr_canonical_summary(conn):
+    return conn.execute(
+        """
+        SELECT
+          COUNT(j.id) AS raw_postings,
+          COUNT(DISTINCT co.id) AS canonical_opportunities,
+          COUNT(j.id) - COUNT(DISTINCT co.id) AS variant_count,
+          SUM(CASE WHEN j.canonical_opportunity_id IS NULL THEN 1 ELSE 0 END) AS unlinked_postings
+        FROM companies c
+        LEFT JOIN jobs j
+          ON j.company_id = c.id
+         AND j.is_active = 1
+         AND j.title NOT LIKE '[SIMULATION]%'
+        LEFT JOIN canonical_opportunities co
+          ON co.id = j.canonical_opportunity_id
+         AND co.is_active = 1
+        WHERE c.slug = 'alignerr'
+        """
+    ).fetchone()
+
+
+def get_top_alignerr_variants(conn):
+    return conn.execute(
+        """
+        SELECT co.canonical_title, co.source_category, co.variant_count
+        FROM canonical_opportunities co
+        JOIN companies c ON c.id = co.company_id
+        WHERE c.slug = 'alignerr'
+          AND co.is_active = 1
+        ORDER BY co.variant_count DESC, co.canonical_title ASC
+        LIMIT 20
+        """
+    ).fetchall()
+
+
+def get_multi_location_alignerr_groups(conn):
+    return conn.execute(
+        """
+        SELECT
+          co.canonical_title,
+          co.source_category,
+          co.variant_count,
+          COUNT(DISTINCT j.location) AS location_count
+        FROM canonical_opportunities co
+        JOIN companies c ON c.id = co.company_id
+        JOIN jobs j ON j.canonical_opportunity_id = co.id
+        WHERE c.slug = 'alignerr'
+          AND co.is_active = 1
+          AND j.is_active = 1
+        GROUP BY co.id
+        HAVING location_count > 1
+        ORDER BY location_count DESC, co.variant_count DESC, co.canonical_title ASC
+        LIMIT 20
+        """
+    ).fetchall()
+
+
+def get_multi_rate_alignerr_groups(conn):
+    return conn.execute(
+        """
+        SELECT co.canonical_title, co.source_category, 0 AS rate_count
+        FROM canonical_opportunities co
+        WHERE 1 = 0
+        """
+    ).fetchall()
+
+
+def get_unknown_alignerr_canonical_groups(conn):
+    return conn.execute(
+        """
+        SELECT co.canonical_title, co.source_category, co.variant_count
+        FROM canonical_opportunities co
+        JOIN companies c ON c.id = co.company_id
+        WHERE c.slug = 'alignerr'
+          AND co.is_active = 1
+          AND (
+            co.source_category IS NULL
+            OR TRIM(co.source_category) = ''
+            OR co.source_category IN ('Unknown', 'OTHER')
+          )
+        ORDER BY co.variant_count DESC, co.canonical_title ASC
+        LIMIT 20
+        """
+    ).fetchall()
 
 
 def get_duplicate_external_ids(conn):

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS companies (
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   company_id INTEGER NOT NULL,
+  canonical_opportunity_id INTEGER,
   external_id TEXT,
   title TEXT NOT NULL,
   location TEXT,
@@ -28,7 +29,28 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id),
   UNIQUE (company_id, source_hash)
+);
+
+CREATE TABLE IF NOT EXISTS canonical_opportunities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL,
+  canonical_key TEXT NOT NULL,
+  canonical_title TEXT NOT NULL,
+  normalized_title TEXT NOT NULL,
+  source_category TEXT NOT NULL,
+  language TEXT,
+  language_locale TEXT,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  variant_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  UNIQUE (company_id, canonical_key)
 );
 
 CREATE TABLE IF NOT EXISTS crawl_runs (
@@ -62,6 +84,9 @@ CREATE TABLE IF NOT EXISTS job_events (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_company_active
 ON jobs(company_id, is_active);
+
+CREATE INDEX IF NOT EXISTS idx_canonical_opportunities_company_active
+ON canonical_opportunities(company_id, is_active);
 
 CREATE INDEX IF NOT EXISTS idx_jobs_first_seen_at
 ON jobs(first_seen_at);

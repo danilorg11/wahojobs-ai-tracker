@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from wahojobs.config import DB_PATH
+from wahojobs.canonical.service import sync_alignerr_canonical_opportunities
 from wahojobs.db.connection import get_connection
 
 
@@ -46,6 +47,7 @@ def initialize_database(db_path=DB_PATH):
     with get_connection(db_path) as conn:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
         ensure_job_optional_columns(conn)
+        ensure_canonical_schema(conn)
         for seed in (
             ALIGNERR_SEED,
             APPEN_SEED,
@@ -65,6 +67,9 @@ def initialize_database(db_path=DB_PATH):
                 """,
                 seed,
             )
+        alignerr = get_company_by_slug(conn, "alignerr")
+        if alignerr is not None:
+            sync_alignerr_canonical_opportunities(conn, alignerr["id"])
 
 
 def ensure_job_optional_columns(conn):
@@ -78,6 +83,46 @@ def ensure_job_optional_columns(conn):
         conn.execute("ALTER TABLE jobs ADD COLUMN expertise TEXT")
     if "commitment" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN commitment TEXT")
+    if "canonical_opportunity_id" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN canonical_opportunity_id INTEGER")
+
+
+def ensure_canonical_schema(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS canonical_opportunities (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          company_id INTEGER NOT NULL,
+          canonical_key TEXT NOT NULL,
+          canonical_title TEXT NOT NULL,
+          normalized_title TEXT NOT NULL,
+          source_category TEXT NOT NULL,
+          language TEXT,
+          language_locale TEXT,
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          variant_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+          FOREIGN KEY (company_id) REFERENCES companies(id),
+          UNIQUE (company_id, canonical_key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_jobs_canonical_opportunity
+        ON jobs(canonical_opportunity_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_canonical_opportunities_company_active
+        ON canonical_opportunities(company_id, is_active)
+        """
+    )
 
 
 def get_company_by_slug(conn, slug):
