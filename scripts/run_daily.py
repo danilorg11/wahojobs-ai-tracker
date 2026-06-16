@@ -10,7 +10,7 @@ from wahojobs.db.repository import initialize_database
 from wahojobs.reporting.terminal import print_crawl_summary
 
 
-SOURCES = ["appen", "invisible", "meridial", "mercor"]
+SOURCES = ["appen", "invisible", "meridial", "mercor", "outlier"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]
 
 
@@ -22,7 +22,6 @@ def main():
     print("Wahojobs Daily Workflow")
     print("=======================")
     print("Simulation: excluded")
-    print("Outlier: skipped by default because it is sample data")
     print("")
 
     print("Initializing database and seed companies...")

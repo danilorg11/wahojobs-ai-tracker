@@ -7,7 +7,7 @@ from wahojobs.db.connection import get_connection
 OUTLIER_SEED = {
     "name": "Outlier",
     "slug": "outlier",
-    "careers_url": "https://outlier.ai/opportunities",
+    "careers_url": "https://app.outlier.ai/internal/experts/job-board/jobs",
 }
 
 APPEN_SEED = {

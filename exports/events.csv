@@ -1,4 +1,78 @@
 event_type,created_at,company,title,location,expertise/department,url
+removed,2026-06-16T01:53:19+00:00,Mercor,Legal Technology Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZsP8rVe0Qk8aRJY7jZ
+discovered,2026-06-16T01:53:19+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Computational Bayesian Statistics and Applied Mathematics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqrzTp_Tor65aSBAK4BM
+removed,2026-06-16T01:52:58+00:00,Outlier,AI Writing Evaluator,Remote,Unknown,https://outlier.ai/sample/ai-writing-evaluator
+removed,2026-06-16T01:52:58+00:00,Outlier,AI Trainer - Mathematics,Remote,Unknown,https://outlier.ai/sample/ai-trainer-math
+removed,2026-06-16T01:52:58+00:00,Outlier,AI Trainer - Coding Expertise,Remote,Unknown,https://outlier.ai/sample/ai-trainer-coding
+reactivated,2026-06-16T01:52:45+00:00,Outlier,AI Writing Evaluator,Remote,Unknown,https://outlier.ai/sample/ai-writing-evaluator
+reactivated,2026-06-16T01:52:45+00:00,Outlier,AI Trainer - Mathematics,Remote,Unknown,https://outlier.ai/sample/ai-trainer-math
+reactivated,2026-06-16T01:52:45+00:00,Outlier,AI Trainer - Coding Expertise,Remote,Unknown,https://outlier.ai/sample/ai-trainer-coding
+removed,2026-06-16T01:52:08+00:00,Outlier,AI Writing Evaluator,Remote,Unknown,https://outlier.ai/sample/ai-writing-evaluator
+removed,2026-06-16T01:52:08+00:00,Outlier,AI Trainer - Mathematics,Remote,Unknown,https://outlier.ai/sample/ai-trainer-math
+removed,2026-06-16T01:52:08+00:00,Outlier,AI Trainer - Coding Expertise,Remote,Unknown,https://outlier.ai/sample/ai-trainer-coding
+discovered,2026-06-16T01:52:08+00:00,Outlier,Vietnamese Freelance Writer,Remote - Vietnam,Language - Vietnamese,https://app.outlier.ai/en/expert/opportunities/4421855005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Urdu (India) Freelance Writer,Remote - India,Language - Urdu,https://app.outlier.ai/en/expert/opportunities/4423487005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Thai Freelance STEM Writer,"Remote - Thailand, United States, Canada, United Kingdom, Australia, New Zealand, Malaysia, Singapore",Language - Thai,https://app.outlier.ai/en/expert/opportunities/4505563005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Telugu (India) Freelance Writer,Remote - India,Language - Telugu,https://app.outlier.ai/en/expert/opportunities/4423454005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Tamil (India) Freelance Writer,Remote - India,Language - Tamil,https://app.outlier.ai/en/expert/opportunities/4423311005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Swedish Freelance STEM Writer,Remote - Sweden,Language - Swedish,https://app.outlier.ai/en/expert/opportunities/4423310005
+discovered,2026-06-16T01:52:08+00:00,Outlier,STEM Freelance Writer in Flemish,Remote - Belgium,Language - Dutch,https://app.outlier.ai/en/expert/opportunities/4520302005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Software Engineer for AI Training (Code Quality & Debugging Focus),Remote - India,Code,https://app.outlier.ai/en/expert/opportunities/4558931005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Russian Freelance Writer,"Remote - United States, Canada, United Kingdom",Language - Russian,https://app.outlier.ai/en/expert/opportunities/4423307005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Portuguese (Brazil) Freelance Writer,Remote - Brazil,Language - Portuguese,https://app.outlier.ai/en/expert/opportunities/4421873005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Polish Freelance STEM Writing,Remote - Poland,Language - Polish,https://app.outlier.ai/en/expert/opportunities/4421912005
+discovered,2026-06-16T01:52:08+00:00,Outlier,OpenClaw Agent Builder (Software Developers),Remote - Global,Code,https://app.outlier.ai/en/expert/opportunities/4681415005
+discovered,2026-06-16T01:52:08+00:00,Outlier,OpenClaw Agent Builder (Software Developers),"Remote - Canada, United States, Australia, United Kingdom, France, Norway, Finland, Italy",Code,https://app.outlier.ai/en/expert/opportunities/4681085005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Norwegian Freelance STEM Writer,Remote - Norway,Language - Norwegian,https://app.outlier.ai/en/expert/opportunities/4421908005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Najdi Arabic Freelance Writer,Remote - Saudi Arabia,Language - Arabic,https://app.outlier.ai/en/expert/opportunities/4573030005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Math Expertise for AI Training,"Remote - United States, Canada, Puerto Rico, Mexico, United Kingdom, Australia, New Zealand, Argentina",Specialist - Math,https://app.outlier.ai/en/expert/opportunities/4682353005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Marathi (India) Freelance Writer,Remote - India,Language - Marathi,https://app.outlier.ai/en/expert/opportunities/4423486005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Mandarin Chinese (Simplified) Freelance Writer,Remote - Canada,Language - Chinese,https://app.outlier.ai/en/expert/opportunities/4681107005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Mandarin Chinese (Simplified) Freelance Writer,"Remote - United States, Canada, United Kingdom",Language - Chinese,https://app.outlier.ai/en/expert/opportunities/4421887005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Malay Freelance Writer,Remote - Malaysia,Language - Malay,https://app.outlier.ai/en/expert/opportunities/4512316005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Levantine Arabic Freelance Writer,Remote - Jordan,Language - Arabic,https://app.outlier.ai/en/expert/opportunities/4573027005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Law Expertise Sought for AI Training,Remote - Singapore,Specialist - Law,https://app.outlier.ai/en/expert/opportunities/4667625005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Korean AI Training,"Remote - Korea, Republic of",Language - Korean,https://app.outlier.ai/en/expert/opportunities/4505557005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Kiswahili Writing Expertise for AI Training,"Remote - Tanzania, United Republic of",Language - Swahili,https://app.outlier.ai/en/expert/opportunities/4251973005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Kannada Freelance Writer,Remote - India,Language - Kannada,https://app.outlier.ai/en/expert/opportunities/4423301005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Japanese AI Training,Remote - Japan,Language - Japanese,https://app.outlier.ai/en/expert/opportunities/4505556005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Italian Freelance Writer,Remote - Italy,Language - Italian,https://app.outlier.ai/en/expert/opportunities/4421864005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Hindi Freelance Writer (India),Remote - India,Language - Hindi,https://app.outlier.ai/en/expert/opportunities/4562005005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Hijazi Arabic Freelance Writer,Remote - Saudi Arabia,Language - Arabic,https://app.outlier.ai/en/expert/opportunities/4573025005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Hebrew Freelance Writer,Remote - Israel,Language - Hebrew,https://app.outlier.ai/en/expert/opportunities/4423300005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Gulf Arabic Freelance Writer,Remote - Saudi Arabia,Language - Arabic,https://app.outlier.ai/en/expert/opportunities/4573023005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Gujarati Freelance Writer,Remote - India,Language - Gujarati,https://app.outlier.ai/en/expert/opportunities/4251763005
+discovered,2026-06-16T01:52:08+00:00,Outlier,German Freelance Writer,Remote - Germany,Language - German,https://app.outlier.ai/en/expert/opportunities/4421863005
+discovered,2026-06-16T01:52:08+00:00,Outlier,General Inbound – Join the Outlier Expert Community,Remote - Global,Generalist,https://app.outlier.ai/en/expert/opportunities/4705636005
+discovered,2026-06-16T01:52:08+00:00,Outlier,General Inbound (Coding) – Join the Outlier Expert Community,Remote - Global,Code,https://app.outlier.ai/en/expert/opportunities/4705643005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Full Stack Software Engineer for AI Training,"Remote - United States, Canada, United Kingdom, Australia",Code,https://app.outlier.ai/en/expert/opportunities/4671613005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Full Stack Software Engineer for AI Training,Remote - Global,Code,https://app.outlier.ai/en/expert/opportunities/4671609005
+discovered,2026-06-16T01:52:08+00:00,Outlier,French Freelance Writer,Remote - France,Language - French,https://app.outlier.ai/en/expert/opportunities/4421903005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Finnish Freelance STEM Writer,Remote - Finland,Language - Finnish,https://app.outlier.ai/en/expert/opportunities/4423286005
+discovered,2026-06-16T01:52:08+00:00,Outlier,English Writing and Content Reviewing Expertise Sought for AI Training,Remote - India,Generalist,https://app.outlier.ai/en/expert/opportunities/4663643005
+discovered,2026-06-16T01:52:08+00:00,Outlier,English Writing and Content Reviewing Expertise Sought for AI Training,"Remote - United States, Australia, Canada, United Kingdom, New Zealand, Ireland",Generalist,https://app.outlier.ai/en/expert/opportunities/4613691005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Dutch Freelance STEM Writer,Remote - Netherlands,Language - Dutch,https://app.outlier.ai/en/expert/opportunities/4421914005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Danish Freelance STEM Writer,Remote - Denmark,Language - Danish,https://app.outlier.ai/en/expert/opportunities/4421916005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Chinese (Taiwan - Traditional) AI Training,"Remote - Taiwan, Province of China",Language - Chinese,https://app.outlier.ai/en/expert/opportunities/4505565005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bulgarian Freelance Writer,Remote - Bulgaria,Language - Bulgarian,https://app.outlier.ai/en/expert/opportunities/4423287005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Vietnamese,Remote - Vietnam,Language - Vietnamese,https://app.outlier.ai/en/expert/opportunities/4683697005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Turkish,Remote - Turkey,Language - Turkish,https://app.outlier.ai/en/expert/opportunities/4678470005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Traditional Chinese,"Remote - Taiwan, Province of China",Language - Chinese,https://app.outlier.ai/en/expert/opportunities/4678163005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Thai,"Remote - Thailand, United States, Canada, United Kingdom, Australia, New Zealand, Malaysia, Japan, Germany, Cambodia, Korea, Republic of, Taiwan, Province of China",Language - Thai,https://app.outlier.ai/en/expert/opportunities/4678467005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Telugu,Remote - India,Language - Telugu,https://app.outlier.ai/en/expert/opportunities/4678162005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Tamil,Remote - India,Language - Tamil,https://app.outlier.ai/en/expert/opportunities/4678159005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Swedish,Remote - Sweden,Language - Swedish,https://app.outlier.ai/en/expert/opportunities/4678158005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Simplified Chinese,"Remote - Taiwan, Province of China, United States, Canada, United Kingdom, Australia, New Zealand, Malaysia, Singapore",Language - Chinese,https://app.outlier.ai/en/expert/opportunities/4684419005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Polish,Remote - Poland,Language - Polish,https://app.outlier.ai/en/expert/opportunities/4678156005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Marathi,Remote - India,Language - Marathi,https://app.outlier.ai/en/expert/opportunities/4678152005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Malay,Remote - Malaysia,Language - Malay,https://app.outlier.ai/en/expert/opportunities/4678153005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Kannada,Remote - India,Language - Kannada,https://app.outlier.ai/en/expert/opportunities/4678151005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Gujarati,Remote - India,Language - Gujarati,https://app.outlier.ai/en/expert/opportunities/4678145005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Finnish,Remote - Finland,Language - Finnish,https://app.outlier.ai/en/expert/opportunities/4678142005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Dutch,Remote - Netherlands,Language - Dutch,https://app.outlier.ai/en/expert/opportunities/4678154005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Voice to AI Training - Bengali,Remote - India,Language - Bengali,https://app.outlier.ai/en/expert/opportunities/4678139005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bring Your Perspective to AI Training — Blind & Low Vision,Remote - United States,Specialist - Media & Communications,https://app.outlier.ai/en/expert/opportunities/4703105005
+discovered,2026-06-16T01:52:08+00:00,Outlier,Bangla Freelance Writer,"Remote - Bangladesh, India",Language - Bengali,https://app.outlier.ai/en/expert/opportunities/4423296005
 reactivated,2026-06-16T01:07:27+00:00,Invisible Technologies,Enterprise Solutions Associate,"Austin, Texas - Hybrid; New York - Hybrid; San Francisco Bay Area - Hybrid; Washington DC–Baltimore - Hybrid",Unknown,https://job-boards.eu.greenhouse.io/invisibletech/jobs/4649462101
 discovered,2026-06-16T01:00:49+00:00,Mercor,Open Source Applied Engineer Talent Network,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABlzI3p6G_LDaGWuNNEa6l
 discovered,2026-06-16T01:00:49+00:00,Mercor,Python SWE,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABl8f-EJV6TYkTcM1LxpPK
