@@ -1,4 +1,229 @@
 event_type,created_at,company,title,location,expertise/department,url
+discovered,2026-06-16T01:00:49+00:00,Mercor,Open Source Applied Engineer Talent Network,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABlzI3p6G_LDaGWuNNEa6l
+discovered,2026-06-16T01:00:49+00:00,Mercor,Python SWE,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABl8f-EJV6TYkTcM1LxpPK
+discovered,2026-06-16T01:00:49+00:00,Mercor,Product Design/UX Expert,Remote,Arts & Design,https://work.mercor.com/jobs/list_AAABl5-o2AWICwoAkydNgohP
+discovered,2026-06-16T01:00:49+00:00,Mercor,Customer Success Engineer (LatAm),South America,Software Engineering,https://work.mercor.com/jobs/list_AAABliGYkFbpS3MDnVRJD5mI
+discovered,2026-06-16T01:00:49+00:00,Mercor,Customer Success Engineer (India),India,Software Engineering,https://work.mercor.com/jobs/list_AAABmHoIAwg4LAWqj_lGQZwG
+discovered,2026-06-16T01:00:49+00:00,Mercor,Investment Banking Expert,Remote,Finance,https://work.mercor.com/jobs/list_AAABma1vU-om5-M60BNB7qGc
+discovered,2026-06-16T01:00:49+00:00,Mercor,Private Equity Expert,Remote,Finance,https://work.mercor.com/jobs/list_AAABma2CDcUFzlFWk4pFtr-h
+discovered,2026-06-16T01:00:49+00:00,Mercor,Corporate Finance Expert,Remote,Finance,https://work.mercor.com/jobs/list_AAABma2LKquJPz8ym99Oi41g
+discovered,2026-06-16T01:00:49+00:00,Mercor,Venture Capital Expert,Remote,Finance,https://work.mercor.com/jobs/list_AAABma2ZUAY6qJXJRCdFIoVk
+discovered,2026-06-16T01:00:49+00:00,Mercor,"Family Medicine / Primary Care Physician (San Francisco based, Talent Network)",On site,Medicine,https://work.mercor.com/jobs/list_AAABmg-4qQcPC7gJSpNLYqH3
+discovered,2026-06-16T01:00:49+00:00,Mercor,Medical Secretaries and Administrative Assistants,Remote,Medicine,https://work.mercor.com/jobs/list_AAABmhkPS6I8KidJDQxHBJYE
+discovered,2026-06-16T01:00:49+00:00,Mercor,Management & Strategy Consultants (MBB/Big 5),Remote,Business Operations,https://work.mercor.com/jobs/list_AAABmu1UcrKMfGwlYNNP64qU
+discovered,2026-06-16T01:00:49+00:00,Mercor,Dutch Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABm8WTf2kt4QH2l-FIhJEH
+discovered,2026-06-16T01:00:49+00:00,Mercor,SOC Investigation Specialist Talent Network,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABm9Edxc-X1o57aoNE9Ylz
+discovered,2026-06-16T01:00:49+00:00,Mercor,Argentinian Spanish Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnEtpyks752FEfxFAtL48
+discovered,2026-06-16T01:00:49+00:00,Mercor,Equity Research Expert,Remote,Finance,https://work.mercor.com/jobs/list_AAABnGrPnP-dfUgYkaFLdrYE
+discovered,2026-06-16T01:00:49+00:00,Mercor,Clinical Research Experts (Chemistry and Biology),Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnHAyiFW3aGpQfldGsoAS
+discovered,2026-06-16T01:00:49+00:00,Mercor,Full-Stack Engineer Talent Network,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnHwUEBQJcy230-lMq6-9
+discovered,2026-06-16T01:00:49+00:00,Mercor,Backend Engineer Talent Network,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnHwex35o5QBU_FhBkZCW
+discovered,2026-06-16T01:00:49+00:00,Mercor,DevOps / Platform Engineer Talent Network,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnHwmotmNJkvkSDZK5Yz0
+discovered,2026-06-16T01:00:49+00:00,Mercor,Frontend Engineer Talent Network,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnHwqmLo6wvviVuRHh7T3
+discovered,2026-06-16T01:00:49+00:00,Mercor,"Physics PhD Experts (General Relativity, Astrophysics & Cosmology)",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnICe_sDl_H0tP3NFX6fL
+discovered,2026-06-16T01:00:49+00:00,Mercor,"Physics PhD Experts (String theory, QFT, Particle physics & Nuclear physics)",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnIClztaCwqP51opEG45T
+discovered,2026-06-16T01:00:49+00:00,Mercor,"Physics PhD Experts (Advanced Quantum, Electrodynamics & Classical Mechanics)",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnIC9t9Boq6RoblNDtr4i
+discovered,2026-06-16T01:00:49+00:00,Mercor,"Physics PhD Experts (Statistical Mechanics, Condensed Matter & AMO Physics)",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnIDBDLMfIJTFXUdD4qXt
+discovered,2026-06-16T01:00:49+00:00,Mercor,Google Workspace & Business Profile Owners,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnJgt_BFNmaWvyuJD6pPn
+discovered,2026-06-16T01:00:49+00:00,Mercor,Software Engineer (AI-Native Platform & Integrations),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnJxZFVfIEAN0_ZNOCrGk
+discovered,2026-06-16T01:00:49+00:00,Mercor,Business Intelligence Analyst Talent Network,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnJyE_If_2vn0hvhMxLnv
+discovered,2026-06-16T01:00:49+00:00,Mercor,Machine Learning Engineer Talent Network,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnJzIt-SOsdwOeF5Ebarf
+discovered,2026-06-16T01:00:49+00:00,Mercor,Physician Talent Network,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnJzK0z1CNefOyERAAb9m
+discovered,2026-06-16T01:00:49+00:00,Mercor,Nursing Talent Network,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnJzRBPRcrO1IUeVFkqqc
+discovered,2026-06-16T01:00:49+00:00,Mercor,Physicist Talent Network,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnJzhSEoldeI_qvBLq6pS
+discovered,2026-06-16T01:00:49+00:00,Mercor,Lawyer Talent Network,Remote,Law,https://work.mercor.com/jobs/list_AAABnJz6-RP8K0Qe1IxHK6LT
+discovered,2026-06-16T01:00:49+00:00,Mercor,Mathematician Talent Network,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnJ0BfkepVYhBI7hH_5wP
+discovered,2026-06-16T01:00:49+00:00,Mercor,Biologist Talent Network,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnJ0CrCN6LLqupi9Bf6jc
+discovered,2026-06-16T01:00:49+00:00,Mercor,Chemist Talent Network,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnJ0EyzP13xP26dJJXKpS
+discovered,2026-06-16T01:00:49+00:00,Mercor,Financial Analyst Talent Network,Remote,Finance,https://work.mercor.com/jobs/list_AAABnJ0GDeo6y-KRhahHKrzF
+discovered,2026-06-16T01:00:49+00:00,Mercor,HR & Administration Specialist Talent Network,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnJ0HTJ8DWBVFUwtKbrNa
+discovered,2026-06-16T01:00:49+00:00,Mercor,Marketing Specialist Talent Network,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnJ0Inam2YWpSD1xI1ZX9
+discovered,2026-06-16T01:00:49+00:00,Mercor,Graphic & UX/UI Designer Talent Network,Remote,Arts & Design,https://work.mercor.com/jobs/list_AAABnJ0LvLdNuRT_1I9Iib8_
+discovered,2026-06-16T01:00:49+00:00,Mercor,Physical Scientist Talent Network,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnJ0M26ceiz86vu1MT759
+discovered,2026-06-16T01:00:49+00:00,Mercor,Management Consultant Talent Network,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnJ0O3XD6A34Rv91Ad60d
+discovered,2026-06-16T01:00:49+00:00,Mercor,Compliance & Risk Specialist Talent Network,Remote,Law,https://work.mercor.com/jobs/list_AAABnJ0Tj07Vgzf7imVMBZB6
+discovered,2026-06-16T01:00:49+00:00,Mercor,Customer Success Engineer (India),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnOP9NgGZSJmIf4dF5rx2
+discovered,2026-06-16T01:00:49+00:00,Mercor,Physics PhD,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnRv1Qx3JfVJecKJOS6p6
+discovered,2026-06-16T01:00:49+00:00,Mercor,Hong Kong Lawyer,Remote,Law,https://work.mercor.com/jobs/list_AAABnSBWEqZWKGvO6gpCVZ9j
+discovered,2026-06-16T01:00:49+00:00,Mercor,Building Code & Permitting Specialists (ONLY Cal & FL),Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnVUuWqthN7BfXwNJEYgZ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Fixed Income Trading Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABnXEJDF4WwyFGir1Cmptb
+discovered,2026-06-16T01:00:49+00:00,Mercor,Physics - Research Collaborator,"Remote, US","Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnY2bY35ToB0GUTNAsJLX
+discovered,2026-06-16T01:00:49+00:00,Mercor,Investment Banking Expert,Remote,Finance,https://work.mercor.com/jobs/list_AAABnY3OdDnOsISqayZBSpEc
+discovered,2026-06-16T01:00:49+00:00,Mercor,RTL Design Engineers,"Remote, USA/Canada",Other Engineering,https://work.mercor.com/jobs/list_AAABnZzSux7caY6pXA1O9b6P
+discovered,2026-06-16T01:00:49+00:00,Mercor,IP Law Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZsIeHelfhyGU9CYp7B
+discovered,2026-06-16T01:00:49+00:00,Mercor,Legal Technology Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZsP8rVe0Qk8aRJY7jZ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Medical Devices Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZvDKIb-RuZETZLroCz
+discovered,2026-06-16T01:00:49+00:00,Mercor,Social Work Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnbZvZkzU0BqxmLBK_Ztw
+discovered,2026-06-16T01:00:49+00:00,Mercor,Manufacturing - Automotive (Mechanical Engineering) Expert,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnbZwASvfuamMtBVK3Z9m
+discovered,2026-06-16T01:00:49+00:00,Mercor,Network Engineer - Data for Autonomous Systems annotation,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnbaskXEcFaW_gzRGbLqw
+discovered,2026-06-16T01:00:49+00:00,Mercor,Junior Investment Analyst (Buy-Side),Remote,Finance,https://work.mercor.com/jobs/list_AAABnb4Ibd0GWZLZLgNGyJSv
+discovered,2026-06-16T01:00:49+00:00,Mercor,Senior Investment Analyst (Buy-Side),Remote,Finance,https://work.mercor.com/jobs/list_AAABnb4REESfHzfJKDJH07gE
+discovered,2026-06-16T01:00:49+00:00,Mercor,Portfolio Manager (Buy-Side),Remote,Finance,https://work.mercor.com/jobs/list_AAABnb4XJDennPfi04RGnqY7
+discovered,2026-06-16T01:00:49+00:00,Mercor,Retail Investment Research Specialist (Individual Investor Focus),Remote,Finance,https://work.mercor.com/jobs/list_AAABnb5GLDSdU2BA_JBINYZa
+discovered,2026-06-16T01:00:49+00:00,Mercor,Network Engineer (with Programming) – Data & AI Systems,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnb9KolW0fIKuO3hN16JO
+discovered,2026-06-16T01:00:49+00:00,Mercor,Legal Expert — Transactional / Corporate,Remote,Law,https://work.mercor.com/jobs/list_AAABndKk8wND-PxLaqFAq5HH
+discovered,2026-06-16T01:00:49+00:00,Mercor,IP Expert — Patent / Trademark,Remote,Law,https://work.mercor.com/jobs/list_AAABndKk9s-Lxrf5jvtAkomu
+discovered,2026-06-16T01:00:49+00:00,Mercor,Legal Expert — Employment / Labor,Remote,Law,https://work.mercor.com/jobs/list_AAABndg_Lkzb9IZVs8tKdoTx
+discovered,2026-06-16T01:00:49+00:00,Mercor,Legal Expert — Compliance / Regulatory,Remote,Law,https://work.mercor.com/jobs/list_AAABndg_NcG-SmhZx9FDtKp7
+discovered,2026-06-16T01:00:49+00:00,Mercor,"Legal Expert — Specialist (Real Estate, Tax, Bankruptcy, Estates)",Remote,Law,https://work.mercor.com/jobs/list_AAABndg_RNpbXWzkJnJJyrtA
+discovered,2026-06-16T01:00:49+00:00,Mercor,Expert Professionals - Supply Chain & Manufacturing,United States,Business Operations,https://work.mercor.com/jobs/list_AAABndlXM2zmBH8DjWBC-qmV
+discovered,2026-06-16T01:00:49+00:00,Mercor,Expert Professionals - Consulting,United States,Business Operations,https://work.mercor.com/jobs/list_AAABndlXUGdmSPsmhX5IK6Qt
+discovered,2026-06-16T01:00:49+00:00,Mercor,Expert Professionals - Operations,United States,Business Operations,https://work.mercor.com/jobs/list_AAABndlXXp3YPj6RjGRJ0JFN
+discovered,2026-06-16T01:00:49+00:00,Mercor,Gamers,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnd-ug7i2tgaJE3pCpY7N
+discovered,2026-06-16T01:00:49+00:00,Mercor,Expert Professionals — AI/ML,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnfRDs7DWr11gIBdKmINR
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM PhD Experts,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnfRD3b6Twu4shrhM-5UZ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Data Science Experts,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnfRD77wIejDMajtBAqrM
+discovered,2026-06-16T01:00:49+00:00,Mercor,Customer Success Engineer (LatAm),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnfiedfZUWZxgc0lLT79a
+discovered,2026-06-16T01:00:49+00:00,Mercor,Biology & Biophysics Researchers (Part-time),Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABngr7on6gcWmvKh5OHoWS
+discovered,2026-06-16T01:00:49+00:00,Mercor,Chemistry Researchers (Part-time),Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABng2NoAUb8kixvstENpET
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Bengali,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnh7hosVpG_ST5_FEQaWo
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Urdu,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnh7mERojALuuS95DEpcR
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Telugu,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnh7mLBPSMvZ4O2VFxoob
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Tamil,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnh7mMA4J6cGxVWRBZ7H3
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Marathi,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnh7mMwaQRwVm105OyI-R
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Punjabi,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnh7mN9thgszLAzlE54x4
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Kannada,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnh7mPuLdLAZy8Q9Btpo_
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Malayalam,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnh7mQVTevMoBjeVBfpFJ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Gujarati,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnh7mRPOpUed6tQBK0bnB
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Odia,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnh7mRynAdbDZOUBBmq-d
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist - English & Assamese,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnh7mSXDbVv1EDKtP5IH3
+discovered,2026-06-16T01:00:49+00:00,Mercor,Visual Slide Design Expert (PowerPoint Aesthetics & Design),Remote,Arts & Design,https://work.mercor.com/jobs/list_AAABniS_WuybtkEEZz5NnJCI
+discovered,2026-06-16T01:00:49+00:00,Mercor,Academic Research Collaborator - Professors & PhDs,United States,Data Analysis,https://work.mercor.com/jobs/list_AAABnivceCMW8kGqDc9APoQ_
+discovered,2026-06-16T01:00:49+00:00,Mercor,Physics Researchers (Part-time),Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABniwgM3hNzjmh7EJEE6xC
+discovered,2026-06-16T01:00:49+00:00,Mercor,Electrical Engineering Expert (Semiconductor / ASIC / RFIC),Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnkGV0qQnsd2SWxJINKun
+discovered,2026-06-16T01:00:49+00:00,Mercor,Research Physics Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnkZ4wiDh3d6MuLhH-LCo
+discovered,2026-06-16T01:00:49+00:00,Mercor,Health Insurance Expert,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnk63lEFdmCHlC61OQ56O
+discovered,2026-06-16T01:00:49+00:00,Mercor,Regulatory Compliance & Risk Management Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnk63mDz6edw-8CJF07QC
+discovered,2026-06-16T01:00:49+00:00,Mercor,Special Education Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnk63oYEzj19yeexGJICa
+discovered,2026-06-16T01:00:49+00:00,Mercor,Biotechnology Research Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnk63nnLm4wSlfS1D5I42
+discovered,2026-06-16T01:00:49+00:00,Mercor,Cybersecurity Expert,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnk7CbQPVfwUnpLFGiYZX
+discovered,2026-06-16T01:00:49+00:00,Mercor,Telecommunications Expert,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnk7Cb0sThk60EiBAu76h
+discovered,2026-06-16T01:00:49+00:00,Mercor,US-Based Business Owners Using Google Chat,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnlCa5Xbbl4e1oRVHV4ZU
+discovered,2026-06-16T01:00:49+00:00,Mercor,Performance Engineer Expert,United States,Software Engineering,https://work.mercor.com/jobs/list_AAABnlMAdg3PRkyY2AlH3ZkG
+discovered,2026-06-16T01:00:49+00:00,Mercor,MLOps Engineer Expert,United States,Data Analysis,https://work.mercor.com/jobs/list_AAABnlMArNt3UcO40udFkaVv
+discovered,2026-06-16T01:00:49+00:00,Mercor,Pharmacists Survey – Retail & Community Pharmacy Insights,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnlNQ7zaGwxjcZptC5oOY
+discovered,2026-06-16T01:00:49+00:00,Mercor,Clinicians Survey – Ambulatory & Community Care Insights,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnlNc5vKNKKMWYLxGQ7NX
+discovered,2026-06-16T01:00:49+00:00,Mercor,"Biology Research Scientist (BA, MS, PhD's)",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnmYh74ctdwnp6bJOf5vx
+discovered,2026-06-16T01:00:49+00:00,Mercor,UK-Based Consulting Experts,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnnh7tFSmvCaQxzJPhoNH
+discovered,2026-06-16T01:00:49+00:00,Mercor,UK-Based Legal Experts: US Finance,Remote,Law,https://work.mercor.com/jobs/list_AAABnni8FYZxYfTTuo1OaYVp
+discovered,2026-06-16T01:00:49+00:00,Mercor,Voice Actor: CX Agent Voice Cloning (Canadian French),Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnoPpfzmf04TLNuZKYrd4
+discovered,2026-06-16T01:00:49+00:00,Mercor,Voice Actor: CX Agent Voice Cloning (Spanish - Latin America),Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnoQC2bLQ9YaeK3JHzIPK
+discovered,2026-06-16T01:00:49+00:00,Mercor,Voice Actor: CX Agent Voice Cloning (Spanish - Mexico),Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnoQC-dC2MUckZJBC9oHw
+discovered,2026-06-16T01:00:49+00:00,Mercor,Voice Actor: CX Agent Voice Cloning (Spanish - Peninsular),Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnoQDCpLznP-zEwhOsZTH
+discovered,2026-06-16T01:00:49+00:00,Mercor,Voice Actor: CX Agent Voice Cloning - Northern UK,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnoRPKUEJGDN6gxtK-Z3q
+discovered,2026-06-16T01:00:49+00:00,Mercor,Voice Actor: CX Agent Voice Cloning (German),Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnoSOAS3oXw_3jyZCQoF7
+discovered,2026-06-16T01:00:49+00:00,Mercor,Excel Expert — Healthcare,United States,Data Analysis,https://work.mercor.com/jobs/list_AAABnoaPoNOGollIsvdAE6Hy
+discovered,2026-06-16T01:00:49+00:00,Mercor,Excel Expert — IT / Enterprise Software,United States,Miscellaneous,https://work.mercor.com/jobs/list_AAABnoaRYU6Hv4tdps1G0ZmS
+discovered,2026-06-16T01:00:49+00:00,Mercor,Excel Expert — Manufacturing,United States,Business Operations,https://work.mercor.com/jobs/list_AAABnoaRgNQNHi5BQw5Maped
+discovered,2026-06-16T01:00:49+00:00,Mercor,Excel Expert — Office / Retail Management,United States,Business Operations,https://work.mercor.com/jobs/list_AAABnoaRpmTmaAZaS2lLx4hW
+discovered,2026-06-16T01:00:49+00:00,Mercor,CUDA Engineering Expert,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnonIKKQ9b5g5FzJHvZMH
+discovered,2026-06-16T01:00:49+00:00,Mercor,Office-Suite Experts,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnontX_Edh25-QxNIqp_w
+discovered,2026-06-16T01:00:49+00:00,Mercor,IT Operations Manager,United States,Business Operations,https://work.mercor.com/jobs/list_AAABnosy-AzuPf7ExHdPbbN7
+discovered,2026-06-16T01:00:49+00:00,Mercor,Machine Learning Engineer Expert,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnotH1x39zCe1KdRKNaA_
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Marathi,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABno92DM4AMr1rhoZEhJJq
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Bengali,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnpAJcLi-0xCsfWJNYabf
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Odia,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnpAPoL4kShewbrNKtLTV
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Gujarati,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnpARxg6eQEbj43JIy5re
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Assamese,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnpAWb5MITgeY5UhGjZ5i
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Punjabi,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnpAZ6Dy4XN87koBPT4LM
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Malayalam,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnpAl6GSzF1Eq8S5GPpnj
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Telugu,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnpAoAJFCvi6NB0BIwqFk
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Tamil,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnpApucbJSHrM35xOZ5Bq
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Kannada,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnpArMaV3rY0o6SdM76o3
+discovered,2026-06-16T01:00:49+00:00,Mercor,AI Safety Experts — English & Urdu,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnpAtSArGUxb8oUFBsbI_
+discovered,2026-06-16T01:00:49+00:00,Mercor,English (US) Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnpPnj8HDVeWXIWZFYZoE
+discovered,2026-06-16T01:00:49+00:00,Mercor,Excess & Specialty Insurance Underwriters (SME Focus),Remote,Finance,https://work.mercor.com/jobs/list_AAABnpPqCYOjaNSrBs5PI63h
+discovered,2026-06-16T01:00:49+00:00,Mercor,Japanese Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnpPr7nbORrpA_ahLKJk6
+discovered,2026-06-16T01:00:49+00:00,Mercor,Arches — Simulated Research Reviewer (MechE & Mat-Sci),Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnpRSpAnvC8nRqfBGZZjL
+discovered,2026-06-16T01:00:49+00:00,Mercor,Professional Photographer / Videographer,Remote,Arts & Design,https://work.mercor.com/jobs/list_AAABnpnDecbCGCdaZVBJModl
+discovered,2026-06-16T01:00:49+00:00,Mercor,Generalist Expert,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnp5YcIXDPTIS_P9GHIX5
+discovered,2026-06-16T01:00:49+00:00,Mercor,Pricing / ROI / revenue economics Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp56XI71Ywmka0BHsprm
+discovered,2026-06-16T01:00:49+00:00,Mercor,Healthcare / clinical Evaluator,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnp6Ly8ynS7grlWJE5IYD
+discovered,2026-06-16T01:00:49+00:00,Mercor,Legal / compliance Evaluator,Remote,Law,https://work.mercor.com/jobs/list_AAABnp6Lzqi8kpc8ThNNV7Sa
+discovered,2026-06-16T01:00:49+00:00,Mercor,Biology / environmental science Evaluator,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnp6L0XNYiwcgod5MZa67
+discovered,2026-06-16T01:00:49+00:00,Mercor,Clinical / biomedical / pharma Evaluator,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnp6L1PTZvbfcjrRBtojW
+discovered,2026-06-16T01:00:49+00:00,Mercor,Real estate / hospitality / events Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6L18aSG5hyCDZGP4eK
+discovered,2026-06-16T01:00:49+00:00,Mercor,Government / public administration Evaluator,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnp6L3EeJzL_8sDdM_6DS
+discovered,2026-06-16T01:00:49+00:00,Mercor,Nonprofit / philanthropy / community programs Evaluator,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnp6MLYj8xZAmwE9GT6AT
+discovered,2026-06-16T01:00:49+00:00,Mercor,Media / journalism / communications Evaluator,Remote,Arts & Design,https://work.mercor.com/jobs/list_AAABnp6MMOHRUO4-tUZLg4yR
+discovered,2026-06-16T01:00:49+00:00,Mercor,Incident management / reliability / SRE Evaluator,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnp6MNcHf6edbDCFIsJqz
+discovered,2026-06-16T01:00:49+00:00,Mercor,Brand / creative direction / marketing collateral Evaluator,Remote,Arts & Design,https://work.mercor.com/jobs/list_AAABnp6MPf4uPETLnLRHkoz5
+discovered,2026-06-16T01:00:49+00:00,Mercor,Training / onboarding / L&D Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6MQafnea1bEmZCHpqN
+discovered,2026-06-16T01:00:49+00:00,Mercor,Humanities / arts / culture Evaluator,Remote,Humanities,https://work.mercor.com/jobs/list_AAABnp6MRGcfHfhPtxVGn5UV
+discovered,2026-06-16T01:00:49+00:00,Mercor,Compliance / regulatory response with financial-services AI Evaluator,Remote,Law,https://work.mercor.com/jobs/list_AAABnp6MR1o-lR74ez9Cc6GV
+discovered,2026-06-16T01:00:49+00:00,Mercor,General Sales / GTM Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6MSjuxnR5XDmVL1Ypb
+discovered,2026-06-16T01:00:49+00:00,Mercor,Legal contracts / diligence / redlines Evaluator,Remote,Law,https://work.mercor.com/jobs/list_AAABnp6MTYQtk-DDjINLhoqB
+discovered,2026-06-16T01:00:49+00:00,Mercor,Customer success / support operations Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6OYPO3WpUMgelPsqgD
+discovered,2026-06-16T01:00:49+00:00,Mercor,Privacy / regulatory compliance Evaluator,Remote,Law,https://work.mercor.com/jobs/list_AAABnp6OZUbDUhFgW91Br4It
+discovered,2026-06-16T01:00:49+00:00,Mercor,Special education / IEP Evaluator,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnp6Ob0LzhP-CT6tGboAS
+discovered,2026-06-16T01:00:49+00:00,Mercor,Investor materials / fundraising / pitchbook Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp6OclzGRwU67YJGZJrz
+discovered,2026-06-16T01:00:49+00:00,Mercor,User/customer research and feedback synthesis Evaluator,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnp6OdbIxyq8uPxBO6qmD
+discovered,2026-06-16T01:00:49+00:00,Mercor,Public health communications Evaluator,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnp6OeVfIgXfq7jFNqqB4
+discovered,2026-06-16T01:00:49+00:00,Mercor,People ops / recruiting Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6Of2pOKd_g9gFOk6zK
+discovered,2026-06-16T01:00:49+00:00,Mercor,Product launch / experiment readiness Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6OfEjsvMNU9upMxo0o
+discovered,2026-06-16T01:00:49+00:00,Mercor,Market research / competitive intelligence Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6OiQSvJXxMjJZP06yK
+discovered,2026-06-16T01:00:49+00:00,Mercor,Healthcare operations Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6OjtllcBBuwIFFj5fM
+discovered,2026-06-16T01:00:49+00:00,Mercor,Education / school Evaluator,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnp6OmEI2W-UJPd1FkJIA
+discovered,2026-06-16T01:00:49+00:00,Mercor,Spreadsheet QA / workbook maintenance Evaluator,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnp6Omy8rqrTaN-ZDzpMG
+discovered,2026-06-16T01:00:49+00:00,Mercor,Product management / roadmap / PRD Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6Onq8dbHxHHMNLGpgC
+discovered,2026-06-16T01:00:49+00:00,Mercor,Software / AI / IT / data Evaluator,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnp6Oo46gSMkCqfJAl7oz
+discovered,2026-06-16T01:00:49+00:00,Mercor,General business strategy / management Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6Op8ffBSgW9qtE7Lrc
+discovered,2026-06-16T01:00:49+00:00,Mercor,Program management / implementation planning Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6Or1Jp68sWSRBP0Ldu
+discovered,2026-06-16T01:00:49+00:00,Mercor,FP&A / corporate finance Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp6QzhzJMwho519LMJ2v
+discovered,2026-06-16T01:00:49+00:00,Mercor,General finance / accounting Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp6Q0WWVhmryLCxGqpII
+discovered,2026-06-16T01:00:49+00:00,Mercor,Data analysis / quantitative readouts Evaluator,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnp6Q1hWaziDGIaxJd5Ul
+discovered,2026-06-16T01:00:49+00:00,Mercor,Operations / inventory / capacity planning Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6Q2TS32o-CYvZBaZBt
+discovered,2026-06-16T01:00:49+00:00,Mercor,Cybersecurity / IT GRC Evaluator,Remote,Law,https://work.mercor.com/jobs/list_AAABnp6Q5PtA5cPYW7lGm5wO
+discovered,2026-06-16T01:00:49+00:00,Mercor,Procurement / vendor management Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6Q6HIxlwTQiCBNkobI
+discovered,2026-06-16T01:00:49+00:00,Mercor,Data quality / CRM operations Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6Q8OS8NGqRYMBFxp6w
+discovered,2026-06-16T01:00:49+00:00,Mercor,IP / trademark / copyright law Evaluator,Remote,Law,https://work.mercor.com/jobs/list_AAABnp6Q9rBpIT8dHgdJIar7
+discovered,2026-06-16T01:00:49+00:00,Mercor,Investment analysis / valuation / credit Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp6Q-Z1eeRKyZRBKcrIe
+discovered,2026-06-16T01:00:49+00:00,Mercor,BI dashboards / performance reporting Evaluator,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnp6Q_M2ezUzh-r5CNo37
+discovered,2026-06-16T01:00:49+00:00,Mercor,Document/deck production QA Evaluator,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnp6RBcl-PlfxglxIdJS_
+discovered,2026-06-16T01:00:49+00:00,Mercor,Finance operations / audit support Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp6RCQEqymdVMF5KeJAh
+discovered,2026-06-16T01:00:49+00:00,Mercor,Public-sector procurement / RFI response Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6REjHDXxoFBTRM271f
+discovered,2026-06-16T01:00:49+00:00,Mercor,Process improvement / SOPs Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6RFTTm_Hgi-9RIXZvF
+discovered,2026-06-16T01:00:49+00:00,Mercor,Personal finance / consumer planning Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp6RHHAq6lsG6P1Ay5Xt
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Astrophysics & Cosmology,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqgn-e5QabpiT6NKWIj6
+discovered,2026-06-16T01:00:49+00:00,Mercor,UK-Based Top Business School Graduates / Faculty,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqhRsibrhpVguw5AiI3f
+discovered,2026-06-16T01:00:49+00:00,Mercor,Software & Data Science Expert,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnqhyQ63xJQKIWvpIr65V
+discovered,2026-06-16T01:00:49+00:00,Mercor,Engineering & Built Environment Experts,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqhzPmHn5_YDl8JNXZ2b
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Bioinformatics & Single-Cell Genomics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqil4G0b7MIufDdIfY-K
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Computational Chemistry & Electronic Structure,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqiooi7pX4CD2IRNGa14
+discovered,2026-06-16T01:00:49+00:00,Mercor,Keystone Education Expert,Remote,Humanities,https://work.mercor.com/jobs/list_AAABnqjLkW71vRPNCBhIfqmN
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Electrical Engineering & RF/Circuit Design,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqjwK2IkfR6hBL1DpLha
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Particle & Nuclear Physics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqjx4gSFeJKNQs1MIZsE
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Pharmacokinetics & Systems Biology,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqj0dQ88MQlW8UJCo7xi
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Seismology & Geophysics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqj1wrDexVIkKMlFdr3m
+discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Structural & Mechanical Engineering,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqj2W8ujnosMhf5DWpXZ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Physician (Generalist),Remote,Medicine,https://work.mercor.com/jobs/list_AAABnqm8RKY1zU59PmdByJDu
+discovered,2026-06-16T01:00:49+00:00,Mercor,Visual Quality Reviewer (Super Resolution),"Remote, United States (PST to EST hours)",Arts & Design,https://work.mercor.com/jobs/list_AAABnq4MexaHobdzQJJBgKC0
+discovered,2026-06-16T01:00:49+00:00,Mercor,Lighting and Cinematography Consultant,"Playa Vista, CA or New York, NY",Arts & Design,https://work.mercor.com/jobs/list_AAABnq4MqsLC2BTPI3REk4q9
+discovered,2026-06-16T01:00:49+00:00,Mercor,Acting & Animation Performance Consultant,"Playa Vista, CA or New York, NY",Arts & Design,https://work.mercor.com/jobs/list_AAABnq4zopR9224HM7xDl61t
+discovered,2026-06-16T01:00:49+00:00,Mercor,SALT (State and Local Taxation) Experts,Remote,Law,https://work.mercor.com/jobs/list_AAABnrLzsWeES5emKwdPFLCl
+discovered,2026-06-16T01:00:49+00:00,Mercor,Spanish / LatAm Finance Professionals,Remote,Finance,https://work.mercor.com/jobs/list_AAABnrWSfV8Mr4quzalBapdT
+discovered,2026-06-16T01:00:49+00:00,Mercor,French Finance Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABnrWXFTOUOqHKvfNN_aGZ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Mechanical Engineer Expert,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnrW7vo9oMBpB6uFG7ZEh
+discovered,2026-06-16T01:00:49+00:00,Mercor,CAD Engineer — ScreenSpot Plus (Screenshot Capture & UI Annotation),North America (US & Canada),Other Engineering,https://work.mercor.com/jobs/list_AAABnriM2uXqKB9gyCNCX6Rs
+discovered,2026-06-16T01:00:49+00:00,Mercor,Biology Expert (PhD) — AI Safety,United States,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnr4sRy-8C13uprNDp4E0
+discovered,2026-06-16T01:00:49+00:00,Mercor,Chemistry Expert (PhD) — AI Safety,United States,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnr498yBQpYM_pjVJS6jZ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Cybersecurity SWE — AI Safety,United States,Software Engineering,https://work.mercor.com/jobs/list_AAABnr5DNpb2ATXK5h5FeYcl
+discovered,2026-06-16T01:00:49+00:00,Mercor,Personalized Life Assistant Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnr6UO2Q-_nQyuwJD6Ykq
+discovered,2026-06-16T01:00:49+00:00,Mercor,Mathematics Researchers (Part-time),Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnsK7AwZ9OY7v2R9Ay5-v
+discovered,2026-06-16T01:00:49+00:00,Mercor,Computer Vision MLE,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnsM1K7UhvIGC6ulO367X
+discovered,2026-06-16T01:00:49+00:00,Mercor,Backend Engineer (Coding Agent Experience),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnsvPToe8vXwCKeBCyrNx
+discovered,2026-06-16T01:00:49+00:00,Mercor,Systems Engineer (Coding Agent Experience),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnsvS1nUa6cIxGcRGDJWM
+discovered,2026-06-16T01:00:49+00:00,Mercor,Frontend Engineer (Coding Agent Experience),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnsvWOmMLbv8K8IhNna6S
+discovered,2026-06-16T01:00:49+00:00,Mercor,iOS Engineer (Coding Agent Experience),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnsvaQ9m_OxyBWINBC5wc
+discovered,2026-06-16T01:00:49+00:00,Mercor,ML Engineer (Coding Agent Experience),Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnsvdIJkrudP_mytJGaBq
+discovered,2026-06-16T01:00:49+00:00,Mercor,Data Engineer (Coding Agent Experience),Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnsvgDyKXP3KIBIpCI5F0
+discovered,2026-06-16T01:00:49+00:00,Mercor,DevOps / SRE / Cloud Engineer (Coding Agent Experience),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnsvjfx27q5i9_ItICqEv
+discovered,2026-06-16T01:00:49+00:00,Mercor,Security Engineer (Coding Agent Experience),Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABnsvmQbiX5JNRnTFGl6oi
+discovered,2026-06-16T01:00:49+00:00,Mercor,Fraud Engineer (Coding Agent Experience),Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnsvobNbp9wGSMExGdKQ_
+discovered,2026-06-16T01:00:49+00:00,Mercor,Golf Video Annotation Reviewer and Correction Specialist,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnswiMY5ATV4CIIFJmbb8
+discovered,2026-06-16T01:00:49+00:00,Mercor,Consultant – Business Report Quality & Strategic Insights Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnszUjoGKKkc6KgVDSrOV
+discovered,2026-06-16T01:00:49+00:00,Mercor,Market Research Methodologist – Report Quality & Insights Evaluation Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnszerJ_DyWaqhwBOj7l7
+discovered,2026-06-16T01:00:49+00:00,Mercor,Head of Insights – Executive Report Evaluation Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnszk5ZBbTr8bJQlM5YPN
 reactivated,2026-06-16T00:41:45+00:00,Invisible Technologies,Client Engineering Lead,United States - Remote,Unknown,https://job-boards.eu.greenhouse.io/invisibletech/jobs/4866241101
 removed,2026-06-16T00:41:45+00:00,Invisible Technologies,Enterprise Solutions Associate,"Austin, Texas - Hybrid; New York - Hybrid; San Francisco Bay Area - Hybrid; Washington DC–Baltimore - Hybrid",Unknown,https://job-boards.eu.greenhouse.io/invisibletech/jobs/4649462101
 removed,2026-06-16T00:41:45+00:00,Invisible Technologies,Client Engineering Lead,United States - Remote,Unknown,https://job-boards.eu.greenhouse.io/invisibletech/jobs/4866241101

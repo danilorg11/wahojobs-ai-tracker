@@ -28,13 +28,19 @@ MERIDIAL_SEED = {
     "careers_url": "https://boards-api.greenhouse.io/v1/boards/agency/departments/4012485101?render_as=tree",
 }
 
+MERCOR_SEED = {
+    "name": "Mercor",
+    "slug": "mercor",
+    "careers_url": "https://aws.api.mercor.com/work/listings-explore-page",
+}
+
 
 def initialize_database(db_path=DB_PATH):
     schema_path = Path(__file__).with_name("schema.sql")
     with get_connection(db_path) as conn:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
         ensure_job_optional_columns(conn)
-        for seed in (APPEN_SEED, INVISIBLE_SEED, MERIDIAL_SEED, OUTLIER_SEED):
+        for seed in (APPEN_SEED, INVISIBLE_SEED, MERIDIAL_SEED, MERCOR_SEED, OUTLIER_SEED):
             conn.execute(
                 """
                 INSERT INTO companies (name, slug, careers_url)
