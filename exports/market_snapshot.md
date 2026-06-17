@@ -1,18 +1,18 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-17T01:26:01+00:00 UTC
+Generated: 2026-06-17T01:59:31+00:00 UTC
 
 ## Sources
 
-Core sources included: alignerr, appen, meridial, mercor, micro1, oneforma, outlier
+Core sources included: alignerr, appen, meridial, mercor, micro1, oneforma, outlier, rws
 Experimental sources: excluded
 Simulation data: excluded
 Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **7403**
-- Estimated market opportunities: **2044**
+- Raw active postings: **7496**
+- Estimated market opportunities: **2137**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
@@ -32,7 +32,8 @@ Sample fallback data: excluded
 | Meridial | 801 |
 | OneForma | 692 |
 | micro1 | 367 |
-| Mercor | 225 |
+| Mercor | 224 |
+| RWS TrainAI | 94 |
 | Outlier | 63 |
 | Appen | 37 |
 
@@ -58,22 +59,25 @@ Sample fallback data: excluded
 | specialist | 73 |
 | Engineering & Technology | 58 |
 | Coding | 57 |
+| AI Data Specialist | 50 |
 | Life, Physical, and Social Science | 40 |
 | AI Trainers - Domain Experts | 37 |
 | Finance & Mathematics | 36 |
 | Business Operations | 33 |
 | Data Analysis | 31 |
-| Law | 31 |
+| Law | 30 |
 | other | 30 |
 | software-engineering | 27 |
 | Creative & Multi-Media | 26 |
 | Finance | 22 |
 | Software Engineering | 22 |
 | expert | 19 |
+| Speech AI Evaluation | 18 |
 | Annotation; Transcription | 16 |
 | Miscellaneous | 16 |
 | Transcription | 16 |
 | Unknown | 16 |
+| Linguistic AI Auditing | 13 |
 | Customer Service | 11 |
 | Language and Audio | 11 |
 | Other Engineering | 11 |
@@ -82,6 +86,7 @@ Sample fallback data: excluded
 | finance | 9 |
 | Early Career | 7 |
 | Medicine | 7 |
+| Subject Matter Expert | 7 |
 | business-operations | 7 |
 | Code | 6 |
 | data-analysis | 6 |
@@ -89,6 +94,7 @@ Sample fallback data: excluded
 | History | 5 |
 | Language - Chinese | 5 |
 | Language - Arabic | 4 |
+| AI Dubbing | 3 |
 | Generalist | 3 |
 | Language - Dutch | 3 |
 | ai-machine-learning | 3 |
@@ -108,6 +114,7 @@ Sample fallback data: excluded
 | Language - Telugu | 2 |
 | Language - Thai | 2 |
 | Language - Vietnamese | 2 |
+| Language Annotation | 2 |
 | arts-design | 2 |
 | law | 2 |
 | Delivery Advisor | 1 |
@@ -130,28 +137,29 @@ Sample fallback data: excluded
 | Specialist - Math | 1 |
 | Specialist - Media & Communications | 1 |
 | The Agency: Worldwide Sharing | 1 |
+| TrainAI Talent Pool | 1 |
 | medicine | 1 |
 
 ## Today's Activity
 
-- New jobs today: **1072**
-- Removed jobs today: **6**
+- New jobs today: **1166**
+- Removed jobs today: **7**
 - Reactivated jobs today: **1**
 
 ## Top Recent Events
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| discovered | 2026-06-17T01:24:47+00:00 | Mercor | Hospitals & Health Systems Expert | Business Operations | Remote | [Link](https://work.mercor.com/jobs/list_AAABnbZuQaqhOK0yBtdK_7xi) |
-| discovered | 2026-06-17T01:24:47+00:00 | Mercor | Regulatory Law Expert | Law | Remote | [Link](https://work.mercor.com/jobs/list_AAABnbZyuMMQ6gDsf0tHBJvJ) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | Audio Production Expert | expert | remote | [Link](https://jobs.micro1.ai/post/aa498be8-7c47-4e03-a990-800cbfd9db1e?utm_source=micro1&utm_medium=job_portal) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | English Language Expert (Generalist) | Unknown | remote | [Link](https://jobs.micro1.ai/post/2382a9eb-726e-42f1-9c1b-0be0812cf0f4?utm_source=micro1&utm_medium=job_portal) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | Vectorworks Expert | generalist | remote | [Link](https://jobs.micro1.ai/post/0b0161ea-6f58-4123-b681-e633d8b79386?utm_source=micro1&utm_medium=job_portal) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | Remote Smartphone Task Recorder (LATAM) | robotics | Remote | [Link](https://jobs.micro1.ai/post/5324aa96-4af5-4e0c-830f-80c602a2d861?utm_source=micro1&utm_medium=job_portal) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | Data-Video Generalist (US) | robotics | Remote | [Link](https://jobs.micro1.ai/post/204600bf-1abe-4ab0-a474-cd2264999149?utm_source=micro1&utm_medium=job_portal) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | Thai Audio Recording Expert | generalist | Remote | [Link](https://jobs.micro1.ai/post/568a042a-bbb1-42fa-91f4-d10233475361?utm_source=micro1&utm_medium=job_portal) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | Swiss German Audio Recording Expert | generalist | Remote | [Link](https://jobs.micro1.ai/post/10006ece-8b91-41b4-9b4c-1aba81ce94d6?utm_source=micro1&utm_medium=job_portal) |
-| discovered | 2026-06-17T01:24:00+00:00 | micro1 | Kannada Audio Recording Expert | generalist | Remote | [Link](https://jobs.micro1.ai/post/5d9f885e-4874-4567-8864-e6955729ecea?utm_source=micro1&utm_medium=job_portal) |
+| removed | 2026-06-17T01:58:57+00:00 | Mercor | Litigation Expert | Law | Remote | [Link](https://work.mercor.com/jobs/list_AAABnbZyA4_gXfJsVdJPW44R) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Vietnamese (USA) | Speech AI Evaluation | Remote | [Link](https://jobs.lever.co/rws/6488833f-86c3-480c-9dd1-1667f27a372c) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Vietnamese (Thailand) | Speech AI Evaluation | Bangkok | [Link](https://jobs.lever.co/rws/f13131ee-ef0e-461d-a6c1-708259ad9a51) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Vietnamese (Malaysia) | Speech AI Evaluation | Kuala Lumpur | [Link](https://jobs.lever.co/rws/a781dc8a-1f62-48af-af20-4106b9682120) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Thai or Chinese Simplified | Speech AI Evaluation | Bangkok | [Link](https://jobs.lever.co/rws/1c836aa1-dd7f-414d-aea2-8044a6525ab8) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Tagalog (Philippines) | Speech AI Evaluation | Manila | [Link](https://jobs.lever.co/rws/4aafbd75-cf83-43f8-997f-4ee005274525) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Spanish (Mexico) | Speech AI Evaluation | Mexico City | [Link](https://jobs.lever.co/rws/c73dddef-ed85-4789-a8b4-cce31dd9e1df) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Portuguese (Brazil) | Speech AI Evaluation | Rio de Janeiro | [Link](https://jobs.lever.co/rws/ecabff98-a1e1-40eb-9ca3-ffb7a1681ebc) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Korean (Korea) | Speech AI Evaluation | Seoul | [Link](https://jobs.lever.co/rws/fb46f296-e3b8-4c8c-8103-55ca55ab1bb9) |
+| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Italian (Italy) | Speech AI Evaluation | Rome | [Link](https://jobs.lever.co/rws/ade36625-2d22-4842-a86c-c94748a70c3e) |
 
 ## Data Quality Summary
 

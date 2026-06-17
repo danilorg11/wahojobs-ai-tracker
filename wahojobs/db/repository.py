@@ -56,6 +56,12 @@ ONEFORMA_SEED = {
     "careers_url": "https://www.oneforma.com/wp-json/wp/v2/job?per_page=100&_embed=wp:term",
 }
 
+RWS_SEED = {
+    "name": "RWS TrainAI",
+    "slug": "rws",
+    "careers_url": "https://api.lever.co/v0/postings/rws?mode=json&expand=location",
+}
+
 
 def initialize_database(db_path=DB_PATH):
     schema_path = Path(__file__).with_name("schema.sql")
@@ -72,6 +78,7 @@ def initialize_database(db_path=DB_PATH):
             MICRO1_SEED,
             ONEFORMA_SEED,
             OUTLIER_SEED,
+            RWS_SEED,
         ):
             conn.execute(
                 """

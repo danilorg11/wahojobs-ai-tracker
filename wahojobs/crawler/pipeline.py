@@ -8,6 +8,7 @@ from wahojobs.crawler.companies.mercor import crawl_mercor
 from wahojobs.crawler.companies.micro1 import crawl_micro1
 from wahojobs.crawler.companies.oneforma import crawl_oneforma
 from wahojobs.crawler.companies.outlier import crawl_outlier
+from wahojobs.crawler.companies.rws import crawl_rws
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import (
     create_crawl_run,
@@ -31,6 +32,7 @@ CRAWLERS = {
     "micro1": crawl_micro1,
     "oneforma": crawl_oneforma,
     "outlier": crawl_outlier,
+    "rws": crawl_rws,
 }
 
 

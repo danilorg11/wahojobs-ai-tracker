@@ -13,7 +13,16 @@ from wahojobs.reporting.micro1 import get_micro1_metrics
 from wahojobs.reporting.terminal import print_crawl_summary
 
 
-CORE_SOURCES = ["alignerr", "appen", "meridial", "mercor", "micro1", "oneforma", "outlier"]
+CORE_SOURCES = [
+    "alignerr",
+    "appen",
+    "meridial",
+    "mercor",
+    "micro1",
+    "oneforma",
+    "outlier",
+    "rws",
+]
 EXPERIMENTAL_SOURCES = ["invisible"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]
 

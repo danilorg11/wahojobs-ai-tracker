@@ -11,7 +11,16 @@ from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
 OUTPUT_PATH = Path("exports/market_snapshot.md")
-CORE_SOURCES = ("alignerr", "appen", "meridial", "mercor", "micro1", "oneforma", "outlier")
+CORE_SOURCES = (
+    "alignerr",
+    "appen",
+    "meridial",
+    "mercor",
+    "micro1",
+    "oneforma",
+    "outlier",
+    "rws",
+)
 EXPERIMENTAL_SOURCES = ("invisible",)
 
 
