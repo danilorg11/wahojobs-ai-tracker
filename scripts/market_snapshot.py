@@ -10,7 +10,7 @@ from wahojobs.reporting.market import get_market_size_summary
 
 
 OUTPUT_PATH = Path("exports/market_snapshot.md")
-CORE_SOURCES = ("alignerr", "appen", "meridial", "mercor", "outlier")
+CORE_SOURCES = ("alignerr", "appen", "meridial", "mercor", "oneforma", "outlier")
 EXPERIMENTAL_SOURCES = ("invisible",)
 
 
@@ -320,6 +320,12 @@ def render_snapshot(
             f"**{market_summary['alignerr_canonical_opportunities']}**"
         ),
         f"- Alignerr posting variants: **{market_summary['alignerr_posting_variants']}**",
+        f"- OneForma raw variants: **{market_summary['oneforma_raw_variants']}**",
+        (
+            "- OneForma canonical opportunities: "
+            f"**{market_summary['oneforma_canonical_opportunities']}**"
+        ),
+        f"- OneForma posting variants: **{market_summary['oneforma_posting_variants']}**",
         "",
     ]
 
@@ -345,9 +351,9 @@ def render_snapshot(
             "## Notes",
             "",
             (
-                "- Estimated market opportunities are an approximation: Alignerr "
-                "uses canonical opportunity grouping, while other sources currently "
-                "count each active raw job as one opportunity."
+                "- Estimated market opportunities are an approximation: Alignerr and "
+                "OneForma use canonical opportunity grouping, while other sources "
+                "currently count each active raw job as one opportunity."
             ),
             "- Simulation data is excluded from this snapshot.",
             "- Legacy sample fallback rows are excluded from this publishable snapshot.",

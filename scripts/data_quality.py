@@ -21,6 +21,8 @@ def main():
         multi_location_groups = get_multi_location_alignerr_groups(conn)
         multi_rate_groups = get_multi_rate_alignerr_groups(conn)
         unknown_canonical_groups = get_unknown_alignerr_canonical_groups(conn)
+        oneforma_summary = get_company_canonical_summary(conn, "oneforma")
+        top_oneforma_variants = get_top_company_variants(conn, "oneforma")
 
     print("")
     print("Wahojobs Data Quality Report")
@@ -96,6 +98,26 @@ def main():
         "Unknown/low-confidence Alignerr canonical groups",
         unknown_canonical_groups,
         lambda row: f"{row['canonical_title']} ({row['source_category']}): {row['variant_count']} variants",
+    )
+    print("")
+    print("OneForma Canonical Checks")
+    print("-------------------------")
+    if oneforma_summary and oneforma_summary["raw_postings"]:
+        print(f"Raw active variants: {oneforma_summary['raw_postings']}")
+        print(f"Canonical active opportunities: {oneforma_summary['canonical_opportunities']}")
+        print(f"Posting variants: {oneforma_summary['variant_count']}")
+        print(f"Unlinked active variants: {oneforma_summary['unlinked_postings']}")
+    else:
+        print("No active OneForma variants found.")
+    print("")
+
+    print_rows(
+        "Top OneForma canonical opportunities by variant count",
+        top_oneforma_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
     )
 
 
@@ -188,6 +210,10 @@ def get_summary(conn, include_experimental):
 
 
 def get_alignerr_canonical_summary(conn):
+    return get_company_canonical_summary(conn, "alignerr")
+
+
+def get_company_canonical_summary(conn, slug):
     return conn.execute(
         """
         SELECT
@@ -203,22 +229,28 @@ def get_alignerr_canonical_summary(conn):
         LEFT JOIN canonical_opportunities co
           ON co.id = j.canonical_opportunity_id
          AND co.is_active = 1
-        WHERE c.slug = 'alignerr'
-        """
+        WHERE c.slug = ?
+        """,
+        (slug,),
     ).fetchone()
 
 
 def get_top_alignerr_variants(conn):
+    return get_top_company_variants(conn, "alignerr")
+
+
+def get_top_company_variants(conn, slug):
     return conn.execute(
         """
         SELECT co.canonical_title, co.source_category, co.variant_count
         FROM canonical_opportunities co
         JOIN companies c ON c.id = co.company_id
-        WHERE c.slug = 'alignerr'
+        WHERE c.slug = ?
           AND co.is_active = 1
         ORDER BY co.variant_count DESC, co.canonical_title ASC
         LIMIT 20
-        """
+        """,
+        (slug,),
     ).fetchall()
 
 

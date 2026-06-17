@@ -1,4 +1,7 @@
-from wahojobs.canonical.service import sync_alignerr_canonical_opportunities
+from wahojobs.canonical.service import (
+    sync_alignerr_canonical_opportunities,
+    sync_oneforma_canonical_opportunities,
+)
 from wahojobs.crawler.types import CompanyCrawlResult, TrackingSummary
 from wahojobs.db.repository import (
     count_active_jobs,
@@ -55,6 +58,8 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
 
     if company["slug"] == "alignerr":
         sync_alignerr_canonical_opportunities(conn, company_id)
+    elif company["slug"] == "oneforma":
+        sync_oneforma_canonical_opportunities(conn, company_id)
 
     active_jobs_total = count_active_jobs(conn, company_id)
 

@@ -1,7 +1,10 @@
 from pathlib import Path
 
 from wahojobs.config import DB_PATH
-from wahojobs.canonical.service import sync_alignerr_canonical_opportunities
+from wahojobs.canonical.service import (
+    sync_alignerr_canonical_opportunities,
+    sync_oneforma_canonical_opportunities,
+)
 from wahojobs.db.connection import get_connection
 
 
@@ -41,6 +44,12 @@ MERCOR_SEED = {
     "careers_url": "https://aws.api.mercor.com/work/listings-explore-page",
 }
 
+ONEFORMA_SEED = {
+    "name": "OneForma",
+    "slug": "oneforma",
+    "careers_url": "https://www.oneforma.com/wp-json/wp/v2/job?per_page=100&_embed=wp:term",
+}
+
 
 def initialize_database(db_path=DB_PATH):
     schema_path = Path(__file__).with_name("schema.sql")
@@ -54,6 +63,7 @@ def initialize_database(db_path=DB_PATH):
             INVISIBLE_SEED,
             MERIDIAL_SEED,
             MERCOR_SEED,
+            ONEFORMA_SEED,
             OUTLIER_SEED,
         ):
             conn.execute(
@@ -70,6 +80,9 @@ def initialize_database(db_path=DB_PATH):
         alignerr = get_company_by_slug(conn, "alignerr")
         if alignerr is not None:
             sync_alignerr_canonical_opportunities(conn, alignerr["id"])
+        oneforma = get_company_by_slug(conn, "oneforma")
+        if oneforma is not None:
+            sync_oneforma_canonical_opportunities(conn, oneforma["id"])
 
 
 def ensure_job_optional_columns(conn):

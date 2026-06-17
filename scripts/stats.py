@@ -71,6 +71,9 @@ def print_market_size_summary(conn, include_experimental):
     print(f"Alignerr raw postings: {summary['alignerr_raw_postings']}")
     print(f"Alignerr canonical opportunities: {summary['alignerr_canonical_opportunities']}")
     print(f"Alignerr posting variants: {summary['alignerr_posting_variants']}")
+    print(f"OneForma raw variants: {summary['oneforma_raw_variants']}")
+    print(f"OneForma canonical opportunities: {summary['oneforma_canonical_opportunities']}")
+    print(f"OneForma posting variants: {summary['oneforma_posting_variants']}")
 
 
 def get_jobs_by_company(conn, include_experimental):

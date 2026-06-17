@@ -71,6 +71,12 @@ def main():
         f"{market_summary['alignerr_canonical_opportunities']}"
     )
     print(f"Alignerr posting variants:        {market_summary['alignerr_posting_variants']}")
+    print(f"OneForma raw variants:            {market_summary['oneforma_raw_variants']}")
+    print(
+        "OneForma canonical opportunities: "
+        f"{market_summary['oneforma_canonical_opportunities']}"
+    )
+    print(f"OneForma posting variants:        {market_summary['oneforma_posting_variants']}")
     print(f"New jobs today:           {discovered}")
     print(f"Removed jobs today:       {removed}")
     print(f"Reactivated jobs today:   {reactivated}")

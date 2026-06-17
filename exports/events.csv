@@ -1,4 +1,714 @@
 event_type,created_at,company,title,location,expertise/department,url
+removed,2026-06-17T00:48:01+00:00,Mercor,Python SWE,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABl8f-EJV6TYkTcM1LxpPK
+removed,2026-06-17T00:48:01+00:00,Mercor,Pharmacists Survey – Retail & Community Pharmacy Insights,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnlNQ7zaGwxjcZptC5oOY
+removed,2026-06-17T00:48:01+00:00,Mercor,Clinicians Survey – Ambulatory & Community Care Insights,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnlNc5vKNKKMWYLxGQ7NX
+removed,2026-06-17T00:48:01+00:00,Mercor,UK-Based Top Business School Graduates / Faculty,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqhRsibrhpVguw5AiI3f
+removed,2026-06-17T00:48:01+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Seismology & Geophysics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqj1wrDexVIkKMlFdr3m
+removed,2026-06-17T00:48:01+00:00,Mercor,SALT (State and Local Taxation) Experts,Remote,Law,https://work.mercor.com/jobs/list_AAABnrLzsWeES5emKwdPFLCl
+reactivated,2026-06-17T00:48:01+00:00,Mercor,Legal Technology Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZsP8rVe0Qk8aRJY7jZ
+discovered,2026-06-17T00:48:01+00:00,Mercor,Litigation Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyA4_gXfJsVdJPW44R
+discovered,2026-06-17T00:48:01+00:00,Mercor,ChatGPT Power User,Remote (US-based only),Miscellaneous,https://work.mercor.com/jobs/list_AAABnplcOw2aDGHJ5LVLMpFM
+discovered,2026-06-17T00:48:01+00:00,Mercor,"Mathematics Researchers (India, Part-time)",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABns-cOU9t9vRleMhCNJV2
+discovered,2026-06-17T00:48:01+00:00,Mercor,"Biology & Biophysics Researchers (India, Part-time)",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABns-cPeLh-SZQ3nBLWag4
+discovered,2026-06-17T00:48:00+00:00,Meridial,Indian Language Fluency Instructors - Freelance AI Trainer Project,India,Business & Professions,https://job-boards.eu.greenhouse.io/agency/jobs/4900472101
+discovered,2026-06-17T00:48:00+00:00,Meridial,Language Fluency Instructors - Freelance AI Trainer Project,United States of America,Business & Professions,https://job-boards.eu.greenhouse.io/agency/jobs/4900436101
+discovered,2026-06-17T00:47:59+00:00,Appen,[Vietnamese] - Voice Recording Specialist,United States,AI Trainers - Domain Experts,https://jobs.lever.co/appen/bea969fc-4198-4680-b527-dae3bf67527e
+discovered,2026-06-17T00:47:59+00:00,Appen,[Greek] - Voice Recording Specialist,Greece,AI Trainers - Domain Experts,https://jobs.lever.co/appen/d8f7a976-f709-461e-a0a4-96c0c3af2da2
+discovered,2026-06-17T00:47:59+00:00,Appen,[Finnish] - Voice Recording Specialist,Finland,AI Trainers - Domain Experts,https://jobs.lever.co/appen/390c47fc-7014-4f8d-aaab-ef635eaf2a48
+discovered,2026-06-17T00:47:59+00:00,Appen,[Dutch] - Voice Recording Specialist,Netherlands,AI Trainers - Domain Experts,https://jobs.lever.co/appen/c5a0b7a3-7aa7-490d-b983-9d6dfd480a50
+discovered,2026-06-17T00:47:59+00:00,Appen,[Danish] - Voice Recording Specialist,Denmark,AI Trainers - Domain Experts,https://jobs.lever.co/appen/30379e6d-d432-4d72-9453-620f3b3ee21f
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Lightspeed - USA,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7116?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Lightspeed - United Kingdom,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7133?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Lightspeed - Norway,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7149?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Lightspeed - Korea,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7111?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Lightspeed - India,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7191?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Lightspeed - China,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7189?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Vietnam (Vietnamese),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7144?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - United States (Spanish),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7163?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - United States (English),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7115?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - United Kingdom (English),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7198?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - United Arab Emirates (Arabic),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7144?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Turkey (Turkish),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7188?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Thailand (Thai),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7207?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Taiwan (Chinese),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7098?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Switzerland (German),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7203?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Singapore (English),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7141?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Poland (Polish),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7151?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Norway (Bokmal),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7127?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Mexico (Spanish),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7154?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Malaysia (English),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7206?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Japan (Japanese),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7105?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - India (English),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7155?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Hong Kong (Chinese),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7156?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Germany (German),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7181?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - France (French),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7114?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Denmark (Danish),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7117?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Czech Republic (Czech),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7103?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - China (Chinese),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7164?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Internet Judging: Milky Way (Maps Evaluation) - Brazil (Portuguese),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7178?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Japanese (Japan) - Indonesian (Indonesia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/10819?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Russian (Russia) - Arabic (U.A.E.),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12883?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Dutch (Netherlands) - Ukrainian (Ukraine),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12885?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Hindi (India) - Spanish (Spain),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12886?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - French (France) - Turkish (Turkey),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12884?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Italian (Italy) - Turkish (Turkey),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12680?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Estonian (Estonia) - English (United States),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12698?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Serbian (Cyrillic) (Serbia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12697?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Slovenian (Slovenia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12696?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Romanian (Romania),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12695?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12844?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Marathi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12850?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - French (Switzerland),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12678?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Spanish (Chile),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12679?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Catalan (Spain),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12843?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Bulgarian (Bulgaria),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12842?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Azeri (Latin) (Azerbaijan),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12675?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Egypt),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12832?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Egypt) spoken in U.A.E,Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12831?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Najdi (Arabic),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12837?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Saudi Arabia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12840?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Syria),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12839?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Palestine),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12838?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Lebanon),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12836?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Jordan),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12835?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Arabic (Gulf),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12833?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Hejazi (Arabic),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12834?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Czech (Czech Republic) - Slovak (Slovakia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12841?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT (Human Translation) and MTPE (Machine Translation Post Editing) - Azeri (Latin) (Azerbaijan) - Turkish (Turkey),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12694?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Russian (Russia) - German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3975
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Russian (Russia) - French (France),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3973
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Russian (Russia) - Chinese Simplified,Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3970
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Portuguese (Brazil) - Russian (Russia),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3972
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Polish (Poland) - Russian (Russia),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3979
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Polish (Poland) - English (US),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3978
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Korean (Korea) - Russian (Russia),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3981
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Korean (Korea) - Chinese Traditional (Taiwan),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3969
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - German (Germany) - Russian (Russia),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3976
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - German (Germany) - Polish (Poland),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3980
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - French (France) - German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3974
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Dutch (Netherlands) - Polish (Poland),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3977
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Chinese Simplified - Russian (Russia),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3971
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Spanish (Spain) to Portuguese (Brazil),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3700
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Spanish (Spain) to Italian (Italy),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3701
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Spanish (Spain) to German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3702
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Spanish (Spain) to French (France),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3703
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Portuguese (Brazil) to Chinese Simplified,Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3801
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Portuguese (Brazil) to Italian (Italy),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3879
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Portuguese (Brazil) to German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3880
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Portuguese (Brazil) to French (France),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3694
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Korean (Korea) to Portuguese (Brazil),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3881
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Korean (Korea) to Italian (Italy),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3885
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Korean (Korea) to French (France),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3885
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Korean (Korea) to Spanish (Spain),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3885
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Korean (Korea) to German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3886
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Japanese (Japan) to Italian (Italy),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3887
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Japanese (Japan) to Spanish (Spain),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3888
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Japanese (Japan) to Portuguese (Brazil),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3695
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Chinese Simplified,Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3802
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Portuguese (Brazil),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3889
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Spanish (Spain),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3875
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3697
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to French (France),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3696
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Chinese Simplified,Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3802
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Portuguese (Brazil),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3889
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Spanish (Spain),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3875
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Korean (Korea),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3818
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to Japanese (Japan),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3823
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3697
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Italian (Italy) to French (France),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3696
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - German (Germany) to Chinese Simplified,Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3797
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - German (Germany) to Spanish (Spain),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3877
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - German (Germany) to Portuguese (Brazil),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3799
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - French (France) to Chinese Simplified,Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3799
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - French (France) to Spanish (Spain),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3876
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - French (France) to Portuguese (Brazil),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3698
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - French (France) to German (Germany),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3699
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - English (US) to French (Canada),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3890
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - English (US) to Spanish (US),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3891
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - English (US) to Spanish (Mexico),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3893
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Chinese Simplified to Korean (Korea),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3803
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Chinese Simplified to French (France),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3800
+discovered,2026-06-17T00:46:31+00:00,OneForma,Long Context Acceptability - Chinese Simplified to Spanish (Spain),Selected Locations,Data Collection,http://my.oneforma.com/UserPortal/job_page.php?job_id=3803
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Spanish (Chile),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/11434?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Arabic (U.A.E.),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7557?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - China(Cantonese),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7559?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - English (Canada),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7560?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Singapore (Malaysian),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7564?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - German (Germany),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7566?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Arabic (Saudi Arabia),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7572?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - English (Australia),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7578?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - English (United Kingdom),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7582?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - France,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7593?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Spanish (Mexico),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7595?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Italy,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7597?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - New Zealand,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7602?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Vietnamese (Vietnam),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7604?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Turkey,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7610?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - South Africa,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7614?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Russian,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7618?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Singapore,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7619?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Singapore (Malaysian),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7628?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Japanese (Japan),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7631?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Spanish (United States),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7633?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Thai (Thailand),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7634?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Korean (Korea),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7638?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Hindi (India),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7643?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - English (US),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7645?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Norway,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7650?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Ireland,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7651?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Portuguese (Brazil)-pt_BR,Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7652?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - French (Canada),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7655?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Chinese Traditional (Taiwan),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7656?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Chinese Traditional (Hong Kong),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7642?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Chinese Cantonese (China),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7615?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Spanish (Spain),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7672?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Apps and Music Grading - Polish (Poland),Selected Locations,Judging,https://my.oneforma.com/crowd/jobs/7957?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Education Pronunciation Evaluation - English (United Kingdom),Selected Locations,Annotation,https://my.oneforma.com/crowd/jobs/6689?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Education Pronunciation Evaluation - Japanese (Japan)-C,Selected Locations,Annotation,https://my.oneforma.com/crowd/jobs/6694?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Education Pronunciation Evaluation - Spanish (Spain),Selected Locations,Annotation,https://my.oneforma.com/crowd/jobs/8176?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Education Pronunciation Evaluation - Spanish (Mexico),Selected Locations,Annotation,https://my.oneforma.com/crowd/jobs/8177?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Education Pronunciation Evaluation - Japanese (Japan)-C1,Selected Locations,Annotation,https://my.oneforma.com/crowd/jobs/8178?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dr. Strange - Danish (Denmark),Selected Locations,Annotation,https://my.oneforma.com/UserPortal/job_page.php?job_id=4273
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dr. Strange - Finnish (Finland),Selected Locations,Annotation,https://my.oneforma.com/UserPortal/job_page.php?job_id=4274
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dr. Strange - Norwegian - Bokmal (Norway),Selected Locations,Annotation,https://my.oneforma.com/UserPortal/job_page.php?job_id=4275
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dr. Strange - German (Germany),Selected Locations,Annotation,http://my.oneforma.com/UserPortal/job_page.php?job_id=3610
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dr. Strange - French (France),Selected Locations,Annotation,http://my.oneforma.com/UserPortal/job_page.php?job_id=3608
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dr. Strange - English (UK),Selected Locations,Annotation,http://my.oneforma.com/UserPortal/job_page.php?job_id=3636
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dr. Strange - Dutch (Netherlands),Selected Locations,Annotation,http://my.oneforma.com/UserPortal/job_page.php?job_id=3637
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - Swedish (Sweden)-English (United Kingdom),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10873?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - Italian (Italy)-English (UK),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/6680?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - German (Germany)-Turkish (Turkey),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10866?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - German (Germany)-Polish (Poland),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10865?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - German (Germany)-English (United Kingdom),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10864?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - German (Germany)-Dutch (Netherlands),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10625?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - German (Germany)-Danish (Denmark),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10863?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - German (Germany)-Czech (Czech Republic),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10862?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - French (France)-Dutch (Netherlands),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10874?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - English (India)-Telugu (India),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10870?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - English (India)-Tamil (India),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10868?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - English (India)-Marathi (India),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10871?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - English (India)-Malayalam (India),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10872?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - English (India)-Kannada (India),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10869?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - English (India)-Hindi (India),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10867?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,AdLoc - English (India)-Bengali (India),Worldwide,Annotation; Transcription,https://my.oneforma.com/crowd/jobs/10623?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT Long Context Human Translation Project - German (Germany) - Finnish (Finland),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12683?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT Long Context Human Translation Project - German (Germany) - Finnish (Finland),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12683?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,HT Long Context Human Translation Project - French (France) - French (Belgium),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12681?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (US) to Norwegian (Norway),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11911?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Farsi (Persian),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11912?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Latvian (Latvia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11913?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Lithuanian (Lithuania),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11914?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Zulu (isiZulu),Worldwide,Translation,https://my.onefohttps://my.oneforma.com/crowd/jobs/11916?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Swahili (Tanzania),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11918?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Gujarati (India) - Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11925?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Gujarati (India) - Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11926?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Serbian (Cyrillic) (Serbia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11892?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Slovenian (Slovenia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11861?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Slovak (Slovakia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11862?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Romanian (Romania),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11863?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Dutch (Belgium),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11890?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Icelandic (Iceland),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11864?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Hungarian (Hungary),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11866?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Croatian (Croatia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11867?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Estonian (Estonia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11868?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Greek (Greece),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11869?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Catalan (Spain),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11865?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) - Bulgarian (Bulgaria),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11891?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - German (Germany) - Finnish (Finland),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12104?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Bengali (India) - Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11924?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Bengali (India) - Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11933?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Telugu (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11916?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Tamil (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11914?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Punjabi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11913?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Marathi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11912?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Malayalam (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11911?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Kannada (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11909?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11908?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Gujarati (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11907?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Bengali (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11906?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Urdu(India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11918?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Tamil (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11904?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Punjabi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11903?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Marathi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11902?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Malayalam (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11901?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Kannada (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11900?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11899?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Gujarati (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11898?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Bengali (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11897?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Hebrew (Israel),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12103?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Arabic (U.A.E.) - Telugu (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11991?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Urdu(India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12016?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Urdu(India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12016?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Urdu(India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12000?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Urdu (India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12016?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Urdu (India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12016?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,"Acceptability and Preference: Translation Raters - Turkish (Turkey)-Uzbek (Latin, Uzbekistan)",Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12019?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Turkish (Turkey)-Azeri (Latin) (Azerbaijan),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12018?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Telugu (India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12014?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Telugu (India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12013?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Tamil (India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12012?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Tamil (India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12011?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Slovak (Slovakia)-Czech (Czech Republic),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12010?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Punjabi (India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12009?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Punjabi (India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12008?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Marathi (India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12007?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Marathi (India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12005?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Malayalam (India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12004?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Malayalam (India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12004?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Kannada (India)-Hindi (Latin),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12002?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Kannada (India)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12001?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Urdu (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/12000?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Telugu (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11999?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Tamil (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11998?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Punjabi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11997?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Marathi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11996?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Malayalam (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11995?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Kannada (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11994?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Hindi (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11993?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Gujarati (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11992?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - Hindi (Latin)-Bengali (India),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11987?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Hijazi Arabic (Saudi Arabia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11748?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Gulf Arabic (United Arab Emirates),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11749?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Levantine Arabic (Jordan),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11750?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Levantine Arabic (Lebanon),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11751?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Levantine Arabic (Palestine),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11752?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Levantine Arabic (Syria),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11753?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Najdi Arabic (Saudi Arabia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11754?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Egyptian Arabic (Egypt),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11755?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Gulf Arabic (United Arab Emirates),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11756?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Arabic (Saudi Arabia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11757?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – French (Belgium),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11759?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – French (Switzerland),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11759?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – German (Austria),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11760?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - English (United States) – Spanish (Chile),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11761?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - German (Germany) - Swedish (Sweden),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/10896?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - German (Germany) - Norwegian (Bokmal),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/10895?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Acceptability and Preference: Translation Raters - German (Germany) - Danish (Denmark),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/10893?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,APT Collection,Singapore,Annotation,https://oneforma.aidaform.com/app-task-demographic-survey
+discovered,2026-06-17T00:46:31+00:00,OneForma,Karl LLM – French (Canada & France) - French (France),Worldwide,LLM Prompt Authoring,https://my.oneforma.com/crowd/jobs/6599?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Karl LLM – French (Canada & France) - French (Canada),Worldwide,LLM Prompt Authoring,https://my.oneforma.com/crowd/jobs/6600?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Dermatologist,US,Annotation,https://my.oneforma.com/api/recruitment/pub/ENg61k
+discovered,2026-06-17T00:46:31+00:00,OneForma,Raffles,Singapore,Annotation,https://my.oneforma.com/api/recruitment/pub/sedpr4
+discovered,2026-06-17T00:46:31+00:00,OneForma,QA Specialist for Squirrel TSE Data Collection - Thai-Thailand,Worldwide,Annotation,https://my.oneforma.com/api/recruitment/pub/SqH3yf
+discovered,2026-06-17T00:46:31+00:00,OneForma,QA Specialist for Squirrel TSE Data Collection - Malay-Malaysia,Worldwide,Annotation,https://my.oneforma.com/api/recruitment/pub/U4bC0B
+discovered,2026-06-17T00:46:31+00:00,OneForma,QA Specialist for Squirrel TSE Data Collection - Indonesian-Indonesia,Worldwide,Annotation,https://my.oneforma.com/api/recruitment/pub/nkOV52
+discovered,2026-06-17T00:46:31+00:00,OneForma,QA Specialist for Squirrel TSE Data Collection - Hindi-India,Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/8161?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,QA Specialist for Squirrel TSE Data Collection - Hebrew-Israel,Worldwide,Annotation,https://my.oneforma.com/api/recruitment/pub/2wYmCm
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Vietnamese (Vietnam),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11424?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Turkish (Turkey),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10502?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Thai (Thailand),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/8258?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Swedish (Sweden),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10500?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Spanish (Spain),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10676?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Simplified Chinese (China),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11428?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Portuguese (Brazil),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11430?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Polish (Poland),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11427?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Norwegian (Norway),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11431?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Malay (Malaysia),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11426?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Korean (South Korea),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11422?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Japanese (Japan),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10681?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Italian (Italy),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10680?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Indonesian (Indonesia),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/8259?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Hebrew (Israel),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11425?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - German (Germany),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10675?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - French (France),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10677?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Finnish (Finland),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/8267?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Dutch (Netherlands),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11423?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Danish (Denmark),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10856?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Amber Image Annotator – Phase 2 - Chinese (Taiwan),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/11429?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,"Amber Image Annotator – Phase 2 - Arabic (Saudi Arabia, Egypt, Jordan, Morocco, United Arab Emirates)",Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/8266?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Kannada (India) - English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10809?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,"Paragraph Level Acceptability - Uzbek (Latin, Uzbekistan)-English (United States)",Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10816?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Simplified Chinese-Japanese (Japan),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/11001?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Serbian (Serbia)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10239?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Marathi (India)-English (United States),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10808?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Malayalam (India)-English (United States),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10814?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Japanese (Japan)-Simplified Chinese,Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/11000?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - German (Germany)-Turkish (Turkey),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9190?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - French (France)-Simplified Chinese,Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10984?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Swedish (Sweden),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10328?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Serbian (Serbia),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10229?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Danish (Denmark),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10329?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,"Paragraph Level Acceptability - English (United States)-Uzbek (Latin, Uzbekistan)",Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10815?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (United States)-Marathi (India),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10807?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (United States)-Malayalam (India),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10813?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (United States)-Kannada (India),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10810?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (United States)-English (Singapore),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10817?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (United States)-Bengali (India),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10812?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (United States)-Azeri (Latin) (Azerbaijan),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10805?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Bengali (India)-English (United States),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10811?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Azeri (Latin) (Azerbaijan)-English (United States),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/10806?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Simplified Chinese-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9616?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Ukrainian (Ukraine)-German (Germany),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9006?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Turkish (Turkey)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9108?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Swedish (Sweden)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9249?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Slovenian (Slovenia)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9119?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Slovak (Slovakia)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9193?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Russian (Russia)-Ukrainian (Ukraine),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9075?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Russian (Russia)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9276?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Romanian (Romania)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9240?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Portuguese (Brazil)-Italian (Italy),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9184?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Portuguese (Brazil)-German (Germany),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9267?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Portuguese (Brazil)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9026?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Polish (Poland)-Ukrainian (Ukraine),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9194?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Dutch (Netherlands)-Russian (Russia),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9178?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Dutch (Netherlands)-French (France),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9224?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Dutch (Netherlands)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9256?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Norwegian (Norway)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9225?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Korean (Korea)-Portuguese (Brazil),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9196?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Korean (Korea)-Italian (Italy),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9237?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Korean (Korea)-French (France),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9046?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Korean (Korea)-Spanish (Spain),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9064?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Korean (Korea)-German (Germany),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9085?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Japanese (Japan)-Portuguese (Brazil),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9284?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Japanese (Japan)-Italian (Italy),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9097?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Japanese (Japan)-Spanish (Spain),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9135?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Italian (Italy)-German (Germany),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9072?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Italian (Italy)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9118?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Icelandic (Iceland)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9037?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Indonesian (Indonesia)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9212?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Hungarian (Hungary)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9025?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Croatian (Croatia)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9200?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Hebrew (Israel)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9047?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - French (France)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9109?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Finnish (Finland)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9032?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Estonian (Estonia)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9248?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Spanish (Spain)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9258?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Ukrainian (Ukraine),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9294?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Slovenian (Slovenia),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9260?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Slovak (Slovakia),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9114?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Romanian (Romania),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9020?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Norwegian (Norway),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9149?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Icelandic (Iceland),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9043?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Hungarian (Hungary,Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9103?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Croatian (Croatia),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9241?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Hebrew (Israel),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9274?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Finnish (Finland),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9180?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Estonian (Estonia),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9284?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Greek (Greece),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9041?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Catalan (Spain),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9087?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - English (US)-Bulgarian (Bulgaria),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9115?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Greek (Greece)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9209?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - German (Germany)-Ukrainian (Ukraine),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9278?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - German (Germany)-Tukish (Turkey),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9190?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - German (Germany)-Arabic (U.A.E),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9211?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Danish (Denmark)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9150?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Catalan (Spain)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9090?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Bulgarian (Bulgaria)-English (US),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9226?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Arabic (U.A.E)-French (France),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9238?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Arabic (U.A.E)-Spanish (Spain),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9233?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Paragraph Level Acceptability - Arabic (U.A.E)-German (Germany),Worldwide,Annotation; Judging,https://my.oneforma.com/crowd/jobs/9235?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Swedish (Sweden),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11270
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Hungarian (Hungary),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11274
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Finnish (Finland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11269
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Danish (Denmark),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11268
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Czech (Czech Republic),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11267
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Ukrainian (Ukraine),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10319?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Spanish (Spain),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10314?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Russian (Russia),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10318?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Portuguese (Portugal),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10315?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Polish (Poland),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10317?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Korean (Korea),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10321?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Japanese (Japan),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10323?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Italian (Italy),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10325?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Hebrew (Israel),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10324?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - French (France),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10320?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - English (United States),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10326?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Dutch (Netherlands),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10322?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Diting Annotation - Arabic (U.A.E.),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/10316?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Vietnamese - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10663?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Tamil - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10658?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Swiss German - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10653?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Swedish - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10664?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Standard German - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10667?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Malay - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10657?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Italian - Austrian/Swiss German,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10662?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Hebrew - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10656?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - French Arabic - European French,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10673?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Finnish - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10655?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - European Spanish - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10659?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - European Spanish - Catalan,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10666?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - European Spanish - Basque,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10661?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - European Portuguese - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10670?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - European French - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10660?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - European French - Standard German,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10668?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Dutch - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10665?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Catalan - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10672?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Canadian French - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10669?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Brazilian Portuguese - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10671?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Collection – QA - Arabic - English,Worldwide,Judging,https://my.oneforma.com/crowd/jobs/10654?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Spanish (United States),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10701?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Spanish (Spain),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10702?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Portuguese (Portugal),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10694?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Portuguese (Brazil),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10697?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Korean (Korea),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10696?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Japanese (Japan),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10695?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Italian (Italy),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10693?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - German (Switzerland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10698?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - German (Germany),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10692?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - French (France),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10700?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - French (Canada),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10699?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - English (United States),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10688?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - English (United Kingdom),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10703?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Chinese Traditional (TW),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10689?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Chinese Traditional (HK),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10690?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Audio - Chinese Simplified,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10691?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Spanish - Spain,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10513?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Spanish - Mexico,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10514?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Russian - Russia,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10524?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Portuguese - Brazil,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10519?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Korean - Korea,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10521?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Japanese - Japan,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10520?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Italian - Italy,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10518?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Hebrew - Israel,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10523?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - German - Germany,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10517?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - French - France,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10515?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - French - Canada,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10516?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - English - United States,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10525?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - English - Singapore,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10527?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - English - India,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10526?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - English - Canada,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10528?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Ava Audio Collection - Arabic - Saudi Arabia,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10522?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Athena – AI Agent Reviewer - USA,Selected Locations,Judging; LLM Prompt Authoring,https://my.oneforma.com/crowd/jobs/8091?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Athena – AI Agent Reviewer - Japan,Selected Locations,Judging; LLM Prompt Authoring,https://my.oneforma.com/crowd/jobs/8091?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,RedWing – User Experience Evaluation (Medical Domain),US,Annotation; Judging,https://my.oneforma.com/crowd/jobs/11065?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Board-Certified Clinical Notes Specialist,US,Annotation,https://my.oneforma.com/crowd/jobs/11063?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - French (France)-Arabic (Algeria),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11082?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Vietnamese (Viet Nam),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11081?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Tamil (India),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11074?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Swedish (Sweden),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11078?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Dutch (Netherlands),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11076?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Malay (Malaysia),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11077?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Hebrew (Israel),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11080?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-French (Canada),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11072?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Finnish (Finland),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11083?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - English (US)-Catalan (Spain),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11075?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - German (Germany)-Italian (Italy),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11079?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - German (Germany)-French (France),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11084?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Transcription - Basque (Spain)-Spanish (Spain),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11073?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - English (United States),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11262
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - English (United Kingdom),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11263
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - English (Canada),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11264
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - English (Australia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11265
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Vietnamese (Vietnam),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11213
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Turkish (Turkey),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11226
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Thai (Thailand),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11214
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Swedish (Sweden),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11212
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Spanish (US),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11236
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Spanish (Spain),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11234
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Spanish (Mexico),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11235
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Russian (Russia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11217
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Norwegian (Bokmal),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11228
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Malay (Malaysia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11215
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Korean (Korea),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11216
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Japanese (Japan),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11219
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Italian (Italy),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11220
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Hebrew (Israel),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11229
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - German (Germany),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11221
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - French (France),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11231
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Finnish (Finland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11230
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - English (India),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11218
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Dutch (Netherlands),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11227
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Danish (Denmark),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11222
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fred Annotation - Arabic (Saudi Arabia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11223
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Transcription - German (Switzerland),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11021?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Transcription - German (Germany),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11003?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,BGN Transcription - French (Canada),Worldwide,Transcription,https://my.oneforma.com/crowd/jobs/11002?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Lighthouse 3,Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12578
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - Spanish (Spain) - Spanish (United States),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11321?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - Spanish (Spain) - Spanish (Mexico),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11322?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - Spanish (Spain) - Spanish (Chile),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11317?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - Portuguese (Brazil) - Portuguese (Portugal),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11332?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - German (Germany) - German (Austria),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11318?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - French (France) - French (Switzerland),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11346?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - French (France) - French (Belgium),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11319?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - Dutch (Netherlands) - Dutch (Belgium),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11320?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Adaptation - Arabic (U.A.E.) - Arabic (Saudi Arabia),Worldwide,Translation,https://my.oneforma.com/crowd/jobs/11172?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Tamil (India) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10727?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Swedish (Sweden) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10733?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Spanish (Spain) - Catalan (Spain),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10724?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Spanish (Spain) - Basque (Spain),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10734?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Portuguese (Portugal) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10670?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Portuguese (Brazil) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10671?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Malay (Malaysia) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10726?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Italian (Italy) - German (Switzerland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10736?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Italian (Italy) - German (Austria),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11364?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Hebrew (Israel) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10725?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - French (France) - German (Germany),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10729?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - French (France) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10735?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Finnish (Finland) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10732?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Arabic (United Arab Emirates) - English,Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10731?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Vega Audio Data Collection - Arabic (France) - French (France),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/10723?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Andromeda - Spanish - Spain,Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802653992628225
+discovered,2026-06-17T00:46:31+00:00,OneForma,Andromeda - Japanese - Japan,Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802654550933505
+discovered,2026-06-17T00:46:31+00:00,OneForma,Andromeda - Italian-Italy,Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802654090378241
+discovered,2026-06-17T00:46:31+00:00,OneForma,Andromeda - German-Germany,Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802654224287745
+discovered,2026-06-17T00:46:31+00:00,OneForma,Andromeda - French - France,Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802653759969281
+discovered,2026-06-17T00:46:31+00:00,OneForma,Andromeda - Dutch - Netherlands,Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802654352332801
+discovered,2026-06-17T00:46:31+00:00,OneForma,Andromeda - Arabic - UAE,Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802655761419265
+discovered,2026-06-17T00:46:31+00:00,OneForma,Onyx OCR Annotation (Catalan),Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/12317?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,UHRS Crowd Labeling Tasks - Spanish - United States,Selected Locations,Annotation; Judging,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11245
+discovered,2026-06-17T00:46:31+00:00,OneForma,UHRS Crowd Labeling Tasks - Japanese - Japan,Selected Locations,Annotation; Judging,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11244
+discovered,2026-06-17T00:46:31+00:00,OneForma,UHRS Crowd Labeling Tasks - German - Germany,Selected Locations,Annotation; Judging,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11242
+discovered,2026-06-17T00:46:31+00:00,OneForma,UHRS Crowd Labeling Tasks - English - United States,Selected Locations,Annotation; Judging,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11239
+discovered,2026-06-17T00:46:31+00:00,OneForma,Humus 3 – Kids,US,Data Collection,https://oneforma.aidaform.com/humus-minor-demographics-survey-copy
+discovered,2026-06-17T00:46:31+00:00,OneForma,Humus 3 – Adults,US,Data Collection,https://oneforma.aidaform.com/humus-new-participant-demographics-survey
+discovered,2026-06-17T00:46:31+00:00,OneForma,Physicians,Selected Locations,Annotation,https://my.oneforma.com/crowd/jobs/11664?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Vietnam,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747794577409
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - USA,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621372417
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - UAE,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747667638273
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Turkey,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747505868801
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Spain,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747341632513
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - South Africa,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621369345
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Singapore,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747212751873
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Romania,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621359105
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Portugal,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747029368833
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Poland,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621355009
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - New Zealand,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746836179969
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Morocco,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746603143169
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Mexico,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746437460993
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Malaysia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621350913
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Kenya,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746273964033
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Japan,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746090118145
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Italy,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621346817
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Israel,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745884722177
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Hong Kong,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745513711617
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Greece,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621380609
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Germany,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621410305
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - France,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745356365825
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Ireland,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621339649
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - India,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745723490305
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Egypt,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819743078462465
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Czech Republic,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621406209
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Croatia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621402113
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Colombia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621385729
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Chile,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815950480446465
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Canada FR,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815950271647745
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Canada EN,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1817621663669249
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Bulgaria,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815948340524033
+discovered,2026-06-17T00:46:31+00:00,OneForma,Centaurus: Short Video Recording Study - Australia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819742646441985
+discovered,2026-06-17T00:46:31+00:00,OneForma,Fur Frame,US,Data Collection,https://oneforma.aidaform.com/Pets-VideoCollection
+discovered,2026-06-17T00:46:31+00:00,OneForma,Jellyfish – Voice Assistant Conversation Annotation - Italian - Switzerland,Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/12020?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Jellyfish – Voice Assistant Conversation Annotation - French - Switzerland,Worldwide,Annotation,https://my.oneforma.com/crowd/jobs/12017?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Vietnamese (Vietnam),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11695
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Turkish (Turkey),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11921
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Thai (Thailand),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11920
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Swedish (Sweden),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12954
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Portuguese (Brazil),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12941
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Polish (Poland),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12950
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Norwegian (Bokmal),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11919
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Malay (Malaysia),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11910
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Korean (Korea),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12944
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Japanese (Japan),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12943
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Italian (Italy),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12946
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Indonesian (Indonesia),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11917
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Hindi (India),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12951
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Hebrew (Israel),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11915
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - German (Germany),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12947
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - French (France),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12942
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Finnish (Finland),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12948
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Dutch (Netherlands),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12945
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Danish (Denmark),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12952
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Chinese Traditional (TW),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11922
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Chinese Traditional (Hong Kong),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12953
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Chinese Simplified,Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12949
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kawaii – Audio Annotation and Speaker Identification - Arabic (Saudi Arabia),Selected Locations,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=11895
+discovered,2026-06-17T00:46:31+00:00,OneForma,Orbit – In Home Video Data Collection,Seattle Area,Data Collection,https://oneforma.aidaform.com/project-orbit-sign-up
+discovered,2026-06-17T00:46:31+00:00,OneForma,"Kilo – Video Data Collection Study - New York, NY",Las Vegas; New York City; Onsite; Redmond; US,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820963259389953
+discovered,2026-06-17T00:46:31+00:00,OneForma,"Kilo – Video Data Collection Study - Redmond, WA",Las Vegas; New York City; Onsite; Redmond; US,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820963076444161
+discovered,2026-06-17T00:46:31+00:00,OneForma,"Kilo – Video Data Collection Study - Las Vegas, NV",Las Vegas; New York City; Onsite; Redmond; US,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820963635538945
+discovered,2026-06-17T00:46:31+00:00,OneForma,Kilo – Video Data Collection Study - Bellevue,Las Vegas; New York City; Onsite; Redmond; US,Data Collection,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12928
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Spanish (Spain),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11952?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Norwegian (Bokmal),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/12021?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Switzerland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11956?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Germany),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11946?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Austria),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11960?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (France),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11950?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (Canada),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11954?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (Belgium),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11962?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Finnish (Finland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11966?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - English (United Kingdom),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11894?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - English (Ireland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11958?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Dutch (Netherlands),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11948?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Danish (Denmark),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11964?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (United Kingdom),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820105366763521
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (South Africa),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106797290497
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Singapore),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820107244975105
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (New Zealand),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106744248321
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Ireland),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820107181730817
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (India),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106630615041
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Australia),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106519139329
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Vietnamese (Vietnam),Remote,Translation,https://my.oneforma.com/crowd/jobs/12429?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Turkish (Turkey),Remote,Translation,https://my.oneforma.com/crowd/jobs/12440?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Thai (Thailand),Remote,Translation,https://my.oneforma.com/crowd/jobs/12433?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Telugu (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12438?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Tamil (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12441?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Swedish (Sweden),Remote,Translation,https://my.oneforma.com/crowd/jobs/12445?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Spanish (US),Remote,Translation,https://my.oneforma.com/crowd/jobs/12456?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Spanish (Spain),Remote,Translation,https://my.oneforma.com/crowd/jobs/12422?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Spanish (Mexico),Remote,Translation,https://my.oneforma.com/crowd/jobs/12449?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Spanish (International),Remote,Translation,https://my.oneforma.com/crowd/jobs/12446?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Slovak (Slovakia),Remote,Translation,https://my.oneforma.com/crowd/jobs/12450?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Romanian (Romania),Remote,Translation,https://my.oneforma.com/crowd/jobs/12453?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Punjabi (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12454?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Portuguese (Portugal),Remote,Translation,https://my.oneforma.com/crowd/jobs/12455?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Portuguese (Brazil),Remote,Translation,https://my.oneforma.com/crowd/jobs/12436?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Polish (Poland),Remote,Translation,https://my.oneforma.com/crowd/jobs/12431?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Norwegian Bokmål (Norway),Remote,Translation,https://my.oneforma.com/crowd/jobs/12451?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Marathi (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12420?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Malayalam (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12409?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Malay (Malaysia),Remote,Translation,https://my.oneforma.com/crowd/jobs/12406?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Korean (South Korea),Remote,Translation,https://my.oneforma.com/crowd/jobs/12419?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Kannada (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12403?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Japanese (Japan) → English (US),Remote,Translation,https://my.oneforma.com/crowd/jobs/12426?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Japanese (Japan),Remote,Translation,https://my.oneforma.com/crowd/jobs/12415?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Italian (Italy),Remote,Translation,https://my.oneforma.com/crowd/jobs/12414?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Indonesian (Indonesia),Remote,Translation,https://my.oneforma.com/crowd/jobs/12416?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Hindi (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12427?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Hebrew (Israel),Remote,Translation,https://my.oneforma.com/crowd/jobs/12439?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Gujarati (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12434?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Greek (Greece),Remote,Translation,https://my.oneforma.com/crowd/jobs/12443?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - German (Germany),Remote,Translation,https://my.oneforma.com/crowd/jobs/12410?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - French (France),Remote,Translation,https://my.oneforma.com/crowd/jobs/12407?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - French (Canada),Remote,Translation,https://my.oneforma.com/crowd/jobs/12430?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - French (Belgium),Remote,Translation,https://my.oneforma.com/crowd/jobs/12423?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Finnish (Finland),Remote,Translation,https://my.oneforma.com/crowd/jobs/12448?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Filipino (Philippines),Remote,Translation,https://my.oneforma.com/crowd/jobs/12444?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - English (UK),Remote,Translation,https://my.oneforma.com/crowd/jobs/12442?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - English (South Africa),Remote,Translation,https://my.oneforma.com/crowd/jobs/12437?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - English (Singapore),Remote,Translation,https://my.oneforma.com/crowd/jobs/12435?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - English (Ireland),Remote,Translation,https://my.oneforma.com/crowd/jobs/12432?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - English (India),Remote,Translation,https://my.oneforma.com/crowd/jobs/12428?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - English (Canada),Remote,Translation,https://my.oneforma.com/crowd/jobs/12425?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - English (Australia),Remote,Translation,https://my.oneforma.com/crowd/jobs/12421?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Dutch (Netherlands),Remote,Translation,https://my.oneforma.com/crowd/jobs/12424?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Dutch (Belgium),Remote,Translation,https://my.oneforma.com/crowd/jobs/12418?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Danish (Denmark),Remote,Translation,https://my.oneforma.com/crowd/jobs/12417?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Chinese Traditional (Taiwan),Remote,Translation,https://my.oneforma.com/crowd/jobs/12411?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Chinese Simplified,Remote,Translation,https://my.oneforma.com/crowd/jobs/12404?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Chinese Simplified → English (US),Remote,Translation,https://my.oneforma.com/crowd/jobs/12405?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,"LELI – Review & Refine Machine Translations in Your Language - Bangla (Bangladesh, India)",Remote,Translation,https://my.oneforma.com/crowd/jobs/12408?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Arabic (UAE),Remote,Translation,https://my.oneforma.com/crowd/jobs/12402?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Arabic (Saudi Arabia),Remote,Translation,https://my.oneforma.com/crowd/jobs/12401?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Spanish (Spain),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11953?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Norwegian (Norway),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/12022?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Switzerland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11957?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Germany),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11947?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Austria),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11961?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (France),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11951?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (Canada),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11955?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (Belgium),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11963?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Finnish (Finland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11967?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - English (UK),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11872?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - English (Ireland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11959?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Dutch (Netherlands),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11949?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Danish (Denmark),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11965?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - German - Switzerland,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12252
+discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - German - Austria,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12250
+discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - French - Canada,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12253
+discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - French - Belgium,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12249
+discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - English - Ireland,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12251
+discovered,2026-06-17T00:46:31+00:00,OneForma,Project Photo ML IQ 2 – Evaluate Image Quality and Help Improve Computer Vision AI,Malaysia,Judging,https://my.oneforma.com/crowd/jobs/12577?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,MARS Cultural Annotation Project (English – Singapore),Singapore,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12655
 removed,2026-06-16T04:03:03+00:00,Mercor,Social Work Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnbZvZkzU0BqxmLBK_Ztw
 removed,2026-06-16T03:38:08+00:00,Outlier,AI Writing Evaluator,Remote,Unknown,https://outlier.ai/sample/ai-writing-evaluator
 removed,2026-06-16T03:38:08+00:00,Outlier,AI Trainer - Mathematics,Remote,Unknown,https://outlier.ai/sample/ai-trainer-math
@@ -5225,7 +5935,7 @@ discovered,2026-06-16T02:12:32+00:00,Alignerr,Engenheiro de Simulação Mecânic
 discovered,2026-06-16T02:12:32+00:00,Alignerr,Mechanical & Structural Simulation Engineer (OpenFOAM / OpenSees) – Remote Contract,United States,STEM,https://www.alignerr.com/jobs/f54334d7-2315-43b7-9bfa-87722ef21ae4
 discovered,2026-06-16T02:12:32+00:00,Alignerr,Ingeniero de Simulación Mecánica y Estructural (OpenFOAM / OpenSees) – Remoto,United States,STEM,https://www.alignerr.com/jobs/2be33f0e-1253-4805-986d-2b9491636741
 removed,2026-06-16T01:53:19+00:00,Mercor,Legal Technology Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZsP8rVe0Qk8aRJY7jZ
-discovered,2026-06-16T01:53:19+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Computational Bayesian Statistics and Applied Mathematics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqrzTp_Tor65aSBAK4BM
+discovered,2026-06-16T01:53:19+00:00,Mercor,Computational Bayesian Statistics and Applied Mathematics Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqrzTp_Tor65aSBAK4BM
 removed,2026-06-16T01:52:58+00:00,Outlier,AI Writing Evaluator,Remote,Unknown,https://outlier.ai/sample/ai-writing-evaluator
 removed,2026-06-16T01:52:58+00:00,Outlier,AI Trainer - Mathematics,Remote,Unknown,https://outlier.ai/sample/ai-trainer-math
 removed,2026-06-16T01:52:58+00:00,Outlier,AI Trainer - Coding Expertise,Remote,Unknown,https://outlier.ai/sample/ai-trainer-coding
@@ -5484,18 +6194,18 @@ discovered,2026-06-16T01:00:49+00:00,Mercor,Finance operations / audit support E
 discovered,2026-06-16T01:00:49+00:00,Mercor,Public-sector procurement / RFI response Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6REjHDXxoFBTRM271f
 discovered,2026-06-16T01:00:49+00:00,Mercor,Process improvement / SOPs Evaluator,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnp6RFTTm_Hgi-9RIXZvF
 discovered,2026-06-16T01:00:49+00:00,Mercor,Personal finance / consumer planning Evaluator,Remote,Finance,https://work.mercor.com/jobs/list_AAABnp6RHHAq6lsG6P1Ay5Xt
-discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Astrophysics & Cosmology,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqgn-e5QabpiT6NKWIj6
+discovered,2026-06-16T01:00:49+00:00,Mercor,Astrophysics & Cosmology Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqgn-e5QabpiT6NKWIj6
 discovered,2026-06-16T01:00:49+00:00,Mercor,UK-Based Top Business School Graduates / Faculty,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqhRsibrhpVguw5AiI3f
 discovered,2026-06-16T01:00:49+00:00,Mercor,Software & Data Science Expert,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnqhyQ63xJQKIWvpIr65V
 discovered,2026-06-16T01:00:49+00:00,Mercor,Engineering & Built Environment Experts,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqhzPmHn5_YDl8JNXZ2b
-discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Bioinformatics & Single-Cell Genomics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqil4G0b7MIufDdIfY-K
-discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Computational Chemistry & Electronic Structure,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqiooi7pX4CD2IRNGa14
+discovered,2026-06-16T01:00:49+00:00,Mercor,Bioinformatics & Single-Cell Genomics Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqil4G0b7MIufDdIfY-K
+discovered,2026-06-16T01:00:49+00:00,Mercor,Computational Chemistry & Electronic Structure Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqiooi7pX4CD2IRNGa14
 discovered,2026-06-16T01:00:49+00:00,Mercor,Keystone Education Expert,Remote,Humanities,https://work.mercor.com/jobs/list_AAABnqjLkW71vRPNCBhIfqmN
-discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Electrical Engineering & RF/Circuit Design,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqjwK2IkfR6hBL1DpLha
-discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Particle & Nuclear Physics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqjx4gSFeJKNQs1MIZsE
-discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Pharmacokinetics & Systems Biology,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqj0dQ88MQlW8UJCo7xi
+discovered,2026-06-16T01:00:49+00:00,Mercor,Electrical Engineering & RF/Circuit Design Expert,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqjwK2IkfR6hBL1DpLha
+discovered,2026-06-16T01:00:49+00:00,Mercor,Particle & Nuclear Physics Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqjx4gSFeJKNQs1MIZsE
+discovered,2026-06-16T01:00:49+00:00,Mercor,Pharmacokinetics & Systems Biology Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqj0dQ88MQlW8UJCo7xi
 discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Seismology & Geophysics,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnqj1wrDexVIkKMlFdr3m
-discovered,2026-06-16T01:00:49+00:00,Mercor,STEM Computational Scientific Software & Evaluation Design - Structural & Mechanical Engineering,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqj2W8ujnosMhf5DWpXZ
+discovered,2026-06-16T01:00:49+00:00,Mercor,Structural & Mechanical Engineering Expert,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqj2W8ujnosMhf5DWpXZ
 discovered,2026-06-16T01:00:49+00:00,Mercor,Physician (Generalist),Remote,Medicine,https://work.mercor.com/jobs/list_AAABnqm8RKY1zU59PmdByJDu
 discovered,2026-06-16T01:00:49+00:00,Mercor,Visual Quality Reviewer (Super Resolution),"Remote, United States (PST to EST hours)",Arts & Design,https://work.mercor.com/jobs/list_AAABnq4MexaHobdzQJJBgKC0
 discovered,2026-06-16T01:00:49+00:00,Mercor,Lighting and Cinematography Consultant,"Playa Vista, CA or New York, NY",Arts & Design,https://work.mercor.com/jobs/list_AAABnq4MqsLC2BTPI3REk4q9

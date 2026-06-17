@@ -1,32 +1,36 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-16T04:07:22+00:00 UTC
+Generated: 2026-06-17T00:53:24+00:00 UTC
 
 ## Sources
 
-Core sources included: alignerr, appen, meridial, mercor, outlier
+Core sources included: alignerr, appen, meridial, mercor, oneforma, outlier
 Experimental sources: excluded
 Simulation data: excluded
 Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **6336**
-- Estimated market opportunities: **1620**
+- Raw active postings: **7034**
+- Estimated market opportunities: **1675**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
 - Alignerr posting variants: **4716**
+- OneForma raw variants: **692**
+- OneForma canonical opportunities: **49**
+- OneForma posting variants: **643**
 
 ## Active Jobs by Company
 
 | Label | Count |
 | --- | ---: |
 | Alignerr | 5218 |
-| Meridial | 799 |
-| Mercor | 224 |
+| Meridial | 801 |
+| OneForma | 692 |
+| Mercor | 223 |
 | Outlier | 63 |
-| Appen | 32 |
+| Appen | 37 |
 
 ## Active Jobs by Expertise/Department
 
@@ -37,28 +41,35 @@ Sample fallback data: excluded
 | GENERAL | 484 |
 | Language & Linguistics | 372 |
 | AUDIO | 320 |
+| Translation | 183 |
+| Data Collection | 182 |
 | OTHER | 156 |
-| Business & Professions | 116 |
+| Annotation | 120 |
+| Business & Professions | 118 |
 | Sciences | 99 |
+| Annotation; Judging | 86 |
+| Judging | 85 |
 | LANGUAGE | 84 |
 | Engineering & Technology | 58 |
 | Coding | 57 |
 | Life, Physical, and Social Science | 40 |
+| AI Trainers - Domain Experts | 37 |
 | Finance & Mathematics | 36 |
-| AI Trainers - Domain Experts | 32 |
 | Business Operations | 32 |
 | Data Analysis | 31 |
-| Law | 29 |
+| Law | 30 |
 | Creative & Multi-Media | 26 |
-| Software Engineering | 23 |
 | Finance | 22 |
-| Miscellaneous | 15 |
+| Software Engineering | 22 |
+| Annotation; Transcription | 16 |
+| Miscellaneous | 16 |
+| Transcription | 16 |
 | Customer Service | 11 |
 | Language and Audio | 11 |
 | Other Engineering | 11 |
 | Arts & Design | 9 |
-| Medicine | 9 |
 | Early Career | 7 |
+| Medicine | 7 |
 | Code | 6 |
 | History | 5 |
 | Language - Chinese | 5 |
@@ -66,6 +77,8 @@ Sample fallback data: excluded
 | Generalist | 3 |
 | Language - Dutch | 3 |
 | Humanities | 2 |
+| Judging; LLM Prompt Authoring | 2 |
+| LLM Prompt Authoring | 2 |
 | Language - Bengali | 2 |
 | Language - Finnish | 2 |
 | Language - Gujarati | 2 |
@@ -101,24 +114,24 @@ Sample fallback data: excluded
 
 ## Today's Activity
 
-- New jobs today: **5507**
-- Removed jobs today: **4**
-- Reactivated jobs today: **0**
+- New jobs today: **703**
+- Removed jobs today: **6**
+- Reactivated jobs today: **1**
 
 ## Top Recent Events
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| removed | 2026-06-16T04:03:03+00:00 | Mercor | Social Work Expert | Life, Physical, and Social Science | Remote | [Link](https://work.mercor.com/jobs/list_AAABnbZvZkzU0BqxmLBK_Ztw) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Growth Operations Specialist | GENERAL | United States | [Link](https://www.alignerr.com/jobs/99e74226-e19c-43ae-be6c-767bfd51f8da) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Growth & Community Manager | GENERAL | United States | [Link](https://www.alignerr.com/jobs/f7763faa-400f-4188-8d41-2b2cee38248f) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Data Analysis & CAD Specialist | STEM | United States | [Link](https://www.alignerr.com/jobs/3fee92ef-9271-45f2-a177-833b68feec0c) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Senior Software Engineer – AI Evaluation | CODING | United States | [Link](https://www.alignerr.com/jobs/cfa052f0-e721-4ec5-8d38-d697e534081b) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Math Expert | STEM | United States | [Link](https://www.alignerr.com/jobs/36e26032-618d-4291-8597-0e52b90be550) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Mathematician, PhD | STEM | United States | [Link](https://www.alignerr.com/jobs/607dd1ac-b74f-45fb-8ca2-f1b8da21db90) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Physics Expert | STEM | United States | [Link](https://www.alignerr.com/jobs/08dff1b1-4ac0-41ce-b085-5cffa4fed6dc) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Physicist, PhD | STEM | United States | [Link](https://www.alignerr.com/jobs/61dabc6e-7647-4a55-8abd-72d3c5edfb9f) |
-| discovered | 2026-06-16T02:12:32+00:00 | Alignerr | Biology Expert (Masters/PhDs) | STEM | United States | [Link](https://www.alignerr.com/jobs/cb0cf0c5-67cf-4960-b3f3-75c3124b639f) |
+| removed | 2026-06-17T00:48:01+00:00 | Mercor | Python SWE | Software Engineering | Remote | [Link](https://work.mercor.com/jobs/list_AAABl8f-EJV6TYkTcM1LxpPK) |
+| removed | 2026-06-17T00:48:01+00:00 | Mercor | Pharmacists Survey – Retail & Community Pharmacy Insights | Medicine | Remote | [Link](https://work.mercor.com/jobs/list_AAABnlNQ7zaGwxjcZptC5oOY) |
+| removed | 2026-06-17T00:48:01+00:00 | Mercor | Clinicians Survey – Ambulatory & Community Care Insights | Medicine | Remote | [Link](https://work.mercor.com/jobs/list_AAABnlNc5vKNKKMWYLxGQ7NX) |
+| removed | 2026-06-17T00:48:01+00:00 | Mercor | UK-Based Top Business School Graduates / Faculty | Life, Physical, and Social Science | Remote | [Link](https://work.mercor.com/jobs/list_AAABnqhRsibrhpVguw5AiI3f) |
+| removed | 2026-06-17T00:48:01+00:00 | Mercor | STEM Computational Scientific Software & Evaluation Design - Seismology & Geophysics | Life, Physical, and Social Science | Remote | [Link](https://work.mercor.com/jobs/list_AAABnqj1wrDexVIkKMlFdr3m) |
+| removed | 2026-06-17T00:48:01+00:00 | Mercor | SALT (State and Local Taxation) Experts | Law | Remote | [Link](https://work.mercor.com/jobs/list_AAABnrLzsWeES5emKwdPFLCl) |
+| reactivated | 2026-06-17T00:48:01+00:00 | Mercor | Legal Technology Expert | Law | Remote | [Link](https://work.mercor.com/jobs/list_AAABnbZsP8rVe0Qk8aRJY7jZ) |
+| discovered | 2026-06-17T00:48:01+00:00 | Mercor | Litigation Expert | Law | Remote | [Link](https://work.mercor.com/jobs/list_AAABnbZyA4_gXfJsVdJPW44R) |
+| discovered | 2026-06-17T00:48:01+00:00 | Mercor | ChatGPT Power User | Miscellaneous | Remote (US-based only) | [Link](https://work.mercor.com/jobs/list_AAABnplcOw2aDGHJ5LVLMpFM) |
+| discovered | 2026-06-17T00:48:01+00:00 | Mercor | Mathematics Researchers (India, Part-time) | Life, Physical, and Social Science | Remote | [Link](https://work.mercor.com/jobs/list_AAABns-cOU9t9vRleMhCNJV2) |
 
 ## Data Quality Summary
 
@@ -129,11 +142,11 @@ Sample fallback data: excluded
 | Jobs missing location | 0 |
 | Active jobs with Unknown expertise/department | 0 |
 | Duplicate external_id within same company | 0 |
-| Duplicate URL within same company | 0 |
+| Duplicate URL within same company | 24 |
 | Failed crawl runs | 0 |
 
 ## Notes
 
-- Estimated market opportunities are an approximation: Alignerr uses canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
+- Estimated market opportunities are an approximation: Alignerr and OneForma use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
 - Simulation data is excluded from this snapshot.
 - Legacy sample fallback rows are excluded from this publishable snapshot.

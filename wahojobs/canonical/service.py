@@ -1,7 +1,16 @@
 from wahojobs.canonical.alignerr import canonicalize_job
+from wahojobs.canonical.oneforma import canonicalize_job as canonicalize_oneforma_job
 
 
 def sync_alignerr_canonical_opportunities(conn, company_id):
+    sync_canonical_opportunities(conn, company_id, canonicalize_alignerr_row)
+
+
+def sync_oneforma_canonical_opportunities(conn, company_id):
+    sync_canonical_opportunities(conn, company_id, canonicalize_oneforma_job)
+
+
+def sync_canonical_opportunities(conn, company_id, canonicalizer):
     rows = conn.execute(
         """
         SELECT *
@@ -14,8 +23,7 @@ def sync_alignerr_canonical_opportunities(conn, company_id):
     ).fetchall()
 
     for row in rows:
-        source_category = row["expertise"] or row["department"] or "Unknown"
-        canonical = canonicalize_job(row["title"], source_category)
+        canonical = canonicalizer(row)
         canonical_id = upsert_canonical_opportunity(conn, company_id, canonical, row)
         conn.execute(
             """
@@ -27,6 +35,11 @@ def sync_alignerr_canonical_opportunities(conn, company_id):
         )
 
     refresh_canonical_rollups(conn, company_id)
+
+
+def canonicalize_alignerr_row(row):
+    source_category = row["expertise"] or row["department"] or "Unknown"
+    return canonicalize_job(row["title"], source_category)
 
 
 def upsert_canonical_opportunity(conn, company_id, canonical, job):

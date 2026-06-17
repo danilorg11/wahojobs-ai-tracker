@@ -12,7 +12,7 @@ from wahojobs.reporting.market import get_market_size_summary
 from wahojobs.reporting.terminal import print_crawl_summary
 
 
-CORE_SOURCES = ["alignerr", "appen", "meridial", "mercor", "outlier"]
+CORE_SOURCES = ["alignerr", "appen", "meridial", "mercor", "oneforma", "outlier"]
 EXPERIMENTAL_SOURCES = ["invisible"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]
 
@@ -123,6 +123,12 @@ def print_final_summary(succeeded, failed, include_experimental=False):
         f"{market_summary['alignerr_canonical_opportunities']}"
     )
     print(f"Alignerr posting variants: {market_summary['alignerr_posting_variants']}")
+    print(f"OneForma raw variants: {market_summary['oneforma_raw_variants']}")
+    print(
+        "OneForma canonical opportunities: "
+        f"{market_summary['oneforma_canonical_opportunities']}"
+    )
+    print(f"OneForma posting variants: {market_summary['oneforma_posting_variants']}")
     print("Export files written:")
     for path in EXPORT_FILES:
         status = "yes" if path.exists() else "no"

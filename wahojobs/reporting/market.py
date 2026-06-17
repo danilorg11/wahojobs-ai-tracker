@@ -1,4 +1,5 @@
 EXPERIMENTAL_SLUGS = ("invisible",)
+CANONICALIZED_SLUGS = ("alignerr", "oneforma")
 
 
 def get_market_size_summary(conn, include_experimental=False, include_simulation=False):
@@ -12,6 +13,16 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         include_simulation=include_simulation,
     )
     alignerr_canonical_opportunities = count_alignerr_canonical_opportunities(conn)
+    oneforma_raw_postings = count_company_raw_postings(
+        conn,
+        "oneforma",
+        include_simulation=include_simulation,
+    )
+    oneforma_canonical_opportunities = count_company_canonical_opportunities(
+        conn,
+        "oneforma",
+    )
+    canonical_opportunities = count_canonical_opportunities(conn)
     non_canonical_raw_jobs = count_non_canonical_raw_jobs(
         conn,
         include_experimental=include_experimental,
@@ -21,12 +32,17 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
     return {
         "raw_active_postings": raw_active_postings,
         "estimated_market_opportunities": (
-            alignerr_canonical_opportunities + non_canonical_raw_jobs
+            canonical_opportunities + non_canonical_raw_jobs
         ),
         "alignerr_raw_postings": alignerr_raw_postings,
         "alignerr_canonical_opportunities": alignerr_canonical_opportunities,
         "alignerr_posting_variants": (
             alignerr_raw_postings - alignerr_canonical_opportunities
+        ),
+        "oneforma_raw_variants": oneforma_raw_postings,
+        "oneforma_canonical_opportunities": oneforma_canonical_opportunities,
+        "oneforma_posting_variants": (
+            oneforma_raw_postings - oneforma_canonical_opportunities
         ),
     }
 
@@ -46,26 +62,50 @@ def count_raw_active_postings(conn, include_experimental=False, include_simulati
 
 
 def count_alignerr_raw_postings(conn, include_simulation=False):
+    return count_company_raw_postings(conn, "alignerr", include_simulation)
+
+
+def count_company_raw_postings(conn, slug, include_simulation=False):
     row = conn.execute(
         f"""
         SELECT COUNT(*) AS count
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
-        WHERE c.slug = 'alignerr'
+        WHERE c.slug = ?
           AND j.is_active = 1
           {simulation_filter("j", include_simulation)}
-        """
+        """,
+        (slug,),
     ).fetchone()
     return row["count"]
 
 
 def count_alignerr_canonical_opportunities(conn):
+    return count_company_canonical_opportunities(conn, "alignerr")
+
+
+def count_company_canonical_opportunities(conn, slug):
     row = conn.execute(
         """
         SELECT COUNT(*) AS count
         FROM canonical_opportunities co
         JOIN companies c ON c.id = co.company_id
-        WHERE c.slug = 'alignerr'
+        WHERE c.slug = ?
+          AND co.is_active = 1
+        """,
+        (slug,),
+    ).fetchone()
+    return row["count"]
+
+
+def count_canonical_opportunities(conn):
+    slugs = ",".join(f"'{slug}'" for slug in CANONICALIZED_SLUGS)
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*) AS count
+        FROM canonical_opportunities co
+        JOIN companies c ON c.id = co.company_id
+        WHERE c.slug IN ({slugs})
           AND co.is_active = 1
         """
     ).fetchone()
@@ -73,13 +113,14 @@ def count_alignerr_canonical_opportunities(conn):
 
 
 def count_non_canonical_raw_jobs(conn, include_experimental=False, include_simulation=False):
+    canonical_slugs = ",".join(f"'{slug}'" for slug in CANONICALIZED_SLUGS)
     row = conn.execute(
         f"""
         SELECT COUNT(*) AS count
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = 1
-          AND c.slug != 'alignerr'
+          AND c.slug NOT IN ({canonical_slugs})
           {simulation_filter("j", include_simulation)}
           {experimental_filter("c", include_experimental)}
         """
