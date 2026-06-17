@@ -7,10 +7,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
 from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
 OUTPUT_PATH = Path("exports/market_snapshot.md")
-CORE_SOURCES = ("alignerr", "appen", "meridial", "mercor", "oneforma", "outlier")
+CORE_SOURCES = ("alignerr", "appen", "meridial", "mercor", "micro1", "oneforma", "outlier")
 EXPERIMENTAL_SOURCES = ("invisible",)
 
 
@@ -25,6 +26,7 @@ def main():
             include_experimental=args.include_experimental,
             include_simulation=False,
         )
+        micro1_metrics = get_micro1_metrics(conn)
         jobs_by_company = get_active_jobs_by_company(conn, args.include_experimental)
         jobs_by_expertise = get_active_jobs_by_expertise(conn, args.include_experimental)
         event_counts = {
@@ -45,6 +47,7 @@ def main():
         generated_at,
         args.include_experimental,
         market_summary,
+        micro1_metrics,
         jobs_by_company,
         jobs_by_expertise,
         event_counts,
@@ -281,6 +284,7 @@ def render_snapshot(
     generated_at,
     include_experimental,
     market_summary,
+    micro1_metrics,
     jobs_by_company,
     jobs_by_expertise,
     event_counts,
@@ -326,6 +330,9 @@ def render_snapshot(
             f"**{market_summary['oneforma_canonical_opportunities']}**"
         ),
         f"- OneForma posting variants: **{market_summary['oneforma_posting_variants']}**",
+        f"- micro1 active jobs: **{micro1_metrics['active_jobs']}**",
+        f"- micro1 unique titles: **{micro1_metrics['unique_titles']}**",
+        f"- micro1 duplicate-title count: **{micro1_metrics['duplicate_title_count']}**",
         "",
     ]
 

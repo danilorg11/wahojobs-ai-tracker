@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
 from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
 def main():
@@ -51,6 +52,7 @@ def main():
             conn, report_date, args.include_simulation,
             args.include_experimental, limit=10
         )
+        micro1_metrics = get_micro1_metrics(conn)
 
     print("")
     print("Wahojobs Daily Market Report")
@@ -77,6 +79,9 @@ def main():
         f"{market_summary['oneforma_canonical_opportunities']}"
     )
     print(f"OneForma posting variants:        {market_summary['oneforma_posting_variants']}")
+    print(f"micro1 active jobs:               {micro1_metrics['active_jobs']}")
+    print(f"micro1 unique titles:             {micro1_metrics['unique_titles']}")
+    print(f"micro1 duplicate-title count:     {micro1_metrics['duplicate_title_count']}")
     print(f"New jobs today:           {discovered}")
     print(f"Removed jobs today:       {removed}")
     print(f"Reactivated jobs today:   {reactivated}")

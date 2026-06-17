@@ -9,10 +9,11 @@ from wahojobs.crawler.pipeline import run_crawl
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import initialize_database
 from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.micro1 import get_micro1_metrics
 from wahojobs.reporting.terminal import print_crawl_summary
 
 
-CORE_SOURCES = ["alignerr", "appen", "meridial", "mercor", "oneforma", "outlier"]
+CORE_SOURCES = ["alignerr", "appen", "meridial", "mercor", "micro1", "oneforma", "outlier"]
 EXPERIMENTAL_SOURCES = ["invisible"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]
 
@@ -92,13 +93,14 @@ def run_script(script_path, title):
 
 def get_market_summary(include_experimental=False):
     with get_connection() as conn:
-        return get_market_size_summary(
-            conn, include_experimental=include_experimental
+        return (
+            get_market_size_summary(conn, include_experimental=include_experimental),
+            get_micro1_metrics(conn),
         )
 
 
 def print_final_summary(succeeded, failed, include_experimental=False):
-    market_summary = get_market_summary(include_experimental)
+    market_summary, micro1_metrics = get_market_summary(include_experimental)
 
     print("")
     print("Final Summary")
@@ -129,6 +131,9 @@ def print_final_summary(succeeded, failed, include_experimental=False):
         f"{market_summary['oneforma_canonical_opportunities']}"
     )
     print(f"OneForma posting variants: {market_summary['oneforma_posting_variants']}")
+    print(f"micro1 active jobs: {micro1_metrics['active_jobs']}")
+    print(f"micro1 unique titles: {micro1_metrics['unique_titles']}")
+    print(f"micro1 duplicate-title count: {micro1_metrics['duplicate_title_count']}")
     print("Export files written:")
     for path in EXPORT_FILES:
         status = "yes" if path.exists() else "no"

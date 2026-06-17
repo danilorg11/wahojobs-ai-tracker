@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
+from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
 def main():
@@ -23,6 +24,7 @@ def main():
         unknown_canonical_groups = get_unknown_alignerr_canonical_groups(conn)
         oneforma_summary = get_company_canonical_summary(conn, "oneforma")
         top_oneforma_variants = get_top_company_variants(conn, "oneforma")
+        micro1_metrics = get_micro1_metrics(conn)
 
     print("")
     print("Wahojobs Data Quality Report")
@@ -119,6 +121,13 @@ def main():
             f"{row['variant_count']} variants"
         ),
     )
+    print("")
+    print("micro1 Duplicate-Title Checks")
+    print("-----------------------------")
+    print(f"micro1 active jobs: {micro1_metrics['active_jobs']}")
+    print(f"micro1 unique titles: {micro1_metrics['unique_titles']}")
+    print(f"micro1 duplicate-title count: {micro1_metrics['duplicate_title_count']}")
+    print("")
 
 
 def parse_args():

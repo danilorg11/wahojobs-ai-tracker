@@ -44,6 +44,12 @@ MERCOR_SEED = {
     "careers_url": "https://aws.api.mercor.com/work/listings-explore-page",
 }
 
+MICRO1_SEED = {
+    "name": "micro1",
+    "slug": "micro1",
+    "careers_url": "https://prod-api.micro1.ai/api/v1/job/portal",
+}
+
 ONEFORMA_SEED = {
     "name": "OneForma",
     "slug": "oneforma",
@@ -63,6 +69,7 @@ def initialize_database(db_path=DB_PATH):
             INVISIBLE_SEED,
             MERIDIAL_SEED,
             MERCOR_SEED,
+            MICRO1_SEED,
             ONEFORMA_SEED,
             OUTLIER_SEED,
         ):

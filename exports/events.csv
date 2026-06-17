@@ -1,4 +1,373 @@
 event_type,created_at,company,title,location,expertise/department,url
+discovered,2026-06-17T01:24:47+00:00,Mercor,Hospitals & Health Systems Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnbZuQaqhOK0yBtdK_7xi
+discovered,2026-06-17T01:24:47+00:00,Mercor,Regulatory Law Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyuMMQ6gDsf0tHBJvJ
+discovered,2026-06-17T01:24:00+00:00,micro1,Audio Production Expert,remote,expert,https://jobs.micro1.ai/post/aa498be8-7c47-4e03-a990-800cbfd9db1e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,English Language Expert (Generalist),remote,Unknown,https://jobs.micro1.ai/post/2382a9eb-726e-42f1-9c1b-0be0812cf0f4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Vectorworks Expert,remote,generalist,https://jobs.micro1.ai/post/0b0161ea-6f58-4123-b681-e633d8b79386?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Remote Smartphone Task Recorder (LATAM),Remote,robotics,https://jobs.micro1.ai/post/5324aa96-4af5-4e0c-830f-80c602a2d861?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data-Video Generalist (US),Remote,robotics,https://jobs.micro1.ai/post/204600bf-1abe-4ab0-a474-cd2264999149?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Thai Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/568a042a-bbb1-42fa-91f4-d10233475361?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Swiss German Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/10006ece-8b91-41b4-9b4c-1aba81ce94d6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Kannada Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/5d9f885e-4874-4567-8864-e6955729ecea?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Malayalam Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/ca488abe-20d5-487e-a8ff-93d12dc11ca1?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Odia Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/b0d96058-9b69-440c-a10e-e5578a2f2bf6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Thai Audio transcription Expert,Remote,generalist,https://jobs.micro1.ai/post/9232ac5f-14ad-4d3d-92bf-7f6792dcfd3d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Swiss German Audio transcription Expert,Remote,generalist,https://jobs.micro1.ai/post/3d6130a7-2c50-4e5b-9da8-31688f67d9e4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Kannada Audio transcription Expert,Remote,generalist,https://jobs.micro1.ai/post/4a0ad37c-cb28-4cac-8721-52fe7450bc65?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Malayalam Audio transcription Expert,Remote,generalist,https://jobs.micro1.ai/post/a742208a-eb52-4198-a9d7-ac3279f8017c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Odia Audio transcription Expert,Remote,generalist,https://jobs.micro1.ai/post/daaa63fc-0aff-428f-887d-03e342ce132f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Journalist,Remote,generalist,https://jobs.micro1.ai/post/eb81315c-4729-4f9f-b40d-eef935decd49?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Chartered Accountant / Enrolled Agent,Remote,generalist,https://jobs.micro1.ai/post/848db0f3-9129-45a5-945f-39cdacb4efeb?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Finance Specialist,Remote,generalist,https://jobs.micro1.ai/post/87fde079-4613-44af-86bb-3181348ade17?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Legal Expert,Remote,generalist,https://jobs.micro1.ai/post/853dcdc6-cc6f-4e48-b329-4a32bcb2780b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Coding Expert (Multi-Language),Remote,generalist,https://jobs.micro1.ai/post/9637f811-ddba-4e2d-82d1-67dc147d5067?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Design Expert (Multidisciplinary),Remote,generalist,https://jobs.micro1.ai/post/5896caff-9101-4fca-9343-638d1530f8a5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Video Editing Expert,Remote,generalist,https://jobs.micro1.ai/post/2ca5dc9a-66a7-4e35-99ef-836c4a2b63bd?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,UX/UI Expert,Remote,specialist,https://jobs.micro1.ai/post/57fa8a01-f031-4657-8cbc-b6e73f3a834f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Finance Specialist,Remote,generalist,https://jobs.micro1.ai/post/af84d7d4-7222-4a0d-9267-bbc6a4511bd9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Legal Specialist,Remote,generalist,https://jobs.micro1.ai/post/0f6b7386-98e6-4bac-b959-cda758344350?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Medical Specialist,Remote,generalist,https://jobs.micro1.ai/post/0b95255b-a273-4f09-b7d8-0f4205c7f18e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Australian English Language Expert,Remote,generalist,https://jobs.micro1.ai/post/61a26dea-4a04-417e-994a-fc86070c6724?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Hindi Language Expert,Remote,generalist,https://jobs.micro1.ai/post/39ab52a6-d9f2-45ba-92f6-2e57b7da4d4f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data-Video Generalist - LATAM,Remote,robotics,https://jobs.micro1.ai/post/a4ccc6bb-d61c-4432-8a86-11af3ca7591b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Video Capture Generalist - US-based,Remote,robotics,https://jobs.micro1.ai/post/1519251a-95b2-4919-b6bc-d470390b7805?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Arabic Language Expert,Remote,generalist,https://jobs.micro1.ai/post/91007b77-0525-4013-a8ea-d89a8bcf72f8?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Spanish Language Expert (Spain),Remote,generalist,https://jobs.micro1.ai/post/d0bfa446-8064-4ce6-b845-9ecc01f23938?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,French Language Expert (Canada),Remote,generalist,https://jobs.micro1.ai/post/095731d4-16e3-4605-871d-6d8a96586fea?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,French Language Expert,Remote,generalist,https://jobs.micro1.ai/post/c8ca7e91-45b5-4a7e-ab53-35596dd19f78?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,German Language Expert,Remote,generalist,https://jobs.micro1.ai/post/b4260f86-f7d5-4787-9b67-f0561899563b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Generalista de Datos-Video,Remote,Unknown,https://jobs.micro1.ai/post/19db4701-6b03-4862-b5dc-507dea431967?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Food Delivery App User Tester,Remote,generalist,https://jobs.micro1.ai/post/1ec2ad79-a5e7-412f-ab71-65279e8281eb?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Pathologist,Remote,specialist,https://jobs.micro1.ai/post/5eb483f3-651d-4f7b-b86a-e73a4f584c39?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,US Tax Law Analyst (EA/CA),Remote,generalist,https://jobs.micro1.ai/post/aa6500ef-0466-4312-8e8c-3ed2b211b5b6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Portuguese Language Expert (Portugal),Remote,generalist,https://jobs.micro1.ai/post/201fb92a-557c-4644-b0af-c683f8cbfedc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marathi Audio transcription Expert,Remote,generalist,https://jobs.micro1.ai/post/0a48fc61-2103-4302-893e-dcf0eba3c7f7?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Italian Language Expert,Remote,generalist,https://jobs.micro1.ai/post/e9e41d38-6ad0-4fa5-9bb3-e0c2c0c5b902?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Dutch Language Expert,Remote,generalist,https://jobs.micro1.ai/post/417682cd-ff2e-4ed6-99a2-1267d766677d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Mandarin Language Expert,Remote,generalist,https://jobs.micro1.ai/post/2354b891-52e3-4b0e-92c2-6cf7c908203a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Tamil Language Expert,Remote,generalist,https://jobs.micro1.ai/post/a470f0df-b923-4e82-b58f-6078ddd2dd63?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Thai Language Expert,Remote,generalist,https://jobs.micro1.ai/post/e3ccd502-1383-42f3-8055-59e7f2debba5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Norwegian Language Expert,Remote,generalist,https://jobs.micro1.ai/post/b41bfb9d-f30f-4a49-bf3d-194cec873348?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Turkish Language Expert,Remote,generalist,https://jobs.micro1.ai/post/27dd2975-d6d9-44a6-a87d-6561923d6829?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Singaporean English Language Expert,Remote,generalist,https://jobs.micro1.ai/post/3b51f552-4a85-49a1-8332-484787b3eeef?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Bengali Language Expert,Remote,generalist,https://jobs.micro1.ai/post/eb53f428-5c3c-495a-bf71-ef0204951ece?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Telugu Language Expert,Remote,generalist,https://jobs.micro1.ai/post/5127c534-80ea-49c5-990f-894a657d0484?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Video QC Analyst,Remote,Unknown,https://jobs.micro1.ai/post/361ba252-1181-42f8-9e27-6d596a24a1ff?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Remote Household Data Specialist - Video Capture (PH),Remote,Unknown,https://jobs.micro1.ai/post/ff5e419e-f4b7-46e0-bcb0-b5fd190506f3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Spanish Language Expert (Mexico),Remote,generalist,https://jobs.micro1.ai/post/4f2eb822-e6a3-4a69-9d0f-e2e68d692131?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Spanish Language Expert (Spain),Remote,language-audio,https://jobs.micro1.ai/post/fa6b8d84-b0e9-4c9d-9af1-d47f992a1962?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,French Transcription Expert (France),Remote,language-audio,https://jobs.micro1.ai/post/2996d139-d538-4e42-b8b3-0e89f1ce0b64?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,French Transcription Expert (Canada),Remote,language-audio,https://jobs.micro1.ai/post/88668fdd-0fb4-4d2e-89fa-e69af24689b0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Documents Specialist (French),Remote,other,https://jobs.micro1.ai/post/19720e58-f5f3-4684-8f5a-4205c8149446?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Documents Specialist (Korean),Remote,other,https://jobs.micro1.ai/post/d8e9deaa-31f5-4e18-bdc9-001c0bd6e686?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Documents Specialist (Chinese),Remote,other,https://jobs.micro1.ai/post/b5b7f7ae-f41f-47ca-ab29-47e26bbb8cd0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Documents Specialist (Japanese),Remote,other,https://jobs.micro1.ai/post/58902ed3-6de7-491b-9e30-f6d177e66ebf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Documents Specialist (German),Remote,other,https://jobs.micro1.ai/post/cb4d3efb-d133-46ac-9152-524c9590d81c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Documents Specialist (Portuguese),Remote,other,https://jobs.micro1.ai/post/4e16eb9a-93c8-49da-b88d-f6744a2a3fa9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,HR Documents Specialist (French),Remote,other,https://jobs.micro1.ai/post/60780c5b-f0da-488f-a68f-fe626e5244d3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,HR Documents Specialist (Korean),Remote,other,https://jobs.micro1.ai/post/c510b421-8fcb-441c-a288-a37499084734?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,HR Documents Specialist (Chinese),Remote,other,https://jobs.micro1.ai/post/b23dc5e2-9604-4d1b-b2b0-8c49075a8fd3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,HR Documents Specialist (Japanese),Remote,other,https://jobs.micro1.ai/post/4bbb0c38-edfd-45a8-b173-aa7932789809?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,HR Documents Specialist (German),Remote,other,https://jobs.micro1.ai/post/f008528d-297e-46e0-828f-2bf78efe6fe5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,HR Documents Specialist (Portuguese),Remote,other,https://jobs.micro1.ai/post/b7f7a6c4-e3f7-460e-95ab-9c0567d396a3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Documents Specialist (French),Remote,other,https://jobs.micro1.ai/post/6dc31b77-d3cc-44fb-9466-9226819281bc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Documents Specialist (Korean),Remote,other,https://jobs.micro1.ai/post/5bbdef74-3b7d-4ba0-9871-300b8fde2d96?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Documents Specialist (Chinese),Remote,other,https://jobs.micro1.ai/post/9b8a31a4-54db-4e45-90b6-76b82d665b00?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Documents Specialist (Japanese),Remote,other,https://jobs.micro1.ai/post/b4746f09-0bbe-45be-a7de-c5280e733d9e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Documents Specialist (German),Remote,other,https://jobs.micro1.ai/post/92b49cf0-0a96-41ea-a0bc-1d280b9fc233?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Documents Specialist (Portuguese),Remote,other,https://jobs.micro1.ai/post/90a071b7-bd9a-4806-b315-5bd67a1af25c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Video Data Entry Specialist (LATAM),Remote,robotics,https://jobs.micro1.ai/post/25977272-dca9-4b3a-a676-51bdfeae0a3d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Hindi Transcription Expert,Remote,language-audio,https://jobs.micro1.ai/post/6c1e8824-0207-442e-ba3e-62ab61c112a5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Arabic (MSA) Transcription Expert,Remote,language-audio,https://jobs.micro1.ai/post/aea99c49-ec92-4508-a868-3ca06be1dc75?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Domain Expert,Remote,ai-machine-learning,https://jobs.micro1.ai/post/546656aa-cb01-49ae-9830-a5afe4627d9d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Romanized Hindi Transcription Expert,Remote,language-audio,https://jobs.micro1.ai/post/f1dd84e9-9083-45fa-92c9-9da89ec283b5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Customer Support Email Analyst,Remote,generalist,https://jobs.micro1.ai/post/1dcb7192-83d0-4926-9ce1-60f0a5f7c966?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Robotics Evaluation Specialist,Remote,robotics,https://jobs.micro1.ai/post/110e09a6-7daf-48dc-95a6-22a2fa2ce8f2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Tatar Language Expert,Remote,language-audio,https://jobs.micro1.ai/post/e30eca0d-22ab-44d7-be44-f30fe721ced5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Mobile Game Developer,remote,specialist,https://jobs.micro1.ai/post/424d47da-7500-49ed-b639-cf5f68959ef6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Portuguese Language Expert,remote,Unknown,https://jobs.micro1.ai/post/0e19dc4e-47f0-4245-b315-a41795cfd171?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Chinese Voice Coach,remote,language-audio,https://jobs.micro1.ai/post/9046c7aa-fa4a-48bc-b6f7-3109c8693533?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Japanese Language Expert,remote,generalist,https://jobs.micro1.ai/post/6395dd86-7803-4699-8cce-d722d55aca43?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Kazakh Language Expert,remote,generalist,https://jobs.micro1.ai/post/31145ddb-e252-4901-ba9d-201a1a68ecf8?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Welsh Language Expert,remote,generalist,https://jobs.micro1.ai/post/ad0beac5-4d5e-47f9-b5ba-6536e8ff6dfd?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Bulgarian Language Expert,remote,generalist,https://jobs.micro1.ai/post/1cdf5acb-8c60-4922-81e0-bce44593ebd4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Linguistic Expert,remote,generalist,https://jobs.micro1.ai/post/920426bd-32e4-437c-a439-8855c857a0c9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Corporate Finance Expert,remote,specialist,https://jobs.micro1.ai/post/958f7fa7-444e-4592-a2b1-1395b7851030?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Tamil Language Expert,remote,generalist,https://jobs.micro1.ai/post/73740888-668d-4810-b3a5-ad12f3a383ce?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Nynorsk Language Expert,remote,generalist,https://jobs.micro1.ai/post/70eeab6f-71de-4ea7-9da4-370e0dbd13dc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Malayalam Language Expert,remote,generalist,https://jobs.micro1.ai/post/552e01b9-7ced-44e9-bf58-37ce4671b190?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Telugu Language Expert,remote,generalist,https://jobs.micro1.ai/post/a41e0dcb-0ea9-4bcf-852f-d792230dd8ac?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,"Human Data Manager, New Grad",remote,Unknown,https://jobs.micro1.ai/post/f32c275c-0683-4c0b-9312-405e9f267521?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Human Data Manager,remote,expert,https://jobs.micro1.ai/post/547767a3-93f3-4d9f-b725-62947f288924?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Chezch Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/a59357d9-175d-46e0-b2d8-d1b300dc6439?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Romanian Bilingual Expert,remote,Unknown,https://jobs.micro1.ai/post/1edd356f-c794-4f38-80a3-2d2e00f6dff6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Hawaiian Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/2d8055a7-59b2-4c5f-a2c7-3d5119231a9e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Slovenian Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/c54aee85-657d-4100-9953-ddc0b559309b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Sinhala Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/206e95e5-ea0a-4606-80e4-123371ea76c2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Armenian Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/9cd55d56-55cc-40ec-98c3-6dc612665ad8?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Khmer Bilingual Expert,remote,Unknown,https://jobs.micro1.ai/post/b90a6d22-b8cc-4692-a260-0e1cd1e9b78a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Latin Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/25bcf992-3ca9-4531-a364-c3e01277eab5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Shona Bilingual Experts,remote,generalist,https://jobs.micro1.ai/post/641b0304-ee22-414a-a8a9-7a28706b54c2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Maori Bilingual Experts,remote,generalist,https://jobs.micro1.ai/post/82f45c21-a876-4e2e-92a0-d07a793a6475?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Haitian Creole Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/c1de835e-db3a-4156-a294-0bed286f2f58?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Czech Bilingual Expert,remote,Unknown,https://jobs.micro1.ai/post/f6ce6492-f467-4024-9f75-452aae1ff2f6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Korean Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/7b26b730-2e44-4c64-8d1d-32b8f6ffe53f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Writers and Authors,remote,generalist,https://jobs.micro1.ai/post/283d9e5a-665b-4088-bc61-598953e79421?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Swedish Language Expert,remote,Unknown,https://jobs.micro1.ai/post/3d2a493f-3e7e-4e9d-8f85-e6bb6ca1d253?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Javanese Language Expert,remote,generalist,https://jobs.micro1.ai/post/da23bd9a-d2d2-4425-ab82-8753c4a0825a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Sanskrit Language Expert,remote,generalist,https://jobs.micro1.ai/post/7aa582e6-1597-48f7-8510-d60f08bd8f9f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Mandarin Language Expert,remote,specialist,https://jobs.micro1.ai/post/329360e6-298d-4902-b467-cdc4e5972949?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Finance Expert,remote,generalist,https://jobs.micro1.ai/post/5d380947-1e06-4147-a5e1-50db3ff09a26?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,QGIS Expert,remote,generalist,https://jobs.micro1.ai/post/f85051e6-d601-4914-aaff-57034a538965?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,LMMS Expert,remote,generalist,https://jobs.micro1.ai/post/17e205e2-b5bc-4ecf-a7a3-90a0e7c68b52?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Macroeconomic Modeling Specialist (EViews),remote,finance,https://jobs.micro1.ai/post/17aa180b-9d9a-4aad-bc1d-7afd0773ac07?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Geospatial Analysis Specialist (QGIS),remote,expert,https://jobs.micro1.ai/post/c63af432-8df4-4136-b8d6-19e7383d681b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,FreeCAD Expert (BIM & IFC Focus),remote,specialist,https://jobs.micro1.ai/post/3f6c4340-02f4-48d2-af74-374ab1bfddcc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,2D Game Developer (Defold),remote,expert,https://jobs.micro1.ai/post/ea51a62b-bc9a-453b-9f97-14bc473e696b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Mobile Game Developer (Solar2D – Corona SDK),remote,expert,https://jobs.micro1.ai/post/b4335cee-9256-41f8-b3dc-3772e8ee8104?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Cocos2d-x Junior Game Developer,remote,expert,https://jobs.micro1.ai/post/d4f8321d-0a2e-4bf9-a3d4-3c150443868e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Attorney,remote,generalist,https://jobs.micro1.ai/post/91e93363-5a61-4841-8b3e-2f9153d4fad2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,English Voice Coach,remote,generalist,https://jobs.micro1.ai/post/d62b2285-1c67-4deb-982d-a0bd84f2c28b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Software Developer (Multi-Language Systems & AI Engineering),Remote,generalist,https://jobs.micro1.ai/post/c1ca942d-0fd2-4de5-9d3f-5a839e97ba40?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Myanmar Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/9348c476-cbac-4e12-ac35-39abdfae642d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Galician Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/6c118929-2995-4eb9-8638-0e297f8b1b79?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Albanian Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/5c697450-fbfe-4f85-bcdd-05fe96346eb0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Nepali Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/9acb70ee-f33c-4f47-8351-ca681c3d67a0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Uzbek Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/1f8f0c7f-3aa7-4b5d-a7e2-589277429ffc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,English Voice Coach,remote,generalist,https://jobs.micro1.ai/post/a7d5da5f-5208-4ff5-be7c-3179baba9268?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Audio Engineer,remote,generalist,https://jobs.micro1.ai/post/53d2af4e-3fcb-4be7-a058-e06c656628c6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,German Language Expert,remote,generalist,https://jobs.micro1.ai/post/fccf7055-bd40-43bd-8b4f-4462669d849d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Indonesian Language Expert,remote,generalist,https://jobs.micro1.ai/post/64e174c1-c9ac-4b31-9ff2-8ee3ac979804?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Bengali Language Expert,Remote,generalist,https://jobs.micro1.ai/post/388bd031-b980-421e-bc3f-5ad229daf4d3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Belarusian Language Expert,Remote,generalist,https://jobs.micro1.ai/post/cc1aff2e-ff04-4266-a184-bf2b4798babb?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Audio Engineer (Native English Language),Remote,generalist,https://jobs.micro1.ai/post/5a00fbb7-7eb2-4327-99a7-27d15bab2a7f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,English Specialist,remote,specialist,https://jobs.micro1.ai/post/dd4dc184-41b8-4f41-9233-8c3f67d671b9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Machine Learning Researcher,remote,specialist,https://jobs.micro1.ai/post/dea93c7f-1005-4cec-9ce3-d5a554f797cf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,DevOps Engineer,hybrid,specialist,https://jobs.micro1.ai/post/bfaa4fdf-4fac-42cb-b3e7-40ca62762e72?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Site Reliability Engineer,remote,specialist,https://jobs.micro1.ai/post/744399d4-3b30-42b5-ae27-31fb043bfeda?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Python Developer,remote,specialist,https://jobs.micro1.ai/post/acd22832-6af7-4ade-a7b6-44ee5f98b90a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Mobile Application Developer,remote,specialist,https://jobs.micro1.ai/post/b17a8f48-dced-435a-8040-da8e0bdcf1b6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Full Stack Developer,remote,specialist,https://jobs.micro1.ai/post/b933b3a2-2129-46c9-9294-c1b8160cc57c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Golang Developer,remote,specialist,https://jobs.micro1.ai/post/c84b7c39-267a-485e-92b8-c8942e9f3a90?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Machine Learning Engineer,remote,specialist,https://jobs.micro1.ai/post/968ccd53-33bc-494e-b845-8e3b9c631a2a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Backend Engineer (Python),hybrid,specialist,https://jobs.micro1.ai/post/e8b29afe-6881-4a3b-9050-8f9352df7e98?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,React Native Developer,remote,specialist,https://jobs.micro1.ai/post/60051619-f9ff-436f-9cc9-25c87d22a3a6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Software Engineer,hybrid,specialist,https://jobs.micro1.ai/post/cca398fc-2628-4f14-a187-4d212c89f7b5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Cloud Architect,Remote,specialist,https://jobs.micro1.ai/post/9da62b75-58b5-4a08-9ff7-c01041a59f93?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,PE / M&A Document Sourcing Expert,Remote,generalist,https://jobs.micro1.ai/post/1665cb66-3876-4876-800c-6597f21c929d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data Analyst,Remote,data-analysis,https://jobs.micro1.ai/post/29f60fbf-e956-45ec-8fd3-e390521efc45?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,AI Content Evaluation Specialist,Remote,generalist,https://jobs.micro1.ai/post/6d0d5814-b2f1-42db-b6fa-2ef3f7599f39?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Frontend Developer (Vue.js),remote,specialist,https://jobs.micro1.ai/post/ef7848b0-a465-4731-894c-678f754f05d8?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Audio Engineer (Native English Speaker),Remote,Unknown,https://jobs.micro1.ai/post/b68ec0fe-5642-459d-a29c-9c2a62dd6944?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data Engineer,Remote,data-analysis,https://jobs.micro1.ai/post/eb023ed7-c09c-426b-be78-9a4a62f2b9cc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Java Developer,Remote,software-engineering,https://jobs.micro1.ai/post/e8738e17-edb6-4218-9651-47b51772fc84?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Cyber Security Analyst,remote,cybersecurity,https://jobs.micro1.ai/post/25d21ab1-f5e9-4a37-835b-c913684cad55?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,UI Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/115f7512-cd4b-49b0-a5aa-0eeba0c7a735?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Frontend Engineer (Angular),Remote,software-engineering,https://jobs.micro1.ai/post/88d55352-9063-4dcd-a397-3b9ad15ddcb3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Web Scraper,Remote,software-engineering,https://jobs.micro1.ai/post/a06b3049-bb10-4acb-baca-da48b1baf875?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Full-Stack Engineer (Frontend-focused),Remote,software-engineering,https://jobs.micro1.ai/post/98f7c8d2-f8b9-4a38-8bee-2d92a47d4524?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Backend C#/.NET Developer,Remote,software-engineering,https://jobs.micro1.ai/post/f55c5e8b-d0e2-427c-b84f-7642e66e263f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Machine Learning Engineer,Remote,ai-machine-learning,https://jobs.micro1.ai/post/3751d160-6ea1-45e9-8c40-7af439059844?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Frontend Developer (Javascript),Remote,software-engineering,https://jobs.micro1.ai/post/c366ac4d-74b8-456c-b29a-aaa118a499ae?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Backend Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/462ba1b8-b788-417c-89f4-c6acdce123fe?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,"Senior Backend Engineer (Node.js, AWS)",Remote,software-engineering,https://jobs.micro1.ai/post/a6a496db-ac86-4b55-9da1-3a3d27a24118?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,C Developer,remote,software-engineering,https://jobs.micro1.ai/post/e69e976e-c872-437a-9dd0-40e6ec570c2e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Machine Vision Engineer,remote,software-engineering,https://jobs.micro1.ai/post/b0d06045-e8bb-41ce-b253-839bb0b3b4e2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Penetration Tester,remote,cybersecurity,https://jobs.micro1.ai/post/c2bce764-8a53-4f6c-bfec-7a595e70c2a5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data Engineer,remote,data-analysis,https://jobs.micro1.ai/post/e756352a-0657-45db-82b7-17ef7fea4d73?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,QA Automation Engineer,remote,data-analysis,https://jobs.micro1.ai/post/5f53542e-5b28-49a5-8597-a386dd44b334?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Studio Speakers,Remote,generalist,https://jobs.micro1.ai/post/64206597-45f9-49f5-973f-f8ed1ef1a567?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Voice Actors,Remote,generalist,https://jobs.micro1.ai/post/5ed5ec04-bc4d-444d-a003-e2e9a690f9f9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Crowd Workers — Accents/Dialects,Remote,generalist,https://jobs.micro1.ai/post/e789836d-7adc-4a05-b844-c7d324447791?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Field Recorders,Remote,generalist,https://jobs.micro1.ai/post/01c47bb8-a687-4070-8f6e-2d316cc41540?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Crowd Workers — Bilingual,Remote,generalist,https://jobs.micro1.ai/post/e759a707-d3f1-4993-bd07-62c80ef71a3d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Saas Contracting Attorney - AI Fellowship,Remote,specialist,https://jobs.micro1.ai/post/d9165951-e169-49b1-b90a-e07ff4adbfaf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Network and Computer Systems Administrators,Remote,Unknown,https://jobs.micro1.ai/post/f5103316-3e13-4c9b-bd83-c6c2a0011133?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Microbiologist,Remote,generalist,https://jobs.micro1.ai/post/7b01b7b6-db31-4eb6-a877-65cfdc6bcbca?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Protein Biochemist,Remote,generalist,https://jobs.micro1.ai/post/28205810-079b-4413-84c4-1a08afcee1e4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Plant Biologist,Remote,generalist,https://jobs.micro1.ai/post/d5a65f29-dde6-445d-b7de-ceb151c8bd3b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Chemical Biologist,Remote,generalist,https://jobs.micro1.ai/post/8153f8fa-2e8a-48dc-8ea2-260c36807616?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Cell/Molecular Biologist (Stem Cells),Remote,generalist,https://jobs.micro1.ai/post/e3b68007-1e14-444e-bead-f2fadab0659f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Software Engineer - AI Quality & Testing,Remote,Unknown,https://jobs.micro1.ai/post/bc8c667f-39c8-4ded-b26e-4f0373cbfd16?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Support Engineer Expert,Remote,Unknown,https://jobs.micro1.ai/post/9e8537d8-a2a1-472c-a208-02c9a8397764?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Frontend Developer (React),Remote,software-engineering,https://jobs.micro1.ai/post/8a408adb-00de-4d39-b454-d3733bb574bf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,AI Engineer,Remote,ai-machine-learning,https://jobs.micro1.ai/post/3a23884d-a7f4-4e1b-b700-8aa7d4887dec?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,iOS Developer,Remote,software-engineering,https://jobs.micro1.ai/post/7edb8f28-4321-45ed-894a-c53219915b64?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Full-Stack Software Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/9e874fc6-9948-43d4-893c-8cd4b0333ec7?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Frontend Engineer (Tailwind),Remote,software-engineering,https://jobs.micro1.ai/post/43ace019-9e3f-4b3a-b352-6adc79b220b3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data Scientist,Remote,data-analysis,https://jobs.micro1.ai/post/84782580-52b0-4bdb-90ab-06cbc301de84?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,"Frontend Developer - (HTML,CSS)",Remote,software-engineering,https://jobs.micro1.ai/post/02daccb6-0823-447b-9968-5a83503e62be?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Network Security Engineer,Remote,cybersecurity,https://jobs.micro1.ai/post/fc1b7c9d-bd61-446a-83af-32d4fbc9e3aa?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,QA Automation Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/0f14b610-d1dc-4370-9218-997e8daab6e1?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Front-end Developer (Typescript),Remote,software-engineering,https://jobs.micro1.ai/post/04fdabb9-2495-42d1-b84f-d38a640f5b29?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Philosophy Expert,Remote,generalist,https://jobs.micro1.ai/post/d98303bc-d830-4817-aac4-dd104df230a6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Contracting Attorney,Remote,specialist,https://jobs.micro1.ai/post/774e3d9a-3a60-459a-ba82-bca84da2ebf1?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,General Counsel,Remote,specialist,https://jobs.micro1.ai/post/9fc71647-1e35-4e94-998e-2bbc932de7d4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Quality Assurance Engineer,Remote,specialist,https://jobs.micro1.ai/post/7647442b-1c04-4ae6-aa3a-e297c6651b6c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,UI Developer,Remote,generalist,https://jobs.micro1.ai/post/58718af4-5f86-4322-859b-add0b1ea3c24?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Fullstack Engineer (Python+React),Remote,specialist,https://jobs.micro1.ai/post/92a7b55a-b12f-4bf2-b89f-b49f5d891a5a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Software Engineer (Typescript),Remote,specialist,https://jobs.micro1.ai/post/61f8d17a-315a-4406-b38a-f93b52f0e4db?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Software Engineer,Remote,specialist,https://jobs.micro1.ai/post/6993abe7-1733-4988-a15b-2f36cc1b3b55?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Adobe Specialist (Photoshop),Remote,specialist,https://jobs.micro1.ai/post/e88be4af-c23f-4a2e-b012-e2f438d7f310?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Adobe Specialist (After Effects),Remote,specialist,https://jobs.micro1.ai/post/0985805b-0228-4968-ad27-6c373d465d15?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Adobe Specialist (Illustrator),Remote,specialist,https://jobs.micro1.ai/post/6a52ef74-2807-43ef-98f6-074f5c63b07c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Systems & Infrastructure Specialist,Remote,generalist,https://jobs.micro1.ai/post/0ccfa819-8bc0-489d-b52c-c2c9130c0a0d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Site Reliability Engineer,Remote,generalist,https://jobs.micro1.ai/post/4e25d4d3-e70c-45fe-8a2e-073e74a42f50?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,STEM Expert,Remote,generalist,https://jobs.micro1.ai/post/3dc5e93b-eeba-4eb8-8152-313929761979?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Microsoft 365 Specialist,Remote,generalist,https://jobs.micro1.ai/post/f205f5af-1be0-48b7-b83b-5b061cfddd6b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Fullstack Developer,remote,specialist,https://jobs.micro1.ai/post/5b7f7477-9ae0-414d-8594-e41ebd207414?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,System Administrator,remote,specialist,https://jobs.micro1.ai/post/82473406-fa09-4d42-a1b3-59d29f268639?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,RunOps Support – Platform and Infra,hybrid,specialist,https://jobs.micro1.ai/post/f90a03d4-c81d-4e84-9621-62c2f6523530?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,SQL Developer,remote,specialist,https://jobs.micro1.ai/post/e8d2ca36-1b99-4ec0-b719-36cc5a4cfacf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,C# Developer,remote,generalist,https://jobs.micro1.ai/post/ab8b9ef4-7346-4a96-a2b9-2c88e0cc8ff9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Frontend Engineer,Remote,generalist,https://jobs.micro1.ai/post/ad6f918b-5d84-4ab0-8e35-d129411a46f9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Backend Engineer,Remote,generalist,https://jobs.micro1.ai/post/758ad28d-883e-44dc-8644-edb94c3f7aba?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Infrastructure Engineer,Remote,generalist,https://jobs.micro1.ai/post/ef51aa26-2d87-4c53-984b-acd022841975?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Accountant (CPA/CA),Remote,generalist,https://jobs.micro1.ai/post/b8e24044-77f7-4bf6-acf1-a559e2f55030?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Junior Game Developer (Java / libGDX),Remote,specialist,https://jobs.micro1.ai/post/03cd460b-81ae-46c1-9453-c92e57ee2c41?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior DevOps Engineer,hybrid,software-engineering,https://jobs.micro1.ai/post/b21bf3c9-ef3f-492c-a719-2714cc7313a2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Infrastructure Engineer,remote,specialist,https://jobs.micro1.ai/post/2641bfdd-3831-4886-9c59-9ee545c602af?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,PHP Back End Developer,remote,specialist,https://jobs.micro1.ai/post/b3b87a60-5fa0-47e3-9e58-c41a9879b189?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Database Administrator,remote,specialist,https://jobs.micro1.ai/post/a8009a2a-5c90-4ad1-835d-0fd95126bd72?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Web Developer,remote,specialist,https://jobs.micro1.ai/post/b03195ce-3090-4494-9dab-5b717ebbe513?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Healthcare Professional,Remote,generalist,https://jobs.micro1.ai/post/78ac8545-c3e1-4d1c-943d-38f297ab856e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Finance Expert,Remote,generalist,https://jobs.micro1.ai/post/8de1a1c6-0b02-41ee-9e13-79d3773d9ae8?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Legal Expert,Remote,generalist,https://jobs.micro1.ai/post/7c7c8492-043b-43a7-aee9-c73dc71b2b39?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,STEM Expert,Remote,generalist,https://jobs.micro1.ai/post/fa24cad5-ba08-4bfd-ab56-7529d1d20732?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Education Specialist,Remote,generalist,https://jobs.micro1.ai/post/fa52a9dd-d270-4dcf-9bca-2d9554d883aa?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Pixel Artist (2D Game Art / Animation),remote,specialist,https://jobs.micro1.ai/post/c4218e45-188b-4bb9-81d1-f79b22da6de3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,DevOps Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/feec8884-5d21-44c1-a677-c1d6b6669582?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,AWS Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/428b455c-4076-493b-8c7b-d8f0c5a20385?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Fullstack Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/dd0b29a4-f5f2-4351-b621-6c7910ae5fb4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Fullstack Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/084536fe-a9a3-430b-a6fc-46aa2e07469e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Staff Ruby Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/54c19a8e-8179-4b76-8a42-189019b4ff7f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Slack User/ Specialist,Remote,specialist,https://jobs.micro1.ai/post/f3bd8c51-8603-4b36-9f74-12a09d1e24c2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Voice Actress (US or Canada Accent),Remote,specialist,https://jobs.micro1.ai/post/843d78e1-11ea-4e02-b1b7-5925637f58b6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Linear User/Specialist,Remote,specialist,https://jobs.micro1.ai/post/e342eacf-e956-4eff-a959-ff5a301d2941?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Notion User/Specialist,Remote,specialist,https://jobs.micro1.ai/post/62c44af7-07d8-4de7-9335-35601377bd12?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Jira User / Specialist,Remote,specialist,https://jobs.micro1.ai/post/d3b664ed-0ea6-45a0-a1d8-00466c0f7e92?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,AI/ML Engineer,Remote,generalist,https://jobs.micro1.ai/post/68a5150b-8310-4faf-b119-0647d364ca4a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Mobile App Developer,Remote,generalist,https://jobs.micro1.ai/post/e6983249-a9ba-4209-bc4a-4df51b92fbcc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Sr Software Engineer,Remote,generalist,https://jobs.micro1.ai/post/3c305526-0965-4a9b-b6b1-65fd0f916b0e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Support Engineer,Remote,specialist,https://jobs.micro1.ai/post/da2b476e-f083-4dc0-a240-fbced9680695?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Solutions Architect,Remote,generalist,https://jobs.micro1.ai/post/11bcf004-157a-4578-a7a2-5d303a6262c5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Tax Professional (EA / CPA),Remote,generalist,https://jobs.micro1.ai/post/cc66baff-c6cd-4024-90e9-5a26263fe05a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Paralegal / Legal Assistant (PII Compliance),Remote,expert,https://jobs.micro1.ai/post/89204ad6-bd0f-445c-b253-7497740dfb64?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data Protection Officer (PII Compliance),Remote,expert,https://jobs.micro1.ai/post/f6a7bee2-63a7-49c0-91df-fb87dc0132cf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Cross-Platform Game Programmer,Remote,generalist,https://jobs.micro1.ai/post/3a187070-b5a0-4e39-ad42-f2c4245396c8?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Corporate/M&A Attorney,Remote,expert,https://jobs.micro1.ai/post/b22ee3a5-69b5-455f-a8a2-27951ee9d575?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Corporate M&A Paralegal,Remote,expert,https://jobs.micro1.ai/post/a945e259-58b0-48c3-9eeb-77e935cd6d97?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Law Clerk (Commercial Real Estate / Energy),Remote,specialist,https://jobs.micro1.ai/post/03032271-800c-4013-8c48-821f281f705e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Paralegal,Remote,specialist,https://jobs.micro1.ai/post/b0233e00-ed98-491d-b15c-c2b5bce27388?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Energy Regulatory Attorney,Remote,specialist,https://jobs.micro1.ai/post/a3769b75-c39f-4227-a03d-1e4e6f1ab035?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Electronics Expert - DesignSpark PCB,Remote,generalist,https://jobs.micro1.ai/post/c4dcf219-4064-4ae3-9d8f-c76937fbcdaa?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Energy Compliance Attorney,Remote,specialist,https://jobs.micro1.ai/post/da472a74-0ccc-4006-b84c-c4ad6b3b823c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Due Diligence Analyst,Remote,expert,https://jobs.micro1.ai/post/3136cc03-42c3-4b16-a591-e74c486ab8fe?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Data Privacy Analyst,Remote,expert,https://jobs.micro1.ai/post/8d79de53-a823-4c72-b352-44ec5644a0f1?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Law Clerk,Remote,specialist,https://jobs.micro1.ai/post/285bbb2e-67a1-4bd8-9aeb-2a3d5977c534?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,English (India) Recording Specialist,Remote,generalist,https://jobs.micro1.ai/post/77effc5a-42fd-4029-8e54-e99f1cf67164?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Legal Expert,Remote,generalist,https://jobs.micro1.ai/post/f13d9e22-2081-4f9e-b23a-401e56032850?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,AI Data Reviewer,Remote,generalist,https://jobs.micro1.ai/post/3dc4633a-44d0-43df-ab76-5e52ed9c5c06?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Backend Software Engineer,Remote,Unknown,https://jobs.micro1.ai/post/5a610f78-c88d-43cc-acb0-adeba4953e3d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Finance Specialist — Google Workspace,Remote,generalist,https://jobs.micro1.ai/post/e80d889e-d5d0-48e5-940b-b4fe93f7e48c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Business Specialist - Google Workspace,Remote,generalist,https://jobs.micro1.ai/post/a0fe0b8b-eff7-48ec-9ba2-8b7609006f33?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Operations Analyst (Google Workspace),Remote,generalist,https://jobs.micro1.ai/post/8434d2d0-a5fa-4b94-8b0f-31f791844193?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Office and Administrative Domains specialist,Remote,generalist,https://jobs.micro1.ai/post/e4609bbf-dd32-4238-bf02-3bfe0f8e57c2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Legal Expert,Remote,generalist,https://jobs.micro1.ai/post/a25cdb3a-d84b-4ca7-9792-d5245a1633f9?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial & Legal Document Analyst,Remote,generalist,https://jobs.micro1.ai/post/56912a36-ff04-4ca2-b57c-1b8a6b35daaf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Software Engineer,Remote,specialist,https://jobs.micro1.ai/post/ff9339f0-420e-474a-a6e1-7348693cdd66?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data Scientist,Remote,specialist,https://jobs.micro1.ai/post/01b4a593-8e8c-418c-843d-13f57fc18b66?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Investment Analyst,Remote,specialist,https://jobs.micro1.ai/post/c110220a-74ad-48eb-be8d-863bce8967e0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Management Consultant,Remote,specialist,https://jobs.micro1.ai/post/7df34219-525c-46e7-a18d-eccb2f4cdf24?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Project Management Specialist,remote,specialist,https://jobs.micro1.ai/post/74c7786a-2cb8-4a42-87c3-1f91374ec750?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Sales Specialist,Remote,generalist,https://jobs.micro1.ai/post/c376060a-23c0-48b8-8f17-3957f594d928?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Design Expert (Multidisciplinary),Remote,generalist,https://jobs.micro1.ai/post/91d5be4e-68ef-4786-845c-ccca438469fa?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Medical Specialist,Remote,specialist,https://jobs.micro1.ai/post/cc9b110f-2107-4df0-8b83-aaec81064010?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Journalist,Remote,specialist,https://jobs.micro1.ai/post/77b3640d-69c2-439a-9c1a-65e0de65f01b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Finance & Investment Professional,Remote,specialist,https://jobs.micro1.ai/post/0b118e12-f748-4c82-bfac-ef7c4ac1b2af?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Attorney,Remote,expert,https://jobs.micro1.ai/post/86f82241-e3fc-4b48-8603-8921bf57f49d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Insurance Underwriter – Excess & Specialty,Remote,specialist,https://jobs.micro1.ai/post/c225ed07-68fe-409f-a40f-edf3e3dffe5d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Graphic Designer,Remote,generalist,https://jobs.micro1.ai/post/5bf549f0-b706-47ca-b15a-de203995db6f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Data Analyst,Remote,generalist,https://jobs.micro1.ai/post/40864aea-0626-49b4-abe1-16e9728e79df?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Marketing Expert,Remote,generalist,https://jobs.micro1.ai/post/6bc959a6-fdd6-4b67-a263-3efd53485aea?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Sales Specialist,Remote,generalist,https://jobs.micro1.ai/post/02da7b74-16d3-426c-933b-82a7f5058524?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Engineer (All Domains),Remote,generalist,https://jobs.micro1.ai/post/720e5ac0-2807-477c-82d5-849d5950a1bd?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Management Specialist,Remote,generalist,https://jobs.micro1.ai/post/a20e5f8d-ddb2-40af-b257-55110600dac1?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Operations Specialist,Remote,generalist,https://jobs.micro1.ai/post/f6043f02-4b58-4755-9c27-b7c56f925360?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Japanese Language Expert,Remote,generalist,https://jobs.micro1.ai/post/ac6dc8f6-a578-4441-8b21-7589d24b7bdb?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,OpenSCAD Developer,Remote,expert,https://jobs.micro1.ai/post/14c49975-3b56-4882-8029-4671fc4847e0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Game Developer (Java / libGDX),Remote,expert,https://jobs.micro1.ai/post/80ab66dc-8dc2-457c-955e-a087cb4db8af?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Software Engineer - Open 3D Engine (O3DE),Remote,expert,https://jobs.micro1.ai/post/85f7d0aa-5bde-46ca-8bd9-5353f361f0a5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Game Developer (Cocos2d-x),remote,software-engineering,https://jobs.micro1.ai/post/777ca0aa-91c7-4bd6-92db-fbe06b793db2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Python Game Developer (Panda3D),Remote,expert,https://jobs.micro1.ai/post/3e06d509-afa3-4d84-a186-aeccb32e2e41?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,AutoCAD Expert,remote,specialist,https://jobs.micro1.ai/post/11993335-69dc-4e21-b880-07be4ee1b384?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Autodesk Inventor Specialist,Remote,specialist,https://jobs.micro1.ai/post/0b1e3097-6521-48d1-b582-90e66c632dc2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Hebrew Language Expert,Remote,generalist,https://jobs.micro1.ai/post/0b6c0487-1f7d-4481-a731-e690879dabba?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,E-commerce Data & Catalog Specialist,Remote,generalist,https://jobs.micro1.ai/post/66e153bc-1c52-439e-8fcb-38d35c4eae67?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Chemistry Expert,Remote,generalist,https://jobs.micro1.ai/post/92f73964-d5d5-4f24-9b84-0751db92ab4f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Physics Expert,Remote,generalist,https://jobs.micro1.ai/post/eb7e1a77-7908-4333-bfb5-d4f0a1a3762e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Biology Expert,Remote,generalist,https://jobs.micro1.ai/post/64a37b27-c178-4f35-86ce-f4c9bac4d67c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Mechanical Engineer,Remote,generalist,https://jobs.micro1.ai/post/f84357c3-883e-4d90-8f8f-f6b64780eeef?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Legal Expert,Remote,generalist,https://jobs.micro1.ai/post/26ea747f-ec7c-44d2-b81f-f91a7b82e1e1?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Physics Research Expert (Solver),Remote,specialist,https://jobs.micro1.ai/post/7c15651a-086a-43c0-98f0-6783d1ec71dc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Physics Research Auditor,Remote,specialist,https://jobs.micro1.ai/post/1407cefb-7515-4662-8c30-97ca8952a506?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Physics Adjudicator,Remote,specialist,https://jobs.micro1.ai/post/9c5641a2-60eb-4cda-9bcb-747b807dc214?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Scriptwriter,Remote,generalist,https://jobs.micro1.ai/post/8d6e3d41-fa39-49fd-bb5c-e503e12faa34?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Physics Expert (PhD),Remote,generalist,https://jobs.micro1.ai/post/0f983b9d-8c9f-4350-ab48-2a92c36da55a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Audio Engineer,Remote,generalist,https://jobs.micro1.ai/post/52d897a7-78d5-46f5-bcf6-a1233ae7f600?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,2D Artist (Krita),Remote,generalist,https://jobs.micro1.ai/post/118febb1-1e20-4ba1-8629-31374745c065?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Junior Architect / CAD Engineer (Vectorworks),Remote,generalist,https://jobs.micro1.ai/post/a2cb8365-6eed-4fa1-9e30-f01c8cab7d50?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Junior Software Engineer (Open 3D Engine),Remote,specialist,https://jobs.micro1.ai/post/7f140a96-ab52-4c1b-9d3e-98f1fcbcb4af?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Computational Biology Expert,Remote,specialist,https://jobs.micro1.ai/post/6d5c21e9-6e7e-41a5-8a15-bf273dad7c49?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Computational Chemistry Expert,Remote,specialist,https://jobs.micro1.ai/post/be698edc-fbdf-4213-bccd-12fd37678e43?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Computational Physics Expert,Remote,specialist,https://jobs.micro1.ai/post/3fe7f3bc-7a2a-4a7d-8e23-16bcd27a3280?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Computational Engineering Expert,Remote,specialist,https://jobs.micro1.ai/post/9e1c8d48-0e42-4996-a0ad-40ad7cedf1fc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,QGIS Expert,remote,expert,https://jobs.micro1.ai/post/5f4c4837-3d6c-4fb9-be37-7701002ed75d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Junior Python Game Developer (Panda3D),Remote,expert,https://jobs.micro1.ai/post/1f79521e-eee7-4a58-9159-43dc0a74147a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Competitive Programming Checker,Remote,generalist,https://jobs.micro1.ai/post/fa5e216e-c067-418b-bb0b-d5b7614497a0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Junior Solar2D Game Developer,Remote,specialist,https://jobs.micro1.ai/post/c5258977-1a95-428a-a2b5-870f970892e2?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Junior FreeCAD Designer (3D Modeling),Remote,specialist,https://jobs.micro1.ai/post/0efd7aae-4840-4f5f-a455-b6ab1d03cb57?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Junior PCB Design Engineer (DesignSpark),Remote,specialist,https://jobs.micro1.ai/post/8dbc5ba2-d0fa-44bb-8529-2183e881e457?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Household Data Specialist - Video Capture (US),Remote,Unknown,https://jobs.micro1.ai/post/caa4b2e6-234f-428c-920d-52d4fbe12d01?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,AI Evaluation Specialist,Remote,generalist,https://jobs.micro1.ai/post/c99791a5-fa53-4691-b3ce-de6ac35e0fff?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,CAD Expert,Remote,other,https://jobs.micro1.ai/post/de7f6fee-787d-485c-9d59-20393d1fcf66?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Investment Banking Expert,Remote,finance,https://jobs.micro1.ai/post/63a562c9-6e3b-4a0d-9b5b-f66f93c0cdff?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Private Equity Expert,Remote,finance,https://jobs.micro1.ai/post/dfc39e0e-0257-43eb-b8bf-db6968e3cf87?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Software Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/74a11ef1-4a86-4b18-b05e-51193f65efef?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Telecommunications Expert,Remote,other,https://jobs.micro1.ai/post/0645c58a-a6d9-4557-b05e-74bd30105f6a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Healthcare Expert,Remote,medicine,https://jobs.micro1.ai/post/1ecd1aeb-3d77-4466-b914-cc326cc4c38d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Content Producer,Remote,other,https://jobs.micro1.ai/post/c368cc32-d267-490e-abed-e9521cdf628e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Professional Services Consultant,Remote,other,https://jobs.micro1.ai/post/584c950f-86cb-46ee-9e1e-e721f6e287b4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Public Administrator,Remote,other,https://jobs.micro1.ai/post/2df85589-f7a7-47d1-82bb-3d1d448af44c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Finance Expert,Remote,finance,https://jobs.micro1.ai/post/d4406cea-10ab-46a5-9fb5-f04cbba77efa?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Manufacturing Expert,Remote,other,https://jobs.micro1.ai/post/d585ecf3-a5d6-42a6-9996-c95599e78da4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Commercial Real Estate Manager,Remote,other,https://jobs.micro1.ai/post/e4559d84-181c-434d-9346-77b9bd432cfa?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Retail Operations Manager,Remote,other,https://jobs.micro1.ai/post/0b77cea9-1a1e-47d6-846f-a2ae0aabec22?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Supply Chain Manager,Remote,other,https://jobs.micro1.ai/post/554c091a-db37-409a-b02d-afa83046eec4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Hebrew Transcription Expert,Remote,language-audio,https://jobs.micro1.ai/post/a90c564a-05fd-40e6-9ca3-05c564316e2a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Building Code Compliance Expert,Remote,other,https://jobs.micro1.ai/post/1aadbd0b-0390-4ca6-9d48-2f9371834750?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Adobe Specialist (After Effects),Remote,arts-design,https://jobs.micro1.ai/post/616250f1-9e23-4c45-bd11-5550a1a3eefa?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Accountant,Remote,finance,https://jobs.micro1.ai/post/29d99803-4a03-411d-847c-cb084bd7a5f4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Macroeconomic Modeling Specialist (EViews),remote,finance,https://jobs.micro1.ai/post/645af44d-8428-4676-ac93-92ed0cc7c576?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Personal Financial Advisor (Private Wealth),Remote,finance,https://jobs.micro1.ai/post/e9eada8a-d271-42ad-9214-dbe3d72ae529?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Advisor (CFA or CFP),remote,finance,https://jobs.micro1.ai/post/4cf0190d-f414-48cb-affd-95db6719fefc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Business Document Expert (Korean Speaker),remote,business-operations,https://jobs.micro1.ai/post/9cf75770-b33e-4cc9-8a84-eb6d8c3de49c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Policy Consultant,Remote,business-operations,https://jobs.micro1.ai/post/ebba4a5a-49b1-4a0f-9e20-457d06fe03bf?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Academic Researchers,Remote,other,https://jobs.micro1.ai/post/f08b4ec4-2027-45e9-8e63-f638031f1be5?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Financial Planning and Analysis Expert,remote,finance,https://jobs.micro1.ai/post/1ede1ceb-0f90-43da-8d35-314cb1b78692?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Senior Software Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/1de0c840-f6ff-47d6-9507-1ac5a0afbb72?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Creative Media Expert – After Effects,Remote,arts-design,https://jobs.micro1.ai/post/d95f0641-56c4-4aa2-b742-dd156c065e2e?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Kurdish Language Expert,Remote,language-audio,https://jobs.micro1.ai/post/ad889073-9e63-462f-aab9-5671904aa9ca?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Wolof Language Expert,Remote,language-audio,https://jobs.micro1.ai/post/f832d016-79cf-4e6c-be60-92b6e000002f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Word and PDF Experts,Remote,other,https://jobs.micro1.ai/post/da8af334-60b6-44e3-89b2-a846f3cd19c4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Business Document Expert (Japanese Speaker),remote,business-operations,https://jobs.micro1.ai/post/7d9e84d5-3c55-4008-865e-7b3dd5652fcd?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Business Document Expert (Chinese Speaker),remote,business-operations,https://jobs.micro1.ai/post/450ec8a7-4d32-4622-bccc-b349a3f0dc76?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Business Document Expert (German Speaker),remote,business-operations,https://jobs.micro1.ai/post/d4b85839-30bf-4baa-a610-eb3a85575a0c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Business Document Expert (French Speaker),remote,business-operations,https://jobs.micro1.ai/post/3f5a7cca-b01f-418e-9504-668b034e7bc0?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Business Document Expert (Portuguese Speaker),remote,business-operations,https://jobs.micro1.ai/post/dee2f9e0-a108-412f-b87e-3c048ed2b0ad?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Document Reviewer,Remote,data-analysis,https://jobs.micro1.ai/post/090e6761-3c60-4a37-a816-883caccb2f90?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Privacy Annotation Specialist,Remote,law,https://jobs.micro1.ai/post/99c4ab3f-ef1f-4a7d-90f0-bc3e1b243968?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Transactional Attorney,Remote,law,https://jobs.micro1.ai/post/cb1e3dc4-e94c-4802-bb1a-068869554633?utm_source=micro1&utm_medium=job_portal
 removed,2026-06-17T00:48:01+00:00,Mercor,Python SWE,Remote,Software Engineering,https://work.mercor.com/jobs/list_AAABl8f-EJV6TYkTcM1LxpPK
 removed,2026-06-17T00:48:01+00:00,Mercor,Pharmacists Survey – Retail & Community Pharmacy Insights,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnlNQ7zaGwxjcZptC5oOY
 removed,2026-06-17T00:48:01+00:00,Mercor,Clinicians Survey – Ambulatory & Community Care Insights,Remote,Medicine,https://work.mercor.com/jobs/list_AAABnlNc5vKNKKMWYLxGQ7NX
@@ -617,26 +986,26 @@ discovered,2026-06-17T00:46:31+00:00,OneForma,"Kilo – Video Data Collection St
 discovered,2026-06-17T00:46:31+00:00,OneForma,"Kilo – Video Data Collection Study - Redmond, WA",Las Vegas; New York City; Onsite; Redmond; US,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820963076444161
 discovered,2026-06-17T00:46:31+00:00,OneForma,"Kilo – Video Data Collection Study - Las Vegas, NV",Las Vegas; New York City; Onsite; Redmond; US,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820963635538945
 discovered,2026-06-17T00:46:31+00:00,OneForma,Kilo – Video Data Collection Study - Bellevue,Las Vegas; New York City; Onsite; Redmond; US,Data Collection,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12928
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Spanish (Spain),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11952?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Norwegian (Bokmal),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/12021?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Switzerland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11956?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Germany),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11946?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Austria),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11960?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (France),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11950?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (Canada),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11954?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (Belgium),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11962?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Finnish (Finland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11966?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - English (United Kingdom),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11894?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - English (Ireland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11958?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Dutch (Netherlands),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11948?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Danish (Denmark),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11964?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (United Kingdom),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820105366763521
-discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (South Africa),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106797290497
-discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Singapore),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820107244975105
-discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (New Zealand),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106744248321
-discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Ireland),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820107181730817
-discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (India),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106630615041
-discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Australia),Worldwide,Unknown,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106519139329
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Spanish (Spain),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11952?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Norwegian (Bokmal),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/12021?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Switzerland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11956?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Germany),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11946?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - German (Austria),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11960?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (France),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11950?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (Canada),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11954?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - French (Belgium),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11962?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Finnish (Finland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11966?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - English (United Kingdom),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11894?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - English (Ireland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11958?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Dutch (Netherlands),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11948?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Moderator) – Native English Audio Recording Study - Danish (Denmark),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11964?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (United Kingdom),Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820105366763521
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (South Africa),Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106797290497
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Singapore),Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820107244975105
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (New Zealand),Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106744248321
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Ireland),Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820107181730817
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (India),Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106630615041
+discovered,2026-06-17T00:46:31+00:00,OneForma,Motto – Native Speaker Audio Discussion Study - English (Australia),Worldwide,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1820106519139329
 discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Vietnamese (Vietnam),Remote,Translation,https://my.oneforma.com/crowd/jobs/12429?from=list&tab=all
 discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Turkish (Turkey),Remote,Translation,https://my.oneforma.com/crowd/jobs/12440?from=list&tab=all
 discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Thai (Thailand),Remote,Translation,https://my.oneforma.com/crowd/jobs/12433?from=list&tab=all
@@ -689,19 +1058,19 @@ discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine T
 discovered,2026-06-17T00:46:31+00:00,OneForma,"LELI – Review & Refine Machine Translations in Your Language - Bangla (Bangladesh, India)",Remote,Translation,https://my.oneforma.com/crowd/jobs/12408?from=list&tab=all
 discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Arabic (UAE),Remote,Translation,https://my.oneforma.com/crowd/jobs/12402?from=list&tab=all
 discovered,2026-06-17T00:46:31+00:00,OneForma,LELI – Review & Refine Machine Translations in Your Language - Arabic (Saudi Arabia),Remote,Translation,https://my.oneforma.com/crowd/jobs/12401?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Spanish (Spain),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11953?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Norwegian (Norway),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/12022?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Switzerland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11957?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Germany),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11947?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Austria),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11961?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (France),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11951?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (Canada),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11955?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (Belgium),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11963?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Finnish (Finland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11967?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - English (UK),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11872?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - English (Ireland),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11959?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Dutch (Netherlands),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11949?from=list&tab=all
-discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Danish (Denmark),Worldwide,Unknown,https://my.oneforma.com/crowd/jobs/11965?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Spanish (Spain),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11953?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Norwegian (Norway),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/12022?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Switzerland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11957?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Germany),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11947?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - German (Austria),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11961?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (France),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11951?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (Canada),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11955?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - French (Belgium),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11963?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Finnish (Finland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11967?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - English (UK),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11872?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - English (Ireland),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11959?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Dutch (Netherlands),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11949?from=list&tab=all
+discovered,2026-06-17T00:46:31+00:00,OneForma,Husky (Speaker) – Native Audio Recording Study - Danish (Denmark),Worldwide,Data Collection,https://my.oneforma.com/crowd/jobs/11965?from=list&tab=all
 discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - German - Switzerland,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12252
 discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - German - Austria,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12250
 discovered,2026-06-17T00:46:31+00:00,OneForma,Project Spring – Help Build High-Quality Multilingual Healthcare Data - French - Canada,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12253
