@@ -20,6 +20,7 @@ CORE_SOURCES = (
     "oneforma",
     "outlier",
     "rws",
+    "welocalize",
 )
 EXPERIMENTAL_SOURCES = ("invisible",)
 

@@ -11,6 +11,10 @@ REQUEST_HEADERS = {
 
 
 def fetch_lever_jobs(api_url):
+    return [parse_lever_posting(posting) for posting in fetch_lever_postings(api_url)]
+
+
+def fetch_lever_postings(api_url):
     request = Request(api_url, headers=REQUEST_HEADERS)
     with urlopen(request, timeout=30) as response:
         charset = response.headers.get_content_charset() or "utf-8"
@@ -18,7 +22,7 @@ def fetch_lever_jobs(api_url):
     postings = json.loads(payload)
     if not isinstance(postings, list):
         raise ValueError("Lever response was not a list of postings.")
-    return [parse_lever_posting(posting) for posting in postings]
+    return postings
 
 
 def parse_lever_posting(posting):
@@ -38,4 +42,3 @@ def clean_value(value):
         return None
     value = " ".join(str(value).split())
     return value or None
-

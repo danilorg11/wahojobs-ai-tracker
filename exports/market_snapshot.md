@@ -1,18 +1,18 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-17T01:59:31+00:00 UTC
+Generated: 2026-06-17T02:19:25+00:00 UTC
 
 ## Sources
 
-Core sources included: alignerr, appen, meridial, mercor, micro1, oneforma, outlier, rws
+Core sources included: alignerr, appen, meridial, mercor, micro1, oneforma, outlier, rws, welocalize
 Experimental sources: excluded
 Simulation data: excluded
 Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **7496**
-- Estimated market opportunities: **2137**
+- Raw active postings: **7878**
+- Estimated market opportunities: **2519**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
@@ -31,6 +31,7 @@ Sample fallback data: excluded
 | Alignerr | 5218 |
 | Meridial | 801 |
 | OneForma | 692 |
+| Welocalize | 382 |
 | micro1 | 367 |
 | Mercor | 224 |
 | RWS TrainAI | 94 |
@@ -46,16 +47,19 @@ Sample fallback data: excluded
 | GENERAL | 484 |
 | Language & Linguistics | 372 |
 | AUDIO | 320 |
+| AI Service General Application | 221 |
+| Data Collection | 185 |
 | Translation | 183 |
-| Data Collection | 182 |
 | OTHER | 156 |
 | generalist | 152 |
 | Annotation | 120 |
 | Business & Professions | 118 |
 | Sciences | 99 |
 | Annotation; Judging | 86 |
+| Data Annotation | 85 |
 | Judging | 85 |
 | LANGUAGE | 84 |
+| Data Validation | 73 |
 | specialist | 73 |
 | Engineering & Technology | 58 |
 | Coding | 57 |
@@ -142,7 +146,7 @@ Sample fallback data: excluded
 
 ## Today's Activity
 
-- New jobs today: **1166**
+- New jobs today: **1548**
 - Removed jobs today: **7**
 - Reactivated jobs today: **1**
 
@@ -150,16 +154,16 @@ Sample fallback data: excluded
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| removed | 2026-06-17T01:58:57+00:00 | Mercor | Litigation Expert | Law | Remote | [Link](https://work.mercor.com/jobs/list_AAABnbZyA4_gXfJsVdJPW44R) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Vietnamese (USA) | Speech AI Evaluation | Remote | [Link](https://jobs.lever.co/rws/6488833f-86c3-480c-9dd1-1667f27a372c) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Vietnamese (Thailand) | Speech AI Evaluation | Bangkok | [Link](https://jobs.lever.co/rws/f13131ee-ef0e-461d-a6c1-708259ad9a51) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Vietnamese (Malaysia) | Speech AI Evaluation | Kuala Lumpur | [Link](https://jobs.lever.co/rws/a781dc8a-1f62-48af-af20-4106b9682120) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Thai or Chinese Simplified | Speech AI Evaluation | Bangkok | [Link](https://jobs.lever.co/rws/1c836aa1-dd7f-414d-aea2-8044a6525ab8) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Tagalog (Philippines) | Speech AI Evaluation | Manila | [Link](https://jobs.lever.co/rws/4aafbd75-cf83-43f8-997f-4ee005274525) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Spanish (Mexico) | Speech AI Evaluation | Mexico City | [Link](https://jobs.lever.co/rws/c73dddef-ed85-4789-a8b4-cce31dd9e1df) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Portuguese (Brazil) | Speech AI Evaluation | Rio de Janeiro | [Link](https://jobs.lever.co/rws/ecabff98-a1e1-40eb-9ca3-ffb7a1681ebc) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Korean (Korea) | Speech AI Evaluation | Seoul | [Link](https://jobs.lever.co/rws/fb46f296-e3b8-4c8c-8103-55ca55ab1bb9) |
-| discovered | 2026-06-17T01:58:21+00:00 | RWS TrainAI | Speech AI Evaluation Specialist - Italian (Italy) | Speech AI Evaluation | Rome | [Link](https://jobs.lever.co/rws/ade36625-2d22-4842-a86c-c94748a70c3e) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Turkish Bilingual Audio Specialist | Data Annotation | Turkey | [Link](https://jobs.lever.co/weloglobal/ed8d741a-3806-40e2-b87e-76c7d8703e21) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Vietnamese | Data Annotation | Vietnam | [Link](https://jobs.lever.co/weloglobal/6c8bdafd-5348-429a-92de-fb7da179fd01) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Urdu | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/b4c34f11-b1bb-4c47-bfc8-121118b3dc90) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Telugu | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/dd63f45b-8fba-4b06-af57-0cc821a7a2ed) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Tamil | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/b7fcb868-7424-4da9-a7c4-452ab7abd174) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Punjabi | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/2b253147-b87b-47db-802c-e5396cd6c9cd) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Odia | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/6d867c61-32fe-4cf2-85f1-7c4af0cd97ab) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Nepali | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/dd4fd841-5c44-4adc-b881-5c3ce749a88f) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Marathi | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/ae17da23-2f16-42de-8102-4d65763d80e4) |
+| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Malayalam | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/065bd129-f125-424f-8830-0c169fcbe640) |
 
 ## Data Quality Summary
 

@@ -22,6 +22,7 @@ CORE_SOURCES = [
     "oneforma",
     "outlier",
     "rws",
+    "welocalize",
 ]
 EXPERIMENTAL_SOURCES = ["invisible"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]

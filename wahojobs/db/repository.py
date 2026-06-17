@@ -62,6 +62,12 @@ RWS_SEED = {
     "careers_url": "https://api.lever.co/v0/postings/rws?mode=json&expand=location",
 }
 
+WELOCALIZE_SEED = {
+    "name": "Welocalize",
+    "slug": "welocalize",
+    "careers_url": "https://api.lever.co/v0/postings/weloglobal?mode=json&expand=location",
+}
+
 
 def initialize_database(db_path=DB_PATH):
     schema_path = Path(__file__).with_name("schema.sql")
@@ -79,6 +85,7 @@ def initialize_database(db_path=DB_PATH):
             ONEFORMA_SEED,
             OUTLIER_SEED,
             RWS_SEED,
+            WELOCALIZE_SEED,
         ):
             conn.execute(
                 """
