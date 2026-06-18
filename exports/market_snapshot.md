@@ -1,18 +1,18 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-18T01:19:07+00:00 UTC
+Generated: 2026-06-18T01:38:21+00:00 UTC
 
 ## Sources
 
-Core sources included: alignerr, appen, dataforce, meridial, mercor, micro1, oneforma, outlier, rws, welocalize
+Core sources included: alignerr, appen, dataforce, meridial, mercor, micro1, mindrift, oneforma, outlier, rws, welocalize
 Experimental sources: excluded
 Simulation data: excluded
 Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **7967**
-- Estimated market opportunities: **2230**
+- Raw active postings: **8702**
+- Estimated market opportunities: **2321**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
@@ -23,6 +23,9 @@ Sample fallback data: excluded
 - Meridial raw postings: **800**
 - Meridial canonical opportunities: **540**
 - Meridial posting variants: **260**
+- Mindrift raw postings: **735**
+- Mindrift canonical opportunities: **91**
+- Mindrift posting variants: **644**
 - OneForma raw variants: **715**
 - OneForma canonical opportunities: **53**
 - OneForma posting variants: **662**
@@ -39,6 +42,7 @@ Sample fallback data: excluded
 | --- | ---: |
 | Alignerr | 5218 |
 | Meridial | 800 |
+| Mindrift | 735 |
 | OneForma | 715 |
 | Welocalize | 380 |
 | micro1 | 377 |
@@ -62,6 +66,7 @@ Sample fallback data: excluded
 | Translation | 183 |
 | OTHER | 156 |
 | generalist | 153 |
+| Creator (Writer); Physics | 136 |
 | Annotation | 132 |
 | Business & Professions | 117 |
 | Sciences | 99 |
@@ -71,19 +76,35 @@ Sample fallback data: excluded
 | LANGUAGE | 84 |
 | specialist | 72 |
 | Data Validation | 71 |
+| Creator (Writer); Web scraping | 61 |
 | Engineering & Technology | 58 |
 | Coding | 57 |
 | AI Data Specialist | 50 |
+| Creator (Writer); General writer | 46 |
+| Creator (Writer); Coding | 42 |
 | Life, Physical, and Social Science | 42 |
 | AI Trainers - Domain Experts | 41 |
+| Creator (Writer); Consulting | 40 |
+| Creator (Writer); Mathematics | 39 |
 | Finance & Mathematics | 36 |
 | software-engineering | 36 |
 | Business Operations | 35 |
 | Data Analysis | 32 |
+| Creator (Writer); Biology | 30 |
+| Creator (Writer); Chemistry | 30 |
+| Creator (Writer); Civil Engineering | 30 |
+| Creator (Writer); Electrical Engineering | 30 |
+| Creator (Writer); Material science | 30 |
+| Creator (Writer); Mechanical Engineering | 30 |
 | Law | 30 |
 | other | 30 |
 | Creative & Multi-Media | 26 |
+| Creator (Writer); Data Science | 26 |
 | Transcription | 26 |
+| Creator (Writer); Machine Learning | 25 |
+| Creator (Writer); Software Tester | 25 |
+| Creator (Writer); Computer science | 24 |
+| Creator (Writer); Statistics | 24 |
 | Finance | 23 |
 | Software Engineering | 22 |
 | expert | 19 |
@@ -94,6 +115,7 @@ Sample fallback data: excluded
 | Miscellaneous | 15 |
 | Photo | 15 |
 | Language and Audio | 14 |
+| Creator (Writer); Integration Developer | 13 |
 | Linguistic AI Auditing | 13 |
 | Customer Service | 11 |
 | Video | 11 |
@@ -105,6 +127,15 @@ Sample fallback data: excluded
 | Early Career | 7 |
 | business-operations | 7 |
 | Code | 6 |
+| Creator (Writer); Account Servicing Agent | 6 |
+| Creator (Writer); Brand Design | 6 |
+| Creator (Writer); Claims Processing Agent | 6 |
+| Creator (Writer); Graphic Design | 6 |
+| Creator (Writer); Loan Approval Agent | 6 |
+| Creator (Writer); Portfolio Analysis Agent | 6 |
+| Creator (Writer); Presentation Design | 6 |
+| Creator (Writer); Regulatory Review Agent | 6 |
+| Creator (Writer); Web Design | 6 |
 | Subject Matter Expert | 6 |
 | data-analysis | 6 |
 | robotics | 6 |
@@ -161,7 +192,7 @@ Sample fallback data: excluded
 
 ## Today's Activity
 
-- New jobs today: **76**
+- New jobs today: **811**
 - Removed jobs today: **6**
 - Reactivated jobs today: **1**
 
@@ -169,16 +200,16 @@ Sample fallback data: excluded
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Colby Jack Research Study - United States | Video | United States | [Link](https://dataforcecommunity.transperfect.com/study/colby-jack-research-study) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Onsite Audio Recording - Finland - Tampere | Audio | Tampere, Finland | [Link](https://dataforcecommunity.transperfect.com/project/audio-recording-tampere) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Ronia Raw Remote Photo Collection - United States | Photo | United States | [Link](https://dataforcecommunity.transperfect.com/project/ronia-remote-photo-collection-united-states) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - United Kingdom (Project Asteroid) | Photo | United Kingdom | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-uk) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - United States (Project Asteroid) | Photo | United States | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-us) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - Canada (Project Asteroid) | Photo | Canada | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-canada) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - Australia (Project Asteroid) | Photo | Australia | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-australia) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Zorro - Onsite Study - Jersey City, NJ | Video | Jersey City, United States | [Link](https://dataforcecommunity.transperfect.com/study/zorro-nj) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Zorro - Onsite Study - Atlanta, GA | Video | Atlanta, United States | [Link](https://dataforcecommunity.transperfect.com/study/zorro-atlanta-ga) |
-| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Gardenia Speech Collection - United States | Audio | United States | [Link](https://dataforcecommunity.transperfect.com/project/gardenia-speech-collection-us) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Senior Software Engineer - Agent Evaluation | Creator (Writer); Software Tester | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/07A6121198) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Data Science Engineer (Python & SQL) - Freelance AI Trainer | Creator (Writer); Data Science | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/15B9024D0F) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Freelance Machine Learning Engineer (Python) | Creator (Writer); Machine Learning | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/C29002A51F) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Mechanical Engineering Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Mechanical Engineering | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/86906145DA) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Electrical Engineering Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Electrical Engineering | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/04DEAE6985) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Senior Python Engineer - Freelance, Mindrift (AI Testing Project) | Creator (Writer); Coding | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/2C9B1A4074) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Physics Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Physics | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/DB4E7747D8) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Statistics Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Statistics | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/D8066203E1) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Mathematics Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Mathematics | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/81955C67C5) |
+| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Web Scraping Expert / Freelance | Creator (Writer); Web scraping | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/C994C39E65) |
 
 ## Data Quality Summary
 
@@ -190,10 +221,10 @@ Sample fallback data: excluded
 | Active jobs with Unknown expertise/department | 16 |
 | Duplicate external_id within same company | 0 |
 | Duplicate URL within same company | 24 |
-| Failed crawl runs | 1 |
+| Failed crawl runs | 2 |
 
 ## Notes
 
-- Estimated market opportunities are an approximation: Alignerr, DataForce, Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
+- Estimated market opportunities are an approximation: Alignerr, DataForce, Meridial, Mindrift, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
 - Simulation data is excluded from this snapshot.
 - Legacy sample fallback rows are excluded from this publishable snapshot.

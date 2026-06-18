@@ -5,6 +5,7 @@ from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
     sync_meridial_canonical_opportunities,
+    sync_mindrift_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
     sync_welocalize_canonical_opportunities,
 )
@@ -59,6 +60,12 @@ MICRO1_SEED = {
     "careers_url": "https://prod-api.micro1.ai/api/v1/job/portal",
 }
 
+MINDRIFT_SEED = {
+    "name": "Mindrift",
+    "slug": "mindrift",
+    "careers_url": "https://apply.workable.com/api/v3/accounts/toloka-ai/jobs",
+}
+
 ONEFORMA_SEED = {
     "name": "OneForma",
     "slug": "oneforma",
@@ -92,6 +99,7 @@ def initialize_database(db_path=DB_PATH):
             MERIDIAL_SEED,
             MERCOR_SEED,
             MICRO1_SEED,
+            MINDRIFT_SEED,
             ONEFORMA_SEED,
             OUTLIER_SEED,
             RWS_SEED,
@@ -117,6 +125,9 @@ def initialize_database(db_path=DB_PATH):
         meridial = get_company_by_slug(conn, "meridial")
         if meridial is not None:
             sync_meridial_canonical_opportunities(conn, meridial["id"])
+        mindrift = get_company_by_slug(conn, "mindrift")
+        if mindrift is not None:
+            sync_mindrift_canonical_opportunities(conn, mindrift["id"])
         oneforma = get_company_by_slug(conn, "oneforma")
         if oneforma is not None:
             sync_oneforma_canonical_opportunities(conn, oneforma["id"])

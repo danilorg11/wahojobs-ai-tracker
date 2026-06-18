@@ -12,7 +12,7 @@ def main():
     print(f"Initialized SQLite database at {DB_PATH}")
     print(
         "Seeded companies: Alignerr, Appen, DataForce, Invisible Technologies, "
-        "Meridial, Mercor, micro1, OneForma, Outlier, RWS TrainAI, Welocalize"
+        "Meridial, Mercor, micro1, Mindrift, OneForma, Outlier, RWS TrainAI, Welocalize"
     )
 
 

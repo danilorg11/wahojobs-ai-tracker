@@ -34,6 +34,12 @@ def main():
             conn,
             "meridial",
         )
+        mindrift_summary = get_company_canonical_summary(conn, "mindrift")
+        top_mindrift_variants = get_top_company_variants(conn, "mindrift")
+        multi_location_mindrift_groups = get_multi_location_company_groups(
+            conn,
+            "mindrift",
+        )
         oneforma_summary = get_company_canonical_summary(conn, "oneforma")
         top_oneforma_variants = get_top_company_variants(conn, "oneforma")
         welocalize_summary = get_company_canonical_summary(conn, "welocalize")
@@ -176,6 +182,37 @@ def main():
     print_rows(
         "Meridial multi-location canonical opportunities",
         multi_location_meridial_groups,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['location_count']} locations, {row['variant_count']} variants"
+        ),
+    )
+    print("")
+    print("Mindrift Canonical Checks")
+    print("-------------------------")
+    if mindrift_summary and mindrift_summary["raw_postings"]:
+        print(f"Raw active postings: {mindrift_summary['raw_postings']}")
+        print(
+            "Canonical active opportunities: "
+            f"{mindrift_summary['canonical_opportunities']}"
+        )
+        print(f"Posting variants: {mindrift_summary['variant_count']}")
+        print(f"Unlinked active postings: {mindrift_summary['unlinked_postings']}")
+    else:
+        print("No active Mindrift postings found.")
+    print("")
+
+    print_rows(
+        "Top Mindrift canonical opportunities by variant count",
+        top_mindrift_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "Mindrift multi-location canonical opportunities",
+        multi_location_mindrift_groups,
         lambda row: (
             f"{row['canonical_title']} ({row['source_category']}): "
             f"{row['location_count']} locations, {row['variant_count']} variants"

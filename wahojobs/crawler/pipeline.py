@@ -7,6 +7,7 @@ from wahojobs.crawler.companies.invisible import crawl_invisible
 from wahojobs.crawler.companies.meridial import crawl_meridial
 from wahojobs.crawler.companies.mercor import crawl_mercor
 from wahojobs.crawler.companies.micro1 import crawl_micro1
+from wahojobs.crawler.companies.mindrift import crawl_mindrift
 from wahojobs.crawler.companies.oneforma import crawl_oneforma
 from wahojobs.crawler.companies.outlier import crawl_outlier
 from wahojobs.crawler.companies.rws import crawl_rws
@@ -33,6 +34,7 @@ CRAWLERS = {
     "meridial": crawl_meridial,
     "mercor": crawl_mercor,
     "micro1": crawl_micro1,
+    "mindrift": crawl_mindrift,
     "oneforma": crawl_oneforma,
     "outlier": crawl_outlier,
     "rws": crawl_rws,

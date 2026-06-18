@@ -77,6 +77,12 @@ def main():
         f"{market_summary['meridial_canonical_opportunities']}"
     )
     print(f"Meridial posting variants: {market_summary['meridial_posting_variants']}")
+    print(f"Mindrift raw postings: {market_summary['mindrift_raw_postings']}")
+    print(
+        "Mindrift canonical opportunities: "
+        f"{market_summary['mindrift_canonical_opportunities']}"
+    )
+    print(f"Mindrift posting variants: {market_summary['mindrift_posting_variants']}")
     print(f"OneForma raw variants: {market_summary['oneforma_raw_variants']}")
     print(
         "OneForma canonical opportunities: "

@@ -18,6 +18,7 @@ CORE_SOURCES = (
     "meridial",
     "mercor",
     "micro1",
+    "mindrift",
     "oneforma",
     "outlier",
     "rws",
@@ -347,6 +348,12 @@ def render_snapshot(
             f"**{market_summary['meridial_canonical_opportunities']}**"
         ),
         f"- Meridial posting variants: **{market_summary['meridial_posting_variants']}**",
+        f"- Mindrift raw postings: **{market_summary['mindrift_raw_postings']}**",
+        (
+            "- Mindrift canonical opportunities: "
+            f"**{market_summary['mindrift_canonical_opportunities']}**"
+        ),
+        f"- Mindrift posting variants: **{market_summary['mindrift_posting_variants']}**",
         f"- OneForma raw variants: **{market_summary['oneforma_raw_variants']}**",
         (
             "- OneForma canonical opportunities: "
@@ -388,7 +395,7 @@ def render_snapshot(
             "",
             (
                 "- Estimated market opportunities are an approximation: Alignerr, "
-                "DataForce, Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources "
+                "DataForce, Meridial, Mindrift, OneForma, and Welocalize use canonical opportunity grouping, while other sources "
                 "currently count each active raw job as one opportunity."
             ),
             "- Simulation data is excluded from this snapshot.",
