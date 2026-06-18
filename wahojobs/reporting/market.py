@@ -1,5 +1,5 @@
 EXPERIMENTAL_SLUGS = ("invisible",)
-CANONICALIZED_SLUGS = ("alignerr", "oneforma")
+CANONICALIZED_SLUGS = ("alignerr", "oneforma", "welocalize")
 
 
 def get_market_size_summary(conn, include_experimental=False, include_simulation=False):
@@ -22,6 +22,15 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         conn,
         "oneforma",
     )
+    welocalize_raw_postings = count_company_raw_postings(
+        conn,
+        "welocalize",
+        include_simulation=include_simulation,
+    )
+    welocalize_canonical_opportunities = count_company_canonical_opportunities(
+        conn,
+        "welocalize",
+    )
     canonical_opportunities = count_canonical_opportunities(conn)
     non_canonical_raw_jobs = count_non_canonical_raw_jobs(
         conn,
@@ -43,6 +52,11 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         "oneforma_canonical_opportunities": oneforma_canonical_opportunities,
         "oneforma_posting_variants": (
             oneforma_raw_postings - oneforma_canonical_opportunities
+        ),
+        "welocalize_raw_postings": welocalize_raw_postings,
+        "welocalize_canonical_opportunities": welocalize_canonical_opportunities,
+        "welocalize_posting_variants": (
+            welocalize_raw_postings - welocalize_canonical_opportunities
         ),
     }
 

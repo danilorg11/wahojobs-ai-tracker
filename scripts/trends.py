@@ -71,6 +71,12 @@ def main():
         f"{market_summary['oneforma_canonical_opportunities']}"
     )
     print(f"OneForma posting variants: {market_summary['oneforma_posting_variants']}")
+    print(f"Welocalize raw postings: {market_summary['welocalize_raw_postings']}")
+    print(
+        "Welocalize canonical opportunities: "
+        f"{market_summary['welocalize_canonical_opportunities']}"
+    )
+    print(f"Welocalize posting variants: {market_summary['welocalize_posting_variants']}")
     print(f"micro1 active jobs: {micro1_metrics['active_jobs']}")
     print(f"micro1 unique titles: {micro1_metrics['unique_titles']}")
     print(f"micro1 duplicate-title count: {micro1_metrics['duplicate_title_count']}")

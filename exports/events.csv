@@ -1,4 +1,39 @@
 event_type,created_at,company,title,location,expertise/department,url
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Turkish (Turkey),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12967
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Polish (Poland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12965
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Swedish (Sweden),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12963
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Norwegian Bokmål (Norway),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12975
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Dutch (Netherlands),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12966
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Malay (Malaysia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12964
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Indonesian (Indonesia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12962
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Hindi (India),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12968
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Hebrew (Israel),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12960
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Finnish (Finland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12961
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Danish (Denmark),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12969
+discovered,2026-06-17T15:50:37+00:00,micro1,Bambara Language Expert,Remote,generalist,https://jobs.micro1.ai/post/bad371a8-385f-484a-996e-21ef63eba99d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Senior Full Stack Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/9cda2f44-2dcc-4f44-ba79-f5d79b179acc?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Java Developer,remote,software-engineering,https://jobs.micro1.ai/post/b4d8b40e-974e-4113-a8f9-534dd4c3739c?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Rust Developer,remote,software-engineering,https://jobs.micro1.ai/post/429f9143-b52f-4ba5-8728-76afed802092?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Go Developer,remote,software-engineering,https://jobs.micro1.ai/post/44152534-cfa1-4ed7-9fa6-8be32f879682?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Python Developer,remote,software-engineering,https://jobs.micro1.ai/post/c944428b-beb3-4eae-b4f4-c11ee7fba69b?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Node.Js Developer,Remote,software-engineering,https://jobs.micro1.ai/post/bd545591-e88e-48f9-b3a9-cd3716144c8f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Angular Developer,Remote,software-engineering,https://jobs.micro1.ai/post/d22bec54-9218-4074-8e64-1e82848a3082?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,AI Engineer,Remote,ai-machine-learning,https://jobs.micro1.ai/post/ffb3b619-8be1-40a9-b96d-8dc41057b7f1?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,.NET Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/02f5e4c0-747b-4ef7-ab15-73cb26d0938a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,Javascript Developer,Remote,software-engineering,https://jobs.micro1.ai/post/b8825ab1-28f7-4909-bc53-c0632509bb65?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T15:50:37+00:00,micro1,AI Trainer & Evaluator,Remote,generalist,https://jobs.micro1.ai/post/75752cea-671a-47e4-85a6-06be34c103ed?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-17T15:50:30+00:00,Mercor,Regulatory Law Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyuMMQ6gDsf0tHBJvJ
+removed,2026-06-17T15:50:30+00:00,Mercor,Hong Kong Lawyer,Remote,Law,https://work.mercor.com/jobs/list_AAABnSBWEqZWKGvO6gpCVZ9j
+removed,2026-06-17T15:50:30+00:00,Mercor,Office-Suite Experts,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnontX_Edh25-QxNIqp_w
+removed,2026-06-17T15:50:30+00:00,Mercor,Arches — Simulated Research Reviewer (MechE & Mat-Sci),Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnpRSpAnvC8nRqfBGZZjL
+removed,2026-06-17T15:50:30+00:00,Mercor,Golf Video Annotation Reviewer and Correction Specialist,Remote,Miscellaneous,https://work.mercor.com/jobs/list_AAABnswiMY5ATV4CIIFJmbb8
+discovered,2026-06-17T15:50:30+00:00,Mercor,Spanish (Spain) Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABntQCuEPmRunOSRxC1Z9v
+discovered,2026-06-17T15:50:30+00:00,Mercor,Spanish (Mexico) Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABntQIot7U7jcxj6FLXInZ
+discovered,2026-06-17T15:50:30+00:00,Mercor,Digital Workspace (EUC) Pricing & Commercial Strategy Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABntQ0SmE6FlSRonlJw4t9
+discovered,2026-06-17T15:50:30+00:00,Mercor,Operations Associate (File Monitoring & Processing),Remote,Business Operations,https://work.mercor.com/jobs/list_AAABntQ8nNaZ6rk3kxxGbZ_J
+removed,2026-06-17T15:50:28+00:00,Appen,Machine Translation Evaluation Q2 – English to German; Project Vistula,Germany,AI Trainers - Domain Experts,https://jobs.lever.co/appen/a3ba918b-df98-4aac-bb58-b70406974749
+removed,2026-06-17T15:48:00+00:00,Welocalize,Pegasus - German Audio Evaluator,Global,Data Validation,https://jobs.lever.co/weloglobal/64fab779-4ddd-4dd3-972f-6f3e0e4c82dd
+removed,2026-06-17T15:48:00+00:00,Welocalize,Pegasus - English (Welsh) Audio Evaluator,United Kingdom,Data Validation,https://jobs.lever.co/weloglobal/c1d3f266-062c-4a56-a2aa-2355b4b41484
 removed,2026-06-17T02:19:49+00:00,Mercor,Hospitals & Health Systems Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnbZuQaqhOK0yBtdK_7xi
 discovered,2026-06-17T02:19:16+00:00,Welocalize,Turkish Bilingual Audio Specialist,Turkey,Data Annotation,https://jobs.lever.co/weloglobal/ed8d741a-3806-40e2-b87e-76c7d8703e21
 discovered,2026-06-17T02:19:16+00:00,Welocalize,Translation Validator | Vietnamese,Vietnam,Data Annotation,https://jobs.lever.co/weloglobal/6c8bdafd-5348-429a-92de-fb7da179fd01
@@ -154,9 +189,9 @@ discovered,2026-06-17T02:19:16+00:00,Welocalize,"Project Lion - Senior Prompt En
 discovered,2026-06-17T02:19:16+00:00,Welocalize,"Project Lion - Senior Prompt Engineer - France (Remote, Part-Time)",France,Data Validation,https://jobs.lever.co/weloglobal/bd62b741-47cc-4363-9bb5-170253f53187
 discovered,2026-06-17T02:19:16+00:00,Welocalize,"Project Lion - Prompt Engineer - United States (Remote, Part-Time)",United States,Data Validation,https://jobs.lever.co/weloglobal/5fcbfe45-e8b9-4ee1-9a7e-eb1df10dee33
 discovered,2026-06-17T02:19:16+00:00,Welocalize,"Project Lion - Lead Prompt Engineer - United States (Remote, Part-Time)",United States,Data Validation,https://jobs.lever.co/weloglobal/23ae2577-3a30-406f-8c67-036e02ad758e
-discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - Spanish (Panama) Audio Evaluator,"Remote, Worldwide",Data Validation,https://jobs.lever.co/weloglobal/5017b6ed-5733-4a50-9139-1a83858b8470
+discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - Evaluador de Audio en Español (Panama),"Remote, Worldwide",Data Validation,https://jobs.lever.co/weloglobal/5017b6ed-5733-4a50-9139-1a83858b8470
 discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - Spanish (Latin America) Audio Evaluator,Global,Data Validation,https://jobs.lever.co/weloglobal/b41b9d70-d08d-4005-999e-f880e3ce6c6c
-discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - Spanish (El Salvador) Audio Evaluator,"Remote, Worldwide",Data Validation,https://jobs.lever.co/weloglobal/753a0a94-e30f-4147-a9b0-c0efd7db2a59
+discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - Evaluador de Audio en Español (El Salvador),"Remote, Worldwide",Data Validation,https://jobs.lever.co/weloglobal/753a0a94-e30f-4147-a9b0-c0efd7db2a59
 discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - German Audio Evaluator,Global,Data Validation,https://jobs.lever.co/weloglobal/64fab779-4ddd-4dd3-972f-6f3e0e4c82dd
 discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - English (Welsh) Audio Evaluator,United Kingdom,Data Validation,https://jobs.lever.co/weloglobal/c1d3f266-062c-4a56-a2aa-2355b4b41484
 discovered,2026-06-17T02:19:16+00:00,Welocalize,Pegasus - English (Sri Lankan) Audio Evaluator,United Kingdom,Data Validation,https://jobs.lever.co/weloglobal/7d2ca8f4-994f-408b-ac60-1a7cbcc97175

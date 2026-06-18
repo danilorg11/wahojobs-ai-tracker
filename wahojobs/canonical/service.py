@@ -1,5 +1,6 @@
 from wahojobs.canonical.alignerr import canonicalize_job
 from wahojobs.canonical.oneforma import canonicalize_job as canonicalize_oneforma_job
+from wahojobs.canonical.welocalize import canonicalize_job as canonicalize_welocalize_job
 
 
 def sync_alignerr_canonical_opportunities(conn, company_id):
@@ -8,6 +9,10 @@ def sync_alignerr_canonical_opportunities(conn, company_id):
 
 def sync_oneforma_canonical_opportunities(conn, company_id):
     sync_canonical_opportunities(conn, company_id, canonicalize_oneforma_job)
+
+
+def sync_welocalize_canonical_opportunities(conn, company_id):
+    sync_canonical_opportunities(conn, company_id, canonicalize_welocalize_job)
 
 
 def sync_canonical_opportunities(conn, company_id, canonicalizer):
@@ -128,6 +133,26 @@ def refresh_canonical_rollups(conn, company_id):
             ),
             updated_at = CURRENT_TIMESTAMP
         WHERE company_id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM jobs j
+            WHERE j.canonical_opportunity_id = canonical_opportunities.id
+          )
+        """,
+        (company_id,),
+    )
+    conn.execute(
+        """
+        UPDATE canonical_opportunities
+        SET is_active = 0,
+            variant_count = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE company_id = ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM jobs j
+            WHERE j.canonical_opportunity_id = canonical_opportunities.id
+          )
         """,
         (company_id,),
     )

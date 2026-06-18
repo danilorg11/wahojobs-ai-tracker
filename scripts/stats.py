@@ -77,6 +77,12 @@ def print_market_size_summary(conn, include_experimental):
     print(f"OneForma raw variants: {summary['oneforma_raw_variants']}")
     print(f"OneForma canonical opportunities: {summary['oneforma_canonical_opportunities']}")
     print(f"OneForma posting variants: {summary['oneforma_posting_variants']}")
+    print(f"Welocalize raw postings: {summary['welocalize_raw_postings']}")
+    print(
+        "Welocalize canonical opportunities: "
+        f"{summary['welocalize_canonical_opportunities']}"
+    )
+    print(f"Welocalize posting variants: {summary['welocalize_posting_variants']}")
 
 
 def print_micro1_metrics(conn):

@@ -340,6 +340,12 @@ def render_snapshot(
             f"**{market_summary['oneforma_canonical_opportunities']}**"
         ),
         f"- OneForma posting variants: **{market_summary['oneforma_posting_variants']}**",
+        f"- Welocalize raw postings: **{market_summary['welocalize_raw_postings']}**",
+        (
+            "- Welocalize canonical opportunities: "
+            f"**{market_summary['welocalize_canonical_opportunities']}**"
+        ),
+        f"- Welocalize posting variants: **{market_summary['welocalize_posting_variants']}**",
         f"- micro1 active jobs: **{micro1_metrics['active_jobs']}**",
         f"- micro1 unique titles: **{micro1_metrics['unique_titles']}**",
         f"- micro1 duplicate-title count: **{micro1_metrics['duplicate_title_count']}**",
@@ -368,8 +374,8 @@ def render_snapshot(
             "## Notes",
             "",
             (
-                "- Estimated market opportunities are an approximation: Alignerr and "
-                "OneForma use canonical opportunity grouping, while other sources "
+                "- Estimated market opportunities are an approximation: Alignerr, "
+                "OneForma, and Welocalize use canonical opportunity grouping, while other sources "
                 "currently count each active raw job as one opportunity."
             ),
             "- Simulation data is excluded from this snapshot.",

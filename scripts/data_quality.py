@@ -24,6 +24,12 @@ def main():
         unknown_canonical_groups = get_unknown_alignerr_canonical_groups(conn)
         oneforma_summary = get_company_canonical_summary(conn, "oneforma")
         top_oneforma_variants = get_top_company_variants(conn, "oneforma")
+        welocalize_summary = get_company_canonical_summary(conn, "welocalize")
+        top_welocalize_variants = get_top_company_variants(conn, "welocalize")
+        multi_location_welocalize_groups = get_multi_location_company_groups(
+            conn,
+            "welocalize",
+        )
         micro1_metrics = get_micro1_metrics(conn)
 
     print("")
@@ -119,6 +125,37 @@ def main():
         lambda row: (
             f"{row['canonical_title']} ({row['source_category']}): "
             f"{row['variant_count']} variants"
+        ),
+    )
+    print("")
+    print("Welocalize Canonical Checks")
+    print("---------------------------")
+    if welocalize_summary and welocalize_summary["raw_postings"]:
+        print(f"Raw active postings: {welocalize_summary['raw_postings']}")
+        print(
+            "Canonical active opportunities: "
+            f"{welocalize_summary['canonical_opportunities']}"
+        )
+        print(f"Posting variants: {welocalize_summary['variant_count']}")
+        print(f"Unlinked active postings: {welocalize_summary['unlinked_postings']}")
+    else:
+        print("No active Welocalize postings found.")
+    print("")
+
+    print_rows(
+        "Top Welocalize canonical opportunities by variant count",
+        top_welocalize_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "Welocalize multi-location canonical opportunities",
+        multi_location_welocalize_groups,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['location_count']} locations, {row['variant_count']} variants"
         ),
     )
     print("")
@@ -264,6 +301,10 @@ def get_top_company_variants(conn, slug):
 
 
 def get_multi_location_alignerr_groups(conn):
+    return get_multi_location_company_groups(conn, "alignerr")
+
+
+def get_multi_location_company_groups(conn, slug):
     return conn.execute(
         """
         SELECT
@@ -274,14 +315,15 @@ def get_multi_location_alignerr_groups(conn):
         FROM canonical_opportunities co
         JOIN companies c ON c.id = co.company_id
         JOIN jobs j ON j.canonical_opportunity_id = co.id
-        WHERE c.slug = 'alignerr'
+        WHERE c.slug = ?
           AND co.is_active = 1
           AND j.is_active = 1
         GROUP BY co.id
         HAVING location_count > 1
         ORDER BY location_count DESC, co.variant_count DESC, co.canonical_title ASC
         LIMIT 20
-        """
+        """,
+        (slug,),
     ).fetchall()
 
 

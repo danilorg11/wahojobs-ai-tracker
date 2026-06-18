@@ -1,6 +1,6 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-17T02:19:25+00:00 UTC
+Generated: 2026-06-17T15:51:22+00:00 UTC
 
 ## Sources
 
@@ -11,18 +11,21 @@ Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **7878**
-- Estimated market opportunities: **2519**
+- Raw active postings: **7896**
+- Estimated market opportunities: **2458**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
 - Alignerr posting variants: **4716**
-- OneForma raw variants: **692**
-- OneForma canonical opportunities: **49**
-- OneForma posting variants: **643**
-- micro1 active jobs: **367**
-- micro1 unique titles: **331**
-- micro1 duplicate-title count: **31**
+- OneForma raw variants: **703**
+- OneForma canonical opportunities: **50**
+- OneForma posting variants: **653**
+- Welocalize raw postings: **380**
+- Welocalize canonical opportunities: **311**
+- Welocalize posting variants: **69**
+- micro1 active jobs: **379**
+- micro1 unique titles: **340**
+- micro1 duplicate-title count: **34**
 
 ## Active Jobs by Company
 
@@ -30,13 +33,13 @@ Sample fallback data: excluded
 | --- | ---: |
 | Alignerr | 5218 |
 | Meridial | 801 |
-| OneForma | 692 |
-| Welocalize | 382 |
-| micro1 | 367 |
-| Mercor | 224 |
+| OneForma | 703 |
+| Welocalize | 380 |
+| micro1 | 379 |
+| Mercor | 222 |
 | RWS TrainAI | 94 |
 | Outlier | 63 |
-| Appen | 37 |
+| Appen | 36 |
 
 ## Active Jobs by Expertise/Department
 
@@ -51,41 +54,41 @@ Sample fallback data: excluded
 | Data Collection | 185 |
 | Translation | 183 |
 | OTHER | 156 |
-| generalist | 152 |
-| Annotation | 120 |
+| generalist | 154 |
+| Annotation | 131 |
 | Business & Professions | 118 |
 | Sciences | 99 |
 | Annotation; Judging | 86 |
 | Data Annotation | 85 |
 | Judging | 85 |
 | LANGUAGE | 84 |
-| Data Validation | 73 |
 | specialist | 73 |
+| Data Validation | 71 |
 | Engineering & Technology | 58 |
 | Coding | 57 |
 | AI Data Specialist | 50 |
 | Life, Physical, and Social Science | 40 |
-| AI Trainers - Domain Experts | 37 |
+| AI Trainers - Domain Experts | 36 |
 | Finance & Mathematics | 36 |
+| software-engineering | 36 |
 | Business Operations | 33 |
 | Data Analysis | 31 |
-| Law | 30 |
 | other | 30 |
-| software-engineering | 27 |
+| Law | 28 |
 | Creative & Multi-Media | 26 |
 | Finance | 22 |
 | Software Engineering | 22 |
 | expert | 19 |
 | Speech AI Evaluation | 18 |
 | Annotation; Transcription | 16 |
-| Miscellaneous | 16 |
 | Transcription | 16 |
 | Unknown | 16 |
+| Miscellaneous | 15 |
+| Language and Audio | 13 |
 | Linguistic AI Auditing | 13 |
 | Customer Service | 11 |
-| Language and Audio | 11 |
-| Other Engineering | 11 |
 | language-audio | 11 |
+| Other Engineering | 10 |
 | Arts & Design | 9 |
 | finance | 9 |
 | Early Career | 7 |
@@ -98,10 +101,10 @@ Sample fallback data: excluded
 | History | 5 |
 | Language - Chinese | 5 |
 | Language - Arabic | 4 |
+| ai-machine-learning | 4 |
 | AI Dubbing | 3 |
 | Generalist | 3 |
 | Language - Dutch | 3 |
-| ai-machine-learning | 3 |
 | cybersecurity | 3 |
 | Humanities | 2 |
 | Judging; LLM Prompt Authoring | 2 |
@@ -146,24 +149,24 @@ Sample fallback data: excluded
 
 ## Today's Activity
 
-- New jobs today: **1548**
-- Removed jobs today: **7**
+- New jobs today: **1575**
+- Removed jobs today: **16**
 - Reactivated jobs today: **1**
 
 ## Top Recent Events
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Turkish Bilingual Audio Specialist | Data Annotation | Turkey | [Link](https://jobs.lever.co/weloglobal/ed8d741a-3806-40e2-b87e-76c7d8703e21) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Vietnamese | Data Annotation | Vietnam | [Link](https://jobs.lever.co/weloglobal/6c8bdafd-5348-429a-92de-fb7da179fd01) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Urdu | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/b4c34f11-b1bb-4c47-bfc8-121118b3dc90) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Telugu | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/dd63f45b-8fba-4b06-af57-0cc821a7a2ed) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Tamil | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/b7fcb868-7424-4da9-a7c4-452ab7abd174) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Punjabi | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/2b253147-b87b-47db-802c-e5396cd6c9cd) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Odia | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/6d867c61-32fe-4cf2-85f1-7c4af0cd97ab) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Nepali | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/dd4fd841-5c44-4adc-b881-5c3ce749a88f) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Marathi | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/ae17da23-2f16-42de-8102-4d65763d80e4) |
-| discovered | 2026-06-17T02:19:16+00:00 | Welocalize | Translation Validator \| Malayalam | Data Annotation | India | [Link](https://jobs.lever.co/weloglobal/065bd129-f125-424f-8830-0c169fcbe640) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Turkish (Turkey) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12967) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Polish (Poland) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12965) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Swedish (Sweden) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12963) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Norwegian Bokmål (Norway) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12975) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Dutch (Netherlands) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12966) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Malay (Malaysia) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12964) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Indonesian (Indonesia) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12962) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Hindi (India) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12968) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Hebrew (Israel) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12960) |
+| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Finnish (Finland) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12961) |
 
 ## Data Quality Summary
 
@@ -175,10 +178,10 @@ Sample fallback data: excluded
 | Active jobs with Unknown expertise/department | 16 |
 | Duplicate external_id within same company | 0 |
 | Duplicate URL within same company | 24 |
-| Failed crawl runs | 0 |
+| Failed crawl runs | 1 |
 
 ## Notes
 
-- Estimated market opportunities are an approximation: Alignerr and OneForma use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
+- Estimated market opportunities are an approximation: Alignerr, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
 - Simulation data is excluded from this snapshot.
 - Legacy sample fallback rows are excluded from this publishable snapshot.
