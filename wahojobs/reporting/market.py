@@ -5,6 +5,7 @@ CANONICALIZED_SLUGS = (
     "meridial",
     "mindrift",
     "oneforma",
+    "turing",
     "welocalize",
 )
 
@@ -56,6 +57,15 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         conn,
         "oneforma",
     )
+    turing_raw_postings = count_company_raw_postings(
+        conn,
+        "turing",
+        include_simulation=include_simulation,
+    )
+    turing_canonical_opportunities = count_company_canonical_opportunities(
+        conn,
+        "turing",
+    )
     welocalize_raw_postings = count_company_raw_postings(
         conn,
         "welocalize",
@@ -101,6 +111,11 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         "oneforma_canonical_opportunities": oneforma_canonical_opportunities,
         "oneforma_posting_variants": (
             oneforma_raw_postings - oneforma_canonical_opportunities
+        ),
+        "turing_raw_postings": turing_raw_postings,
+        "turing_canonical_opportunities": turing_canonical_opportunities,
+        "turing_posting_variants": (
+            turing_raw_postings - turing_canonical_opportunities
         ),
         "welocalize_raw_postings": welocalize_raw_postings,
         "welocalize_canonical_opportunities": welocalize_canonical_opportunities,

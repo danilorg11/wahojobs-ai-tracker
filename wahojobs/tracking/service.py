@@ -4,6 +4,7 @@ from wahojobs.canonical.service import (
     sync_meridial_canonical_opportunities,
     sync_mindrift_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
+    sync_turing_canonical_opportunities,
     sync_welocalize_canonical_opportunities,
 )
 from wahojobs.crawler.types import CompanyCrawlResult, TrackingSummary
@@ -70,6 +71,8 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         sync_mindrift_canonical_opportunities(conn, company_id)
     elif company["slug"] == "oneforma":
         sync_oneforma_canonical_opportunities(conn, company_id)
+    elif company["slug"] == "turing":
+        sync_turing_canonical_opportunities(conn, company_id)
     elif company["slug"] == "welocalize":
         sync_welocalize_canonical_opportunities(conn, company_id)
 

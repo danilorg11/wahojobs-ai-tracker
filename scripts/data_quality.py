@@ -42,6 +42,12 @@ def main():
         )
         oneforma_summary = get_company_canonical_summary(conn, "oneforma")
         top_oneforma_variants = get_top_company_variants(conn, "oneforma")
+        turing_summary = get_company_canonical_summary(conn, "turing")
+        top_turing_variants = get_top_company_variants(conn, "turing")
+        multi_location_turing_groups = get_multi_location_company_groups(
+            conn,
+            "turing",
+        )
         welocalize_summary = get_company_canonical_summary(conn, "welocalize")
         top_welocalize_variants = get_top_company_variants(conn, "welocalize")
         multi_location_welocalize_groups = get_multi_location_company_groups(
@@ -236,6 +242,37 @@ def main():
         lambda row: (
             f"{row['canonical_title']} ({row['source_category']}): "
             f"{row['variant_count']} variants"
+        ),
+    )
+    print("")
+    print("Turing Canonical Checks")
+    print("-----------------------")
+    if turing_summary and turing_summary["raw_postings"]:
+        print(f"Raw active postings: {turing_summary['raw_postings']}")
+        print(
+            "Canonical active opportunities: "
+            f"{turing_summary['canonical_opportunities']}"
+        )
+        print(f"Posting variants: {turing_summary['variant_count']}")
+        print(f"Unlinked active postings: {turing_summary['unlinked_postings']}")
+    else:
+        print("No active Turing postings found.")
+    print("")
+
+    print_rows(
+        "Top Turing canonical opportunities by variant count",
+        top_turing_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "Turing multi-location canonical opportunities",
+        multi_location_turing_groups,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['location_count']} locations, {row['variant_count']} variants"
         ),
     )
     print("")

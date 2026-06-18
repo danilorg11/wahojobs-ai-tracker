@@ -97,6 +97,12 @@ def main():
         f"{market_summary['oneforma_canonical_opportunities']}"
     )
     print(f"OneForma posting variants:        {market_summary['oneforma_posting_variants']}")
+    print(f"Turing raw postings:              {market_summary['turing_raw_postings']}")
+    print(
+        "Turing canonical opportunities:   "
+        f"{market_summary['turing_canonical_opportunities']}"
+    )
+    print(f"Turing posting variants:          {market_summary['turing_posting_variants']}")
     print(f"Welocalize raw postings:          {market_summary['welocalize_raw_postings']}")
     print(
         "Welocalize canonical opportunities: "

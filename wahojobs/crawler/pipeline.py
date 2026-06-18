@@ -11,6 +11,7 @@ from wahojobs.crawler.companies.mindrift import crawl_mindrift
 from wahojobs.crawler.companies.oneforma import crawl_oneforma
 from wahojobs.crawler.companies.outlier import crawl_outlier
 from wahojobs.crawler.companies.rws import crawl_rws
+from wahojobs.crawler.companies.turing import crawl_turing
 from wahojobs.crawler.companies.welocalize import crawl_welocalize
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import (
@@ -38,6 +39,7 @@ CRAWLERS = {
     "oneforma": crawl_oneforma,
     "outlier": crawl_outlier,
     "rws": crawl_rws,
+    "turing": crawl_turing,
     "welocalize": crawl_welocalize,
 }
 

@@ -22,6 +22,7 @@ CORE_SOURCES = (
     "oneforma",
     "outlier",
     "rws",
+    "turing",
     "welocalize",
 )
 EXPERIMENTAL_SOURCES = ("invisible",)
@@ -360,6 +361,12 @@ def render_snapshot(
             f"**{market_summary['oneforma_canonical_opportunities']}**"
         ),
         f"- OneForma posting variants: **{market_summary['oneforma_posting_variants']}**",
+        f"- Turing raw postings: **{market_summary['turing_raw_postings']}**",
+        (
+            "- Turing canonical opportunities: "
+            f"**{market_summary['turing_canonical_opportunities']}**"
+        ),
+        f"- Turing posting variants: **{market_summary['turing_posting_variants']}**",
         f"- Welocalize raw postings: **{market_summary['welocalize_raw_postings']}**",
         (
             "- Welocalize canonical opportunities: "
@@ -395,7 +402,7 @@ def render_snapshot(
             "",
             (
                 "- Estimated market opportunities are an approximation: Alignerr, "
-                "DataForce, Meridial, Mindrift, OneForma, and Welocalize use canonical opportunity grouping, while other sources "
+                "DataForce, Meridial, Mindrift, OneForma, Turing, and Welocalize use canonical opportunity grouping, while other sources "
                 "currently count each active raw job as one opportunity."
             ),
             "- Simulation data is excluded from this snapshot.",

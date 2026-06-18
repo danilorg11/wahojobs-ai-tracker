@@ -1,18 +1,18 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-18T01:38:21+00:00 UTC
+Generated: 2026-06-18T02:28:40+00:00 UTC
 
 ## Sources
 
-Core sources included: alignerr, appen, dataforce, meridial, mercor, micro1, mindrift, oneforma, outlier, rws, welocalize
+Core sources included: alignerr, appen, dataforce, meridial, mercor, micro1, mindrift, oneforma, outlier, rws, turing, welocalize
 Experimental sources: excluded
 Simulation data: excluded
 Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **8702**
-- Estimated market opportunities: **2321**
+- Raw active postings: **8896**
+- Estimated market opportunities: **2477**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
@@ -29,6 +29,9 @@ Sample fallback data: excluded
 - OneForma raw variants: **715**
 - OneForma canonical opportunities: **53**
 - OneForma posting variants: **662**
+- Turing raw postings: **194**
+- Turing canonical opportunities: **156**
+- Turing posting variants: **38**
 - Welocalize raw postings: **380**
 - Welocalize canonical opportunities: **311**
 - Welocalize posting variants: **69**
@@ -47,6 +50,7 @@ Sample fallback data: excluded
 | Welocalize | 380 |
 | micro1 | 377 |
 | Mercor | 233 |
+| Turing | 194 |
 | RWS TrainAI | 93 |
 | Outlier | 63 |
 | DataForce | 47 |
@@ -80,6 +84,7 @@ Sample fallback data: excluded
 | Engineering & Technology | 58 |
 | Coding | 57 |
 | AI Data Specialist | 50 |
+| Other | 48 |
 | Creator (Writer); General writer | 46 |
 | Creator (Writer); Coding | 42 |
 | Life, Physical, and Social Science | 42 |
@@ -89,7 +94,10 @@ Sample fallback data: excluded
 | Finance & Mathematics | 36 |
 | software-engineering | 36 |
 | Business Operations | 35 |
+| Science | 35 |
+| Software development | 33 |
 | Data Analysis | 32 |
+| Finance | 32 |
 | Creator (Writer); Biology | 30 |
 | Creator (Writer); Chemistry | 30 |
 | Creator (Writer); Civil Engineering | 30 |
@@ -105,7 +113,6 @@ Sample fallback data: excluded
 | Creator (Writer); Software Tester | 25 |
 | Creator (Writer); Computer science | 24 |
 | Creator (Writer); Statistics | 24 |
-| Finance | 23 |
 | Software Engineering | 22 |
 | expert | 19 |
 | Speech AI Evaluation | 18 |
@@ -117,13 +124,18 @@ Sample fallback data: excluded
 | Language and Audio | 14 |
 | Creator (Writer); Integration Developer | 13 |
 | Linguistic AI Auditing | 13 |
+| Linguistics | 13 |
+| Analyst | 11 |
 | Customer Service | 11 |
 | Video | 11 |
 | language-audio | 11 |
+| Legal & Law Services | 10 |
 | Other Engineering | 10 |
 | Arts & Design | 9 |
+| Healthcare & Medical | 9 |
 | Medicine | 9 |
 | finance | 9 |
+| Business | 8 |
 | Early Career | 7 |
 | business-operations | 7 |
 | Code | 6 |
@@ -141,10 +153,14 @@ Sample fallback data: excluded
 | robotics | 6 |
 | History | 5 |
 | Language - Chinese | 5 |
+| ML/Data Engineering | 5 |
+| Media & Communication | 5 |
 | Language - Arabic | 4 |
 | Text | 4 |
 | ai-machine-learning | 4 |
 | AI Dubbing | 3 |
+| Cloud & Infrastructure | 3 |
+| Engineering | 3 |
 | Generalist | 3 |
 | Language - Dutch | 3 |
 | cybersecurity | 3 |
@@ -166,7 +182,9 @@ Sample fallback data: excluded
 | Language Annotation | 2 |
 | arts-design | 2 |
 | law | 2 |
+| Data Scientist/Analyst | 1 |
 | Delivery Advisor | 1 |
+| Design | 1 |
 | Language - Bulgarian | 1 |
 | Language - Danish | 1 |
 | Language - French | 1 |
@@ -192,7 +210,7 @@ Sample fallback data: excluded
 
 ## Today's Activity
 
-- New jobs today: **811**
+- New jobs today: **1005**
 - Removed jobs today: **6**
 - Reactivated jobs today: **1**
 
@@ -200,16 +218,16 @@ Sample fallback data: excluded
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Senior Software Engineer - Agent Evaluation | Creator (Writer); Software Tester | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/07A6121198) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Data Science Engineer (Python & SQL) - Freelance AI Trainer | Creator (Writer); Data Science | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/15B9024D0F) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Freelance Machine Learning Engineer (Python) | Creator (Writer); Machine Learning | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/C29002A51F) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Mechanical Engineering Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Mechanical Engineering | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/86906145DA) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Electrical Engineering Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Electrical Engineering | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/04DEAE6985) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Senior Python Engineer - Freelance, Mindrift (AI Testing Project) | Creator (Writer); Coding | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/2C9B1A4074) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Physics Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Physics | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/DB4E7747D8) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Statistics Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Statistics | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/D8066203E1) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Mathematics Expert with Python Experience - AI Projects on Mindrift | Creator (Writer); Mathematics | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/81955C67C5) |
-| discovered | 2026-06-18T01:35:27+00:00 | Mindrift | Web Scraping Expert / Freelance | Creator (Writer); Web scraping | United States (Remote) | [Link](https://apply.workable.com/toloka-ai/j/C994C39E65) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | Data Scientist/Analyst | Data Scientist/Analyst | remote | [Link](https://work.turing.com/api/job/public?jobCode=BI-KUc5IyNtD) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | Senior Python Developer | Software development | Remote | [Link](https://work.turing.com/api/job/public?jobCode=UJVtIjQ1KhmJ) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | Python + Full-Stack (JS) Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=y63_Dd5ms_eH) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | JavaScript / TypeScript Full-Stack Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=JSOClCQN5arG) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | LLM Java Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=yVjaf8-_Vwda) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | Content Analyst | Other | remote | [Link](https://work.turing.com/api/job/public?jobCode=_32qy_WW_Zwa) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | Research Analyst - Advanced Math | Science | remote | [Link](https://work.turing.com/api/job/public?jobCode=nUoVpko8ZcZ5) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | LLM C/ C++ Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=SwBhwiZCc1qY) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | Senior LLM Engineer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=bDXWjbgoP-pn) |
+| discovered | 2026-06-18T02:28:29+00:00 | Turing | Medicine Physician (MD/DO/Doctoral study/PhD) | Healthcare & Medical | remote | [Link](https://work.turing.com/api/job/public?jobCode=Ts67XA0OYtij) |
 
 ## Data Quality Summary
 
@@ -221,10 +239,10 @@ Sample fallback data: excluded
 | Active jobs with Unknown expertise/department | 16 |
 | Duplicate external_id within same company | 0 |
 | Duplicate URL within same company | 24 |
-| Failed crawl runs | 2 |
+| Failed crawl runs | 12 |
 
 ## Notes
 
-- Estimated market opportunities are an approximation: Alignerr, DataForce, Meridial, Mindrift, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
+- Estimated market opportunities are an approximation: Alignerr, DataForce, Meridial, Mindrift, OneForma, Turing, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
 - Simulation data is excluded from this snapshot.
 - Legacy sample fallback rows are excluded from this publishable snapshot.

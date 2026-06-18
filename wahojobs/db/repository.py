@@ -7,6 +7,7 @@ from wahojobs.canonical.service import (
     sync_meridial_canonical_opportunities,
     sync_mindrift_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
+    sync_turing_canonical_opportunities,
     sync_welocalize_canonical_opportunities,
 )
 from wahojobs.db.connection import get_connection
@@ -78,6 +79,12 @@ RWS_SEED = {
     "careers_url": "https://api.lever.co/v0/postings/rws?mode=json&expand=location",
 }
 
+TURING_SEED = {
+    "name": "Turing",
+    "slug": "turing",
+    "careers_url": "https://work.turing.com/api/jobs/all",
+}
+
 WELOCALIZE_SEED = {
     "name": "Welocalize",
     "slug": "welocalize",
@@ -103,6 +110,7 @@ def initialize_database(db_path=DB_PATH):
             ONEFORMA_SEED,
             OUTLIER_SEED,
             RWS_SEED,
+            TURING_SEED,
             WELOCALIZE_SEED,
         ):
             conn.execute(
@@ -131,6 +139,9 @@ def initialize_database(db_path=DB_PATH):
         oneforma = get_company_by_slug(conn, "oneforma")
         if oneforma is not None:
             sync_oneforma_canonical_opportunities(conn, oneforma["id"])
+        turing = get_company_by_slug(conn, "turing")
+        if turing is not None:
+            sync_turing_canonical_opportunities(conn, turing["id"])
         welocalize = get_company_by_slug(conn, "welocalize")
         if welocalize is not None:
             sync_welocalize_canonical_opportunities(conn, welocalize["id"])
