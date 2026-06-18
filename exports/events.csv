@@ -1,4 +1,10 @@
 event_type,created_at,company,title,location,expertise/department,url
+removed,2026-06-18T01:42:00+00:00,Outlier,AI Writing Evaluator,Remote,Unknown,https://outlier.ai/sample/ai-writing-evaluator
+removed,2026-06-18T01:42:00+00:00,Outlier,AI Trainer - Mathematics,Remote,Unknown,https://outlier.ai/sample/ai-trainer-math
+removed,2026-06-18T01:42:00+00:00,Outlier,AI Trainer - Coding Expertise,Remote,Unknown,https://outlier.ai/sample/ai-trainer-coding
+reactivated,2026-06-18T01:41:15+00:00,Outlier,AI Writing Evaluator,Remote,Unknown,https://outlier.ai/sample/ai-writing-evaluator
+reactivated,2026-06-18T01:41:15+00:00,Outlier,AI Trainer - Mathematics,Remote,Unknown,https://outlier.ai/sample/ai-trainer-math
+reactivated,2026-06-18T01:41:15+00:00,Outlier,AI Trainer - Coding Expertise,Remote,Unknown,https://outlier.ai/sample/ai-trainer-coding
 discovered,2026-06-18T01:35:27+00:00,Mindrift,Senior Software Engineer - Agent Evaluation,United States (Remote),Creator (Writer); Software Tester,https://apply.workable.com/toloka-ai/j/07A6121198
 discovered,2026-06-18T01:35:27+00:00,Mindrift,Data Science Engineer (Python & SQL) - Freelance AI Trainer,United States (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/15B9024D0F
 discovered,2026-06-18T01:35:27+00:00,Mindrift,Freelance Machine Learning Engineer (Python),United States (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/C29002A51F

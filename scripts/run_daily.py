@@ -1,13 +1,18 @@
 import argparse
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.crawler.pipeline import run_crawl
 from wahojobs.db.connection import get_connection
-from wahojobs.db.repository import initialize_database
+from wahojobs.db.repository import (
+    get_company_by_slug,
+    get_last_successful_crawl,
+    initialize_database,
+)
 from wahojobs.reporting.market import get_market_size_summary
 from wahojobs.reporting.micro1 import get_micro1_metrics
 from wahojobs.reporting.terminal import print_crawl_summary
@@ -28,6 +33,7 @@ CORE_SOURCES = [
 ]
 EXPERIMENTAL_SOURCES = ["invisible"]
 EXPORT_FILES = [Path("exports/jobs.csv"), Path("exports/events.csv")]
+MINDRIFT_COOLDOWN_HOURS = 12
 
 
 def main():
@@ -59,8 +65,20 @@ def main():
 
     succeeded = []
     failed = []
+    skipped = []
 
     for source in sources:
+        if source == "mindrift":
+            last_success = get_recent_mindrift_success()
+            if last_success is not None:
+                print("")
+                print(
+                    "Skipping Mindrift: recently crawled successfully at "
+                    f"{last_success.isoformat()}"
+                )
+                skipped.append(source)
+                continue
+
         print("")
         print(f"Running crawler: {source}")
         print("-" * (17 + len(source)))
@@ -79,7 +97,7 @@ def main():
     run_script("scripts/export_jobs.py", "Export Jobs")
     run_script("scripts/export_events.py", "Export Events")
 
-    print_final_summary(succeeded, failed, args.include_experimental)
+    print_final_summary(succeeded, failed, skipped, args.include_experimental)
 
 
 def parse_args():
@@ -103,6 +121,36 @@ def run_script(script_path, title):
         print(f"{title} failed with exit code {result.returncode}.")
 
 
+def get_recent_mindrift_success():
+    with get_connection() as conn:
+        company = get_company_by_slug(conn, "mindrift")
+        if company is None:
+            return None
+        crawl_run = get_last_successful_crawl(conn, company["id"])
+        if crawl_run is None:
+            return None
+
+    started_at = parse_utc_datetime(crawl_run["started_at"])
+    if started_at is None:
+        return None
+    cooldown = timedelta(hours=MINDRIFT_COOLDOWN_HOURS)
+    if datetime.now(timezone.utc) - started_at < cooldown:
+        return started_at
+    return None
+
+
+def parse_utc_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def get_market_summary(include_experimental=False):
     with get_connection() as conn:
         return (
@@ -111,13 +159,14 @@ def get_market_summary(include_experimental=False):
         )
 
 
-def print_final_summary(succeeded, failed, include_experimental=False):
+def print_final_summary(succeeded, failed, skipped, include_experimental=False):
     market_summary, micro1_metrics = get_market_summary(include_experimental)
 
     print("")
     print("Final Summary")
     print("=============")
     print(f"Sources succeeded: {', '.join(succeeded) if succeeded else 'None'}")
+    print(f"Sources skipped: {', '.join(skipped) if skipped else 'None'}")
     if failed:
         print("Sources failed:")
         for source, error in failed:
