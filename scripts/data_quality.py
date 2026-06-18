@@ -22,6 +22,12 @@ def main():
         multi_location_groups = get_multi_location_alignerr_groups(conn)
         multi_rate_groups = get_multi_rate_alignerr_groups(conn)
         unknown_canonical_groups = get_unknown_alignerr_canonical_groups(conn)
+        dataforce_summary = get_company_canonical_summary(conn, "dataforce")
+        top_dataforce_variants = get_top_company_variants(conn, "dataforce")
+        multi_location_dataforce_groups = get_multi_location_company_groups(
+            conn,
+            "dataforce",
+        )
         meridial_summary = get_company_canonical_summary(conn, "meridial")
         top_meridial_variants = get_top_company_variants(conn, "meridial")
         multi_location_meridial_groups = get_multi_location_company_groups(
@@ -112,6 +118,37 @@ def main():
         "Unknown/low-confidence Alignerr canonical groups",
         unknown_canonical_groups,
         lambda row: f"{row['canonical_title']} ({row['source_category']}): {row['variant_count']} variants",
+    )
+    print("")
+    print("DataForce Canonical Checks")
+    print("--------------------------")
+    if dataforce_summary and dataforce_summary["raw_postings"]:
+        print(f"Raw active postings: {dataforce_summary['raw_postings']}")
+        print(
+            "Canonical active opportunities: "
+            f"{dataforce_summary['canonical_opportunities']}"
+        )
+        print(f"Posting variants: {dataforce_summary['variant_count']}")
+        print(f"Unlinked active postings: {dataforce_summary['unlinked_postings']}")
+    else:
+        print("No active DataForce postings found.")
+    print("")
+
+    print_rows(
+        "Top DataForce canonical opportunities by variant count",
+        top_dataforce_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "DataForce multi-location canonical opportunities",
+        multi_location_dataforce_groups,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['location_count']} locations, {row['variant_count']} variants"
+        ),
     )
     print("")
     print("Meridial Canonical Checks")

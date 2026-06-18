@@ -1,5 +1,6 @@
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
+    sync_dataforce_canonical_opportunities,
     sync_meridial_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
     sync_welocalize_canonical_opportunities,
@@ -60,6 +61,8 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
 
     if company["slug"] == "alignerr":
         sync_alignerr_canonical_opportunities(conn, company_id)
+    elif company["slug"] == "dataforce":
+        sync_dataforce_canonical_opportunities(conn, company_id)
     elif company["slug"] == "meridial":
         sync_meridial_canonical_opportunities(conn, company_id)
     elif company["slug"] == "oneforma":

@@ -11,7 +11,7 @@ def main():
     initialize_database()
     print(f"Initialized SQLite database at {DB_PATH}")
     print(
-        "Seeded companies: Alignerr, Appen, Invisible Technologies, "
+        "Seeded companies: Alignerr, Appen, DataForce, Invisible Technologies, "
         "Meridial, Mercor, micro1, OneForma, Outlier, RWS TrainAI, Welocalize"
     )
 

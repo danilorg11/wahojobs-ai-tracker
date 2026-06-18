@@ -14,6 +14,7 @@ OUTPUT_PATH = Path("exports/market_snapshot.md")
 CORE_SOURCES = (
     "alignerr",
     "appen",
+    "dataforce",
     "meridial",
     "mercor",
     "micro1",
@@ -334,6 +335,12 @@ def render_snapshot(
             f"**{market_summary['alignerr_canonical_opportunities']}**"
         ),
         f"- Alignerr posting variants: **{market_summary['alignerr_posting_variants']}**",
+        f"- DataForce raw postings: **{market_summary['dataforce_raw_postings']}**",
+        (
+            "- DataForce canonical opportunities: "
+            f"**{market_summary['dataforce_canonical_opportunities']}**"
+        ),
+        f"- DataForce posting variants: **{market_summary['dataforce_posting_variants']}**",
         f"- Meridial raw postings: **{market_summary['meridial_raw_postings']}**",
         (
             "- Meridial canonical opportunities: "
@@ -381,7 +388,7 @@ def render_snapshot(
             "",
             (
                 "- Estimated market opportunities are an approximation: Alignerr, "
-                "Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources "
+                "DataForce, Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources "
                 "currently count each active raw job as one opportunity."
             ),
             "- Simulation data is excluded from this snapshot.",

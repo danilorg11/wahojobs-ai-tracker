@@ -1,22 +1,25 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-18T01:01:05+00:00 UTC
+Generated: 2026-06-18T01:19:07+00:00 UTC
 
 ## Sources
 
-Core sources included: alignerr, appen, meridial, mercor, micro1, oneforma, outlier, rws, welocalize
+Core sources included: alignerr, appen, dataforce, meridial, mercor, micro1, oneforma, outlier, rws, welocalize
 Experimental sources: excluded
 Simulation data: excluded
 Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **7920**
-- Estimated market opportunities: **2213**
+- Raw active postings: **7967**
+- Estimated market opportunities: **2230**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
 - Alignerr posting variants: **4716**
+- DataForce raw postings: **47**
+- DataForce canonical opportunities: **17**
+- DataForce posting variants: **30**
 - Meridial raw postings: **800**
 - Meridial canonical opportunities: **540**
 - Meridial posting variants: **260**
@@ -42,6 +45,7 @@ Sample fallback data: excluded
 | Mercor | 233 |
 | RWS TrainAI | 93 |
 | Outlier | 63 |
+| DataForce | 47 |
 | Appen | 41 |
 
 ## Active Jobs by Expertise/Department
@@ -85,11 +89,14 @@ Sample fallback data: excluded
 | expert | 19 |
 | Speech AI Evaluation | 18 |
 | Annotation; Transcription | 16 |
+| Audio | 16 |
 | Unknown | 16 |
 | Miscellaneous | 15 |
+| Photo | 15 |
 | Language and Audio | 14 |
 | Linguistic AI Auditing | 13 |
 | Customer Service | 11 |
+| Video | 11 |
 | language-audio | 11 |
 | Other Engineering | 10 |
 | Arts & Design | 9 |
@@ -104,6 +111,7 @@ Sample fallback data: excluded
 | History | 5 |
 | Language - Chinese | 5 |
 | Language - Arabic | 4 |
+| Text | 4 |
 | ai-machine-learning | 4 |
 | AI Dubbing | 3 |
 | Generalist | 3 |
@@ -148,11 +156,12 @@ Sample fallback data: excluded
 | Specialist - Media & Communications | 1 |
 | The Agency: Worldwide Sharing | 1 |
 | TrainAI Talent Pool | 1 |
+| chat | 1 |
 | medicine | 1 |
 
 ## Today's Activity
 
-- New jobs today: **29**
+- New jobs today: **76**
 - Removed jobs today: **6**
 - Reactivated jobs today: **1**
 
@@ -160,16 +169,16 @@ Sample fallback data: excluded
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| removed | 2026-06-18T01:00:40+00:00 | RWS TrainAI | Brazilian Portuguese - Internet Culture Subject Matter Expert (SME) | Subject Matter Expert | Rio de Janeiro | [Link](https://jobs.lever.co/rws/768d0459-fcde-4fe5-b6e2-2ae2d9f07b56) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Ukrainian (Ukraine) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13063?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Slovenian (Slovenia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13061?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Slovak (Slovakia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13062?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Romanian (Romania) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13059?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Latvian (Latvia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13058?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Hungarian (Hungary) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13064?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Croatian (Croatia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13060?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Farsi (Iran) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13057?from=list&tab=all) |
-| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Welsh (United Kingdom) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13056?from=list&tab=all) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Colby Jack Research Study - United States | Video | United States | [Link](https://dataforcecommunity.transperfect.com/study/colby-jack-research-study) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Onsite Audio Recording - Finland - Tampere | Audio | Tampere, Finland | [Link](https://dataforcecommunity.transperfect.com/project/audio-recording-tampere) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Ronia Raw Remote Photo Collection - United States | Photo | United States | [Link](https://dataforcecommunity.transperfect.com/project/ronia-remote-photo-collection-united-states) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - United Kingdom (Project Asteroid) | Photo | United Kingdom | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-uk) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - United States (Project Asteroid) | Photo | United States | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-us) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - Canada (Project Asteroid) | Photo | Canada | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-canada) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Remote Photo Collection – Membership Cards & Event Tickets - Australia (Project Asteroid) | Photo | Australia | [Link](https://dataforcecommunity.transperfect.com/project/asteroid-photo-collection-australia) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Zorro - Onsite Study - Jersey City, NJ | Video | Jersey City, United States | [Link](https://dataforcecommunity.transperfect.com/study/zorro-nj) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Zorro - Onsite Study - Atlanta, GA | Video | Atlanta, United States | [Link](https://dataforcecommunity.transperfect.com/study/zorro-atlanta-ga) |
+| discovered | 2026-06-18T01:16:09+00:00 | DataForce | Gardenia Speech Collection - United States | Audio | United States | [Link](https://dataforcecommunity.transperfect.com/project/gardenia-speech-collection-us) |
 
 ## Data Quality Summary
 
@@ -185,6 +194,6 @@ Sample fallback data: excluded
 
 ## Notes
 
-- Estimated market opportunities are an approximation: Alignerr, Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
+- Estimated market opportunities are an approximation: Alignerr, DataForce, Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
 - Simulation data is excluded from this snapshot.
 - Legacy sample fallback rows are excluded from this publishable snapshot.

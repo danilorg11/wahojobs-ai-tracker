@@ -16,6 +16,7 @@ from wahojobs.reporting.terminal import print_crawl_summary
 CORE_SOURCES = [
     "alignerr",
     "appen",
+    "dataforce",
     "meridial",
     "mercor",
     "micro1",
@@ -135,6 +136,12 @@ def print_final_summary(succeeded, failed, include_experimental=False):
         f"{market_summary['alignerr_canonical_opportunities']}"
     )
     print(f"Alignerr posting variants: {market_summary['alignerr_posting_variants']}")
+    print(f"DataForce raw postings: {market_summary['dataforce_raw_postings']}")
+    print(
+        "DataForce canonical opportunities: "
+        f"{market_summary['dataforce_canonical_opportunities']}"
+    )
+    print(f"DataForce posting variants: {market_summary['dataforce_posting_variants']}")
     print(f"Meridial raw postings: {market_summary['meridial_raw_postings']}")
     print(
         "Meridial canonical opportunities: "

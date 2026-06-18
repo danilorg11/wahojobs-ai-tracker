@@ -3,6 +3,7 @@ from pathlib import Path
 from wahojobs.config import DB_PATH
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
+    sync_dataforce_canonical_opportunities,
     sync_meridial_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
     sync_welocalize_canonical_opportunities,
@@ -26,6 +27,12 @@ APPEN_SEED = {
     "name": "Appen",
     "slug": "appen",
     "careers_url": "https://api.lever.co/v0/postings/appen?mode=json&expand=location",
+}
+
+DATAFORCE_SEED = {
+    "name": "DataForce",
+    "slug": "dataforce",
+    "careers_url": "https://dataforcecommunity.transperfect.com/projects",
 }
 
 INVISIBLE_SEED = {
@@ -80,6 +87,7 @@ def initialize_database(db_path=DB_PATH):
         for seed in (
             ALIGNERR_SEED,
             APPEN_SEED,
+            DATAFORCE_SEED,
             INVISIBLE_SEED,
             MERIDIAL_SEED,
             MERCOR_SEED,
@@ -103,6 +111,9 @@ def initialize_database(db_path=DB_PATH):
         alignerr = get_company_by_slug(conn, "alignerr")
         if alignerr is not None:
             sync_alignerr_canonical_opportunities(conn, alignerr["id"])
+        dataforce = get_company_by_slug(conn, "dataforce")
+        if dataforce is not None:
+            sync_dataforce_canonical_opportunities(conn, dataforce["id"])
         meridial = get_company_by_slug(conn, "meridial")
         if meridial is not None:
             sync_meridial_canonical_opportunities(conn, meridial["id"])

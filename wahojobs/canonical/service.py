@@ -1,4 +1,5 @@
 from wahojobs.canonical.alignerr import canonicalize_job
+from wahojobs.canonical.dataforce import canonicalize_job as canonicalize_dataforce_job
 from wahojobs.canonical.meridial import canonicalize_job as canonicalize_meridial_job
 from wahojobs.canonical.oneforma import canonicalize_job as canonicalize_oneforma_job
 from wahojobs.canonical.welocalize import canonicalize_job as canonicalize_welocalize_job
@@ -6,6 +7,10 @@ from wahojobs.canonical.welocalize import canonicalize_job as canonicalize_weloc
 
 def sync_alignerr_canonical_opportunities(conn, company_id):
     sync_canonical_opportunities(conn, company_id, canonicalize_alignerr_row)
+
+
+def sync_dataforce_canonical_opportunities(conn, company_id):
+    sync_canonical_opportunities(conn, company_id, canonicalize_dataforce_job)
 
 
 def sync_oneforma_canonical_opportunities(conn, company_id):
