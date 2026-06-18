@@ -334,6 +334,12 @@ def render_snapshot(
             f"**{market_summary['alignerr_canonical_opportunities']}**"
         ),
         f"- Alignerr posting variants: **{market_summary['alignerr_posting_variants']}**",
+        f"- Meridial raw postings: **{market_summary['meridial_raw_postings']}**",
+        (
+            "- Meridial canonical opportunities: "
+            f"**{market_summary['meridial_canonical_opportunities']}**"
+        ),
+        f"- Meridial posting variants: **{market_summary['meridial_posting_variants']}**",
         f"- OneForma raw variants: **{market_summary['oneforma_raw_variants']}**",
         (
             "- OneForma canonical opportunities: "
@@ -375,7 +381,7 @@ def render_snapshot(
             "",
             (
                 "- Estimated market opportunities are an approximation: Alignerr, "
-                "OneForma, and Welocalize use canonical opportunity grouping, while other sources "
+                "Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources "
                 "currently count each active raw job as one opportunity."
             ),
             "- Simulation data is excluded from this snapshot.",

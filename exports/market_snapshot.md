@@ -1,6 +1,6 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-17T15:51:22+00:00 UTC
+Generated: 2026-06-18T01:01:05+00:00 UTC
 
 ## Sources
 
@@ -11,20 +11,23 @@ Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **7896**
-- Estimated market opportunities: **2458**
+- Raw active postings: **7920**
+- Estimated market opportunities: **2213**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
 - Alignerr posting variants: **4716**
-- OneForma raw variants: **703**
-- OneForma canonical opportunities: **50**
-- OneForma posting variants: **653**
+- Meridial raw postings: **800**
+- Meridial canonical opportunities: **540**
+- Meridial posting variants: **260**
+- OneForma raw variants: **715**
+- OneForma canonical opportunities: **53**
+- OneForma posting variants: **662**
 - Welocalize raw postings: **380**
 - Welocalize canonical opportunities: **311**
 - Welocalize posting variants: **69**
-- micro1 active jobs: **379**
-- micro1 unique titles: **340**
+- micro1 active jobs: **377**
+- micro1 unique titles: **338**
 - micro1 duplicate-title count: **34**
 
 ## Active Jobs by Company
@@ -32,14 +35,14 @@ Sample fallback data: excluded
 | Label | Count |
 | --- | ---: |
 | Alignerr | 5218 |
-| Meridial | 801 |
-| OneForma | 703 |
+| Meridial | 800 |
+| OneForma | 715 |
 | Welocalize | 380 |
-| micro1 | 379 |
-| Mercor | 222 |
-| RWS TrainAI | 94 |
+| micro1 | 377 |
+| Mercor | 233 |
+| RWS TrainAI | 93 |
 | Outlier | 63 |
-| Appen | 36 |
+| Appen | 41 |
 
 ## Active Jobs by Expertise/Department
 
@@ -51,51 +54,51 @@ Sample fallback data: excluded
 | Language & Linguistics | 372 |
 | AUDIO | 320 |
 | AI Service General Application | 221 |
-| Data Collection | 185 |
+| Data Collection | 186 |
 | Translation | 183 |
 | OTHER | 156 |
-| generalist | 154 |
-| Annotation | 131 |
-| Business & Professions | 118 |
+| generalist | 153 |
+| Annotation | 132 |
+| Business & Professions | 117 |
 | Sciences | 99 |
 | Annotation; Judging | 86 |
 | Data Annotation | 85 |
 | Judging | 85 |
 | LANGUAGE | 84 |
-| specialist | 73 |
+| specialist | 72 |
 | Data Validation | 71 |
 | Engineering & Technology | 58 |
 | Coding | 57 |
 | AI Data Specialist | 50 |
-| Life, Physical, and Social Science | 40 |
-| AI Trainers - Domain Experts | 36 |
+| Life, Physical, and Social Science | 42 |
+| AI Trainers - Domain Experts | 41 |
 | Finance & Mathematics | 36 |
 | software-engineering | 36 |
-| Business Operations | 33 |
-| Data Analysis | 31 |
+| Business Operations | 35 |
+| Data Analysis | 32 |
+| Law | 30 |
 | other | 30 |
-| Law | 28 |
 | Creative & Multi-Media | 26 |
-| Finance | 22 |
+| Transcription | 26 |
+| Finance | 23 |
 | Software Engineering | 22 |
 | expert | 19 |
 | Speech AI Evaluation | 18 |
 | Annotation; Transcription | 16 |
-| Transcription | 16 |
 | Unknown | 16 |
 | Miscellaneous | 15 |
-| Language and Audio | 13 |
+| Language and Audio | 14 |
 | Linguistic AI Auditing | 13 |
 | Customer Service | 11 |
 | language-audio | 11 |
 | Other Engineering | 10 |
 | Arts & Design | 9 |
+| Medicine | 9 |
 | finance | 9 |
 | Early Career | 7 |
-| Medicine | 7 |
-| Subject Matter Expert | 7 |
 | business-operations | 7 |
 | Code | 6 |
+| Subject Matter Expert | 6 |
 | data-analysis | 6 |
 | robotics | 6 |
 | History | 5 |
@@ -149,24 +152,24 @@ Sample fallback data: excluded
 
 ## Today's Activity
 
-- New jobs today: **1575**
-- Removed jobs today: **16**
+- New jobs today: **29**
+- Removed jobs today: **6**
 - Reactivated jobs today: **1**
 
 ## Top Recent Events
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Turkish (Turkey) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12967) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Polish (Poland) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12965) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Swedish (Sweden) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12963) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Norwegian Bokmål (Norway) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12975) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Dutch (Netherlands) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12966) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Malay (Malaysia) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12964) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Indonesian (Indonesia) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12962) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Hindi (India) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12968) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Hebrew (Israel) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12960) |
-| discovered | 2026-06-17T15:50:43+00:00 | OneForma | Asterio – Label Form Documents to Train AI - Finnish (Finland) | Annotation | Worldwide | [Link](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12961) |
+| removed | 2026-06-18T01:00:40+00:00 | RWS TrainAI | Brazilian Portuguese - Internet Culture Subject Matter Expert (SME) | Subject Matter Expert | Rio de Janeiro | [Link](https://jobs.lever.co/rws/768d0459-fcde-4fe5-b6e2-2ae2d9f07b56) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Ukrainian (Ukraine) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13063?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Slovenian (Slovenia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13061?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Slovak (Slovakia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13062?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Romanian (Romania) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13059?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Latvian (Latvia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13058?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Hungarian (Hungary) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13064?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Croatian (Croatia) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13060?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Farsi (Iran) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13057?from=list&tab=all) |
+| discovered | 2026-06-18T01:00:36+00:00 | OneForma | OAK – Display Transcription and Disfluency Tagging - Welsh (United Kingdom) | Transcription | Remote; Selected Locations | [Link](https://my.oneforma.com/crowd/jobs/13056?from=list&tab=all) |
 
 ## Data Quality Summary
 
@@ -182,6 +185,6 @@ Sample fallback data: excluded
 
 ## Notes
 
-- Estimated market opportunities are an approximation: Alignerr, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
+- Estimated market opportunities are an approximation: Alignerr, Meridial, OneForma, and Welocalize use canonical opportunity grouping, while other sources currently count each active raw job as one opportunity.
 - Simulation data is excluded from this snapshot.
 - Legacy sample fallback rows are excluded from this publishable snapshot.

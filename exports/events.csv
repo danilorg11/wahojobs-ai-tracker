@@ -1,15 +1,51 @@
 event_type,created_at,company,title,location,expertise/department,url
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Turkish (Turkey),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12967
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Polish (Poland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12965
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Swedish (Sweden),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12963
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Norwegian Bokmål (Norway),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12975
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Dutch (Netherlands),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12966
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Malay (Malaysia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12964
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Indonesian (Indonesia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12962
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Hindi (India),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12968
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Hebrew (Israel),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12960
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Finnish (Finland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12961
-discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents to Train AI - Danish (Denmark),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12969
+removed,2026-06-18T01:00:40+00:00,RWS TrainAI,Brazilian Portuguese - Internet Culture Subject Matter Expert (SME),Rio de Janeiro,Subject Matter Expert,https://jobs.lever.co/rws/768d0459-fcde-4fe5-b6e2-2ae2d9f07b56
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Ukrainian (Ukraine),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13063?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Slovenian (Slovenia),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13061?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Slovak (Slovakia),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13062?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Romanian (Romania),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13059?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Latvian (Latvia),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13058?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Hungarian (Hungary),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13064?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Croatian (Croatia),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13060?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Farsi (Iran),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13057?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Welsh (United Kingdom),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13056?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Bulgarian (Bulgaria),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13055?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,"Physician Consultant – AI Clinical Tool Development & Testing (Remote, US)",Remote; US,Annotation,https://my.oneforma.com/crowd/jobs/12579?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,"Longitudinal Health Records Study – Contribute Your De-Identified Health Data (US, Remote, Paid)",Remote; US,Data Collection,https://my.oneforma.com/crowd/jobs/11698?from=list&tab=all
+removed,2026-06-18T01:00:27+00:00,micro1,Senior Software Developer (Multi-Language Systems & AI Engineering),Remote,generalist,https://jobs.micro1.ai/post/c1ca942d-0fd2-4de5-9d3f-5a839e97ba40?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-18T01:00:27+00:00,micro1,Saas Contracting Attorney - AI Fellowship,Remote,specialist,https://jobs.micro1.ai/post/d9165951-e169-49b1-b90a-e07ff4adbfaf?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-18T01:00:21+00:00,Mercor,Argentinian Spanish Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnEtpyks752FEfxFAtL48
+removed,2026-06-18T01:00:21+00:00,Mercor,Legal Technology Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZsP8rVe0Qk8aRJY7jZ
+discovered,2026-06-18T01:00:21+00:00,Mercor,Nurse Practitioners,Remote,Medicine,https://work.mercor.com/jobs/list_AAABmhizzPmUSt2-y4RPgYHa
+discovered,2026-06-18T01:00:21+00:00,Mercor,"Child, Family and School Social Workers",Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABmh0lgL-B75E7XbdLu5Gz
+discovered,2026-06-18T01:00:21+00:00,Mercor,Registered Nurses,Remote,Medicine,https://work.mercor.com/jobs/list_AAABmmSIYOaB-AHO90pOFYlP
+discovered,2026-06-18T01:00:21+00:00,Mercor,Lawyers,Remote,Law,https://work.mercor.com/jobs/list_AAABm5Uqnm5tTAFuu91BT5gF
+discovered,2026-06-18T01:00:21+00:00,Mercor,Corporate Finance Experts,Remote,Finance,https://work.mercor.com/jobs/list_AAABm5U20hNxVDatXhpEjqbP
+discovered,2026-06-18T01:00:21+00:00,Mercor,Vocational Training Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnbZr47Ow4rJsBl9FbZgw
+discovered,2026-06-18T01:00:21+00:00,Mercor,Financial Services Fraud Investigation Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZuc_bYIgD-mrhAjImB
+discovered,2026-06-18T01:00:21+00:00,Mercor,Research Operations & Administration Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnbZxJcEQwRGhO3BKIZEQ
+discovered,2026-06-18T01:00:21+00:00,Mercor,Public Interest Law Expert (Civil / Environmental),Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyNLQ_rE4DFwpIubbY
+discovered,2026-06-18T01:00:21+00:00,Mercor,STEM PhDs and Technical Domain Experts,Remote,Data Analysis,https://work.mercor.com/jobs/list_AAABnkKfIa1n4GJSEKRIEqCQ
+reactivated,2026-06-18T01:00:21+00:00,Mercor,Office-Suite Experts,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnontX_Edh25-QxNIqp_w
+discovered,2026-06-18T01:00:21+00:00,Mercor,English (New Zealand) Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABntaxoKcNqVEf461J9pn1
+discovered,2026-06-18T01:00:21+00:00,Mercor,English (Australia) Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnta9W11pnOe6FSxDoalq
+discovered,2026-06-18T01:00:16+00:00,Appen,Social Media Evaluator (Ukrainian-United States),United States,AI Trainers - Domain Experts,https://jobs.lever.co/appen/18353328-7bd7-4bbb-a9d8-79ad68ddd1d4
+discovered,2026-06-18T01:00:16+00:00,Appen,Social Media Evaluator (Turkish-Turkey),Turkey,AI Trainers - Domain Experts,https://jobs.lever.co/appen/194fa41f-c013-4169-ba5c-5b94bfb36537
+discovered,2026-06-18T01:00:16+00:00,Appen,Social Media Evaluator (Russian-Poland),Poland,AI Trainers - Domain Experts,https://jobs.lever.co/appen/db5ef05a-b589-49c2-98ed-9a9a43282e62
+discovered,2026-06-18T01:00:16+00:00,Appen,Social Media Evaluator (Indonesian-Indonesia),Indonesia,AI Trainers - Domain Experts,https://jobs.lever.co/appen/f53b2d46-9c38-45e6-8913-fdcd45ae6711
+discovered,2026-06-18T01:00:16+00:00,Appen,Social Media Evaluator (Arabic-Egypt),Egypt,AI Trainers - Domain Experts,https://jobs.lever.co/appen/32a2c283-d0c9-4468-83eb-912c940674e4
+removed,2026-06-18T00:59:29+00:00,Meridial,Investment Operations Specialist - Freelance Project,Colombia,Business & Professions,https://job-boards.eu.greenhouse.io/agency/jobs/4715447101
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Turkish (Turkey),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12967
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Polish (Poland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12965
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Swedish (Sweden) — $17/hr,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12963
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Norwegian Bokmål (Norway) — $22/hr,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12975
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Dutch (Netherlands) — $17/hr,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12966
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Malay (Malaysia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12964
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Indonesian (Indonesia),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12962
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Hindi (India),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12968
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Hebrew (Israel),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12960
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Finnish (Finland),Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12961
+discovered,2026-06-17T15:50:43+00:00,OneForma,Asterio – Label Form Documents - Danish (Denmark) — $20/hr,Worldwide,Annotation,https://my.oneforma.com/webapp/rm/jobDetail?jobId=12969
 discovered,2026-06-17T15:50:37+00:00,micro1,Bambara Language Expert,Remote,generalist,https://jobs.micro1.ai/post/bad371a8-385f-484a-996e-21ef63eba99d?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T15:50:37+00:00,micro1,Senior Full Stack Engineer,Remote,software-engineering,https://jobs.micro1.ai/post/9cda2f44-2dcc-4f44-ba79-f5d79b179acc?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T15:50:37+00:00,micro1,Java Developer,remote,software-engineering,https://jobs.micro1.ai/post/b4d8b40e-974e-4113-a8f9-534dd4c3739c?utm_source=micro1&utm_medium=job_portal

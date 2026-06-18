@@ -22,6 +22,12 @@ def main():
         multi_location_groups = get_multi_location_alignerr_groups(conn)
         multi_rate_groups = get_multi_rate_alignerr_groups(conn)
         unknown_canonical_groups = get_unknown_alignerr_canonical_groups(conn)
+        meridial_summary = get_company_canonical_summary(conn, "meridial")
+        top_meridial_variants = get_top_company_variants(conn, "meridial")
+        multi_location_meridial_groups = get_multi_location_company_groups(
+            conn,
+            "meridial",
+        )
         oneforma_summary = get_company_canonical_summary(conn, "oneforma")
         top_oneforma_variants = get_top_company_variants(conn, "oneforma")
         welocalize_summary = get_company_canonical_summary(conn, "welocalize")
@@ -106,6 +112,37 @@ def main():
         "Unknown/low-confidence Alignerr canonical groups",
         unknown_canonical_groups,
         lambda row: f"{row['canonical_title']} ({row['source_category']}): {row['variant_count']} variants",
+    )
+    print("")
+    print("Meridial Canonical Checks")
+    print("-------------------------")
+    if meridial_summary and meridial_summary["raw_postings"]:
+        print(f"Raw active postings: {meridial_summary['raw_postings']}")
+        print(
+            "Canonical active opportunities: "
+            f"{meridial_summary['canonical_opportunities']}"
+        )
+        print(f"Posting variants: {meridial_summary['variant_count']}")
+        print(f"Unlinked active postings: {meridial_summary['unlinked_postings']}")
+    else:
+        print("No active Meridial postings found.")
+    print("")
+
+    print_rows(
+        "Top Meridial canonical opportunities by variant count",
+        top_meridial_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "Meridial multi-location canonical opportunities",
+        multi_location_meridial_groups,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['location_count']} locations, {row['variant_count']} variants"
+        ),
     )
     print("")
     print("OneForma Canonical Checks")

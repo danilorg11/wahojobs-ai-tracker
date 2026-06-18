@@ -1,5 +1,5 @@
 EXPERIMENTAL_SLUGS = ("invisible",)
-CANONICALIZED_SLUGS = ("alignerr", "oneforma", "welocalize")
+CANONICALIZED_SLUGS = ("alignerr", "meridial", "oneforma", "welocalize")
 
 
 def get_market_size_summary(conn, include_experimental=False, include_simulation=False):
@@ -13,6 +13,15 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         include_simulation=include_simulation,
     )
     alignerr_canonical_opportunities = count_alignerr_canonical_opportunities(conn)
+    meridial_raw_postings = count_company_raw_postings(
+        conn,
+        "meridial",
+        include_simulation=include_simulation,
+    )
+    meridial_canonical_opportunities = count_company_canonical_opportunities(
+        conn,
+        "meridial",
+    )
     oneforma_raw_postings = count_company_raw_postings(
         conn,
         "oneforma",
@@ -47,6 +56,11 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         "alignerr_canonical_opportunities": alignerr_canonical_opportunities,
         "alignerr_posting_variants": (
             alignerr_raw_postings - alignerr_canonical_opportunities
+        ),
+        "meridial_raw_postings": meridial_raw_postings,
+        "meridial_canonical_opportunities": meridial_canonical_opportunities,
+        "meridial_posting_variants": (
+            meridial_raw_postings - meridial_canonical_opportunities
         ),
         "oneforma_raw_variants": oneforma_raw_postings,
         "oneforma_canonical_opportunities": oneforma_canonical_opportunities,

@@ -3,6 +3,7 @@ from pathlib import Path
 from wahojobs.config import DB_PATH
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
+    sync_meridial_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
     sync_welocalize_canonical_opportunities,
 )
@@ -102,6 +103,9 @@ def initialize_database(db_path=DB_PATH):
         alignerr = get_company_by_slug(conn, "alignerr")
         if alignerr is not None:
             sync_alignerr_canonical_opportunities(conn, alignerr["id"])
+        meridial = get_company_by_slug(conn, "meridial")
+        if meridial is not None:
+            sync_meridial_canonical_opportunities(conn, meridial["id"])
         oneforma = get_company_by_slug(conn, "oneforma")
         if oneforma is not None:
             sync_oneforma_canonical_opportunities(conn, oneforma["id"])

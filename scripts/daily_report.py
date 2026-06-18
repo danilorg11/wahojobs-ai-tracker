@@ -73,6 +73,12 @@ def main():
         f"{market_summary['alignerr_canonical_opportunities']}"
     )
     print(f"Alignerr posting variants:        {market_summary['alignerr_posting_variants']}")
+    print(f"Meridial raw postings:            {market_summary['meridial_raw_postings']}")
+    print(
+        "Meridial canonical opportunities: "
+        f"{market_summary['meridial_canonical_opportunities']}"
+    )
+    print(f"Meridial posting variants:        {market_summary['meridial_posting_variants']}")
     print(f"OneForma raw variants:            {market_summary['oneforma_raw_variants']}")
     print(
         "OneForma canonical opportunities: "
