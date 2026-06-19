@@ -128,6 +128,22 @@ Experimental sources currently configured:
 
 Invisible remains available as a crawler, but it is treated as a non-core corporate careers source and is skipped by the default daily workflow.
 
+## Postponed High-Value Backlog
+
+### TELUS Digital AI Community
+
+TELUS Digital AI Community is highly relevant for AI-work coverage. It exposes real worker-facing AI Community roles, including search evaluation, ads evaluation, data analysis, QA/rating, and onsite/community study opportunities.
+
+Public browser-visible listings and detail pages exist, including paginated AI Community search results and stable-looking job detail URLs. However, normal local HTTP fetches currently return Cloudflare challenge pages for search results, detail pages, robots/sitemap URLs, and guessed JSON/API paths.
+
+No production-safe public JSON, API, or sitemap fetch path has been confirmed. TELUS should therefore not be implemented yet. If a reliable fetch path is found later, the likely classification would be:
+
+- `source_tier = core`
+- `inventory_model = live_feed`
+- `market_count_policy = count_live`
+
+TELUS should affect `Estimated Live Market Opportunities` only after reliable crawling is confirmed. Until then, blocked or challenged fetches would be non-authoritative and unsafe for lifecycle/removal tracking.
+
 ## Known Limitations
 
 - The system is still local/manual: SQLite, CLI scripts, CSV/Markdown exports, no hosted UI.
@@ -144,9 +160,10 @@ Invisible remains available as a crawler, but it is treated as a non-core corpor
 
 High-value candidates to research or revisit:
 
-- TELUS Digital AI Community: next recommended research/spike candidate; high relevance for search/ads evaluation, but crawl reliability needs confirmation.
-- Centific / Pactera EDGE: potentially relevant for data annotation and evaluation work.
-- Scale AI / Remotasks: strategically important; Remotasks should remain a lower-priority evergreen or strategic candidate unless a stable public worker-facing inventory is found.
+- Remotasks / Scale ecosystem evergreen entry point: strategically important; research whether a stable public worker-facing application surface can be modeled as evergreen or strategic without implying live inventory.
+- Centific Expert Network: potentially relevant for expert AI training, data annotation, and evaluation work; investigate public worker-facing application surfaces and stable opportunity URLs.
+- Other worker-facing AI training platforms with stable public application surfaces: prioritize sources that expose clear job-seeker opportunities without login or challenge-gated fetches.
+- TELUS Digital AI Community: high-value postponed backlog item; revisit only if a production-safe public fetch path is found.
 - DataAnnotation expansion: monitor whether additional public domain pages become reachable, especially bilingual/language pages.
 - Handshake AI expansion: monitor whether public inventory structure, pagination, or detail/apply fields change.
 - Search evaluation platforms beyond Appen/RWS/Welocalize/TELUS: useful for broader coverage if public feeds exist.
