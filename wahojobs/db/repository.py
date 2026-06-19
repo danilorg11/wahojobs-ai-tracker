@@ -9,6 +9,7 @@ from wahojobs.classification import (
     DEFAULT_SOURCE_TIER,
     INVENTORY_MODEL_CORPORATE_CAREERS,
     INVENTORY_MODEL_EVERGREEN_APPLICATION,
+    INVENTORY_MODEL_MIXED,
     INVENTORY_MODEL_PUBLIC_INVENTORY,
     MARKET_COUNT_POLICY_COUNT_LIVE,
     MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
@@ -116,6 +117,14 @@ RWS_SEED = {
     "careers_url": "https://api.lever.co/v0/postings/rws?mode=json&expand=location",
 }
 
+SURGE_SEED = {
+    "name": "Surge AI",
+    "slug": "surge",
+    "careers_url": "https://surgehq.ai",
+    "inventory_model": INVENTORY_MODEL_MIXED,
+    "market_count_policy": MARKET_COUNT_POLICY_REPORT_SEPARATELY,
+}
+
 TURING_SEED = {
     "name": "Turing",
     "slug": "turing",
@@ -151,6 +160,7 @@ def initialize_database(db_path=DB_PATH):
             ONEFORMA_SEED,
             OUTLIER_SEED,
             RWS_SEED,
+            SURGE_SEED,
             TURING_SEED,
             WELOCALIZE_SEED,
         ):

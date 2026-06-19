@@ -14,7 +14,7 @@ def main():
         "Seeded companies: Alignerr, Appen, DataAnnotation, DataForce, "
         "Handshake AI, Invisible Technologies, "
         "Meridial, Mercor, micro1, Mindrift, OneForma, Outlier, RWS TrainAI, "
-        "Turing, Welocalize"
+        "Surge AI, Turing, Welocalize"
     )
 
 

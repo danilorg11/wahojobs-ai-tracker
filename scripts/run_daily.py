@@ -35,6 +35,7 @@ CORE_SOURCES = [
     "oneforma",
     "outlier",
     "rws",
+    "surge",
     "turing",
     "welocalize",
 ]
