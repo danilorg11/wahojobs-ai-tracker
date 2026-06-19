@@ -21,6 +21,7 @@ OUTPUT_PATH = Path("exports/market_snapshot.md")
 CORE_SOURCES = (
     "alignerr",
     "appen",
+    "dataannotation",
     "dataforce",
     "handshake",
     "meridial",

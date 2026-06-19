@@ -8,6 +8,7 @@ from wahojobs.classification import (
     DEFAULT_OPPORTUNITY_KIND,
     DEFAULT_SOURCE_TIER,
     INVENTORY_MODEL_CORPORATE_CAREERS,
+    INVENTORY_MODEL_EVERGREEN_APPLICATION,
     INVENTORY_MODEL_PUBLIC_INVENTORY,
     MARKET_COUNT_POLICY_COUNT_LIVE,
     MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
@@ -52,6 +53,14 @@ DATAFORCE_SEED = {
     "name": "DataForce",
     "slug": "dataforce",
     "careers_url": "https://dataforcecommunity.transperfect.com/projects",
+}
+
+DATAANNOTATION_SEED = {
+    "name": "DataAnnotation",
+    "slug": "dataannotation",
+    "careers_url": "https://www.dataannotation.tech",
+    "inventory_model": INVENTORY_MODEL_EVERGREEN_APPLICATION,
+    "market_count_policy": MARKET_COUNT_POLICY_REPORT_SEPARATELY,
 }
 
 HANDSHAKE_SEED = {
@@ -132,6 +141,7 @@ def initialize_database(db_path=DB_PATH):
             ALIGNERR_SEED,
             APPEN_SEED,
             DATAFORCE_SEED,
+            DATAANNOTATION_SEED,
             HANDSHAKE_SEED,
             INVISIBLE_SEED,
             MERIDIAL_SEED,

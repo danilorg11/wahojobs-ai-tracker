@@ -25,6 +25,7 @@ from wahojobs.reporting.terminal import print_crawl_summary
 CORE_SOURCES = [
     "alignerr",
     "appen",
+    "dataannotation",
     "dataforce",
     "handshake",
     "meridial",
