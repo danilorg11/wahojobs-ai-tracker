@@ -55,10 +55,11 @@ It excludes:
 
 Current known counts from the latest local run:
 
-- Raw active live postings: 8,843
-- Estimated live market opportunities: 2,483
+- Raw active live postings: 8,841
+- Estimated live market opportunities: 2,481
 - Handshake public inventory opportunities: 152
 - DataAnnotation evergreen opportunities: 10
+- Surge AI mixed/report-separately opportunities: 9
 
 ## Handshake AI
 
@@ -84,6 +85,21 @@ DataAnnotation exposes public worker-facing domain application pages such as cod
 
 The public site does not expose live project inventory. DataAnnotation rows are therefore modeled as evergreen application opportunities, not live jobs/projects, and do not affect `Estimated Live Market Opportunities`.
 
+## Surge AI
+
+Surge AI is classified as:
+
+- `source_tier = core`
+- `inventory_model = mixed`
+- `market_count_policy = report_separately`
+
+Surge currently tracks public worker-facing pages, not corporate careers roles:
+
+- 8 workforce public opportunities from `/workforce/{slug}` pages
+- 1 fellowship evergreen opportunity from `/fellowship`
+
+The workforce rows are modeled as public inventory opportunities. The fellowship row is modeled as an evergreen application opportunity. Surge records are useful job-seeker opportunities and are exported with classification fields, but they do not affect `Estimated Live Market Opportunities`.
+
 ## Current Core Sources
 
 Core sources currently configured:
@@ -100,6 +116,7 @@ Core sources currently configured:
 - OneForma
 - Outlier
 - RWS TrainAI
+- Surge AI
 - Turing
 - Welocalize
 
@@ -127,10 +144,9 @@ Invisible remains available as a crawler, but it is treated as a non-core corpor
 
 High-value candidates to research or revisit:
 
-- TELUS Digital AI Community: high relevance for search/ads evaluation, but crawl reliability needs confirmation.
+- TELUS Digital AI Community: next recommended research/spike candidate; high relevance for search/ads evaluation, but crawl reliability needs confirmation.
 - Centific / Pactera EDGE: potentially relevant for data annotation and evaluation work.
-- Surge AI: high industry relevance, but public worker opportunity access may be limited.
-- Scale AI / Remotasks: strategically important, likely login-gated or difficult to represent as public inventory.
+- Scale AI / Remotasks: strategically important; Remotasks should remain a lower-priority evergreen or strategic candidate unless a stable public worker-facing inventory is found.
 - DataAnnotation expansion: monitor whether additional public domain pages become reachable, especially bilingual/language pages.
 - Handshake AI expansion: monitor whether public inventory structure, pagination, or detail/apply fields change.
 - Search evaluation platforms beyond Appen/RWS/Welocalize/TELUS: useful for broader coverage if public feeds exist.
