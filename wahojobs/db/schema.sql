@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS companies (
   name TEXT NOT NULL,
   slug TEXT NOT NULL UNIQUE,
   careers_url TEXT NOT NULL,
+  source_tier TEXT NOT NULL DEFAULT 'core',
+  inventory_model TEXT NOT NULL DEFAULT 'live_feed',
+  market_count_policy TEXT NOT NULL DEFAULT 'count_live',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -21,6 +24,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   commitment TEXT,
   url TEXT NOT NULL,
   source_hash TEXT NOT NULL,
+  opportunity_kind TEXT NOT NULL DEFAULT 'live_posting',
+  availability_basis TEXT NOT NULL DEFAULT 'api_feed',
+  include_in_live_market_estimate INTEGER NOT NULL DEFAULT 1,
   first_seen_at TEXT NOT NULL,
   last_seen_at TEXT NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 1,

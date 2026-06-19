@@ -6,7 +6,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
-from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.market import (
+    company_label,
+    experimental_sources_status,
+    experimental_filter,
+    get_classification_summary,
+    get_market_size_summary,
+    live_market_filter,
+)
 from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
@@ -19,12 +26,17 @@ def main():
         print("Wahojobs Stats")
         print("=" * 14)
         print(f"Date: {today} UTC")
-        print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
+        print(
+            "Experimental sources: "
+            f"{experimental_sources_status(args.include_experimental)}"
+        )
         print("")
 
         print_market_size_summary(conn, args.include_experimental)
         print("")
         print_micro1_metrics(conn)
+        print("")
+        print_classification_summary(conn, args.include_experimental)
         print("")
 
         print_section("Jobs by company", get_jobs_by_company(conn, args.include_experimental))
@@ -46,18 +58,6 @@ def parse_args():
     )
     return parser.parse_args()
 
-
-def experimental_filter(alias, include_experimental):
-    if include_experimental:
-        return ""
-    return f"AND {alias}.slug != 'invisible'"
-
-
-def company_label(alias):
-    return (
-        f"CASE WHEN {alias}.slug = 'invisible' "
-        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
-    )
 
 def print_market_size_summary(conn, include_experimental):
     summary = get_market_size_summary(
@@ -106,6 +106,20 @@ def print_micro1_metrics(conn):
     print(f"micro1 duplicate-title count: {metrics['duplicate_title_count']}")
 
 
+def print_classification_summary(conn, include_experimental):
+    summary = get_classification_summary(
+        conn,
+        include_experimental=include_experimental,
+        include_simulation=False,
+    )
+    print("Classification Summary")
+    print("----------------------")
+    print_section("Sources by tier", summary["source_tiers"])
+    print_section("Active jobs by inventory model", summary["inventory_models"])
+    print_section("Active jobs by market count policy", summary["market_count_policies"])
+    print_section("Active jobs by opportunity kind", summary["opportunity_kinds"])
+
+
 def get_jobs_by_company(conn, include_experimental):
     return conn.execute(
         f"""
@@ -114,6 +128,7 @@ def get_jobs_by_company(conn, include_experimental):
         LEFT JOIN jobs j
           ON j.company_id = c.id
          AND j.is_active = 1
+         {live_market_filter("c", "j")}
         WHERE 1 = 1
           {experimental_filter("c", include_experimental)}
         GROUP BY c.id, c.name
@@ -131,6 +146,7 @@ def get_jobs_by_expertise(conn, include_experimental):
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = 1
+          {live_market_filter("c", "j")}
           {experimental_filter("c", include_experimental)}
         GROUP BY label
         ORDER BY count DESC, label ASC
@@ -145,6 +161,7 @@ def count_new_jobs_today(conn, today, include_experimental):
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE date(j.first_seen_at) = ?
+          {live_market_filter("c", "j")}
           {experimental_filter("c", include_experimental)}
         """,
         (today,),
@@ -160,6 +177,7 @@ def count_removed_jobs_today(conn, today, include_experimental):
         JOIN companies c ON c.id = j.company_id
         WHERE j.removed_at IS NOT NULL
           AND date(j.removed_at) = ?
+          {live_market_filter("c", "j")}
           {experimental_filter("c", include_experimental)}
         """,
         (today,),

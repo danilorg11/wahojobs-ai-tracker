@@ -26,5 +26,8 @@ def with_source_hash(company_slug, candidate):
         department=candidate.department,
         expertise=candidate.expertise,
         commitment=candidate.commitment,
+        opportunity_kind=candidate.opportunity_kind,
+        availability_basis=candidate.availability_basis,
+        include_in_live_market_estimate=candidate.include_in_live_market_estimate,
         source_hash=source_hash,
     )

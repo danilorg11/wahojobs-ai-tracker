@@ -13,7 +13,11 @@ from wahojobs.db.repository import (
     get_last_successful_crawl,
     initialize_database,
 )
-from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.market import (
+    experimental_sources_status,
+    get_classification_summary,
+    get_market_size_summary,
+)
 from wahojobs.reporting.micro1 import get_micro1_metrics
 from wahojobs.reporting.terminal import print_crawl_summary
 
@@ -52,7 +56,11 @@ def main():
     print("Simulation: excluded")
     print(f"Core sources: {', '.join(CORE_SOURCES)}")
     if args.include_experimental:
-        print(f"Experimental sources included: {', '.join(EXPERIMENTAL_SOURCES)}")
+        print(
+            "Experimental sources: "
+            f"{experimental_sources_status(args.include_experimental)} "
+            f"({', '.join(EXPERIMENTAL_SOURCES)})"
+        )
     else:
         print(
             "Experimental sources skipped: invisible "
@@ -157,11 +165,14 @@ def get_market_summary(include_experimental=False):
         return (
             get_market_size_summary(conn, include_experimental=include_experimental),
             get_micro1_metrics(conn),
+            get_classification_summary(conn, include_experimental=include_experimental),
         )
 
 
 def print_final_summary(succeeded, failed, skipped, include_experimental=False):
-    market_summary, micro1_metrics = get_market_summary(include_experimental)
+    market_summary, micro1_metrics, classification_summary = get_market_summary(
+        include_experimental
+    )
 
     print("")
     print("Final Summary")
@@ -226,11 +237,23 @@ def print_final_summary(succeeded, failed, skipped, include_experimental=False):
     print(f"micro1 active jobs: {micro1_metrics['active_jobs']}")
     print(f"micro1 unique titles: {micro1_metrics['unique_titles']}")
     print(f"micro1 duplicate-title count: {micro1_metrics['duplicate_title_count']}")
+    print("Active jobs by inventory model:")
+    print_summary_rows(classification_summary["inventory_models"])
+    print("Active jobs by opportunity kind:")
+    print_summary_rows(classification_summary["opportunity_kinds"])
     print("Export files written:")
     for path in EXPORT_FILES:
         status = "yes" if path.exists() else "no"
         print(f"  {path}: {status}")
     print("")
+
+
+def print_summary_rows(rows):
+    if not rows:
+        print("  None")
+        return
+    for row in rows:
+        print(f"  {row['label']}: {row['count']}")
 
 
 if __name__ == "__main__":

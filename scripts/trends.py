@@ -6,7 +6,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
-from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.market import (
+    company_label,
+    experimental_sources_status,
+    experimental_filter,
+    get_classification_summary,
+    get_market_size_summary,
+    live_market_filter,
+)
 from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
@@ -47,6 +54,11 @@ def main():
             conn, start_date, end_date, "removed", "expertise",
             args.include_simulation, args.include_experimental
         )
+        classification_summary = get_classification_summary(
+            conn,
+            include_experimental=args.include_experimental,
+            include_simulation=args.include_simulation,
+        )
         micro1_metrics = get_micro1_metrics(conn)
 
     print("")
@@ -54,7 +66,10 @@ def main():
     print("======================")
     print(f"Period: {start_date.isoformat()} to {end_date.isoformat()} UTC ({args.days} days)")
     print(f"Simulation: {'included' if args.include_simulation else 'excluded'}")
-    print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
+    print(
+        "Experimental sources: "
+        f"{experimental_sources_status(args.include_experimental)}"
+    )
     print("")
     print(f"Raw active postings: {market_summary['raw_active_postings']}")
     print(f"Estimated market opportunities: {market_summary['estimated_market_opportunities']}")
@@ -105,6 +120,15 @@ def main():
     print(f"micro1 unique titles: {micro1_metrics['unique_titles']}")
     print(f"micro1 duplicate-title count: {micro1_metrics['duplicate_title_count']}")
     print("")
+    print_count_section("Sources by tier", classification_summary["source_tiers"])
+    print_count_section(
+        "Active jobs by inventory model",
+        classification_summary["inventory_models"],
+    )
+    print_count_section(
+        "Active jobs by opportunity kind",
+        classification_summary["opportunity_kinds"],
+    )
 
     print_count_section("Active jobs by company", active_by_company)
     print_count_section("Active jobs by expertise/department", active_by_expertise)
@@ -148,19 +172,6 @@ def simulation_filter(alias, include_simulation):
     return f"AND {alias}.title NOT LIKE '[SIMULATION]%'"
 
 
-def experimental_filter(alias, include_experimental):
-    if include_experimental:
-        return ""
-    return f"AND {alias}.slug != 'invisible'"
-
-
-def company_label(alias):
-    return (
-        f"CASE WHEN {alias}.slug = 'invisible' "
-        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
-    )
-
-
 def expertise_label(alias):
     return f"COALESCE(NULLIF(TRIM({alias}.expertise), ''), NULLIF(TRIM({alias}.department), ''), 'Unknown')"
 
@@ -177,6 +188,7 @@ def group_active_jobs(conn, group_by, include_simulation, include_experimental):
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = 1
+          {live_market_filter("c", "j")}
           {simulation_filter("j", include_simulation)}
           {experimental_filter("c", include_experimental)}
         GROUP BY label
@@ -202,6 +214,7 @@ def group_events(
         JOIN companies c ON c.id = j.company_id
         WHERE date(je.created_at) BETWEEN ? AND ?
           AND je.event_type = ?
+          {live_market_filter("c", "j")}
           {simulation_filter("j", include_simulation)}
           {experimental_filter("c", include_experimental)}
         GROUP BY label

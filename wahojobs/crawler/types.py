@@ -10,6 +10,9 @@ class JobCandidate:
     department: str | None = None
     expertise: str | None = None
     commitment: str | None = None
+    opportunity_kind: str | None = None
+    availability_basis: str | None = None
+    include_in_live_market_estimate: bool | None = None
     source_hash: str = ""
 
 

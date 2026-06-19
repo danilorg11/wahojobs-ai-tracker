@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from wahojobs.classification import SOURCE_TIER_EXPERIMENTAL
 from wahojobs.db.connection import get_connection
 
 
@@ -59,14 +60,14 @@ def get_jobs(conn, include_inactive=False, include_simulation=False, include_exp
     if not include_simulation:
         where.append("j.title NOT LIKE '[SIMULATION]%'")
     if not include_experimental:
-        where.append("c.slug != 'invisible'")
+        where.append(f"c.source_tier != '{SOURCE_TIER_EXPERIMENTAL}'")
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
     return conn.execute(
         f"""
         SELECT
-          CASE WHEN c.slug = 'invisible'
+          CASE WHEN c.source_tier = '{SOURCE_TIER_EXPERIMENTAL}'
                THEN c.name || ' [EXPERIMENTAL]'
                ELSE c.name
           END AS company,
@@ -77,7 +78,13 @@ def get_jobs(conn, include_inactive=False, include_simulation=False, include_exp
           j.url,
           j.first_seen_at,
           j.last_seen_at,
-          j.is_active
+          j.is_active,
+          c.source_tier,
+          c.inventory_model,
+          c.market_count_policy,
+          j.opportunity_kind,
+          j.availability_basis,
+          j.include_in_live_market_estimate
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         {where_sql}
@@ -98,6 +105,12 @@ def write_csv(output_path, rows):
         "first_seen_at",
         "last_seen_at",
         "is_active",
+        "source_tier",
+        "inventory_model",
+        "market_count_policy",
+        "opportunity_kind",
+        "availability_basis",
+        "include_in_live_market_estimate",
     ]
 
     with output_path.open("w", newline="", encoding="utf-8") as csvfile:
@@ -115,6 +128,14 @@ def write_csv(output_path, rows):
                     "first_seen_at": row["first_seen_at"],
                     "last_seen_at": row["last_seen_at"],
                     "is_active": row["is_active"],
+                    "source_tier": row["source_tier"],
+                    "inventory_model": row["inventory_model"],
+                    "market_count_policy": row["market_count_policy"],
+                    "opportunity_kind": row["opportunity_kind"],
+                    "availability_basis": row["availability_basis"],
+                    "include_in_live_market_estimate": row[
+                        "include_in_live_market_estimate"
+                    ],
                 }
             )
 

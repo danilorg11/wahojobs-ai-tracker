@@ -6,7 +6,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
-from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.market import (
+    company_label,
+    experimental_filter,
+    experimental_sources_status,
+    get_classification_summary,
+    get_market_size_summary,
+    live_market_filter,
+)
 from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
@@ -55,6 +62,11 @@ def main():
         }
         recent_events = get_recent_events(conn, args.include_experimental, limit=10)
         data_quality = get_data_quality_summary(conn, args.include_experimental)
+        classification_summary = get_classification_summary(
+            conn,
+            include_experimental=args.include_experimental,
+            include_simulation=False,
+        )
 
     markdown = render_snapshot(
         generated_at,
@@ -66,6 +78,7 @@ def main():
         event_counts,
         recent_events,
         data_quality,
+        classification_summary,
     )
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -85,25 +98,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def experimental_filter(alias, include_experimental):
-    if include_experimental:
-        return ""
-    return f"AND {alias}.slug NOT IN ({quote_list(EXPERIMENTAL_SOURCES)})"
-
-
 def simulation_filter(alias):
     return f"AND {alias}.title NOT LIKE '[SIMULATION]%'"
 
 
 def sample_fallback_filter(alias):
     return f"AND COALESCE({alias}.url, '') NOT LIKE 'https://outlier.ai/sample/%'"
-
-
-def company_label(alias):
-    return (
-        f"CASE WHEN {alias}.slug IN ({quote_list(EXPERIMENTAL_SOURCES)}) "
-        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
-    )
 
 
 def quote_list(values):
@@ -118,6 +118,7 @@ def get_active_jobs_by_company(conn, include_experimental):
         LEFT JOIN jobs j
          ON j.company_id = c.id
          AND j.is_active = 1
+         {live_market_filter("c", "j")}
          {simulation_filter("j")}
          {sample_fallback_filter("j")}
         WHERE 1 = 1
@@ -138,6 +139,7 @@ def get_active_jobs_by_expertise(conn, include_experimental):
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = 1
+          {live_market_filter("c", "j")}
           {simulation_filter("j")}
           {sample_fallback_filter("j")}
           {experimental_filter("c", include_experimental)}
@@ -156,6 +158,7 @@ def count_events(conn, report_date, event_type, include_experimental):
         JOIN companies c ON c.id = j.company_id
         WHERE date(je.created_at) = ?
           AND je.event_type = ?
+          {live_market_filter("c", "j")}
           {simulation_filter("j")}
           {sample_fallback_filter("j")}
           {experimental_filter("c", include_experimental)}
@@ -180,6 +183,7 @@ def get_recent_events(conn, include_experimental, limit):
         JOIN jobs j ON j.id = je.job_id
         JOIN companies c ON c.id = j.company_id
         WHERE 1 = 1
+          {live_market_filter("c", "j")}
           {simulation_filter("j")}
           {sample_fallback_filter("j")}
           {experimental_filter("c", include_experimental)}
@@ -234,6 +238,7 @@ def get_data_quality_summary(conn, include_experimental):
             SELECT COUNT(*)
             FROM jobs j JOIN companies c ON c.id = j.company_id
             WHERE j.is_active = 1
+              {live_market_filter("c", "j")}
               AND COALESCE(NULLIF(TRIM(j.expertise), ''), NULLIF(TRIM(j.department), ''), 'Unknown') = 'Unknown'
               {sim_filter}
               {sample_filter}
@@ -303,6 +308,7 @@ def render_snapshot(
     event_counts,
     recent_events,
     data_quality,
+    classification_summary,
 ):
     source_names = list(CORE_SOURCES)
     if include_experimental:
@@ -316,7 +322,7 @@ def render_snapshot(
         "## Sources",
         "",
         f"Core sources included: {', '.join(source_names)}",
-        f"Experimental sources: {'included' if include_experimental else 'excluded'}",
+        f"Experimental sources: {experimental_sources_status(include_experimental)}",
         "Simulation data: excluded",
         "Sample fallback data: excluded",
         "",
@@ -378,6 +384,22 @@ def render_snapshot(
         f"- micro1 duplicate-title count: **{micro1_metrics['duplicate_title_count']}**",
         "",
     ]
+
+    append_count_table(
+        lines,
+        "Sources by Tier",
+        classification_summary["source_tiers"],
+    )
+    append_count_table(
+        lines,
+        "Active Jobs by Inventory Model",
+        classification_summary["inventory_models"],
+    )
+    append_count_table(
+        lines,
+        "Active Jobs by Opportunity Kind",
+        classification_summary["opportunity_kinds"],
+    )
 
     append_count_table(lines, "Active Jobs by Company", jobs_by_company)
     append_count_table(lines, "Active Jobs by Expertise/Department", jobs_by_expertise)

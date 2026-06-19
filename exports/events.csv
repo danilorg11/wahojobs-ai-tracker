@@ -1,4 +1,288 @@
 event_type,created_at,company,title,location,expertise/department,url
+removed,2026-06-19T02:32:30+00:00,Welocalize,Project Perseus | Data Quality Analyst - French Speakers (Human-in-the-Loop AI),California,Data Annotation,https://jobs.lever.co/weloglobal/cc5fb6fa-1d2f-49e0-849c-31b638a6eb9b
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Tagalog Quality Control Specialist - Project Lyra,Philippines,AI Service General Application,https://jobs.lever.co/weloglobal/b8665c7f-319d-4497-af0a-20ad7069549b
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Traditional Chinese (Taiwan),Taiwan,Data Validation,https://jobs.lever.co/weloglobal/3b7ad2c0-254b-41a0-b4a6-53fabb28c014
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Swedish (Sweden),Sweden,Data Validation,https://jobs.lever.co/weloglobal/30dc236f-4153-4b51-87cd-96f2dd65f507
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Simplified Chinese (China Mainland),China,Data Validation,https://jobs.lever.co/weloglobal/2d2f8069-cbeb-4417-b246-0c3e0d3b4e44
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Norwegian (Norway),Norway,Data Validation,https://jobs.lever.co/weloglobal/54fe8612-d963-4c2d-9543-360d74716a2e
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Korean (Korea),South Korea,Data Validation,https://jobs.lever.co/weloglobal/2a67c25b-7250-4874-a4af-3d8bcc777421
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - German (Germany),Germany,Data Validation,https://jobs.lever.co/weloglobal/231a7352-396b-44cc-83c2-97d262ad7863
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - French (France),France,Data Validation,https://jobs.lever.co/weloglobal/f0036766-14ba-4a06-8185-5a37aacb4abc
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Dutch (Netherlands),Netherlands,Data Validation,https://jobs.lever.co/weloglobal/fd01d299-7b71-4e3a-a8e6-cba2ce9ba61b
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Arabic (Egypt),"Cairo, Egypt",Data Validation,https://jobs.lever.co/weloglobal/8a6f236f-f5b4-4861-9ba1-c3268c7c88e1
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Generative AI Data Analysts - English (India),India,Data Annotation,https://jobs.lever.co/weloglobal/28bec5e5-87e4-4314-a0f1-f4eaed569fb2
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Alpheratz Project - Norwegian (Norway) Translation Quality Reviewer,Norway,AI Service General Application,https://jobs.lever.co/weloglobal/10e54808-5dea-4ba9-8b47-678aba4bda85
+discovered,2026-06-19T02:32:30+00:00,Welocalize,Alpheratz Project - Norwegian (Norway) Translation Quality Rater,Norway,AI Service General Application,https://jobs.lever.co/weloglobal/64716ac3-a242-47f5-ab91-5eeb22e33d31
+removed,2026-06-19T02:32:21+00:00,Turing,Senior Software Engineer – Python (LLM Evaluation & Repository Validation),remote,Software development,https://work.turing.com/api/job/public?jobCode=1G4-SdRc-Bv1
+discovered,2026-06-19T02:32:21+00:00,Turing,"Knowledge Graph Curator (Knowledge Graph, Data Labeling, LLMs)",remote,ML/Data Engineering,https://work.turing.com/api/job/public?jobCode=tfbojIdH7S1v
+discovered,2026-06-19T02:32:21+00:00,Turing,AI Quality Analyst (Gemini) - Chinese,remote,Other,https://work.turing.com/api/job/public?jobCode=n1dHcFMrVbbz
+discovered,2026-06-19T02:32:21+00:00,Turing,Project Manager,remote,Other,https://work.turing.com/api/job/public?jobCode=2sO5bTQSSCTZ
+discovered,2026-06-19T02:32:21+00:00,Turing,LLM Expert - Chemistry,remote,Science,https://work.turing.com/api/job/public?jobCode=NO2e4BUB783i
+discovered,2026-06-19T02:32:21+00:00,Turing,LLM Expert - Chemistry,remote,Science,https://work.turing.com/api/job/public?jobCode=fW-kLps5paIA
+discovered,2026-06-19T02:32:21+00:00,Turing,QA Specialist - Audio Annotation & Diarization (French),remote,Other,https://work.turing.com/api/job/public?jobCode=_FUE8NpQ9CA8
+removed,2026-06-19T02:32:20+00:00,RWS TrainAI,Brazilian Portuguese - Animals & Pets Subject Matter Expert (SME),Rio de Janeiro,Subject Matter Expert,https://jobs.lever.co/rws/baa16896-baeb-4896-897c-ee1c3b020830
+discovered,2026-06-19T02:32:20+00:00,RWS TrainAI,AI Data Specialist - Portuguese (Brazil),São Paulo,AI Data Specialist,https://jobs.lever.co/rws/72796483-2495-4299-b1c1-c95c3800006f
+discovered,2026-06-19T02:32:20+00:00,RWS TrainAI,AI Data Specialist - Korean,Seoul,AI Data Specialist,https://jobs.lever.co/rws/d70afa3f-68d0-495b-b0b3-d0a2ec891b67
+discovered,2026-06-19T02:32:20+00:00,RWS TrainAI,AI Data Specialist - Italian,Rome,AI Data Specialist,https://jobs.lever.co/rws/613a9553-e941-4476-80f1-4dbd00410113
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Vietnam,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747794577409
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - USA,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621372417
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - UAE,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747667638273
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Turkey,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747505868801
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Spain,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747341632513
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - South Africa,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621369345
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Singapore,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747212751873
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Romania,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621359105
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Portugal,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747029368833
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Poland,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621355009
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - New Zealand,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746836179969
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Morocco,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746603143169
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Mexico,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746437460993
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Malaysia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621350913
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Kenya,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746273964033
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Japan,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746090118145
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Italy,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621346817
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Israel,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745884722177
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Hong Kong,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745513711617
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Greece,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621380609
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Germany,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621410305
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - France,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745356365825
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Ireland,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621339649
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - India,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745723490305
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Egypt,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819743078462465
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Czech Republic,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621406209
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Croatia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621402113
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Colombia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621385729
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Chile,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815950480446465
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Canada FR,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815950271647745
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Canada EN,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1817621663669249
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Bulgaria,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815948340524033
+removed,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Australia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819742646441985
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Vietnam,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747794577409
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - USA,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621372417
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - UAE,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747667638273
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Turkey,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747505868801
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Spain,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747341632513
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - South Africa,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621369345
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Singapore,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747212751873
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Romania,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621359105
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Portugal,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819747029368833
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Poland,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621355009
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - New Zealand,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746836179969
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Morocco,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746603143169
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Mexico,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746437460993
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Malaysia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621350913
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Kenya,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746273964033
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Japan,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819746090118145
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Italy,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621346817
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Israel,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745884722177
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Hong Kong,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745513711617
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Greece,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621380609
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Germany,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621410305
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - France,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745356365825
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Ireland,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621339649
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - India,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819745723490305
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Egypt,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819743078462465
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Czech Republic,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621406209
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Croatia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621402113
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Colombia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815956621385729
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Chile,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815950480446465
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Canada FR,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815950271647745
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Canada EN,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1817621663669249
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Bulgaria,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1815948340524033
+discovered,2026-06-19T02:32:15+00:00,OneForma,Centaurus: Short Video Recording Study - Australia,Selected Locations,Data Collection,https://my.oneforma.com/webapp/dataCollection/signup?requestId=1819742646441985
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Science Engineer (Python & SQL) - Freelance AI Trainer,United States (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/15B9024D0F
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer (Python),United States (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/C29002A51F
+removed,2026-06-19T02:32:05+00:00,Mindrift,Mechanical Engineering Expert with Python Experience - AI Projects on Mindrift,United States (Remote),Creator (Writer); Mechanical Engineering,https://apply.workable.com/toloka-ai/j/86906145DA
+removed,2026-06-19T02:32:05+00:00,Mindrift,"Senior Python Engineer - Freelance, Mindrift (AI Testing Project)",United States (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/2C9B1A4074
+removed,2026-06-19T02:32:05+00:00,Mindrift,Civil Engineering Expert with Python Experience - AI Projects on Mindrift,United States (Remote),Creator (Writer); Civil Engineering,https://apply.workable.com/toloka-ai/j/64BAD60294
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python - AI Projects on Mindrift,United States (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/40070CD3FE
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,Romania (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/A200C1700F
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,Ireland (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/27985C12EE
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,Italy (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/B59B19298E
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,France (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/5A845707B0
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,Germany (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/F8147B7D83
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,Australia (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/C3E72B990F
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,Canada (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/5E949302D1
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,United Kingdom (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/57F15DD30F
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,"New York, United States (Remote)",Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/2C5D7424E4
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,"Texas, United States (Remote)",Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/65139EF309
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,"Florida, United States (Remote)",Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/7410D1BD8F
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Developer - Code Migration Specialist,United States (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/BDFCCF6100
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,Romania (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/915F82DA67
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,Ireland (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/59D5D960BD
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,France (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/CA0ACF1EEA
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,Germany (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/8C3A1AF712
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,Australia (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/57EAAD4228
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,Canada (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/AA5480B5E8
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,United Kingdom (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/25C4CAA107
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,"New York, United States (Remote)",Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/5DDEDA82EF
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,"Texas, United States (Remote)",Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/85AC943878
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,"Michigan, United States (Remote)",Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/F3AF050764
+removed,2026-06-19T02:32:05+00:00,Mindrift,Senior Python Systems Developer - Functional Testing Project,United States (Remote),Creator (Writer); Coding,https://apply.workable.com/toloka-ai/j/A362969641
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),"Texas, United States (Remote)",Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/91FFF2EF03
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),"New York, United States (Remote)",Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/F61C1EE044
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),United States (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/64AEA0A6ED
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),United Kingdom (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/BE97804FB1
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),Canada (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/E260410693
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),Australia (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/D3B2CEB9F5
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),Germany (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/127D2DBE1C
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),Spain (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/06E9476360
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),France (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/45D3C22203
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),Italy (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/69B8DD30F0
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),Ireland (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/1014D73FA5
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Data Science Engineer (Python & SQL),Romania (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/B29D81FEA4
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,"Texas, United States (Remote)",Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/815391E0C2
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,"New York, United States (Remote)",Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/4D7EA0AD55
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,United States (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/E146613333
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,United Kingdom (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/17F68BB19C
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Canada (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/959564B469
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Australia (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/65D21EC425
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Germany (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/834BEBA3FF
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Spain (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/31E4958650
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,France (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/39152CC774
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Italy (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/5233EB95B2
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Ireland (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/658F8A1E1D
+removed,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Romania (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/830F324B4A
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),Romania (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/E8F8E4FCB2
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),Ireland (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/AC38FCBC0F
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),Italy (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/FD6F8D3AAD
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),France (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/20724D7B13
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),Spain (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/6E96F4187D
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),Germany (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/079AEF284E
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),Australia (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/F26816C17B
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),Canada (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/1E5EBCFCD6
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),United Kingdom (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/EBBB8A8582
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),United States (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/73039515BE
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),"New York, United States (Remote)",Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/F66970FED3
+removed,2026-06-19T02:32:05+00:00,Mindrift,Machine Learning Developer (Freelance),"Texas, United States (Remote)",Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/FCE5755DB4
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,Ireland (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/D9F4068B7E
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,Romania (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/7B0D0BB187
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,Italy (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/072C3DD5A9
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,France (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/4703647B82
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,Spain (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/24C625F76E
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,Germany (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/6AA7846575
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,Australia (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/5A2EF97918
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,Canada (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/693121D545
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,United Kingdom (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/A82ED6DE70
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,United States (Remote),Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/59579B4D84
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,"New York, United States (Remote)",Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/9E3C151229
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Machine Learning Engineer,"Texas, United States (Remote)",Creator (Writer); Machine Learning,https://apply.workable.com/toloka-ai/j/1EB1D7F3AF
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,Spain (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/C9285442C6
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,France (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/09B2ADA5E2
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,Romania (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/91B03BFB35
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,United Kingdom (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/808F9DE096
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,Japan (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/32ED8EAB6E
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Canada (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/10603015E9
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,United States (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/0D60F9BF4C
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,United Kingdom (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/FB7445378E
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,Germany (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/84D6DA4D11
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,Spain (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/D76485AFC1
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,Romania (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/5BC5F15FB3
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Romania (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/455B4C2C85
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Spain (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/F001FD73EF
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Germany (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/EFDED03186
+removed,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,United Kingdom (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/8BA7679BA2
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Mexico (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/C197531B9C
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Argentina (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/349B29ECD2
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Brazil (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/588FDE833B
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Philippines (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/7617680428
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Singapore (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/F451867893
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,India (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/56357BB1FA
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Saudi Arabia (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/19B5965815
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,South Africa (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/CE5088E9DF
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Romania (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/D47A22FA5B
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Ireland (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/3398392E73
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Portugal (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/5437A01F4B
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Italy (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/4CD797E0C9
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,France (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/80413F9924
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Spain (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/154829A3BB
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Germany (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/69DBA55EC4
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Australia (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/84A5C202A0
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,Canada (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/F60DAE99BB
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,United Kingdom (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/D002C54990
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,"New York, United States (Remote)",Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/4A8792B67B
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,"Texas, United States (Remote)",Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/03EB4C0265
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,"Michigan, United States (Remote)",Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/A85F1567E9
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,"Florida, United States (Remote)",Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/AF59E0546D
+removed,2026-06-19T02:32:05+00:00,Mindrift,Computer Science Expert with Python Experience - AI Projects on Mindrift,United States (Remote),Creator (Writer); Computer science,https://apply.workable.com/toloka-ai/j/429F0E57F8
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,Romania (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/12D4C5D5B3
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,Spain (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/4DC9922BE5
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,Germany (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/43985F8AA8
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,United Kingdom (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/B7E3AA95AB
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Graphic Designer,United States (Remote),Creator (Writer); Graphic Design,https://apply.workable.com/toloka-ai/j/D750B050BD
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,United Kingdom (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/9D1BE44CBF
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Germany (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/2F24167BE9
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Spain (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/96BE5042C5
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Romania (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/72EDDABB98
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Presentation Designer,Canada (Remote),Creator (Writer); Presentation Design,https://apply.workable.com/toloka-ai/j/4E162E3682
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,"Texas, United States (Remote)",Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/FB8D7B4542
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,"New York, United States (Remote)",Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/FD9C26CE30
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,United States (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/81E54AFFBF
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,United Kingdom (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/DDC7C993AE
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Canada (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/D943D487FB
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Australia (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/1664A4A46A
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Germany (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/855F5112E9
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Spain (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/AC9D94C3A3
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,France (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/886D7C60C2
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Italy (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/D475BCFF80
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Ireland (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/ED8DEC68D7
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Data Scientist (Python & SQL) - Freelance AI Trainer,Romania (Remote),Creator (Writer); Data Science,https://apply.workable.com/toloka-ai/j/A95AA0249F
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,Spain (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/2BECDF4D1B
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,France (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/CD79B54B7C
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,Romania (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/35ED5DE9CB
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,United Kingdom (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/FFD073A91B
+discovered,2026-06-19T02:32:05+00:00,Mindrift,Freelance Web Designer,Japan (Remote),Creator (Writer); Web Design,https://apply.workable.com/toloka-ai/j/F7ED908788
+removed,2026-06-19T02:31:28+00:00,Mercor,Lawyers,Remote,Law,https://work.mercor.com/jobs/list_AAABm5Uqnm5tTAFuu91BT5gF
+removed,2026-06-19T02:31:28+00:00,Mercor,Corporate Finance Experts,Remote,Finance,https://work.mercor.com/jobs/list_AAABm5U20hNxVDatXhpEjqbP
+removed,2026-06-19T02:31:28+00:00,Mercor,Public Interest Law Expert (Civil / Environmental),Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyNLQ_rE4DFwpIubbY
+removed,2026-06-19T02:31:28+00:00,Mercor,Legal Expert — Compliance / Regulatory,Remote,Law,https://work.mercor.com/jobs/list_AAABndg_NcG-SmhZx9FDtKp7
+removed,2026-06-19T02:31:28+00:00,Mercor,Professional Photographer / Videographer,Remote,Arts & Design,https://work.mercor.com/jobs/list_AAABnpnDecbCGCdaZVBJModl
+removed,2026-06-19T02:31:28+00:00,Mercor,Electrical Engineering & RF/Circuit Design Expert,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnqjwK2IkfR6hBL1DpLha
+removed,2026-06-19T02:31:28+00:00,Mercor,Physician (Generalist),Remote,Medicine,https://work.mercor.com/jobs/list_AAABnqm8RKY1zU59PmdByJDu
+removed,2026-06-19T02:31:28+00:00,Mercor,Personalized Life Assistant Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnr6UO2Q-_nQyuwJD6Ykq
+discovered,2026-06-19T02:31:28+00:00,Mercor,Real Estate Legal Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnVWO2T0gMAbmDDtCY6xQ
+reactivated,2026-06-19T02:31:28+00:00,Mercor,Legal Technology Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZsP8rVe0Qk8aRJY7jZ
+reactivated,2026-06-19T02:31:28+00:00,Mercor,Social Work Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnbZvZkzU0BqxmLBK_Ztw
+discovered,2026-06-19T02:31:28+00:00,Mercor,Manufacturing - Aerospace & Defense Expert,Remote,Other Engineering,https://work.mercor.com/jobs/list_AAABnbZv1LhVokN6I79Mdr7b
+discovered,2026-06-19T02:31:28+00:00,Mercor,Civic and Public Administration Expert,Remote,"Life, Physical, and Social Science",https://work.mercor.com/jobs/list_AAABnbZxrVSpBppBmI9NqaXU
+reactivated,2026-06-19T02:31:28+00:00,Mercor,Litigation Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyA4_gXfJsVdJPW44R
+reactivated,2026-06-19T02:31:28+00:00,Mercor,Regulatory Law Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyuMMQ6gDsf0tHBJvJ
+discovered,2026-06-19T02:31:28+00:00,Mercor,Sales Consultant,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnf8vm3-BEWo-gg1KoLxQ
+discovered,2026-06-19T02:31:28+00:00,Mercor,Shopify Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABntlJyIe9vPl8osZNrayq
+discovered,2026-06-19T02:31:28+00:00,Mercor,Trade Surveillance Expert (Market Abuse & Conduct Monitoring),Remote,Finance,https://work.mercor.com/jobs/list_AAABntshtn1UQrprE25MjLQm
+discovered,2026-06-19T02:31:28+00:00,Mercor,Basque Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABntt5CFLhzLLnwZtJmJ_U
+discovered,2026-06-19T02:31:28+00:00,Mercor,Lawyers,Remote,Law,https://work.mercor.com/jobs/list_AAABntuaNTXiEE0T4IZB8o2S
+discovered,2026-06-19T02:31:28+00:00,Mercor,Financial Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABntuaT0FMXQxE29xCl5zb
+discovered,2026-06-19T02:31:28+00:00,Mercor,Portuguese / Brazilian Finance Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABntv-wlOj2fXi7_hA8YAU
+discovered,2026-06-19T02:31:28+00:00,Mercor,Korean Finance Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABntxK4p7s2Qo2r4FF_q-_
+discovered,2026-06-19T02:31:28+00:00,Mercor,German Finance Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABntxR9fXFRWbvvTNNQKrB
+discovered,2026-06-19T02:31:28+00:00,Mercor,Japanese Finance Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABntzaVyZJYWbn80RJ3Yvd
+discovered,2026-06-19T02:31:28+00:00,Mercor,Mandarin Finance Professional,Remote,Finance,https://work.mercor.com/jobs/list_AAABntzbv9Dx8j-6gZhFcZ7j
+removed,2026-06-19T02:31:23+00:00,Appen,Social Media Ads Evaluator (Native Japanese Speaker),Japan,AI Trainers - Domain Experts,https://jobs.lever.co/appen/aea11580-c35b-4f33-ae2b-730bd864e81e
+removed,2026-06-19T02:31:23+00:00,Appen,Social Media Ads Evaluator (Native German Speaker),Germany,AI Trainers - Domain Experts,https://jobs.lever.co/appen/1ed40615-fa1d-47ea-97ad-f31f52f4f5e1
+discovered,2026-06-19T02:31:23+00:00,Appen,Spanish - Prompt Data Collection Contributor (Video Composition Dataset),Any,AI Trainers - Domain Experts,https://jobs.lever.co/appen/ced22697-b40e-4c9d-989f-a6374d175d0b
+discovered,2026-06-19T02:31:23+00:00,Appen,Social Media Ads Evaluator (Native English Speaker),Brazil,AI Trainers - Domain Experts,https://jobs.lever.co/appen/5ce6c3e1-4517-4978-b64f-4e2770d7353f
+discovered,2026-06-19T02:31:23+00:00,Appen,Mandarin Chinese - Prompt Data Collection Contributor (Video Composition Dataset),Any,AI Trainers - Domain Experts,https://jobs.lever.co/appen/af532c22-5d5a-475b-bdae-5a6c70cbf83f
+discovered,2026-06-19T02:31:23+00:00,Appen,Japanese - Prompt Data Collection Contributor (Video Composition Dataset),Any,AI Trainers - Domain Experts,https://jobs.lever.co/appen/7a379b62-5ff3-4e1d-a5af-13dc25660f33
+discovered,2026-06-19T02:31:23+00:00,Appen,Hindi - Prompt Data Collection Contributor (Video Composition Dataset),Any,AI Trainers - Domain Experts,https://jobs.lever.co/appen/638d32e9-b82d-43b2-8574-f23a508d325f
+discovered,2026-06-19T02:31:23+00:00,Appen,German - Prompt Data Collection Contributor (Video Composition Dataset),Any,AI Trainers - Domain Experts,https://jobs.lever.co/appen/b3651691-3d85-4c58-88bb-dffa49d4190a
+discovered,2026-06-19T02:31:23+00:00,Appen,French - Prompt Data Collection Contributor (Video Composition Dataset),Any,AI Trainers - Domain Experts,https://jobs.lever.co/appen/c60d5ddf-794b-4b1b-a0a8-92e66250fd5b
+removed,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,United States,GENERAL,https://www.alignerr.com/jobs/99e74226-e19c-43ae-be6c-767bfd51f8da
+discovered,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,Argentina,GENERAL,https://www.alignerr.com/jobs/a594042b-dbad-4cfc-a2df-1347bd7b7bb9
+discovered,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,United States,GENERAL,https://www.alignerr.com/jobs/cc1611b4-47a0-465b-bb07-1dc671be03ff
+discovered,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,Colombia,GENERAL,https://www.alignerr.com/jobs/5ae4d4d4-6a70-4124-968f-0cd75a920fcc
+discovered,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,United States,GENERAL,https://www.alignerr.com/jobs/be2d170e-f8e0-487e-bfef-504effab3370
+discovered,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,United States,GENERAL,https://www.alignerr.com/jobs/2709b990-6418-458c-afa8-4a8e602b40ee
+discovered,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,United States,GENERAL,https://www.alignerr.com/jobs/267bd7ab-baa9-4ba5-92ea-d06143e59ec4
+discovered,2026-06-19T02:31:20+00:00,Alignerr,Growth Operations Specialist,Colombia,GENERAL,https://www.alignerr.com/jobs/a83e0915-0b30-49b0-9e73-26942f94a825
+removed,2026-06-19T00:42:28+00:00,micro1,Network and Computer Systems Administrators,Remote,Unknown,https://jobs.micro1.ai/post/f5103316-3e13-4c9b-bd83-c6c2a0011133?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-19T00:42:28+00:00,micro1,Microbiologist,Remote,generalist,https://jobs.micro1.ai/post/7b01b7b6-db31-4eb6-a877-65cfdc6bcbca?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-19T00:42:28+00:00,micro1,Protein Biochemist,Remote,generalist,https://jobs.micro1.ai/post/28205810-079b-4413-84c4-1a08afcee1e4?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-19T00:42:28+00:00,micro1,Plant Biologist,Remote,generalist,https://jobs.micro1.ai/post/d5a65f29-dde6-445d-b7de-ceb151c8bd3b?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-19T00:42:28+00:00,micro1,Chemical Biologist,Remote,generalist,https://jobs.micro1.ai/post/8153f8fa-2e8a-48dc-8ea2-260c36807616?utm_source=micro1&utm_medium=job_portal
+removed,2026-06-19T00:42:28+00:00,micro1,Cell/Molecular Biologist (Stem Cells),Remote,generalist,https://jobs.micro1.ai/post/e3b68007-1e14-444e-bead-f2fadab0659f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-19T00:42:28+00:00,micro1,Video Data Reviewer,Remote,robotics,https://jobs.micro1.ai/post/e851f658-c8f1-4b48-be02-d77625c53c8f?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-19T00:42:28+00:00,micro1,Financial Advisor & Planner - Private Wealth Specialist (U.S.),Remote,finance,https://jobs.micro1.ai/post/f0792853-5585-4791-b9d2-72c99fbe7dbb?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-18T02:28:29+00:00,Turing,Data Scientist/Analyst,remote,Data Scientist/Analyst,https://work.turing.com/api/job/public?jobCode=BI-KUc5IyNtD
 discovered,2026-06-18T02:28:29+00:00,Turing,Senior Python Developer,Remote,Software development,https://work.turing.com/api/job/public?jobCode=UJVtIjQ1KhmJ
 discovered,2026-06-18T02:28:29+00:00,Turing,Python + Full-Stack (JS) Developer,remote,Software development,https://work.turing.com/api/job/public?jobCode=y63_Dd5ms_eH
@@ -993,7 +1277,7 @@ discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and 
 discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Welsh (United Kingdom),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13056?from=list&tab=all
 discovered,2026-06-18T01:00:36+00:00,OneForma,OAK – Display Transcription and Disfluency Tagging - Bulgarian (Bulgaria),Remote; Selected Locations,Transcription,https://my.oneforma.com/crowd/jobs/13055?from=list&tab=all
 discovered,2026-06-18T01:00:36+00:00,OneForma,"Physician Consultant – AI Clinical Tool Development & Testing (Remote, US)",Remote; US,Annotation,https://my.oneforma.com/crowd/jobs/12579?from=list&tab=all
-discovered,2026-06-18T01:00:36+00:00,OneForma,"Longitudinal Health Records Study – Contribute Your De-Identified Health Data (US, Remote, Paid)",Remote; US,Data Collection,https://my.oneforma.com/crowd/jobs/11698?from=list&tab=all
+discovered,2026-06-18T01:00:36+00:00,OneForma,Longitudinal Health Records Study – Contribute Your De-Identified Health Data,Remote; US,Data Collection,https://my.oneforma.com/crowd/jobs/11698?from=list&tab=all
 removed,2026-06-18T01:00:27+00:00,micro1,Senior Software Developer (Multi-Language Systems & AI Engineering),Remote,generalist,https://jobs.micro1.ai/post/c1ca942d-0fd2-4de5-9d3f-5a839e97ba40?utm_source=micro1&utm_medium=job_portal
 removed,2026-06-18T01:00:27+00:00,micro1,Saas Contracting Attorney - AI Fellowship,Remote,specialist,https://jobs.micro1.ai/post/d9165951-e169-49b1-b90a-e07ff4adbfaf?utm_source=micro1&utm_medium=job_portal
 removed,2026-06-18T01:00:21+00:00,Mercor,Argentinian Spanish Audio Generalist Evaluator Expert,Remote,Language and Audio,https://work.mercor.com/jobs/list_AAABnEtpyks752FEfxFAtL48
@@ -1466,7 +1750,7 @@ discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Linguistic AI Auditor (Hindi),N
 discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Linguistic AI Auditor (German),Berlin,Linguistic AI Auditing,https://jobs.lever.co/rws/a9284e8c-f0d4-4799-9c59-be0356415622
 discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Linguistic AI Auditor (French France),Paris,Linguistic AI Auditing,https://jobs.lever.co/rws/09c94a97-9c89-4cc7-967e-acddf136aab7
 discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Linguistic AI Auditor (Brazilian Portuguese),São Paulo,Linguistic AI Auditing,https://jobs.lever.co/rws/bf14d5a6-b9a1-4f1a-9f9d-041712e0da2f
-discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Linguistic AI Auditor (Bengali India),New Delhi,Linguistic AI Auditing,https://jobs.lever.co/rws/4f1af0c5-5e41-4a30-a01d-bfce4091961e
+discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Linguistic AI Auditor (Bengali Bangladesh/India),Dhaka,Linguistic AI Auditing,https://jobs.lever.co/rws/4f1af0c5-5e41-4a30-a01d-bfce4091961e
 discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Language Data Annotator (US),"Dallas, Texas",Language Annotation,https://jobs.lever.co/rws/a9b960b4-0c32-4fb5-8d91-9b6c3b43f257
 discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Brazilian Portuguese - Religion & Philosophy Subject Matter Expert (SME),São Paulo,Subject Matter Expert,https://jobs.lever.co/rws/c6f4a7fe-986e-4367-8507-fb6c7be831b6
 discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,Brazilian Portuguese - Literature & Linguistics Subject Matter Expert (SME),Rio de Janeiro,Subject Matter Expert,https://jobs.lever.co/rws/adf2ce84-802a-4ab8-aa91-8ea9d8883280
@@ -1533,10 +1817,10 @@ discovered,2026-06-17T01:58:21+00:00,RWS TrainAI,*Future Opportunities: Join our
 discovered,2026-06-17T01:24:47+00:00,Mercor,Hospitals & Health Systems Expert,Remote,Business Operations,https://work.mercor.com/jobs/list_AAABnbZuQaqhOK0yBtdK_7xi
 discovered,2026-06-17T01:24:47+00:00,Mercor,Regulatory Law Expert,Remote,Law,https://work.mercor.com/jobs/list_AAABnbZyuMMQ6gDsf0tHBJvJ
 discovered,2026-06-17T01:24:00+00:00,micro1,Audio Production Expert,remote,expert,https://jobs.micro1.ai/post/aa498be8-7c47-4e03-a990-800cbfd9db1e?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,English Language Expert (Generalist),remote,Unknown,https://jobs.micro1.ai/post/2382a9eb-726e-42f1-9c1b-0be0812cf0f4?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,English Language Expert (Generalist),remote,Language / Linguistics,https://jobs.micro1.ai/post/2382a9eb-726e-42f1-9c1b-0be0812cf0f4?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Vectorworks Expert,remote,generalist,https://jobs.micro1.ai/post/0b0161ea-6f58-4123-b681-e633d8b79386?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Remote Smartphone Task Recorder (LATAM),Remote,robotics,https://jobs.micro1.ai/post/5324aa96-4af5-4e0c-830f-80c602a2d861?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Data-Video Generalist (US),Remote,robotics,https://jobs.micro1.ai/post/204600bf-1abe-4ab0-a474-cd2264999149?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Data-Video Generalist (US-based),Remote,robotics,https://jobs.micro1.ai/post/204600bf-1abe-4ab0-a474-cd2264999149?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Thai Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/568a042a-bbb1-42fa-91f4-d10233475361?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Swiss German Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/10006ece-8b91-41b4-9b4c-1aba81ce94d6?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Kannada Audio Recording Expert,Remote,generalist,https://jobs.micro1.ai/post/5d9f885e-4874-4567-8864-e6955729ecea?utm_source=micro1&utm_medium=job_portal
@@ -1567,7 +1851,7 @@ discovered,2026-06-17T01:24:00+00:00,micro1,Spanish Language Expert (Spain),Remo
 discovered,2026-06-17T01:24:00+00:00,micro1,French Language Expert (Canada),Remote,generalist,https://jobs.micro1.ai/post/095731d4-16e3-4605-871d-6d8a96586fea?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,French Language Expert,Remote,generalist,https://jobs.micro1.ai/post/c8ca7e91-45b5-4a7e-ab53-35596dd19f78?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,German Language Expert,Remote,generalist,https://jobs.micro1.ai/post/b4260f86-f7d5-4787-9b67-f0561899563b?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Generalista de Datos-Video,Remote,Unknown,https://jobs.micro1.ai/post/19db4701-6b03-4862-b5dc-507dea431967?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Generalista de Datos-Video,Remote,Data Collection,https://jobs.micro1.ai/post/19db4701-6b03-4862-b5dc-507dea431967?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Food Delivery App User Tester,Remote,generalist,https://jobs.micro1.ai/post/1ec2ad79-a5e7-412f-ab71-65279e8281eb?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Pathologist,Remote,specialist,https://jobs.micro1.ai/post/5eb483f3-651d-4f7b-b86a-e73a4f584c39?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,US Tax Law Analyst (EA/CA),Remote,generalist,https://jobs.micro1.ai/post/aa6500ef-0466-4312-8e8c-3ed2b211b5b6?utm_source=micro1&utm_medium=job_portal
@@ -1583,8 +1867,8 @@ discovered,2026-06-17T01:24:00+00:00,micro1,Turkish Language Expert,Remote,gener
 discovered,2026-06-17T01:24:00+00:00,micro1,Singaporean English Language Expert,Remote,generalist,https://jobs.micro1.ai/post/3b51f552-4a85-49a1-8332-484787b3eeef?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Bengali Language Expert,Remote,generalist,https://jobs.micro1.ai/post/eb53f428-5c3c-495a-bf71-ef0204951ece?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Telugu Language Expert,Remote,generalist,https://jobs.micro1.ai/post/5127c534-80ea-49c5-990f-894a657d0484?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Video QC Analyst,Remote,Unknown,https://jobs.micro1.ai/post/361ba252-1181-42f8-9e27-6d596a24a1ff?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Remote Household Data Specialist - Video Capture (PH),Remote,Unknown,https://jobs.micro1.ai/post/ff5e419e-f4b7-46e0-bcb0-b5fd190506f3?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Video QC Analyst,Remote,Data Annotation,https://jobs.micro1.ai/post/361ba252-1181-42f8-9e27-6d596a24a1ff?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Remote Household Data Specialist - Video Capture (PH),Remote,Data Collection,https://jobs.micro1.ai/post/ff5e419e-f4b7-46e0-bcb0-b5fd190506f3?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Spanish Language Expert (Mexico),Remote,generalist,https://jobs.micro1.ai/post/4f2eb822-e6a3-4a69-9d0f-e2e68d692131?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Spanish Language Expert (Spain),Remote,language-audio,https://jobs.micro1.ai/post/fa6b8d84-b0e9-4c9d-9af1-d47f992a1962?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,French Transcription Expert (France),Remote,language-audio,https://jobs.micro1.ai/post/2996d139-d538-4e42-b8b3-0e89f1ce0b64?utm_source=micro1&utm_medium=job_portal
@@ -1616,7 +1900,7 @@ discovered,2026-06-17T01:24:00+00:00,micro1,Customer Support Email Analyst,Remot
 discovered,2026-06-17T01:24:00+00:00,micro1,Robotics Evaluation Specialist,Remote,robotics,https://jobs.micro1.ai/post/110e09a6-7daf-48dc-95a6-22a2fa2ce8f2?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Tatar Language Expert,Remote,language-audio,https://jobs.micro1.ai/post/e30eca0d-22ab-44d7-be44-f30fe721ced5?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Mobile Game Developer,remote,specialist,https://jobs.micro1.ai/post/424d47da-7500-49ed-b639-cf5f68959ef6?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Portuguese Language Expert,remote,Unknown,https://jobs.micro1.ai/post/0e19dc4e-47f0-4245-b315-a41795cfd171?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Portuguese Language Expert,remote,Language / Linguistics,https://jobs.micro1.ai/post/0e19dc4e-47f0-4245-b315-a41795cfd171?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Chinese Voice Coach,remote,language-audio,https://jobs.micro1.ai/post/9046c7aa-fa4a-48bc-b6f7-3109c8693533?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Japanese Language Expert,remote,generalist,https://jobs.micro1.ai/post/6395dd86-7803-4699-8cce-d722d55aca43?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Kazakh Language Expert,remote,generalist,https://jobs.micro1.ai/post/31145ddb-e252-4901-ba9d-201a1a68ecf8?utm_source=micro1&utm_medium=job_portal
@@ -1628,23 +1912,23 @@ discovered,2026-06-17T01:24:00+00:00,micro1,Tamil Language Expert,remote,general
 discovered,2026-06-17T01:24:00+00:00,micro1,Nynorsk Language Expert,remote,generalist,https://jobs.micro1.ai/post/70eeab6f-71de-4ea7-9da4-370e0dbd13dc?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Malayalam Language Expert,remote,generalist,https://jobs.micro1.ai/post/552e01b9-7ced-44e9-bf58-37ce4671b190?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Telugu Language Expert,remote,generalist,https://jobs.micro1.ai/post/a41e0dcb-0ea9-4bcf-852f-d792230dd8ac?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,"Human Data Manager, New Grad",remote,Unknown,https://jobs.micro1.ai/post/f32c275c-0683-4c0b-9312-405e9f267521?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,"Human Data Manager, New Grad",remote,Data Annotation,https://jobs.micro1.ai/post/f32c275c-0683-4c0b-9312-405e9f267521?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Human Data Manager,remote,expert,https://jobs.micro1.ai/post/547767a3-93f3-4d9f-b725-62947f288924?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Chezch Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/a59357d9-175d-46e0-b2d8-d1b300dc6439?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Romanian Bilingual Expert,remote,Unknown,https://jobs.micro1.ai/post/1edd356f-c794-4f38-80a3-2d2e00f6dff6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Romanian Bilingual Expert,remote,Language / Linguistics,https://jobs.micro1.ai/post/1edd356f-c794-4f38-80a3-2d2e00f6dff6?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Hawaiian Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/2d8055a7-59b2-4c5f-a2c7-3d5119231a9e?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Slovenian Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/c54aee85-657d-4100-9953-ddc0b559309b?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Sinhala Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/206e95e5-ea0a-4606-80e4-123371ea76c2?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Armenian Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/9cd55d56-55cc-40ec-98c3-6dc612665ad8?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Khmer Bilingual Expert,remote,Unknown,https://jobs.micro1.ai/post/b90a6d22-b8cc-4692-a260-0e1cd1e9b78a?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Khmer Bilingual Expert,remote,Language / Linguistics,https://jobs.micro1.ai/post/b90a6d22-b8cc-4692-a260-0e1cd1e9b78a?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Latin Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/25bcf992-3ca9-4531-a364-c3e01277eab5?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Shona Bilingual Experts,remote,generalist,https://jobs.micro1.ai/post/641b0304-ee22-414a-a8a9-7a28706b54c2?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Maori Bilingual Experts,remote,generalist,https://jobs.micro1.ai/post/82f45c21-a876-4e2e-92a0-d07a793a6475?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Haitian Creole Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/c1de835e-db3a-4156-a294-0bed286f2f58?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Czech Bilingual Expert,remote,Unknown,https://jobs.micro1.ai/post/f6ce6492-f467-4024-9f75-452aae1ff2f6?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Czech Bilingual Expert,remote,Language / Linguistics,https://jobs.micro1.ai/post/f6ce6492-f467-4024-9f75-452aae1ff2f6?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Korean Bilingual Expert,remote,generalist,https://jobs.micro1.ai/post/7b26b730-2e44-4c64-8d1d-32b8f6ffe53f?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Writers and Authors,remote,generalist,https://jobs.micro1.ai/post/283d9e5a-665b-4088-bc61-598953e79421?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Swedish Language Expert,remote,Unknown,https://jobs.micro1.ai/post/3d2a493f-3e7e-4e9d-8f85-e6bb6ca1d253?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Swedish Language Expert,remote,Language / Linguistics,https://jobs.micro1.ai/post/3d2a493f-3e7e-4e9d-8f85-e6bb6ca1d253?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Javanese Language Expert,remote,generalist,https://jobs.micro1.ai/post/da23bd9a-d2d2-4425-ab82-8753c4a0825a?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Sanskrit Language Expert,remote,generalist,https://jobs.micro1.ai/post/7aa582e6-1597-48f7-8510-d60f08bd8f9f?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Mandarin Language Expert,remote,specialist,https://jobs.micro1.ai/post/329360e6-298d-4902-b467-cdc4e5972949?utm_source=micro1&utm_medium=job_portal
@@ -1689,7 +1973,7 @@ discovered,2026-06-17T01:24:00+00:00,micro1,PE / M&A Document Sourcing Expert,Re
 discovered,2026-06-17T01:24:00+00:00,micro1,Data Analyst,Remote,data-analysis,https://jobs.micro1.ai/post/29f60fbf-e956-45ec-8fd3-e390521efc45?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,AI Content Evaluation Specialist,Remote,generalist,https://jobs.micro1.ai/post/6d0d5814-b2f1-42db-b6fa-2ef3f7599f39?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Frontend Developer (Vue.js),remote,specialist,https://jobs.micro1.ai/post/ef7848b0-a465-4731-894c-678f754f05d8?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Audio Engineer (Native English Speaker),Remote,Unknown,https://jobs.micro1.ai/post/b68ec0fe-5642-459d-a29c-9c2a62dd6944?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Audio Engineer (Native English Speaker),Remote,Language / Linguistics,https://jobs.micro1.ai/post/b68ec0fe-5642-459d-a29c-9c2a62dd6944?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Data Engineer,Remote,data-analysis,https://jobs.micro1.ai/post/eb023ed7-c09c-426b-be78-9a4a62f2b9cc?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Java Developer,Remote,software-engineering,https://jobs.micro1.ai/post/e8738e17-edb6-4218-9651-47b51772fc84?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Cyber Security Analyst,remote,cybersecurity,https://jobs.micro1.ai/post/25d21ab1-f5e9-4a37-835b-c913684cad55?utm_source=micro1&utm_medium=job_portal
@@ -1719,8 +2003,8 @@ discovered,2026-06-17T01:24:00+00:00,micro1,Protein Biochemist,Remote,generalist
 discovered,2026-06-17T01:24:00+00:00,micro1,Plant Biologist,Remote,generalist,https://jobs.micro1.ai/post/d5a65f29-dde6-445d-b7de-ceb151c8bd3b?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Chemical Biologist,Remote,generalist,https://jobs.micro1.ai/post/8153f8fa-2e8a-48dc-8ea2-260c36807616?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Cell/Molecular Biologist (Stem Cells),Remote,generalist,https://jobs.micro1.ai/post/e3b68007-1e14-444e-bead-f2fadab0659f?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Software Engineer - AI Quality & Testing,Remote,Unknown,https://jobs.micro1.ai/post/bc8c667f-39c8-4ded-b26e-4f0373cbfd16?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Support Engineer Expert,Remote,Unknown,https://jobs.micro1.ai/post/9e8537d8-a2a1-472c-a208-02c9a8397764?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Software Engineer - AI Quality & Testing,Remote,Coding / Software Evaluation,https://jobs.micro1.ai/post/bc8c667f-39c8-4ded-b26e-4f0373cbfd16?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Support Engineer Expert,Remote,Technical Support / IT,https://jobs.micro1.ai/post/9e8537d8-a2a1-472c-a208-02c9a8397764?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Frontend Developer (React),Remote,software-engineering,https://jobs.micro1.ai/post/8a408adb-00de-4d39-b454-d3733bb574bf?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,AI Engineer,Remote,ai-machine-learning,https://jobs.micro1.ai/post/3a23884d-a7f4-4e1b-b700-8aa7d4887dec?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,iOS Developer,Remote,software-engineering,https://jobs.micro1.ai/post/7edb8f28-4321-45ed-894a-c53219915b64?utm_source=micro1&utm_medium=job_portal
@@ -1799,7 +2083,7 @@ discovered,2026-06-17T01:24:00+00:00,micro1,Law Clerk,Remote,specialist,https://
 discovered,2026-06-17T01:24:00+00:00,micro1,English (India) Recording Specialist,Remote,generalist,https://jobs.micro1.ai/post/77effc5a-42fd-4029-8e54-e99f1cf67164?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Legal Expert,Remote,generalist,https://jobs.micro1.ai/post/f13d9e22-2081-4f9e-b23a-401e56032850?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,AI Data Reviewer,Remote,generalist,https://jobs.micro1.ai/post/3dc4633a-44d0-43df-ab76-5e52ed9c5c06?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Backend Software Engineer,Remote,Unknown,https://jobs.micro1.ai/post/5a610f78-c88d-43cc-acb0-adeba4953e3d?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Backend Software Engineer,Remote,Coding / Software Evaluation,https://jobs.micro1.ai/post/5a610f78-c88d-43cc-acb0-adeba4953e3d?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Finance Specialist — Google Workspace,Remote,generalist,https://jobs.micro1.ai/post/e80d889e-d5d0-48e5-940b-b4fe93f7e48c?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Business Specialist - Google Workspace,Remote,generalist,https://jobs.micro1.ai/post/a0fe0b8b-eff7-48ec-9ba2-8b7609006f33?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Operations Analyst (Google Workspace),Remote,generalist,https://jobs.micro1.ai/post/8434d2d0-a5fa-4b94-8b0f-31f791844193?utm_source=micro1&utm_medium=job_portal
@@ -1859,7 +2143,7 @@ discovered,2026-06-17T01:24:00+00:00,micro1,Competitive Programming Checker,Remo
 discovered,2026-06-17T01:24:00+00:00,micro1,Junior Solar2D Game Developer,Remote,specialist,https://jobs.micro1.ai/post/c5258977-1a95-428a-a2b5-870f970892e2?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Junior FreeCAD Designer (3D Modeling),Remote,specialist,https://jobs.micro1.ai/post/0efd7aae-4840-4f5f-a455-b6ab1d03cb57?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Junior PCB Design Engineer (DesignSpark),Remote,specialist,https://jobs.micro1.ai/post/8dbc5ba2-d0fa-44bb-8529-2183e881e457?utm_source=micro1&utm_medium=job_portal
-discovered,2026-06-17T01:24:00+00:00,micro1,Household Data Specialist - Video Capture (US),Remote,Unknown,https://jobs.micro1.ai/post/caa4b2e6-234f-428c-920d-52d4fbe12d01?utm_source=micro1&utm_medium=job_portal
+discovered,2026-06-17T01:24:00+00:00,micro1,Household Data Specialist - Video Capture (US),Remote,Data Collection,https://jobs.micro1.ai/post/caa4b2e6-234f-428c-920d-52d4fbe12d01?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,AI Evaluation Specialist,Remote,generalist,https://jobs.micro1.ai/post/c99791a5-fa53-4691-b3ce-de6ac35e0fff?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,CAD Expert,Remote,other,https://jobs.micro1.ai/post/de7f6fee-787d-485c-9d59-20393d1fcf66?utm_source=micro1&utm_medium=job_portal
 discovered,2026-06-17T01:24:00+00:00,micro1,Investment Banking Expert,Remote,finance,https://jobs.micro1.ai/post/63a562c9-6e3b-4a0d-9b5b-f66f93c0cdff?utm_source=micro1&utm_medium=job_portal

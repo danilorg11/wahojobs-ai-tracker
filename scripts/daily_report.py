@@ -6,7 +6,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
-from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.reporting.market import (
+    company_label,
+    experimental_sources_status,
+    experimental_filter,
+    get_classification_summary,
+    get_market_size_summary,
+    live_market_filter,
+)
 from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
@@ -52,6 +59,11 @@ def main():
             conn, report_date, args.include_simulation,
             args.include_experimental, limit=10
         )
+        classification_summary = get_classification_summary(
+            conn,
+            include_experimental=args.include_experimental,
+            include_simulation=args.include_simulation,
+        )
         micro1_metrics = get_micro1_metrics(conn)
 
     print("")
@@ -59,7 +71,10 @@ def main():
     print("============================")
     print(f"Report date: {report_date} UTC")
     print(f"Simulation: {'included' if args.include_simulation else 'excluded'}")
-    print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
+    print(
+        "Experimental sources: "
+        f"{experimental_sources_status(args.include_experimental)}"
+    )
     print("")
     print(f"Raw active postings:              {market_summary['raw_active_postings']}")
     print(
@@ -116,6 +131,8 @@ def main():
     print(f"Removed jobs today:       {removed}")
     print(f"Reactivated jobs today:   {reactivated}")
     print("")
+    print_count_section("Active jobs by inventory model", classification_summary["inventory_models"])
+    print_count_section("Active jobs by opportunity kind", classification_summary["opportunity_kinds"])
 
     print_count_section("New jobs by company", new_by_company)
     print_count_section("Removed jobs by company", removed_by_company)
@@ -154,19 +171,6 @@ def validate_date(value):
         raise SystemExit("--date must use YYYY-MM-DD format")
 
 
-def experimental_filter(alias, include_experimental):
-    if include_experimental:
-        return ""
-    return f"AND {alias}.slug != 'invisible'"
-
-
-def company_label(alias):
-    return (
-        f"CASE WHEN {alias}.slug = 'invisible' "
-        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
-    )
-
-
 def count_events(conn, report_date, event_type, include_simulation, include_experimental):
     simulation_filter = "" if include_simulation else "AND j.title NOT LIKE '[SIMULATION]%'"
     row = conn.execute(
@@ -177,6 +181,7 @@ def count_events(conn, report_date, event_type, include_simulation, include_expe
         JOIN companies c ON c.id = j.company_id
         WHERE date(je.created_at) = ?
           AND je.event_type = ?
+          {live_market_filter("c", "j")}
           {simulation_filter}
           {experimental_filter("c", include_experimental)}
         """,
@@ -203,6 +208,7 @@ def group_events(
         JOIN companies c ON c.id = j.company_id
         WHERE date(je.created_at) = ?
           AND je.event_type = ?
+          {live_market_filter("c", "j")}
           {simulation_filter}
           {experimental_filter("c", include_experimental)}
         GROUP BY label
@@ -229,6 +235,7 @@ def get_recent_events(conn, report_date, include_simulation, include_experimenta
         JOIN jobs j ON j.id = je.job_id
         JOIN companies c ON c.id = j.company_id
         WHERE date(je.created_at) = ?
+          {live_market_filter("c", "j")}
           {simulation_filter}
           {experimental_filter("c", include_experimental)}
         ORDER BY je.created_at DESC, je.id DESC

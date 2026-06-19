@@ -1,4 +1,9 @@
-EXPERIMENTAL_SLUGS = ("invisible",)
+from wahojobs.classification import (
+    MARKET_COUNT_POLICY_COUNT_LIVE,
+    SOURCE_TIER_EXPERIMENTAL,
+)
+
+
 CANONICALIZED_SLUGS = (
     "alignerr",
     "dataforce",
@@ -75,7 +80,10 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         conn,
         "welocalize",
     )
-    canonical_opportunities = count_canonical_opportunities(conn)
+    canonical_opportunities = count_canonical_opportunities(
+        conn,
+        include_experimental=include_experimental,
+    )
     non_canonical_raw_jobs = count_non_canonical_raw_jobs(
         conn,
         include_experimental=include_experimental,
@@ -132,6 +140,7 @@ def count_raw_active_postings(conn, include_experimental=False, include_simulati
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = 1
+          {live_market_filter("c", "j")}
           {simulation_filter("j", include_simulation)}
           {experimental_filter("c", include_experimental)}
         """
@@ -176,7 +185,7 @@ def count_company_canonical_opportunities(conn, slug):
     return row["count"]
 
 
-def count_canonical_opportunities(conn):
+def count_canonical_opportunities(conn, include_experimental=False):
     slugs = ",".join(f"'{slug}'" for slug in CANONICALIZED_SLUGS)
     row = conn.execute(
         f"""
@@ -185,6 +194,15 @@ def count_canonical_opportunities(conn):
         JOIN companies c ON c.id = co.company_id
         WHERE c.slug IN ({slugs})
           AND co.is_active = 1
+          {experimental_filter("c", include_experimental)}
+          AND c.market_count_policy = '{MARKET_COUNT_POLICY_COUNT_LIVE}'
+          AND EXISTS (
+            SELECT 1
+            FROM jobs j
+            WHERE j.canonical_opportunity_id = co.id
+              AND j.is_active = 1
+              AND j.include_in_live_market_estimate = 1
+          )
         """
     ).fetchone()
     return row["count"]
@@ -199,6 +217,7 @@ def count_non_canonical_raw_jobs(conn, include_experimental=False, include_simul
         JOIN companies c ON c.id = j.company_id
         WHERE j.is_active = 1
           AND c.slug NOT IN ({canonical_slugs})
+          {live_market_filter("c", "j")}
           {simulation_filter("j", include_simulation)}
           {experimental_filter("c", include_experimental)}
         """
@@ -215,5 +234,119 @@ def simulation_filter(alias, include_simulation):
 def experimental_filter(alias, include_experimental):
     if include_experimental:
         return ""
-    slugs = ",".join(f"'{slug}'" for slug in EXPERIMENTAL_SLUGS)
-    return f"AND {alias}.slug NOT IN ({slugs})"
+    return f"AND {alias}.source_tier != '{SOURCE_TIER_EXPERIMENTAL}'"
+
+
+def live_market_filter(company_alias, job_alias):
+    return (
+        f"AND {company_alias}.market_count_policy = '{MARKET_COUNT_POLICY_COUNT_LIVE}' "
+        f"AND {job_alias}.include_in_live_market_estimate = 1"
+    )
+
+
+def company_label(alias):
+    return (
+        f"CASE WHEN {alias}.source_tier = '{SOURCE_TIER_EXPERIMENTAL}' "
+        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
+    )
+
+
+def experimental_sources_status(include_experimental):
+    if include_experimental:
+        return "visible, excluded from live estimate by policy"
+    return "excluded"
+
+
+def get_classification_summary(
+    conn,
+    include_experimental=False,
+    include_simulation=False,
+):
+    return {
+        "source_tiers": group_sources_by_classification(
+            conn,
+            "source_tier",
+            include_experimental,
+        ),
+        "inventory_models": group_active_jobs_by_source_classification(
+            conn,
+            "inventory_model",
+            include_experimental,
+            include_simulation,
+        ),
+        "market_count_policies": group_active_jobs_by_source_classification(
+            conn,
+            "market_count_policy",
+            include_experimental,
+            include_simulation,
+        ),
+        "opportunity_kinds": group_active_jobs_by_job_classification(
+            conn,
+            "opportunity_kind",
+            include_experimental,
+            include_simulation,
+        ),
+        "availability_basis": group_active_jobs_by_job_classification(
+            conn,
+            "availability_basis",
+            include_experimental,
+            include_simulation,
+        ),
+    }
+
+
+def group_sources_by_classification(conn, field, include_experimental):
+    return conn.execute(
+        f"""
+        SELECT {field} AS label, COUNT(*) AS count
+        FROM companies c
+        WHERE 1 = 1
+          {experimental_filter("c", include_experimental)}
+        GROUP BY label
+        ORDER BY count DESC, label ASC
+        """
+    ).fetchall()
+
+
+def group_active_jobs_by_source_classification(
+    conn,
+    field,
+    include_experimental,
+    include_simulation,
+):
+    return conn.execute(
+        f"""
+        SELECT c.{field} AS label, COUNT(*) AS count
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.is_active = 1
+          {simulation_filter("j", include_simulation)}
+          {experimental_filter("c", include_experimental)}
+        GROUP BY label
+        ORDER BY count DESC, label ASC
+        """
+    ).fetchall()
+
+
+def group_active_jobs_by_job_classification(
+    conn,
+    field,
+    include_experimental,
+    include_simulation,
+):
+    return conn.execute(
+        f"""
+        SELECT j.{field} AS label, COUNT(*) AS count
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.is_active = 1
+          {simulation_filter("j", include_simulation)}
+          {experimental_filter("c", include_experimental)}
+        GROUP BY label
+        ORDER BY count DESC, label ASC
+        """
+    ).fetchall()
+
+
+def quote_list(values):
+    return ",".join(f"'{value}'" for value in values)

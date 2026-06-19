@@ -1,5 +1,20 @@
 from pathlib import Path
 
+from wahojobs.classification import (
+    DEFAULT_AVAILABILITY_BASIS,
+    DEFAULT_INCLUDE_IN_LIVE_MARKET_ESTIMATE,
+    DEFAULT_INVENTORY_MODEL,
+    DEFAULT_MARKET_COUNT_POLICY,
+    DEFAULT_OPPORTUNITY_KIND,
+    DEFAULT_SOURCE_TIER,
+    INVENTORY_MODEL_CORPORATE_CAREERS,
+    MARKET_COUNT_POLICY_COUNT_LIVE,
+    MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
+    SOURCE_TIER_EXPERIMENTAL,
+    default_availability_basis_for_inventory_model,
+    default_opportunity_kind_for_inventory_model,
+    include_in_live_market_estimate_for_policy,
+)
 from wahojobs.config import DB_PATH
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
@@ -41,6 +56,9 @@ INVISIBLE_SEED = {
     "name": "Invisible Technologies",
     "slug": "invisible",
     "careers_url": "https://boards-api.greenhouse.io/v1/boards/invisibletech/jobs",
+    "source_tier": SOURCE_TIER_EXPERIMENTAL,
+    "inventory_model": INVENTORY_MODEL_CORPORATE_CAREERS,
+    "market_count_policy": MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
 }
 
 MERIDIAL_SEED = {
@@ -96,7 +114,9 @@ def initialize_database(db_path=DB_PATH):
     schema_path = Path(__file__).with_name("schema.sql")
     with get_connection(db_path) as conn:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
+        ensure_company_classification_columns(conn)
         ensure_job_optional_columns(conn)
+        ensure_job_classification_columns(conn)
         ensure_canonical_schema(conn)
         for seed in (
             ALIGNERR_SEED,
@@ -113,17 +133,28 @@ def initialize_database(db_path=DB_PATH):
             TURING_SEED,
             WELOCALIZE_SEED,
         ):
+            seed = with_source_classification_defaults(seed)
             conn.execute(
                 """
-                INSERT INTO companies (name, slug, careers_url)
-                VALUES (:name, :slug, :careers_url)
+                INSERT INTO companies (
+                  name, slug, careers_url,
+                  source_tier, inventory_model, market_count_policy
+                )
+                VALUES (
+                  :name, :slug, :careers_url,
+                  :source_tier, :inventory_model, :market_count_policy
+                )
                 ON CONFLICT(slug) DO UPDATE SET
                   name = excluded.name,
                   careers_url = excluded.careers_url,
+                  source_tier = excluded.source_tier,
+                  inventory_model = excluded.inventory_model,
+                  market_count_policy = excluded.market_count_policy,
                   updated_at = CURRENT_TIMESTAMP
                 """,
                 seed,
             )
+        refresh_jobs_from_source_classification_defaults(conn)
         alignerr = get_company_by_slug(conn, "alignerr")
         if alignerr is not None:
             sync_alignerr_canonical_opportunities(conn, alignerr["id"])
@@ -147,6 +178,35 @@ def initialize_database(db_path=DB_PATH):
             sync_welocalize_canonical_opportunities(conn, welocalize["id"])
 
 
+def with_source_classification_defaults(seed):
+    classified = {
+        "source_tier": DEFAULT_SOURCE_TIER,
+        "inventory_model": DEFAULT_INVENTORY_MODEL,
+        "market_count_policy": DEFAULT_MARKET_COUNT_POLICY,
+    }
+    classified.update(seed)
+    return classified
+
+
+def ensure_company_classification_columns(conn):
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(companies)").fetchall()
+    }
+    if "source_tier" not in columns:
+        conn.execute(
+            f"ALTER TABLE companies ADD COLUMN source_tier TEXT NOT NULL DEFAULT '{DEFAULT_SOURCE_TIER}'"
+        )
+    if "inventory_model" not in columns:
+        conn.execute(
+            f"ALTER TABLE companies ADD COLUMN inventory_model TEXT NOT NULL DEFAULT '{DEFAULT_INVENTORY_MODEL}'"
+        )
+    if "market_count_policy" not in columns:
+        conn.execute(
+            f"ALTER TABLE companies ADD COLUMN market_count_policy TEXT NOT NULL DEFAULT '{DEFAULT_MARKET_COUNT_POLICY}'"
+        )
+
+
 def ensure_job_optional_columns(conn):
     columns = {
         row["name"]
@@ -160,6 +220,76 @@ def ensure_job_optional_columns(conn):
         conn.execute("ALTER TABLE jobs ADD COLUMN commitment TEXT")
     if "canonical_opportunity_id" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN canonical_opportunity_id INTEGER")
+
+
+def ensure_job_classification_columns(conn):
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    if "opportunity_kind" not in columns:
+        conn.execute(
+            f"ALTER TABLE jobs ADD COLUMN opportunity_kind TEXT NOT NULL DEFAULT '{DEFAULT_OPPORTUNITY_KIND}'"
+        )
+    if "availability_basis" not in columns:
+        conn.execute(
+            f"ALTER TABLE jobs ADD COLUMN availability_basis TEXT NOT NULL DEFAULT '{DEFAULT_AVAILABILITY_BASIS}'"
+        )
+    if "include_in_live_market_estimate" not in columns:
+        conn.execute(
+            "ALTER TABLE jobs ADD COLUMN include_in_live_market_estimate "
+            f"INTEGER NOT NULL DEFAULT {DEFAULT_INCLUDE_IN_LIVE_MARKET_ESTIMATE}"
+        )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_jobs_live_market
+        ON jobs(include_in_live_market_estimate, is_active)
+        """
+    )
+
+
+def refresh_jobs_from_source_classification_defaults(conn):
+    rows = conn.execute(
+        """
+        SELECT id, inventory_model, market_count_policy
+        FROM companies
+        WHERE market_count_policy != ?
+           OR inventory_model != ?
+        """,
+        (MARKET_COUNT_POLICY_COUNT_LIVE, DEFAULT_INVENTORY_MODEL),
+    ).fetchall()
+    for row in rows:
+        opportunity_kind = default_opportunity_kind_for_inventory_model(
+            row["inventory_model"]
+        )
+        availability_basis = default_availability_basis_for_inventory_model(
+            row["inventory_model"]
+        )
+        include_in_live_market_estimate = include_in_live_market_estimate_for_policy(
+            row["market_count_policy"]
+        )
+        conn.execute(
+            """
+            UPDATE jobs
+            SET opportunity_kind = ?,
+                availability_basis = ?,
+                include_in_live_market_estimate = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE company_id = ?
+              AND opportunity_kind = ?
+              AND availability_basis = ?
+              AND include_in_live_market_estimate = ?
+            """,
+            (
+                opportunity_kind,
+                availability_basis,
+                include_in_live_market_estimate,
+                row["id"],
+                DEFAULT_OPPORTUNITY_KIND,
+                DEFAULT_AVAILABILITY_BASIS,
+                DEFAULT_INCLUDE_IN_LIVE_MARKET_ESTIMATE,
+            ),
+        )
 
 
 def ensure_canonical_schema(conn):
@@ -270,13 +400,15 @@ def get_job_by_hash(conn, company_id, source_hash):
 
 
 def insert_job(conn, company_id, candidate, now):
+    classification = resolve_job_classification(conn, company_id, candidate)
     cursor = conn.execute(
         """
         INSERT INTO jobs (
           company_id, external_id, title, location, department, expertise, commitment, url, source_hash,
+          opportunity_kind, availability_basis, include_in_live_market_estimate,
           first_seen_at, last_seen_at, is_active, removed_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
         """,
         (
             company_id,
@@ -288,6 +420,9 @@ def insert_job(conn, company_id, candidate, now):
             candidate.commitment,
             candidate.url,
             candidate.source_hash,
+            classification["opportunity_kind"],
+            classification["availability_basis"],
+            classification["include_in_live_market_estimate"],
             now,
             now,
             now,
@@ -297,6 +432,13 @@ def insert_job(conn, company_id, candidate, now):
 
 
 def update_seen_job(conn, job_id, candidate, now):
+    existing = conn.execute(
+        "SELECT company_id FROM jobs WHERE id = ?",
+        (job_id,),
+    ).fetchone()
+    if existing is None:
+        raise RuntimeError(f"Unknown job id: {job_id}")
+    classification = resolve_job_classification(conn, existing["company_id"], candidate)
     conn.execute(
         """
         UPDATE jobs
@@ -307,6 +449,9 @@ def update_seen_job(conn, job_id, candidate, now):
             expertise = ?,
             commitment = ?,
             url = ?,
+            opportunity_kind = ?,
+            availability_basis = ?,
+            include_in_live_market_estimate = ?,
             last_seen_at = ?,
             is_active = 1,
             removed_at = NULL,
@@ -321,11 +466,48 @@ def update_seen_job(conn, job_id, candidate, now):
             candidate.expertise,
             candidate.commitment,
             candidate.url,
+            classification["opportunity_kind"],
+            classification["availability_basis"],
+            classification["include_in_live_market_estimate"],
             now,
             now,
             job_id,
         ),
     )
+
+
+def resolve_job_classification(conn, company_id, candidate):
+    company = conn.execute(
+        """
+        SELECT inventory_model, market_count_policy
+        FROM companies
+        WHERE id = ?
+        """,
+        (company_id,),
+    ).fetchone()
+    if company is None:
+        raise RuntimeError(f"Unknown company id: {company_id}")
+
+    opportunity_kind = (
+        candidate.opportunity_kind
+        or default_opportunity_kind_for_inventory_model(company["inventory_model"])
+    )
+    availability_basis = (
+        candidate.availability_basis
+        or default_availability_basis_for_inventory_model(company["inventory_model"])
+    )
+    if candidate.include_in_live_market_estimate is None:
+        include_in_live_market_estimate = include_in_live_market_estimate_for_policy(
+            company["market_count_policy"]
+        )
+    else:
+        include_in_live_market_estimate = int(candidate.include_in_live_market_estimate)
+
+    return {
+        "opportunity_kind": opportunity_kind,
+        "availability_basis": availability_basis,
+        "include_in_live_market_estimate": include_in_live_market_estimate,
+    }
 
 
 def create_job_event(conn, job_id, crawl_run_id, event_type, created_at):

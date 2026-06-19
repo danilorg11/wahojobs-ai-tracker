@@ -5,6 +5,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.db.connection import get_connection
+from wahojobs.reporting.market import (
+    company_label,
+    experimental_sources_status,
+    experimental_filter,
+    get_classification_summary,
+    live_market_filter,
+)
 from wahojobs.reporting.micro1 import get_micro1_metrics
 
 
@@ -17,6 +24,11 @@ def main():
         companies_without_success = get_companies_without_successful_crawl(conn, args.include_experimental)
         failed_crawls = get_failed_crawls(conn, args.include_experimental)
         last_statuses = get_last_crawl_status_by_company(conn, args.include_experimental)
+        classification_summary = get_classification_summary(
+            conn,
+            include_experimental=args.include_experimental,
+            include_simulation=False,
+        )
         alignerr_summary = get_alignerr_canonical_summary(conn)
         top_alignerr_variants = get_top_alignerr_variants(conn)
         multi_location_groups = get_multi_location_alignerr_groups(conn)
@@ -59,7 +71,10 @@ def main():
     print("")
     print("Wahojobs Data Quality Report")
     print("============================")
-    print(f"Experimental sources: {'included' if args.include_experimental else 'excluded'}")
+    print(
+        "Experimental sources: "
+        f"{experimental_sources_status(args.include_experimental)}"
+    )
     print("")
 
     print("Job Checks")
@@ -67,6 +82,27 @@ def main():
     for label, value in summary:
         print(f"{label}: {value}")
     print("")
+
+    print_rows(
+        "Sources by tier",
+        classification_summary["source_tiers"],
+        lambda row: f"{row['label']}: {row['count']}",
+    )
+    print_rows(
+        "Active jobs by inventory model",
+        classification_summary["inventory_models"],
+        lambda row: f"{row['label']}: {row['count']}",
+    )
+    print_rows(
+        "Active jobs by market count policy",
+        classification_summary["market_count_policies"],
+        lambda row: f"{row['label']}: {row['count']}",
+    )
+    print_rows(
+        "Active jobs by opportunity kind",
+        classification_summary["opportunity_kinds"],
+        lambda row: f"{row['label']}: {row['count']}",
+    )
 
     print_rows(
         "Duplicate external_id within same company",
@@ -325,19 +361,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def experimental_filter(alias, include_experimental):
-    if include_experimental:
-        return ""
-    return f"AND {alias}.slug != 'invisible'"
-
-
-def company_label(alias):
-    return (
-        f"CASE WHEN {alias}.slug = 'invisible' "
-        f"THEN {alias}.name || ' [EXPERIMENTAL]' ELSE {alias}.name END"
-    )
-
-
 def scalar_count(conn, sql):
     return conn.execute(sql).fetchone()[0]
 
@@ -382,6 +405,7 @@ def get_summary(conn, include_experimental):
             FROM jobs j JOIN companies c ON c.id = j.company_id
             WHERE COALESCE(NULLIF(TRIM(j.expertise), ''), NULLIF(TRIM(j.department), ''), 'Unknown') = 'Unknown'
               AND j.is_active = 1
+              {live_market_filter("c", "j")}
               {source_filter}
             """,
         ),
