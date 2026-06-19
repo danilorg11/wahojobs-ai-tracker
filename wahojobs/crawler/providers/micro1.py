@@ -78,7 +78,7 @@ def should_include_job(job):
 def parse_micro1_job(job):
     domain = clean_value(job.get("domain_slug"))
     role_type = clean_value(job.get("role_type"))
-    category = domain or role_type or "Unknown"
+    category = domain or role_type or fallback_category(job) or "Unknown"
 
     return JobCandidate(
         external_id=clean_value(job.get("job_id")),
@@ -96,3 +96,99 @@ def clean_value(value):
         return None
     value = " ".join(str(value).split())
     return value or None
+
+
+def fallback_category(job):
+    haystack = build_fallback_haystack(job)
+    rules = (
+        (
+            "Language / Linguistics",
+            (
+                "language",
+                "bilingual",
+                "translation",
+                "linguistic",
+                "portuguese",
+                "swedish",
+                "czech",
+                "khmer",
+                "romanian",
+                "english language expert",
+            ),
+        ),
+        (
+            "Audio / Speech",
+            (
+                "audio",
+                "voice",
+                "dubbing",
+                "voice over",
+            ),
+        ),
+        (
+            "Data Collection",
+            (
+                "video capture",
+                "household data",
+                "data collection",
+                "sensor data capture",
+            ),
+        ),
+        (
+            "Coding / Software Evaluation",
+            (
+                "software",
+                "backend",
+                "python",
+                "javascript",
+                "typescript",
+                "go",
+                "java",
+                "c#",
+                "ai quality",
+                "testing",
+            ),
+        ),
+        (
+            "Data Annotation",
+            (
+                "quality analyst",
+                "video qc",
+                "quality control",
+                "annotation",
+            ),
+        ),
+        (
+            "Data Operations",
+            (
+                "project management",
+                "data operations",
+                "human data manager",
+            ),
+        ),
+        (
+            "Technical Support / IT",
+            (
+                "network administration",
+                "systems administrator",
+                "technical support",
+                "support engineer",
+            ),
+        ),
+    )
+
+    for category, keywords in rules:
+        if any(keyword in haystack for keyword in keywords):
+            return category
+    return None
+
+
+def build_fallback_haystack(job):
+    parts = [clean_value(job.get("job_name")) or ""]
+    skills = job.get("skills") or []
+    if isinstance(skills, list):
+        parts.extend(clean_value(skill) or "" for skill in skills)
+    tags = job.get("job_tags") or []
+    if isinstance(tags, list):
+        parts.extend(clean_value(tag) or "" for tag in tags)
+    return " ".join(parts).lower()

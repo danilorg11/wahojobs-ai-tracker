@@ -1,6 +1,6 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-18T02:28:40+00:00 UTC
+Generated: 2026-06-19T00:42:45+00:00 UTC
 
 ## Sources
 
@@ -11,8 +11,8 @@ Sample fallback data: excluded
 
 ## Market Size
 
-- Raw active postings: **8896**
-- Estimated market opportunities: **2477**
+- Raw active postings: **8892**
+- Estimated market opportunities: **2473**
 - Estimate method: canonicalized sources where available, raw active jobs elsewhere.
 - Alignerr raw postings: **5218**
 - Alignerr canonical opportunities: **502**
@@ -35,8 +35,8 @@ Sample fallback data: excluded
 - Welocalize raw postings: **380**
 - Welocalize canonical opportunities: **311**
 - Welocalize posting variants: **69**
-- micro1 active jobs: **377**
-- micro1 unique titles: **338**
+- micro1 active jobs: **373**
+- micro1 unique titles: **334**
 - micro1 duplicate-title count: **34**
 
 ## Active Jobs by Company
@@ -48,7 +48,7 @@ Sample fallback data: excluded
 | Mindrift | 735 |
 | OneForma | 715 |
 | Welocalize | 380 |
-| micro1 | 377 |
+| micro1 | 373 |
 | Mercor | 233 |
 | Turing | 194 |
 | RWS TrainAI | 93 |
@@ -66,16 +66,16 @@ Sample fallback data: excluded
 | Language & Linguistics | 372 |
 | AUDIO | 320 |
 | AI Service General Application | 221 |
-| Data Collection | 186 |
+| Data Collection | 189 |
 | Translation | 183 |
 | OTHER | 156 |
-| generalist | 153 |
+| generalist | 148 |
 | Creator (Writer); Physics | 136 |
 | Annotation | 132 |
 | Business & Professions | 117 |
 | Sciences | 99 |
+| Data Annotation | 87 |
 | Annotation; Judging | 86 |
-| Data Annotation | 85 |
 | Judging | 85 |
 | LANGUAGE | 84 |
 | specialist | 72 |
@@ -118,7 +118,6 @@ Sample fallback data: excluded
 | Speech AI Evaluation | 18 |
 | Annotation; Transcription | 16 |
 | Audio | 16 |
-| Unknown | 16 |
 | Miscellaneous | 15 |
 | Photo | 15 |
 | Language and Audio | 14 |
@@ -131,13 +130,15 @@ Sample fallback data: excluded
 | language-audio | 11 |
 | Legal & Law Services | 10 |
 | Other Engineering | 10 |
+| finance | 10 |
 | Arts & Design | 9 |
 | Healthcare & Medical | 9 |
 | Medicine | 9 |
-| finance | 9 |
 | Business | 8 |
 | Early Career | 7 |
+| Language / Linguistics | 7 |
 | business-operations | 7 |
+| robotics | 7 |
 | Code | 6 |
 | Creator (Writer); Account Servicing Agent | 6 |
 | Creator (Writer); Brand Design | 6 |
@@ -150,7 +151,6 @@ Sample fallback data: excluded
 | Creator (Writer); Web Design | 6 |
 | Subject Matter Expert | 6 |
 | data-analysis | 6 |
-| robotics | 6 |
 | History | 5 |
 | Language - Chinese | 5 |
 | ML/Data Engineering | 5 |
@@ -164,6 +164,7 @@ Sample fallback data: excluded
 | Generalist | 3 |
 | Language - Dutch | 3 |
 | cybersecurity | 3 |
+| Coding / Software Evaluation | 2 |
 | Humanities | 2 |
 | Judging; LLM Prompt Authoring | 2 |
 | LLM Prompt Authoring | 2 |
@@ -203,6 +204,7 @@ Sample fallback data: excluded
 | Specialist - Law | 1 |
 | Specialist - Math | 1 |
 | Specialist - Media & Communications | 1 |
+| Technical Support / IT | 1 |
 | The Agency: Worldwide Sharing | 1 |
 | TrainAI Talent Pool | 1 |
 | chat | 1 |
@@ -210,24 +212,24 @@ Sample fallback data: excluded
 
 ## Today's Activity
 
-- New jobs today: **1005**
+- New jobs today: **2**
 - Removed jobs today: **6**
-- Reactivated jobs today: **1**
+- Reactivated jobs today: **0**
 
 ## Top Recent Events
 
 | Event | Time | Company | Title | Expertise/Department | Location | URL |
 | --- | --- | --- | --- | --- | --- | --- |
+| removed | 2026-06-19T00:42:28+00:00 | micro1 | Network and Computer Systems Administrators | Unknown | Remote | [Link](https://jobs.micro1.ai/post/f5103316-3e13-4c9b-bd83-c6c2a0011133?utm_source=micro1&utm_medium=job_portal) |
+| removed | 2026-06-19T00:42:28+00:00 | micro1 | Microbiologist | generalist | Remote | [Link](https://jobs.micro1.ai/post/7b01b7b6-db31-4eb6-a877-65cfdc6bcbca?utm_source=micro1&utm_medium=job_portal) |
+| removed | 2026-06-19T00:42:28+00:00 | micro1 | Protein Biochemist | generalist | Remote | [Link](https://jobs.micro1.ai/post/28205810-079b-4413-84c4-1a08afcee1e4?utm_source=micro1&utm_medium=job_portal) |
+| removed | 2026-06-19T00:42:28+00:00 | micro1 | Plant Biologist | generalist | Remote | [Link](https://jobs.micro1.ai/post/d5a65f29-dde6-445d-b7de-ceb151c8bd3b?utm_source=micro1&utm_medium=job_portal) |
+| removed | 2026-06-19T00:42:28+00:00 | micro1 | Chemical Biologist | generalist | Remote | [Link](https://jobs.micro1.ai/post/8153f8fa-2e8a-48dc-8ea2-260c36807616?utm_source=micro1&utm_medium=job_portal) |
+| removed | 2026-06-19T00:42:28+00:00 | micro1 | Cell/Molecular Biologist (Stem Cells) | generalist | Remote | [Link](https://jobs.micro1.ai/post/e3b68007-1e14-444e-bead-f2fadab0659f?utm_source=micro1&utm_medium=job_portal) |
+| discovered | 2026-06-19T00:42:28+00:00 | micro1 | Video Data Reviewer | robotics | Remote | [Link](https://jobs.micro1.ai/post/e851f658-c8f1-4b48-be02-d77625c53c8f?utm_source=micro1&utm_medium=job_portal) |
+| discovered | 2026-06-19T00:42:28+00:00 | micro1 | Financial Advisor & Planner - Private Wealth Specialist (U.S.) | finance | Remote | [Link](https://jobs.micro1.ai/post/f0792853-5585-4791-b9d2-72c99fbe7dbb?utm_source=micro1&utm_medium=job_portal) |
 | discovered | 2026-06-18T02:28:29+00:00 | Turing | Data Scientist/Analyst | Data Scientist/Analyst | remote | [Link](https://work.turing.com/api/job/public?jobCode=BI-KUc5IyNtD) |
 | discovered | 2026-06-18T02:28:29+00:00 | Turing | Senior Python Developer | Software development | Remote | [Link](https://work.turing.com/api/job/public?jobCode=UJVtIjQ1KhmJ) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | Python + Full-Stack (JS) Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=y63_Dd5ms_eH) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | JavaScript / TypeScript Full-Stack Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=JSOClCQN5arG) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | LLM Java Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=yVjaf8-_Vwda) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | Content Analyst | Other | remote | [Link](https://work.turing.com/api/job/public?jobCode=_32qy_WW_Zwa) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | Research Analyst - Advanced Math | Science | remote | [Link](https://work.turing.com/api/job/public?jobCode=nUoVpko8ZcZ5) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | LLM C/ C++ Developer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=SwBhwiZCc1qY) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | Senior LLM Engineer | Software development | remote | [Link](https://work.turing.com/api/job/public?jobCode=bDXWjbgoP-pn) |
-| discovered | 2026-06-18T02:28:29+00:00 | Turing | Medicine Physician (MD/DO/Doctoral study/PhD) | Healthcare & Medical | remote | [Link](https://work.turing.com/api/job/public?jobCode=Ts67XA0OYtij) |
 
 ## Data Quality Summary
 
@@ -236,10 +238,10 @@ Sample fallback data: excluded
 | Jobs missing title | 0 |
 | Jobs missing URL | 0 |
 | Jobs missing location | 0 |
-| Active jobs with Unknown expertise/department | 16 |
+| Active jobs with Unknown expertise/department | 0 |
 | Duplicate external_id within same company | 0 |
 | Duplicate URL within same company | 24 |
-| Failed crawl runs | 12 |
+| Failed crawl runs | 3 |
 
 ## Notes
 
