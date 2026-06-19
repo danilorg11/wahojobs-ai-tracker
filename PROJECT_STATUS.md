@@ -144,6 +144,20 @@ No production-safe public JSON, API, or sitemap fetch path has been confirmed. T
 
 TELUS should affect `Estimated Live Market Opportunities` only after reliable crawling is confirmed. Until then, blocked or challenged fetches would be non-authoritative and unsafe for lifecycle/removal tracking.
 
+### Remotasks / Scale Ecosystem
+
+Remotasks is relevant to the Scale ecosystem, but it does not currently provide a public live inventory source for Wahojobs. Public worker-facing pages exist, including the Remotasks homepage and signup/application pages, but no public live task or project inventory was found.
+
+Actual task/project availability appears login-gated and user-specific. Outlier remains the correct Scale-adjacent live inventory source because it exposes public live opportunities that can be tracked without treating a generic signup funnel as market supply.
+
+Remotasks should not affect `Estimated Live Market Opportunities`. It may be represented later as a strategic or evergreen entry point if ecosystem completeness becomes important. If implemented later, the likely classification would be:
+
+- `source_tier = strategic`
+- `inventory_model = evergreen_application` or `strategic_signal`
+- `market_count_policy = report_separately`
+- `opportunity_kind = evergreen_application` or `strategic_signal`
+- `include_in_live_market_estimate = false`
+
 ## Known Limitations
 
 - The system is still local/manual: SQLite, CLI scripts, CSV/Markdown exports, no hosted UI.
@@ -160,10 +174,10 @@ TELUS should affect `Estimated Live Market Opportunities` only after reliable cr
 
 High-value candidates to research or revisit:
 
-- Remotasks / Scale ecosystem evergreen entry point: strategically important; research whether a stable public worker-facing application surface can be modeled as evergreen or strategic without implying live inventory.
-- Centific Expert Network: potentially relevant for expert AI training, data annotation, and evaluation work; investigate public worker-facing application surfaces and stable opportunity URLs.
+- Centific Expert Network / Centific worker-facing AI data opportunities: next recommended research candidate; investigate public worker-facing application surfaces, expert network entry points, data annotation opportunities, and stable opportunity URLs.
 - Other worker-facing AI training platforms with stable public application surfaces: prioritize sources that expose clear job-seeker opportunities without login or challenge-gated fetches.
 - TELUS Digital AI Community: high-value postponed backlog item; revisit only if a production-safe public fetch path is found.
+- Remotasks / Scale ecosystem: strategic/evergreen backlog item; consider only if ecosystem completeness becomes more important than live market sizing.
 - DataAnnotation expansion: monitor whether additional public domain pages become reachable, especially bilingual/language pages.
 - Handshake AI expansion: monitor whether public inventory structure, pagination, or detail/apply fields change.
 - Search evaluation platforms beyond Appen/RWS/Welocalize/TELUS: useful for broader coverage if public feeds exist.
