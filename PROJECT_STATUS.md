@@ -158,6 +158,22 @@ Remotasks should not affect `Estimated Live Market Opportunities`. It may be rep
 - `opportunity_kind = evergreen_application` or `strategic_signal`
 - `include_in_live_market_estimate = false`
 
+### Centific Expert Network
+
+Centific is relevant to the AI data and expert-work ecosystem. The public Centific Expert Network page is worker-facing and application/community-oriented, but Centific itself does not expose public live project inventory.
+
+OneForma remains the correct Centific ecosystem live/project inventory source already implemented in the tracker. Centific should not affect `Estimated Live Market Opportunities`. It may be represented later only as strategic or evergreen ecosystem coverage if needed.
+
+If implemented later, the likely classification would be:
+
+- `source_tier = strategic`
+- `inventory_model = evergreen_application` or `strategic_signal`
+- `market_count_policy = report_separately`
+- `opportunity_kind = evergreen_application` or `strategic_signal`
+- `include_in_live_market_estimate = false`
+
+Do not ingest Centific corporate Workday roles as AI-work opportunities. Also avoid adding a separate OneForma Domain Expert Program record unless there is a clear product reason, because it may muddy the existing OneForma source.
+
 ## Known Limitations
 
 - The system is still local/manual: SQLite, CLI scripts, CSV/Markdown exports, no hosted UI.
@@ -174,10 +190,10 @@ Remotasks should not affect `Estimated Live Market Opportunities`. It may be rep
 
 High-value candidates to research or revisit:
 
-- Centific Expert Network / Centific worker-facing AI data opportunities: next recommended research candidate; investigate public worker-facing application surfaces, expert network entry points, data annotation opportunities, and stable opportunity URLs.
 - Other worker-facing AI training platforms with stable public application surfaces: prioritize sources that expose clear job-seeker opportunities without login or challenge-gated fetches.
 - TELUS Digital AI Community: high-value postponed backlog item; revisit only if a production-safe public fetch path is found.
 - Remotasks / Scale ecosystem: strategic/evergreen backlog item; consider only if ecosystem completeness becomes more important than live market sizing.
+- Centific Expert Network: strategic/evergreen backlog item; consider only if ecosystem completeness becomes more important than live market sizing.
 - DataAnnotation expansion: monitor whether additional public domain pages become reachable, especially bilingual/language pages.
 - Handshake AI expansion: monitor whether public inventory structure, pagination, or detail/apply fields change.
 - Search evaluation platforms beyond Appen/RWS/Welocalize/TELUS: useful for broader coverage if public feeds exist.
