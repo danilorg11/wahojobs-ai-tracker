@@ -1,4 +1,156 @@
 event_type,created_at,company,title,location,expertise/department,url
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Production Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/production-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Reservoir Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/reservoir-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Process Safety Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/process-safety-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Distribution Ops Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/distribution-ops-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Maintenance Planner,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/maintenance-planner
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Solar Design Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/solar-design-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Pre-construction Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/pre-construction-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Project Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/project-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Estimator,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/estimator
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,REC Trader,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/rec-trader
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Generation Asset Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/generation-asset-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Drilling/Production Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/drilling-production-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Reliability Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/reliability-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Plant Performance Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/plant-performance-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Regulatory Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/regulatory-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,GIS Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/gis-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Environmental Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/environmental-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Energy Accountant,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/energy-accountant
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Billing Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/billing-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Customer Ops Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/customer-ops-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Meter Data Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/meter-data-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Drilling Superintendent,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/drilling-superintendent
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Well Cost Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/well-cost-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Completions Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/completions-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Drilling Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/drilling-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Math Expert,Unknown,Mathematics,https://joinhandshake.com/ai/opportunities/math-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Medicine Expert (MD),Unknown,Medicine,https://joinhandshake.com/ai/opportunities/medicine-expert-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Biology Expert,Unknown,Plant Biology,https://joinhandshake.com/ai/opportunities/biology-expert-ai-trainer-masters
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Math Specialist,Unknown,Mathematics,https://joinhandshake.com/ai/opportunities/math-expert-ai-trainer-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Physics Expert,Unknown,Physics,https://joinhandshake.com/ai/opportunities/physics-expert-ai-trainer-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Computer Science Expert,Unknown,Computer Science,https://joinhandshake.com/ai/opportunities/computer-science-expert-ai-trainer-(ph-ds-or-postdocs)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Music Professional,Unknown,Music,https://joinhandshake.com/ai/opportunities/music-expert-ai-trainer-(ph-ds-or-postdocs)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Engineering Expert,Unknown,Engineering,https://joinhandshake.com/ai/opportunities/engineering-expert-ai-trainer-(ph-ds-or-postdocs)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Engineering Expert,Unknown,Engineering,https://joinhandshake.com/ai/opportunities/engineering-expert-ai-trainer-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Music Expert,Unknown,Music,https://joinhandshake.com/ai/opportunities/music-expert-ai-trainer-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Electrical Engineering Expert,Unknown,Engineering,https://joinhandshake.com/ai/opportunities/electrical-engineering-expert-ai-trainer-(ph-ds-or-postdocs)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Security Engineer,Unknown,Computer Science,https://joinhandshake.com/ai/opportunities/cyber-security-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Marketing and Sales Professional,Unknown,Humanities,https://joinhandshake.com/ai/opportunities/business-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Adversarial Prompt Expert,Unknown,Computer Science,https://joinhandshake.com/ai/opportunities/adversarial-prompt-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Physicians,Unknown,Medicine,https://joinhandshake.com/ai/opportunities/medicine-expert-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Pharmacy Expert,Unknown,Medicine,https://joinhandshake.com/ai/opportunities/pharmacy-expert-(phd)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Pharmacy Expert,Unknown,Medicine,https://joinhandshake.com/ai/opportunities/pharmacy-expert-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Psychology Expert,Unknown,Psychology,https://joinhandshake.com/ai/opportunities/psychology-expert-(phd)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Theater and Vocal Arts Expert,Unknown,Music,https://joinhandshake.com/ai/opportunities/vocal-arts-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Psychology Expert,Unknown,Psychology,https://joinhandshake.com/ai/opportunities/psychology-expert-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Mechanical Engineering Expert,Unknown,Engineering,https://joinhandshake.com/ai/opportunities/mechanical-engineering-expert(bachelor-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Nursing Expert,Unknown,Medicine,https://joinhandshake.com/ai/opportunities/nursing-expert(bachelor-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Industrial Engineering Expert,Unknown,Engineering,https://joinhandshake.com/ai/opportunities/indusrtial-engineering-expert(bachelor-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Finance Professionals,Unknown,Finance,https://joinhandshake.com/ai/opportunities/finance-expert(bachelor-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Hospitality Expert,Unknown,Business,https://joinhandshake.com/ai/opportunities/hospitality-expert(bachelor-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Fine Art and Music Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/creative-industry-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Logistics & Planning Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/logistics-and-planning-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Healthcare Administrative Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/healthcare-administration-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Education Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/learning-development-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Data Expert,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/data-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Civil Engineering Expert,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/civil-engineering-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Web Developing Expert,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/web-developing-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Wholesale Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/wholesale-professionals-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Rental and Leasing Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/rental-and-leasing-professionals-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Manufacturing Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/manufacturing-professionals-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Lawyers,Unknown,Law,https://joinhandshake.com/ai/opportunities/law-expert-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Physics Specialist,Unknown,Physics,https://joinhandshake.com/ai/opportunities/physics-expert-(bachelor-s)-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Chemistry Specialist,Unknown,Chemistry,https://joinhandshake.com/ai/opportunities/chemistry-expert-ai-trainer-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Engineering Expert,Unknown,Engineering,https://joinhandshake.com/ai/opportunities/engineering-expert-(bachelor-s)-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Biomedical Engineering Expert,Unknown,Biomedical Engineering,https://joinhandshake.com/ai/opportunities/biomedical-engineering-expert-(bachelor-s)-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,"Intelligence Expert (Bachelor's, Master's and PhDs) - AI Trainer",Unknown,Unknown,https://joinhandshake.com/ai/opportunities/intelligence-expert-(bachelor-s-master-s-and-phds)-ai-trainer-copy
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Electrical Engineering Expert,Unknown,Engineering,https://joinhandshake.com/ai/opportunities/electrical-engineering-expert-ai-trainer-(master-s)
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Creative Writers,Unknown,Humanities,https://joinhandshake.com/ai/opportunities/creative-writing-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Government Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/government-professionals-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Finance and Insurance Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/finance-and-insurance-professionals-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Aviation Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/aviation-professionals
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Investment Bankers,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/investment-banking-expert-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Technical Design Expert,Unknown,Design,https://joinhandshake.com/ai/opportunities/technical-design-expert-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Audio Engineers,Unknown,Design,https://joinhandshake.com/ai/opportunities/audio-engineers-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Communication Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/communication-professionals-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Engineering Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/engineering-professional-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Environmental Science Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/environmental-science-professional-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Medical Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/medical-professional-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Financial Services Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/financial-services-professionals
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Legal Professionals,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/legal-professional-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Geological Technicians,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/geological-technicians-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Geoscientists,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/geoscientists-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,"Geoscience Teachers, Postsecondary",Unknown,Unknown,https://joinhandshake.com/ai/opportunities/geoscience-teachers-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Cartographers and Photogrammetrists,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/cartographers-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Ophthalmologists,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/ophthalmologists-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Human Resources Professional,Unknown,Humanities,https://joinhandshake.com/ai/opportunities/human-resources-professional
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Credit Processor,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/credit-clerks-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Firefighting Captain and Supervisors,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/firefighting-captain-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Career and Technical Education Professors,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/career-and-technical-education-professors
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Claims Specialist,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/insurance-clerks-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Compensation Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/compensation-specialists-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Table Games Managers,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/casino-professionals
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Chemistry Expert,Unknown,Chemistry,https://joinhandshake.com/ai/opportunities/chemistry-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Biology Expert,Unknown,Biology,https://joinhandshake.com/ai/opportunities/biology-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Physics Expert,Unknown,Physics,https://joinhandshake.com/ai/opportunities/physics-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Software Engineer,Unknown,Computer Science,https://joinhandshake.com/ai/opportunities/software-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Philosophy Expert,Unknown,Philosopy,https://joinhandshake.com/ai/opportunities/philosophy-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Video Editors,Unknown,Design,https://joinhandshake.com/ai/opportunities/video-editors
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,PCB Tool Specialist,Unknown,Design,https://joinhandshake.com/ai/opportunities/pcb-designer-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,QGIS Specialist,Unknown,Design,https://joinhandshake.com/ai/opportunities/qgis-specialist-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,ParaView Specialist,Unknown,Design,https://joinhandshake.com/ai/opportunities/paraview-specialist
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,3D Slicer Specialist,Unknown,Design,https://joinhandshake.com/ai/opportunities/3d-slicer-specialist
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,2D Design Expert,Unknown,Design,https://joinhandshake.com/ai/opportunities/2d-design-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,CAD Tool Specialist,Unknown,Design,https://joinhandshake.com/ai/opportunities/cad-tool-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,AEC Specialist,Unknown,Design,https://joinhandshake.com/ai/opportunities/bim-tool-specialist
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Game Developer/Designer,Unknown,Design,https://joinhandshake.com/ai/opportunities/game-developer-designer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Music Content Analyst - AI Trainer,Unknown,Music,https://joinhandshake.com/ai/opportunities/music-content-analyst-ai-trainer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Machine Learning Expert,Unknown,Computer Science,https://joinhandshake.com/ai/opportunities/machine-learning-expert
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Digital Illustrator,Unknown,Design,https://joinhandshake.com/ai/opportunities/digital-illustrator
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Spatial Data Analyst,Unknown,Design,https://joinhandshake.com/ai/opportunities/spatial-data-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,CAD Drafter,Unknown,Design,https://joinhandshake.com/ai/opportunities/cad-drafter
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,FP&A Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/fpa-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Merchandise Planner,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/merchandise-planner
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Category Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/category-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Retail Logistics Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/retail-logistics-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Retail Marketing Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/retail-marketing-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Inventory Control Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/inventory-control-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Retail Operations Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/retail-operations-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Pricing Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/pricing-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Store Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/store-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Demand Planner,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/demand-planner
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Retail Finance Director,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/retail-finance-director
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Construction Project Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/construction-project-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Merchandising & Category Management Specialist,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/merchandising-category-management-specialist
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Store Operation Manager,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/store-operation-manager
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,"Revenue, Demand & Supply Planning Professional",Unknown,Unknown,https://joinhandshake.com/ai/opportunities/demand-supply-pricing-planner
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Power Market Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/power-market-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Renewable Energy Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/renewable-energy-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Thermal Plant Performance & Emissions Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/thermal-plant-performance-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Subsurface & Reservoir Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/subsurface-reservoir-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Energy Project Estimator,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/energy-project-estimator
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Visual Design Professional,Unknown,Design,https://joinhandshake.com/ai/opportunities/visual-design-professional
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Power Systems Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/power-systems-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Renewable Energy Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/renewable-energy-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Process Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/process-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,ESG Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/esg-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Energy Auditor,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/energy-auditor
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Materials Modeling Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/materials-modeling-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Project Controls Engineer,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/project-controls-engineer
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Corporate Finance Analyst,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/corporate-finance-analyst
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Land Administrator,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/land-administrator
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Energy Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/energy-professional
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Statistical Modeling Researcher,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/statistical-modeling-researcher
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Electrical Engineering Researcher,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/electrical-engineering-researcher
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,AI & Machine Learning Researcher,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/ai-ml-researcher
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Quantitative Finance Researcher,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/quantitative-finance-researcher
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Quantitative Finance Researcher (Master's),Unknown,Unknown,https://joinhandshake.com/ai/opportunities/quantitative-finance-specialist
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Utility Technician,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/utility-technician
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Electrician,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/electrician
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,AI Evaluation Specialist,Unknown,General Interest,https://joinhandshake.com/ai/opportunities/generalist-bachelor-ai-eveluation-specialist
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,GRE/GMAT Quantitative Instructor,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/gre-instructor
+discovered,2026-06-19T02:52:44+00:00,Handshake AI,Finance Professional,Unknown,Unknown,https://joinhandshake.com/ai/opportunities/finance-professional
 removed,2026-06-19T02:32:30+00:00,Welocalize,Project Perseus | Data Quality Analyst - French Speakers (Human-in-the-Loop AI),California,Data Annotation,https://jobs.lever.co/weloglobal/cc5fb6fa-1d2f-49e0-849c-31b638a6eb9b
 discovered,2026-06-19T02:32:30+00:00,Welocalize,Tagalog Quality Control Specialist - Project Lyra,Philippines,AI Service General Application,https://jobs.lever.co/weloglobal/b8665c7f-319d-4497-af0a-20ad7069549b
 discovered,2026-06-19T02:32:30+00:00,Welocalize,Project Saiph - Podcast Content Reviewer - Traditional Chinese (Taiwan),Taiwan,Data Validation,https://jobs.lever.co/weloglobal/3b7ad2c0-254b-41a0-b4a6-53fabb28c014

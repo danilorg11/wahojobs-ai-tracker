@@ -1,10 +1,10 @@
 # Wahojobs AI Training Market Snapshot
 
-Generated: 2026-06-19T02:39:50+00:00 UTC
+Generated: 2026-06-19T02:52:53+00:00 UTC
 
 ## Sources
 
-Core sources included: alignerr, appen, dataforce, meridial, mercor, micro1, mindrift, oneforma, outlier, rws, turing, welocalize
+Core sources included: alignerr, appen, dataforce, handshake, meridial, mercor, micro1, mindrift, oneforma, outlier, rws, turing, welocalize
 Experimental sources: excluded
 Simulation data: excluded
 Sample fallback data: excluded
@@ -43,19 +43,21 @@ Sample fallback data: excluded
 
 | Label | Count |
 | --- | ---: |
-| core | 12 |
+| core | 13 |
 
 ## Active Jobs by Inventory Model
 
 | Label | Count |
 | --- | ---: |
 | live_feed | 8844 |
+| public_inventory | 152 |
 
 ## Active Jobs by Opportunity Kind
 
 | Label | Count |
 | --- | ---: |
 | live_posting | 8844 |
+| public_inventory_opportunity | 152 |
 
 ## Active Jobs by Company
 

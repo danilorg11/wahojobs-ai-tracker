@@ -22,6 +22,7 @@ CORE_SOURCES = (
     "alignerr",
     "appen",
     "dataforce",
+    "handshake",
     "meridial",
     "mercor",
     "micro1",
