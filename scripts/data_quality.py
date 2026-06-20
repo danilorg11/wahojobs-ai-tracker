@@ -52,6 +52,12 @@ def main():
             conn,
             "mindrift",
         )
+        micro1_summary = get_company_canonical_summary(conn, "micro1")
+        top_micro1_variants = get_top_company_variants(conn, "micro1")
+        multi_location_micro1_groups = get_multi_location_company_groups(
+            conn,
+            "micro1",
+        )
         oneforma_summary = get_company_canonical_summary(conn, "oneforma")
         top_oneforma_variants = get_top_company_variants(conn, "oneforma")
         turing_summary = get_company_canonical_summary(conn, "turing")
@@ -255,6 +261,37 @@ def main():
     print_rows(
         "Mindrift multi-location canonical opportunities",
         multi_location_mindrift_groups,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['location_count']} locations, {row['variant_count']} variants"
+        ),
+    )
+    print("")
+    print("micro1 Canonical Checks")
+    print("-----------------------")
+    if micro1_summary and micro1_summary["raw_postings"]:
+        print(f"Raw active postings: {micro1_summary['raw_postings']}")
+        print(
+            "Canonical active opportunities: "
+            f"{micro1_summary['canonical_opportunities']}"
+        )
+        print(f"Posting variants: {micro1_summary['variant_count']}")
+        print(f"Unlinked active postings: {micro1_summary['unlinked_postings']}")
+    else:
+        print("No active micro1 postings found.")
+    print("")
+
+    print_rows(
+        "Top micro1 canonical opportunities by variant count",
+        top_micro1_variants,
+        lambda row: (
+            f"{row['canonical_title']} ({row['source_category']}): "
+            f"{row['variant_count']} variants"
+        ),
+    )
+    print_rows(
+        "micro1 multi-location canonical opportunities",
+        multi_location_micro1_groups,
         lambda row: (
             f"{row['canonical_title']} ({row['source_category']}): "
             f"{row['location_count']} locations, {row['variant_count']} variants"

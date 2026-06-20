@@ -2,6 +2,7 @@ from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
     sync_meridial_canonical_opportunities,
+    sync_micro1_canonical_opportunities,
     sync_mindrift_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
     sync_turing_canonical_opportunities,
@@ -69,6 +70,8 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         sync_meridial_canonical_opportunities(conn, company_id)
     elif company["slug"] == "mindrift":
         sync_mindrift_canonical_opportunities(conn, company_id)
+    elif company["slug"] == "micro1":
+        sync_micro1_canonical_opportunities(conn, company_id)
     elif company["slug"] == "oneforma":
         sync_oneforma_canonical_opportunities(conn, company_id)
     elif company["slug"] == "turing":

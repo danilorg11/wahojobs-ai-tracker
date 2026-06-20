@@ -24,6 +24,7 @@ from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
     sync_meridial_canonical_opportunities,
+    sync_micro1_canonical_opportunities,
     sync_mindrift_canonical_opportunities,
     sync_oneforma_canonical_opportunities,
     sync_turing_canonical_opportunities,
@@ -198,6 +199,9 @@ def initialize_database(db_path=DB_PATH):
         mindrift = get_company_by_slug(conn, "mindrift")
         if mindrift is not None:
             sync_mindrift_canonical_opportunities(conn, mindrift["id"])
+        micro1 = get_company_by_slug(conn, "micro1")
+        if micro1 is not None:
+            sync_micro1_canonical_opportunities(conn, micro1["id"])
         oneforma = get_company_by_slug(conn, "oneforma")
         if oneforma is not None:
             sync_oneforma_canonical_opportunities(conn, oneforma["id"])

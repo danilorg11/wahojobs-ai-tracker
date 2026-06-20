@@ -364,6 +364,12 @@ def render_snapshot(
             f"**{market_summary['mindrift_canonical_opportunities']}**"
         ),
         f"- Mindrift posting variants: **{market_summary['mindrift_posting_variants']}**",
+        f"- micro1 raw postings: **{market_summary['micro1_raw_postings']}**",
+        (
+            "- micro1 canonical opportunities: "
+            f"**{market_summary['micro1_canonical_opportunities']}**"
+        ),
+        f"- micro1 posting variants: **{market_summary['micro1_posting_variants']}**",
         f"- OneForma raw variants: **{market_summary['oneforma_raw_variants']}**",
         (
             "- OneForma canonical opportunities: "
@@ -427,7 +433,7 @@ def render_snapshot(
             "",
             (
                 "- Estimated market opportunities are an approximation: Alignerr, "
-                "DataForce, Meridial, Mindrift, OneForma, Turing, and Welocalize use canonical opportunity grouping, while other sources "
+                "DataForce, Meridial, micro1, Mindrift, OneForma, Turing, and Welocalize use canonical opportunity grouping, while other sources "
                 "currently count each active raw job as one opportunity."
             ),
             "- Simulation data is excluded from this snapshot.",

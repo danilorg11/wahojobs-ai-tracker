@@ -1,6 +1,7 @@
 from wahojobs.canonical.alignerr import canonicalize_job
 from wahojobs.canonical.dataforce import canonicalize_job as canonicalize_dataforce_job
 from wahojobs.canonical.meridial import canonicalize_job as canonicalize_meridial_job
+from wahojobs.canonical.micro1 import canonicalize_job as canonicalize_micro1_job
 from wahojobs.canonical.mindrift import canonicalize_job as canonicalize_mindrift_job
 from wahojobs.canonical.oneforma import canonicalize_job as canonicalize_oneforma_job
 from wahojobs.canonical.turing import canonicalize_job as canonicalize_turing_job
@@ -25,6 +26,10 @@ def sync_meridial_canonical_opportunities(conn, company_id):
 
 def sync_mindrift_canonical_opportunities(conn, company_id):
     sync_canonical_opportunities(conn, company_id, canonicalize_mindrift_job)
+
+
+def sync_micro1_canonical_opportunities(conn, company_id):
+    sync_canonical_opportunities(conn, company_id, canonicalize_micro1_job)
 
 
 def sync_turing_canonical_opportunities(conn, company_id):

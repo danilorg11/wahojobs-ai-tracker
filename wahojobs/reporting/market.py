@@ -8,6 +8,7 @@ CANONICALIZED_SLUGS = (
     "alignerr",
     "dataforce",
     "meridial",
+    "micro1",
     "mindrift",
     "oneforma",
     "turing",
@@ -52,6 +53,15 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
     mindrift_canonical_opportunities = count_company_canonical_opportunities(
         conn,
         "mindrift",
+    )
+    micro1_raw_postings = count_company_raw_postings(
+        conn,
+        "micro1",
+        include_simulation=include_simulation,
+    )
+    micro1_canonical_opportunities = count_company_canonical_opportunities(
+        conn,
+        "micro1",
     )
     oneforma_raw_postings = count_company_raw_postings(
         conn,
@@ -114,6 +124,11 @@ def get_market_size_summary(conn, include_experimental=False, include_simulation
         "mindrift_canonical_opportunities": mindrift_canonical_opportunities,
         "mindrift_posting_variants": (
             mindrift_raw_postings - mindrift_canonical_opportunities
+        ),
+        "micro1_raw_postings": micro1_raw_postings,
+        "micro1_canonical_opportunities": micro1_canonical_opportunities,
+        "micro1_posting_variants": (
+            micro1_raw_postings - micro1_canonical_opportunities
         ),
         "oneforma_raw_variants": oneforma_raw_postings,
         "oneforma_canonical_opportunities": oneforma_canonical_opportunities,
