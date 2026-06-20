@@ -1,11 +1,13 @@
 # Profile-Based AI Work Opportunity Match Digest
 
-Generated: 2026-06-20T22:50:07+00:00 UTC
+Generated: 2026-06-20T22:57:07+00:00 UTC
 
 ## Prototype Notes
 
-This read-only prototype uses built-in mock profiles and deterministic keyword scoring against current tracker data. It does not call external AI APIs, change database rows, or change live market estimate semantics.
+This read-only prototype uses editable or built-in profiles and deterministic keyword scoring against current tracker data. It does not call external AI APIs, change database rows, or change live market estimate semantics.
 
+- Profile source: **built-in mock profiles**
+- Profiles rendered: **7**
 - Estimated Live Market Opportunities: **2409**
 - Raw active live postings: **8639**
 - Canonicalized live sources are grouped into representative opportunities where possible.

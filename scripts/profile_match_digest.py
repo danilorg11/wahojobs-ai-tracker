@@ -1,3 +1,5 @@
+import argparse
+import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -200,8 +202,11 @@ MOCK_PROFILES = [
 
 
 def main():
+    args = parse_args()
     generated_at = datetime.now(timezone.utc).replace(microsecond=0)
     cutoff = (generated_at - timedelta(days=RECENT_DAYS)).isoformat()
+    profiles, profile_source = load_profiles(args.profiles_file)
+    profiles = select_profiles(profiles, args.profile)
 
     with get_connection() as conn:
         market_summary = get_market_size_summary(
@@ -223,7 +228,7 @@ def main():
         new_rows = get_post_baseline_new_rows(conn, cutoff)
 
     profile_reports = []
-    for profile in MOCK_PROFILES:
+    for profile in profiles:
         profile_reports.append(
             {
                 "profile": profile,
@@ -242,7 +247,12 @@ def main():
             }
         )
 
-    markdown = render_markdown(generated_at, market_summary, profile_reports)
+    markdown = render_markdown(
+        generated_at,
+        market_summary,
+        profile_reports,
+        profile_source,
+    )
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(markdown, encoding="utf-8")
 
@@ -250,7 +260,8 @@ def main():
     print("Wahojobs Profile Match Digest")
     print("=============================")
     print(f"Generated: {generated_at.isoformat()} UTC")
-    print(f"Mock profiles: {len(MOCK_PROFILES)}")
+    print(f"Profile source: {profile_source}")
+    print(f"Profiles rendered: {len(profiles)}")
     print(
         "Estimated Live Market Opportunities: "
         f"{market_summary['estimated_market_opportunities']}"
@@ -260,9 +271,268 @@ def main():
         if top:
             print(
                 f"{report['profile']['profile_id']}: "
-                f"{top['display_title']} ({top['source']}, score {top['score']})"
+                f"{console_text(top['display_title'])} "
+                f"({console_text(top['source'])}, score {top['score']})"
             )
     print(f"Wrote Markdown report to {OUTPUT_PATH}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate a profile-based Wahojobs opportunity match digest."
+    )
+    parser.add_argument(
+        "--profile",
+        help="Generate the digest for one profile_id only.",
+    )
+    parser.add_argument(
+        "--profiles-file",
+        type=Path,
+        help="Load editable profiles from a JSON file.",
+    )
+    return parser.parse_args()
+
+
+def load_profiles(path):
+    if path is None:
+        return [normalize_profile(profile) for profile in MOCK_PROFILES], "built-in mock profiles"
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise SystemExit(f"Profile file not found: {path}")
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Profile file is not valid JSON: {path} ({exc})")
+
+    if isinstance(raw, dict) and "profiles" in raw:
+        raw_profiles = raw["profiles"]
+    elif isinstance(raw, list):
+        raw_profiles = raw
+    else:
+        raise SystemExit(
+            "Profile file must be either a list of profiles or an object with a 'profiles' list."
+        )
+
+    if not isinstance(raw_profiles, list) or not raw_profiles:
+        raise SystemExit("Profile file must contain at least one profile.")
+
+    profiles = []
+    seen_ids = set()
+    for index, raw_profile in enumerate(raw_profiles, start=1):
+        profile = normalize_profile(raw_profile, source=f"profile #{index}")
+        if profile["profile_id"] in seen_ids:
+            raise SystemExit(f"Duplicate profile_id in profile file: {profile['profile_id']}")
+        seen_ids.add(profile["profile_id"])
+        profiles.append(profile)
+    return profiles, str(path)
+
+
+def normalize_profile(raw_profile, source="profile"):
+    if not isinstance(raw_profile, dict):
+        raise SystemExit(f"Malformed {source}: expected an object.")
+
+    profile_id = require_string(raw_profile, "profile_id", source)
+    display_name = require_string(raw_profile, "display_name", source)
+    notes = optional_string(raw_profile, "notes", "")
+
+    profile = {
+        "profile_id": profile_id,
+        "display_name": display_name,
+        "summary": optional_string(raw_profile, "summary", notes) or build_profile_summary(raw_profile),
+        "education_level": optional_string(raw_profile, "education_level", "not_specified"),
+        "degrees_or_domains": require_string_list(raw_profile, "degrees_or_domains", source),
+        "languages": require_string_list(raw_profile, "languages", source),
+        "skills": require_string_list(raw_profile, "skills", source),
+        "work_preferences": require_string_list(raw_profile, "work_preferences", source),
+        "constraints": require_string_list(raw_profile, "constraints", source, required=False),
+        "target_opportunity_types": require_string_list(
+            raw_profile,
+            "target_opportunity_types",
+            source,
+            required=False,
+        ),
+        "notes": notes,
+        "signals": raw_profile.get("signals") or derive_signals(raw_profile),
+        "avoid_keywords": require_string_list(
+            raw_profile,
+            "avoid_keywords",
+            source,
+            required=False,
+        ),
+    }
+
+    if not isinstance(profile["signals"], list) or not profile["signals"]:
+        raise SystemExit(f"Malformed {source}: could not derive matching signals.")
+    return profile
+
+
+def require_string(raw_profile, field, source):
+    value = raw_profile.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise SystemExit(f"Malformed {source}: '{field}' must be a non-empty string.")
+    return value.strip()
+
+
+def optional_string(raw_profile, field, default):
+    value = raw_profile.get(field, default)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise SystemExit(f"Malformed profile: '{field}' must be a string.")
+    return value.strip()
+
+
+def require_string_list(raw_profile, field, source, required=True):
+    value = raw_profile.get(field)
+    if value is None:
+        if required:
+            raise SystemExit(f"Malformed {source}: '{field}' must be a list of strings.")
+        return []
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise SystemExit(f"Malformed {source}: '{field}' must be a list of strings.")
+    return [item.strip() for item in value if item.strip()]
+
+
+def build_profile_summary(raw_profile):
+    pieces = []
+    for field in ("degrees_or_domains", "skills", "target_opportunity_types"):
+        values = raw_profile.get(field) or []
+        if values:
+            pieces.append(", ".join(values[:3]))
+    if pieces:
+        return "Profile signals: " + "; ".join(pieces) + "."
+    return "Editable user profile."
+
+
+def derive_signals(raw_profile):
+    text = normalize_text(
+        " ".join(
+            " ".join(raw_profile.get(field) or [])
+            for field in (
+                "degrees_or_domains",
+                "skills",
+                "target_opportunity_types",
+                "notes",
+            )
+            if isinstance(raw_profile.get(field), list)
+        )
+    )
+    signals = []
+
+    add_signal_if(
+        signals,
+        text,
+        "Teaching/writing/review signal",
+        ["teacher", "teaching", "education", "writing", "review", "content"],
+        9,
+    )
+    if "english" in normalize_text(" ".join(raw_profile.get("languages") or [])) and any(
+        keyword_matches(text, keyword)
+        for keyword in ("teacher", "teaching", "english teacher")
+    ):
+        signals.append(
+            (
+                "English writing/content review signal",
+                ["english writing", "content reviewing", "english writing generalist"],
+                12,
+            )
+        )
+    add_signal_if(
+        signals,
+        text,
+        "Language/translation signal",
+        ["language", "linguistic", "translation", "translator", "localization", "bilingual"],
+        10,
+    )
+    add_signal_if(
+        signals,
+        text,
+        "Research/humanities signal",
+        ["history", "historian", "research", "humanities", "academic"],
+        10,
+    )
+    add_signal_if(
+        signals,
+        text,
+        "Coding/technical signal",
+        ["software", "coding", "python", "developer", "programming", "technical"],
+        12,
+    )
+    add_signal_if(
+        signals,
+        text,
+        "Legal domain signal",
+        ["legal", "law", "lawyer", "attorney"],
+        14,
+    )
+    add_signal_if(
+        signals,
+        text,
+        "Finance/accounting signal",
+        ["finance", "financial", "accounting", "investment", "tax"],
+        14,
+    )
+    add_signal_if(
+        signals,
+        text,
+        "Science/medical signal",
+        ["biology", "medicine", "medical", "clinical", "chemistry", "physics", "science"],
+        14,
+    )
+    add_signal_if(
+        signals,
+        text,
+        "AI evaluation/training signal",
+        ["ai training", "ai evaluation", "evaluation", "rater", "annotation", "data annotation"],
+        8,
+    )
+    add_signal_if(
+        signals,
+        text,
+        "Search/research quality signal",
+        ["search", "research", "quality", "ads"],
+        7,
+    )
+
+    if not signals:
+        signals.append(("General profile keyword match", profile_keywords(raw_profile), 6))
+    return signals
+
+
+def add_signal_if(signals, text, reason, keywords, points):
+    normalized = normalize_keywords(keywords)
+    if any(keyword_matches(text, keyword) for keyword in normalized):
+        signals.append((reason, keywords, points))
+
+
+def profile_keywords(raw_profile):
+    keywords = []
+    for field in ("degrees_or_domains", "skills", "target_opportunity_types"):
+        for value in raw_profile.get(field) or []:
+            keywords.extend(split_profile_phrase(value))
+    return unique(keywords)[:12] or ["ai training", "review"]
+
+
+def split_profile_phrase(value):
+    return [
+        part.strip()
+        for part in re.split(r"[,/;]", value)
+        if part.strip()
+    ]
+
+
+def select_profiles(profiles, profile_id):
+    if not profile_id:
+        return profiles
+
+    selected = [profile for profile in profiles if profile["profile_id"] == profile_id]
+    if selected:
+        return selected
+
+    available = ", ".join(profile["profile_id"] for profile in profiles)
+    raise SystemExit(
+        f"Profile not found: {profile_id}. Available profile_id values: {available}"
+    )
 
 
 def get_active_rows(conn, policy=None, policy_not=None, inventory_models=None):
@@ -525,7 +795,7 @@ def has_remote_signal(row):
     )
 
 
-def render_markdown(generated_at, market_summary, profile_reports):
+def render_markdown(generated_at, market_summary, profile_reports, profile_source):
     lines = [
         "# Profile-Based AI Work Opportunity Match Digest",
         "",
@@ -534,11 +804,13 @@ def render_markdown(generated_at, market_summary, profile_reports):
         "## Prototype Notes",
         "",
         (
-            "This read-only prototype uses built-in mock profiles and deterministic "
+            "This read-only prototype uses editable or built-in profiles and deterministic "
             "keyword scoring against current tracker data. It does not call external "
             "AI APIs, change database rows, or change live market estimate semantics."
         ),
         "",
+        f"- Profile source: **{escape(profile_source)}**",
+        f"- Profiles rendered: **{len(profile_reports)}**",
         f"- Estimated Live Market Opportunities: **{market_summary['estimated_market_opportunities']}**",
         f"- Raw active live postings: **{market_summary['raw_active_postings']}**",
         "- Canonicalized live sources are grouped into representative opportunities where possible.",
@@ -647,6 +919,10 @@ def unique(values):
 
 def escape(value):
     return str(value or "").replace("|", "\\|").replace("\n", " ")
+
+
+def console_text(value):
+    return str(value or "").encode("ascii", errors="replace").decode("ascii")
 
 
 if __name__ == "__main__":

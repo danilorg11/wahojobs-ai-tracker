@@ -1,0 +1,113 @@
+{
+  "profiles": [
+    {
+      "profile_id": "english_teacher_remote",
+      "display_name": "English Teacher Seeking Remote AI Work",
+      "education_level": "bachelor",
+      "degrees_or_domains": [
+        "English",
+        "education",
+        "teaching"
+      ],
+      "languages": [
+        "English"
+      ],
+      "skills": [
+        "teaching",
+        "writing feedback",
+        "content review",
+        "grammar",
+        "student assessment"
+      ],
+      "work_preferences": [
+        "remote",
+        "flexible",
+        "part-time"
+      ],
+      "constraints": [
+        "prefers non-coding work"
+      ],
+      "avoid_keywords": [
+        "kiswahili",
+        "swahili",
+        "korean",
+        "japanese",
+        "russian"
+      ],
+      "target_opportunity_types": [
+        "AI writing evaluation",
+        "AI training",
+        "content review",
+        "language evaluation"
+      ],
+      "notes": "Experienced English teacher looking for remote AI writing, review, and evaluator work."
+    },
+    {
+      "profile_id": "phd_history_researcher",
+      "display_name": "PhD History Researcher",
+      "education_level": "phd",
+      "degrees_or_domains": [
+        "history",
+        "humanities",
+        "academic research"
+      ],
+      "languages": [
+        "English",
+        "French"
+      ],
+      "skills": [
+        "archival research",
+        "academic writing",
+        "fact checking",
+        "source evaluation"
+      ],
+      "work_preferences": [
+        "remote",
+        "flexible"
+      ],
+      "constraints": [],
+      "target_opportunity_types": [
+        "expert AI training",
+        "research evaluation",
+        "humanities AI tasks",
+        "writing review"
+      ],
+      "notes": "Advanced humanities researcher interested in AI training tasks that need source analysis, writing, and expert review."
+    },
+    {
+      "profile_id": "beginner_bilingual_no_degree",
+      "display_name": "Beginner Bilingual Remote Worker",
+      "education_level": "no_degree",
+      "degrees_or_domains": [
+        "generalist",
+        "language"
+      ],
+      "languages": [
+        "English",
+        "Spanish"
+      ],
+      "skills": [
+        "bilingual communication",
+        "web research",
+        "basic writing",
+        "review"
+      ],
+      "work_preferences": [
+        "remote",
+        "flexible",
+        "entry-level"
+      ],
+      "constraints": [
+        "no college degree",
+        "beginner"
+      ],
+      "target_opportunity_types": [
+        "data annotation",
+        "search evaluation",
+        "language review",
+        "AI training generalist"
+      ],
+      "notes": "Beginner bilingual English/Spanish profile looking for accessible remote AI-work entry points."
+    }
+  ]
+}
