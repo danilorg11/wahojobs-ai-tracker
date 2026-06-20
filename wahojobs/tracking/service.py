@@ -12,12 +12,18 @@ from wahojobs.crawler.types import CompanyCrawlResult, TrackingSummary
 from wahojobs.db.repository import (
     count_active_jobs,
     create_job_event,
+    get_missing_active_jobs,
     get_job_by_hash,
     insert_job,
     mark_missing_jobs_inactive,
     update_seen_job,
 )
 from wahojobs.tracking.normalize import with_source_hash
+
+
+MINDRIFT_PARTIAL_DROP_THRESHOLD = 0.20
+MINDRIFT_MIN_REMOVALS_FOR_GUARD = 50
+MINDRIFT_BASELINE_SUCCESS_RUNS = 3
 
 
 def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCrawlResult, now):
@@ -32,15 +38,22 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         with_source_hash(company["slug"], candidate)
         for candidate in crawl_result.jobs
     )
+    seen_hashes = [candidate.source_hash for candidate in candidates]
+    guard_suspicious_mindrift_partial_crawl(
+        conn,
+        company["slug"],
+        company_id,
+        len(candidates),
+        seen_hashes,
+        crawl_result.used_sample_data,
+    )
 
     jobs_new = 0
     jobs_reactivated = 0
     jobs_updated = 0
-    seen_hashes = []
 
     for candidate in candidates:
         existing = get_job_by_hash(conn, company_id, candidate.source_hash)
-        seen_hashes.append(candidate.source_hash)
 
         if existing is None:
             job_id = insert_job(conn, company_id, candidate, now)
@@ -103,3 +116,63 @@ def dedupe_candidates(candidates):
         seen.add(candidate.source_hash)
         unique.append(candidate)
     return unique
+
+
+def guard_suspicious_mindrift_partial_crawl(
+    conn,
+    company_slug,
+    company_id,
+    fetched_count,
+    seen_hashes,
+    used_sample_data,
+):
+    if company_slug != "mindrift" or used_sample_data:
+        return
+
+    active_count = count_active_jobs(conn, company_id)
+    if active_count == 0:
+        return
+
+    baseline_count = max(
+        active_count,
+        get_recent_mindrift_success_high_water_mark(conn, company_id),
+    )
+    if baseline_count == 0:
+        return
+
+    missing_count = len(get_missing_active_jobs(conn, company_id, seen_hashes))
+    drop_fraction = (baseline_count - fetched_count) / baseline_count
+
+    # Mindrift/Workable has shown rate-limit and partial-fetch sensitivity.
+    # Treat a sharp successful-looking count drop as non-authoritative so
+    # missing rows are not marked removed from a likely incomplete response.
+    if (
+        drop_fraction > MINDRIFT_PARTIAL_DROP_THRESHOLD
+        and missing_count >= MINDRIFT_MIN_REMOVALS_FOR_GUARD
+    ):
+        drop_percent = round(drop_fraction * 100, 1)
+        raise RuntimeError(
+            "Suspicious Mindrift partial crawl: "
+            f"fetched {fetched_count} jobs vs {baseline_count} recent baseline "
+            f"({drop_percent}% drop), with {missing_count} active jobs missing. "
+            "Failing this crawl as non-authoritative to avoid false removals."
+        )
+
+
+def get_recent_mindrift_success_high_water_mark(conn, company_id):
+    rows = conn.execute(
+        """
+        SELECT jobs_found_count
+        FROM crawl_runs
+        WHERE company_id = ?
+          AND status = 'success'
+          AND used_sample_data = 0
+          AND jobs_found_count IS NOT NULL
+        ORDER BY started_at DESC
+        LIMIT ?
+        """,
+        (company_id, MINDRIFT_BASELINE_SUCCESS_RUNS),
+    ).fetchall()
+    if not rows:
+        return 0
+    return max(row["jobs_found_count"] for row in rows)
