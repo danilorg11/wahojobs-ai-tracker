@@ -1,6 +1,6 @@
 # AI Work Market Overview
 
-Generated: 2026-06-20T22:57:36+00:00 UTC
+Generated: 2026-06-20T23:07:32+00:00 UTC
 
 ## Executive Summary
 
