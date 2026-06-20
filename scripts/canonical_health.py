@@ -30,6 +30,7 @@ def main():
         duplicate_title_groups = get_top_duplicate_title_groups(conn)
         canonical_variant_groups = get_top_canonical_variant_groups(conn)
         encoding_artifacts = get_encoding_artifacts(conn)
+        oneforma_url_context = get_oneforma_duplicate_url_context(conn)
 
     print("")
     print("Wahojobs Canonicalization Health")
@@ -43,6 +44,7 @@ def main():
     print_report_separately_sources(source_rows)
     print_experimental_sources(source_rows)
     print_encoding_artifacts(encoding_artifacts)
+    print_oneforma_duplicate_url_context(oneforma_url_context)
     print_duplicate_title_groups(duplicate_title_groups)
     print_canonical_variant_groups(canonical_variant_groups)
 
@@ -305,6 +307,35 @@ def get_encoding_artifacts(conn):
     return examples
 
 
+def get_oneforma_duplicate_url_context(conn):
+    rows = conn.execute(
+        """
+        SELECT
+          j.url,
+          COUNT(*) AS count,
+          COUNT(*) - 1 AS extras,
+          COUNT(DISTINCT COALESCE(j.canonical_opportunity_id, -1)) AS canonical_groups,
+          GROUP_CONCAT(DISTINCT co.canonical_title) AS canonical_titles
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        LEFT JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
+        WHERE c.slug = 'oneforma'
+          AND j.is_active = 1
+          AND j.url IS NOT NULL
+          AND TRIM(j.url) != ''
+          AND j.title NOT LIKE '[SIMULATION]%'
+        GROUP BY j.url
+        HAVING COUNT(*) > 1
+        ORDER BY canonical_groups DESC, count DESC, j.url ASC
+        """
+    ).fetchall()
+    return {
+        "groups": len(rows),
+        "extras": sum(row["extras"] for row in rows),
+        "watch_groups": [row for row in rows if row["canonical_groups"] > 1],
+    }
+
+
 def get_job_encoding_artifacts(conn):
     fields = ("title", "department", "expertise")
     rows = conn.execute(
@@ -511,6 +542,35 @@ def print_encoding_artifacts(rows):
         )
     if len(rows) > 25:
         print(f"  ... {len(rows) - 25} more")
+    print("")
+
+
+def print_oneforma_duplicate_url_context(context):
+    print("OneForma Duplicate URL Context")
+    print("------------------------------")
+    if context["groups"] == 0:
+        print("  None")
+        print("")
+        return
+
+    print(
+        "  OneForma has "
+        f"{context['extras']} duplicate URL extras across {context['groups']} groups."
+    )
+    print(
+        "  This is usually expected application-variant URL reuse and does not "
+        "change OneForma's canonical live contribution."
+    )
+    if not context["watch_groups"]:
+        print("  Watch groups spanning multiple canonical opportunities: none")
+    else:
+        print("  Watch groups spanning multiple canonical opportunities:")
+        for row in context["watch_groups"]:
+            print(
+                f"    {row['url']} ({row['count']} rows, "
+                f"{row['canonical_groups']} canonical groups) - "
+                f"{row['canonical_titles']}"
+            )
     print("")
 
 

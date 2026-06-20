@@ -21,6 +21,7 @@ def main():
         summary = get_summary(conn, args.include_experimental)
         duplicate_external_ids = get_duplicate_external_ids(conn, args.include_experimental)
         duplicate_urls = get_duplicate_urls(conn, args.include_experimental)
+        oneforma_duplicate_urls = get_oneforma_duplicate_url_patterns(conn)
         companies_without_success = get_companies_without_successful_crawl(conn, args.include_experimental)
         failed_crawls = get_failed_crawls(conn, args.include_experimental)
         last_statuses = get_last_crawl_status_by_company(conn, args.include_experimental)
@@ -119,6 +120,11 @@ def main():
         "Duplicate URL within same company",
         duplicate_urls,
         lambda row: f"{row['company']}: {row['url']} ({row['count']} jobs)",
+    )
+    print_rows(
+        "OneForma expected duplicate URL reuse",
+        oneforma_duplicate_urls,
+        format_oneforma_duplicate_url_pattern,
     )
     print_rows(
         "Companies with no successful crawl",
@@ -589,12 +595,51 @@ def get_duplicate_urls(conn, include_experimental):
         JOIN companies c ON c.id = j.company_id
         WHERE j.url IS NOT NULL
           AND TRIM(j.url) != ''
+          AND c.slug != 'oneforma'
           {experimental_filter("c", include_experimental)}
         GROUP BY j.company_id, j.url
         HAVING COUNT(*) > 1
         ORDER BY count DESC, c.name ASC, j.url ASC
         """
     ).fetchall()
+
+
+def get_oneforma_duplicate_url_patterns(conn):
+    return conn.execute(
+        """
+        SELECT
+          j.url,
+          COUNT(*) AS count,
+          COUNT(*) - 1 AS extras,
+          COUNT(DISTINCT j.external_id) AS external_ids,
+          COUNT(DISTINCT j.title) AS titles,
+          COUNT(DISTINCT COALESCE(j.canonical_opportunity_id, -1)) AS canonical_groups,
+          GROUP_CONCAT(DISTINCT co.canonical_title) AS canonical_titles
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        LEFT JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
+        WHERE c.slug = 'oneforma'
+          AND j.is_active = 1
+          AND j.url IS NOT NULL
+          AND TRIM(j.url) != ''
+          AND j.title NOT LIKE '[SIMULATION]%'
+        GROUP BY j.url
+        HAVING COUNT(*) > 1
+        ORDER BY canonical_groups DESC, count DESC, j.url ASC
+        """
+    ).fetchall()
+
+
+def format_oneforma_duplicate_url_pattern(row):
+    label = "WATCH" if row["canonical_groups"] > 1 else "expected variant reuse"
+    detail = (
+        f"{label}: {row['url']} "
+        f"({row['count']} rows, {row['extras']} extras, "
+        f"{row['canonical_groups']} canonical groups)"
+    )
+    if row["canonical_groups"] > 1 and row["canonical_titles"]:
+        detail = f"{detail} - {row['canonical_titles']}"
+    return detail
 
 
 def get_companies_without_successful_crawl(conn, include_experimental):
