@@ -1,6 +1,6 @@
 # Wahojobs AI Work Tracker Status
 
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 ## Purpose
 
@@ -55,8 +55,8 @@ It excludes:
 
 Current known counts from the latest local run:
 
-- Raw active live postings: 8,841
-- Estimated live market opportunities: 2,481
+- Raw active live postings: 8,639
+- Estimated live market opportunities: 2,409
 - Handshake public inventory opportunities: 152
 - DataAnnotation evergreen opportunities: 10
 - Surge AI mixed/report-separately opportunities: 9
@@ -99,6 +99,37 @@ Surge currently tracks public worker-facing pages, not corporate careers roles:
 - 1 fellowship evergreen opportunity from `/fellowship`
 
 The workforce rows are modeled as public inventory opportunities. The fellowship row is modeled as an evergreen application opportunity. Surge records are useful job-seeker opportunities and are exported with classification fields, but they do not affect `Estimated Live Market Opportunities`.
+
+## micro1 Quality Update
+
+micro1 now has conservative source-specific canonicalization.
+
+Raw micro1 jobs remain stored as job variants, but micro1 now contributes canonical opportunities to `Estimated Live Market Opportunities` instead of raw active jobs. The current observed reduction is 14 opportunities:
+
+- micro1 raw active postings: 350
+- micro1 canonical opportunities: 336
+- micro1 posting variants: 14
+
+The canonicalization is intentionally conservative. It preserves meaningful differences such as language, locale/country variants, specialty/domain, seniority, commitment, and non-remote or hybrid work mode.
+
+## Mindrift Quality Update
+
+Mindrift remains classified as:
+
+- `source_tier = core`
+- `inventory_model = live_feed`
+- `market_count_policy = count_live`
+
+Mindrift now has a source-specific lifecycle guard against suspicious partial successful crawls. The guard runs before any job writes, job events, or removals are applied.
+
+The guard compares the fetched job count against the stronger of:
+
+- current active Mindrift raw job count
+- recent successful Mindrift high-water count
+
+If a successful-looking crawl is sharply lower and would imply many missing active Mindrift jobs, the crawl fails as non-authoritative instead of marking many Mindrift jobs removed. This protects the live estimate from partial Workable responses while keeping Mindrift in the live/countable source set.
+
+Handshake, DataAnnotation, Surge, Invisible, and other `report_separately` or excluded sources remain outside `Estimated Live Market Opportunities`.
 
 ## Current Core Sources
 
@@ -182,6 +213,8 @@ Do not ingest Centific corporate Workday roles as AI-work opportunities. Also av
 - DataAnnotation is an evergreen source, not a live project feed.
 - DataAnnotation `/bilingual` is retained in the allowlist but currently returns 404 and is skipped.
 - Some sources are canonicalized while others still count raw jobs as opportunities.
+- micro1 canonicalization is conservative and may mildly undercount if separate clients post identical broad roles.
+- Mindrift may still require monitoring because Workable/source churn can cause shortcode reposting.
 - Source taxonomies are not yet normalized into a single Wahojobs market taxonomy.
 - Historical counts reflect local crawl history and may include local failed crawl_run artifacts.
 - Exports are snapshots of the local SQLite database, not a hosted canonical dataset.
