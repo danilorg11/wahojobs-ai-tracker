@@ -369,8 +369,12 @@ def get_report_separately_sources(source_breakdown):
 
 def get_recent_movement(conn, cutoff):
     return {
-        "event_counts": get_recent_event_counts(conn, cutoff),
-        "source_movements": get_recent_source_movements(conn, cutoff),
+        "raw_event_counts": get_recent_event_counts(conn, cutoff),
+        "post_baseline_event_counts": get_post_baseline_event_counts(conn, cutoff),
+        "baseline_backfill_counts": get_baseline_backfill_counts(conn, cutoff),
+        "raw_source_movements": get_recent_source_movements(conn, cutoff),
+        "post_baseline_source_movements": get_post_baseline_source_movements(conn, cutoff),
+        "insufficient_history_sources": get_insufficient_history_sources(conn),
         "notable_crawl_runs": get_notable_crawl_runs(conn, cutoff),
     }
 
@@ -385,6 +389,44 @@ def get_recent_event_counts(conn, cutoff):
           AND j.title NOT LIKE '[SIMULATION]%'
         GROUP BY je.event_type
         ORDER BY count DESC, label ASC
+        """,
+        (cutoff,),
+    ).fetchall()
+
+
+def get_post_baseline_event_counts(conn, cutoff):
+    return conn.execute(
+        f"""
+        SELECT je.event_type AS label, COUNT(*) AS count
+        FROM job_events je
+        JOIN jobs j ON j.id = je.job_id
+        JOIN companies c ON c.id = j.company_id
+        JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE je.created_at >= ?
+          AND je.crawl_run_id != b.baseline_crawl_run_id
+          AND j.title NOT LIKE '[SIMULATION]%'
+        GROUP BY je.event_type
+        ORDER BY count DESC, label ASC
+        """,
+        (cutoff,),
+    ).fetchall()
+
+
+def get_baseline_backfill_counts(conn, cutoff):
+    return conn.execute(
+        f"""
+        SELECT c.name AS label, COUNT(*) AS count
+        FROM job_events je
+        JOIN jobs j ON j.id = je.job_id
+        JOIN companies c ON c.id = j.company_id
+        JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE je.created_at >= ?
+          AND je.event_type = 'discovered'
+          AND je.crawl_run_id = b.baseline_crawl_run_id
+          AND j.title NOT LIKE '[SIMULATION]%'
+        GROUP BY c.id, c.name
+        ORDER BY count DESC, c.name ASC
+        LIMIT 12
         """,
         (cutoff,),
     ).fetchall()
@@ -410,6 +452,63 @@ def get_recent_source_movements(conn, cutoff):
         """,
         (cutoff,),
     ).fetchall()
+
+
+def get_post_baseline_source_movements(conn, cutoff):
+    return conn.execute(
+        f"""
+        SELECT
+          c.name AS source,
+          SUM(CASE WHEN je.event_type = 'discovered' THEN 1 ELSE 0 END) AS discovered,
+          SUM(CASE WHEN je.event_type = 'removed' THEN 1 ELSE 0 END) AS removed,
+          SUM(CASE WHEN je.event_type = 'reactivated' THEN 1 ELSE 0 END) AS reactivated
+        FROM job_events je
+        JOIN jobs j ON j.id = je.job_id
+        JOIN companies c ON c.id = j.company_id
+        JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE je.created_at >= ?
+          AND je.crawl_run_id != b.baseline_crawl_run_id
+          AND j.title NOT LIKE '[SIMULATION]%'
+        GROUP BY c.id, c.name
+        HAVING discovered > 0 OR removed > 0 OR reactivated > 0
+        ORDER BY (discovered + removed + reactivated) DESC, c.name ASC
+        LIMIT 12
+        """,
+        (cutoff,),
+    ).fetchall()
+
+
+def get_insufficient_history_sources(conn):
+    return conn.execute(
+        f"""
+        SELECT c.name AS source, COUNT(j.id) AS active_rows
+        FROM companies c
+        LEFT JOIN jobs j ON j.company_id = c.id
+          AND j.is_active = 1
+          AND j.title NOT LIKE '[SIMULATION]%'
+        LEFT JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE b.baseline_crawl_run_id IS NULL
+        GROUP BY c.id, c.name
+        HAVING active_rows > 0
+        ORDER BY c.name ASC
+        """
+    ).fetchall()
+
+
+def baseline_crawl_sql():
+    return """
+        SELECT cr.company_id, cr.id AS baseline_crawl_run_id
+        FROM crawl_runs cr
+        WHERE cr.status = 'success'
+          AND cr.id = (
+            SELECT cr2.id
+            FROM crawl_runs cr2
+            WHERE cr2.company_id = cr.company_id
+              AND cr2.status = 'success'
+            ORDER BY COALESCE(cr2.started_at, cr2.created_at), cr2.id
+            LIMIT 1
+          )
+    """
 
 
 def get_notable_crawl_runs(conn, cutoff):
@@ -712,24 +811,70 @@ def append_recent_movement(lines, recent):
         [
             "## Recent Movement",
             "",
-            f"Window: last {RECENT_DAYS} days. Events are local tracker lifecycle events; they should not be overread as market causality.",
+            (
+                f"Window: last {RECENT_DAYS} days. Raw events are local tracker "
+                "lifecycle events and may include source onboarding, initial "
+                "backfills, parser changes, or source reprocessing."
+            ),
+            (
+                "Post-baseline movement excludes each source's first successful "
+                "crawl, which makes it more useful for reading recent market flow. "
+                "Neither view should be overread as proven market causality."
+            ),
             "",
         ]
     )
-    append_count_table(lines, "Lifecycle Events", recent["event_counts"])
+    append_count_table(lines, "Raw Tracker Lifecycle Events", recent["raw_event_counts"])
+    append_count_table(
+        lines,
+        "Post-Baseline Lifecycle Events",
+        recent["post_baseline_event_counts"],
+    )
+    append_count_table(
+        lines,
+        "Baseline / Backfill Discoveries",
+        recent["baseline_backfill_counts"],
+    )
+
+    if recent["insufficient_history_sources"]:
+        lines.extend(["### Sources With Insufficient Baseline History", ""])
+        for row in recent["insufficient_history_sources"]:
+            lines.append(f"- {row['source']}: {row['active_rows']} active rows")
+        lines.append("")
 
     lines.extend(
         [
-            "### Largest Source Movements",
+            "### Largest Post-Baseline Source Movements",
             "",
             "| Source | Discovered | Removed | Reactivated |",
             "| --- | ---: | ---: | ---: |",
         ]
     )
-    if not recent["source_movements"]:
+    if not recent["post_baseline_source_movements"]:
         lines.append("| None | 0 | 0 | 0 |")
     else:
-        for row in recent["source_movements"]:
+        for row in recent["post_baseline_source_movements"]:
+            lines.append(
+                "| "
+                f"{escape(row['source'])} | "
+                f"{row['discovered'] or 0} | "
+                f"{row['removed'] or 0} | "
+                f"{row['reactivated'] or 0} |"
+            )
+    lines.append("")
+
+    lines.extend(
+        [
+            "### Largest Raw Source Movements",
+            "",
+            "| Source | Discovered | Removed | Reactivated |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+    )
+    if not recent["raw_source_movements"]:
+        lines.append("| None | 0 | 0 | 0 |")
+    else:
+        for row in recent["raw_source_movements"]:
             lines.append(
                 "| "
                 f"{escape(row['source'])} | "

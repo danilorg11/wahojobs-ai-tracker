@@ -40,7 +40,7 @@ def main():
             include_simulation=False,
         )
         summary = get_digest_summary(conn, market_summary, cutoff)
-        new_jobs = get_recent_events(conn, cutoff, "discovered", NEW_LIMIT)
+        new_jobs = get_post_baseline_events(conn, cutoff, "discovered", NEW_LIMIT)
         removed_jobs = get_recent_events(conn, cutoff, "removed", REMOVED_LIMIT)
         evergreen = get_report_separately_examples(
             conn,
@@ -84,8 +84,15 @@ def main():
         f"{summary['estimated_live_market_opportunities']}"
     )
     print(f"Raw active live postings: {summary['raw_active_live_postings']}")
-    print(f"New opportunities in last {RECENT_DAYS} days: {summary['recent_discovered']}")
-    print(f"Removed opportunities in last {RECENT_DAYS} days: {summary['recent_removed']}")
+    print(
+        f"Raw discovered rows in last {RECENT_DAYS} days: "
+        f"{summary['raw_recent_discovered']}"
+    )
+    print(
+        f"Post-baseline discovered rows in last {RECENT_DAYS} days: "
+        f"{summary['post_baseline_discovered']}"
+    )
+    print(f"Removed rows in last {RECENT_DAYS} days: {summary['raw_recent_removed']}")
     print(f"Report-separately active rows: {summary['report_separately_total']}")
     print(f"Wrote Markdown report to {OUTPUT_PATH}")
 
@@ -100,9 +107,26 @@ def get_digest_summary(conn, market_summary, cutoff):
             "estimated_market_opportunities"
         ],
         "raw_active_live_postings": market_summary["raw_active_postings"],
-        "recent_discovered": count_recent_events(conn, cutoff, "discovered"),
-        "recent_removed": count_recent_events(conn, cutoff, "removed"),
-        "recent_reactivated": count_recent_events(conn, cutoff, "reactivated"),
+        "raw_recent_discovered": count_recent_events(conn, cutoff, "discovered"),
+        "raw_recent_removed": count_recent_events(conn, cutoff, "removed"),
+        "raw_recent_reactivated": count_recent_events(conn, cutoff, "reactivated"),
+        "post_baseline_discovered": count_post_baseline_events(
+            conn,
+            cutoff,
+            "discovered",
+        ),
+        "post_baseline_removed": count_post_baseline_events(
+            conn,
+            cutoff,
+            "removed",
+        ),
+        "post_baseline_reactivated": count_post_baseline_events(
+            conn,
+            cutoff,
+            "reactivated",
+        ),
+        "baseline_discovered": count_baseline_discovered_events(conn, cutoff),
+        "insufficient_history_sources": get_insufficient_history_sources(conn),
         "public_inventory": public_inventory,
         "evergreen": evergreen,
         "mixed": mixed,
@@ -159,6 +183,59 @@ def count_recent_events(conn, cutoff, event_type):
     )
 
 
+def count_post_baseline_events(conn, cutoff, event_type):
+    return scalar(
+        conn,
+        f"""
+        SELECT COUNT(*)
+        FROM job_events je
+        JOIN jobs j ON j.id = je.job_id
+        JOIN companies c ON c.id = j.company_id
+        JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE je.created_at >= ?
+          AND je.event_type = ?
+          AND je.crawl_run_id != b.baseline_crawl_run_id
+          AND j.title NOT LIKE '[SIMULATION]%'
+        """,
+        (cutoff, event_type),
+    )
+
+
+def count_baseline_discovered_events(conn, cutoff):
+    return scalar(
+        conn,
+        f"""
+        SELECT COUNT(*)
+        FROM job_events je
+        JOIN jobs j ON j.id = je.job_id
+        JOIN companies c ON c.id = j.company_id
+        JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE je.created_at >= ?
+          AND je.event_type = 'discovered'
+          AND je.crawl_run_id = b.baseline_crawl_run_id
+          AND j.title NOT LIKE '[SIMULATION]%'
+        """,
+        (cutoff,),
+    )
+
+
+def get_insufficient_history_sources(conn):
+    return conn.execute(
+        f"""
+        SELECT c.name AS source, COUNT(j.id) AS active_rows
+        FROM companies c
+        LEFT JOIN jobs j ON j.company_id = c.id
+          AND j.is_active = 1
+          AND j.title NOT LIKE '[SIMULATION]%'
+        LEFT JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE b.baseline_crawl_run_id IS NULL
+        GROUP BY c.id, c.name
+        HAVING active_rows > 0
+        ORDER BY c.name ASC
+        """
+    ).fetchall()
+
+
 def get_recent_events(conn, cutoff, event_type, limit):
     rows = conn.execute(
         """
@@ -190,6 +267,39 @@ def get_recent_events(conn, cutoff, event_type, limit):
     return cap_events_by_source(rows, limit)
 
 
+def get_post_baseline_events(conn, cutoff, event_type, limit):
+    rows = conn.execute(
+        f"""
+        SELECT
+          je.created_at,
+          je.event_type,
+          c.name AS source,
+          c.slug AS source_slug,
+          c.inventory_model,
+          c.market_count_policy,
+          j.title,
+          j.location,
+          COALESCE(NULLIF(TRIM(j.expertise), ''), NULLIF(TRIM(j.department), ''), 'Unknown') AS expertise_label,
+          j.opportunity_kind,
+          j.availability_basis,
+          j.include_in_live_market_estimate,
+          j.url
+        FROM job_events je
+        JOIN jobs j ON j.id = je.job_id
+        JOIN companies c ON c.id = j.company_id
+        JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
+        WHERE je.created_at >= ?
+          AND je.event_type = ?
+          AND je.crawl_run_id != b.baseline_crawl_run_id
+          AND j.title NOT LIKE '[SIMULATION]%'
+        ORDER BY je.created_at DESC, je.id DESC
+        LIMIT ?
+        """,
+        (cutoff, event_type, max(limit * 5, limit)),
+    ).fetchall()
+    return cap_events_by_source(rows, limit)
+
+
 def cap_events_by_source(rows, limit):
     selected = []
     source_counts = {}
@@ -202,6 +312,22 @@ def cap_events_by_source(rows, limit):
         if len(selected) >= limit:
             break
     return selected
+
+
+def baseline_crawl_sql():
+    return """
+        SELECT cr.company_id, cr.id AS baseline_crawl_run_id
+        FROM crawl_runs cr
+        WHERE cr.status = 'success'
+          AND cr.id = (
+            SELECT cr2.id
+            FROM crawl_runs cr2
+            WHERE cr2.company_id = cr.company_id
+              AND cr2.status = 'success'
+            ORDER BY COALESCE(cr2.started_at, cr2.created_at), cr2.id
+            LIMIT 1
+          )
+    """
 
 
 def get_report_separately_examples(conn, inventory_model, limit):
@@ -632,9 +758,13 @@ def render_markdown(
         "",
         f"- Estimated Live Market Opportunities: **{summary['estimated_live_market_opportunities']}**",
         f"- Raw active live postings: **{summary['raw_active_live_postings']}**",
-        f"- Newly discovered rows in the last {RECENT_DAYS} days: **{summary['recent_discovered']}**",
-        f"- Recently removed rows in the last {RECENT_DAYS} days: **{summary['recent_removed']}**",
-        f"- Reactivated rows in the last {RECENT_DAYS} days: **{summary['recent_reactivated']}**",
+        f"- Raw discovered rows in the last {RECENT_DAYS} days: **{summary['raw_recent_discovered']}**",
+        f"- Raw removed rows in the last {RECENT_DAYS} days: **{summary['raw_recent_removed']}**",
+        f"- Raw reactivated rows in the last {RECENT_DAYS} days: **{summary['raw_recent_reactivated']}**",
+        f"- Post-baseline discovered rows in the last {RECENT_DAYS} days: **{summary['post_baseline_discovered']}**",
+        f"- Post-baseline removed rows in the last {RECENT_DAYS} days: **{summary['post_baseline_removed']}**",
+        f"- Post-baseline reactivated rows in the last {RECENT_DAYS} days: **{summary['post_baseline_reactivated']}**",
+        f"- Baseline/backfill discovered rows in the last {RECENT_DAYS} days: **{summary['baseline_discovered']}**",
         f"- Public inventory opportunities: **{summary['public_inventory']}**",
         f"- Evergreen application opportunities: **{summary['evergreen']}**",
         f"- Mixed/report-separately opportunities: **{summary['mixed']}**",
@@ -646,9 +776,15 @@ def render_markdown(
             "contribute to the Estimated Live Market Opportunities number."
         ),
         "",
+        (
+            "Raw tracker lifecycle events can include source onboarding, initial "
+            "backfills, parser changes, or source reprocessing. The New "
+            "Opportunities section below prioritizes post-baseline discoveries."
+        ),
+        "",
     ]
 
-    append_event_section(lines, "New Opportunities", new_jobs)
+    append_new_opportunities_section(lines, new_jobs, summary)
     append_event_section(lines, "Recently Removed Opportunities", removed_jobs)
 
     lines.extend(["## Evergreen / Always-Open Applications", ""])
@@ -694,6 +830,52 @@ def append_event_section(lines, title, rows):
         lines.append("")
     if not rows:
         lines.extend(["No recent rows found.", ""])
+        return
+
+    current_source = None
+    for row in rows:
+        if row["source"] != current_source:
+            if current_source is not None:
+                lines.append("")
+            current_source = row["source"]
+            lines.append(f"### {escape(current_source)}")
+            lines.append("")
+        lines.append(f"- **{escape(row['title'])}**")
+        lines.append(
+            f"  - {escape(row['location'] or 'Unknown location')} | "
+            f"{escape(row['expertise_label'])} | "
+            f"{escape(row['opportunity_kind'])} / {escape(row['availability_basis'])}"
+        )
+        lines.append(
+            f"  - Live estimate: {yes_no(row['include_in_live_market_estimate'])} | "
+            f"[Open]({row['url']})"
+        )
+    lines.append("")
+
+
+def append_new_opportunities_section(lines, rows, summary):
+    lines.extend(["## New Opportunities", ""])
+    lines.append(
+        "This section uses post-baseline discovered events, excluding each source's first successful crawl/backfill."
+    )
+    if summary["insufficient_history_sources"]:
+        sources = ", ".join(
+            f"{row['source']} ({row['active_rows']})"
+            for row in summary["insufficient_history_sources"]
+        )
+        lines.append(
+            f"Sources with active rows but no successful baseline crawl are labeled insufficient history and excluded from post-baseline movement: {sources}."
+        )
+    lines.append("")
+
+    if not rows:
+        lines.extend(
+            [
+                f"No post-baseline newly discovered rows found in the last {RECENT_DAYS} days.",
+                "If raw discovery counts are high, they are likely dominated by baseline/backfill activity.",
+                "",
+            ]
+        )
         return
 
     current_source = None

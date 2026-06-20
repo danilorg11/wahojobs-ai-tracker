@@ -1,14 +1,18 @@
 # AI Work Opportunity Digest
 
-Generated: 2026-06-20T21:51:30+00:00 UTC
+Generated: 2026-06-20T22:00:55+00:00 UTC
 
 ## Digest Summary
 
 - Estimated Live Market Opportunities: **2409**
 - Raw active live postings: **8639**
-- Newly discovered rows in the last 7 days: **8550**
-- Recently removed rows in the last 7 days: **593**
-- Reactivated rows in the last 7 days: **17**
+- Raw discovered rows in the last 7 days: **8550**
+- Raw removed rows in the last 7 days: **593**
+- Raw reactivated rows in the last 7 days: **17**
+- Post-baseline discovered rows in the last 7 days: **425**
+- Post-baseline removed rows in the last 7 days: **593**
+- Post-baseline reactivated rows in the last 7 days: **17**
+- Baseline/backfill discovered rows in the last 7 days: **8125**
 - Public inventory opportunities: **152**
 - Evergreen application opportunities: **10**
 - Mixed/report-separately opportunities: **9**
@@ -16,7 +20,11 @@ Generated: 2026-06-20T21:51:30+00:00 UTC
 
 Evergreen applications and public inventory records can be useful job-seeker targets, but they are reported separately and do not contribute to the Estimated Live Market Opportunities number.
 
+Raw tracker lifecycle events can include source onboarding, initial backfills, parser changes, or source reprocessing. The New Opportunities section below prioritizes post-baseline discoveries.
+
 ## New Opportunities
+
+This section uses post-baseline discovered events, excluding each source's first successful crawl/backfill.
 
 ### Mindrift
 

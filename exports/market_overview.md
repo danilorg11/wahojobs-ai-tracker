@@ -1,6 +1,6 @@
 # AI Work Market Overview
 
-Generated: 2026-06-20T21:51:49+00:00 UTC
+Generated: 2026-06-20T22:00:55+00:00 UTC
 
 ## Executive Summary
 
@@ -132,9 +132,10 @@ Location and commitment tables count canonical opportunities where available. Mu
 
 ## Recent Movement
 
-Window: last 7 days. Events are local tracker lifecycle events; they should not be overread as market causality.
+Window: last 7 days. Raw events are local tracker lifecycle events and may include source onboarding, initial backfills, parser changes, or source reprocessing.
+Post-baseline movement excludes each source's first successful crawl, which makes it more useful for reading recent market flow. Neither view should be overread as proven market causality.
 
-### Lifecycle Events
+### Raw Tracker Lifecycle Events
 
 | Label | Count |
 | --- | ---: |
@@ -142,7 +143,49 @@ Window: last 7 days. Events are local tracker lifecycle events; they should not 
 | removed | 593 |
 | reactivated | 17 |
 
-### Largest Source Movements
+### Post-Baseline Lifecycle Events
+
+| Label | Count |
+| --- | ---: |
+| removed | 593 |
+| discovered | 425 |
+| reactivated | 17 |
+
+### Baseline / Backfill Discoveries
+
+| Label | Count |
+| --- | ---: |
+| Alignerr | 5218 |
+| Mindrift | 735 |
+| OneForma | 692 |
+| Welocalize | 382 |
+| micro1 | 367 |
+| Mercor | 225 |
+| Turing | 194 |
+| Handshake AI | 152 |
+| RWS TrainAI | 94 |
+| DataForce | 47 |
+| DataAnnotation | 10 |
+| Surge AI | 9 |
+
+### Largest Post-Baseline Source Movements
+
+| Source | Discovered | Removed | Reactivated |
+| --- | ---: | ---: | ---: |
+| Mindrift | 141 | 416 | 0 |
+| OneForma | 84 | 37 | 0 |
+| Mercor | 46 | 39 | 6 |
+| Outlier | 63 | 12 | 9 |
+| micro1 | 25 | 42 | 0 |
+| RWS TrainAI | 6 | 22 | 0 |
+| Appen | 17 | 7 | 0 |
+| Welocalize | 13 | 7 | 0 |
+| Alignerr | 17 | 1 | 0 |
+| Turing | 11 | 7 | 0 |
+| Invisible Technologies | 0 | 2 | 2 |
+| Meridial | 2 | 1 | 0 |
+
+### Largest Raw Source Movements
 
 | Source | Discovered | Removed | Reactivated |
 | --- | ---: | ---: | ---: |
