@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -11,11 +12,24 @@ from wahojobs.db.connection import get_connection
 from wahojobs.reporting.market import CANONICALIZED_SLUGS
 
 
+ENCODING_ARTIFACT_PATTERNS = (
+    ("replacement character", "\ufffd"),
+    ("mojibake", "â€™"),
+    ("mojibake", "â€œ"),
+    ("mojibake", "â€�"),
+    ("mojibake", "â€“"),
+    ("mojibake", "â€”"),
+    ("mojibake", "Ã"),
+    ("mojibake", "Â"),
+)
+
+
 def main():
     with get_connection() as conn:
         source_rows = get_source_health_rows(conn)
         duplicate_title_groups = get_top_duplicate_title_groups(conn)
         canonical_variant_groups = get_top_canonical_variant_groups(conn)
+        encoding_artifacts = get_encoding_artifacts(conn)
 
     print("")
     print("Wahojobs Canonicalization Health")
@@ -28,6 +42,7 @@ def main():
     print_top_reductions(source_rows)
     print_report_separately_sources(source_rows)
     print_experimental_sources(source_rows)
+    print_encoding_artifacts(encoding_artifacts)
     print_duplicate_title_groups(duplicate_title_groups)
     print_canonical_variant_groups(canonical_variant_groups)
 
@@ -283,6 +298,87 @@ def get_top_canonical_variant_groups(conn):
     ).fetchall()
 
 
+def get_encoding_artifacts(conn):
+    examples = []
+    examples.extend(get_job_encoding_artifacts(conn))
+    examples.extend(get_canonical_encoding_artifacts(conn))
+    return examples
+
+
+def get_job_encoding_artifacts(conn):
+    fields = ("title", "department", "expertise")
+    rows = conn.execute(
+        """
+        SELECT c.name AS company, j.id, j.title, j.department, j.expertise
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.is_active = 1
+          AND j.title NOT LIKE '[SIMULATION]%'
+        ORDER BY c.name ASC, j.id ASC
+        """
+    ).fetchall()
+
+    examples = []
+    for row in rows:
+        for field in fields:
+            value = row[field]
+            artifact = detect_encoding_artifact(value)
+            if artifact:
+                examples.append(
+                    {
+                        "source": row["company"],
+                        "record_type": "job",
+                        "record_id": row["id"],
+                        "field": field,
+                        "artifact": artifact,
+                        "value": value,
+                    }
+                )
+    return examples
+
+
+def get_canonical_encoding_artifacts(conn):
+    fields = ("canonical_title", "source_category")
+    rows = conn.execute(
+        """
+        SELECT c.name AS company, co.id, co.canonical_title, co.source_category
+        FROM canonical_opportunities co
+        JOIN companies c ON c.id = co.company_id
+        WHERE co.is_active = 1
+        ORDER BY c.name ASC, co.id ASC
+        """
+    ).fetchall()
+
+    examples = []
+    for row in rows:
+        for field in fields:
+            value = row[field]
+            artifact = detect_encoding_artifact(value)
+            if artifact:
+                examples.append(
+                    {
+                        "source": row["company"],
+                        "record_type": "canonical",
+                        "record_id": row["id"],
+                        "field": field,
+                        "artifact": artifact,
+                        "value": value,
+                    }
+                )
+    return examples
+
+
+def detect_encoding_artifact(value):
+    if not value:
+        return None
+    for label, pattern in ENCODING_ARTIFACT_PATTERNS:
+        if pattern in value:
+            return label
+    if re.search(r"[\u0080-\u009f]", value):
+        return "C1 control character"
+    return None
+
+
 def scalar(conn, sql, params=()):
     return conn.execute(sql, params).fetchone()[0]
 
@@ -394,6 +490,27 @@ def print_experimental_sources(rows):
             f"{row['inventory_model']} / {row['market_count_policy']}, "
             "excluded from live estimate"
         )
+    print("")
+
+
+def print_encoding_artifacts(rows):
+    print("Encoding Artifact Diagnostics")
+    print("-----------------------------")
+    if not rows:
+        print("  None found")
+        print("")
+        return
+
+    for row in rows[:25]:
+        value = " ".join(str(row["value"]).split())
+        if len(value) > 140:
+            value = value[:137] + "..."
+        print(
+            f"  {row['source']} {row['record_type']}:{row['record_id']} "
+            f"{row['field']} ({row['artifact']}): {value}"
+        )
+    if len(rows) > 25:
+        print(f"  ... {len(rows) - 25} more")
     print("")
 
 
