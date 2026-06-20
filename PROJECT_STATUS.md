@@ -147,6 +147,8 @@ The report helps monitor:
 - `report_separately` sources
 - experimental or excluded sources
 - top canonical variant groups
+- encoding artifact diagnostics for replacement characters, mojibake, and C1 control characters
+- expected source-specific duplicate URL patterns
 
 Current key findings from the latest local run:
 
@@ -154,6 +156,9 @@ Current key findings from the latest local run:
 - the largest raw-to-canonical reductions are Alignerr, OneForma, Mindrift, and Meridial
 - Handshake Unknown taxonomy rows do not affect the live estimate because Handshake is `report_separately`
 - Invisible Unknown taxonomy rows do not affect the live estimate because Invisible is experimental and excluded
+- encoding artifact diagnostics currently find no stored text corruption
+- OneForma duplicate URLs are not treated as generic suspicious errors when they are expected application-variant URL reuse
+- OneForma Vega duplicate URL groups that span multiple canonical opportunities remain watch items
 
 ## Current Core Sources
 
@@ -239,6 +244,7 @@ Do not ingest Centific corporate Workday roles as AI-work opportunities. Also av
 - Some sources are canonicalized while others still count raw jobs as opportunities.
 - micro1 canonicalization is conservative and may mildly undercount if separate clients post identical broad roles.
 - Mindrift may still require monitoring because Workable/source churn can cause shortcode reposting.
+- OneForma duplicate URL diagnostics are source-specific: expected application-variant URL reuse is labeled separately, while Vega cross-canonical duplicate URL groups remain watch items.
 - Source taxonomies are not yet normalized into a single Wahojobs market taxonomy.
 - Historical counts reflect local crawl history and may include local failed crawl_run artifacts.
 - Exports are snapshots of the local SQLite database, not a hosted canonical dataset.
