@@ -131,6 +131,30 @@ If a successful-looking crawl is sharply lower and would imply many missing acti
 
 Handshake, DataAnnotation, Surge, Invisible, and other `report_separately` or excluded sources remain outside `Estimated Live Market Opportunities`.
 
+## Canonicalization Health Report
+
+The project now includes `scripts/canonical_health.py`, a read-only diagnostic report for monitoring source quality and canonicalization health.
+
+The report helps monitor:
+
+- raw active jobs by source
+- canonical opportunity counts
+- estimated live contribution
+- raw-to-canonical reduction
+- duplicate title and URL signals
+- unlinked active rows for canonicalized sources
+- unknown taxonomy
+- `report_separately` sources
+- experimental or excluded sources
+- top canonical variant groups
+
+Current key findings from the latest local run:
+
+- canonicalized sources currently have no unlinked active rows
+- the largest raw-to-canonical reductions are Alignerr, OneForma, Mindrift, and Meridial
+- Handshake Unknown taxonomy rows do not affect the live estimate because Handshake is `report_separately`
+- Invisible Unknown taxonomy rows do not affect the live estimate because Invisible is experimental and excluded
+
 ## Current Core Sources
 
 Core sources currently configured:
