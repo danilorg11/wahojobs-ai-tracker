@@ -1,12 +1,43 @@
 # Wahojobs AI Work Tracker Status
 
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 ## Purpose
 
-Wahojobs tracks the public AI-work market over time. It is focused on market intelligence rather than acting as a traditional job board: which opportunities exist, which sources expose them, what changed since the last crawl, and how much of the observable market is live versus public inventory or evergreen application surface.
+Wahojobs tracks the public AI-work market over time. It started as a market intelligence tracker rather than a traditional job board: which opportunities exist, which sources expose them, what changed since the last crawl, and how much of the observable market is live versus public inventory or evergreen application surface.
 
 The tracker currently runs as a local Python and SQLite system with manual CLI workflows, deterministic crawlers, historical job lifecycle tracking, CSV exports, and terminal/Markdown reports.
+
+Wahojobs is now evolving from a crawler/job tracker into a personalized AI-work opportunity pipeline. The system is beginning to help users find, prioritize, and track AI-work opportunities based on editable profile signals, current source inventory, application status, and directional applicant-signal data.
+
+Internal reports can remain technical because they support source quality, canonicalization, and market intelligence. User-facing prototypes, especially `scripts/product_demo_report.py`, are intended to use simpler product language and focus on what a job seeker should do next.
+
+## Product Prototype Milestones
+
+Recent product-facing prototypes now included in the project:
+
+- Profile-based opportunity matching through `scripts/profile_match_digest.py`.
+- Editable sample profiles through `profiles/sample_profiles.json`.
+- Profile coverage analysis through `scripts/profile_coverage_report.py`.
+- User opportunity pipeline prototype through `scripts/user_pipeline_digest.py` and `profiles/sample_user_pipeline.json`.
+- Applicant signals prototype through `scripts/applicant_signal_report.py` and `profiles/sample_applicant_updates.json`.
+- User-facing product demo report through `scripts/product_demo_report.py` and `exports/product_demo_report.md`.
+
+The product demo combines:
+
+- selected user profile
+- best opportunity matches
+- concrete next actions
+- application tracker status
+- new matches this week
+- always-open/evergreen applications
+- other public or supplemental leads
+- applicant signals relevant to the selected profile
+- profile strength notes
+
+The current product direction is to make Wahojobs feel less like a raw opportunity database and more like a guided AI-work pipeline: what fits this user, what is already in motion, what changed recently, and what action should happen next.
+
+Applicant signals are currently mock and directional. They are useful for prototyping how aggregate applicant outcomes could guide prioritization, but they should not be presented as guarantees of assessment, acceptance, or paid work.
 
 ## Source Taxonomy
 
