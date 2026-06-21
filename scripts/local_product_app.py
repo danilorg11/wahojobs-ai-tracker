@@ -556,7 +556,7 @@ def render_dashboard(context, message=None, error=None):
         "<main>",
         render_header(context, profiles),
         render_notice(message, error),
-        render_actions(actions, card_index),
+        render_actions(actions, card_index, context.get("daily_action_status", {})),
         render_secondary_actions(secondary_actions, card_index),
         render_matches(
             "Today's Best Matches",
@@ -656,14 +656,25 @@ def render_notice(message, error):
     return ""
 
 
-def render_actions(actions, card_index):
-    items = "".join(render_action_item(action, card_index) for action in actions[:4])
-    if not items:
-        items = "<li>No urgent new applications today. We'll keep watching for strong matches.</li>"
+def render_actions(actions, card_index, daily_action_status=None):
+    daily_action_status = daily_action_status or {}
+    handled_today = daily_action_status.get("handled_today_count", 0)
+    remaining_budget = daily_action_status.get("remaining_budget", 4)
+    note = ""
+    if handled_today:
+        noun = "item" if handled_today == 1 else "items"
+        note = f"<p class='muted'>You've handled {handled_today} {noun} today. Nice.</p>"
+    if remaining_budget == 0:
+        items = "<li>You've completed today's main plan. More leads are available below if you want to keep going.</li>"
+    else:
+        items = "".join(render_action_item(action, card_index) for action in actions[:remaining_budget])
+        if not items:
+            items = "<li>No urgent new applications today. We'll keep watching for strong matches.</li>"
     return f"""
     <section id="do-these-first">
       <h2>Do These First</h2>
       <p class="muted">A short daily plan. You do not need to act on everything today.</p>
+      {note}
       <ol class="actions">{items}</ol>
     </section>
     """

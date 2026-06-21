@@ -77,6 +77,19 @@ SUPPRESSED_ACTION_STATUSES = {
     "active_worker",
     "paid_task_received",
 }
+HANDLED_TODAY_STATUSES = {
+    "saved",
+    "applied",
+    "assessment_invited",
+    "assessment_started",
+    "assessment_completed",
+    "remind_later",
+    "not_interested",
+    "rejected",
+    "accepted",
+    "active_worker",
+    "paid_task_received",
+}
 
 EXPLICIT_LANGUAGES = {
     "arabic",
@@ -145,6 +158,7 @@ def main():
         context["pipeline_report"],
         context["next_actions"],
         context["also_worth_reviewing"],
+        context["daily_action_status"],
         context["applicant_signals"],
     )
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -269,7 +283,13 @@ def build_demo_context(
         pipeline_report,
         applicant_cutoff,
     )
-    action_plan = build_demo_action_plan(profile, pipeline_report, matches, tracked)
+    action_plan = build_demo_action_plan(
+        profile,
+        pipeline_report,
+        matches,
+        tracked,
+        generated_at.date().isoformat(),
+    )
 
     return {
         "generated_at": generated_at,
@@ -284,6 +304,7 @@ def build_demo_context(
         "pipeline_report": pipeline_report,
         "next_actions": action_plan["primary"],
         "also_worth_reviewing": action_plan["secondary"],
+        "daily_action_status": action_plan["daily_status"],
         "applicant_signals": applicant_signals,
     }
 
@@ -357,6 +378,7 @@ def load_product_state_pipeline():
             "user_priority": row["user_priority"] or "medium",
             "reminder_date": row["reminder_date"] or "",
             "last_user_action": row["last_user_action"] or "",
+            "updated_at": row["updated_at"] or "",
         }
         for row in rows
     ]
@@ -524,23 +546,53 @@ def tracked_record_for_match(match, tracked):
     )
 
 
-def build_demo_action_plan(profile, pipeline_report, matches, tracked):
+def build_demo_action_plan(profile, pipeline_report, matches, tracked, today):
     candidates = unique_actions(build_demo_action_candidates(profile, pipeline_report, matches, tracked))
+    handled_today_count = count_handled_today(pipeline_report["records"], today)
+    remaining_budget = max(0, PRIMARY_ACTION_LIMIT - handled_today_count)
     primary = []
     secondary = []
     category_counts = Counter()
 
     for action in sorted(candidates, key=action_sort_key):
-        if can_select_primary_action(action, primary, category_counts):
+        if can_select_primary_action(action, primary, category_counts, remaining_budget):
             primary.append(action)
             category_counts[action["category"]] += 1
         else:
             secondary.append(action)
 
     return {
-        "primary": primary[:PRIMARY_ACTION_LIMIT],
+        "primary": primary[:remaining_budget],
         "secondary": secondary[:BACKLOG_ACTION_LIMIT],
+        "daily_status": {
+            "base_budget": PRIMARY_ACTION_LIMIT,
+            "handled_today_count": handled_today_count,
+            "remaining_budget": remaining_budget,
+        },
     }
+
+
+def count_handled_today(records, today):
+    count = 0
+    for record in records:
+        if record["status"] not in HANDLED_TODAY_STATUSES:
+            continue
+        if date_is_today(record.get("status_date"), today):
+            count += 1
+            continue
+        if (
+            not record.get("status_date")
+            and record.get("last_user_action")
+            and date_is_today(record.get("updated_at"), today)
+        ):
+            count += 1
+    return count
+
+
+def date_is_today(value, today):
+    if not value:
+        return False
+    return str(value)[:10] == today
 
 
 def build_demo_action_candidates(profile, pipeline_report, matches, tracked):
@@ -693,9 +745,9 @@ def action_sort_key(action):
     )
 
 
-def can_select_primary_action(action, primary, category_counts):
+def can_select_primary_action(action, primary, category_counts, remaining_budget):
     category = action.get("category")
-    if len(primary) >= PRIMARY_ACTION_LIMIT:
+    if len(primary) >= remaining_budget:
         return False
     if category == "urgent_assessment":
         return category_counts[category] < PRIMARY_URGENT_LIMIT
@@ -799,6 +851,7 @@ def render_markdown(
     pipeline_report,
     next_actions,
     also_worth_reviewing,
+    daily_action_status,
     applicant_signals,
 ):
     lines = [
@@ -811,7 +864,7 @@ def render_markdown(
     ]
 
     append_user_summary(lines, profile, coverage_report)
-    append_do_these_first(lines, next_actions)
+    append_do_these_first(lines, next_actions, daily_action_status)
     append_also_worth_reviewing(lines, also_worth_reviewing)
     append_best_matches(lines, matches["live"], tracked)
     append_pipeline_snapshot(lines, pipeline_report)
@@ -841,8 +894,22 @@ def append_user_summary(lines, profile, coverage_report):
     )
 
 
-def append_do_these_first(lines, actions):
+def append_do_these_first(lines, actions, daily_action_status=None):
+    daily_action_status = daily_action_status or {}
+    handled_today = daily_action_status.get("handled_today_count", 0)
+    remaining_budget = daily_action_status.get("remaining_budget", PRIMARY_ACTION_LIMIT)
     lines.extend(["## Do These First", ""])
+    if handled_today:
+        lines.append(f"You've handled {handled_today} item{'s' if handled_today != 1 else ''} today. Nice.")
+        lines.append("")
+    if remaining_budget == 0:
+        lines.extend(
+            [
+                "You've completed today's main plan. More leads are available below if you want to keep going.",
+                "",
+            ]
+        )
+        return
     if not actions:
         lines.extend(
             [
@@ -853,7 +920,7 @@ def append_do_these_first(lines, actions):
         return
     lines.append("A short daily plan. You do not need to act on everything in the tracker today.")
     lines.append("")
-    for action in actions[:PRIMARY_ACTION_LIMIT]:
+    for action in actions[:remaining_budget]:
         lines.append(f"- {escape(make_action_user_facing(action['action']))}")
     lines.append("")
 
