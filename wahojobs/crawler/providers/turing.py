@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import JobCandidate
@@ -74,17 +75,24 @@ def should_include_job(job):
 
 def parse_turing_job(job):
     external_id = clean_value(job.get("jobCode")) or clean_value(job.get("id"))
+    job_id = clean_value(job.get("id"))
     role_group = clean_value(job.get("roleGroup")) or "Unknown"
 
     return JobCandidate(
         external_id=external_id,
         title=clean_value(job.get("title")),
         location=clean_value(job.get("locationType")) or "Remote",
-        url=f"https://work.turing.com/api/job/public?jobCode={external_id}",
+        url=build_turing_jobs_url(job_id),
         department=role_group,
         expertise=role_group,
         commitment=format_commitment(job),
     )
+
+
+def build_turing_jobs_url(job_id):
+    if job_id:
+        return f"https://work.turing.com/jobs?{urlencode({'jobId': job_id, 'search': job_id})}"
+    return "https://work.turing.com/jobs"
 
 
 def format_commitment(job):

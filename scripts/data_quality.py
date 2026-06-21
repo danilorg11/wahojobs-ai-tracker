@@ -19,6 +19,7 @@ def main():
     args = parse_args()
     with get_connection() as conn:
         summary = get_summary(conn, args.include_experimental)
+        api_user_urls = get_api_user_facing_urls(conn, args.include_experimental)
         duplicate_external_ids = get_duplicate_external_ids(conn, args.include_experimental)
         duplicate_urls = get_duplicate_urls(conn, args.include_experimental)
         oneforma_duplicate_urls = get_oneforma_duplicate_url_patterns(conn)
@@ -89,6 +90,15 @@ def main():
     for label, value in summary:
         print(f"{label}: {value}")
     print("")
+
+    print_rows(
+        "Active user-facing URLs that look like API endpoints",
+        api_user_urls,
+        lambda row: (
+            f"{row['company']}: {row['count']} active URLs; "
+            f"sample {row['sample_url']}"
+        ),
+    )
 
     print_rows(
         "Sources by tier",
@@ -583,6 +593,27 @@ def get_duplicate_external_ids(conn, include_experimental):
         GROUP BY j.company_id, j.external_id
         HAVING COUNT(*) > 1
         ORDER BY count DESC, c.name ASC, j.external_id ASC
+        """
+    ).fetchall()
+
+
+def get_api_user_facing_urls(conn, include_experimental):
+    return conn.execute(
+        f"""
+        SELECT
+          {company_label("c")} AS company,
+          COUNT(*) AS count,
+          MIN(j.url) AS sample_url
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.is_active = 1
+          AND j.url IS NOT NULL
+          AND TRIM(j.url) != ''
+          AND j.url LIKE '%/api/%'
+          AND j.title NOT LIKE '[SIMULATION]%'
+          {experimental_filter("c", include_experimental)}
+        GROUP BY j.company_id
+        ORDER BY count DESC, c.name ASC
         """
     ).fetchall()
 
