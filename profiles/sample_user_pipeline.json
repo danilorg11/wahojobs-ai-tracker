@@ -1,0 +1,168 @@
+{
+  "pipeline": [
+    {
+      "profile_id": "english_teacher_remote",
+      "source": "Outlier",
+      "title": "English Writing and Content Reviewing Expertise Sought for AI Training",
+      "url": "https://app.outlier.ai/en/expert/opportunities/4613691005",
+      "status": "saved",
+      "status_date": "2026-06-18",
+      "notes": "Looks like the clearest fit for English writing feedback.",
+      "user_priority": "high",
+      "last_user_action": "Saved after reviewing title and location"
+    },
+    {
+      "profile_id": "english_teacher_remote",
+      "source": "DataAnnotation",
+      "title": "Generalist AI Trainer",
+      "url": "https://www.dataannotation.tech/generalist",
+      "status": "applied",
+      "status_date": "2026-06-10",
+      "notes": "Completed the initial application form.",
+      "user_priority": "high",
+      "last_user_action": "Submitted application"
+    },
+    {
+      "profile_id": "english_teacher_remote",
+      "source": "Welocalize",
+      "title": "Remote Internet Search Quality Rater - English (United States)",
+      "url": "https://jobs.lever.co/weloglobal/33babd56-f6d6-4779-8146-498c9a9e42bd",
+      "status": "assessment_invited",
+      "status_date": "2026-06-19",
+      "notes": "Needs to schedule/start assessment.",
+      "user_priority": "high",
+      "reminder_date": "2026-06-21",
+      "last_user_action": "Opened assessment invitation"
+    },
+    {
+      "profile_id": "english_teacher_remote",
+      "source": "OneForma",
+      "title": "LELI - Review & Refine Machine Translations in Your Language - Chinese Simplified - English (US)",
+      "url": "https://my.oneforma.com/crowd/jobs/12423?from=list&tab=all",
+      "status": "not_interested",
+      "status_date": "2026-06-16",
+      "notes": "Wrong language pair for this user.",
+      "user_priority": "low",
+      "last_user_action": "Marked not interested"
+    },
+    {
+      "profile_id": "portuguese_english_reviewer",
+      "source": "Welocalize",
+      "title": "Alpheratz Project - Portuguese (Portugal) Translation Quality Rater",
+      "url": "https://jobs.lever.co/weloglobal/90b6274a-0169-4dfb-a7ec-1dbb52d3022d",
+      "status": "assessment_started",
+      "status_date": "2026-06-18",
+      "notes": "Strong Portuguese translation quality fit.",
+      "user_priority": "high",
+      "reminder_date": "2026-06-21",
+      "last_user_action": "Started qualification assessment"
+    },
+    {
+      "profile_id": "portuguese_english_reviewer",
+      "source": "OneForma",
+      "title": "HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal)",
+      "url": "https://my.oneforma.com/crowd/jobs/12844?from=list&tab=all",
+      "status": "applied",
+      "status_date": "2026-06-14",
+      "notes": "Application submitted; no response yet.",
+      "user_priority": "medium",
+      "last_user_action": "Applied through OneForma"
+    },
+    {
+      "profile_id": "portuguese_english_reviewer",
+      "source": "Outlier",
+      "title": "Portuguese (Brazil) Freelance Writer",
+      "url": "https://app.outlier.ai/en/expert/opportunities/4421873005",
+      "status": "recommended",
+      "status_date": "2026-06-20",
+      "notes": "Newly recommended from post-baseline matches.",
+      "user_priority": "medium"
+    },
+    {
+      "profile_id": "portuguese_english_reviewer",
+      "source": "Appen",
+      "title": "Social Media Ads Evaluator (Native English Speaker)",
+      "url": "https://jobs.lever.co/appen/5ce6c3e1-4517-4978-b64f-4e2770d7353f",
+      "status": "rejected",
+      "status_date": "2026-06-12",
+      "notes": "Rejected or not selected.",
+      "user_priority": "low",
+      "last_user_action": "Archived result"
+    },
+    {
+      "profile_id": "lawyer",
+      "source": "Mercor",
+      "title": "Attorney / Legal Expert (Real Estate / Energy) - AI Training Project",
+      "url": "https://work.mercor.com/jobs/list_AAABnt3KAL7_5tTFxaFNopGc",
+      "status": "assessment_started",
+      "status_date": "2026-06-17",
+      "notes": "Started assessment but not completed.",
+      "user_priority": "high",
+      "last_user_action": "Started Mercor assessment"
+    },
+    {
+      "profile_id": "lawyer",
+      "source": "DataAnnotation",
+      "title": "Law Expert / Legal AI Trainer",
+      "url": "https://www.dataannotation.tech/law",
+      "status": "saved",
+      "status_date": "2026-06-15",
+      "notes": "Evergreen legal application, not attempted yet.",
+      "user_priority": "high"
+    },
+    {
+      "profile_id": "lawyer",
+      "source": "Surge AI",
+      "title": "Constitutional Lawyer",
+      "url": "https://surgehq.ai/workforce/constitutional-or-appellate-lawyer-supreme-court-doj-or-top-firm-partner",
+      "status": "waiting",
+      "status_date": "2026-05-25",
+      "notes": "Emailed application materials; waiting for reply.",
+      "user_priority": "medium",
+      "last_user_action": "Sent email application"
+    },
+    {
+      "profile_id": "software_engineer",
+      "source": "micro1",
+      "title": "Software Engineer - AI Quality & Testing",
+      "url": "https://jobs.micro1.ai/post/bc8c667f-39c8-4ded-b26e-4f0373cbfd16?utm_source=micro1&utm_medium=job_portal",
+      "status": "assessment_completed",
+      "status_date": "2026-06-08",
+      "notes": "Completed technical assessment; waiting for review.",
+      "user_priority": "high",
+      "last_user_action": "Completed assessment"
+    },
+    {
+      "profile_id": "software_engineer",
+      "source": "Turing",
+      "title": "Senior Python Engineer - LLM Evaluation - Python / Llm Evaluation",
+      "url": "https://work.turing.com/api/job/public?jobCode=X18RaINZfxam",
+      "status": "active_worker",
+      "status_date": "2026-06-01",
+      "notes": "Accepted into platform; checking for task availability.",
+      "user_priority": "medium",
+      "last_user_action": "Activated worker account"
+    },
+    {
+      "profile_id": "software_engineer",
+      "source": "DataAnnotation",
+      "title": "AI Coding Specialist / Coding Expert",
+      "url": "https://www.dataannotation.tech/coding",
+      "status": "remind_later",
+      "status_date": "2026-06-13",
+      "notes": "Useful evergreen coding application; user wanted to revisit.",
+      "user_priority": "medium",
+      "reminder_date": "2026-06-24"
+    },
+    {
+      "profile_id": "software_engineer",
+      "source": "Mindrift",
+      "title": "Old Python Coding Task",
+      "url": "https://apply.workable.com/toloka-ai/j/OLDPYTHON123",
+      "status": "expired",
+      "status_date": "2026-06-05",
+      "notes": "Mock expired item to test pipeline risk handling.",
+      "user_priority": "low"
+    }
+  ]
+}

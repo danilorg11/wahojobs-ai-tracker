@@ -1,6 +1,6 @@
 # AI Work Opportunity Digest
 
-Generated: 2026-06-20T23:07:31+00:00 UTC
+Generated: 2026-06-20T23:34:49+00:00 UTC
 
 ## Digest Summary
 
