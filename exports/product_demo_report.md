@@ -1,6 +1,6 @@
 # Your Wahojobs Demo
 
-Generated: 2026-06-21T05:26:15+00:00 UTC
+Generated: 2026-06-21T14:47:33+00:00 UTC
 
 A focused daily view of your best AI-work leads, what is already in motion, and what to do next.
 
@@ -75,8 +75,8 @@ No especially relevant leads found here today.
 
 These sample signals show what similar users have reported on relevant sources. Treat them as directional, not as guarantees.
 
-- Relevant sample reports: **10**
-- Recent reports: **10**
+- Relevant sample reports: **9**
+- Recent reports: **9**
 - Assessment activity reported: **5**
 - Accepted/active/paid-task reports: **0**
 - Waiting/no-response reports: **1**
@@ -84,8 +84,8 @@ These sample signals show what similar users have reported on relevant sources. 
 | Source | Reports | Recent | Assessments | Accepted/Active/Paid | Waiting/No-response | Signal |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | Welocalize | 4 | 4 | 2 | 0 | 0 | Some users report assessment activity |
-| Outlier | 3 | 3 | 1 | 0 | 1 | Recent applicant activity reported |
 | Mercor | 2 | 2 | 2 | 0 | 0 | Limited reports so far |
+| Outlier | 2 | 2 | 1 | 0 | 1 | Limited reports so far |
 | OneForma | 1 | 1 | 0 | 0 | 0 | Limited reports so far |
 
 ### Relevant Examples
@@ -93,8 +93,8 @@ These sample signals show what similar users have reported on relevant sources. 
 - Mercor: Market Research Methodologist - Report Quality & Insights Evaluation Expert - Too few reports to rely on; confidence medium. ([Open](https://work.mercor.com/jobs/list_AAABnp0tZtVb9MockHistory))
 - Mercor: Portuguese / Brazilian Finance Professional - Too few reports to rely on; confidence medium. ([Open](https://work.mercor.com/jobs/list_AAABntv-wlOj2fXi7_hA8YAU))
 - OneForma: HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal) - Too few reports to rely on; confidence medium. ([Open](https://my.oneforma.com/crowd/jobs/12844?from=list&tab=all))
-- Outlier: English Writing and Content Reviewing Expertise Sought for AI Training - Too few reports to rely on; confidence medium. ([Open](https://app.outlier.ai/en/expert/opportunities/4613691005))
 - Outlier: English Writing and Content Reviewing Expertise Sought for AI Training - Too few reports to rely on; confidence low. ([Open](https://app.outlier.ai/en/expert/opportunities/4663643005))
+- Outlier: English Writing and Content Reviewing Expertise Sought for AI Training - Too few reports to rely on; confidence medium. ([Open](https://app.outlier.ai/en/expert/opportunities/4613691005))
 
 ## How Strong Is This Profile Right Now?
 

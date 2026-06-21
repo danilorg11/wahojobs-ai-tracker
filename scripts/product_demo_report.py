@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from applicant_signal_report import (
     build_summary,
     filter_updates,
     load_updates,
+    parse_datetime,
 )
 from profile_coverage_report import build_profile_coverage
 from profile_match_digest import (
@@ -23,6 +25,8 @@ from profile_match_digest import (
     escape,
     get_active_rows,
     get_post_baseline_new_rows,
+    load_profiles,
+    normalize_profile,
     rank_opportunities,
     select_profiles,
 )
@@ -59,6 +63,7 @@ MATCH_POOL_LIMIT = 40
 EXPLICIT_LANGUAGES = {
     "arabic",
     "bengali",
+    "catalan",
     "chinese",
     "czech",
     "danish",
@@ -68,10 +73,14 @@ EXPLICIT_LANGUAGES = {
     "french",
     "german",
     "greek",
+    "gujarati",
+    "hebrew",
     "hindi",
     "italian",
     "japanese",
+    "kannada",
     "khmer",
+    "kiswahili",
     "korean",
     "norwegian",
     "polish",
@@ -79,6 +88,7 @@ EXPLICIT_LANGUAGES = {
     "romanian",
     "spanish",
     "swedish",
+    "swahili",
     "thai",
     "turkish",
     "ukrainian",
@@ -100,10 +110,16 @@ def main():
     recent_cutoff = (generated_at - timedelta(days=RECENT_DAYS)).isoformat()
     applicant_cutoff = generated_at - timedelta(days=APPLICANT_SIGNAL_DAYS)
 
-    profiles, profile_source = load_selected_profiles(args.profiles_file, None)
+    if args.use_product_state:
+        profiles, profile_source = load_product_state_profiles()
+        pipeline_records, pipeline_source = load_product_state_pipeline()
+        updates, updates_source = load_product_state_updates()
+    else:
+        profiles, profile_source = load_selected_profiles(args.profiles_file, None)
+        pipeline_records, pipeline_source = load_pipeline(args.pipeline_file)
+        updates, updates_source = load_updates(args.applicant_updates_file)
+
     profile = choose_profile(profiles, args.profile)
-    pipeline_records, pipeline_source = load_pipeline(args.pipeline_file)
-    updates, updates_source = load_updates(args.applicant_updates_file)
 
     with get_connection() as conn:
         market_summary = get_market_size_summary(
@@ -213,7 +229,171 @@ def parse_args():
         default=DEFAULT_UPDATES_FILE,
         help="Load mock applicant status updates from a JSON file.",
     )
+    parser.add_argument(
+        "--use-product-state",
+        action="store_true",
+        help="Load profiles, pipeline items, and applicant updates from SQLite product-state tables.",
+    )
     return parser.parse_args()
+
+
+def load_product_state_profiles():
+    with get_connection() as conn:
+        ensure_product_state_ready(conn)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_profiles
+            ORDER BY profile_id
+            """
+        ).fetchall()
+    built_in_profiles = {
+        profile["profile_id"]: profile
+        for profile in load_profiles(None)[0]
+    }
+    profiles = [
+        normalize_product_state_profile(row, built_in_profiles)
+        for row in rows
+    ]
+    return profiles, "SQLite product-state user_profiles"
+
+
+def normalize_product_state_profile(row, built_in_profiles):
+    profile = normalize_profile(
+        {
+            "profile_id": row["profile_id"],
+            "display_name": row["display_name"],
+            "summary": row["notes"] or "",
+            "education_level": row["education_level"] or "not_specified",
+            "degrees_or_domains": loads_list(row["degrees_or_domains_json"]),
+            "languages": loads_list(row["languages_json"]),
+            "skills": loads_list(row["skills_json"]),
+            "work_preferences": loads_list(row["work_preferences_json"]),
+            "constraints": loads_list(row["constraints_json"]),
+            "target_opportunity_types": loads_list(row["target_opportunity_types_json"]),
+            "notes": row["notes"] or "",
+        },
+        source=f"product-state profile {row['profile_id']}",
+    )
+    built_in = built_in_profiles.get(row["profile_id"])
+    if built_in is not None:
+        profile["signals"] = built_in["signals"]
+        profile["avoid_keywords"] = built_in.get("avoid_keywords", [])
+    return profile
+
+
+def load_product_state_pipeline():
+    with get_connection() as conn:
+        ensure_product_state_ready(conn)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_pipeline_items
+            ORDER BY id
+            """
+        ).fetchall()
+    records = [
+        {
+            "profile_id": row["profile_id"],
+            "source": row["source"],
+            "title": row["opportunity_title"],
+            "url": row["opportunity_url"] or "",
+            "status": row["status"],
+            "status_date": row["status_date"] or "",
+            "notes": row["notes"] or "",
+            "user_priority": row["user_priority"] or "medium",
+            "reminder_date": row["reminder_date"] or "",
+            "last_user_action": row["last_user_action"] or "",
+        }
+        for row in rows
+    ]
+    return records, "SQLite product-state user_pipeline_items"
+
+
+def load_product_state_updates():
+    with get_connection() as conn:
+        ensure_product_state_ready(conn)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM applicant_status_updates
+            ORDER BY reported_at, update_id
+            """
+        ).fetchall()
+    updates = [
+        {
+            "update_id": row["update_id"],
+            "user_id": row["user_id"] or row["anonymous_user_key"] or "",
+            "profile_id": row["profile_id"],
+            "source": row["source"],
+            "opportunity_title": row["opportunity_title"],
+            "opportunity_url": row["opportunity_url"] or "",
+            "opportunity_id": row["opportunity_external_id"] or "",
+            "status": row["status"],
+            "previous_status": row["previous_status"] or "",
+            "status_date": row["status_date"],
+            "reported_at": row["reported_at"],
+            "reported_at_dt": parse_datetime(row["reported_at"], row["update_id"]),
+            "evidence_type": row["evidence_type"],
+            "confidence_level": row["confidence_level"],
+            "notes": row["notes"] or "",
+        }
+        for row in rows
+    ]
+    return updates, "SQLite product-state applicant_status_updates"
+
+
+def ensure_product_state_ready(conn):
+    tables = {
+        "user_profiles": "python scripts/product_state.py import-profiles profiles/sample_profiles.json",
+        "user_pipeline_items": "python scripts/product_state.py import-pipeline profiles/sample_user_pipeline.json",
+        "applicant_status_updates": "python scripts/product_state.py import-applicant-updates profiles/sample_applicant_updates.json",
+    }
+    missing = []
+    empty = []
+    for table, command in tables.items():
+        if not table_exists(conn, table):
+            missing.append(table)
+            continue
+        count = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()["count"]
+        if count == 0:
+            empty.append(table)
+    if not missing and not empty:
+        return
+
+    details = []
+    if missing:
+        details.append("missing tables: " + ", ".join(missing))
+    if empty:
+        details.append("empty tables: " + ", ".join(empty))
+    raise SystemExit(
+        "SQLite product-state data is not ready ("
+        + "; ".join(details)
+        + ").\n\n"
+        "Import the sample product state first:\n"
+        "  python scripts/product_state.py import-profiles profiles/sample_profiles.json\n"
+        "  python scripts/product_state.py import-pipeline profiles/sample_user_pipeline.json\n"
+        "  python scripts/product_state.py import-applicant-updates profiles/sample_applicant_updates.json"
+    )
+
+
+def table_exists(conn, table):
+    return conn.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        """,
+        (table,),
+    ).fetchone() is not None
+
+
+def loads_list(value):
+    try:
+        loaded = json.loads(value or "[]")
+    except json.JSONDecodeError:
+        return []
+    return loaded if isinstance(loaded, list) else []
 
 
 def choose_profile(profiles, profile_id):
