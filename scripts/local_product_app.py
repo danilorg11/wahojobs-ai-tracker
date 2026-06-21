@@ -22,6 +22,7 @@ DEFAULT_PORT = 8765
 DEFAULT_PROFILE_ID = "portuguese_english_reviewer"
 
 ACTION_STATUSES = {
+    "show_again": "saved",
     "save": "saved",
     "applied": "applied",
     "assessment_started": "assessment_started",
@@ -33,6 +34,7 @@ ACTION_STATUSES = {
 }
 
 ACTION_LABELS = {
+    "show_again": "Show again",
     "save": "Save",
     "applied": "Mark applied",
     "assessment_started": "Assessment started",
@@ -42,6 +44,21 @@ ACTION_LABELS = {
     "accepted": "Accepted",
     "rejected": "Rejected",
 }
+
+ACTIVE_PIPELINE_STATUSES = {
+    "recommended",
+    "saved",
+    "remind_later",
+    "applied",
+    "waiting",
+    "assessment_invited",
+    "assessment_started",
+    "assessment_completed",
+}
+ACCEPTED_STATUSES = {"accepted", "active_worker", "paid_task_received"}
+HIDDEN_STATUSES = {"not_interested"}
+CLOSED_STATUSES = {"rejected", "expired"}
+MAIN_RECOMMENDATION_EXCLUDED_STATUSES = ACCEPTED_STATUSES | HIDDEN_STATUSES | CLOSED_STATUSES
 
 STATUS_ACTIONS = {
     None: ("save", "applied", "not_interested"),
@@ -57,7 +74,7 @@ STATUS_ACTIONS = {
     "active_worker": (),
     "paid_task_received": (),
     "rejected": (),
-    "not_interested": (),
+    "not_interested": ("show_again",),
     "expired": (),
 }
 
@@ -193,6 +210,10 @@ def handle_action(form, profile_id):
             )
 
         if action == "save":
+            return action_success_message(action, title)
+
+        if action == "show_again":
+            update_pipeline_item(conn, item, status=status, note=note)
             return action_success_message(action, title)
 
         if status == "remind_later":
@@ -474,14 +495,40 @@ def slugify(value):
     return text.strip("-")
 
 
+def visible_matches(matches, tracked):
+    result = []
+    for match in matches:
+        record = demo.tracked_record_for_match(match, tracked)
+        if record and record["status"] in MAIN_RECOMMENDATION_EXCLUDED_STATUSES:
+            continue
+        result.append(match)
+    return result
+
+
+def visible_actions(actions, tracked):
+    result = []
+    for action in actions:
+        source = demo.normalize(action.get("source"))
+        title = demo.normalize(action.get("title"))
+        record = tracked["by_source_title"].get((source, title))
+        if record and record["status"] in MAIN_RECOMMENDATION_EXCLUDED_STATUSES:
+            continue
+        result.append(action)
+    return result
+
+
 def render_dashboard(context, message=None, error=None):
     profile = context["profile"]
     pipeline_report = context["pipeline_report"]
     applicant_signals = context["applicant_signals"]
     matches = context["matches"]
     tracked = context["tracked"]
-    actions = context["next_actions"]
-    card_index = build_card_index(matches, pipeline_report["records"], tracked)
+    visible_match_buckets = {
+        key: visible_matches(bucket, tracked)
+        for key, bucket in matches.items()
+    }
+    actions = visible_actions(context["next_actions"], tracked)
+    card_index = build_card_index(visible_match_buckets, pipeline_report["records"], tracked)
 
     parts = [
         "<!doctype html>",
@@ -500,7 +547,7 @@ def render_dashboard(context, message=None, error=None):
         render_matches(
             "Today's Best Matches",
             "best-matches",
-            matches["live"],
+            visible_match_buckets["live"],
             tracked,
             profile["profile_id"],
             card_index,
@@ -511,7 +558,7 @@ def render_dashboard(context, message=None, error=None):
         render_matches(
             "New Matches This Week",
             "new-matches",
-            matches["new"],
+            visible_match_buckets["new"],
             tracked,
             profile["profile_id"],
             card_index,
@@ -521,7 +568,7 @@ def render_dashboard(context, message=None, error=None):
         render_matches(
             "Always-Open Applications",
             "always-open",
-            matches["evergreen"],
+            visible_match_buckets["evergreen"],
             tracked,
             profile["profile_id"],
             card_index,
@@ -630,32 +677,82 @@ def render_matches(title, section_id, matches, tracked, profile_id, card_index, 
 
 
 def render_pipeline(records, profile_id):
-    if not records:
-        body = "<p class='empty'>No applications tracked yet.</p>"
-    else:
-        body = "".join(
-            f"""
-            <article class="card tracker" id="{e(card_id_for_record(record))}">
-              <div class="card-main">
-                <p class="source">{e(record['source'])}</p>
-                <h3>{e(record['title'])}</h3>
-                <p class="pill">{e(demo.readable_status(record['status']))}</p>
-                <p class="muted">{e(record['next_action'])}</p>
-                <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
-              </div>
-              <div class="card-actions">
-                {f'<a class="open" href="{e(record["url"])}" target="_blank" rel="noreferrer">Open</a>' if record["url"] else ""}
-                {render_pipeline_forms(record, profile_id, card_id_for_record(record))}
-              </div>
-            </article>
-            """
-            for record in sorted(records, key=demo.pipeline_sort_key)
-        )
+    groups = pipeline_groups(records)
+    active_body = render_pipeline_group(
+        groups["active"],
+        profile_id,
+        "No active application items yet.",
+    )
+    accepted_body = render_pipeline_group(
+        groups["accepted"],
+        profile_id,
+        "No accepted or active work items yet.",
+    )
+    hidden_body = render_pipeline_group(
+        groups["hidden"],
+        profile_id,
+        "No hidden opportunities.",
+    )
+    closed_body = render_pipeline_group(
+        groups["closed"],
+        profile_id,
+        "No closed or expired items.",
+    )
     return f"""
     <section id="application-tracker">
       <h2>Your Application Tracker</h2>
-      <div class="stack">{body}</div>
+      <div class="stack">{active_body}</div>
+      <h3 class="tracker-heading">Active / Accepted</h3>
+      <div class="stack">{accepted_body}</div>
+      <h3 class="tracker-heading">Hidden / Not Interested</h3>
+      <div class="stack">{hidden_body}</div>
+      <h3 class="tracker-heading">Closed / Expired</h3>
+      <div class="stack">{closed_body}</div>
     </section>
+    """
+
+
+def pipeline_groups(records):
+    groups = {
+        "active": [],
+        "accepted": [],
+        "hidden": [],
+        "closed": [],
+    }
+    for record in sorted(records, key=demo.pipeline_sort_key):
+        status = record["status"]
+        if status in ACCEPTED_STATUSES:
+            groups["accepted"].append(record)
+        elif status in HIDDEN_STATUSES:
+            groups["hidden"].append(record)
+        elif status in CLOSED_STATUSES:
+            groups["closed"].append(record)
+        else:
+            groups["active"].append(record)
+    return groups
+
+
+def render_pipeline_group(records, profile_id, empty):
+    if not records:
+        return f"<p class='empty'>{e(empty)}</p>"
+    return "".join(render_pipeline_card(record, profile_id) for record in records)
+
+
+def render_pipeline_card(record, profile_id):
+    return f"""
+    <article class="card tracker" id="{e(card_id_for_record(record))}">
+      <div class="card-main">
+        <p class="source">{e(record['source'])}</p>
+        <h3>{e(record['title'])}</h3>
+        <p class="pill">{e(demo.readable_status(record['status']))}</p>
+        <p class="muted">{e(record['next_action'])}</p>
+        <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
+      </div>
+      <div class="card-actions">
+        {f'<a class="open" href="{e(record["url"])}" target="_blank" rel="noreferrer">Open</a>' if record["url"] else ""}
+        {render_pipeline_forms(record, profile_id, card_id_for_record(record))}
+      </div>
+    </article>
     """
 
 
@@ -774,6 +871,7 @@ def terminal_status_label(status):
 
 def action_note(action):
     labels = {
+        "show_again": "Shown again from local UI",
         "save": "Saved from local UI",
         "applied": "Marked applied from local UI",
         "assessment_started": "Marked assessment started from local UI",
@@ -788,6 +886,7 @@ def action_note(action):
 
 def action_success_message(action, title):
     labels = {
+        "show_again": "Shown again",
         "save": "Saved",
         "applied": "Marked as applied",
         "assessment_started": "Assessment started",
