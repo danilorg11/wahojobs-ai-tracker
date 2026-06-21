@@ -39,7 +39,7 @@ ACTION_LABELS = {
     "applied": "Mark applied",
     "assessment_started": "Assessment started",
     "assessment_completed": "Assessment completed",
-    "remind_later": "Remind later",
+    "remind_later": "Remind in 7 days",
     "not_interested": "Not interested",
     "accepted": "Accepted",
     "rejected": "Rejected",
@@ -225,7 +225,7 @@ def handle_action(form, profile_id):
                 note=note,
                 reminder_date=reminder_date,
             )
-            return action_success_message(action, title)
+            return f"Reminder set for {reminder_date}: {title}"
 
         update_pipeline_item(conn, item, status=status, note=note)
 
@@ -540,6 +540,7 @@ def render_dashboard(context, message=None, error=None):
         for key, bucket in matches.items()
     }
     actions = visible_actions(context["next_actions"], tracked)
+    secondary_actions = visible_actions(context.get("also_worth_reviewing", []), tracked)
     card_index = build_card_index(visible_match_buckets, pipeline_report["records"], tracked)
 
     parts = [
@@ -556,6 +557,7 @@ def render_dashboard(context, message=None, error=None):
         render_header(context, profiles),
         render_notice(message, error),
         render_actions(actions, card_index),
+        render_secondary_actions(secondary_actions, card_index),
         render_matches(
             "Today's Best Matches",
             "best-matches",
@@ -655,13 +657,27 @@ def render_notice(message, error):
 
 
 def render_actions(actions, card_index):
-    items = "".join(render_action_item(action, card_index) for action in actions[:5])
+    items = "".join(render_action_item(action, card_index) for action in actions[:4])
     if not items:
-        items = "<li>No urgent actions today.</li>"
+        items = "<li>No urgent new applications today. We'll keep watching for strong matches.</li>"
     return f"""
     <section id="do-these-first">
       <h2>Do These First</h2>
+      <p class="muted">A short daily plan. You do not need to act on everything today.</p>
       <ol class="actions">{items}</ol>
+    </section>
+    """
+
+
+def render_secondary_actions(actions, card_index):
+    items = "".join(render_action_item(action, card_index) for action in actions[:8])
+    if not items:
+        items = "<li>No additional backlog items surfaced for this profile today.</li>"
+    return f"""
+    <section id="also-worth-reviewing">
+      <h2>Also Worth Reviewing</h2>
+      <p class="muted">Good matches, but not today's top priority. Worth reviewing when you have more time.</p>
+      <ol class="actions secondary-actions">{items}</ol>
     </section>
     """
 
@@ -772,6 +788,12 @@ def render_pipeline_group(records, profile_id, empty):
     return "".join(render_pipeline_card(record, profile_id) for record in records)
 
 
+def render_reminder_note(record):
+    if record["status"] == "remind_later" and record.get("reminder_date"):
+        return f"<p class='muted'>Remind on {e(record['reminder_date'])}</p>"
+    return ""
+
+
 def render_pipeline_card(record, profile_id):
     return f"""
     <article class="card tracker" id="{e(card_id_for_record(record))}">
@@ -779,6 +801,7 @@ def render_pipeline_card(record, profile_id):
         <p class="source">{e(record['source'])}</p>
         <h3>{e(record['title'])}</h3>
         <p class="pill">{e(demo.readable_status(record['status']))}</p>
+        {render_reminder_note(record)}
         <p class="muted">{e(record['next_action'])}</p>
         <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
       </div>
@@ -1071,6 +1094,7 @@ button:hover, .open:hover { filter: brightness(.96); }
 .muted, .empty { color: var(--muted); }
 .actions { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 18px 18px 38px; }
 .actions li { margin: 6px 0; }
+.secondary-actions { background: #fbfaf7; }
 .jump-link, .back-link {
   color: var(--accent);
   font-weight: 700;

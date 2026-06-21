@@ -34,11 +34,13 @@ from user_pipeline_digest import (
     DEFAULT_PIPELINE_FILE,
     build_pipeline_report,
     build_row_index,
+    days_since,
     get_all_tracker_rows,
     get_recommendation_rows,
     load_pipeline,
     load_selected_profiles,
     match_key_from_match,
+    priority_rank,
     status_group,
 )
 from wahojobs.classification import (
@@ -59,6 +61,22 @@ TOP_LIVE_LIMIT = 8
 REPORT_SEPARATELY_LIMIT = 5
 NEW_LIMIT = 5
 MATCH_POOL_LIMIT = 40
+PRIMARY_ACTION_LIMIT = 4
+PRIMARY_URGENT_LIMIT = 2
+PRIMARY_APPLY_LIMIT = 2
+PRIMARY_PASSIVE_LIMIT = 1
+PRIMARY_EVERGREEN_LIMIT = 1
+BACKLOG_ACTION_LIMIT = 10
+STALE_ASSESSMENT_DAYS = 7
+STALE_PASSIVE_DAYS = 14
+SUPPRESSED_ACTION_STATUSES = {
+    "not_interested",
+    "rejected",
+    "expired",
+    "accepted",
+    "active_worker",
+    "paid_task_received",
+}
 
 EXPLICIT_LANGUAGES = {
     "arabic",
@@ -126,6 +144,7 @@ def main():
         context["tracked"],
         context["pipeline_report"],
         context["next_actions"],
+        context["also_worth_reviewing"],
         context["applicant_signals"],
     )
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -250,7 +269,7 @@ def build_demo_context(
         pipeline_report,
         applicant_cutoff,
     )
-    next_actions = build_demo_actions(profile, pipeline_report, matches, tracked)
+    action_plan = build_demo_action_plan(profile, pipeline_report, matches, tracked)
 
     return {
         "generated_at": generated_at,
@@ -263,7 +282,8 @@ def build_demo_context(
         "matches": matches,
         "tracked": tracked,
         "pipeline_report": pipeline_report,
-        "next_actions": next_actions,
+        "next_actions": action_plan["primary"],
+        "also_worth_reviewing": action_plan["secondary"],
         "applicant_signals": applicant_signals,
     }
 
@@ -476,12 +496,17 @@ def build_matches(profile, live_rows, evergreen_rows, public_rows, new_rows):
 def build_tracked_index(records):
     by_key = {}
     by_source_title = {}
+    by_source_near_title = {}
     for record in records:
         by_key[record["match_key"]] = record
         by_source_title[(normalize(record["source"]), normalize(record["title"]))] = record
+        by_source_near_title[
+            (normalize(record["source"]), normalize_action_target(record["title"]))
+        ] = record
     return {
         "by_key": by_key,
         "by_source_title": by_source_title,
+        "by_source_near_title": by_source_near_title,
     }
 
 
@@ -489,32 +514,76 @@ def tracked_record_for_match(match, tracked):
     key = match_key_from_match(match)
     if key in tracked["by_key"]:
         return tracked["by_key"][key]
-    return tracked["by_source_title"].get(
+    exact = tracked["by_source_title"].get(
         (normalize(match["source"]), normalize(match["display_title"]))
+    )
+    if exact:
+        return exact
+    return tracked.get("by_source_near_title", {}).get(
+        (normalize(match["source"]), normalize_action_target(match["display_title"]))
     )
 
 
-def build_demo_actions(profile, pipeline_report, matches, tracked):
-    actions = [
-        action for action in pipeline_report["next_actions"][:6]
-        if not has_unrelated_language_text(profile, action["action"])
-    ]
+def build_demo_action_plan(profile, pipeline_report, matches, tracked):
+    candidates = unique_actions(build_demo_action_candidates(profile, pipeline_report, matches, tracked))
+    primary = []
+    secondary = []
+    category_counts = Counter()
+
+    for action in sorted(candidates, key=action_sort_key):
+        if can_select_primary_action(action, primary, category_counts):
+            primary.append(action)
+            category_counts[action["category"]] += 1
+        else:
+            secondary.append(action)
+
+    return {
+        "primary": primary[:PRIMARY_ACTION_LIMIT],
+        "secondary": secondary[:BACKLOG_ACTION_LIMIT],
+    }
+
+
+def build_demo_action_candidates(profile, pipeline_report, matches, tracked):
+    actions = []
+
+    for record in pipeline_report["records"]:
+        status = record["status"]
+        if status in SUPPRESSED_ACTION_STATUSES:
+            continue
+        if not record["next_action"] or has_unrelated_language_text(profile, record["next_action"]):
+            continue
+        category = action_category_for_record(record)
+        actions.append(
+            {
+                "priority": action_priority_for_category(category, record.get("user_priority")),
+                "category": category,
+                "action": record["next_action"],
+                "title": record["title"],
+                "source": record["source"],
+                "score": record["match_score"] or 0,
+            }
+        )
 
     for match in matches["live"]:
         if tracked_record_for_match(match, tracked):
             continue
+        category = "apply" if match["score"] >= 30 else "review"
         actions.append(
             {
-                "priority": "high" if match["score"] >= 30 else "medium",
+                "priority": "high" if category == "apply" else "medium",
+                "category": category,
                 "action": (
                     f"Apply to {match['display_title']} "
+                    f"from {match['source']}."
+                ) if category == "apply" else (
+                    f"Review {match['display_title']} "
                     f"from {match['source']}."
                 ),
                 "title": match["display_title"],
                 "source": match["source"],
+                "score": match["score"],
             }
         )
-        break
 
     for match in matches["new"]:
         if tracked_record_for_match(match, tracked):
@@ -522,15 +591,16 @@ def build_demo_actions(profile, pipeline_report, matches, tracked):
         actions.append(
             {
                 "priority": "medium",
+                "category": "review",
                 "action": (
                     f"Review new match {match['display_title']} "
                     f"from {match['source']}."
                 ),
                 "title": match["display_title"],
                 "source": match["source"],
+                "score": match["score"],
             }
         )
-        break
 
     for match in matches["evergreen"]:
         if tracked_record_for_match(match, tracked):
@@ -538,17 +608,106 @@ def build_demo_actions(profile, pipeline_report, matches, tracked):
         actions.append(
             {
                 "priority": "medium",
+                "category": "evergreen",
                 "action": (
                     f"Revisit always-open application {match['display_title']} "
                     f"from {match['source']}."
                 ),
                 "title": match["display_title"],
                 "source": match["source"],
+                "score": match["score"],
             }
         )
-        break
 
-    return unique_actions(actions)[:8]
+    return actions
+
+
+def action_category_for_record(record):
+    status = record["status"]
+    if status in {"assessment_invited", "assessment_started"}:
+        return "urgent_assessment"
+    if status == "assessment_completed":
+        age = days_since(record["status_date"]) or 0
+        return "passive_followup" if age >= STALE_ASSESSMENT_DAYS else "backlog"
+    if status == "saved":
+        if not saved_item_ready_for_primary_action(record):
+            return "backlog"
+        if "apply" in normalize_text(record["next_action"]) and (record["match_score"] or 0) >= 30:
+            return "apply"
+        return "backlog"
+    if status == "remind_later":
+        if not reminder_is_due(record):
+            return "backlog"
+        if "apply" in normalize_text(record["next_action"]) and (record["match_score"] or 0) >= 30:
+            return "apply"
+        return "review"
+    if status == "recommended":
+        if "apply" in normalize_text(record["next_action"]) and (record["match_score"] or 0) >= 25:
+            return "apply"
+        return "review"
+    if status in {"waiting", "applied"}:
+        age = days_since(record["status_date"]) or 0
+        return "passive_followup" if age >= STALE_PASSIVE_DAYS else "backlog"
+    if record["availability"] == "inactive/removed":
+        return "backlog"
+    return "review"
+
+
+def saved_item_ready_for_primary_action(record):
+    age = days_since(record["status_date"])
+    return age is not None and age > 0
+
+
+def reminder_is_due(record):
+    age = days_since(record.get("reminder_date"))
+    return age is not None and age >= 0
+
+
+def action_priority_for_category(category, fallback=None):
+    if category == "urgent_assessment":
+        return "high"
+    if category == "apply":
+        return "high"
+    if category in {"review", "evergreen"}:
+        return "medium"
+    if category == "passive_followup":
+        return "medium"
+    return fallback or "low"
+
+
+def action_sort_key(action):
+    category_order = {
+        "urgent_assessment": 0,
+        "apply": 1,
+        "review": 2,
+        "evergreen": 3,
+        "passive_followup": 4,
+        "backlog": 5,
+    }
+    return (
+        category_order.get(action.get("category"), 9),
+        priority_rank(action.get("priority")),
+        -(action.get("score") or 0),
+        normalize(action.get("source")),
+        normalize(action.get("title")),
+    )
+
+
+def can_select_primary_action(action, primary, category_counts):
+    category = action.get("category")
+    if len(primary) >= PRIMARY_ACTION_LIMIT:
+        return False
+    if category == "urgent_assessment":
+        return category_counts[category] < PRIMARY_URGENT_LIMIT
+    if category == "apply":
+        return category_counts[category] < PRIMARY_APPLY_LIMIT
+    if category == "passive_followup":
+        return category_counts[category] < PRIMARY_PASSIVE_LIMIT
+    if category == "evergreen":
+        return category_counts[category] < PRIMARY_EVERGREEN_LIMIT
+    if category == "review":
+        return True
+    return False
 
 
 def unique_actions(actions):
@@ -639,6 +798,7 @@ def render_markdown(
     tracked,
     pipeline_report,
     next_actions,
+    also_worth_reviewing,
     applicant_signals,
 ):
     lines = [
@@ -652,6 +812,7 @@ def render_markdown(
 
     append_user_summary(lines, profile, coverage_report)
     append_do_these_first(lines, next_actions)
+    append_also_worth_reviewing(lines, also_worth_reviewing)
     append_best_matches(lines, matches["live"], tracked)
     append_pipeline_snapshot(lines, pipeline_report)
     append_new_since_baseline(lines, matches["new"], tracked)
@@ -683,9 +844,28 @@ def append_user_summary(lines, profile, coverage_report):
 def append_do_these_first(lines, actions):
     lines.extend(["## Do These First", ""])
     if not actions:
-        lines.extend(["No urgent action found today. Review your best matches and save anything worth tracking.", ""])
+        lines.extend(
+            [
+                "No urgent new applications today. We'll keep watching for strong matches.",
+                "",
+            ]
+        )
         return
-    for action in actions[:5]:
+    lines.append("A short daily plan. You do not need to act on everything in the tracker today.")
+    lines.append("")
+    for action in actions[:PRIMARY_ACTION_LIMIT]:
+        lines.append(f"- {escape(make_action_user_facing(action['action']))}")
+    lines.append("")
+
+
+def append_also_worth_reviewing(lines, actions):
+    lines.extend(["## Also Worth Reviewing", ""])
+    lines.append("Good matches, but not today's top priority. Review these when you have more time.")
+    lines.append("")
+    if not actions:
+        lines.extend(["No additional backlog items surfaced for this profile today.", ""])
+        return
+    for action in actions[:6]:
         lines.append(f"- {escape(make_action_user_facing(action['action']))}")
     lines.append("")
 
