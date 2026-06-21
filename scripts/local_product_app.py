@@ -26,6 +26,37 @@ ACTION_STATUSES = {
     "assessment_completed": "assessment_completed",
     "remind_later": "remind_later",
     "not_interested": "not_interested",
+    "accepted": "accepted",
+    "rejected": "rejected",
+}
+
+ACTION_LABELS = {
+    "save": "Save",
+    "applied": "Mark applied",
+    "assessment_started": "Assessment started",
+    "assessment_completed": "Assessment completed",
+    "remind_later": "Remind later",
+    "not_interested": "Not interested",
+    "accepted": "Accepted",
+    "rejected": "Rejected",
+}
+
+STATUS_ACTIONS = {
+    None: ("save", "applied", "not_interested"),
+    "recommended": ("save", "applied", "not_interested"),
+    "saved": ("applied", "remind_later", "not_interested"),
+    "remind_later": ("applied", "not_interested"),
+    "applied": ("assessment_started", "remind_later", "not_interested"),
+    "waiting": ("assessment_started", "remind_later", "not_interested"),
+    "assessment_invited": ("assessment_started", "remind_later", "not_interested"),
+    "assessment_started": ("assessment_completed", "remind_later", "not_interested"),
+    "assessment_completed": ("remind_later", "accepted", "rejected"),
+    "accepted": (),
+    "active_worker": (),
+    "paid_task_received": (),
+    "rejected": (),
+    "not_interested": (),
+    "expired": (),
 }
 
 
@@ -150,8 +181,14 @@ def handle_action(form, profile_id):
         else:
             item = ensure_pipeline_item(conn, profile_id, source, title, url)
 
+        allowed_actions = actions_for_status(item["status"])
+        if action not in allowed_actions and action != "save":
+            raise SystemExit(
+                f"That action is not available while this item is {demo.readable_status(item['status'])}."
+            )
+
         if action == "save":
-            return f"Saved {title}"
+            return action_success_message(action, title)
 
         if status == "remind_later":
             reminder_date = (datetime.now(timezone.utc).date() + timedelta(days=7)).isoformat()
@@ -162,11 +199,17 @@ def handle_action(form, profile_id):
                 note=note,
                 reminder_date=reminder_date,
             )
-            return f"Reminder set for {title}"
+            return action_success_message(action, title)
 
         update_pipeline_item(conn, item, status=status, note=note)
 
-        if status in {"applied", "assessment_started", "assessment_completed"}:
+        if status in {
+            "applied",
+            "assessment_started",
+            "assessment_completed",
+            "accepted",
+            "rejected",
+        }:
             add_applicant_update(
                 conn,
                 profile_id=profile_id,
@@ -178,7 +221,7 @@ def handle_action(form, profile_id):
                 note=note,
             )
 
-    return f"Updated {title}"
+    return action_success_message(action, title)
 
 
 def ensure_pipeline_item(conn, profile_id, source, title, url):
@@ -543,47 +586,43 @@ def render_disclaimer():
 
 def render_match_forms(match, record, profile_id):
     pipeline_id = record.get("id") if record else ""
+    status = record.get("status") if record else None
+    actions = actions_for_status(status)
+    if not actions:
+        return terminal_status_label(status)
     return " ".join(
         action_form(
-            label,
             action,
+            ACTION_LABELS[action],
             profile_id,
             source=match["source"],
             title=match["display_title"],
             url=match["url"],
             pipeline_id=pipeline_id,
         )
-        for action, label in (
-            ("save", "Save"),
-            ("applied", "Mark applied"),
-            ("assessment_started", "Assessment started"),
-            ("not_interested", "Not interested"),
-        )
+        for action in actions
     )
 
 
 def render_pipeline_forms(record, profile_id):
+    actions = actions_for_status(record["status"])
+    if not actions:
+        return terminal_status_label(record["status"])
     return " ".join(
         action_form(
-            label,
             action,
+            ACTION_LABELS[action],
             profile_id,
             source=record["source"],
             title=record["title"],
             url=record["url"],
             pipeline_id=record.get("id", ""),
         )
-        for action, label in (
-            ("applied", "Applied"),
-            ("assessment_started", "Started"),
-            ("assessment_completed", "Completed"),
-            ("remind_later", "Remind"),
-            ("not_interested", "Hide"),
-        )
+        for action in actions
     )
 
 
-def action_form(label, action, profile_id, source, title, url, pipeline_id=""):
+def action_form(action, label, profile_id, source, title, url, pipeline_id=""):
     return f"""
     <form method="post" action="/action">
       <input type="hidden" name="profile" value="{e(profile_id)}">
@@ -597,6 +636,22 @@ def action_form(label, action, profile_id, source, title, url, pipeline_id=""):
     """
 
 
+def actions_for_status(status):
+    return STATUS_ACTIONS.get(status, ("remind_later", "not_interested"))
+
+
+def terminal_status_label(status):
+    labels = {
+        "not_interested": "Hidden / Not interested",
+        "expired": "Expired",
+        "accepted": "Accepted",
+        "active_worker": "Active",
+        "paid_task_received": "Paid task received",
+        "rejected": "Rejected",
+    }
+    return f"<p class='status-note'>{e(labels.get(status, demo.readable_status(status)))}</p>"
+
+
 def action_note(action):
     labels = {
         "save": "Saved from local UI",
@@ -605,8 +660,24 @@ def action_note(action):
         "assessment_completed": "Marked assessment completed from local UI",
         "remind_later": "Reminder set from local UI",
         "not_interested": "Marked not interested from local UI",
+        "accepted": "Marked accepted from local UI",
+        "rejected": "Marked rejected from local UI",
     }
     return labels[action]
+
+
+def action_success_message(action, title):
+    labels = {
+        "save": "Saved",
+        "applied": "Marked as applied",
+        "assessment_started": "Assessment started",
+        "assessment_completed": "Assessment completed",
+        "remind_later": "Remind later set for",
+        "not_interested": "Marked not interested",
+        "accepted": "Marked accepted",
+        "rejected": "Marked rejected",
+    }
+    return f"{labels[action]}: {title}"
 
 
 def render_error(message):
@@ -708,6 +779,12 @@ button:hover, .open:hover { filter: brightness(.96); }
   border-radius: 999px;
   font-size: .86rem;
   margin-bottom: 0;
+}
+.status-note {
+  color: var(--muted);
+  font-weight: 700;
+  margin: 0;
+  padding: 6px 0;
 }
 .muted, .empty { color: var(--muted); }
 .actions { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 18px 18px 38px; }

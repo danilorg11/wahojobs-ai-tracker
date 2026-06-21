@@ -554,17 +554,44 @@ def build_demo_actions(profile, pipeline_report, matches, tracked):
 def unique_actions(actions):
     seen = set()
     seen_targets = set()
+    seen_near_targets = set()
     result = []
     priority_order = {"high": 0, "medium": 1, "low": 2}
     for action in sorted(actions, key=lambda item: priority_order.get(item["priority"], 1)):
         key = normalize(action["action"])
         target_key = (normalize(action.get("source")), normalize(action.get("title")))
-        if key in seen or target_key in seen_targets:
+        near_target_key = action_near_target_key(action)
+        if (
+            key in seen
+            or target_key in seen_targets
+            or near_target_key in seen_near_targets
+        ):
             continue
         seen.add(key)
         seen_targets.add(target_key)
+        seen_near_targets.add(near_target_key)
         result.append(action)
     return result
+
+
+def action_near_target_key(action):
+    source = normalize(action.get("source"))
+    title = normalize_action_target(action.get("title") or action.get("action"))
+    return (source, title)
+
+
+def normalize_action_target(value):
+    text = normalize_text(value)
+    text = re.sub(r"https?://\S+", " ", text)
+    text = re.sub(
+        r"\b(apply|review|revisit|continue|watch|new|match|from|for|the|an|a|to)\b",
+        " ",
+        text,
+    )
+    text = re.sub(r"\b(rater|reviewer|rating|reviewing)\b", " ", text)
+    text = re.sub(r"\b(project|role|opportunity|application)\b", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def build_relevant_applicant_signals(profile, updates, matches, pipeline_report, cutoff):
