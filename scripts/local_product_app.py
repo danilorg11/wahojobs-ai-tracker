@@ -1,5 +1,7 @@
 import argparse
+import hashlib
 import html
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -126,17 +128,20 @@ def make_handler(default_profile):
             length = int(self.headers.get("Content-Length", "0"))
             form = parse_qs(self.rfile.read(length).decode("utf-8"))
             profile_id = first_value(form, "profile") or default_profile
+            return_to = first_value(form, "return_to") or "do-these-first"
             try:
                 message = handle_action(form, profile_id)
-                self.redirect("/", profile=profile_id, message=message)
+                self.redirect("/", fragment=return_to, profile=profile_id, message=message)
             except SystemExit as exc:
-                self.redirect("/", profile=profile_id, error=str(exc))
+                self.redirect("/", fragment=return_to, profile=profile_id, error=str(exc))
             except Exception as exc:
-                self.redirect("/", profile=profile_id, error=f"Action failed: {exc}")
+                self.redirect("/", fragment=return_to, profile=profile_id, error=f"Action failed: {exc}")
 
-        def redirect(self, path, **params):
+        def redirect(self, path, fragment="", **params):
             query = urlencode({key: value for key, value in params.items() if value})
             location = path + (f"?{query}" if query else "")
+            if fragment:
+                location += f"#{fragment}"
             self.send_response(HTTPStatus.SEE_OTHER)
             self.send_header("Location", location)
             self.end_headers()
@@ -373,6 +378,102 @@ def add_applicant_update(conn, profile_id, source, title, url, status, previous_
     )
 
 
+def build_card_index(matches, pipeline_records, tracked):
+    index = {
+        "exact": {},
+        "near": {},
+        "fallback": {
+            "live": "#best-matches",
+            "new": "#new-matches",
+            "evergreen": "#always-open",
+            "pipeline": "#application-tracker",
+        },
+    }
+    for bucket_name, bucket in matches.items():
+        for match in bucket[:8]:
+            record = demo.tracked_record_for_match(match, tracked)
+            href = f"#{card_id_for_match(match, record)}"
+            add_card_index_entry(
+                index,
+                match["source"],
+                match["display_title"],
+                href,
+                bucket_name,
+            )
+    for record in pipeline_records:
+        add_card_index_entry(
+            index,
+            record["source"],
+            record["title"],
+            f"#{card_id_for_record(record)}",
+            "pipeline",
+        )
+    return index
+
+
+def add_card_index_entry(index, source, title, href, bucket_name):
+    exact_key = source_title_key(source, title)
+    near_key = source_near_title_key(source, title)
+    index["exact"].setdefault(exact_key, href)
+    index["near"].setdefault(near_key, href)
+    index["fallback"].setdefault(bucket_name, href)
+
+
+def action_href(action, card_index):
+    source = action.get("source") or ""
+    title = action.get("title") or ""
+    exact_key = source_title_key(source, title)
+    if exact_key in card_index["exact"]:
+        return card_index["exact"][exact_key]
+    near_key = source_near_title_key(source, title)
+    if near_key in card_index["near"]:
+        return card_index["near"][near_key]
+    text = demo.normalize_text(action.get("action"))
+    if "always-open" in text or "application" in text:
+        return card_index["fallback"].get("evergreen", "#always-open")
+    if "new match" in text:
+        return card_index["fallback"].get("new", "#new-matches")
+    if "assessment" in text or "watch" in text:
+        return card_index["fallback"].get("pipeline", "#application-tracker")
+    return card_index["fallback"].get("live", "#best-matches")
+
+
+def card_id_for_match(match, record=None):
+    if record:
+        return card_id_for_record(record)
+    return opportunity_card_id(
+        match["source"],
+        match["display_title"],
+        match.get("url") or "",
+    )
+
+
+def card_id_for_record(record):
+    stable_value = record.get("pipeline_item_id") or record.get("id") or record.get("url") or record["title"]
+    return opportunity_card_id(record["source"], record["title"], str(stable_value))
+
+
+def opportunity_card_id(source, title, stable_value):
+    label = slugify(f"{source} {title}")[:72].strip("-")
+    digest = hashlib.sha1(stable_value.encode("utf-8")).hexdigest()[:8]
+    return f"opp-{label}-{digest}" if label else f"opp-{digest}"
+
+
+def source_title_key(source, title):
+    return (demo.normalize(source), demo.normalize(title))
+
+
+def source_near_title_key(source, title):
+    return (demo.normalize(source), demo.normalize_action_target(title))
+
+
+def slugify(value):
+    text = demo.normalize_text(value)
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    text = re.sub(r"-+", "-", text)
+    return text.strip("-")
+
+
 def render_dashboard(context, message=None, error=None):
     profile = context["profile"]
     pipeline_report = context["pipeline_report"]
@@ -380,6 +481,7 @@ def render_dashboard(context, message=None, error=None):
     matches = context["matches"]
     tracked = context["tracked"]
     actions = context["next_actions"]
+    card_index = build_card_index(matches, pipeline_report["records"], tracked)
 
     parts = [
         "<!doctype html>",
@@ -394,29 +496,35 @@ def render_dashboard(context, message=None, error=None):
         "<main>",
         render_header(context),
         render_notice(message, error),
-        render_actions(actions),
+        render_actions(actions, card_index),
         render_matches(
             "Today's Best Matches",
+            "best-matches",
             matches["live"],
             tracked,
             profile["profile_id"],
+            card_index,
             include_actions=True,
             empty="No strong live matches found right now.",
         ),
         render_pipeline(pipeline_report["records"], profile["profile_id"]),
         render_matches(
             "New Matches This Week",
+            "new-matches",
             matches["new"],
             tracked,
             profile["profile_id"],
+            card_index,
             include_actions=True,
             empty="No especially relevant new matches this week.",
         ),
         render_matches(
             "Always-Open Applications",
+            "always-open",
             matches["evergreen"],
             tracked,
             profile["profile_id"],
+            card_index,
             include_actions=True,
             empty="No profile-relevant always-open applications surfaced today.",
         ),
@@ -465,40 +573,48 @@ def render_notice(message, error):
     return ""
 
 
-def render_actions(actions):
-    items = "".join(
-        f"<li>{e(demo.make_action_user_facing(action['action']))}</li>"
-        for action in actions[:5]
-    )
+def render_actions(actions, card_index):
+    items = "".join(render_action_item(action, card_index) for action in actions[:5])
     if not items:
         items = "<li>No urgent actions today.</li>"
     return f"""
-    <section>
+    <section id="do-these-first">
       <h2>Do These First</h2>
       <ol class="actions">{items}</ol>
     </section>
     """
 
 
-def render_matches(title, matches, tracked, profile_id, include_actions, empty):
+def render_action_item(action, card_index):
+    href = action_href(action, card_index)
+    text = demo.make_action_user_facing(action["action"])
+    return (
+        f"<li>{e(text)} "
+        f"<a class='jump-link' href='{e(href)}'>Go to opportunity</a></li>"
+    )
+
+
+def render_matches(title, section_id, matches, tracked, profile_id, card_index, include_actions, empty):
     cards = []
     for match in matches[:8]:
         record = demo.tracked_record_for_match(match, tracked)
         reasons = "; ".join(demo.plain_reasons(match, record)[:3])
         status = demo.pipeline_label(record)
+        card_id = card_id_for_match(match, record)
         cards.append(
             f"""
-            <article class="card">
+            <article class="card" id="{e(card_id)}">
               <div class="card-main">
                 <p class="source">{e(match['source'])}</p>
                 <h3>{e(match['display_title'])}</h3>
-                <p>{e(match['location'])} · {e(match['expertise'])}</p>
+                <p>{e(match['location'])} &middot; {e(match['expertise'])}</p>
                 <p class="muted">{e(reasons)}</p>
                 <p class="pill">{e(status)}</p>
+                <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
               </div>
               <div class="card-actions">
                 <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">Open</a>
-                {render_match_forms(match, record, profile_id) if include_actions else ""}
+                {render_match_forms(match, record, profile_id, card_id) if include_actions else ""}
               </div>
             </article>
             """
@@ -506,7 +622,7 @@ def render_matches(title, matches, tracked, profile_id, include_actions, empty):
     if not cards:
         cards.append(f"<p class='empty'>{e(empty)}</p>")
     return f"""
-    <section>
+    <section id="{e(section_id)}">
       <h2>{e(title)}</h2>
       <div class="stack">{''.join(cards)}</div>
     </section>
@@ -519,23 +635,24 @@ def render_pipeline(records, profile_id):
     else:
         body = "".join(
             f"""
-            <article class="card tracker">
+            <article class="card tracker" id="{e(card_id_for_record(record))}">
               <div class="card-main">
                 <p class="source">{e(record['source'])}</p>
                 <h3>{e(record['title'])}</h3>
                 <p class="pill">{e(demo.readable_status(record['status']))}</p>
                 <p class="muted">{e(record['next_action'])}</p>
+                <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
               </div>
               <div class="card-actions">
                 {f'<a class="open" href="{e(record["url"])}" target="_blank" rel="noreferrer">Open</a>' if record["url"] else ""}
-                {render_pipeline_forms(record, profile_id)}
+                {render_pipeline_forms(record, profile_id, card_id_for_record(record))}
               </div>
             </article>
             """
             for record in sorted(records, key=demo.pipeline_sort_key)
         )
     return f"""
-    <section>
+    <section id="application-tracker">
       <h2>Your Application Tracker</h2>
       <div class="stack">{body}</div>
     </section>
@@ -566,10 +683,10 @@ def render_applicant_signals(applicant_signals):
     else:
         table = "<p class='empty'>No relevant applicant signals yet.</p>"
     return f"""
-    <section>
+    <section id="applicant-signals">
       <h2>Applicant Signals</h2>
       <p class="muted">Directional sample signals from similar tracked activity. They are not guarantees.</p>
-      <p><strong>{summary['total_updates']}</strong> relevant reports · <strong>{summary['assessment_updates']}</strong> assessment-related reports</p>
+      <p><strong>{summary['total_updates']}</strong> relevant reports &middot; <strong>{summary['assessment_updates']}</strong> assessment-related reports</p>
       {table}
     </section>
     """
@@ -584,7 +701,7 @@ def render_disclaimer():
     """
 
 
-def render_match_forms(match, record, profile_id):
+def render_match_forms(match, record, profile_id, return_to):
     pipeline_id = record.get("id") if record else ""
     status = record.get("status") if record else None
     actions = actions_for_status(status)
@@ -599,12 +716,13 @@ def render_match_forms(match, record, profile_id):
             title=match["display_title"],
             url=match["url"],
             pipeline_id=pipeline_id,
+            return_to=return_to,
         )
         for action in actions
     )
 
 
-def render_pipeline_forms(record, profile_id):
+def render_pipeline_forms(record, profile_id, return_to):
     actions = actions_for_status(record["status"])
     if not actions:
         return terminal_status_label(record["status"])
@@ -617,12 +735,13 @@ def render_pipeline_forms(record, profile_id):
             title=record["title"],
             url=record["url"],
             pipeline_id=record.get("id", ""),
+            return_to=return_to,
         )
         for action in actions
     )
 
 
-def action_form(action, label, profile_id, source, title, url, pipeline_id=""):
+def action_form(action, label, profile_id, source, title, url, pipeline_id="", return_to="do-these-first"):
     return f"""
     <form method="post" action="/action">
       <input type="hidden" name="profile" value="{e(profile_id)}">
@@ -631,6 +750,7 @@ def action_form(action, label, profile_id, source, title, url, pipeline_id=""):
       <input type="hidden" name="title" value="{e(title)}">
       <input type="hidden" name="url" value="{e(url or '')}">
       <input type="hidden" name="pipeline_item_id" value="{e(str(pipeline_id or ''))}">
+      <input type="hidden" name="return_to" value="{e(return_to)}">
       <button type="submit">{e(label)}</button>
     </form>
     """
@@ -728,6 +848,7 @@ body {
 }
 main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
 section { margin: 18px 0; }
+section, .card { scroll-margin-top: 18px; }
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr);
@@ -752,6 +873,11 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: start;
+}
+.card:target {
+  border-color: var(--accent);
+  background: #f4fbf7;
+  box-shadow: 0 0 0 3px rgba(39, 97, 79, .12);
 }
 .card-actions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; max-width: 360px; }
 .card-actions form { margin: 0; }
@@ -789,6 +915,14 @@ button:hover, .open:hover { filter: brightness(.96); }
 .muted, .empty { color: var(--muted); }
 .actions { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 18px 18px 38px; }
 .actions li { margin: 6px 0; }
+.jump-link, .back-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+.jump-link:hover, .back-link:hover { text-decoration: underline; }
+.jump-link { margin-left: 6px; white-space: nowrap; }
+.back-link { font-size: .88rem; }
 .notice.success { border-color: #b9d8c5; color: var(--ok); background: #eef8f1; }
 .notice.error { border-color: #e0b8a8; color: var(--warn); background: #fff2ec; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
