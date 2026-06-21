@@ -1,6 +1,6 @@
 # User Opportunity Pipeline Digest
 
-Generated: 2026-06-20T23:34:24+00:00 UTC
+Generated: 2026-06-21T05:08:55+00:00 UTC
 
 ## Prototype Notes
 
@@ -168,7 +168,7 @@ No relevant evergreen applications found for this profile.
 
 - **High**: Continue the in-progress Mercor assessment for Attorney / Legal Expert (Real Estate / Energy) - AI Training Project.
 - **High**: Apply to Law Expert / Legal AI Trainer at DataAnnotation; it remains an active strong match.
-- **Medium**: Follow up or check the portal for Constitutional Lawyer at Surge AI; waiting for 26 days.
+- **Medium**: Follow up or check the portal for Constitutional Lawyer at Surge AI; waiting for 27 days.
 - **Medium**: Review new post-baseline match Litigation Expert from Mercor; score 30.
 - **Medium**: Review new post-baseline match Regulatory Law Expert from Mercor; score 30.
 - **Medium**: Review new post-baseline match Law Expertise Sought for AI Training from Outlier; score 30.
@@ -192,7 +192,7 @@ No relevant evergreen applications found for this profile.
 
 | Title | Source | Status | Date | Availability | Score | Next Action |
 | --- | --- | --- | --- | --- | ---: | --- |
-| Constitutional Lawyer | Surge AI | waiting | 2026-05-25 | active | 29 | Follow up or check the portal for Constitutional Lawyer at Surge AI; waiting for 26 days. |
+| Constitutional Lawyer | Surge AI | waiting | 2026-05-25 | active | 29 | Follow up or check the portal for Constitutional Lawyer at Surge AI; waiting for 27 days. |
 
 ### New Matches Not Yet Tracked
 
@@ -209,7 +209,7 @@ No relevant evergreen applications found for this profile.
 
 ### Opportunities at Risk
 
-- Constitutional Lawyer at Surge AI has been waiting for 26 days.
+- Constitutional Lawyer at Surge AI has been waiting for 27 days.
 - Evergreen application Law Expert / Legal AI Trainer at DataAnnotation is relevant; verify whether it has been attempted.
 
 ### Evergreen Application Checklist
