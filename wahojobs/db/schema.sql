@@ -88,6 +88,68 @@ CREATE TABLE IF NOT EXISTS job_events (
   FOREIGN KEY (crawl_run_id) REFERENCES crawl_runs(id)
 );
 
+CREATE TABLE IF NOT EXISTS user_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  education_level TEXT,
+  degrees_or_domains_json TEXT NOT NULL DEFAULT '[]',
+  languages_json TEXT NOT NULL DEFAULT '[]',
+  skills_json TEXT NOT NULL DEFAULT '[]',
+  work_preferences_json TEXT NOT NULL DEFAULT '[]',
+  constraints_json TEXT NOT NULL DEFAULT '[]',
+  target_opportunity_types_json TEXT NOT NULL DEFAULT '[]',
+  notes TEXT,
+  is_sample INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_pipeline_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pipeline_item_id TEXT NOT NULL UNIQUE,
+  user_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  opportunity_title TEXT NOT NULL,
+  opportunity_url TEXT,
+  opportunity_external_id TEXT,
+  canonical_id INTEGER,
+  status TEXT NOT NULL,
+  status_date TEXT,
+  user_priority TEXT,
+  reminder_date TEXT,
+  notes TEXT,
+  last_user_action TEXT,
+  is_sample INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS applicant_status_updates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  update_id TEXT NOT NULL UNIQUE,
+  user_id TEXT,
+  anonymous_user_key TEXT,
+  profile_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  opportunity_title TEXT NOT NULL,
+  opportunity_url TEXT,
+  opportunity_external_id TEXT,
+  canonical_id INTEGER,
+  status TEXT NOT NULL,
+  previous_status TEXT,
+  status_date TEXT NOT NULL,
+  reported_at TEXT NOT NULL,
+  evidence_type TEXT NOT NULL,
+  confidence_level TEXT NOT NULL,
+  notes TEXT,
+  is_sample INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_company_active
 ON jobs(company_id, is_active);
 
@@ -111,3 +173,21 @@ ON job_events(crawl_run_id);
 
 CREATE INDEX IF NOT EXISTS idx_job_events_type_created
 ON job_events(event_type, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_profiles_user
+ON user_profiles(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_pipeline_items_profile_status
+ON user_pipeline_items(profile_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_user_pipeline_items_source
+ON user_pipeline_items(source);
+
+CREATE INDEX IF NOT EXISTS idx_applicant_status_updates_profile
+ON applicant_status_updates(profile_id);
+
+CREATE INDEX IF NOT EXISTS idx_applicant_status_updates_source
+ON applicant_status_updates(source);
+
+CREATE INDEX IF NOT EXISTS idx_applicant_status_updates_reported
+ON applicant_status_updates(reported_at);

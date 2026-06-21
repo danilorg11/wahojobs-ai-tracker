@@ -22,6 +22,7 @@ Recent product-facing prototypes now included in the project:
 - User opportunity pipeline prototype through `scripts/user_pipeline_digest.py` and `profiles/sample_user_pipeline.json`.
 - Applicant signals prototype through `scripts/applicant_signal_report.py` and `profiles/sample_applicant_updates.json`.
 - User-facing product demo report through `scripts/product_demo_report.py` and `exports/product_demo_report.md`.
+- Local product-state persistence through `scripts/product_state.py` and SQLite tables for profiles, pipeline items, and applicant status updates.
 
 The product demo combines:
 
@@ -38,6 +39,42 @@ The product demo combines:
 The current product direction is to make Wahojobs feel less like a raw opportunity database and more like a guided AI-work pipeline: what fits this user, what is already in motion, what changed recently, and what action should happen next.
 
 Applicant signals are currently mock and directional. They are useful for prototyping how aggregate applicant outcomes could guide prioritization, but they should not be presented as guarantees of assessment, acceptance, or paid work.
+
+## Product-State Persistence
+
+The project now includes a minimal SQLite-backed persistence layer for product/user state. This is separate from crawler behavior and does not affect source crawling, job lifecycle tracking, canonicalization, source classification, or live market estimate semantics.
+
+Product-state tables:
+
+- `user_profiles`
+- `user_pipeline_items`
+- `applicant_status_updates`
+
+The tables currently support local MVP/demo state:
+
+- editable or imported profile attributes
+- user opportunity pipeline status
+- applicant status updates and directional applicant-signal data
+
+The product-state CLI is `scripts/product_state.py`.
+
+Useful commands:
+
+- `python scripts/product_state.py init`
+- `python scripts/product_state.py import-profiles profiles/sample_profiles.json`
+- `python scripts/product_state.py import-pipeline profiles/sample_user_pipeline.json`
+- `python scripts/product_state.py import-applicant-updates profiles/sample_applicant_updates.json`
+- `python scripts/product_state.py summary`
+- `python scripts/product_state.py validate`
+- `python scripts/product_state.py export --out exports/product_state_export.json`
+
+Imports are designed to be idempotent where stable IDs are available:
+
+- profiles upsert by `profile_id`
+- pipeline items upsert by a deterministic `pipeline_item_id`
+- applicant updates upsert by `update_id`
+
+Current reporting scripts still preserve their existing JSON-based CLI behavior. SQLite-backed report mode is a recommended next integration step, not required for current validation.
 
 ## Source Taxonomy
 
