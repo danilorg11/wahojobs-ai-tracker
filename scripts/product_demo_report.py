@@ -3,6 +3,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import re
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -16,7 +17,7 @@ from applicant_signal_report import (
     filter_updates,
     load_updates,
 )
-from profile_coverage_report import build_profile_coverage, coverage_note
+from profile_coverage_report import build_profile_coverage
 from profile_match_digest import (
     console_text,
     escape,
@@ -53,6 +54,44 @@ APPLICANT_SIGNAL_DAYS = 14
 TOP_LIVE_LIMIT = 8
 REPORT_SEPARATELY_LIMIT = 5
 NEW_LIMIT = 5
+MATCH_POOL_LIMIT = 40
+
+EXPLICIT_LANGUAGES = {
+    "arabic",
+    "bengali",
+    "chinese",
+    "czech",
+    "danish",
+    "dutch",
+    "english",
+    "finnish",
+    "french",
+    "german",
+    "greek",
+    "hindi",
+    "italian",
+    "japanese",
+    "khmer",
+    "korean",
+    "norwegian",
+    "polish",
+    "portuguese",
+    "romanian",
+    "spanish",
+    "swedish",
+    "thai",
+    "turkish",
+    "ukrainian",
+    "vietnamese",
+}
+
+LANGUAGE_ALIASES = {
+    "brazilian": "portuguese",
+    "brazil": "portuguese",
+    "portugal": "portuguese",
+    "español": "spanish",
+    "français": "french",
+}
 
 
 def main():
@@ -116,7 +155,7 @@ def main():
         pipeline_report,
         applicant_cutoff,
     )
-    next_actions = build_demo_actions(pipeline_report, matches, tracked)
+    next_actions = build_demo_actions(profile, pipeline_report, matches, tracked)
 
     markdown = render_markdown(
         generated_at,
@@ -136,14 +175,11 @@ def main():
     OUTPUT_PATH.write_text(markdown, encoding="utf-8")
 
     print("")
-    print("Wahojobs Product Demo Report")
-    print("============================")
+    print("Wahojobs User Demo")
+    print("==================")
     print(f"Generated: {generated_at.isoformat()} UTC")
     print(f"Profile: {profile['display_name']} ({profile['profile_id']})")
-    print(
-        "Estimated Live Market Opportunities: "
-        f"{market_summary['estimated_market_opportunities']}"
-    )
+    print(f"Live opportunities tracked: {market_summary['estimated_market_opportunities']}")
     print(f"Top live matches: {len(matches['live'])}")
     print(f"Pipeline items: {pipeline_report['summary']['total']}")
     print(f"Applicant signal updates used: {applicant_signals['summary']['total_updates']}")
@@ -188,35 +224,39 @@ def choose_profile(profiles, profile_id):
 
 
 def build_matches(profile, live_rows, evergreen_rows, public_rows, new_rows):
+    live_matches = rank_opportunities(
+        profile,
+        live_rows,
+        group_canonical=True,
+        limit=MATCH_POOL_LIMIT,
+        min_score=22,
+    )
+    new_matches = rank_opportunities(
+        profile,
+        new_rows,
+        group_canonical=True,
+        limit=MATCH_POOL_LIMIT,
+        min_score=18,
+    )
+    evergreen_matches = rank_opportunities(
+        profile,
+        evergreen_rows,
+        group_canonical=False,
+        limit=MATCH_POOL_LIMIT,
+        min_score=18,
+    )
+    public_matches = rank_opportunities(
+        profile,
+        public_rows,
+        group_canonical=False,
+        limit=MATCH_POOL_LIMIT,
+        min_score=18,
+    )
     return {
-        "live": rank_opportunities(
-            profile,
-            live_rows,
-            group_canonical=True,
-            limit=TOP_LIVE_LIMIT,
-            min_score=22,
-        ),
-        "new": rank_opportunities(
-            profile,
-            new_rows,
-            group_canonical=True,
-            limit=NEW_LIMIT,
-            min_score=18,
-        ),
-        "evergreen": rank_opportunities(
-            profile,
-            evergreen_rows,
-            group_canonical=False,
-            limit=REPORT_SEPARATELY_LIMIT,
-            min_score=18,
-        ),
-        "public": rank_opportunities(
-            profile,
-            public_rows,
-            group_canonical=False,
-            limit=REPORT_SEPARATELY_LIMIT,
-            min_score=18,
-        ),
+        "live": user_relevant_matches(profile, live_matches)[:TOP_LIVE_LIMIT],
+        "new": user_relevant_matches(profile, new_matches)[:NEW_LIMIT],
+        "evergreen": user_relevant_matches(profile, evergreen_matches)[:REPORT_SEPARATELY_LIMIT],
+        "public": user_relevant_matches(profile, public_matches)[:REPORT_SEPARATELY_LIMIT],
     }
 
 
@@ -241,8 +281,11 @@ def tracked_record_for_match(match, tracked):
     )
 
 
-def build_demo_actions(pipeline_report, matches, tracked):
-    actions = list(pipeline_report["next_actions"][:6])
+def build_demo_actions(profile, pipeline_report, matches, tracked):
+    actions = [
+        action for action in pipeline_report["next_actions"][:6]
+        if not has_unrelated_language_text(profile, action["action"])
+    ]
 
     for match in matches["live"]:
         if tracked_record_for_match(match, tracked):
@@ -251,7 +294,7 @@ def build_demo_actions(pipeline_report, matches, tracked):
             {
                 "priority": "high" if match["score"] >= 30 else "medium",
                 "action": (
-                    f"Apply to strong untracked match {match['display_title']} "
+                    f"Apply to {match['display_title']} "
                     f"from {match['source']}."
                 ),
                 "title": match["display_title"],
@@ -267,7 +310,7 @@ def build_demo_actions(pipeline_report, matches, tracked):
             {
                 "priority": "medium",
                 "action": (
-                    f"Review new post-baseline match {match['display_title']} "
+                    f"Review new match {match['display_title']} "
                     f"from {match['source']}."
                 ),
                 "title": match["display_title"],
@@ -283,7 +326,7 @@ def build_demo_actions(pipeline_report, matches, tracked):
             {
                 "priority": "medium",
                 "action": (
-                    f"Revisit evergreen application {match['display_title']} "
+                    f"Revisit always-open application {match['display_title']} "
                     f"from {match['source']}."
                 ),
                 "title": match["display_title"],
@@ -323,6 +366,7 @@ def build_relevant_applicant_signals(profile, updates, matches, pipeline_report,
     source_updates = [
         update for update in updates
         if normalize(update["source"]) in {normalize(source) for source in relevant_sources}
+        and update_relevant_to_profile(update, profile)
     ]
     combined = []
     seen = set()
@@ -335,7 +379,10 @@ def build_relevant_applicant_signals(profile, updates, matches, pipeline_report,
     return {
         "summary": build_summary(combined, cutoff),
         "source_signals": build_source_signals(combined, cutoff)[:6],
-        "opportunity_signals": build_opportunity_signals(combined, cutoff)[:8],
+        "opportunity_signals": build_opportunity_signals(
+            [update for update in combined if update_relevant_to_profile(update, profile)],
+            cutoff,
+        )[:8],
         "profile_signals": build_profile_signals(profile_updates, cutoff),
     }
 
@@ -355,30 +402,24 @@ def render_markdown(
     applicant_signals,
 ):
     lines = [
-        "# Wahojobs Product Demo Report",
+        "# Your Wahojobs Demo",
         "",
         f"Generated: {generated_at.isoformat()} UTC",
         "",
-        "This read-only demo shows how Wahojobs could feel for one selected user: matched opportunities, pipeline state, next actions, recent movement, evergreen applications, public inventory, and cautious applicant signals.",
-        "",
-        f"- Profile source: **{escape(profile_source)}**",
-        f"- Pipeline source: **{escape(pipeline_source)}**",
-        f"- Applicant signals source: **{escape(updates_source)}**",
-        f"- Estimated Live Market Opportunities: **{market_summary['estimated_market_opportunities']}**",
-        "- Public inventory, evergreen, mixed/report-separately, and experimental sources remain outside the live estimate.",
+        "A focused daily view of your best AI-work leads, what is already in motion, and what to do next.",
         "",
     ]
 
     append_user_summary(lines, profile, coverage_report)
+    append_do_these_first(lines, next_actions)
     append_best_matches(lines, matches["live"], tracked)
-    append_next_actions(lines, next_actions)
     append_pipeline_snapshot(lines, pipeline_report)
     append_new_since_baseline(lines, matches["new"], tracked)
-    append_report_separate_matches(lines, "Evergreen / Always-Open Applications", matches["evergreen"], tracked)
-    append_report_separate_matches(lines, "Public Inventory / Report-Separately Matches", matches["public"], tracked)
+    append_report_separate_matches(lines, "Always-Open Applications", matches["evergreen"], tracked)
+    append_report_separate_matches(lines, "Other Leads", matches["public"], tracked)
     append_applicant_signals(lines, applicant_signals)
     append_coverage_notes(lines, coverage_report)
-    append_product_notes(lines)
+    append_product_notes(lines, market_summary)
     return "\n".join(lines)
 
 
@@ -388,17 +429,25 @@ def append_user_summary(lines, profile, coverage_report):
             "## Demo User Summary",
             "",
             f"- Profile: **{escape(profile['display_name'])}** (`{profile['profile_id']}`)",
-            f"- Summary: {escape(profile['summary'])}",
-            f"- Education level: {escape(profile['education_level'])}",
-            f"- Domains: {escape(join_values(profile['degrees_or_domains']))}",
+            f"- What you are looking for: {escape(profile['summary'])}",
+            f"- Background: {escape(join_values(profile['degrees_or_domains']))}",
             f"- Languages: {escape(join_values(profile['languages']))}",
             f"- Skills: {escape(join_values(profile['skills']))}",
             f"- Preferences: {escape(join_values(profile['work_preferences']))}",
-            f"- Target opportunity types: {escape(join_values(profile['target_opportunity_types']))}",
-            f"- Coverage risk label: **{coverage_report['risk_label']}**",
+            f"- Current fit: **{profile_strength_label(coverage_report)}**",
             "",
         ]
     )
+
+
+def append_do_these_first(lines, actions):
+    lines.extend(["## Do These First", ""])
+    if not actions:
+        lines.extend(["No urgent action found today. Review your best matches and save anything worth tracking.", ""])
+        return
+    for action in actions[:5]:
+        lines.append(f"- {escape(make_action_user_facing(action['action']))}")
+    lines.append("")
 
 
 def append_best_matches(lines, matches, tracked):
@@ -406,36 +455,24 @@ def append_best_matches(lines, matches, tracked):
         [
             "## Today's Best Matches",
             "",
-            "| Score | Title | Source | Location | Expertise/Department | Pipeline | Reasons | URL |",
-            "| ---: | --- | --- | --- | --- | --- | --- | --- |",
+            "| Match strength | Title | Source | Location | Area | Status | Why it matched you | URL |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     if not matches:
-        lines.append("| 0 | No strong live matches found | - | - | - | - | - | |")
+        lines.append("| - | No strong live opportunities found today | - | - | - | - | - | |")
     for match in matches[:TOP_LIVE_LIMIT]:
         record = tracked_record_for_match(match, tracked)
         lines.append(
             "| "
-            f"{match['score']} | "
+            f"{match_strength(match)} | "
             f"{escape(match['display_title'])} | "
             f"{escape(match['source'])} | "
             f"{escape(match['location'])} | "
             f"{escape(match['expertise'])} | "
             f"{escape(pipeline_label(record))} | "
-            f"{escape('; '.join(match['reasons'][:3]))} | "
+            f"{escape('; '.join(plain_reasons(match, record)[:3]))} | "
             f"[Open]({match['url']}) |"
-        )
-    lines.append("")
-
-
-def append_next_actions(lines, actions):
-    lines.extend(["## Recommended Next Actions", ""])
-    if not actions:
-        lines.extend(["No immediate specific action found for this sample user.", ""])
-        return
-    for action in actions[:8]:
-        lines.append(
-            f"- **{escape(action['priority'].title())}**: {escape(action['action'])}"
         )
     lines.append("")
 
@@ -445,14 +482,14 @@ def append_pipeline_snapshot(lines, pipeline_report):
     grouped = Counter(status_group(record["status"]) for record in pipeline_report["records"])
     lines.extend(
         [
-            "## Pipeline Snapshot",
+            "## Your Application Tracker",
             "",
             f"- Total tracked: **{summary['total']}**",
             f"- Saved: **{summary['saved']}**",
             f"- Applied: **{summary['applied']}**",
-            f"- Assessment-related: **{summary['assessment']}**",
+            f"- Assessments in progress or recently completed: **{summary['assessment']}**",
             f"- Waiting: **{summary['waiting']}**",
-            f"- Accepted/active or rejected: **{summary['accepted_rejected']}**",
+            f"- Accepted, active, or rejected: **{summary['accepted_rejected']}**",
             f"- Not interested: **{summary['not_interested']}**",
             f"- Expired: **{grouped['Expired']}**",
             "",
@@ -464,8 +501,8 @@ def append_pipeline_snapshot(lines, pipeline_report):
 def append_pipeline_items(lines, records):
     lines.extend(
         [
-            "| Status | Title | Source | Availability | Score | Next Action |",
-            "| --- | --- | --- | --- | ---: | --- |",
+            "| Status | Title | Source | Availability | Match strength | Suggested next step |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
     )
     if not records:
@@ -474,22 +511,22 @@ def append_pipeline_items(lines, records):
         score = record["match_score"] if record["match_score"] is not None else "-"
         lines.append(
             "| "
-            f"{escape(record['status'])} | "
+            f"{escape(readable_status(record['status']))} | "
             f"{escape(record['title'])} | "
             f"{escape(record['source'])} | "
-            f"{escape(record['availability'])} | "
-            f"{score} | "
-            f"{escape(record['next_action'])} |"
+            f"{escape(readable_availability(record['availability']))} | "
+            f"{match_strength_from_score(score)} | "
+            f"{escape(make_action_user_facing(record['next_action']))} |"
         )
     lines.append("")
 
 
 def append_new_since_baseline(lines, matches, tracked):
-    lines.extend(["## New Since Baseline", ""])
+    lines.extend(["## New Matches This Week", ""])
     if not matches:
         lines.extend(
             [
-                "Few or no post-baseline new matches were found for this profile in the recent window. That can mean the market is quiet, or simply that current high-fit inventory is already known.",
+                "Few or no newly discovered matches stood out for this profile this week. Your existing strong matches may still be the best place to focus.",
                 "",
             ]
         )
@@ -500,12 +537,12 @@ def append_new_since_baseline(lines, matches, tracked):
 def append_report_separate_matches(lines, title, matches, tracked):
     lines.extend([f"## {title}", ""])
     if not matches:
-        lines.extend(["No relevant report-separately matches found for this profile.", ""])
+        lines.extend(["No especially relevant leads found here today.", ""])
         return
-    if title.startswith("Evergreen"):
-        lines.append("These are application surfaces or always-open paths, not live postings in the market estimate.")
+    if title.startswith("Always"):
+        lines.append("These are broad application paths that may stay open over time. They are useful, but they are not fresh live postings.")
     else:
-        lines.append("These are useful public or mixed-source leads, but they are reported separately from Estimated Live Market Opportunities.")
+        lines.append("These are useful public leads or broader opportunity pages. Review them as supplemental options.")
     lines.append("")
     append_match_cards(lines, matches, tracked, include_live=False)
 
@@ -513,22 +550,18 @@ def append_report_separate_matches(lines, title, matches, tracked):
 def append_match_cards(lines, matches, tracked, include_live):
     lines.extend(
         [
-            "| Score | Title | Source | Kind | Pipeline | URL |",
-            "| ---: | --- | --- | --- | --- | --- |",
+            "| Match strength | Title | Source | Type | Status | URL |",
+            "| --- | --- | --- | --- | --- | --- |",
         ]
     )
     for match in matches[:REPORT_SEPARATELY_LIMIT]:
         record = tracked_record_for_match(match, tracked)
-        live_label = "live estimate" if match["include_in_live_market_estimate"] else "separate"
-        kind = f"{match['opportunity_kind']} / {match['availability_basis']}"
-        if include_live:
-            kind = f"{kind} ({live_label})"
         lines.append(
             "| "
-            f"{match['score']} | "
+            f"{match_strength(match)} | "
             f"{escape(match['display_title'])} | "
             f"{escape(match['source'])} | "
-            f"{escape(kind)} | "
+            f"{escape(opportunity_type_label(match))} | "
             f"{escape(pipeline_label(record))} | "
             f"[Open]({match['url']}) |"
         )
@@ -539,18 +572,18 @@ def append_applicant_signals(lines, applicant_signals):
     summary = applicant_signals["summary"]
     lines.extend(
         [
-            "## Applicant Signals Relevant to This User",
+            "## Applicant Signals",
             "",
             (
-                "These are mock applicant updates from similar profiles or relevant sources. "
-                "They are directional product signals, not guarantees of assessment, acceptance, or paid work."
+                "These sample signals show what similar users have reported on relevant sources. "
+                "Treat them as directional, not as guarantees."
             ),
             "",
-            f"- Relevant mock updates: **{summary['total_updates']}**",
-            f"- Recent updates in window: **{summary['recent_updates']}**",
-            f"- Assessment-related updates: **{summary['assessment_updates']}**",
-            f"- Accepted/active/paid-task updates: **{summary['success_updates']}**",
-            f"- Waiting/no-response updates: **{summary['waiting_updates']}**",
+            f"- Relevant sample reports: **{summary['total_updates']}**",
+            f"- Recent reports: **{summary['recent_updates']}**",
+            f"- Assessment activity reported: **{summary['assessment_updates']}**",
+            f"- Accepted/active/paid-task reports: **{summary['success_updates']}**",
+            f"- Waiting/no-response reports: **{summary['waiting_updates']}**",
             "",
         ]
     )
@@ -576,21 +609,21 @@ def append_signal_table(lines, rows):
             f"{row['assessment_reports']} | "
             f"{row['success_reports']} | "
             f"{row['waiting_reports']} | "
-            f"{escape(row['signal_label'])} |"
+            f"{escape(readable_signal(row['signal_label']))} |"
         )
     lines.append("")
 
 
 def append_opportunity_signal_list(lines, rows):
-    lines.extend(["### Opportunity Signal Examples", ""])
+    lines.extend(["### Relevant Examples", ""])
     if not rows:
-        lines.extend(["No opportunity-level signal examples for this profile/source set.", ""])
+        lines.extend(["Limited relevant applicant signals are available for this profile today.", ""])
         return
     for row in rows[:5]:
         url = f" ([Open]({row['url']}))" if row["url"] else ""
         lines.append(
             f"- {escape(row['source'])}: {escape(row['title'])} - "
-            f"{escape(row['signal_label'])}; confidence {escape(row['confidence_label'])}.{url}"
+            f"{escape(readable_signal(row['signal_label']))}; confidence {escape(row['confidence_label'])}.{url}"
         )
     lines.append("")
 
@@ -598,28 +631,30 @@ def append_opportunity_signal_list(lines, rows):
 def append_coverage_notes(lines, coverage_report):
     lines.extend(
         [
-            "## Coverage / Retention Notes",
+            "## How Strong Is This Profile Right Now?",
             "",
-            f"- Coverage risk: **{coverage_report['risk_label']}**",
-            f"- Strong / medium / weak live matches: **{coverage_report['strong_live']} / {coverage_report['medium_live']} / {coverage_report['weak_live']}**",
-            f"- Evergreen / public-separate matches: **{coverage_report['evergreen']} / {coverage_report['public']}**",
-            f"- Post-baseline new matches: **{coverage_report['new_7d']} in 7d; {coverage_report['new_30d']} in 30d**",
-            f"- Source diversity: **{coverage_report['source_diversity']}** sources",
+            f"- Overall fit: **{profile_strength_label(coverage_report)}**",
+            f"- Strong matches available now: **{coverage_report['strong_live']}**",
+            f"- Good backup matches: **{coverage_report['medium_live']}**",
+            f"- New relevant matches this week: **{coverage_report['new_7d']}**",
+            f"- Always-open or other supplemental leads: **{coverage_report['evergreen'] + coverage_report['public']}**",
             "",
-            coverage_note(coverage_report),
+            user_coverage_note(coverage_report),
             "",
         ]
     )
 
 
-def append_product_notes(lines):
+def append_product_notes(lines, market_summary):
     lines.extend(
         [
-            "## Product Notes",
+            "## About This Demo",
             "",
-            "- This is a mock read-only product demo; it does not update profiles, pipeline records, applicant signals, or tracker database rows.",
-            "- Profile, pipeline, and applicant status data are sample data.",
-            "- Matching is deterministic keyword/profile scoring, not true resume understanding and not an eligibility decision.",
+            "- This is a mock, read-only demo. It does not apply to jobs, update your tracker, or change any stored data.",
+            "- Profile, application tracker, and applicant signal examples are sample data.",
+            "- Matches are based on visible profile keywords and opportunity text. They are suggestions to review, not eligibility decisions.",
+            "- Wahojobs is currently tracking "
+            f"**{market_summary['estimated_market_opportunities']}** active live opportunities in its current market database.",
             "- A future app could let users edit profiles, update statuses, hide irrelevant roles, set reminders, and contribute anonymous aggregate applicant signals.",
             "",
         ]
@@ -628,8 +663,8 @@ def append_product_notes(lines):
 
 def pipeline_label(record):
     if not record:
-        return "not tracked"
-    return f"{record['status']} ({record['availability']})"
+        return "Not tracked yet"
+    return f"{readable_status(record['status'])} ({readable_availability(record['availability'])})"
 
 
 def pipeline_sort_key(record):
@@ -653,6 +688,245 @@ def join_values(values):
 
 def normalize(value):
     return str(value or "").strip().lower()
+
+
+def escape(value):
+    return clean_display_text(value).replace("|", "\\|").replace("\n", " ")
+
+
+def clean_display_text(value):
+    text = str(value or "")
+    replacements = {
+        "â€“": "-",
+        "â€”": "-",
+        "â€™": "'",
+        "â€œ": '"',
+        "â€": '"',
+        "Â": "",
+        "�": "-",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def user_relevant_matches(profile, matches):
+    return [
+        match for match in matches
+        if not has_unrelated_explicit_language(profile, match)
+    ]
+
+
+def update_relevant_to_profile(update, profile):
+    text = " ".join(
+        str(update.get(field) or "")
+        for field in ("source", "opportunity_title", "notes")
+    )
+    if has_unrelated_language_text(profile, text):
+        return False
+    update_text = normalize_text(text)
+    if update["profile_id"] == profile["profile_id"]:
+        return True
+    for _, keywords, _ in profile["signals"]:
+        if any(keyword_in_text(update_text, keyword) for keyword in keywords):
+            return True
+    return any(
+        keyword_in_text(update_text, language)
+        for language in profile.get("languages", [])
+    )
+
+
+def has_unrelated_explicit_language(profile, match):
+    text = " ".join(
+        str(match.get(field) or "")
+        for field in ("display_title", "expertise", "location", "source")
+    )
+    return has_unrelated_language_text(profile, text)
+
+
+def has_unrelated_language_text(profile, text):
+    allowed = profile_languages(profile)
+    explicit = explicit_languages_in_text(text)
+    return bool(explicit and not explicit.intersection(allowed))
+
+
+def profile_languages(profile):
+    languages = {normalize_language(value) for value in profile.get("languages", [])}
+    return {language for language in languages if language}
+
+
+def explicit_languages_in_text(text):
+    normalized = normalize_text(text)
+    found = set()
+    for language in EXPLICIT_LANGUAGES:
+        if re.search(rf"\b{re.escape(language)}\b", normalized):
+            found.add(normalize_language(language))
+    for alias, language in LANGUAGE_ALIASES.items():
+        if re.search(rf"\b{re.escape(alias)}\b", normalized):
+            found.add(language)
+    return found
+
+
+def normalize_language(value):
+    normalized = normalize_text(value)
+    return LANGUAGE_ALIASES.get(normalized, normalized)
+
+
+def normalize_text(value):
+    return re.sub(r"\s+", " ", str(value or "").lower()).strip()
+
+
+def keyword_in_text(text, keyword):
+    keyword = normalize_text(keyword)
+    if len(keyword) <= 3 and keyword.isalnum():
+        return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+    return keyword in text
+
+
+def match_strength(match):
+    return match_strength_from_score(match["score"])
+
+
+def match_strength_from_score(score):
+    if score == "-":
+        return "-"
+    if score >= 34:
+        return "Strong"
+    if score >= 24:
+        return "Medium"
+    return "Possible"
+
+
+def plain_reasons(match, record=None):
+    mapped = []
+    for reason in match["reasons"]:
+        mapped.append(plain_reason(reason))
+    if record:
+        mapped.append("Matches your current application tracker")
+    return unique(mapped)
+
+
+def plain_reason(reason):
+    lower = normalize(reason)
+    if "portuguese" in lower:
+        return "Portuguese language match"
+    if "english" in lower:
+        return "English language match"
+    if "language review" in lower or "linguistic" in lower or "translation" in lower:
+        return "Language or translation review work"
+    if "evaluation" in lower or "reviewer" in lower or "quality" in lower:
+        return "AI evaluation or quality review role"
+    if "search" in lower or "ads" in lower:
+        return "Search or ads quality work"
+    if "remote" in lower or "flexible" in lower:
+        return "Remote or flexible work signal"
+    if "live/countable" in lower:
+        return "Active opportunity"
+    if "evergreen" in lower:
+        return "Always-open application"
+    if "public inventory" in lower or "mixed" in lower:
+        return "Public lead"
+    if "canonical" in lower:
+        return "Similar postings grouped together"
+    return reason
+
+
+def readable_status(status):
+    labels = {
+        "recommended": "Recommended",
+        "saved": "Saved",
+        "applied": "Applied",
+        "assessment_invited": "Assessment invited",
+        "assessment_started": "Assessment started",
+        "assessment_completed": "Assessment completed",
+        "waiting": "Waiting",
+        "accepted": "Accepted",
+        "rejected": "Rejected",
+        "active_worker": "Active worker",
+        "paid_task_received": "Paid task received",
+        "not_interested": "Not interested",
+        "expired": "Expired",
+        "remind_later": "Remind later",
+    }
+    return labels.get(status, str(status or "").replace("_", " ").title())
+
+
+def readable_availability(value):
+    if value == "active":
+        return "Still open"
+    if value == "inactive/removed":
+        return "No longer active"
+    return str(value or "Unknown").replace("_", " ").title()
+
+
+def opportunity_type_label(match):
+    kind = match["opportunity_kind"]
+    basis = match["availability_basis"]
+    if kind == "live_posting":
+        return "Live opportunity"
+    if kind == "evergreen_application":
+        return "Always-open application"
+    if kind == "public_inventory_opportunity":
+        return "Public lead"
+    if basis == "public_page":
+        return "Public lead"
+    return "Opportunity"
+
+
+def readable_signal(label):
+    replacements = {
+        "Assessment activity reported": "Some users report assessment activity",
+        "Acceptance/paid-task reported": "Some users report acceptance or paid tasks",
+        "Mostly waiting/no-response": "Some users report waiting or no response",
+        "High recent applicant activity": "Recent applicant activity reported",
+        "Low confidence / limited data": "Limited reports so far",
+        "Too few reports to trust": "Too few reports to rely on",
+        "Waiting/no-response reported": "Waiting or no response reported",
+        "Applicant activity reported": "Applicant activity reported",
+    }
+    return replacements.get(label, label)
+
+
+def make_action_user_facing(action):
+    text = action
+    replacements = {
+        "strong untracked match ": "",
+        "new post-baseline match ": "new match ",
+        "evergreen application ": "always-open application ",
+        "remains an active strong match": "still looks like a strong fit",
+        "tracker currently marks it inactive": "it may no longer be open",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = re.sub(r"; score \d+", "", text)
+    return text
+
+
+def profile_strength_label(report):
+    if report["risk_label"] == "Low":
+        return "Strong fit today"
+    if report["risk_label"] == "Medium":
+        return "Good fit, but monitor new leads"
+    return "Needs more leads or broader targeting"
+
+
+def user_coverage_note(report):
+    if report["risk_label"] == "Low":
+        return "This profile has enough strong current matches to support a useful daily or weekly job-search workflow."
+    if report["risk_label"] == "Medium":
+        return "This profile has useful matches, but engagement may depend on fresh openings and careful follow-up."
+    return "This profile may need more always-open applications, broader targeting, or additional sources before it feels reliably useful."
+
+
+def unique(values):
+    seen = set()
+    result = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 if __name__ == "__main__":

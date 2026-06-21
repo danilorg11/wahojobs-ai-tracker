@@ -1,124 +1,115 @@
-# Wahojobs Product Demo Report
+# Your Wahojobs Demo
 
-Generated: 2026-06-21T05:17:49+00:00 UTC
+Generated: 2026-06-21T05:26:15+00:00 UTC
 
-This read-only demo shows how Wahojobs could feel for one selected user: matched opportunities, pipeline state, next actions, recent movement, evergreen applications, public inventory, and cautious applicant signals.
-
-- Profile source: **built-in mock profiles + profiles\sample_profiles.json**
-- Pipeline source: **profiles\sample_user_pipeline.json**
-- Applicant signals source: **profiles\sample_applicant_updates.json**
-- Estimated Live Market Opportunities: **2409**
-- Public inventory, evergreen, mixed/report-separately, and experimental sources remain outside the live estimate.
+A focused daily view of your best AI-work leads, what is already in motion, and what to do next.
 
 ## Demo User Summary
 
 - Profile: **Portuguese-English AI Reviewer** (`portuguese_english_reviewer`)
-- Summary: Portuguese native, advanced English, reviewer/search quality/AI evaluation background, prefers remote flexible work.
-- Education level: not_specified
-- Domains: language, search quality, ai evaluation
+- What you are looking for: Portuguese native, advanced English, reviewer/search quality/AI evaluation background, prefers remote flexible work.
+- Background: language, search quality, ai evaluation
 - Languages: Portuguese, English
 - Skills: review, search quality, evaluation, translation
 - Preferences: remote, flexible
-- Target opportunity types: AI evaluation, search quality, language review
-- Coverage risk label: **Low**
+- Current fit: **Strong fit today**
+
+## Do These First
+
+- Continue the in-progress Welocalize assessment for Alpheratz Project - Portuguese (Portugal) Translation Quality Rater.
+- Apply to Portuguese (Brazil) Freelance Writer at Outlier; it still looks like a strong fit.
+- Apply to Portuguese Audio Evaluations Specialist - Freelance AI Trainer Project from Meridial.
+- Watch for assessment or next-step email from OneForma for HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal).
+- Review new match Portuguese / Brazilian Finance Professional from Mercor.
 
 ## Today's Best Matches
 
-| Score | Title | Source | Location | Expertise/Department | Pipeline | Reasons | URL |
-| ---: | --- | --- | --- | --- | --- | --- | --- |
-| 51 | Alpheratz Project - Portuguese (Portugal) Translation Quality Rater | Welocalize | Lisbon, Portugal | AI Service General Application | assessment_started (active) | Portuguese language match; Language review signal; AI evaluation/reviewer signal | [Open](https://jobs.lever.co/weloglobal/90b6274a-0169-4dfb-a7ec-1dbb52d3022d) |
-| 43 | Portuguese Audio Evaluations Specialist - Freelance AI Trainer Project | Meridial | World Wide - Remote | Language & Linguistics | not tracked | Portuguese language match; Language review signal; AI evaluation/reviewer signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4896013101) |
-| 43 | Alpheratz Project - Portuguese (Portugal) Translation Quality Reviewer | Welocalize | Lisbon, Portugal | AI Service General Application | not tracked | Portuguese language match; Language review signal; AI evaluation/reviewer signal | [Open](https://jobs.lever.co/weloglobal/a65a021a-1d13-4c3d-a7e1-6ff1a69fd5a6) |
-| 41 | HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal) | OneForma | Worldwide | Translation | applied (active) | Portuguese language match; Language review signal; Portuguese language signal | [Open](https://my.oneforma.com/crowd/jobs/12844?from=list&tab=all) |
-| 35 | Language Alignment & Resource Partner (Portuguese) - Freelance AI Trainer Project | Meridial | Brazil | Language & Linguistics | not tracked | Portuguese language match; Language review signal; Portuguese language signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4832340101) |
-| 35 | Portuguese Language Data Contributor (Multimodal) – Freelance AI Trainer Project | Meridial | World Wide - Remote | Language & Linguistics | not tracked | Portuguese language match; Language review signal; Portuguese language signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4778242101) |
-| 35 | Portuguese Language Specialist (Brazil) - Freelance AI Trainer Project | Meridial | Brazil | Language & Linguistics | not tracked | Portuguese language match; Language review signal; Portuguese language signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4604023101) |
-| 35 | Portuguese Language Specialist (Portugal) - Freelance AI Trainer Project | Meridial | Portugal | Language & Linguistics | not tracked | Portuguese language match; Language review signal; Portuguese language signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4604024101) |
+| Match strength | Title | Source | Location | Area | Status | Why it matched you | URL |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Strong | Alpheratz Project - Portuguese (Portugal) Translation Quality Rater | Welocalize | Lisbon, Portugal | AI Service General Application | Assessment started (Still open) | Portuguese language match; Language or translation review work; AI evaluation or quality review role | [Open](https://jobs.lever.co/weloglobal/90b6274a-0169-4dfb-a7ec-1dbb52d3022d) |
+| Strong | Portuguese Audio Evaluations Specialist - Freelance AI Trainer Project | Meridial | World Wide - Remote | Language & Linguistics | Not tracked yet | Portuguese language match; Language or translation review work; AI evaluation or quality review role | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4896013101) |
+| Strong | Alpheratz Project - Portuguese (Portugal) Translation Quality Reviewer | Welocalize | Lisbon, Portugal | AI Service General Application | Not tracked yet | Portuguese language match; Language or translation review work; AI evaluation or quality review role | [Open](https://jobs.lever.co/weloglobal/a65a021a-1d13-4c3d-a7e1-6ff1a69fd5a6) |
+| Strong | HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal) | OneForma | Worldwide | Translation | Applied (Still open) | Portuguese language match; Language or translation review work; English language match | [Open](https://my.oneforma.com/crowd/jobs/12844?from=list&tab=all) |
+| Strong | Language Alignment & Resource Partner (Portuguese) - Freelance AI Trainer Project | Meridial | Brazil | Language & Linguistics | Not tracked yet | Portuguese language match; Language or translation review work; Remote or flexible work signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4832340101) |
+| Strong | Portuguese Language Data Contributor (Multimodal) – Freelance AI Trainer Project | Meridial | World Wide - Remote | Language & Linguistics | Not tracked yet | Portuguese language match; Language or translation review work; Remote or flexible work signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4778242101) |
+| Strong | Portuguese Language Specialist (Brazil) - Freelance AI Trainer Project | Meridial | Brazil | Language & Linguistics | Not tracked yet | Portuguese language match; Language or translation review work; Remote or flexible work signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4604023101) |
+| Strong | Portuguese Language Specialist (Portugal) - Freelance AI Trainer Project | Meridial | Portugal | Language & Linguistics | Not tracked yet | Portuguese language match; Language or translation review work; Remote or flexible work signal | [Open](https://job-boards.eu.greenhouse.io/agency/jobs/4604024101) |
 
-## Recommended Next Actions
-
-- **High**: Continue the in-progress Welocalize assessment for Alpheratz Project - Portuguese (Portugal) Translation Quality Rater.
-- **High**: Apply to Portuguese (Brazil) Freelance Writer at Outlier; it remains an active strong match.
-- **High**: Apply to strong untracked match Portuguese Audio Evaluations Specialist - Freelance AI Trainer Project from Meridial.
-- **Medium**: Watch for assessment or next-step email from OneForma for HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal).
-- **Medium**: Review new post-baseline match Alpheratz Project - Norwegian (Norway) Translation Quality Rater from Welocalize; score 33.
-- **Medium**: Review new post-baseline match Portuguese / Brazilian Finance Professional from Mercor; score 27.
-- **Medium**: Review new post-baseline match Fred Annotation - Portuguese (Portugal) from OneForma; score 27.
-
-## Pipeline Snapshot
+## Your Application Tracker
 
 - Total tracked: **4**
 - Saved: **0**
 - Applied: **1**
-- Assessment-related: **1**
+- Assessments in progress or recently completed: **1**
 - Waiting: **0**
-- Accepted/active or rejected: **1**
+- Accepted, active, or rejected: **1**
 - Not interested: **0**
 - Expired: **0**
 
-| Status | Title | Source | Availability | Score | Next Action |
-| --- | --- | --- | --- | ---: | --- |
-| assessment_started | Alpheratz Project - Portuguese (Portugal) Translation Quality Rater | Welocalize | active | 51 | Continue the in-progress Welocalize assessment for Alpheratz Project - Portuguese (Portugal) Translation Quality Rater. |
-| applied | HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal) | OneForma | active | 41 | Watch for assessment or next-step email from OneForma for HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal). |
-| recommended | Portuguese (Brazil) Freelance Writer | Outlier | active | 35 | Apply to Portuguese (Brazil) Freelance Writer at Outlier; it remains an active strong match. |
-| rejected | Social Media Ads Evaluator (Native English Speaker) | Appen | active | 10 | Hide or deprioritize Social Media Ads Evaluator (Native English Speaker) at Appen; user marked it rejected. |
+| Status | Title | Source | Availability | Match strength | Suggested next step |
+| --- | --- | --- | --- | --- | --- |
+| Assessment started | Alpheratz Project - Portuguese (Portugal) Translation Quality Rater | Welocalize | Still open | Strong | Continue the in-progress Welocalize assessment for Alpheratz Project - Portuguese (Portugal) Translation Quality Rater. |
+| Applied | HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal) | OneForma | Still open | Strong | Watch for assessment or next-step email from OneForma for HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal). |
+| Recommended | Portuguese (Brazil) Freelance Writer | Outlier | Still open | Strong | Apply to Portuguese (Brazil) Freelance Writer at Outlier; it still looks like a strong fit. |
+| Rejected | Social Media Ads Evaluator (Native English Speaker) | Appen | Still open | Possible | Hide or deprioritize Social Media Ads Evaluator (Native English Speaker) at Appen; user marked it rejected. |
 
-## New Since Baseline
+## New Matches This Week
 
-| Score | Title | Source | Kind | Pipeline | URL |
-| ---: | --- | --- | --- | --- | --- |
-| 35 | Portuguese (Brazil) Freelance Writer | Outlier | live_posting / api_feed (live estimate) | recommended (active) | [Open](https://app.outlier.ai/en/expert/opportunities/4421873005) |
-| 33 | Alpheratz Project - Norwegian (Norway) Translation Quality Rater | Welocalize | live_posting / api_feed (live estimate) | not tracked | [Open](https://jobs.lever.co/weloglobal/64716ac3-a242-47f5-ab91-5eeb22e33d31) |
-| 27 | Portuguese / Brazilian Finance Professional | Mercor | live_posting / api_feed (live estimate) | not tracked | [Open](https://work.mercor.com/jobs/list_AAABntv-wlOj2fXi7_hA8YAU) |
-| 27 | Fred Annotation - Portuguese (Portugal) | OneForma | live_posting / api_feed (live estimate) | not tracked | [Open](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12800) |
-| 25 | Alpheratz Project - Norwegian (Norway) Translation Quality Reviewer | Welocalize | live_posting / api_feed (live estimate) | not tracked | [Open](https://jobs.lever.co/weloglobal/10e54808-5dea-4ba9-8b47-678aba4bda85) |
+| Match strength | Title | Source | Type | Status | URL |
+| --- | --- | --- | --- | --- | --- |
+| Strong | Portuguese (Brazil) Freelance Writer | Outlier | Live opportunity | Recommended (Still open) | [Open](https://app.outlier.ai/en/expert/opportunities/4421873005) |
+| Medium | Portuguese / Brazilian Finance Professional | Mercor | Live opportunity | Not tracked yet | [Open](https://work.mercor.com/jobs/list_AAABntv-wlOj2fXi7_hA8YAU) |
+| Medium | Fred Annotation - Portuguese (Portugal) | OneForma | Live opportunity | Not tracked yet | [Open](https://my.oneforma.com/webapp/rm/jobDetail?jobId=12800) |
+| Possible | English (Australia) Audio Generalist Evaluator Expert | Mercor | Live opportunity | Not tracked yet | [Open](https://work.mercor.com/jobs/list_AAABnta9W11pnOe6FSxDoalq) |
+| Possible | English (New Zealand) Audio Generalist Evaluator Expert | Mercor | Live opportunity | Not tracked yet | [Open](https://work.mercor.com/jobs/list_AAABntaxoKcNqVEf461J9pn1) |
 
-## Evergreen / Always-Open Applications
+## Always-Open Applications
 
-No relevant report-separately matches found for this profile.
+No especially relevant leads found here today.
 
-## Public Inventory / Report-Separately Matches
+## Other Leads
 
-No relevant report-separately matches found for this profile.
+No especially relevant leads found here today.
 
-## Applicant Signals Relevant to This User
+## Applicant Signals
 
-These are mock applicant updates from similar profiles or relevant sources. They are directional product signals, not guarantees of assessment, acceptance, or paid work.
+These sample signals show what similar users have reported on relevant sources. Treat them as directional, not as guarantees.
 
-- Relevant mock updates: **14**
-- Recent updates in window: **14**
-- Assessment-related updates: **7**
-- Accepted/active/paid-task updates: **2**
-- Waiting/no-response updates: **1**
+- Relevant sample reports: **10**
+- Recent reports: **10**
+- Assessment activity reported: **5**
+- Accepted/active/paid-task reports: **0**
+- Waiting/no-response reports: **1**
 
 | Source | Reports | Recent | Assessments | Accepted/Active/Paid | Waiting/No-response | Signal |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Welocalize | 5 | 5 | 3 | 0 | 0 | Assessment activity reported |
-| Mercor | 4 | 4 | 3 | 1 | 0 | Acceptance/paid-task reported |
-| Outlier | 3 | 3 | 1 | 0 | 1 | High recent applicant activity |
-| OneForma | 2 | 2 | 0 | 1 | 0 | Low confidence / limited data |
+| Welocalize | 4 | 4 | 2 | 0 | 0 | Some users report assessment activity |
+| Outlier | 3 | 3 | 1 | 0 | 1 | Recent applicant activity reported |
+| Mercor | 2 | 2 | 2 | 0 | 0 | Limited reports so far |
+| OneForma | 1 | 1 | 0 | 0 | 0 | Limited reports so far |
 
-### Opportunity Signal Examples
+### Relevant Examples
 
-- Mercor: Attorney / Legal Expert (Real Estate / Energy) - AI Training Project - Too few reports to trust; confidence medium. ([Open](https://work.mercor.com/jobs/list_AAABnt3KAL7_5tTFxaFNopGc))
-- Mercor: Legal Expert - Employment / Labor - Too few reports to trust; confidence high. ([Open](https://work.mercor.com/jobs/list_AAABndg_Lkzb9IZVs8tKdoTx))
-- Mercor: Market Research Methodologist - Report Quality & Insights Evaluation Expert - Too few reports to trust; confidence medium. ([Open](https://work.mercor.com/jobs/list_AAABnp0tZtVb9MockHistory))
-- Mercor: Portuguese / Brazilian Finance Professional - Too few reports to trust; confidence medium. ([Open](https://work.mercor.com/jobs/list_AAABntv-wlOj2fXi7_hA8YAU))
-- OneForma: HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal) - Too few reports to trust; confidence medium. ([Open](https://my.oneforma.com/crowd/jobs/12844?from=list&tab=all))
+- Mercor: Market Research Methodologist - Report Quality & Insights Evaluation Expert - Too few reports to rely on; confidence medium. ([Open](https://work.mercor.com/jobs/list_AAABnp0tZtVb9MockHistory))
+- Mercor: Portuguese / Brazilian Finance Professional - Too few reports to rely on; confidence medium. ([Open](https://work.mercor.com/jobs/list_AAABntv-wlOj2fXi7_hA8YAU))
+- OneForma: HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Portuguese (Portugal) - Too few reports to rely on; confidence medium. ([Open](https://my.oneforma.com/crowd/jobs/12844?from=list&tab=all))
+- Outlier: English Writing and Content Reviewing Expertise Sought for AI Training - Too few reports to rely on; confidence medium. ([Open](https://app.outlier.ai/en/expert/opportunities/4613691005))
+- Outlier: English Writing and Content Reviewing Expertise Sought for AI Training - Too few reports to rely on; confidence low. ([Open](https://app.outlier.ai/en/expert/opportunities/4663643005))
 
-## Coverage / Retention Notes
+## How Strong Is This Profile Right Now?
 
-- Coverage risk: **Low**
-- Strong / medium / weak live matches: **43 / 134 / 623**
-- Evergreen / public-separate matches: **1 / 1**
-- Post-baseline new matches: **81 in 7d; 81 in 30d**
-- Source diversity: **12** sources
+- Overall fit: **Strong fit today**
+- Strong matches available now: **43**
+- Good backup matches: **134**
+- New relevant matches this week: **81**
+- Always-open or other supplemental leads: **2**
 
-Healthy opportunity density: enough active matches, source diversity, and recent movement to support ongoing engagement.
+This profile has enough strong current matches to support a useful daily or weekly job-search workflow.
 
-## Product Notes
+## About This Demo
 
-- This is a mock read-only product demo; it does not update profiles, pipeline records, applicant signals, or tracker database rows.
-- Profile, pipeline, and applicant status data are sample data.
-- Matching is deterministic keyword/profile scoring, not true resume understanding and not an eligibility decision.
+- This is a mock, read-only demo. It does not apply to jobs, update your tracker, or change any stored data.
+- Profile, application tracker, and applicant signal examples are sample data.
+- Matches are based on visible profile keywords and opportunity text. They are suggestions to review, not eligibility decisions.
+- Wahojobs is currently tracking **2409** active live opportunities in its current market database.
 - A future app could let users edit profiles, update statuses, hide irrelevant roles, set reminders, and contribute anonymous aggregate applicant signals.
