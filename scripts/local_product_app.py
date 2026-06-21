@@ -517,12 +517,24 @@ def visible_actions(actions, tracked):
     return result
 
 
+def load_profile_options():
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT profile_id, display_name
+            FROM user_profiles
+            ORDER BY display_name, profile_id
+            """
+        ).fetchall()
+
+
 def render_dashboard(context, message=None, error=None):
     profile = context["profile"]
     pipeline_report = context["pipeline_report"]
     applicant_signals = context["applicant_signals"]
     matches = context["matches"]
     tracked = context["tracked"]
+    profiles = load_profile_options()
     visible_match_buckets = {
         key: visible_matches(bucket, tracked)
         for key, bucket in matches.items()
@@ -541,7 +553,7 @@ def render_dashboard(context, message=None, error=None):
         "</head>",
         "<body>",
         "<main>",
-        render_header(context),
+        render_header(context, profiles),
         render_notice(message, error),
         render_actions(actions, card_index),
         render_matches(
@@ -584,7 +596,7 @@ def render_dashboard(context, message=None, error=None):
     return "\n".join(parts)
 
 
-def render_header(context):
+def render_header(context, profiles):
     profile = context["profile"]
     market = context["market_summary"]
     profile_summary = [
@@ -603,12 +615,34 @@ def render_header(context):
         <p class="eyebrow">Local prototype</p>
         <h1>Your AI-work opportunity dashboard</h1>
         <p class="lead">A focused view of the best leads, active applications, and directional applicant signals for one profile.</p>
+        {render_profile_selector(profiles, profile["profile_id"])}
       </div>
       <div class="profile-box">
         {rows}
         <p><strong>Live opportunities tracked:</strong> {market['estimated_market_opportunities']}</p>
       </div>
     </section>
+    """
+
+
+def render_profile_selector(profiles, selected_profile_id):
+    if not profiles:
+        return """
+        <p class="muted">No product-state profiles found. Import profiles before switching users.</p>
+        """
+    options = "".join(
+        f"<option value=\"{e(row['profile_id'])}\" {'selected' if row['profile_id'] == selected_profile_id else ''}>"
+        f"{e(row['display_name'])}</option>"
+        for row in profiles
+    )
+    return f"""
+    <form class="profile-switcher" method="get" action="/">
+      <label for="profile">View profile</label>
+      <select id="profile" name="profile">
+        {options}
+      </select>
+      <button type="submit">Switch</button>
+    </form>
     """
 
 
@@ -966,6 +1000,29 @@ h2 { font-size: 1.35rem; margin-bottom: 10px; }
 h3 { font-size: 1.02rem; margin-bottom: 8px; }
 .lead { color: var(--muted); font-size: 1.08rem; max-width: 56ch; }
 .eyebrow, .source { color: var(--accent); font-weight: 700; font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 8px; }
+.profile-switcher {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.profile-switcher label {
+  color: var(--muted);
+  display: block;
+  flex-basis: 100%;
+  font-weight: 700;
+}
+.profile-switcher select {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  min-height: 34px;
+  min-width: min(360px, 100%);
+  padding: 6px 9px;
+}
 .stack { display: grid; gap: 10px; }
 .card {
   display: grid;
