@@ -439,6 +439,25 @@
       "updated_at": "2026-06-21 05:35:31"
     },
     {
+      "pipeline_item_id": "pipeline::f59e3d414dfea8a2",
+      "user_id": "portuguese_english_reviewer",
+      "profile_id": "portuguese_english_reviewer",
+      "source": "DataAnnotation",
+      "title": "DataAnnotation Generalist",
+      "url": "https://www.dataannotation.tech/",
+      "opportunity_external_id": "",
+      "canonical_id": null,
+      "status": "remind_later",
+      "status_date": "2026-06-21",
+      "user_priority": "medium",
+      "reminder_date": "2026-06-28",
+      "notes": "Applied through platform website\nCheck for assessment invite",
+      "last_user_action": "Check for assessment invite",
+      "is_sample": false,
+      "created_at": "2026-06-21 14:53:08",
+      "updated_at": "2026-06-21 14:53:15"
+    },
+    {
       "pipeline_item_id": "pipeline::c8a69ef259dccd01",
       "user_id": "portuguese_english_reviewer",
       "profile_id": "portuguese_english_reviewer",
@@ -1076,6 +1095,27 @@
       "is_sample": true,
       "created_at": "2026-06-21 05:35:08",
       "updated_at": "2026-06-21 05:35:31"
+    },
+    {
+      "update_id": "applicant-update::9d3ed5582194cd78",
+      "user_id": "portuguese_english_reviewer",
+      "anonymous_user_key": "portuguese_english_reviewer",
+      "profile_id": "portuguese_english_reviewer",
+      "source": "DataAnnotation",
+      "opportunity_title": "DataAnnotation Generalist",
+      "opportunity_url": "",
+      "opportunity_external_id": "",
+      "canonical_id": null,
+      "status": "applied",
+      "previous_status": "remind_later",
+      "status_date": "2026-06-21",
+      "reported_at": "2026-06-21T14:53:16+00:00",
+      "evidence_type": "self_reported",
+      "confidence_level": "medium",
+      "notes": "",
+      "is_sample": false,
+      "created_at": "2026-06-21 14:53:16",
+      "updated_at": "2026-06-21 14:53:16"
     }
   ]
 }

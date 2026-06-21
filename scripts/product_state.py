@@ -1,15 +1,22 @@
 import argparse
 import hashlib
 import json
+import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from applicant_signal_report import load_updates
+from applicant_signal_report import (
+    VALID_CONFIDENCE_LEVELS,
+    VALID_EVIDENCE_TYPES,
+    VALID_STATUSES as VALID_APPLICANT_STATUSES,
+    load_updates,
+)
 from profile_match_digest import load_profiles
-from user_pipeline_digest import load_pipeline
+from user_pipeline_digest import VALID_STATUSES as VALID_PIPELINE_STATUSES, load_pipeline
 from wahojobs.config import DB_PATH
 from wahojobs.db.connection import get_connection
 
@@ -37,6 +44,20 @@ def main():
         print(f"Imported/updated {count} applicant status update(s) from {args.path}")
     elif args.command == "summary":
         print_summary()
+    elif args.command == "list-profiles":
+        list_profiles()
+    elif args.command == "list-pipeline":
+        list_pipeline(args.profile)
+    elif args.command == "save-opportunity":
+        save_opportunity(args)
+    elif args.command == "update-status":
+        update_pipeline_status(args)
+    elif args.command == "remind-later":
+        remind_later(args)
+    elif args.command == "mark-not-interested":
+        mark_not_interested(args)
+    elif args.command == "add-applicant-update":
+        add_applicant_update(args)
     elif args.command == "validate":
         validate_product_state(verbose=True)
     elif args.command == "export":
@@ -73,6 +94,63 @@ def parse_args():
     import_updates_parser.add_argument("path", type=Path)
 
     subparsers.add_parser("summary", help="Show product-state table counts.")
+    subparsers.add_parser("list-profiles", help="List available user profiles.")
+
+    list_pipeline_parser = subparsers.add_parser(
+        "list-pipeline",
+        help="List saved pipeline items for a profile.",
+    )
+    list_pipeline_parser.add_argument("--profile", required=True)
+
+    save_parser = subparsers.add_parser(
+        "save-opportunity",
+        help="Save an opportunity to a user's pipeline.",
+    )
+    save_parser.add_argument("--profile", required=True)
+    save_parser.add_argument("--source", required=True)
+    save_parser.add_argument("--title", required=True)
+    save_parser.add_argument("--url", required=True)
+    save_parser.add_argument("--note", default="")
+
+    update_parser = subparsers.add_parser(
+        "update-status",
+        help="Update the status of an existing pipeline item.",
+    )
+    update_parser.add_argument("--pipeline-item-id", required=True)
+    update_parser.add_argument("--status", required=True)
+    update_parser.add_argument("--status-date", required=True)
+    update_parser.add_argument("--note", default="")
+
+    remind_parser = subparsers.add_parser(
+        "remind-later",
+        help="Set a pipeline item to remind later.",
+    )
+    remind_parser.add_argument("--pipeline-item-id", required=True)
+    remind_parser.add_argument("--reminder-date", required=True)
+    remind_parser.add_argument("--note", default="")
+
+    not_interested_parser = subparsers.add_parser(
+        "mark-not-interested",
+        help="Mark a pipeline item as not interested.",
+    )
+    not_interested_parser.add_argument("--pipeline-item-id", required=True)
+    not_interested_parser.add_argument("--note", default="")
+
+    update_signal_parser = subparsers.add_parser(
+        "add-applicant-update",
+        help="Add a user-reported applicant status update.",
+    )
+    update_signal_parser.add_argument("--profile", required=True)
+    update_signal_parser.add_argument("--source", required=True)
+    update_signal_parser.add_argument("--title", required=True)
+    update_signal_parser.add_argument("--status", required=True)
+    update_signal_parser.add_argument("--evidence-type", required=True)
+    update_signal_parser.add_argument("--confidence-level", required=True)
+    update_signal_parser.add_argument("--url", default="")
+    update_signal_parser.add_argument("--status-date", default="")
+    update_signal_parser.add_argument("--reported-at", default="")
+    update_signal_parser.add_argument("--note", default="")
+
     subparsers.add_parser("validate", help="Validate product-state table consistency.")
 
     export_parser = subparsers.add_parser(
@@ -343,6 +421,349 @@ def print_summary():
     print("Validation: OK")
 
 
+def list_profiles():
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT profile_id, display_name, education_level, updated_at
+            FROM user_profiles
+            ORDER BY profile_id
+            """
+        ).fetchall()
+
+    print("")
+    print("Wahojobs Product-State Profiles")
+    print("===============================")
+    if not rows:
+        print("No profiles found.")
+        print("Import sample profiles with:")
+        print("  python scripts/product_state.py import-profiles profiles/sample_profiles.json")
+        return
+    for row in rows:
+        print(
+            f"{row['profile_id']}: {row['display_name']} "
+            f"({row['education_level'] or 'not specified'})"
+        )
+
+
+def list_pipeline(profile_id):
+    with get_connection() as conn:
+        profile = require_profile(conn, profile_id)
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM user_pipeline_items
+            WHERE profile_id = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (profile_id,),
+        ).fetchall()
+
+    print("")
+    print(f"Pipeline for {profile['display_name']} ({profile_id})")
+    print("=" * (14 + len(profile["display_name"]) + len(profile_id)))
+    if not rows:
+        print("No pipeline items found.")
+        return
+    for row in rows:
+        reminder = f", reminder {row['reminder_date']}" if row["reminder_date"] else ""
+        print(
+            f"[{row['id']}] {row['status']} - {row['source']}: "
+            f"{row['opportunity_title']}{reminder}"
+        )
+        if row["opportunity_url"]:
+            print(f"    {row['opportunity_url']}")
+        if row["notes"]:
+            print(f"    note: {row['notes']}")
+
+
+def save_opportunity(args):
+    source = require_cli_text(args.source, "source")
+    title = require_cli_text(args.title, "title")
+    url = normalize_cli_url(args.url)
+    note = clean_optional_text(args.note)
+
+    with get_connection() as conn:
+        profile = require_profile(conn, args.profile)
+        existing = find_pipeline_item_by_identity(
+            conn,
+            profile["profile_id"],
+            source,
+            title,
+            url,
+        )
+        if existing is not None:
+            print("")
+            print("Existing pipeline item found; no duplicate created.")
+            print_pipeline_item_summary(existing)
+            return
+
+        record = {
+            "profile_id": profile["profile_id"],
+            "source": source,
+            "title": title,
+            "url": url,
+        }
+        pipeline_item_id = stable_pipeline_item_id(record)
+        conn.execute(
+            """
+            INSERT INTO user_pipeline_items (
+              pipeline_item_id,
+              user_id,
+              profile_id,
+              source,
+              opportunity_title,
+              opportunity_url,
+              opportunity_external_id,
+              canonical_id,
+              status,
+              status_date,
+              user_priority,
+              reminder_date,
+              notes,
+              last_user_action,
+              is_sample
+            )
+            VALUES (?, ?, ?, ?, ?, ?, '', NULL, 'saved', ?, 'medium', '', ?, ?, 0)
+            """,
+            (
+                pipeline_item_id,
+                profile["user_id"],
+                profile["profile_id"],
+                source,
+                title,
+                url,
+                today(),
+                note,
+                "Saved opportunity",
+            ),
+        )
+        saved = conn.execute(
+            "SELECT * FROM user_pipeline_items WHERE pipeline_item_id = ?",
+            (pipeline_item_id,),
+        ).fetchone()
+
+    print("")
+    print("Saved opportunity to product-state pipeline.")
+    print_pipeline_item_summary(saved)
+
+
+def update_pipeline_status(args):
+    status = validate_choice(
+        args.status,
+        VALID_PIPELINE_STATUSES,
+        "status",
+    )
+    status_date = validate_date(args.status_date, "status-date")
+    note = clean_optional_text(args.note)
+
+    with get_connection() as conn:
+        item = require_pipeline_item(conn, args.pipeline_item_id)
+        notes = merge_note(item["notes"], note)
+        action = note or f"Marked {status}"
+        conn.execute(
+            """
+            UPDATE user_pipeline_items
+            SET status = ?,
+                status_date = ?,
+                notes = ?,
+                last_user_action = ?,
+                is_sample = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (status, status_date, notes, action, item["id"]),
+        )
+        updated = conn.execute(
+            "SELECT * FROM user_pipeline_items WHERE id = ?",
+            (item["id"],),
+        ).fetchone()
+
+    print("")
+    print("Updated product-state pipeline item.")
+    print_pipeline_item_summary(updated)
+
+
+def remind_later(args):
+    reminder_date = validate_date(args.reminder_date, "reminder-date")
+    note = clean_optional_text(args.note)
+
+    with get_connection() as conn:
+        item = require_pipeline_item(conn, args.pipeline_item_id)
+        notes = merge_note(item["notes"], note)
+        action = note or f"Remind later on {reminder_date}"
+        conn.execute(
+            """
+            UPDATE user_pipeline_items
+            SET status = 'remind_later',
+                reminder_date = ?,
+                notes = ?,
+                last_user_action = ?,
+                is_sample = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (reminder_date, notes, action, item["id"]),
+        )
+        updated = conn.execute(
+            "SELECT * FROM user_pipeline_items WHERE id = ?",
+            (item["id"],),
+        ).fetchone()
+
+    print("")
+    print("Marked pipeline item for reminder.")
+    print_pipeline_item_summary(updated)
+
+
+def mark_not_interested(args):
+    note = clean_optional_text(args.note)
+
+    with get_connection() as conn:
+        item = require_pipeline_item(conn, args.pipeline_item_id)
+        notes = merge_note(item["notes"], note)
+        action = note or "Marked not interested"
+        conn.execute(
+            """
+            UPDATE user_pipeline_items
+            SET status = 'not_interested',
+                status_date = ?,
+                notes = ?,
+                last_user_action = ?,
+                is_sample = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (today(), notes, action, item["id"]),
+        )
+        updated = conn.execute(
+            "SELECT * FROM user_pipeline_items WHERE id = ?",
+            (item["id"],),
+        ).fetchone()
+
+    print("")
+    print("Marked pipeline item as not interested.")
+    print_pipeline_item_summary(updated)
+
+
+def add_applicant_update(args):
+    status = validate_choice(
+        args.status,
+        VALID_APPLICANT_STATUSES,
+        "status",
+    )
+    evidence_type = validate_choice(
+        args.evidence_type,
+        VALID_EVIDENCE_TYPES,
+        "evidence-type",
+    )
+    confidence_level = validate_choice(
+        args.confidence_level,
+        VALID_CONFIDENCE_LEVELS,
+        "confidence-level",
+    )
+    source = require_cli_text(args.source, "source")
+    title = require_cli_text(args.title, "title")
+    url = normalize_cli_url(args.url) if args.url else ""
+    status_date = validate_date(args.status_date or today(), "status-date")
+    reported_at = validate_reported_at(args.reported_at or now_utc())
+    note = clean_optional_text(args.note)
+
+    with get_connection() as conn:
+        profile = require_profile(conn, args.profile)
+        previous_status = latest_pipeline_status(
+            conn,
+            profile["profile_id"],
+            source,
+            title,
+            url,
+        )
+        update_id = stable_applicant_update_id(
+            profile["profile_id"],
+            source,
+            title,
+            status,
+            status_date,
+            evidence_type,
+            confidence_level,
+            note,
+        )
+        existing = conn.execute(
+            "SELECT id FROM applicant_status_updates WHERE update_id = ?",
+            (update_id,),
+        ).fetchone()
+        conn.execute(
+            """
+            INSERT INTO applicant_status_updates (
+              update_id,
+              user_id,
+              anonymous_user_key,
+              profile_id,
+              source,
+              opportunity_title,
+              opportunity_url,
+              opportunity_external_id,
+              canonical_id,
+              status,
+              previous_status,
+              status_date,
+              reported_at,
+              evidence_type,
+              confidence_level,
+              notes,
+              is_sample
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, 0)
+            ON CONFLICT(update_id) DO UPDATE SET
+              user_id = excluded.user_id,
+              anonymous_user_key = excluded.anonymous_user_key,
+              profile_id = excluded.profile_id,
+              source = excluded.source,
+              opportunity_title = excluded.opportunity_title,
+              opportunity_url = excluded.opportunity_url,
+              status = excluded.status,
+              previous_status = excluded.previous_status,
+              status_date = excluded.status_date,
+              reported_at = excluded.reported_at,
+              evidence_type = excluded.evidence_type,
+              confidence_level = excluded.confidence_level,
+              notes = excluded.notes,
+              is_sample = excluded.is_sample,
+              updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                update_id,
+                profile["user_id"],
+                profile["user_id"],
+                profile["profile_id"],
+                source,
+                title,
+                url,
+                status,
+                previous_status or "",
+                status_date,
+                reported_at,
+                evidence_type,
+                confidence_level,
+                note,
+            ),
+        )
+        saved = conn.execute(
+            "SELECT * FROM applicant_status_updates WHERE update_id = ?",
+            (update_id,),
+        ).fetchone()
+
+    print("")
+    if existing is None:
+        print("Added applicant status update.")
+    else:
+        print("Applicant status update already existed; refreshed matching row.")
+    print(
+        f"[{saved['id']}] {saved['status']} - {saved['source']}: "
+        f"{saved['opportunity_title']}"
+    )
+    print(f"    update_id: {saved['update_id']}")
+
+
 def validate_product_state(verbose=False):
     with get_connection() as conn:
         errors = validate_product_state_errors(conn)
@@ -394,7 +815,258 @@ def validate_product_state_errors(conn):
             f"Applicant updates referencing missing profiles: {updates_missing_profiles}"
         )
 
+    invalid_pipeline_statuses = invalid_distinct_values(
+        conn,
+        "user_pipeline_items",
+        "status",
+        VALID_PIPELINE_STATUSES,
+    )
+    if invalid_pipeline_statuses:
+        errors.append(
+            "Pipeline items with invalid status values: "
+            + ", ".join(invalid_pipeline_statuses)
+        )
+
+    invalid_update_statuses = invalid_distinct_values(
+        conn,
+        "applicant_status_updates",
+        "status",
+        VALID_APPLICANT_STATUSES,
+    )
+    if invalid_update_statuses:
+        errors.append(
+            "Applicant updates with invalid status values: "
+            + ", ".join(invalid_update_statuses)
+        )
+
+    invalid_evidence_types = invalid_distinct_values(
+        conn,
+        "applicant_status_updates",
+        "evidence_type",
+        VALID_EVIDENCE_TYPES,
+    )
+    if invalid_evidence_types:
+        errors.append(
+            "Applicant updates with invalid evidence_type values: "
+            + ", ".join(invalid_evidence_types)
+        )
+
+    invalid_confidence_levels = invalid_distinct_values(
+        conn,
+        "applicant_status_updates",
+        "confidence_level",
+        VALID_CONFIDENCE_LEVELS,
+    )
+    if invalid_confidence_levels:
+        errors.append(
+            "Applicant updates with invalid confidence_level values: "
+            + ", ".join(invalid_confidence_levels)
+        )
+
     return errors
+
+
+def require_profile(conn, profile_id):
+    profile = conn.execute(
+        """
+        SELECT *
+        FROM user_profiles
+        WHERE profile_id = ?
+        """,
+        (profile_id,),
+    ).fetchone()
+    if profile is not None:
+        return profile
+
+    available = [
+        row["profile_id"]
+        for row in conn.execute(
+            "SELECT profile_id FROM user_profiles ORDER BY profile_id"
+        ).fetchall()
+    ]
+    message = f"Unknown profile: {profile_id}."
+    if available:
+        message += " Available profiles: " + ", ".join(available)
+    else:
+        message += (
+            " No profiles are loaded. Import sample profiles with: "
+            "python scripts/product_state.py import-profiles profiles/sample_profiles.json"
+        )
+    raise SystemExit(message)
+
+
+def require_pipeline_item(conn, pipeline_item_id):
+    if pipeline_item_id.isdigit():
+        row = conn.execute(
+            "SELECT * FROM user_pipeline_items WHERE id = ?",
+            (int(pipeline_item_id),),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM user_pipeline_items WHERE pipeline_item_id = ?",
+            (pipeline_item_id,),
+        ).fetchone()
+    if row is not None:
+        return row
+    raise SystemExit(f"Unknown pipeline item id: {pipeline_item_id}")
+
+
+def find_pipeline_item_by_identity(conn, profile_id, source, title, url):
+    return conn.execute(
+        """
+        SELECT *
+        FROM user_pipeline_items
+        WHERE profile_id = ?
+          AND source = ?
+          AND opportunity_title = ?
+          AND COALESCE(opportunity_url, '') = ?
+        """,
+        (profile_id, source, title, url),
+    ).fetchone()
+
+
+def latest_pipeline_status(conn, profile_id, source, title, url):
+    row = conn.execute(
+        """
+        SELECT status
+        FROM user_pipeline_items
+        WHERE profile_id = ?
+          AND source = ?
+          AND opportunity_title = ?
+          AND (? = '' OR COALESCE(opportunity_url, '') = ?)
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+        """,
+        (profile_id, source, title, url, url),
+    ).fetchone()
+    return row["status"] if row is not None else ""
+
+
+def print_pipeline_item_summary(row):
+    print(
+        f"[{row['id']}] {row['status']} - {row['source']}: "
+        f"{row['opportunity_title']}"
+    )
+    print(f"    pipeline_item_id: {row['pipeline_item_id']}")
+    if row["status_date"]:
+        print(f"    status_date: {row['status_date']}")
+    if row["reminder_date"]:
+        print(f"    reminder_date: {row['reminder_date']}")
+    if row["opportunity_url"]:
+        print(f"    url: {row['opportunity_url']}")
+    if row["notes"]:
+        print(f"    note: {row['notes']}")
+
+
+def require_cli_text(value, field):
+    text = str(value or "").strip()
+    if not text:
+        raise SystemExit(f"Missing required field: {field}")
+    return text
+
+
+def clean_optional_text(value):
+    return str(value or "").strip()
+
+
+def normalize_cli_url(value):
+    url = require_cli_text(value, "url")
+    markdown_match = re.fullmatch(r"\[[^\]]+\]\(([^)]+)\)", url)
+    if markdown_match:
+        url = markdown_match.group(1).strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise SystemExit(f"URL must start with http:// or https://: {url}")
+    return url
+
+
+def validate_choice(value, allowed, field):
+    text = str(value or "").strip()
+    if text in allowed:
+        return text
+    raise SystemExit(
+        f"Invalid {field}: {text}. Allowed values: "
+        + ", ".join(sorted(allowed))
+    )
+
+
+def validate_date(value, field):
+    text = str(value or "").strip()
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        raise SystemExit(f"Invalid {field}: {text}. Expected YYYY-MM-DD.")
+    return text
+
+
+def validate_reported_at(value):
+    text = str(value or "").strip()
+    try:
+        datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise SystemExit(
+            f"Invalid reported-at: {text}. Expected an ISO timestamp."
+        )
+    return text
+
+
+def merge_note(existing, note):
+    existing = str(existing or "").strip()
+    note = str(note or "").strip()
+    if not note:
+        return existing
+    if not existing:
+        return note
+    if note in existing:
+        return existing
+    return f"{existing}\n{note}"
+
+
+def today():
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def now_utc():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def stable_applicant_update_id(
+    profile_id,
+    source,
+    title,
+    status,
+    status_date,
+    evidence_type,
+    confidence_level,
+    note,
+):
+    values = [
+        profile_id,
+        source,
+        title,
+        status,
+        status_date,
+        evidence_type,
+        confidence_level,
+        note,
+    ]
+    digest = hashlib.sha1("|".join(values).encode("utf-8")).hexdigest()[:16]
+    return f"applicant-update::{digest}"
+
+
+def invalid_distinct_values(conn, table, field, allowed):
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT {field} AS value
+        FROM {table}
+        WHERE {field} IS NOT NULL
+        ORDER BY {field}
+        """
+    ).fetchall()
+    return [
+        row["value"]
+        for row in rows
+        if row["value"] not in allowed
+    ]
 
 
 def export_product_state(path):
