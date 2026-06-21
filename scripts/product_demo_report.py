@@ -106,20 +106,99 @@ LANGUAGE_ALIASES = {
 
 def main():
     args = parse_args()
+    context = build_demo_context(
+        profile_id=args.profile,
+        use_product_state=args.use_product_state,
+        profiles_file=args.profiles_file,
+        pipeline_file=args.pipeline_file,
+        applicant_updates_file=args.applicant_updates_file,
+    )
+
+    markdown = render_markdown(
+        context["generated_at"],
+        context["profile_source"],
+        context["pipeline_source"],
+        context["updates_source"],
+        context["market_summary"],
+        context["profile"],
+        context["coverage_report"],
+        context["matches"],
+        context["tracked"],
+        context["pipeline_report"],
+        context["next_actions"],
+        context["applicant_signals"],
+    )
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT_PATH.write_text(markdown, encoding="utf-8")
+
+    print("")
+    print("Wahojobs User Demo")
+    print("==================")
+    print(f"Generated: {context['generated_at'].isoformat()} UTC")
+    print(f"Profile: {context['profile']['display_name']} ({context['profile']['profile_id']})")
+    print(f"Live opportunities tracked: {context['market_summary']['estimated_market_opportunities']}")
+    print(f"Top live matches: {len(context['matches']['live'])}")
+    print(f"Pipeline items: {context['pipeline_report']['summary']['total']}")
+    print(f"Applicant signal updates used: {context['applicant_signals']['summary']['total_updates']}")
+    if context["next_actions"]:
+        print(f"Top next action: {console_text(context['next_actions'][0]['action'])}")
+    print(f"Wrote Markdown report to {OUTPUT_PATH}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate a read-only product demo report for one Wahojobs profile."
+    )
+    parser.add_argument(
+        "--profile",
+        help="Render one profile_id. Defaults to portuguese_english_reviewer when available.",
+    )
+    parser.add_argument(
+        "--profiles-file",
+        type=Path,
+        help="Load editable profiles from a JSON file.",
+    )
+    parser.add_argument(
+        "--pipeline-file",
+        type=Path,
+        default=DEFAULT_PIPELINE_FILE,
+        help="Load mock user pipeline records from a JSON file.",
+    )
+    parser.add_argument(
+        "--applicant-updates-file",
+        type=Path,
+        default=DEFAULT_UPDATES_FILE,
+        help="Load mock applicant status updates from a JSON file.",
+    )
+    parser.add_argument(
+        "--use-product-state",
+        action="store_true",
+        help="Load profiles, pipeline items, and applicant updates from SQLite product-state tables.",
+    )
+    return parser.parse_args()
+
+
+def build_demo_context(
+    profile_id=None,
+    use_product_state=False,
+    profiles_file=None,
+    pipeline_file=DEFAULT_PIPELINE_FILE,
+    applicant_updates_file=DEFAULT_UPDATES_FILE,
+):
     generated_at = datetime.now(timezone.utc).replace(microsecond=0)
     recent_cutoff = (generated_at - timedelta(days=RECENT_DAYS)).isoformat()
     applicant_cutoff = generated_at - timedelta(days=APPLICANT_SIGNAL_DAYS)
 
-    if args.use_product_state:
+    if use_product_state:
         profiles, profile_source = load_product_state_profiles()
         pipeline_records, pipeline_source = load_product_state_pipeline()
         updates, updates_source = load_product_state_updates()
     else:
-        profiles, profile_source = load_selected_profiles(args.profiles_file, None)
-        pipeline_records, pipeline_source = load_pipeline(args.pipeline_file)
-        updates, updates_source = load_updates(args.applicant_updates_file)
+        profiles, profile_source = load_selected_profiles(profiles_file, None)
+        pipeline_records, pipeline_source = load_pipeline(pipeline_file)
+        updates, updates_source = load_updates(applicant_updates_file)
 
-    profile = choose_profile(profiles, args.profile)
+    profile = choose_profile(profiles, profile_id)
 
     with get_connection() as conn:
         market_summary = get_market_size_summary(
@@ -173,68 +252,20 @@ def main():
     )
     next_actions = build_demo_actions(profile, pipeline_report, matches, tracked)
 
-    markdown = render_markdown(
-        generated_at,
-        profile_source,
-        pipeline_source,
-        updates_source,
-        market_summary,
-        profile,
-        coverage_report,
-        matches,
-        tracked,
-        pipeline_report,
-        next_actions,
-        applicant_signals,
-    )
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(markdown, encoding="utf-8")
-
-    print("")
-    print("Wahojobs User Demo")
-    print("==================")
-    print(f"Generated: {generated_at.isoformat()} UTC")
-    print(f"Profile: {profile['display_name']} ({profile['profile_id']})")
-    print(f"Live opportunities tracked: {market_summary['estimated_market_opportunities']}")
-    print(f"Top live matches: {len(matches['live'])}")
-    print(f"Pipeline items: {pipeline_report['summary']['total']}")
-    print(f"Applicant signal updates used: {applicant_signals['summary']['total_updates']}")
-    if next_actions:
-        print(f"Top next action: {console_text(next_actions[0]['action'])}")
-    print(f"Wrote Markdown report to {OUTPUT_PATH}")
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Generate a read-only product demo report for one Wahojobs profile."
-    )
-    parser.add_argument(
-        "--profile",
-        help="Render one profile_id. Defaults to portuguese_english_reviewer when available.",
-    )
-    parser.add_argument(
-        "--profiles-file",
-        type=Path,
-        help="Load editable profiles from a JSON file.",
-    )
-    parser.add_argument(
-        "--pipeline-file",
-        type=Path,
-        default=DEFAULT_PIPELINE_FILE,
-        help="Load mock user pipeline records from a JSON file.",
-    )
-    parser.add_argument(
-        "--applicant-updates-file",
-        type=Path,
-        default=DEFAULT_UPDATES_FILE,
-        help="Load mock applicant status updates from a JSON file.",
-    )
-    parser.add_argument(
-        "--use-product-state",
-        action="store_true",
-        help="Load profiles, pipeline items, and applicant updates from SQLite product-state tables.",
-    )
-    return parser.parse_args()
+    return {
+        "generated_at": generated_at,
+        "profile_source": profile_source,
+        "pipeline_source": pipeline_source,
+        "updates_source": updates_source,
+        "market_summary": market_summary,
+        "profile": profile,
+        "coverage_report": coverage_report,
+        "matches": matches,
+        "tracked": tracked,
+        "pipeline_report": pipeline_report,
+        "next_actions": next_actions,
+        "applicant_signals": applicant_signals,
+    }
 
 
 def load_product_state_profiles():
@@ -294,6 +325,8 @@ def load_product_state_pipeline():
         ).fetchall()
     records = [
         {
+            "id": row["id"],
+            "pipeline_item_id": row["pipeline_item_id"],
             "profile_id": row["profile_id"],
             "source": row["source"],
             "title": row["opportunity_title"],
