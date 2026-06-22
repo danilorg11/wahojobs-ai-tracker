@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
+import types
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -33,6 +35,12 @@ from wahojobs.classification import (  # noqa: E402
     SOURCE_TIER_CORE,
 )
 from wahojobs.db.connection import get_connection  # noqa: E402
+from wahojobs.matching.languages import (  # noqa: E402
+    CANONICAL_LANGUAGES,
+    detect_explicit_languages,
+    language_eligibility,
+    row_language_text,
+)
 
 FIXTURE_PATH = ROOT / "tests" / "fixtures" / "matching_golden_set.json"
 REPORT_PATH = ROOT / "exports" / "matching_quality_report.md"
@@ -56,6 +64,8 @@ STRICT_RELEVANT_LABELS = {"strong"}
 
 SUPPORTED_FIXTURE_LABELS = {"strong", "plausible", "weak", "false_positive"}
 SUPPORTED_SECTIONS = set(SECTION_LEVELS)
+PERSONALIZED_SECTIONS = {"do_these_first", "best_matches", "also_worth_reviewing"}
+MEDIUM_SCORE_THRESHOLD = 24
 
 LANGUAGE_WORDS = {
     "arabic",
@@ -156,6 +166,8 @@ class EvaluatedCase:
     score: int
     match_label: str
     current_section: str
+    eligible_for_personalized: bool
+    language_eligibility_reason: str
     reasons: list[str]
     positives: list[str]
     penalties: list[str]
@@ -172,16 +184,33 @@ def main() -> None:
     with get_connection() as conn:
         db_rows = [row_to_dict(row) for row in matcher.get_active_rows(conn)]
 
+    baseline_hash = get_baseline_commit_hash()
+    baseline_matcher = load_baseline_matcher()
+    baseline_evaluated = [
+        evaluate_case(case, profiles[case["profile_id"]], db_rows, baseline_matcher)
+        for case in fixture["cases"]
+    ]
     evaluated = [
-        evaluate_case(case, profiles[case["profile_id"]], db_rows)
+        evaluate_case(case, profiles[case["profile_id"]], db_rows, matcher)
         for case in fixture["cases"]
     ]
     live_snapshot = build_live_snapshot(profiles, db_rows)
+    baseline_metrics = calculate_metrics(baseline_evaluated)
     metrics = calculate_metrics(evaluated)
+    language_diagnostics = build_language_diagnostics(profiles, db_rows)
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(
-        render_quality_report(generated_at, fixture, evaluated, metrics, live_snapshot),
+        render_quality_report(
+            generated_at,
+            fixture,
+            evaluated,
+            metrics,
+            live_snapshot,
+            baseline_hash,
+            baseline_metrics,
+            language_diagnostics,
+        ),
         encoding="utf-8",
     )
     REVIEW_PATH.write_text(
@@ -189,7 +218,52 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print_terminal_summary(fixture, metrics)
+    print_terminal_summary(fixture, metrics, baseline_hash, baseline_metrics)
+
+
+def get_baseline_commit_hash() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(
+            "Could not determine baseline commit with 'git rev-parse HEAD': "
+            + (result.stderr or result.stdout).strip()
+        )
+    return result.stdout.strip()
+
+
+def load_baseline_matcher():
+    result = subprocess.run(
+        ["git", "show", "HEAD:scripts/profile_match_digest.py"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(
+            "Could not load previous matcher from HEAD:scripts/profile_match_digest.py: "
+            + (result.stderr or result.stdout).strip()
+        )
+
+    module = types.ModuleType("profile_match_digest_baseline")
+    module.__file__ = str(ROOT / "scripts" / "profile_match_digest.py")
+    try:
+        exec(
+            compile(result.stdout, "HEAD:scripts/profile_match_digest.py", "exec"),
+            module.__dict__,
+        )
+    except Exception as exc:
+        raise SystemExit(f"Could not import previous matcher from HEAD: {exc}") from exc
+
+    if not hasattr(module, "score_opportunity"):
+        raise SystemExit("Previous matcher from HEAD does not expose score_opportunity.")
+    return module
 
 
 def load_fixture() -> dict:
@@ -267,15 +341,16 @@ def load_benchmark_profiles(fixture: dict) -> dict[str, dict]:
     return {profile_id: profiles[profile_id] for profile_id in required_profile_ids}
 
 
-def evaluate_case(case: dict, profile: dict, db_rows: list[dict]) -> EvaluatedCase:
+def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module) -> EvaluatedCase:
     row, source_status = resolve_case_row(case, db_rows)
-    scored = matcher.score_opportunity(profile, row)
+    scored = matcher_module.score_opportunity(profile, row)
     score = scored["score"]
     match_label = match_strength_from_score(score)
-    current_section = section_for_score(score)
-    positives, penalties = explain_score(profile, row)
+    eligible_for_personalized = scored.get("eligible_for_personalized", True)
+    current_section = section_for_score(score, eligible_for_personalized)
+    positives, penalties = explain_score(profile, row, matcher_module)
     signals, contradictions = detect_signals(profile, row, case)
-    failure_patterns = detect_failure_patterns(case, row, positives, contradictions, score)
+    failure_patterns = detect_failure_patterns(case, row, positives, contradictions, score, current_section)
 
     return EvaluatedCase(
         case=case,
@@ -284,6 +359,8 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict]) -> EvaluatedCa
         score=score,
         match_label=match_label,
         current_section=current_section,
+        eligible_for_personalized=eligible_for_personalized,
+        language_eligibility_reason=scored.get("language_eligibility_reason", "-"),
         reasons=scored["reasons"],
         positives=positives,
         penalties=penalties,
@@ -358,7 +435,9 @@ def row_to_dict(row) -> dict:
     return {key: row[key] for key in row.keys()}
 
 
-def section_for_score(score: int) -> str:
+def section_for_score(score: int, eligible_for_personalized: bool = True) -> str:
+    if not eligible_for_personalized:
+        return "explore_only"
     if score >= DO_THESE_FIRST_SCORE_THRESHOLD:
         return "do_these_first"
     if score >= BEST_MATCH_SCORE_THRESHOLD:
@@ -380,18 +459,18 @@ def expected_section(case: dict) -> str:
     return "exclude"
 
 
-def explain_score(profile: dict, row: dict) -> tuple[list[str], list[str]]:
+def explain_score(profile: dict, row: dict, matcher_module=matcher) -> tuple[list[str], list[str]]:
     title = row["title"] or row["canonical_title"] or "Untitled opportunity"
     expertise = row["source_category"] or row["expertise"] or row["department"] or "Unknown"
-    text = matcher.searchable_text(row, title, expertise)
+    text = matcher_module.searchable_text(row, title, expertise)
     positives = []
     penalties = []
 
     for reason, keywords, points in profile["signals"]:
         hits = [
             keyword
-            for keyword in matcher.normalize_keywords(keywords)
-            if matcher.keyword_matches(text, keyword)
+            for keyword in matcher_module.normalize_keywords(keywords)
+            if matcher_module.keyword_matches(text, keyword)
         ]
         if hits:
             positives.append(f"+{points} {reason}: {', '.join(hits[:4])}")
@@ -399,13 +478,13 @@ def explain_score(profile: dict, row: dict) -> tuple[list[str], list[str]]:
     for language in profile["languages"]:
         hits = [
             keyword
-            for keyword in matcher.language_variants(language)
-            if matcher.keyword_matches(text, keyword)
+            for keyword in matcher_module.language_variants(language)
+            if matcher_module.keyword_matches(text, keyword)
         ]
         if hits:
             positives.append(f"+6 {language} language signal: {', '.join(hits[:3])}")
 
-    if matcher.wants_remote(profile) and matcher.has_remote_signal(row):
+    if matcher_module.wants_remote(profile) and matcher_module.has_remote_signal(row):
         positives.append("+5 Remote/flexible signal")
 
     if (
@@ -416,31 +495,39 @@ def explain_score(profile: dict, row: dict) -> tuple[list[str], list[str]]:
     else:
         positives.append("+2 Reported separately opportunity")
 
-    if row["source_tier"] != matcher.SOURCE_TIER_EXPERIMENTAL:
+    if row["source_tier"] != matcher_module.SOURCE_TIER_EXPERIMENTAL:
         positives.append("+1 Non-experimental source")
 
-    for keyword in matcher.normalize_keywords(profile.get("avoid_keywords", [])):
-        if matcher.keyword_matches(text, keyword):
+    for keyword in matcher_module.normalize_keywords(profile.get("avoid_keywords", [])):
+        if matcher_module.keyword_matches(text, keyword):
             penalties.append(f"-12 Possible requirement mismatch: {keyword}")
+
+    if hasattr(matcher_module, "match_quality_gate_penalties"):
+        for reason, penalty in matcher_module.match_quality_gate_penalties(
+            profile,
+            row,
+            matcher_module.quality_gate_text(row, title, expertise),
+        ):
+            penalties.append(f"-{penalty} {reason}")
 
     return positives, penalties
 
 
 def detect_signals(profile: dict, row: dict, case: dict) -> tuple[list[str], list[str]]:
     text = row_text(row, case)
+    language_text = row_language_text(row)
     signals = []
     contradictions = []
 
-    language_hits = sorted(
-        language for language in LANGUAGE_WORDS if word_or_phrase_in_text(text, language)
-    )
+    language_hits = sorted(detect_explicit_languages(language_text))
     if language_hits:
         signals.append("languages: " + ", ".join(language_hits))
-        allowed = PROFILE_LANGUAGE_ALLOWLIST.get(profile["profile_id"])
-        if allowed:
-            unsupported = [language for language in language_hits if language not in allowed]
-            if unsupported:
-                contradictions.append("unsupported explicit language: " + ", ".join(unsupported))
+        eligibility = language_eligibility(profile, language_text)
+        if not eligibility.eligible_for_personalized:
+            contradictions.append(
+                "unsupported explicit language: "
+                + ", ".join(sorted(eligibility.unsupported_languages or eligibility.detected_languages))
+            )
 
     domain_groups = [
         ("technical", TECHNICAL_TERMS),
@@ -486,14 +573,15 @@ def detect_failure_patterns(
     positives: list[str],
     contradictions: list[str],
     score: int,
+    current_section: str,
 ) -> list[str]:
     patterns = []
     text = row_text(row, case)
     positive_text = " ".join(positives).lower()
 
-    if case["expected_label"] == "false_positive" and score >= VISIBLE_SCORE_THRESHOLD:
+    if case["expected_label"] == "false_positive" and current_section in PERSONALIZED_SECTIONS:
         patterns.append("visible_false_positive")
-    if expected_section(case) == "exclude" and score >= VISIBLE_SCORE_THRESHOLD:
+    if expected_section(case) == "exclude" and current_section in PERSONALIZED_SECTIONS:
         patterns.append("exclude_case_visible")
     if "research" in text and "search" in positive_text:
         patterns.append("search_inside_research")
@@ -511,7 +599,7 @@ def detect_failure_patterns(
     if any("credential" in item for item in contradictions):
         patterns.append("credential_or_specialty_mismatch")
     if case.get("regression_rule"):
-        current_level = SECTION_LEVELS[section_for_score(score)]
+        current_level = SECTION_LEVELS[current_section]
         expected_level = SECTION_LEVELS[expected_section(case)]
         if current_level > expected_level:
             patterns.append(case["regression_rule"])
@@ -571,11 +659,10 @@ def calculate_metrics(evaluated: list[EvaluatedCase]) -> dict:
             "strict_precision_at_10": precision_at(ranked, 10, STRICT_RELEVANT_LABELS),
             "false_positive_rate_at_10": false_positive_rate_at(ranked, 10),
             "recall_relevant_visible": recall_visible(items, RELEVANT_LABELS),
-            "hard_regressions": [
-                item
-                for item in items
-                if is_hard_regression(item)
-            ],
+            "surfacing_false_positives": [item for item in items if is_surfacing_false_positive(item)],
+            "classification_false_positives": [item for item in items if is_classification_false_positive(item)],
+            "visible_false_negatives": [item for item in items if is_visible_false_negative(item)],
+            "explore_only_false_positives": [item for item in items if is_explore_only_false_positive(item)],
         }
 
     return {
@@ -586,12 +673,20 @@ def calculate_metrics(evaluated: list[EvaluatedCase]) -> dict:
         "label_distribution_headline": Counter(item.case["expected_label"] for item in headline),
         "source_status": Counter(item.source_status for item in evaluated),
         "metrics_by_profile": metrics_by_profile,
-        "hard_regressions": [item for item in headline if is_hard_regression(item)],
+        "surfacing_false_positives": [item for item in headline if is_surfacing_false_positive(item)],
+        "classification_false_positives": [item for item in headline if is_classification_false_positive(item)],
+        "visible_false_negatives": [item for item in headline if is_visible_false_negative(item)],
+        "explore_only_false_positives": [item for item in headline if is_explore_only_false_positive(item)],
         "section_overpromotions": [item for item in headline if is_section_overpromotion(item)],
         "failure_patterns": Counter(
             pattern
             for item in headline
-            if is_hard_regression(item) or is_section_overpromotion(item)
+            if (
+                is_surfacing_false_positive(item)
+                or is_classification_false_positive(item)
+                or is_visible_false_negative(item)
+                or is_section_overpromotion(item)
+            )
             for pattern in item.failure_patterns
         ),
     }
@@ -623,24 +718,53 @@ def recall_visible(items: list[EvaluatedCase], relevant_labels: set[str]) -> flo
     return len(visible) / len(relevant)
 
 
-def is_hard_regression(item: EvaluatedCase) -> bool:
-    if item.case["review_required"]:
+def is_surfacing_false_positive(item: EvaluatedCase) -> bool:
+    return (
+        not item.case["review_required"]
+        and item.case["expected_label"] == "false_positive"
+        and item.current_section in PERSONALIZED_SECTIONS
+    )
+
+
+def is_classification_false_positive(item: EvaluatedCase) -> bool:
+    return (
+        not item.case["review_required"]
+        and item.case["expected_label"] == "false_positive"
+        and item.score >= MEDIUM_SCORE_THRESHOLD
+    )
+
+
+def is_visible_false_negative(item: EvaluatedCase) -> bool:
+    if item.case["review_required"] or item.case["expected_label"] not in RELEVANT_LABELS:
         return False
-    if item.case["expected_label"] == "false_positive" and item.score >= VISIBLE_SCORE_THRESHOLD:
-        return True
-    if item.case.get("regression_rule") and is_section_overpromotion(item):
-        return True
-    return False
+    return SECTION_LEVELS[item.current_section] < SECTION_LEVELS[expected_section(item.case)]
+
+
+def is_explore_only_false_positive(item: EvaluatedCase) -> bool:
+    return (
+        not item.case["review_required"]
+        and item.case["expected_label"] == "false_positive"
+        and item.current_section == "explore_only"
+    )
 
 
 def is_section_overpromotion(item: EvaluatedCase) -> bool:
+    if item.current_section not in PERSONALIZED_SECTIONS:
+        return False
     return SECTION_LEVELS[item.current_section] > SECTION_LEVELS[expected_section(item.case)]
 
 
 def build_live_snapshot(profiles: dict[str, dict], db_rows: list[dict]) -> dict[str, list[dict]]:
     snapshot = {}
     for profile_id, profile in sorted(profiles.items()):
-        ranked = matcher.rank_opportunities(profile, db_rows, True, 10, min_score=0)
+        ranked = matcher.rank_opportunities(
+            profile,
+            db_rows,
+            True,
+            10,
+            min_score=0,
+            require_personalized_eligible=False,
+        )
         snapshot[profile_id] = [
             {
                 "title": item["display_title"],
@@ -654,6 +778,42 @@ def build_live_snapshot(profiles: dict[str, dict], db_rows: list[dict]) -> dict[
             for item in ranked
         ]
     return snapshot
+
+
+def build_language_diagnostics(profiles: dict[str, dict], db_rows: list[dict]) -> dict:
+    observed = Counter()
+    affected_profiles = Counter()
+    examples = []
+
+    for row in db_rows:
+        text = row_language_text(row)
+        languages = sorted(detect_explicit_languages(text))
+        if languages:
+            observed.update(languages)
+        for profile_id, profile in profiles.items():
+            eligibility = language_eligibility(profile, text)
+            if eligibility.eligible_for_personalized or not eligibility.detected_languages:
+                continue
+            affected_profiles[profile_id] += 1
+            if len(examples) < 20:
+                examples.append(
+                    {
+                        "profile_id": profile_id,
+                        "source": row.get("source") or "",
+                        "title": row.get("title") or row.get("canonical_title") or "",
+                        "languages": sorted(eligibility.detected_languages),
+                        "reason": eligibility.reason,
+                    }
+                )
+
+    return {
+        "recognized_languages": sorted(CANONICAL_LANGUAGES),
+        "observed_languages": observed,
+        "unrecognized_tokens": Counter(),
+        "excluded_pair_count": sum(affected_profiles.values()),
+        "affected_profiles": affected_profiles,
+        "examples": examples,
+    }
 
 
 def scored_to_row(item: dict) -> dict:
@@ -680,6 +840,9 @@ def render_quality_report(
     evaluated: list[EvaluatedCase],
     metrics: dict,
     live_snapshot: dict[str, list[dict]],
+    baseline_hash: str,
+    baseline_metrics: dict,
+    language_diagnostics: dict,
 ) -> str:
     lines = [
         "# Matching Quality Benchmark Baseline",
@@ -707,6 +870,7 @@ def render_quality_report(
         "## Fixture Summary",
         "",
         f"- Fixture: `{relative(FIXTURE_PATH)}`",
+        f"- Baseline matcher commit: `{baseline_hash}`",
         f"- Total cases: {metrics['total_cases']}",
         f"- Headline metric cases: {metrics['headline_cases']}",
         f"- Review-required cases excluded from headline metrics: {metrics['review_required_cases']}",
@@ -714,11 +878,57 @@ def render_quality_report(
         f"- Label distribution, all cases: {format_counter(metrics['label_distribution_all'])}",
         f"- Label distribution, headline cases: {format_counter(metrics['label_distribution_headline'])}",
         "",
-        "## Fixture-Pool Metrics By Profile",
+        "## Apples-To-Apples Matcher Comparison",
         "",
-        "| Profile | Cases | Relevant P@4 | Relevant P@10 | Strict P@4 | Strict P@10 | FP@10 | Relevant Recall | Hard Regressions |",
+        (
+            "Previous and current matchers are evaluated against the same fixture "
+            "pool with the same metric definitions. Surfacing metrics account for "
+            "personalized-section eligibility; classification metrics use raw scores."
+        ),
+        "",
+        "| Metric | Previous HEAD | Current Working Tree |",
+        "|---|---:|---:|",
+        comparison_row("Surfacing false positives", baseline_metrics, metrics, "surfacing_false_positives"),
+        comparison_row("Classification false positives", baseline_metrics, metrics, "classification_false_positives"),
+        comparison_row("Visible false negatives", baseline_metrics, metrics, "visible_false_negatives"),
+        comparison_row("Explore-only false positives", baseline_metrics, metrics, "explore_only_false_positives"),
+        "",
+        "### Precision Before / After By Profile",
+        "",
+        "| Profile | P@4 Previous | P@4 Current | P@10 Previous | P@10 Current | Strict P@4 Previous | Strict P@4 Current | Strict P@10 Previous | Strict P@10 Current |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
+
+    for profile_id in sorted(metrics["metrics_by_profile"]):
+        previous = baseline_metrics["metrics_by_profile"].get(profile_id, {})
+        current = metrics["metrics_by_profile"][profile_id]
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    profile_id,
+                    pct(previous.get("precision_at_4", 0)),
+                    pct(current["precision_at_4"]),
+                    pct(previous.get("precision_at_10", 0)),
+                    pct(current["precision_at_10"]),
+                    pct(previous.get("strict_precision_at_4", 0)),
+                    pct(current["strict_precision_at_4"]),
+                    pct(previous.get("strict_precision_at_10", 0)),
+                    pct(current["strict_precision_at_10"]),
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+        "",
+        "## Fixture-Pool Metrics By Profile",
+        "",
+        "| Profile | Cases | Relevant P@4 | Relevant P@10 | Strict P@4 | Strict P@10 | FP@10 | Relevant Recall | Surfacing FP | Classification FP | Visible FN |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
 
     for profile_id, profile_metrics in metrics["metrics_by_profile"].items():
         lines.append(
@@ -733,7 +943,9 @@ def render_quality_report(
                     pct(profile_metrics["strict_precision_at_10"]),
                     pct(profile_metrics["false_positive_rate_at_10"]),
                     pct(profile_metrics["recall_relevant_visible"]),
-                    str(len(profile_metrics["hard_regressions"])),
+                    str(len(profile_metrics["surfacing_false_positives"])),
+                    str(len(profile_metrics["classification_false_positives"])),
+                    str(len(profile_metrics["visible_false_negatives"])),
                 ]
             )
             + " |"
@@ -742,15 +954,43 @@ def render_quality_report(
     lines.extend(
         [
             "",
-            "## Hard Regression Failures",
+            "## Surfacing False Positives",
             "",
         ]
     )
-    if not metrics["hard_regressions"]:
-        lines.append("No hard regression failures were detected in the draft fixture pool.")
+    if not metrics["surfacing_false_positives"]:
+        lines.append("No false-positive fixture cases reached personalized sections.")
     else:
-        for item in sorted(metrics["hard_regressions"], key=lambda i: (i.case["profile_id"], -i.score, i.case["case_id"])):
+        for item in sorted(metrics["surfacing_false_positives"], key=lambda i: (i.case["profile_id"], -i.score, i.case["case_id"])):
             lines.extend(render_failure_block(item))
+
+    lines.extend(
+        [
+            "",
+            "## Classification False Positives",
+            "",
+        ]
+    )
+    if not metrics["classification_false_positives"]:
+        lines.append("No false-positive fixture cases scored Medium or Strong.")
+    else:
+        for item in sorted(metrics["classification_false_positives"], key=lambda i: (i.case["profile_id"], -i.score, i.case["case_id"]))[:25]:
+            lines.extend(render_failure_block(item))
+
+    lines.extend(
+        [
+            "",
+            "## Visible False Negatives",
+            "",
+        ]
+    )
+    if not metrics["visible_false_negatives"]:
+        lines.append("No strong/plausible fixture cases fell below expected personalized visibility.")
+    else:
+        for item in sorted(metrics["visible_false_negatives"], key=lambda i: (i.case["profile_id"], i.case["case_id"])):
+            lines.extend(render_failure_block(item))
+
+    lines.extend(render_language_diagnostics(language_diagnostics))
 
     lines.extend(
         [
@@ -841,10 +1081,10 @@ def render_quality_report(
         [
             "## Recommended Next Deterministic Gate Work",
             "",
-            "- Add language eligibility gates so unsupported explicit-language roles do not rank for narrow language profiles.",
-            "- Separate `search` from `research` evidence so humanities research profiles are not promoted into search-rater roles by substring matches.",
-            "- Add broad domain mismatch gates for software, legal, finance, science/medical, and generalist profiles.",
-            "- Keep this benchmark as a baseline before changing production scoring.",
+            "- Human-review the highest-impact `codex_draft` labels before treating precision as product truth.",
+            "- Investigate visible false negatives caused by sparse fixture snapshots or missing live metadata.",
+            "- Review the history/humanities profile separately; do not inflate generic writing/search roles just to fill recommendation slots.",
+            "- Keep surfacing and classification metrics separate before tuning additional deterministic gates.",
             "",
             "## Methodology Notes",
             "",
@@ -857,6 +1097,65 @@ def render_quality_report(
     return "\n".join(lines) + "\n"
 
 
+def comparison_row(label: str, baseline_metrics: dict, current_metrics: dict, key: str) -> str:
+    return (
+        "| "
+        + " | ".join(
+            [
+                label,
+                str(len(baseline_metrics[key])),
+                str(len(current_metrics[key])),
+            ]
+        )
+        + " |"
+    )
+
+
+def render_language_diagnostics(language_diagnostics: dict) -> list[str]:
+    lines = [
+        "",
+        "## Language Eligibility Diagnostics",
+        "",
+        f"- Recognized canonical languages: {', '.join(language_diagnostics['recognized_languages'])}",
+        f"- Explicit languages observed in active opportunities: {format_counter(language_diagnostics['observed_languages'])}",
+        f"- Profile/opportunity pairs excluded by explicit-language eligibility: {language_diagnostics['excluded_pair_count']}",
+    ]
+    if language_diagnostics["unrecognized_tokens"]:
+        lines.append(
+            "- Potential unrecognized language tokens: "
+            + format_counter(language_diagnostics["unrecognized_tokens"])
+        )
+    else:
+        lines.append("- Potential unrecognized language tokens: none detected by the heuristic.")
+
+    if language_diagnostics["affected_profiles"]:
+        lines.append(
+            "- Affected profiles: "
+            + format_counter(language_diagnostics["affected_profiles"])
+        )
+    else:
+        lines.append("- Affected profiles: none.")
+
+    lines.extend(["", "| Profile | Source | Title | Detected Languages | Reason |", "|---|---|---|---|---|"])
+    for example in language_diagnostics["examples"]:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    example["profile_id"],
+                    escape_table(example["source"]),
+                    escape_table(example["title"]),
+                    ", ".join(example["languages"]),
+                    escape_table(example["reason"]),
+                ]
+            )
+            + " |"
+        )
+    if not language_diagnostics["examples"]:
+        lines.append("| - | - | - | - | - |")
+    return lines
+
+
 def render_failure_block(item: EvaluatedCase) -> list[str]:
     case = item.case
     lines = [
@@ -865,6 +1164,7 @@ def render_failure_block(item: EvaluatedCase) -> list[str]:
         f"- Opportunity: {case['source']} - {case['title']}",
         f"- Expected: `{case['expected_label']}` / `{expected_section(case)}`",
         f"- Current: score {item.score}, `{item.match_label}`, `{item.current_section}`",
+        f"- Personalized eligibility: {'yes' if item.eligible_for_personalized else 'no'} ({item.language_eligibility_reason})",
         f"- Rationale: {case['rationale']}",
         f"- Regression rule: `{case.get('regression_rule') or '-'}`",
         f"- Failure patterns: {', '.join(f'`{pattern}`' for pattern in item.failure_patterns) or '-'}",
@@ -935,13 +1235,28 @@ def render_review_report(
     return "\n".join(lines) + "\n"
 
 
-def print_terminal_summary(fixture: dict, metrics: dict) -> None:
+def print_terminal_summary(fixture: dict, metrics: dict, baseline_hash: str, baseline_metrics: dict) -> None:
     print("Matching Quality Benchmark")
     print("==========================")
+    print(f"Baseline commit: {baseline_hash}")
     print(f"Fixture cases: {metrics['total_cases']}")
     print(f"Headline cases: {metrics['headline_cases']}")
     print(f"Review-required cases: {metrics['review_required_cases']}")
-    print(f"Hard regressions: {len(metrics['hard_regressions'])}")
+    print(
+        "Surfacing false positives: "
+        f"{len(baseline_metrics['surfacing_false_positives'])} -> "
+        f"{len(metrics['surfacing_false_positives'])}"
+    )
+    print(
+        "Classification false positives: "
+        f"{len(baseline_metrics['classification_false_positives'])} -> "
+        f"{len(metrics['classification_false_positives'])}"
+    )
+    print(
+        "Visible false negatives: "
+        f"{len(baseline_metrics['visible_false_negatives'])} -> "
+        f"{len(metrics['visible_false_negatives'])}"
+    )
     print("")
     print("Fixture-pool metrics by profile")
     for profile_id, profile_metrics in metrics["metrics_by_profile"].items():
@@ -951,7 +1266,9 @@ def print_terminal_summary(fixture: dict, metrics: dict) -> None:
             f"P@10 {pct(profile_metrics['precision_at_10'])}, "
             f"strict P@4 {pct(profile_metrics['strict_precision_at_4'])}, "
             f"FP@10 {pct(profile_metrics['false_positive_rate_at_10'])}, "
-            f"regressions {len(profile_metrics['hard_regressions'])}"
+            f"surfacing FP {len(profile_metrics['surfacing_false_positives'])}, "
+            f"classification FP {len(profile_metrics['classification_false_positives'])}, "
+            f"visible FN {len(profile_metrics['visible_false_negatives'])}"
         )
     print("")
     print(f"Wrote Markdown report to {REPORT_PATH}")

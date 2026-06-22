@@ -50,6 +50,7 @@ from wahojobs.classification import (
     MARKET_COUNT_POLICY_COUNT_LIVE,
 )
 from wahojobs.db.connection import get_connection
+from wahojobs.matching.languages import language_eligibility
 from wahojobs.reporting.market import get_market_size_summary
 
 
@@ -61,12 +62,17 @@ TOP_LIVE_LIMIT = 8
 REPORT_SEPARATELY_LIMIT = 5
 NEW_LIMIT = 5
 MATCH_POOL_LIMIT = 40
+EXPLORE_POOL_LIMIT = 600
+EXPLORE_GROUP_LIMIT = 12
+EXPLORE_SUPPLEMENTAL_LIMIT = 12
 PRIMARY_ACTION_LIMIT = 4
 PRIMARY_URGENT_LIMIT = 2
 PRIMARY_APPLY_LIMIT = 2
 PRIMARY_PASSIVE_LIMIT = 1
 PRIMARY_EVERGREEN_LIMIT = 1
-BACKLOG_ACTION_LIMIT = 10
+BACKLOG_ACTION_LIMIT = 4
+SHORTLIST_ACTION_CATEGORIES = {"apply", "review", "evergreen"}
+SHORTLIST_ACTION_ORIGINS = {"live_match", "new_match", "evergreen_match"}
 STALE_ASSESSMENT_DAYS = 7
 STALE_PASSIVE_DAYS = 14
 SUPPRESSED_ACTION_STATUSES = {
@@ -91,48 +97,6 @@ HANDLED_TODAY_STATUSES = {
     "paid_task_received",
 }
 
-EXPLICIT_LANGUAGES = {
-    "arabic",
-    "bengali",
-    "catalan",
-    "chinese",
-    "czech",
-    "danish",
-    "dutch",
-    "english",
-    "finnish",
-    "french",
-    "german",
-    "greek",
-    "gujarati",
-    "hebrew",
-    "hindi",
-    "italian",
-    "japanese",
-    "kannada",
-    "khmer",
-    "kiswahili",
-    "korean",
-    "norwegian",
-    "polish",
-    "portuguese",
-    "romanian",
-    "spanish",
-    "swedish",
-    "swahili",
-    "thai",
-    "turkish",
-    "ukrainian",
-    "vietnamese",
-}
-
-LANGUAGE_ALIASES = {
-    "brazilian": "portuguese",
-    "brazil": "portuguese",
-    "portugal": "portuguese",
-    "español": "spanish",
-    "français": "french",
-}
 
 
 def main():
@@ -159,6 +123,7 @@ def main():
         context["next_actions"],
         context["also_worth_reviewing"],
         context["daily_action_status"],
+        context["explore_market"],
         context["applicant_signals"],
     )
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -290,6 +255,13 @@ def build_demo_context(
         tracked,
         generated_at.date().isoformat(),
     )
+    explore_market = build_explore_market(
+        profile,
+        live_rows,
+        evergreen_rows,
+        public_rows,
+        tracked,
+    )
 
     return {
         "generated_at": generated_at,
@@ -305,6 +277,7 @@ def build_demo_context(
         "next_actions": action_plan["primary"],
         "also_worth_reviewing": action_plan["secondary"],
         "daily_action_status": action_plan["daily_status"],
+        "explore_market": explore_market,
         "applicant_signals": applicant_signals,
     }
 
@@ -515,6 +488,106 @@ def build_matches(profile, live_rows, evergreen_rows, public_rows, new_rows):
     }
 
 
+def build_explore_market(profile, live_rows, evergreen_rows, public_rows, tracked):
+    live_matches = rank_opportunities(
+        profile,
+        live_rows,
+        group_canonical=True,
+        limit=EXPLORE_POOL_LIMIT,
+        min_score=0,
+        require_personalized_eligible=False,
+    )
+    supplemental_matches = rank_opportunities(
+        profile,
+        list(evergreen_rows) + list(public_rows),
+        group_canonical=False,
+        limit=EXPLORE_POOL_LIMIT,
+        min_score=0,
+        require_personalized_eligible=False,
+    )
+
+    groups = {
+        "strong_fit": [],
+        "possible_fit": [],
+        "broader_market": [],
+        "already_tracked": [],
+        "supplemental": [],
+    }
+    seen = {key: set() for key in groups}
+
+    for match in live_matches:
+        record = tracked_record_for_match(match, tracked)
+        if record:
+            add_explore_match(groups, seen, "already_tracked", match)
+        elif not match.get("eligible_for_personalized", True):
+            add_explore_match(groups, seen, "broader_market", match)
+        elif match["score"] >= 34:
+            add_explore_match(groups, seen, "strong_fit", match)
+        elif match["score"] >= 18:
+            add_explore_match(groups, seen, "possible_fit", match)
+        else:
+            add_explore_match(groups, seen, "broader_market", match)
+
+    for match in supplemental_matches:
+        record = tracked_record_for_match(match, tracked)
+        if record:
+            add_explore_match(groups, seen, "already_tracked", match)
+        elif not match.get("eligible_for_personalized", True):
+            add_explore_match(groups, seen, "broader_market", match)
+        else:
+            add_explore_match(groups, seen, "supplemental", match)
+
+    return {
+        "strong_fit": spread_by_source(groups["strong_fit"], EXPLORE_GROUP_LIMIT),
+        "possible_fit": spread_by_source(groups["possible_fit"], EXPLORE_GROUP_LIMIT),
+        "broader_market": spread_by_source(groups["broader_market"], EXPLORE_GROUP_LIMIT),
+        "already_tracked": spread_by_source(groups["already_tracked"], EXPLORE_GROUP_LIMIT),
+        "supplemental": spread_by_source(groups["supplemental"], EXPLORE_SUPPLEMENTAL_LIMIT),
+        "summary": {
+            "strong_fit": len(groups["strong_fit"]),
+            "possible_fit": len(groups["possible_fit"]),
+            "broader_market": len(groups["broader_market"]),
+            "already_tracked": len(groups["already_tracked"]),
+            "supplemental": len(groups["supplemental"]),
+        },
+    }
+
+
+def add_explore_match(groups, seen, group_name, match):
+    key = explore_match_key(match)
+    if key in seen[group_name]:
+        return
+    seen[group_name].add(key)
+    groups[group_name].append(match)
+
+
+def explore_match_key(match):
+    canonical_id = match.get("canonical_opportunity_id")
+    if canonical_id:
+        return ("canonical", match["source_slug"], canonical_id)
+    if match.get("url"):
+        return ("url", match["url"])
+    return ("title", match["source_slug"], normalize(match["display_title"]))
+
+
+def spread_by_source(matches, limit):
+    selected = []
+    used = set()
+    for source_limit in (2, 4, limit):
+        for match in matches:
+            key = explore_match_key(match)
+            if key in used:
+                continue
+            source_count = sum(1 for item in selected if item["source"] == match["source"])
+            if source_count >= source_limit:
+                continue
+            selected.append(match)
+            used.add(key)
+            if len(selected) >= limit:
+                return selected
+    return selected
+
+
 def build_tracked_index(records):
     by_key = {}
     by_source_title = {}
@@ -563,13 +636,21 @@ def build_demo_action_plan(profile, pipeline_report, matches, tracked, today):
 
     return {
         "primary": primary[:remaining_budget],
-        "secondary": secondary[:BACKLOG_ACTION_LIMIT],
+        "secondary": shortlist_actions(secondary)[:BACKLOG_ACTION_LIMIT],
         "daily_status": {
             "base_budget": PRIMARY_ACTION_LIMIT,
             "handled_today_count": handled_today_count,
             "remaining_budget": remaining_budget,
         },
     }
+
+
+def shortlist_actions(actions):
+    return [
+        action for action in actions
+        if action.get("origin") in SHORTLIST_ACTION_ORIGINS
+        and action.get("category") in SHORTLIST_ACTION_CATEGORIES
+    ]
 
 
 def count_handled_today(records, today):
@@ -609,6 +690,8 @@ def build_demo_action_candidates(profile, pipeline_report, matches, tracked):
             {
                 "priority": action_priority_for_category(category, record.get("user_priority")),
                 "category": category,
+                "origin": "pipeline",
+                "status": status,
                 "action": record["next_action"],
                 "title": record["title"],
                 "source": record["source"],
@@ -624,6 +707,7 @@ def build_demo_action_candidates(profile, pipeline_report, matches, tracked):
             {
                 "priority": "high" if category == "apply" else "medium",
                 "category": category,
+                "origin": "live_match",
                 "action": (
                     f"Apply to {match['display_title']} "
                     f"from {match['source']}."
@@ -644,6 +728,7 @@ def build_demo_action_candidates(profile, pipeline_report, matches, tracked):
             {
                 "priority": "medium",
                 "category": "review",
+                "origin": "new_match",
                 "action": (
                     f"Review new match {match['display_title']} "
                     f"from {match['source']}."
@@ -661,6 +746,7 @@ def build_demo_action_candidates(profile, pipeline_report, matches, tracked):
             {
                 "priority": "medium",
                 "category": "evergreen",
+                "origin": "evergreen_match",
                 "action": (
                     f"Revisit always-open application {match['display_title']} "
                     f"from {match['source']}."
@@ -852,6 +938,7 @@ def render_markdown(
     next_actions,
     also_worth_reviewing,
     daily_action_status,
+    explore_market,
     applicant_signals,
 ):
     lines = [
@@ -867,6 +954,7 @@ def render_markdown(
     append_do_these_first(lines, next_actions, daily_action_status)
     append_also_worth_reviewing(lines, also_worth_reviewing)
     append_best_matches(lines, matches["live"], tracked)
+    append_explore_market(lines, explore_market, tracked)
     append_pipeline_snapshot(lines, pipeline_report)
     append_new_since_baseline(lines, matches["new"], tracked)
     append_report_separate_matches(lines, "Always-Open Applications", matches["evergreen"], tracked)
@@ -930,11 +1018,32 @@ def append_also_worth_reviewing(lines, actions):
     lines.append("Good matches, but not today's top priority. Review these when you have more time.")
     lines.append("")
     if not actions:
-        lines.extend(["No additional backlog items surfaced for this profile today.", ""])
+        lines.extend(["You're caught up on today's shortlist. You can still browse Explore Market.", ""])
         return
-    for action in actions[:6]:
+    for action in actions[:BACKLOG_ACTION_LIMIT]:
         lines.append(f"- {escape(make_action_user_facing(action['action']))}")
     lines.append("")
+
+
+def append_explore_market(lines, explore_market, tracked):
+    lines.extend(["## Explore Market", ""])
+    lines.append(
+        "Your daily plan is intentionally small. Explore Market is the wider tracked market when you want to browse; these are not tasks for today."
+    )
+    lines.append("")
+    for title, key in (
+        ("Strong fit for you", "strong_fit"),
+        ("Possible fit", "possible_fit"),
+        ("Broader market", "broader_market"),
+        ("Already tracked", "already_tracked"),
+        ("Always-open and public leads", "supplemental"),
+    ):
+        matches = explore_market.get(key, [])
+        lines.extend([f"### {title}", ""])
+        if not matches:
+            lines.extend(["No examples surfaced in this group today.", ""])
+            continue
+        append_match_cards(lines, matches[:5], tracked, include_live=(key != "supplemental"))
 
 
 def append_best_matches(lines, matches, tracked):
@@ -1200,7 +1309,7 @@ def clean_display_text(value):
 def user_relevant_matches(profile, matches):
     return [
         match for match in matches
-        if not has_unrelated_explicit_language(profile, match)
+        if match.get("eligible_for_personalized", True)
     ]
 
 
@@ -1223,40 +1332,8 @@ def update_relevant_to_profile(update, profile):
     )
 
 
-def has_unrelated_explicit_language(profile, match):
-    text = " ".join(
-        str(match.get(field) or "")
-        for field in ("display_title", "expertise", "location", "source")
-    )
-    return has_unrelated_language_text(profile, text)
-
-
 def has_unrelated_language_text(profile, text):
-    allowed = profile_languages(profile)
-    explicit = explicit_languages_in_text(text)
-    return bool(explicit and not explicit.intersection(allowed))
-
-
-def profile_languages(profile):
-    languages = {normalize_language(value) for value in profile.get("languages", [])}
-    return {language for language in languages if language}
-
-
-def explicit_languages_in_text(text):
-    normalized = normalize_text(text)
-    found = set()
-    for language in EXPLICIT_LANGUAGES:
-        if re.search(rf"\b{re.escape(language)}\b", normalized):
-            found.add(normalize_language(language))
-    for alias, language in LANGUAGE_ALIASES.items():
-        if re.search(rf"\b{re.escape(alias)}\b", normalized):
-            found.add(language)
-    return found
-
-
-def normalize_language(value):
-    normalized = normalize_text(value)
-    return LANGUAGE_ALIASES.get(normalized, normalized)
+    return not language_eligibility(profile, text).eligible_for_personalized
 
 
 def normalize_text(value):

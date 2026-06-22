@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 import re
 
@@ -15,6 +16,14 @@ from wahojobs.classification import (
     SOURCE_TIER_EXPERIMENTAL,
 )
 from wahojobs.db.connection import get_connection
+from wahojobs.matching.languages import (
+    detect_explicit_languages as detect_explicit_languages_for_text,
+    language_eligibility,
+    language_variants as language_variants_for_name,
+    normalize_language_name as canonical_language_name,
+    profile_language_set,
+    row_language_text,
+)
 from wahojobs.reporting.market import CANONICALIZED_SLUGS, get_market_size_summary
 
 
@@ -24,6 +33,140 @@ TOP_LIVE_LIMIT = 8
 REPORT_SEPARATELY_LIMIT = 5
 NEW_LIMIT = 5
 MAYBE_LIMIT = 5
+TECHNICAL_ROLE_TERMS = [
+    ".net",
+    "api",
+    "backend",
+    "c#",
+    "c++",
+    "code evaluation",
+    "coding",
+    "developer",
+    "fastapi",
+    "frontend",
+    "full stack",
+    "full-stack",
+    "go engineer",
+    "hackerank",
+    "java",
+    "javascript",
+    "programming",
+    "python",
+    "qa automation",
+    "react",
+    "repository validation",
+    "ruby",
+    "rust",
+    "software",
+    "swe-bench",
+    "typescript",
+]
+
+SCIENCE_MEDICAL_ROLE_TERMS = [
+    "academic dermatologist",
+    "biology",
+    "biomedical",
+    "biophysics",
+    "chemistry",
+    "clinical",
+    "dermatologist",
+    "genetics",
+    "healthcare",
+    "life science",
+    "math",
+    "mathematics",
+    "material science",
+    "medical",
+    "medicine",
+    "microbiology",
+    "pharma",
+    "pharmacokinetics",
+    "physics",
+    "physicist",
+    "scientist",
+    "statistics",
+]
+
+LEGAL_ROLE_TERMS = [
+    "attorney",
+    "contract law",
+    "corporate law",
+    "employment law",
+    "ip law",
+    "law",
+    "lawyer",
+    "legal",
+    "litigation",
+    "m&a",
+    "regulatory law",
+]
+
+FINANCE_ROLE_TERMS = [
+    "accountant",
+    "accounting",
+    "banker",
+    "banking",
+    "equity",
+    "finance",
+    "financial",
+    "investment",
+    "tax",
+    "underwriter",
+]
+
+LANGUAGE_ROLE_TERMS = [
+    "adaptation",
+    "bilingual",
+    "language",
+    "linguistic",
+    "linguistics",
+    "localization",
+    "mtpe",
+    "translation",
+    "translator",
+]
+
+GENERALIST_TASK_TERMS = [
+    "ai trainer",
+    "ai training",
+    "annotation",
+    "annotator",
+    "content review",
+    "content reviewing",
+    "data annotation",
+    "data labelling",
+    "data validation",
+    "generalist",
+    "rater",
+    "search engine",
+    "search quality",
+    "social media annotation",
+    "writing",
+    "writer",
+]
+
+HUMANITIES_TASK_TERMS = [
+    "academic writing",
+    "education",
+    "fact checking",
+    "history",
+    "humanities",
+    "pronunciation evaluation",
+    "source evaluation",
+    "teaching",
+    "writing",
+]
+
+GENERIC_ONLY_TERMS = [
+    "ai training",
+    "evaluation",
+    "evaluator",
+    "expert",
+    "quality",
+    "research",
+    "review",
+    "reviewer",
+]
 
 
 MOCK_PROFILES = [
@@ -640,11 +783,21 @@ def baseline_crawl_sql():
     """
 
 
-def rank_opportunities(profile, rows, group_canonical, limit, min_score=18, max_score=None):
+def rank_opportunities(
+    profile,
+    rows,
+    group_canonical,
+    limit,
+    min_score=18,
+    max_score=None,
+    require_personalized_eligible=True,
+):
     grouped = {}
     for row in rows:
         key = opportunity_key(row, group_canonical)
         scored = score_opportunity(profile, row)
+        if require_personalized_eligible and not scored["eligible_for_personalized"]:
+            continue
         if scored["score"] < min_score:
             continue
         if max_score is not None and scored["score"] > max_score:
@@ -684,6 +837,7 @@ def score_opportunity(profile, row):
     title = row["title"] or row["canonical_title"] or "Untitled opportunity"
     expertise = row["source_category"] or row["expertise"] or row["department"] or "Unknown"
     text = searchable_text(row, title, expertise)
+    language_check = language_eligibility(profile, row_language_text(row))
     score = 0
     reasons = []
 
@@ -692,11 +846,12 @@ def score_opportunity(profile, row):
             score += points
             reasons.append(reason)
 
-    for language in profile["languages"]:
-        language_keywords = language_variants(language)
-        if any(keyword_matches(text, keyword) for keyword in language_keywords):
+    for language in sorted(profile_language_set(profile)):
+        if not language_check.language_signal_allowed:
+            continue
+        if language in language_check.matched_languages:
             score += 6
-            reasons.append(f"{language} language signal")
+            reasons.append(f"{language.title()} language signal")
 
     if wants_remote(profile) and has_remote_signal(row):
         score += 5
@@ -722,6 +877,14 @@ def score_opportunity(profile, row):
             score -= 12
             reasons.append("Possible requirement mismatch; review carefully")
 
+    for reason, penalty in match_quality_gate_penalties(
+        profile,
+        row,
+        quality_gate_text(row, title, expertise),
+    ):
+        score -= penalty
+        reasons.append(reason)
+
     return {
         "score": max(score, 0),
         "display_title": title,
@@ -730,10 +893,20 @@ def score_opportunity(profile, row):
         "location": row["location"] or "Unknown",
         "expertise": expertise,
         "url": row["url"],
+        "job_id": row["job_id"],
+        "canonical_opportunity_id": row["canonical_opportunity_id"],
         "opportunity_kind": row["opportunity_kind"],
         "availability_basis": row["availability_basis"],
+        "inventory_model": row["inventory_model"],
+        "market_count_policy": row["market_count_policy"],
         "include_in_live_market_estimate": row["include_in_live_market_estimate"],
         "is_canonical_representative": bool(row["canonical_opportunity_id"]),
+        "eligible_for_personalized": language_check.eligible_for_personalized,
+        "language_requirement_mode": language_check.requirement_mode,
+        "detected_languages": sorted(language_check.detected_languages),
+        "matched_languages": sorted(language_check.matched_languages),
+        "unsupported_languages": sorted(language_check.unsupported_languages),
+        "language_eligibility_reason": language_check.reason,
         "reasons": unique(reasons)[:6],
     }
 
@@ -754,6 +927,20 @@ def searchable_text(row, title, expertise):
     return normalize_text(" ".join(str(value or "") for value in values))
 
 
+def quality_gate_text(row, title, expertise):
+    values = [
+        title,
+        row["title"],
+        expertise,
+        row["department"],
+        row["expertise"],
+        row["commitment"],
+        row["canonical_title"],
+        row["source_category"],
+    ]
+    return normalize_text(" ".join(str(value or "") for value in values))
+
+
 def normalize_text(value):
     return re.sub(r"\s+", " ", value.lower()).strip()
 
@@ -763,19 +950,208 @@ def normalize_keywords(keywords):
 
 
 def keyword_matches(text, keyword):
-    if len(keyword) <= 3 and keyword.isalnum():
-        return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
-    return keyword in text
+    text = normalize_text(text)
+    pattern = keyword_match_pattern(keyword)
+    if pattern is None:
+        return False
+    return pattern.search(text) is not None
+
+
+@lru_cache(maxsize=4096)
+def keyword_match_pattern(keyword):
+    keyword = normalize_text(keyword)
+    if not keyword:
+        return None
+    parts = re.findall(r"[a-z0-9+#.]+", keyword)
+    if not parts:
+        return re.compile(re.escape(keyword))
+
+    separator = r"[\s\-/&()+.,:]+"
+    pattern = separator.join(re.escape(part) for part in parts)
+    return re.compile(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])")
+
+
+def match_quality_gate_penalties(profile, row, text=None):
+    title = row["title"] or row["canonical_title"] or "Untitled opportunity"
+    expertise = row["source_category"] or row["expertise"] or row["department"] or "Unknown"
+    text = text or quality_gate_text(row, title, expertise)
+    profile_features = detect_profile_match_features(profile)
+    role_features = detect_role_match_features(text)
+    penalties = []
+
+    role_domains = role_features["professional_domains"]
+    profile_domains = profile_features["professional_domains"]
+    has_matching_professional_domain = bool(role_domains & profile_domains)
+
+    if (
+        not has_matching_professional_domain
+        and "technical" in role_domains
+        and "technical" not in profile_domains
+    ):
+        if not ("science_medical" in role_domains and "science_medical" in profile_domains):
+            penalties.append(("Technical/software role does not match this profile", 28))
+
+    if (
+        not has_matching_professional_domain
+        and "science_medical" in role_domains
+        and "science_medical" not in profile_domains
+    ):
+        if not ("technical" in role_domains and "technical" in profile_domains):
+            penalties.append(("Specialized science or medical role does not match this profile", 28))
+
+    if (
+        not has_matching_professional_domain
+        and "legal" in role_domains
+        and "legal" not in profile_domains
+    ):
+        if not ("finance" in role_domains and "finance" in profile_domains):
+            penalties.append(("Legal role does not match this profile", 28))
+
+    if (
+        not has_matching_professional_domain
+        and "finance" in role_domains
+        and "finance" not in profile_domains
+    ):
+        if not ("legal" in role_domains and "legal" in profile_domains):
+            penalties.append(("Finance or accounting role does not match this profile", 28))
+
+    if not has_meaningful_positive_evidence(profile_features, role_features) and has_generic_only_evidence(text):
+        penalties.append(("Match is based mostly on generic AI-work terms", 10))
+
+    return unique_penalties(penalties)
+
+
+def detect_profile_match_features(profile):
+    profile_text = normalize_text(
+        " ".join(
+            [
+                profile.get("profile_id", ""),
+                profile.get("display_name", ""),
+                profile.get("summary", ""),
+                profile.get("education_level", ""),
+                " ".join(profile.get("degrees_or_domains") or []),
+                " ".join(profile.get("skills") or []),
+                " ".join(profile.get("target_opportunity_types") or []),
+                profile.get("notes", ""),
+            ]
+        )
+    )
+    languages = tuple(sorted(profile_language_set(profile)))
+    return detect_profile_match_features_cached(profile_text, languages)
+
+
+@lru_cache(maxsize=128)
+def detect_profile_match_features_cached(profile_text, languages):
+    languages = set(languages)
+    professional_domains = set()
+
+    if contains_any(profile_text, TECHNICAL_ROLE_TERMS + ["software engineering", "code review"]):
+        professional_domains.add("technical")
+    if contains_any(profile_text, LEGAL_ROLE_TERMS + ["contracts"]):
+        professional_domains.add("legal")
+    if contains_any(profile_text, FINANCE_ROLE_TERMS + ["investment analysis"]):
+        professional_domains.add("finance")
+    if contains_any(profile_text, SCIENCE_MEDICAL_ROLE_TERMS + ["life sciences"]):
+        professional_domains.add("science_medical")
+
+    return {
+        "languages": languages,
+        "professional_domains": professional_domains,
+        "language_profile": contains_any(profile_text, LANGUAGE_ROLE_TERMS) or len(languages) > 1,
+        "generalist_profile": contains_any(
+            profile_text,
+            ["generalist", "no college degree", "no degree", "search evaluation", "data annotation"],
+        ),
+        "humanities_profile": contains_any(profile_text, HUMANITIES_TASK_TERMS + ["humanities", "academic research"]),
+        "task_interests": {
+            "generalist": contains_any(profile_text, GENERALIST_TASK_TERMS),
+            "humanities": contains_any(profile_text, HUMANITIES_TASK_TERMS),
+            "language": contains_any(profile_text, LANGUAGE_ROLE_TERMS),
+        },
+    }
+
+
+def detect_role_match_features(text):
+    text = normalize_text(text)
+    explicit_languages = detect_explicit_languages(text)
+    professional_domains = set()
+    if contains_any(text, TECHNICAL_ROLE_TERMS):
+        professional_domains.add("technical")
+    if contains_any(text, SCIENCE_MEDICAL_ROLE_TERMS):
+        professional_domains.add("science_medical")
+    if contains_any(text, LEGAL_ROLE_TERMS):
+        professional_domains.add("legal")
+    if contains_any(text, FINANCE_ROLE_TERMS):
+        professional_domains.add("finance")
+
+    language_role = contains_any(text, LANGUAGE_ROLE_TERMS) or (
+        bool(explicit_languages)
+        and contains_any(text, ["rater", "reviewer", "writer", "quality analyst", "audio", "voice"])
+    )
+
+    return {
+        "explicit_languages": explicit_languages,
+        "professional_domains": professional_domains,
+        "language_role": language_role,
+        "generalist_task": contains_any(text, GENERALIST_TASK_TERMS),
+        "humanities_task": contains_any(text, HUMANITIES_TASK_TERMS),
+        "technical_task": contains_any(text, TECHNICAL_ROLE_TERMS),
+    }
+
+
+def has_meaningful_positive_evidence(profile_features, role_features):
+    shared_languages = profile_features["languages"] & role_features["explicit_languages"]
+    if shared_languages and (role_features["language_role"] or profile_features["language_profile"]):
+        return True
+
+    if profile_features["professional_domains"] & role_features["professional_domains"]:
+        return True
+
+    if profile_features["generalist_profile"] and role_features["generalist_task"]:
+        return True
+
+    if profile_features["humanities_profile"] and role_features["humanities_task"]:
+        return True
+
+    if profile_features["language_profile"] and role_features["language_role"] and shared_languages:
+        return True
+
+    return False
+
+
+def has_generic_only_evidence(text):
+    return contains_any(text, GENERIC_ONLY_TERMS)
+
+
+def contains_any(text, terms):
+    text = normalize_text(text)
+    for term in terms:
+        pattern = keyword_match_pattern(term)
+        if pattern is not None and pattern.search(text):
+            return True
+    return False
+
+
+def detect_explicit_languages(text):
+    return detect_explicit_languages_for_text(text)
+
+
+def normalize_language_name(value):
+    return canonical_language_name(value)
+
+
+def unique_penalties(penalties):
+    seen = set()
+    result = []
+    for reason, penalty in penalties:
+        if reason not in seen:
+            seen.add(reason)
+            result.append((reason, penalty))
+    return result
 
 
 def language_variants(language):
-    variants = {
-        "english": ["english"],
-        "portuguese": ["portuguese", "brazilian"],
-        "spanish": ["spanish", "espa\u00f1ol"],
-        "french": ["french", "fran\u00e7ais"],
-    }
-    return variants.get(language.lower(), [language.lower()])
+    return language_variants_for_name(language)
 
 
 def wants_remote(profile):
