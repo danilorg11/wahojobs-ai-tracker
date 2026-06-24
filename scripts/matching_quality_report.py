@@ -167,6 +167,13 @@ class EvaluatedCase:
     score: int
     match_label: str
     current_section: str
+    evaluation_label: str
+    evaluation_section: str
+    raw_match_label: str
+    raw_section: str
+    hard_gate_type: str
+    hard_gate_status: str
+    hard_gate_reason: str
     eligible_for_personalized: bool
     language_eligibility_reason: str
     reasons: list[str]
@@ -175,6 +182,18 @@ class EvaluatedCase:
     signals: list[str]
     contradictions: list[str]
     failure_patterns: list[str]
+
+
+@dataclass(frozen=True)
+class BenchmarkPrediction:
+    evaluation_label: str
+    evaluation_section: str
+    raw_match_label: str
+    raw_section: str
+    raw_score: int
+    hard_gate_type: str = ""
+    hard_gate_status: str = ""
+    hard_gate_reason: str = ""
 
 
 def main() -> None:
@@ -352,20 +371,35 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
     row, source_status = resolve_case_row(case, db_rows)
     scored = matcher_module.score_opportunity(profile, row)
     score = scored["score"]
-    match_label = match_strength_from_score(score)
+    raw_match_label = match_strength_from_score(score)
     eligible_for_personalized = scored.get("eligible_for_personalized", True)
-    current_section = section_for_score(score, eligible_for_personalized)
+    raw_section = section_for_score(score, eligible_for_personalized)
+    projection = project_benchmark_prediction(score, raw_match_label, raw_section, scored)
     positives, penalties = explain_score(profile, row, matcher_module)
     signals, contradictions = detect_signals(profile, row, case)
-    failure_patterns = detect_failure_patterns(case, row, positives, contradictions, score, current_section)
+    failure_patterns = detect_failure_patterns(
+        case,
+        row,
+        positives,
+        contradictions,
+        score,
+        projection.evaluation_section,
+    )
 
     return EvaluatedCase(
         case=case,
         row=row,
         source_status=source_status,
         score=score,
-        match_label=match_label,
-        current_section=current_section,
+        match_label=projection.raw_match_label,
+        current_section=projection.raw_section,
+        evaluation_label=projection.evaluation_label,
+        evaluation_section=projection.evaluation_section,
+        raw_match_label=projection.raw_match_label,
+        raw_section=projection.raw_section,
+        hard_gate_type=projection.hard_gate_type,
+        hard_gate_status=projection.hard_gate_status,
+        hard_gate_reason=projection.hard_gate_reason,
         eligible_for_personalized=eligible_for_personalized,
         language_eligibility_reason=scored.get("language_eligibility_reason", "-"),
         reasons=scored["reasons"],
@@ -375,6 +409,85 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
         contradictions=contradictions,
         failure_patterns=failure_patterns,
     )
+
+
+def project_benchmark_prediction(
+    score: int,
+    raw_match_label: str,
+    raw_section: str,
+    scored: dict,
+) -> BenchmarkPrediction:
+    """Project product matcher output into a benchmark-only label/section.
+
+    Product ranking uses raw score and section. The benchmark projection is allowed
+    to translate decisive structured hard-gate failures into false_positive/exclude
+    so golden-set evaluation can represent hard rejections without changing product
+    behavior.
+    """
+    hard_gate = decisive_hard_gate_failure(scored)
+    if hard_gate:
+        return BenchmarkPrediction(
+            evaluation_label="false_positive",
+            evaluation_section="exclude",
+            raw_match_label=raw_match_label,
+            raw_section=raw_section,
+            raw_score=score,
+            hard_gate_type=hard_gate["type"],
+            hard_gate_status=hard_gate["status"],
+            hard_gate_reason=hard_gate["reason"],
+        )
+    return BenchmarkPrediction(
+        evaluation_label=label_from_raw_match_label(raw_match_label),
+        evaluation_section=raw_section,
+        raw_match_label=raw_match_label,
+        raw_section=raw_section,
+        raw_score=score,
+    )
+
+
+def decisive_hard_gate_failure(scored: dict) -> dict | None:
+    for gate in scored.get("hard_gates") or scored.get("eligibility_gates") or []:
+        projected = normalize_structured_hard_gate(gate)
+        if projected:
+            return projected
+
+    if scored.get("eligible_for_personalized") is False:
+        mode = scored.get("language_requirement_mode")
+        detected = set(scored.get("detected_languages") or [])
+        # Ambiguous language requirements and unknown/uncertain eligibility are not
+        # projected to false_positive/exclude.
+        if detected and mode in {"single", "all_required", "any_supported"}:
+            return {
+                "type": "language",
+                "status": "failed",
+                "reason": scored.get("language_eligibility_reason")
+                or "Explicit language eligibility gate failed.",
+            }
+    return None
+
+
+def normalize_structured_hard_gate(gate: dict) -> dict | None:
+    if not isinstance(gate, dict):
+        return None
+    status = str(gate.get("status") or "").strip().lower()
+    failed = status in {"failed", "fail", "ineligible", "blocked", "rejected"} or gate.get("eligible") is False
+    decisive = bool(gate.get("decisive") or gate.get("hard") or gate.get("is_hard_gate"))
+    uncertain = status in {"unknown", "uncertain", "ambiguous", "not_applicable"}
+    if not failed or not decisive or uncertain:
+        return None
+    return {
+        "type": str(gate.get("type") or gate.get("name") or "hard_gate"),
+        "status": status or "failed",
+        "reason": str(gate.get("reason") or "Decisive hard gate failed."),
+    }
+
+
+def label_from_raw_match_label(raw_match_label: str) -> str:
+    return {
+        "Strong": "strong",
+        "Medium": "plausible",
+        "Possible": "weak",
+    }.get(str(raw_match_label), str(raw_match_label).lower())
 
 
 def resolve_case_row(case: dict, db_rows: list[dict]) -> tuple[dict, str]:
@@ -729,7 +842,7 @@ def is_surfacing_false_positive(item: EvaluatedCase) -> bool:
     return (
         not item.case["review_required"]
         and item.case["expected_label"] == "false_positive"
-        and item.current_section in PERSONALIZED_SECTIONS
+        and item.evaluation_section in PERSONALIZED_SECTIONS
     )
 
 
@@ -737,6 +850,7 @@ def is_classification_false_positive(item: EvaluatedCase) -> bool:
     return (
         not item.case["review_required"]
         and item.case["expected_label"] == "false_positive"
+        and item.evaluation_label != "false_positive"
         and item.score >= MEDIUM_SCORE_THRESHOLD
     )
 
@@ -744,21 +858,21 @@ def is_classification_false_positive(item: EvaluatedCase) -> bool:
 def is_visible_false_negative(item: EvaluatedCase) -> bool:
     if item.case["review_required"] or item.case["expected_label"] not in RELEVANT_LABELS:
         return False
-    return SECTION_LEVELS[item.current_section] < SECTION_LEVELS[expected_section(item.case)]
+    return SECTION_LEVELS[item.evaluation_section] < SECTION_LEVELS[expected_section(item.case)]
 
 
 def is_explore_only_false_positive(item: EvaluatedCase) -> bool:
     return (
         not item.case["review_required"]
         and item.case["expected_label"] == "false_positive"
-        and item.current_section == "explore_only"
+        and item.evaluation_section == "explore_only"
     )
 
 
 def is_section_overpromotion(item: EvaluatedCase) -> bool:
-    if item.current_section not in PERSONALIZED_SECTIONS:
+    if item.evaluation_section not in PERSONALIZED_SECTIONS:
         return False
-    return SECTION_LEVELS[item.current_section] > SECTION_LEVELS[expected_section(item.case)]
+    return SECTION_LEVELS[item.evaluation_section] > SECTION_LEVELS[expected_section(item.case)]
 
 
 def build_live_snapshot(profiles: dict[str, dict], db_rows: list[dict]) -> dict[str, list[dict]]:
@@ -1011,8 +1125,8 @@ def render_quality_report(
     else:
         lines.extend(
             [
-                "| Profile | Case | Expected Section | Current Section | Score | Label |",
-                "|---|---|---|---|---:|---|",
+                "| Profile | Case | Expected Section | Evaluation Section | Raw Section | Score | Evaluation Label | Raw Label |",
+                "|---|---|---|---|---|---:|---|---|",
             ]
         )
         for item in sorted(metrics["section_overpromotions"], key=lambda i: (i.case["profile_id"], -i.score, i.case["case_id"])):
@@ -1023,9 +1137,11 @@ def render_quality_report(
                         item.case["profile_id"],
                         escape_table(f"{item.case['source']} - {item.case['title']}"),
                         expected_section(item.case),
-                        item.current_section,
+                        item.evaluation_section,
+                        item.raw_section,
                         str(item.score),
-                        item.match_label,
+                        item.evaluation_label,
+                        item.raw_match_label,
                     ]
                 )
                 + " |"
@@ -1170,7 +1286,9 @@ def render_failure_block(item: EvaluatedCase) -> list[str]:
         "",
         f"- Opportunity: {case['source']} - {case['title']}",
         f"- Expected: `{case['expected_label']}` / `{expected_section(case)}`",
-        f"- Current: score {item.score}, `{item.match_label}`, `{item.current_section}`",
+        f"- Evaluation: `{item.evaluation_label}` / `{item.evaluation_section}`",
+        f"- Raw/product matcher: score {item.score}, `{item.raw_match_label}`, `{item.raw_section}`",
+        f"- Decisive hard gate: {item.hard_gate_type or '-'} / {item.hard_gate_status or '-'} ({item.hard_gate_reason or '-'})",
         f"- Personalized eligibility: {'yes' if item.eligible_for_personalized else 'no'} ({item.language_eligibility_reason})",
         f"- Rationale: {case['rationale']}",
         f"- Regression rule: `{case.get('regression_rule') or '-'}`",
@@ -1232,7 +1350,7 @@ def render_review_report(
                         expected_section(case),
                         "yes" if case["review_required"] else "no",
                         escape_table(case.get("regression_rule") or "-"),
-                        f"{item.score} / {item.match_label}",
+                        f"{item.score} / {item.evaluation_label} (raw: {item.raw_match_label})",
                         escape_table(case["rationale"]),
                     ]
                 )
