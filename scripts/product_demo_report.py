@@ -519,7 +519,7 @@ def build_explore_market(profile, live_rows, evergreen_rows, public_rows, tracke
         record = tracked_record_for_match(match, tracked)
         if record:
             add_explore_match(groups, seen, "already_tracked", match)
-        elif not match.get("eligible_for_personalized", True):
+        elif not match.get("eligible_for_personalized", True) or match.get("location_actionability_cap_applied"):
             add_explore_match(groups, seen, "broader_market", match)
         elif match["score"] >= 34:
             add_explore_match(groups, seen, "strong_fit", match)
@@ -532,7 +532,7 @@ def build_explore_market(profile, live_rows, evergreen_rows, public_rows, tracke
         record = tracked_record_for_match(match, tracked)
         if record:
             add_explore_match(groups, seen, "already_tracked", match)
-        elif not match.get("eligible_for_personalized", True):
+        elif not match.get("eligible_for_personalized", True) or match.get("location_actionability_cap_applied"):
             add_explore_match(groups, seen, "broader_market", match)
         else:
             add_explore_match(groups, seen, "supplemental", match)

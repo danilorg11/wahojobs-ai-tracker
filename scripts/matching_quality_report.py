@@ -174,6 +174,16 @@ class EvaluatedCase:
     hard_gate_type: str
     hard_gate_status: str
     hard_gate_reason: str
+    location_eligibility_status: str
+    location_eligibility_reason: str
+    profile_location: str
+    profile_location_status: str
+    applicant_location_requirements: str
+    location_restriction_type: str
+    job_location_scope: str
+    job_remote_status: str
+    location_actionability_cap_required: bool
+    location_actionability_cap_applied: bool
     eligible_for_personalized: bool
     language_eligibility_reason: str
     reasons: list[str]
@@ -373,8 +383,9 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
     score = scored["score"]
     raw_match_label = match_strength_from_score(score)
     eligible_for_personalized = scored.get("eligible_for_personalized", True)
-    raw_section = section_for_score(score, eligible_for_personalized)
-    projection = project_benchmark_prediction(score, raw_match_label, raw_section, scored)
+    raw_section = scored.get("raw_product_section") or section_for_score(score, eligible_for_personalized)
+    effective_section = scored.get("effective_product_section") or raw_section
+    projection = project_benchmark_prediction(score, raw_match_label, raw_section, scored, effective_section)
     positives, penalties = explain_score(profile, row, matcher_module)
     signals, contradictions = detect_signals(profile, row, case)
     failure_patterns = detect_failure_patterns(
@@ -400,6 +411,16 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
         hard_gate_type=projection.hard_gate_type,
         hard_gate_status=projection.hard_gate_status,
         hard_gate_reason=projection.hard_gate_reason,
+        location_eligibility_status=scored.get("location_eligibility_status", "unknown"),
+        location_eligibility_reason=scored.get("location_eligibility_reason", "-"),
+        profile_location=scored.get("profile_location", ""),
+        profile_location_status=scored.get("profile_location_status", "unknown"),
+        applicant_location_requirements=scored.get("applicant_location_requirements", ""),
+        location_restriction_type=scored.get("location_restriction_type", "none"),
+        job_location_scope=scored.get("job_location_scope", "unknown"),
+        job_remote_status=scored.get("job_remote_status", "unknown"),
+        location_actionability_cap_required=bool(scored.get("location_actionability_cap_required")),
+        location_actionability_cap_applied=bool(scored.get("location_actionability_cap_applied")),
         eligible_for_personalized=eligible_for_personalized,
         language_eligibility_reason=scored.get("language_eligibility_reason", "-"),
         reasons=scored["reasons"],
@@ -416,6 +437,7 @@ def project_benchmark_prediction(
     raw_match_label: str,
     raw_section: str,
     scored: dict,
+    effective_section: str | None = None,
 ) -> BenchmarkPrediction:
     """Project product matcher output into a benchmark-only label/section.
 
@@ -438,7 +460,7 @@ def project_benchmark_prediction(
         )
     return BenchmarkPrediction(
         evaluation_label=label_from_raw_match_label(raw_match_label),
-        evaluation_section=raw_section,
+        evaluation_section=effective_section or raw_section,
         raw_match_label=raw_match_label,
         raw_section=raw_section,
         raw_score=score,
@@ -1289,6 +1311,13 @@ def render_failure_block(item: EvaluatedCase) -> list[str]:
         f"- Evaluation: `{item.evaluation_label}` / `{item.evaluation_section}`",
         f"- Raw/product matcher: score {item.score}, `{item.raw_match_label}`, `{item.raw_section}`",
         f"- Decisive hard gate: {item.hard_gate_type or '-'} / {item.hard_gate_status or '-'} ({item.hard_gate_reason or '-'})",
+        (
+            "- Location eligibility: "
+            f"{item.location_eligibility_status} / {item.location_restriction_type} restriction / "
+            f"{item.profile_location_status} profile location "
+            f"({item.location_eligibility_reason})"
+        ),
+        f"- Applicant-location restriction: {item.applicant_location_requirements or '-'}",
         f"- Personalized eligibility: {'yes' if item.eligible_for_personalized else 'no'} ({item.language_eligibility_reason})",
         f"- Rationale: {case['rationale']}",
         f"- Regression rule: `{case.get('regression_rule') or '-'}`",

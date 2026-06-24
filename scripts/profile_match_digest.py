@@ -24,6 +24,7 @@ from wahojobs.matching.languages import (
     profile_language_set,
     row_language_text,
 )
+from wahojobs.matching.locations import location_eligibility
 from wahojobs.reporting.market import CANONICALIZED_SLUGS, get_market_size_summary
 
 
@@ -33,6 +34,9 @@ TOP_LIVE_LIMIT = 8
 REPORT_SEPARATELY_LIMIT = 5
 NEW_LIMIT = 5
 MAYBE_LIMIT = 5
+DO_THESE_FIRST_SCORE_THRESHOLD = 30
+BEST_MATCHES_SCORE_THRESHOLD = 22
+ALSO_WORTH_REVIEWING_SCORE_THRESHOLD = 18
 TECHNICAL_ROLE_TERMS = [
     ".net",
     "api",
@@ -503,6 +507,8 @@ def normalize_profile(raw_profile, source="profile"):
             required=False,
         ),
     }
+    for field in ("location", "country", "residence", "city", "region"):
+        profile[field] = optional_string(raw_profile, field, "")
 
     if not isinstance(profile["signals"], list) or not profile["signals"]:
         raise SystemExit(f"Malformed {source}: could not derive matching signals.")
@@ -798,6 +804,8 @@ def rank_opportunities(
         scored = score_opportunity(profile, row)
         if require_personalized_eligible and not scored["eligible_for_personalized"]:
             continue
+        if require_personalized_eligible and scored.get("location_actionability_cap_applied"):
+            continue
         if scored["score"] < min_score:
             continue
         if max_score is not None and scored["score"] > max_score:
@@ -838,6 +846,7 @@ def score_opportunity(profile, row):
     expertise = row["source_category"] or row["expertise"] or row["department"] or "Unknown"
     text = searchable_text(row, title, expertise)
     language_check = language_eligibility(profile, row_language_text(row))
+    location_check = location_eligibility(profile, row)
     score = 0
     reasons = []
 
@@ -885,8 +894,18 @@ def score_opportunity(profile, row):
         score -= penalty
         reasons.append(reason)
 
+    score = max(score, 0)
+    raw_section = product_section_for_score(score, language_check.eligible_for_personalized)
+    effective_section = raw_section
+    location_cap_applied = (
+        location_check.actionability_cap_required and raw_section != "explore_only"
+    )
+    if location_cap_applied:
+        effective_section = "explore_only"
+        reasons.append(location_check.reason)
+
     return {
-        "score": max(score, 0),
+        "score": score,
         "display_title": title,
         "source": row["source"],
         "source_slug": row["source_slug"],
@@ -907,8 +926,32 @@ def score_opportunity(profile, row):
         "matched_languages": sorted(language_check.matched_languages),
         "unsupported_languages": sorted(language_check.unsupported_languages),
         "language_eligibility_reason": language_check.reason,
+        "location_eligibility_status": location_check.status,
+        "location_eligibility_reason": location_check.reason,
+        "profile_location": location_check.profile_location,
+        "profile_location_status": location_check.profile_location_status,
+        "applicant_location_requirements": location_check.applicant_location_requirements,
+        "location_restriction_type": location_check.restriction_type,
+        "job_location_scope": location_check.job_location_scope,
+        "job_remote_status": location_check.job_remote_status,
+        "location_actionability_cap_required": location_check.actionability_cap_required,
+        "location_actionability_cap_applied": location_cap_applied,
+        "raw_product_section": raw_section,
+        "effective_product_section": effective_section,
         "reasons": unique(reasons)[:6],
     }
+
+
+def product_section_for_score(score, eligible_for_personalized=True):
+    if not eligible_for_personalized:
+        return "explore_only"
+    if score >= DO_THESE_FIRST_SCORE_THRESHOLD:
+        return "do_these_first"
+    if score >= BEST_MATCHES_SCORE_THRESHOLD:
+        return "best_matches"
+    if score >= ALSO_WORTH_REVIEWING_SCORE_THRESHOLD:
+        return "also_worth_reviewing"
+    return "explore_only"
 
 
 def searchable_text(row, title, expertise):
