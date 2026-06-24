@@ -1,25 +1,25 @@
 # Matching Quality Benchmark Baseline
 
-Generated: 2026-06-22T02:50:18.610874+00:00
+Generated: 2026-06-24T01:56:13.320582+00:00
 
 ## Scope
 
-This report evaluates the current production profile matcher against a draft fixture pool. It does not change scoring, thresholds, planner logic, crawlers, schema, product-state data, or live market estimates.
+This report evaluates the current production profile matcher against a fixture pool containing draft and human-reviewed labels. It does not change scoring, thresholds, planner logic, crawlers, schema, product-state data, or live market estimates.
 
-All fixture labels are `codex_draft` labels. They are proposed baseline judgments for review, not final human-approved truth.
+`codex_draft` labels are proposed judgments awaiting review. `human_reviewed` labels include approved review notes and are treated as calibrated fixture labels.
 
 Precision, recall, and false-positive metrics below are fixture-pool metrics only. They are not universal production accuracy estimates.
 
 ## Fixture Summary
 
 - Fixture: `tests/fixtures/matching_golden_set.json`
-- Baseline matcher commit: `0613bc12fb91b447ad5241f96ed7a8a619266724`
+- Baseline matcher commit: `4ce2615f6f234dfb97c69f3e7fbd6054c2e0d216`
 - Total cases: 160
-- Headline metric cases: 151
-- Review-required cases excluded from headline metrics: 9
+- Headline metric cases: 159
+- Review-required cases excluded from headline metrics: 1
 - DB resolution: live_db_url=89, fixture_snapshot=55, live_db_title=16
-- Label distribution, all cases: strong=61, false_positive=58, plausible=30, weak=11
-- Label distribution, headline cases: strong=59, false_positive=58, plausible=26, weak=8
+- Label distribution, all cases: strong=61, false_positive=58, plausible=28, weak=13
+- Label distribution, headline cases: strong=61, false_positive=58, plausible=28, weak=12
 
 ## Apples-To-Apples Matcher Comparison
 
@@ -27,40 +27,40 @@ Previous and current matchers are evaluated against the same fixture pool with t
 
 | Metric | Previous HEAD | Current Working Tree |
 |---|---:|---:|
-| Surfacing false positives | 24 | 0 |
-| Classification false positives | 20 | 6 |
-| Visible false negatives | 6 | 7 |
-| Explore-only false positives | 34 | 58 |
+| Surfacing false positives | 0 | 0 |
+| Classification false positives | 6 | 6 |
+| Visible false negatives | 8 | 8 |
+| Explore-only false positives | 58 | 58 |
 
 ### Precision Before / After By Profile
 
 | Profile | P@4 Previous | P@4 Current | P@10 Previous | P@10 Current | Strict P@4 Previous | Strict P@4 Current | Strict P@10 Previous | Strict P@10 Current |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| beginner_bilingual_no_degree | 75% | 50% | 50% | 50% | 50% | 25% | 20% | 20% |
+| beginner_bilingual_no_degree | 50% | 50% | 50% | 50% | 25% | 25% | 20% | 20% |
 | biology_or_medicine_academic | 100% | 100% | 100% | 100% | 100% | 100% | 80% | 80% |
 | english_teacher_remote | 100% | 100% | 70% | 70% | 50% | 50% | 50% | 50% |
 | finance_professional | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 100% |
-| generalist_no_degree | 100% | 100% | 70% | 80% | 75% | 75% | 30% | 30% |
-| lawyer | 100% | 100% | 90% | 100% | 100% | 100% | 80% | 90% |
-| multilingual_translator | 100% | 100% | 70% | 70% | 100% | 100% | 60% | 60% |
-| phd_history_researcher | 50% | 50% | 40% | 50% | 0% | 0% | 10% | 10% |
+| generalist_no_degree | 100% | 100% | 70% | 70% | 75% | 75% | 30% | 30% |
+| lawyer | 100% | 100% | 100% | 100% | 100% | 100% | 90% | 90% |
+| multilingual_translator | 100% | 100% | 90% | 90% | 100% | 100% | 80% | 80% |
+| phd_history_researcher | 50% | 50% | 50% | 50% | 0% | 0% | 10% | 10% |
 | portuguese_english_reviewer | 100% | 100% | 90% | 90% | 100% | 100% | 70% | 70% |
-| software_engineer | 100% | 100% | 90% | 90% | 100% | 100% | 70% | 70% |
+| software_engineer | 100% | 100% | 90% | 90% | 75% | 75% | 70% | 70% |
 
 ## Fixture-Pool Metrics By Profile
 
 | Profile | Cases | Relevant P@4 | Relevant P@10 | Strict P@4 | Strict P@10 | FP@10 | Relevant Recall | Surfacing FP | Classification FP | Visible FN |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| beginner_bilingual_no_degree | 15 | 50% | 50% | 25% | 20% | 50% | 86% | 0 | 5 | 1 |
+| beginner_bilingual_no_degree | 16 | 50% | 50% | 25% | 20% | 50% | 100% | 0 | 5 | 0 |
 | biology_or_medicine_academic | 16 | 100% | 100% | 100% | 80% | 0% | 82% | 0 | 0 | 2 |
 | english_teacher_remote | 16 | 100% | 70% | 50% | 50% | 30% | 88% | 0 | 1 | 1 |
 | finance_professional | 15 | 100% | 100% | 100% | 100% | 0% | 100% | 0 | 0 | 0 |
-| generalist_no_degree | 15 | 100% | 80% | 75% | 30% | 10% | 88% | 0 | 0 | 1 |
+| generalist_no_degree | 16 | 100% | 70% | 75% | 30% | 0% | 86% | 0 | 0 | 1 |
 | lawyer | 16 | 100% | 100% | 100% | 90% | 0% | 90% | 0 | 0 | 1 |
-| multilingual_translator | 13 | 100% | 70% | 100% | 60% | 30% | 100% | 0 | 0 | 0 |
-| phd_history_researcher | 15 | 50% | 50% | 0% | 10% | 10% | 80% | 0 | 0 | 1 |
-| portuguese_english_reviewer | 15 | 100% | 90% | 100% | 70% | 10% | 100% | 0 | 0 | 0 |
-| software_engineer | 15 | 100% | 90% | 100% | 70% | 10% | 100% | 0 | 0 | 0 |
+| multilingual_translator | 16 | 100% | 90% | 100% | 80% | 10% | 90% | 0 | 0 | 1 |
+| phd_history_researcher | 16 | 50% | 50% | 0% | 10% | 0% | 80% | 0 | 0 | 1 |
+| portuguese_english_reviewer | 16 | 100% | 90% | 100% | 70% | 10% | 90% | 0 | 0 | 1 |
+| software_engineer | 16 | 100% | 90% | 75% | 70% | 10% | 100% | 0 | 0 | 0 |
 
 ## Surfacing False Positives
 
@@ -155,20 +155,6 @@ No false-positive fixture cases reached personalized sections.
 
 ## Visible False Negatives
 
-### beginner_bilingual_no_degree - beginner_bilingual_no_degree_006
-
-- Opportunity: Meridial - Social Media Annotation - Freelance AI Trainer Project
-- Expected: `plausible` / `also_worth_reviewing`
-- Current: score 17, `Possible`, `explore_only`
-- Personalized eligibility: yes (No explicit language requirement detected.)
-- Rationale: Annotation work could fit a beginner profile.
-- Regression rule: `-`
-- Failure patterns: -
-- Positive contributions: +8 AI evaluation/training signal: annotation, +5 Remote/flexible signal, +3 Live/countable opportunity, +1 Non-experimental source
-- Penalties: -
-- User-facing reasons: AI evaluation/training signal, Remote/flexible signal, Live/countable opportunity
-- Contradictions: -
-
 ### biology_or_medicine_academic - biology_or_medicine_academic_003
 
 - Opportunity: Mercor - Microbiology Specialist
@@ -239,6 +225,20 @@ No false-positive fixture cases reached personalized sections.
 - User-facing reasons: Expert review signal, Remote/flexible signal, Live/countable opportunity, Match is based mostly on generic AI-work terms
 - Contradictions: -
 
+### multilingual_translator - multilingual_translator_010
+
+- Opportunity: DataAnnotation - Bilingual AI Trainer
+- Expected: `plausible` / `also_worth_reviewing`
+- Current: score 8, `Possible`, `explore_only`
+- Personalized eligibility: yes (No explicit language requirement detected.)
+- Rationale: Evergreen bilingual application is relevant but not live inventory.
+- Regression rule: `-`
+- Failure patterns: -
+- Positive contributions: +5 Remote/flexible signal, +2 Reported separately opportunity, +1 Non-experimental source
+- Penalties: -
+- User-facing reasons: Remote/flexible signal, Evergreen application, useful but not counted in live estimate
+- Contradictions: -
+
 ### phd_history_researcher - phd_history_researcher_005
 
 - Opportunity: DataAnnotation - Generalist AI Trainer
@@ -246,6 +246,20 @@ No false-positive fixture cases reached personalized sections.
 - Current: score 8, `Possible`, `explore_only`
 - Personalized eligibility: yes (No explicit language requirement detected.)
 - Rationale: Evergreen generalist AI training may fit academic writing/research skills.
+- Regression rule: `-`
+- Failure patterns: -
+- Positive contributions: +5 Remote/flexible signal, +2 Reported separately opportunity, +1 Non-experimental source
+- Penalties: -
+- User-facing reasons: Remote/flexible signal, Evergreen application, useful but not counted in live estimate
+- Contradictions: -
+
+### portuguese_english_reviewer - portuguese_english_reviewer_010
+
+- Opportunity: DataAnnotation - Bilingual AI Trainer
+- Expected: `plausible` / `also_worth_reviewing`
+- Current: score 8, `Possible`, `explore_only`
+- Personalized eligibility: yes (No explicit language requirement detected.)
+- Rationale: Evergreen bilingual application is relevant but not a live posting.
 - Regression rule: `-`
 - Failure patterns: -
 - Positive contributions: +5 Remote/flexible signal, +2 Reported separately opportunity, +1 Non-experimental source
@@ -319,8 +333,10 @@ No false-positive fixture cases reached personalized sections.
 | generalist_no_degree | Alignerr - English Writing Generalist - Advanced | also_worth_reviewing | best_matches | 26 | Medium |
 | generalist_no_degree | Alignerr - English Writing Generalist - Quality Review | also_worth_reviewing | best_matches | 26 | Medium |
 | generalist_no_degree | Meridial - Search Engine Evaluation Specialist - Freelance AI Trainer Project | also_worth_reviewing | best_matches | 25 | Medium |
-| generalist_no_degree | Meridial - Social Media Annotation - Freelance AI Trainer Project | also_worth_reviewing | best_matches | 25 | Medium |
+| generalist_no_degree | Meridial - Social Media Annotation - Freelance AI Trainer Project | explore_only | best_matches | 25 | Medium |
 | generalist_no_degree | Mindrift - Auto Claims Examiner - Freelance AI Trainer | explore_only | best_matches | 25 | Medium |
+| generalist_no_degree | Meridial - Pavement Condition Index (PCI) Survey & Annotation Specialist - Freelance AI Trainer Project | explore_only | best_matches | 25 | Medium |
+| lawyer | Mercor - Attorney / Legal Expert (Real Estate/Energy) | best_matches | do_these_first | 30 | Medium |
 | lawyer | Mercor - IP Law Expert | best_matches | do_these_first | 30 | Medium |
 | lawyer | Mercor - Legal Expert - Employment/Labor Law | best_matches | do_these_first | 30 | Medium |
 | lawyer | Mercor - Legal Expert Specialist | best_matches | do_these_first | 30 | Medium |
@@ -351,6 +367,7 @@ No false-positive fixture cases reached personalized sections.
 | software_engineer | Turing - Python + Full-Stack (JS) Developer | best_matches | do_these_first | 31 | Medium |
 | software_engineer | Turing - Senior Backend Engineer (Python/FastAPI) - AI Evaluation (US-based) | best_matches | do_these_first | 31 | Medium |
 | software_engineer | Turing - Senior Python Developer | best_matches | do_these_first | 31 | Medium |
+| software_engineer | Turing - Scientific Coding - Biology and Python | also_worth_reviewing | do_these_first | 31 | Medium |
 | software_engineer | micro1 - QA Automation Engineer | also_worth_reviewing | best_matches | 29 | Medium |
 
 ## Recurring Failure Patterns
@@ -517,7 +534,7 @@ These are the current top 10 live matches by benchmark profile. They are not lab
 
 ## Recommended Next Deterministic Gate Work
 
-- Human-review the highest-impact `codex_draft` labels before treating precision as product truth.
+- Continue human-reviewing the highest-impact remaining `codex_draft` labels before treating precision as product truth.
 - Investigate visible false negatives caused by sparse fixture snapshots or missing live metadata.
 - Review the history/humanities profile separately; do not inflate generic writing/search roles just to fill recommendation slots.
 - Keep surfacing and classification metrics separate before tuning additional deterministic gates.

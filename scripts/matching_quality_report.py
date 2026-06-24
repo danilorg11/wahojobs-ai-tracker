@@ -63,6 +63,7 @@ RELEVANT_LABELS = {"strong", "plausible"}
 STRICT_RELEVANT_LABELS = {"strong"}
 
 SUPPORTED_FIXTURE_LABELS = {"strong", "plausible", "weak", "false_positive"}
+SUPPORTED_LABEL_SOURCES = {"codex_draft", "human_reviewed"}
 SUPPORTED_SECTIONS = set(SECTION_LEVELS)
 PERSONALIZED_SECTIONS = {"do_these_first", "best_matches", "also_worth_reviewing"}
 MEDIUM_SCORE_THRESHOLD = 24
@@ -311,12 +312,18 @@ def validate_case(case: dict, index: int) -> None:
         raise SystemExit(
             f"Unsupported expected_label for {case['case_id']}: {case['expected_label']}"
         )
-    if case["label_source"] != "codex_draft":
+    if case["label_source"] not in SUPPORTED_LABEL_SOURCES:
         raise SystemExit(
-            f"{case['case_id']} must use label_source='codex_draft' for baseline labels."
+            f"{case['case_id']} has unsupported label_source: {case['label_source']}. "
+            f"Expected one of: {', '.join(sorted(SUPPORTED_LABEL_SOURCES))}."
         )
     if not isinstance(case["review_required"], bool):
         raise SystemExit(f"{case['case_id']} review_required must be true or false.")
+    if case["label_source"] == "human_reviewed":
+        if case["review_required"]:
+            raise SystemExit(f"{case['case_id']} is human_reviewed but still review_required=true.")
+        if not str(case.get("human_notes") or "").strip():
+            raise SystemExit(f"{case['case_id']} is human_reviewed but missing human_notes.")
     if case.get("expected_section") and case["expected_section"] not in SUPPORTED_SECTIONS:
         raise SystemExit(
             f"Unsupported expected_section for {case['case_id']}: {case['expected_section']}"
@@ -853,13 +860,13 @@ def render_quality_report(
         "",
         (
             "This report evaluates the current production profile matcher against a "
-            "draft fixture pool. It does not change scoring, thresholds, planner "
+            "fixture pool containing draft and human-reviewed labels. It does not change scoring, thresholds, planner "
             "logic, crawlers, schema, product-state data, or live market estimates."
         ),
         "",
         (
-            "All fixture labels are `codex_draft` labels. They are proposed baseline "
-            "judgments for review, not final human-approved truth."
+            "`codex_draft` labels are proposed judgments awaiting review. "
+            "`human_reviewed` labels include approved review notes and are treated as calibrated fixture labels."
         ),
         "",
         (
@@ -1081,7 +1088,7 @@ def render_quality_report(
         [
             "## Recommended Next Deterministic Gate Work",
             "",
-            "- Human-review the highest-impact `codex_draft` labels before treating precision as product truth.",
+            "- Continue human-reviewing the highest-impact remaining `codex_draft` labels before treating precision as product truth.",
             "- Investigate visible false negatives caused by sparse fixture snapshots or missing live metadata.",
             "- Review the history/humanities profile separately; do not inflate generic writing/search roles just to fill recommendation slots.",
             "- Keep surfacing and classification metrics separate before tuning additional deterministic gates.",
@@ -1188,8 +1195,9 @@ def render_review_report(
         f"Generated: {generated_at.isoformat()}",
         "",
         (
-            "All labels in this file are `codex_draft` labels. They are intended "
-            "for human review and correction before being treated as product truth."
+            "Labels in this file may be `codex_draft` or `human_reviewed`. "
+            "Draft labels are intended for human review and correction; human-reviewed labels "
+            "include approved review notes."
         ),
         "",
         (

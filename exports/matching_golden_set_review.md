@@ -1,8 +1,8 @@
 # Matching Golden Set Human Review Draft
 
-Generated: 2026-06-22T02:50:18.610874+00:00
+Generated: 2026-06-24T01:56:13.320582+00:00
 
-All labels in this file are `codex_draft` labels. They are intended for human review and correction before being treated as product truth.
+Labels in this file may be `codex_draft` or `human_reviewed`. Draft labels are intended for human review and correction; human-reviewed labels include approved review notes.
 
 Review-required cases are excluded from headline precision, recall, and false-positive metrics in `matching_quality_report.md`.
 
@@ -14,8 +14,8 @@ Review-required cases are excluded from headline precision, recall, and false-po
 | beginner_bilingual_no_degree_002 | Welocalize - Alpheratz Project - Spanish (US) Translation Quality Reviewer | strong | best_matches | no | - | 32 / Medium | Spanish-English review work is directly relevant. |
 | beginner_bilingual_no_degree_003 | Welocalize - Alpheratz Project - Spanish (US) Translation Quality Rater | strong | best_matches | no | - | 40 / Strong | Spanish-English rating work is directly relevant. |
 | beginner_bilingual_no_degree_004 | OneForma - HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Spanish (Chile) | plausible | also_worth_reviewing | no | - | 31 / Medium | English-Spanish translation/post-editing is relevant, though experience may matter. |
-| beginner_bilingual_no_degree_005 | DataAnnotation - Bilingual AI Trainer | plausible | also_worth_reviewing | yes | - | 18 / Possible | Evergreen bilingual application is relevant but not live inventory. |
-| beginner_bilingual_no_degree_006 | Meridial - Social Media Annotation - Freelance AI Trainer Project | plausible | also_worth_reviewing | no | - | 17 / Possible | Annotation work could fit a beginner profile. |
+| beginner_bilingual_no_degree_005 | DataAnnotation - Bilingual AI Trainer | plausible | also_worth_reviewing | no | - | 18 / Possible | Evergreen bilingual application is relevant but not live inventory. |
+| beginner_bilingual_no_degree_006 | Meridial - Social Media Annotation - Freelance AI Trainer Project | weak | explore_only | no | - | 17 / Possible | Annotation work could fit a beginner profile. |
 | beginner_bilingual_no_degree_007 | Meridial - Search Engine Evaluation Specialist - Freelance AI Trainer Project | plausible | also_worth_reviewing | no | - | 24 / Medium | Search evaluation can fit beginner remote work. |
 | beginner_bilingual_no_degree_008 | Outlier - English Writing and Content Reviewing Expertise Sought for AI Training | plausible | also_worth_reviewing | no | - | 32 / Medium | English content review can fit if writing skills are sufficient. |
 | beginner_bilingual_no_degree_009 | Outlier - Kiswahili Freelance Writer | false_positive | exclude | no | unsupported_explicit_language | 9 / Possible | Kiswahili is unsupported for English-Spanish bilingual profile. |
@@ -100,13 +100,13 @@ Review-required cases are excluded from headline precision, recall, and false-po
 | generalist_no_degree_004 | Alignerr - English Writing Generalist - Advanced | plausible | also_worth_reviewing | no | - | 26 / Medium | Still relevant English writing work, but advanced label may require stronger experience. |
 | generalist_no_degree_005 | Alignerr - English Writing Generalist - Quality Review | plausible | also_worth_reviewing | no | - | 26 / Medium | Quality review is adjacent to generalist content review. |
 | generalist_no_degree_006 | Meridial - Search Engine Evaluation Specialist - Freelance AI Trainer Project | plausible | also_worth_reviewing | no | - | 25 / Medium | Search evaluation may fit a generalist worker but should not outrank clear English writing roles. |
-| generalist_no_degree_007 | Meridial - Social Media Annotation - Freelance AI Trainer Project | plausible | also_worth_reviewing | no | - | 25 / Medium | Social media annotation is plausible generalist work. |
+| generalist_no_degree_007 | Meridial - Social Media Annotation - Freelance AI Trainer Project | weak | explore_only | no | - | 25 / Medium | Social media annotation is plausible generalist work. |
 | generalist_no_degree_008 | DataAnnotation - Generalist AI Trainer | plausible | also_worth_reviewing | no | - | 17 / Possible | Evergreen generalist application is useful but not a live task feed. |
 | generalist_no_degree_009 | Mindrift - Freelance Mathematics Expert - AI Trainer | false_positive | exclude | no | generalist_specialist_domain_mismatch | 0 / Possible | Requires math expertise not present in the no-degree generalist profile. |
 | generalist_no_degree_010 | Mindrift - Material Science Expert with Python - Freelance AI Trainer | false_positive | exclude | no | generalist_specialist_domain_mismatch | 0 / Possible | Combines science and Python expertise, not a generalist no-degree fit. |
 | generalist_no_degree_011 | Mindrift - Direct Endorsement (DE) Underwriter - Freelance AI Trainer | false_positive | exclude | no | generalist_specialist_domain_mismatch | 0 / Possible | Mortgage underwriting is a specialist credentialed domain, not a generalist fit. |
 | generalist_no_degree_012 | Mindrift - Auto Claims Examiner - Freelance AI Trainer | weak | explore_only | no | - | 25 / Medium | Could be administrative review work, but the domain is specialized. |
-| generalist_no_degree_013 | Meridial - Pavement Condition Index (PCI) Survey & Annotation Specialist - Freelance AI Trainer Project | weak | explore_only | yes | - | 25 / Medium | Annotation is relevant, but pavement condition survey expertise is specialized. |
+| generalist_no_degree_013 | Meridial - Pavement Condition Index (PCI) Survey & Annotation Specialist - Freelance AI Trainer Project | weak | explore_only | no | - | 25 / Medium | Annotation is relevant, but pavement condition survey expertise is specialized. |
 | generalist_no_degree_014 | micro1 - Legal Expert | false_positive | exclude | no | generalist_specialist_domain_mismatch | 0 / Possible | Legal expertise is a specialist domain outside this profile. |
 | generalist_no_degree_015 | micro1 - Finance Expert | false_positive | exclude | no | generalist_specialist_domain_mismatch | 0 / Possible | Finance expertise is a specialist domain outside this profile. |
 | generalist_no_degree_016 | Turing - Senior Python Developer | false_positive | exclude | no | technical_mismatch | 0 / Possible | Senior coding role is outside a non-coding generalist profile. |
@@ -115,7 +115,7 @@ Review-required cases are excluded from headline precision, recall, and false-po
 
 | Case | Source / Title | Expected | Expected Section | Review Required | Regression Rule | Current Score / Label | Rationale |
 |---|---|---|---|---|---|---|---|
-| lawyer_001 | Mercor - Attorney / Legal Expert (Real Estate/Energy) | strong | do_these_first | no | - | 30 / Medium | Attorney/legal expert work is directly relevant. |
+| lawyer_001 | Mercor - Attorney / Legal Expert (Real Estate/Energy) | strong | best_matches | no | - | 30 / Medium | Attorney/legal expert work is directly relevant. |
 | lawyer_002 | Mercor - IP Expert | strong | best_matches | no | - | 6 / Possible | Intellectual property expertise is legal-domain work. |
 | lawyer_003 | Mercor - IP Law Expert | strong | best_matches | no | - | 30 / Medium | IP law is a direct legal match. |
 | lawyer_004 | Mercor - Legal Expert - Employment/Labor Law | strong | best_matches | no | - | 30 / Medium | Employment/labor law is a direct legal match. |
@@ -140,12 +140,12 @@ Review-required cases are excluded from headline precision, recall, and false-po
 | multilingual_translator_002 | Alignerr - Portuguese Localization Expert | strong | best_matches | no | - | 35 / Strong | Portuguese localization is a direct language-work match. |
 | multilingual_translator_003 | Alignerr - Spanish Localization Expert | strong | best_matches | no | - | 35 / Strong | Spanish localization is a direct language-work match. |
 | multilingual_translator_004 | OneForma - HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - French (France) | strong | best_matches | no | - | 41 / Strong | English-French translation/post-editing is directly relevant. |
-| multilingual_translator_005 | Mercor - French Voice/Audio AI Data Roles | strong | best_matches | yes | - | 23 / Possible | French voice/audio AI data role is relevant language work. |
-| multilingual_translator_006 | Mercor - Spanish Voice/Audio AI Data Roles | strong | best_matches | yes | - | 23 / Possible | Spanish voice/audio AI data role is relevant language work. |
+| multilingual_translator_005 | Mercor - French Voice/Audio AI Data Roles | strong | best_matches | no | - | 23 / Possible | French voice/audio AI data role is relevant language work. |
+| multilingual_translator_006 | Mercor - Spanish Voice/Audio AI Data Roles | strong | best_matches | no | - | 23 / Possible | Spanish voice/audio AI data role is relevant language work. |
 | multilingual_translator_007 | Meridial - French Language Specialist - Freelance AI Trainer Project | strong | best_matches | no | - | 35 / Strong | French language specialist role is relevant. |
 | multilingual_translator_008 | Welocalize - Alpheratz Project - Portuguese (Portugal) Translation Quality Rater | strong | best_matches | no | - | 35 / Strong | Portuguese translation quality role is relevant. |
 | multilingual_translator_009 | OneForma - Adaptation - Portuguese (Brazil) - Portuguese (Portugal) | plausible | also_worth_reviewing | no | - | 35 / Strong | Portuguese variant adaptation is relevant but variant-specific. |
-| multilingual_translator_010 | DataAnnotation - Bilingual AI Trainer | plausible | also_worth_reviewing | yes | - | 8 / Possible | Evergreen bilingual application is relevant but not live inventory. |
+| multilingual_translator_010 | DataAnnotation - Bilingual AI Trainer | plausible | also_worth_reviewing | no | - | 8 / Possible | Evergreen bilingual application is relevant but not live inventory. |
 | multilingual_translator_011 | Welocalize - Alpheratz Project - Danish Translation Quality Rater | false_positive | exclude | no | - | 11 / Possible | Danish is outside listed languages. |
 | multilingual_translator_012 | Welocalize - Alpheratz Project - Korean Translation Quality Rater | false_positive | exclude | no | - | 11 / Possible | Korean is outside listed languages. |
 | multilingual_translator_013 | OneForma - HT (Human Translation) and MTPE (Machine Translation Post Editing) - English (United States) - Norwegian (Norway) | false_positive | exclude | no | - | 21 / Possible | Norwegian is outside listed languages. |
@@ -162,7 +162,7 @@ Review-required cases are excluded from headline precision, recall, and false-po
 | phd_history_researcher_003 | Outlier - English Writing and Content Reviewing Expertise Sought for AI Training | plausible | also_worth_reviewing | no | - | 32 / Medium | English writing/content review can fit academic writing skills. |
 | phd_history_researcher_004 | Welocalize - Alpheratz Project - English (UK) Translation Quality Rater | plausible | also_worth_reviewing | no | - | 30 / Medium | English quality review is adjacent but not history-specific. |
 | phd_history_researcher_005 | DataAnnotation - Generalist AI Trainer | plausible | also_worth_reviewing | no | - | 8 / Possible | Evergreen generalist AI training may fit academic writing/research skills. |
-| phd_history_researcher_006 | DataAnnotation - Law Expert / Legal AI Trainer | weak | explore_only | yes | - | 0 / Possible | Humanities researcher may review legal prose only with legal credentials; not a strong fit. |
+| phd_history_researcher_006 | DataAnnotation - Law Expert / Legal AI Trainer | weak | explore_only | no | - | 0 / Possible | Humanities researcher may review legal prose only with legal credentials; not a strong fit. |
 | phd_history_researcher_007 | Mercor - Market Research Methodologist - Report Quality & Insights Evaluation Expert | weak | explore_only | no | - | 24 / Medium | Research/report quality is adjacent, but market-research methodology is not history-specific. |
 | phd_history_researcher_008 | Turing - Software Engineer - AI Research & Evaluation (US-based) | false_positive | exclude | no | history_software_research_false_positive | 0 / Possible | Current matcher overweights research/evaluation, but this is a software role. |
 | phd_history_researcher_009 | Mercor - Biology & Biophysics Researchers (India, Part-time) | false_positive | exclude | no | history_science_research_false_positive | 0 / Possible | Research term matches, but biology/biophysics is outside humanities history. |
@@ -187,7 +187,7 @@ Review-required cases are excluded from headline precision, recall, and false-po
 | portuguese_english_reviewer_007 | Meridial - Portuguese Voice Actor - Freelance AI Trainer Project | plausible | also_worth_reviewing | no | - | 35 / Strong | Portuguese voice work is relevant but depends on comfort with recording. |
 | portuguese_english_reviewer_008 | Outlier - Portuguese (Brazil) Freelance Writer | strong | best_matches | no | - | 35 / Strong | Portuguese writing is a direct fit. |
 | portuguese_english_reviewer_009 | Turing - AI Quality Analyst - Portuguese (Portugal) | strong | best_matches | no | - | 35 / Strong | Portuguese AI quality analysis is directly relevant. |
-| portuguese_english_reviewer_010 | DataAnnotation - Bilingual AI Trainer | plausible | also_worth_reviewing | yes | - | 8 / Possible | Evergreen bilingual application is relevant but not a live posting. |
+| portuguese_english_reviewer_010 | DataAnnotation - Bilingual AI Trainer | plausible | also_worth_reviewing | no | - | 8 / Possible | Evergreen bilingual application is relevant but not a live posting. |
 | portuguese_english_reviewer_011 | Welocalize - Alpheratz Project - Czech Translation Quality Rater | false_positive | exclude | no | unsupported_explicit_language | 23 / Possible | Czech is not an explicit supported language for this profile. |
 | portuguese_english_reviewer_012 | Welocalize - Alpheratz Project - Danish Translation Quality Rater | false_positive | exclude | no | unsupported_explicit_language | 23 / Possible | Danish is not an explicit supported language for this profile. |
 | portuguese_english_reviewer_013 | Welocalize - Alpheratz Project - Korean Translation Quality Rater | false_positive | exclude | no | unsupported_explicit_language | 23 / Possible | Korean is not an explicit supported language for this profile. |
@@ -207,7 +207,7 @@ Review-required cases are excluded from headline precision, recall, and false-po
 | software_engineer_006 | Turing - Software Engineer - AI Code Evaluation & Benchmarking (SWE-Bench) | strong | best_matches | no | - | 29 / Medium | Software code evaluation/benchmarking is highly relevant. |
 | software_engineer_007 | micro1 - QA Automation Engineer | plausible | also_worth_reviewing | no | - | 29 / Medium | QA automation is relevant software evaluation work. |
 | software_engineer_008 | Alignerr - Backend Python Developer | strong | best_matches | no | - | 26 / Medium | Backend Python developer role is directly relevant. |
-| software_engineer_009 | Turing - Scientific Coding - Biology and Python | plausible | also_worth_reviewing | yes | - | 31 / Medium | Python coding is relevant, but biology domain may matter. |
+| software_engineer_009 | Turing - Scientific Coding - Biology and Python | plausible | also_worth_reviewing | no | - | 31 / Medium | Python coding is relevant, but biology domain may matter. |
 | software_engineer_010 | DataAnnotation - AI Coding Specialist / Coding Expert | plausible | also_worth_reviewing | no | - | 20 / Possible | Evergreen coding application is relevant but not a live feed. |
 | software_engineer_011 | Mercor - AI Safety Experts - English & Marathi | false_positive | exclude | no | technical_mismatch | 21 / Possible | Language/safety role is not primarily software engineering. |
 | software_engineer_012 | Mercor - Legal Expert Specialist | false_positive | exclude | no | professional_domain_mismatch | 0 / Possible | Legal domain mismatch for software profile. |
