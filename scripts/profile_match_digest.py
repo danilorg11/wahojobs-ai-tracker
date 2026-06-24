@@ -24,6 +24,7 @@ from wahojobs.matching.languages import (
     profile_language_set,
     row_language_text,
 )
+from wahojobs.matching.evergreen import evergreen_applicability
 from wahojobs.matching.locations import location_eligibility
 from wahojobs.reporting.market import CANONICALIZED_SLUGS, get_market_size_summary
 
@@ -806,7 +807,10 @@ def rank_opportunities(
             continue
         if require_personalized_eligible and scored.get("location_actionability_cap_applied"):
             continue
-        if scored["score"] < min_score:
+        if (
+            scored["score"] < min_score
+            and section_rank(scored.get("effective_product_section")) < section_rank("also_worth_reviewing")
+        ):
             continue
         if max_score is not None and scored["score"] > max_score:
             continue
@@ -847,6 +851,7 @@ def score_opportunity(profile, row):
     text = searchable_text(row, title, expertise)
     language_check = language_eligibility(profile, row_language_text(row))
     location_check = location_eligibility(profile, row)
+    evergreen_check = evergreen_applicability(profile, row, language_check)
     score = 0
     reasons = []
 
@@ -896,13 +901,27 @@ def score_opportunity(profile, row):
 
     score = max(score, 0)
     raw_section = product_section_for_score(score, language_check.eligible_for_personalized)
-    effective_section = raw_section
+    evergreen_adjusted_section = raw_section
+    evergreen_floor_applied = False
+    evergreen_visible_reason_added = False
+    if (
+        evergreen_check.qualifies
+        and raw_section == "explore_only"
+        and language_check.eligible_for_personalized
+    ):
+        evergreen_adjusted_section = "also_worth_reviewing"
+        evergreen_floor_applied = True
+
+    effective_section = evergreen_adjusted_section
     location_cap_applied = (
-        location_check.actionability_cap_required and raw_section != "explore_only"
+        location_check.actionability_cap_required and evergreen_adjusted_section != "explore_only"
     )
     if location_cap_applied:
         effective_section = "explore_only"
         reasons.append(location_check.reason)
+    elif evergreen_floor_applied:
+        reasons.append(evergreen_check.reason)
+        evergreen_visible_reason_added = True
 
     return {
         "score": score,
@@ -936,7 +955,14 @@ def score_opportunity(profile, row):
         "job_remote_status": location_check.job_remote_status,
         "location_actionability_cap_required": location_check.actionability_cap_required,
         "location_actionability_cap_applied": location_cap_applied,
+        "evergreen_applicability_qualifies": evergreen_check.qualifies,
+        "evergreen_opportunity_kind": evergreen_check.opportunity_kind,
+        "evergreen_profile_kind": evergreen_check.profile_kind,
+        "evergreen_applicability_reason": evergreen_check.reason,
+        "evergreen_floor_applied": evergreen_floor_applied,
+        "evergreen_visible_reason_added": evergreen_visible_reason_added,
         "raw_product_section": raw_section,
+        "evergreen_adjusted_section": evergreen_adjusted_section,
         "effective_product_section": effective_section,
         "reasons": unique(reasons)[:6],
     }
@@ -952,6 +978,16 @@ def product_section_for_score(score, eligible_for_personalized=True):
     if score >= ALSO_WORTH_REVIEWING_SCORE_THRESHOLD:
         return "also_worth_reviewing"
     return "explore_only"
+
+
+def section_rank(section):
+    return {
+        "exclude": 0,
+        "explore_only": 1,
+        "also_worth_reviewing": 2,
+        "best_matches": 3,
+        "do_these_first": 4,
+    }.get(section or "explore_only", 1)
 
 
 def searchable_text(row, title, expertise):

@@ -184,6 +184,13 @@ class EvaluatedCase:
     job_remote_status: str
     location_actionability_cap_required: bool
     location_actionability_cap_applied: bool
+    evergreen_applicability_qualifies: bool
+    evergreen_opportunity_kind: str
+    evergreen_profile_kind: str
+    evergreen_applicability_reason: str
+    evergreen_floor_applied: bool
+    evergreen_visible_reason_added: bool
+    evergreen_adjusted_section: str
     eligible_for_personalized: bool
     language_eligibility_reason: str
     reasons: list[str]
@@ -384,6 +391,7 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
     raw_match_label = match_strength_from_score(score)
     eligible_for_personalized = scored.get("eligible_for_personalized", True)
     raw_section = scored.get("raw_product_section") or section_for_score(score, eligible_for_personalized)
+    evergreen_adjusted_section = scored.get("evergreen_adjusted_section") or raw_section
     effective_section = scored.get("effective_product_section") or raw_section
     projection = project_benchmark_prediction(score, raw_match_label, raw_section, scored, effective_section)
     positives, penalties = explain_score(profile, row, matcher_module)
@@ -421,6 +429,13 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
         job_remote_status=scored.get("job_remote_status", "unknown"),
         location_actionability_cap_required=bool(scored.get("location_actionability_cap_required")),
         location_actionability_cap_applied=bool(scored.get("location_actionability_cap_applied")),
+        evergreen_applicability_qualifies=bool(scored.get("evergreen_applicability_qualifies")),
+        evergreen_opportunity_kind=scored.get("evergreen_opportunity_kind", "unknown"),
+        evergreen_profile_kind=scored.get("evergreen_profile_kind", "unknown"),
+        evergreen_applicability_reason=scored.get("evergreen_applicability_reason", "-"),
+        evergreen_floor_applied=bool(scored.get("evergreen_floor_applied")),
+        evergreen_visible_reason_added=bool(scored.get("evergreen_visible_reason_added")),
+        evergreen_adjusted_section=evergreen_adjusted_section,
         eligible_for_personalized=eligible_for_personalized,
         language_eligibility_reason=scored.get("language_eligibility_reason", "-"),
         reasons=scored["reasons"],
@@ -1310,6 +1325,12 @@ def render_failure_block(item: EvaluatedCase) -> list[str]:
         f"- Expected: `{case['expected_label']}` / `{expected_section(case)}`",
         f"- Evaluation: `{item.evaluation_label}` / `{item.evaluation_section}`",
         f"- Raw/product matcher: score {item.score}, `{item.raw_match_label}`, `{item.raw_section}`",
+        (
+            "- Evergreen actionability: "
+            f"`{item.evergreen_adjusted_section}` "
+            f"({item.evergreen_opportunity_kind} / {item.evergreen_profile_kind}; "
+            f"{item.evergreen_applicability_reason})"
+        ),
         f"- Decisive hard gate: {item.hard_gate_type or '-'} / {item.hard_gate_status or '-'} ({item.hard_gate_reason or '-'})",
         (
             "- Location eligibility: "
