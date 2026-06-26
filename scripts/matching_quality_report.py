@@ -8,6 +8,7 @@ database rows, or crawler behavior.
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import subprocess
@@ -67,6 +68,85 @@ SUPPORTED_LABEL_SOURCES = {"codex_draft", "human_reviewed"}
 SUPPORTED_SECTIONS = set(SECTION_LEVELS)
 PERSONALIZED_SECTIONS = {"do_these_first", "best_matches", "also_worth_reviewing"}
 MEDIUM_SCORE_THRESHOLD = 24
+MATCHER_INPUT_SNAPSHOT_SCHEMA_VERSION = 1
+
+MATCHER_INPUT_FIELDS = (
+    "job_id",
+    "external_id",
+    "source_hash",
+    "title",
+    "canonical_title",
+    "source",
+    "source_slug",
+    "source_tier",
+    "location",
+    "url",
+    "department",
+    "expertise",
+    "source_category",
+    "commitment",
+    "opportunity_kind",
+    "availability_basis",
+    "inventory_model",
+    "market_count_policy",
+    "include_in_live_market_estimate",
+    "canonical_opportunity_id",
+    "language",
+    "language_locale",
+    "required_languages",
+)
+
+MATCHER_INPUT_REQUIRED_KEYS = (
+    "job_id",
+    "title",
+    "canonical_title",
+    "source",
+    "source_slug",
+    "source_tier",
+    "location",
+    "url",
+    "department",
+    "expertise",
+    "source_category",
+    "commitment",
+    "opportunity_kind",
+    "availability_basis",
+    "inventory_model",
+    "market_count_policy",
+    "include_in_live_market_estimate",
+    "canonical_opportunity_id",
+)
+
+MATCHER_INPUT_REQUIRED_NONEMPTY = (
+    "job_id",
+    "title",
+    "source",
+    "source_slug",
+    "source_tier",
+    "location",
+    "department",
+    "expertise",
+    "opportunity_kind",
+    "availability_basis",
+    "inventory_model",
+    "market_count_policy",
+)
+
+FIXTURE_FIDELITY_FIELDS = (
+    "url",
+    "external_id",
+    "source_hash",
+    "canonical_opportunity_id",
+    "source_category",
+    "expertise",
+    "department",
+    "opportunity_kind",
+    "inventory_model",
+    "market_count_policy",
+    "language",
+    "language_locale",
+    "required_languages",
+)
 
 LANGUAGE_WORDS = {
     "arabic",
@@ -184,6 +264,10 @@ class GoldenSetResolution:
     diagnostic_candidates: list[dict]
 
 
+class SnapshotValidationError(ValueError):
+    pass
+
+
 @dataclass
 class EvaluatedCase:
     case: dict
@@ -239,12 +323,21 @@ class BenchmarkPrediction:
     hard_gate_reason: str = ""
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     generated_at = datetime.now(timezone.utc)
     fixture = load_fixture()
     profiles = load_benchmark_profiles(fixture)
 
     db_rows = load_benchmark_db_rows()
+
+    if args.snapshot_dry_run:
+        evaluated = [
+            evaluate_case(case, profiles[case["profile_id"]], db_rows, matcher)
+            for case in fixture["cases"]
+        ]
+        print_snapshot_dry_run(fixture, evaluated)
+        return
 
     baseline_hash = get_baseline_commit_hash()
     baseline_matcher = load_baseline_matcher()
@@ -281,6 +374,18 @@ def main() -> None:
     )
 
     print_terminal_summary(fixture, metrics, baseline_hash, baseline_metrics)
+
+
+def parse_args(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser(
+        description="Evaluate matcher quality against the golden-set fixture."
+    )
+    parser.add_argument(
+        "--snapshot-dry-run",
+        action="store_true",
+        help="Print self-contained matcher-input snapshot diagnostics without writing files.",
+    )
+    return parser.parse_args(argv)
 
 
 def get_baseline_commit_hash() -> str:
@@ -609,6 +714,9 @@ def resolve_case_opportunity(case: dict, db_rows: list[dict]) -> GoldenSetResolu
     source matches are collected only as diagnostics so stale or partial fixture
     cases remain evaluable without silently selecting a wrong current row.
     """
+    if case.get("matcher_input_snapshot") is not None:
+        return resolve_case_snapshot(case, db_rows)
+
     source_slug = normalize_slug(case.get("source_slug") or case["source"])
     source_rows = [
         row for row in db_rows
@@ -662,6 +770,82 @@ def resolve_case_opportunity(case: dict, db_rows: list[dict]) -> GoldenSetResolu
         ),
         diagnostic_candidates=diagnostic_candidates(title_candidates),
     )
+
+
+def resolve_case_snapshot(case: dict, db_rows: list[dict]) -> GoldenSetResolution:
+    snapshot = validate_matcher_input_snapshot(case)
+    row = matcher_input_from_snapshot(snapshot)
+    source_slug = normalize_slug(row.get("source_slug") or row.get("source") or case.get("source"))
+    source_rows = [
+        live_row for live_row in db_rows
+        if normalize_slug(live_row.get("source_slug") or live_row.get("source")) == source_slug
+    ]
+    title_candidates = title_diagnostic_candidates(case, source_rows)
+    metadata = snapshot.get("snapshot_metadata") or {}
+    return GoldenSetResolution(
+        row=row,
+        resolution_status="fixture_self_contained_snapshot",
+        resolution_source="matcher_input_snapshot",
+        identifier_used="matcher_input_snapshot",
+        candidate_count=len(title_candidates),
+        ambiguity_reason="",
+        selected_row_id=clean_identifier(metadata.get("source_row_id") or row.get("job_id")),
+        selected_identifiers={
+            "job_id": clean_identifier(row.get("job_id")),
+            "external_id": clean_identifier(row.get("external_id")),
+            "source_hash": clean_identifier(row.get("source_hash")),
+            "url": row.get("url") or "",
+            "canonical_opportunity_id": clean_identifier(row.get("canonical_opportunity_id")),
+        },
+        used_live_db=False,
+        used_fixture_snapshot=False,
+        diagnostic_candidates=diagnostic_candidates(title_candidates),
+    )
+
+
+def validate_matcher_input_snapshot(case: dict) -> dict:
+    snapshot = case.get("matcher_input_snapshot")
+    case_id = case.get("case_id", "<unknown>")
+    if not isinstance(snapshot, dict):
+        raise SnapshotValidationError(f"{case_id} matcher_input_snapshot must be an object.")
+
+    version = snapshot.get("snapshot_schema_version")
+    if version != MATCHER_INPUT_SNAPSHOT_SCHEMA_VERSION:
+        raise SnapshotValidationError(
+            f"{case_id} matcher_input_snapshot has unsupported schema version {version!r}; "
+            f"expected {MATCHER_INPUT_SNAPSHOT_SCHEMA_VERSION}."
+        )
+
+    matcher_input = snapshot.get("matcher_input")
+    if not isinstance(matcher_input, dict):
+        raise SnapshotValidationError(f"{case_id} matcher_input_snapshot.matcher_input must be an object.")
+
+    missing = [field for field in MATCHER_INPUT_REQUIRED_KEYS if field not in matcher_input]
+    empty = [
+        field for field in MATCHER_INPUT_REQUIRED_NONEMPTY
+        if is_empty_snapshot_value(matcher_input.get(field))
+    ]
+    if missing or empty:
+        parts = []
+        if missing:
+            parts.append("missing: " + ", ".join(missing))
+        if empty:
+            parts.append("empty: " + ", ".join(empty))
+        raise SnapshotValidationError(
+            f"{case_id} matcher_input_snapshot is incomplete ({'; '.join(parts)})."
+        )
+    return snapshot
+
+
+def is_empty_snapshot_value(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def matcher_input_from_snapshot(snapshot: dict) -> dict:
+    matcher_input = snapshot["matcher_input"]
+    row = {field: matcher_input.get(field) for field in MATCHER_INPUT_FIELDS}
+    row["include_in_live_market_estimate"] = int(bool(row["include_in_live_market_estimate"]))
+    return row
 
 
 def identifier_value(case: dict, identifier: str) -> str:
@@ -810,7 +994,123 @@ def build_snapshot_row(case: dict) -> dict:
         "market_count_policy": market_count_policy,
         "canonical_title": case.get("canonical_title"),
         "source_category": case.get("source_category") or case.get("expertise") or case.get("department"),
+        "language": case.get("language"),
+        "language_locale": case.get("language_locale"),
+        "required_languages": case.get("required_languages"),
     }
+
+
+def build_matcher_input_snapshot(
+    case: dict,
+    row: dict,
+    created_from: str,
+    resolution: GoldenSetResolution | None = None,
+) -> dict:
+    matcher_input = {field: row.get(field) for field in MATCHER_INPUT_FIELDS}
+    metadata = {
+        "snapshot_created_from": created_from,
+        "created_by": "scripts/matching_quality_report.py --snapshot-dry-run",
+        "case_id": case.get("case_id"),
+        "resolution_status": resolution.resolution_status if resolution else "",
+        "used_live_db": bool(resolution.used_live_db) if resolution else False,
+        "used_fixture_snapshot": bool(resolution.used_fixture_snapshot) if resolution else True,
+        "source_row_identifiers": dict(resolution.selected_identifiers) if resolution else {},
+    }
+    metadata["field_provenance"] = {
+        field: created_from for field in MATCHER_INPUT_FIELDS if field in matcher_input
+    }
+    return {
+        "snapshot_schema_version": MATCHER_INPUT_SNAPSHOT_SCHEMA_VERSION,
+        "matcher_input": matcher_input,
+        "snapshot_metadata": metadata,
+    }
+
+
+def propose_matcher_input_snapshot(case: dict, resolution: GoldenSetResolution) -> dict:
+    if resolution.resolution_status == "fixture_self_contained_snapshot":
+        snapshot = case["matcher_input_snapshot"]
+        return {
+            "case_id": case["case_id"],
+            "status": "already_self_contained",
+            "snapshot": snapshot,
+            "missing_fields": [],
+            "fixture_missing_fields": [],
+            "unsafe_candidate_count": len(resolution.diagnostic_candidates),
+            "ambiguous_candidate_count": 0,
+            "exact_live_enrichment_allowed": False,
+        }
+
+    if resolution.used_live_db:
+        snapshot = build_matcher_input_snapshot(
+            case,
+            resolution.row,
+            "exact_live_db_resolution",
+            resolution,
+        )
+        missing = snapshot_missing_fields(snapshot)
+        return {
+            "case_id": case["case_id"],
+            "status": "exact_live_snapshot_candidate" if not missing else "snapshot_incomplete",
+            "snapshot": snapshot,
+            "missing_fields": missing,
+            "fixture_missing_fields": [],
+            "unsafe_candidate_count": len(resolution.diagnostic_candidates),
+            "ambiguous_candidate_count": 0,
+            "exact_live_enrichment_allowed": not missing,
+        }
+
+    snapshot = build_matcher_input_snapshot(
+        case,
+        resolution.row,
+        "fixture_snapshot_fields",
+        resolution,
+    )
+    missing = snapshot_missing_fields(snapshot)
+    status = "fixture_only_snapshot_candidate"
+    if resolution.resolution_status == "ambiguous_fixture_fallback":
+        status = "ambiguous_candidate_fixture_only"
+    elif resolution.diagnostic_candidates:
+        status = "unsafe_title_candidate_fixture_only"
+    return {
+        "case_id": case["case_id"],
+        "status": status,
+        "snapshot": snapshot,
+        "missing_fields": missing,
+        "fixture_missing_fields": fixture_fidelity_missing_fields(case),
+        "unsafe_candidate_count": len(resolution.diagnostic_candidates),
+        "ambiguous_candidate_count": (
+            resolution.candidate_count
+            if resolution.resolution_status == "ambiguous_fixture_fallback"
+            else 0
+        ),
+        "exact_live_enrichment_allowed": False,
+    }
+
+
+def snapshot_missing_fields(snapshot: dict) -> list[str]:
+    matcher_input = snapshot.get("matcher_input") or {}
+    missing = [
+        field for field in MATCHER_INPUT_REQUIRED_KEYS
+        if field not in matcher_input
+    ]
+    missing.extend(
+        field for field in MATCHER_INPUT_REQUIRED_NONEMPTY
+        if field in matcher_input and is_empty_snapshot_value(matcher_input.get(field))
+    )
+    return unique(missing)
+
+
+def fixture_fidelity_missing_fields(case: dict) -> list[str]:
+    return [
+        field for field in FIXTURE_FIDELITY_FIELDS
+        if is_missing_fixture_field(case, field)
+    ]
+
+
+def evaluate_case_with_snapshot(case: dict, snapshot: dict, profile: dict, matcher_module=matcher) -> EvaluatedCase:
+    snapshot_case = dict(case)
+    snapshot_case["matcher_input_snapshot"] = snapshot
+    return evaluate_case(snapshot_case, profile, [], matcher_module)
 
 
 def row_to_dict(row) -> dict:
@@ -1137,6 +1437,115 @@ def build_resolution_diagnostics(evaluated: list[EvaluatedCase]) -> dict:
             item.case["case_id"] for item in title_candidate_items
         ],
     }
+
+
+def build_snapshot_dry_run(evaluated: list[EvaluatedCase], profiles: dict[str, dict] | None = None) -> dict:
+    profiles = profiles or {}
+    human_reviewed = [item for item in evaluated if item.case.get("label_source") == "human_reviewed"]
+    proposals = []
+    status = Counter()
+    missing_fields = Counter()
+    prediction_changes = []
+
+    for item in human_reviewed:
+        proposal = propose_matcher_input_snapshot(item.case, item.resolution)
+        status[proposal["status"]] += 1
+        missing_fields.update(proposal["missing_fields"])
+        missing_fields.update(proposal["fixture_missing_fields"])
+        profile = profiles.get(item.case["profile_id"])
+        snapshot_item = None
+        if profile and not proposal["missing_fields"]:
+            snapshot_item = evaluate_case_with_snapshot(
+                item.case,
+                proposal["snapshot"],
+                profile,
+                matcher,
+            )
+            if prediction_signature(item) != prediction_signature(snapshot_item):
+                prediction_changes.append(
+                    {
+                        "case_id": item.case["case_id"],
+                        "current": prediction_signature(item),
+                        "snapshot": prediction_signature(snapshot_item),
+                    }
+                )
+        proposals.append(
+            {
+                "case_id": item.case["case_id"],
+                "profile_id": item.case["profile_id"],
+                "source": item.case["source"],
+                "title": item.case["title"],
+                "current_resolution_status": item.resolution.resolution_status,
+                "proposal_status": proposal["status"],
+                "missing_fields": proposal["missing_fields"],
+                "fixture_missing_fields": proposal["fixture_missing_fields"],
+                "unsafe_candidate_count": proposal["unsafe_candidate_count"],
+                "ambiguous_candidate_count": proposal["ambiguous_candidate_count"],
+                "exact_live_enrichment_allowed": proposal["exact_live_enrichment_allowed"],
+                "would_change_prediction": bool(
+                    snapshot_item and prediction_signature(item) != prediction_signature(snapshot_item)
+                ),
+                "proposed_matcher_input": proposal["snapshot"]["matcher_input"],
+            }
+        )
+
+    return {
+        "human_reviewed_cases": len(human_reviewed),
+        "status": status,
+        "already_self_contained": status["already_self_contained"],
+        "exact_live_snapshot_candidates": status["exact_live_snapshot_candidate"],
+        "fixture_only_snapshot_candidates": (
+            status["fixture_only_snapshot_candidate"]
+            + status["unsafe_title_candidate_fixture_only"]
+            + status["ambiguous_candidate_fixture_only"]
+        ),
+        "unsafe_title_candidate_cases": status["unsafe_title_candidate_fixture_only"],
+        "ambiguous_candidate_cases": status["ambiguous_candidate_fixture_only"],
+        "missing_fields": missing_fields,
+        "prediction_changes": prediction_changes,
+        "proposals": proposals,
+    }
+
+
+def prediction_signature(item: EvaluatedCase) -> dict:
+    return {
+        "score": item.score,
+        "raw_label": item.raw_match_label,
+        "raw_section": item.raw_section,
+        "evaluation_label": item.evaluation_label,
+        "evaluation_section": item.evaluation_section,
+    }
+
+
+def print_snapshot_dry_run(fixture: dict, evaluated: list[EvaluatedCase]) -> None:
+    profiles = load_benchmark_profiles(fixture)
+    diagnostics = build_snapshot_dry_run(evaluated, profiles)
+    resolution = build_resolution_diagnostics(evaluated)
+
+    print("Golden-Set Matcher-Input Snapshot Dry Run")
+    print("=========================================")
+    print("No files or database rows were written.")
+    print(f"Human-reviewed cases: {diagnostics['human_reviewed_cases']}")
+    print(f"Current resolution: {format_counter(resolution['status'])}")
+    print(f"Proposal status: {format_counter(diagnostics['status'])}")
+    print(f"Already self-contained: {diagnostics['already_self_contained']}")
+    print(f"Exact-live snapshot candidates: {diagnostics['exact_live_snapshot_candidates']}")
+    print(f"Fixture-only snapshot candidates: {diagnostics['fixture_only_snapshot_candidates']}")
+    print(f"Unsafe title-only candidate cases: {diagnostics['unsafe_title_candidate_cases']}")
+    print(f"Ambiguous candidate cases: {diagnostics['ambiguous_candidate_cases']}")
+    print(f"Prediction changes under proposed snapshots: {len(diagnostics['prediction_changes'])}")
+    print(f"Missing fields: {format_counter(diagnostics['missing_fields'])}")
+    print("")
+    print("Per-case snapshot proposals")
+    for proposal in diagnostics["proposals"]:
+        print(
+            "- "
+            f"{proposal['case_id']}: {proposal['proposal_status']}; "
+            f"resolution={proposal['current_resolution_status']}; "
+            f"missing={', '.join(proposal['missing_fields']) or 'none'}; "
+            f"fixture_gaps={', '.join(proposal['fixture_missing_fields']) or 'none'}; "
+            f"would_change_prediction={'yes' if proposal['would_change_prediction'] else 'no'}"
+        )
 
 
 def is_missing_fixture_field(case: dict, field: str) -> bool:
