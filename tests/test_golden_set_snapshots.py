@@ -1,6 +1,8 @@
 import sys
 import unittest
+from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +62,16 @@ def case(**overrides):
         "review_required": False,
         "expected_section": "explore_only",
     }
+    payload.update(overrides)
+    return payload
+
+
+def human_case(**overrides):
+    payload = case(
+        label_source="human_reviewed",
+        review_required=False,
+        human_notes="Reviewed by human.",
+    )
     payload.update(overrides)
     return payload
 
@@ -262,6 +274,160 @@ class GoldenSetSnapshotTests(unittest.TestCase):
         )
 
         self.assertEqual((label_agreement, section_agreement, full_agreement), (9, 17, 8))
+
+    def test_migration_applies_snapshots_to_human_reviewed_cases_only(self):
+        human = human_case(case_id="human_001", url="https://example.test/jobs/1")
+        draft = case(case_id="draft_001", url="https://example.test/jobs/1")
+        fixture = {"cases": [human, deepcopy(draft)]}
+        rows = [live_row(title="Portuguese Review Rater")]
+        profiles = {"profile": profile()}
+        evaluated = [
+            benchmark.evaluate_case(item, profiles[item["profile_id"]], rows, matcher)
+            for item in fixture["cases"]
+        ]
+
+        migrated, summary = benchmark.migrate_matcher_input_snapshots(
+            fixture,
+            evaluated,
+            profiles,
+            only_human_reviewed=True,
+        )
+
+        self.assertEqual(summary["snapshotted_cases"], 1)
+        self.assertIn("matcher_input_snapshot", migrated["cases"][0])
+        self.assertNotIn("matcher_input_snapshot", migrated["cases"][1])
+        self.assertEqual(migrated["cases"][1], draft)
+
+    def test_exact_live_migration_preserves_resolved_matcher_input(self):
+        fixture = {"cases": [human_case(case_id="human_001", url="https://example.test/jobs/1")]}
+        row = live_row(
+            title="Portuguese Review Rater",
+            department="Resolved Department",
+            expertise="Resolved Expertise",
+            source_category="Resolved Category",
+        )
+        profiles = {"profile": profile()}
+        evaluated = [benchmark.evaluate_case(fixture["cases"][0], profiles["profile"], [row], matcher)]
+
+        migrated, summary = benchmark.migrate_matcher_input_snapshots(fixture, evaluated, profiles)
+        matcher_input = migrated["cases"][0]["matcher_input_snapshot"]["matcher_input"]
+
+        self.assertEqual(summary["counts"]["exact_live_snapshot_candidate"], 1)
+        self.assertEqual(matcher_input["title"], "Portuguese Review Rater")
+        self.assertEqual(matcher_input["department"], "Resolved Department")
+        self.assertEqual(matcher_input["source_category"], "Resolved Category")
+        self.assertTrue(migrated["cases"][0]["matcher_input_snapshot"]["snapshot_metadata"]["used_live_db"])
+
+    def test_fixture_only_migration_preserves_fixture_input_without_enrichment(self):
+        fixture = {
+            "cases": [
+                human_case(
+                    case_id="human_001",
+                    title="Fixture Only Role",
+                    department="Fixture Department",
+                    expertise="Fixture Expertise",
+                    source_category="Fixture Category",
+                )
+            ]
+        }
+        profiles = {"profile": profile()}
+        evaluated = [
+            benchmark.evaluate_case(
+                fixture["cases"][0],
+                profiles["profile"],
+                [live_row(title="Unrelated Role", department="Live Department")],
+                matcher,
+            )
+        ]
+
+        migrated, summary = benchmark.migrate_matcher_input_snapshots(fixture, evaluated, profiles)
+        matcher_input = migrated["cases"][0]["matcher_input_snapshot"]["matcher_input"]
+
+        self.assertEqual(summary["counts"]["fixture_only_snapshot_candidate"], 1)
+        self.assertEqual(matcher_input["title"], "Fixture Only Role")
+        self.assertEqual(matcher_input["department"], "Fixture Department")
+        self.assertEqual(matcher_input["source_category"], "Fixture Category")
+        self.assertFalse(migrated["cases"][0]["matcher_input_snapshot"]["snapshot_metadata"]["used_live_db"])
+
+    def test_unsafe_title_only_migration_uses_fixture_input_not_candidate(self):
+        fixture = {
+            "cases": [
+                human_case(
+                    case_id="human_001",
+                    title="Same Title",
+                    department="Fixture Department",
+                    expertise="Fixture Expertise",
+                    source_category="Fixture Category",
+                )
+            ]
+        }
+        row = live_row(
+            title="Same Title",
+            department="Unsafe Live Department",
+            expertise="Unsafe Live Expertise",
+            source_category="Unsafe Live Category",
+        )
+        profiles = {"profile": profile()}
+        evaluated = [benchmark.evaluate_case(fixture["cases"][0], profiles["profile"], [row], matcher)]
+
+        migrated, summary = benchmark.migrate_matcher_input_snapshots(fixture, evaluated, profiles)
+        matcher_input = migrated["cases"][0]["matcher_input_snapshot"]["matcher_input"]
+
+        self.assertEqual(summary["counts"]["unsafe_title_candidate_fixture_only"], 1)
+        self.assertEqual(matcher_input["department"], "Fixture Department")
+        self.assertEqual(matcher_input["source_category"], "Fixture Category")
+        self.assertNotEqual(matcher_input["department"], "Unsafe Live Department")
+
+    def test_migration_refuses_prediction_changes(self):
+        fixture = {"cases": [human_case(case_id="human_001")]}
+        profiles = {"profile": profile()}
+        evaluated = [benchmark.evaluate_case(fixture["cases"][0], profiles["profile"], [], matcher)]
+        fake_diagnostics = {
+            "prediction_changes": [{"case_id": "human_001"}],
+            "proposals": [],
+        }
+
+        with patch.object(benchmark, "build_snapshot_dry_run", return_value=fake_diagnostics):
+            with self.assertRaises(benchmark.SnapshotMigrationError):
+                benchmark.migrate_matcher_input_snapshots(fixture, evaluated, profiles)
+
+    def test_migrated_case_evaluates_from_snapshot_without_live_db(self):
+        fixture = {"cases": [human_case(case_id="human_001", url="https://example.test/jobs/1")]}
+        profiles = {"profile": profile()}
+        evaluated = [
+            benchmark.evaluate_case(
+                fixture["cases"][0],
+                profiles["profile"],
+                [live_row(title="Portuguese Review Rater")],
+                matcher,
+            )
+        ]
+        migrated, _summary = benchmark.migrate_matcher_input_snapshots(fixture, evaluated, profiles)
+
+        item = benchmark.evaluate_case(migrated["cases"][0], profiles["profile"], [], matcher)
+
+        self.assertEqual(item.resolution.resolution_status, "fixture_self_contained_snapshot")
+        self.assertFalse(item.resolution.used_live_db)
+        self.assertEqual(item.row["title"], "Portuguese Review Rater")
+
+    def test_human_decision_fields_are_unchanged_by_migration(self):
+        original = human_case(
+            case_id="human_001",
+            url="https://example.test/jobs/1",
+            expected_label="plausible",
+            expected_section="also_worth_reviewing",
+            human_notes="Keep this calibrated label.",
+            rationale="Human-calibrated rationale.",
+        )
+        fixture = {"cases": [deepcopy(original)]}
+        profiles = {"profile": profile()}
+        evaluated = [
+            benchmark.evaluate_case(fixture["cases"][0], profiles["profile"], [live_row()], matcher)
+        ]
+
+        migrated, _summary = benchmark.migrate_matcher_input_snapshots(fixture, evaluated, profiles)
+
+        self.assertEqual(benchmark.decision_fields(migrated["cases"][0]), benchmark.decision_fields(original))
 
 
 if __name__ == "__main__":

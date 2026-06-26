@@ -15,6 +15,7 @@ import subprocess
 import sys
 import types
 from collections import Counter, defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -268,6 +269,10 @@ class SnapshotValidationError(ValueError):
     pass
 
 
+class SnapshotMigrationError(ValueError):
+    pass
+
+
 @dataclass
 class EvaluatedCase:
     case: dict
@@ -339,6 +344,28 @@ def main(argv: list[str] | None = None) -> None:
         print_snapshot_dry_run(fixture, evaluated)
         return
 
+    if args.snapshot_apply:
+        if not args.only_human_reviewed:
+            raise SystemExit("--snapshot-apply requires --only-human-reviewed.")
+        if not args.yes:
+            raise SystemExit("--snapshot-apply is write-protected; rerun with --yes to update the fixture.")
+        evaluated = [
+            evaluate_case(case, profiles[case["profile_id"]], db_rows, matcher)
+            for case in fixture["cases"]
+        ]
+        migrated_fixture, summary = migrate_matcher_input_snapshots(
+            fixture,
+            evaluated,
+            profiles,
+            only_human_reviewed=True,
+        )
+        FIXTURE_PATH.write_text(
+            json.dumps(migrated_fixture, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        print_snapshot_apply_summary(summary, wrote=True)
+        return
+
     baseline_hash = get_baseline_commit_hash()
     baseline_matcher = load_baseline_matcher()
     baseline_evaluated = [
@@ -384,6 +411,21 @@ def parse_args(argv: list[str] | None = None):
         "--snapshot-dry-run",
         action="store_true",
         help="Print self-contained matcher-input snapshot diagnostics without writing files.",
+    )
+    parser.add_argument(
+        "--snapshot-apply",
+        action="store_true",
+        help="Apply self-contained matcher-input snapshots to the golden-set fixture.",
+    )
+    parser.add_argument(
+        "--only-human-reviewed",
+        action="store_true",
+        help="Limit snapshot application to human-reviewed golden-set cases.",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm write-protected operations such as --snapshot-apply.",
     )
     return parser.parse_args(argv)
 
@@ -536,6 +578,11 @@ def validate_case(case: dict, index: int) -> None:
         raise SystemExit(
             f"Unsupported expected_section for {case['case_id']}: {case['expected_section']}"
         )
+    if "matcher_input_snapshot" in case:
+        try:
+            validate_matcher_input_snapshot(case)
+        except SnapshotValidationError as exc:
+            raise SystemExit(str(exc)) from exc
 
 
 def load_benchmark_profiles(fixture: dict) -> dict[str, dict]:
@@ -1008,10 +1055,15 @@ def build_matcher_input_snapshot(
 ) -> dict:
     matcher_input = {field: row.get(field) for field in MATCHER_INPUT_FIELDS}
     metadata = {
+        "snapshot_schema_version": MATCHER_INPUT_SNAPSHOT_SCHEMA_VERSION,
+        "snapshot_tool_version": "matcher_input_snapshot_v1",
+        "snapshot_source_type": created_from,
         "snapshot_created_from": created_from,
-        "created_by": "scripts/matching_quality_report.py --snapshot-dry-run",
+        "created_by": "scripts/matching_quality_report.py snapshot tooling",
         "case_id": case.get("case_id"),
         "resolution_status": resolution.resolution_status if resolution else "",
+        "resolver_status": resolution.resolution_status if resolution else "",
+        "identifier_used": resolution.identifier_used if resolution else "",
         "used_live_db": bool(resolution.used_live_db) if resolution else False,
         "used_fixture_snapshot": bool(resolution.used_fixture_snapshot) if resolution else True,
         "source_row_identifiers": dict(resolution.selected_identifiers) if resolution else {},
@@ -1485,6 +1537,7 @@ def build_snapshot_dry_run(evaluated: list[EvaluatedCase], profiles: dict[str, d
                 "would_change_prediction": bool(
                     snapshot_item and prediction_signature(item) != prediction_signature(snapshot_item)
                 ),
+                "snapshot": proposal["snapshot"],
                 "proposed_matcher_input": proposal["snapshot"]["matcher_input"],
             }
         )
@@ -1504,6 +1557,165 @@ def build_snapshot_dry_run(evaluated: list[EvaluatedCase], profiles: dict[str, d
         "missing_fields": missing_fields,
         "prediction_changes": prediction_changes,
         "proposals": proposals,
+    }
+
+
+def migrate_matcher_input_snapshots(
+    fixture: dict,
+    evaluated: list[EvaluatedCase],
+    profiles: dict[str, dict],
+    only_human_reviewed: bool = True,
+) -> tuple[dict, dict]:
+    """Return a fixture copy with safe self-contained matcher snapshots added."""
+    diagnostics = build_snapshot_dry_run(evaluated, profiles)
+    if diagnostics["prediction_changes"]:
+        raise SnapshotMigrationError(
+            "Refusing to apply matcher_input_snapshot migration because proposed snapshots "
+            f"would change {len(diagnostics['prediction_changes'])} predictions."
+        )
+
+    proposals_by_case_id = {
+        proposal["case_id"]: proposal
+        for proposal in diagnostics["proposals"]
+    }
+    before_signatures = {
+        item.case["case_id"]: prediction_signature(item)
+        for item in evaluated
+        if should_migrate_snapshot_case(item.case, only_human_reviewed)
+    }
+
+    migrated = deepcopy(fixture)
+    counts = Counter()
+    changed_case_ids = []
+    untouched_decisions = []
+
+    original_cases_by_id = {case["case_id"]: case for case in fixture["cases"]}
+    for case in migrated["cases"]:
+        original = original_cases_by_id[case["case_id"]]
+        if not should_migrate_snapshot_case(case, only_human_reviewed):
+            if case != original:
+                raise SnapshotMigrationError(f"{case['case_id']} changed unexpectedly.")
+            continue
+        if case.get("matcher_input_snapshot") is not None:
+            counts["already_self_contained"] += 1
+            continue
+
+        proposal = proposals_by_case_id.get(case["case_id"])
+        if not proposal:
+            raise SnapshotMigrationError(f"No snapshot proposal found for {case['case_id']}.")
+        if proposal["missing_fields"]:
+            raise SnapshotMigrationError(
+                f"Refusing to snapshot {case['case_id']}; incomplete snapshot fields: "
+                + ", ".join(proposal["missing_fields"])
+            )
+        status = proposal["proposal_status"]
+        if status not in {
+            "exact_live_snapshot_candidate",
+            "fixture_only_snapshot_candidate",
+            "unsafe_title_candidate_fixture_only",
+            "ambiguous_candidate_fixture_only",
+        }:
+            raise SnapshotMigrationError(
+                f"Refusing to snapshot {case['case_id']} from unsupported proposal status {status!r}."
+            )
+
+        preserve_decision = decision_fields(case)
+        case["matcher_input_snapshot"] = proposal["snapshot"]
+        if decision_fields(case) != preserve_decision:
+            raise SnapshotMigrationError(f"{case['case_id']} human-reviewed decision fields changed.")
+
+        counts[status] += 1
+        changed_case_ids.append(case["case_id"])
+        untouched_decisions.append(case["case_id"])
+
+    migrated_items = [
+        evaluate_case(case, profiles[case["profile_id"]], [], matcher)
+        for case in migrated["cases"]
+        if should_migrate_snapshot_case(case, only_human_reviewed)
+    ]
+    after_signatures = {
+        item.case["case_id"]: prediction_signature(item)
+        for item in migrated_items
+    }
+    changed_predictions = [
+        {
+            "case_id": case_id,
+            "before": before_signatures[case_id],
+            "after": after_signatures.get(case_id),
+        }
+        for case_id in before_signatures
+        if before_signatures[case_id] != after_signatures.get(case_id)
+    ]
+    if changed_predictions:
+        raise SnapshotMigrationError(
+            "Refusing to apply matcher_input_snapshot migration because final migrated "
+            f"evaluation changed {len(changed_predictions)} predictions."
+        )
+
+    codex_draft_changed = [
+        case["case_id"]
+        for case in migrated["cases"]
+        if case.get("label_source") == "codex_draft"
+        and case != original_cases_by_id[case["case_id"]]
+    ]
+    if codex_draft_changed:
+        raise SnapshotMigrationError(
+            "Refusing to apply matcher_input_snapshot migration because codex_draft cases changed: "
+            + ", ".join(codex_draft_changed[:10])
+        )
+
+    before_agreement = human_reviewed_agreement(evaluated)
+    after_agreement = human_reviewed_agreement(migrated_items)
+    return migrated, {
+        "human_reviewed_cases": diagnostics["human_reviewed_cases"],
+        "snapshotted_cases": len(changed_case_ids),
+        "changed_case_ids": changed_case_ids,
+        "counts": counts,
+        "prediction_changes": changed_predictions,
+        "before_agreement": before_agreement,
+        "after_agreement": after_agreement,
+        "resolution_before": Counter(
+            item.resolution.resolution_status
+            for item in evaluated
+            if should_migrate_snapshot_case(item.case, only_human_reviewed)
+        ),
+        "resolution_after": Counter(item.resolution.resolution_status for item in migrated_items),
+        "codex_draft_changed": codex_draft_changed,
+        "human_decisions_preserved": len(untouched_decisions) == len(changed_case_ids),
+    }
+
+
+def should_migrate_snapshot_case(case: dict, only_human_reviewed: bool) -> bool:
+    return not only_human_reviewed or case.get("label_source") == "human_reviewed"
+
+
+def decision_fields(case: dict) -> dict:
+    return {
+        "expected_label": case.get("expected_label"),
+        "expected_section": case.get("expected_section"),
+        "human_notes": case.get("human_notes"),
+        "review_required": case.get("review_required"),
+        "label_source": case.get("label_source"),
+    }
+
+
+def human_reviewed_agreement(evaluated: list[EvaluatedCase]) -> dict:
+    items = [item for item in evaluated if item.case.get("label_source") == "human_reviewed"]
+    return {
+        "total": len(items),
+        "label_agreement": sum(
+            1 for item in items
+            if item.case["expected_label"] == item.evaluation_label
+        ),
+        "section_agreement": sum(
+            1 for item in items
+            if expected_section(item.case) == item.evaluation_section
+        ),
+        "full_agreement": sum(
+            1 for item in items
+            if item.case["expected_label"] == item.evaluation_label
+            and expected_section(item.case) == item.evaluation_section
+        ),
     }
 
 
@@ -1546,6 +1758,37 @@ def print_snapshot_dry_run(fixture: dict, evaluated: list[EvaluatedCase]) -> Non
             f"fixture_gaps={', '.join(proposal['fixture_missing_fields']) or 'none'}; "
             f"would_change_prediction={'yes' if proposal['would_change_prediction'] else 'no'}"
         )
+
+
+def print_snapshot_apply_summary(summary: dict, wrote: bool) -> None:
+    print("Golden-Set Matcher-Input Snapshot Apply")
+    print("=======================================")
+    print(f"Fixture written: {'yes' if wrote else 'no'}")
+    print(f"Human-reviewed cases: {summary['human_reviewed_cases']}")
+    print(f"Cases snapshotted: {summary['snapshotted_cases']}")
+    print(f"Snapshot source counts: {format_counter(summary['counts'])}")
+    print(f"Resolution before: {format_counter(summary['resolution_before'])}")
+    print(f"Resolution after: {format_counter(summary['resolution_after'])}")
+    print(f"Prediction changes: {len(summary['prediction_changes'])}")
+    before = summary["before_agreement"]
+    after = summary["after_agreement"]
+    print(
+        "Baseline before: "
+        f"labels {before['label_agreement']}/{before['total']}, "
+        f"sections {before['section_agreement']}/{before['total']}, "
+        f"full {before['full_agreement']}/{before['total']}"
+    )
+    print(
+        "Baseline after: "
+        f"labels {after['label_agreement']}/{after['total']}, "
+        f"sections {after['section_agreement']}/{after['total']}, "
+        f"full {after['full_agreement']}/{after['total']}"
+    )
+    print(f"Codex-draft cases changed: {len(summary['codex_draft_changed'])}")
+    print(
+        "Human-reviewed decisions preserved: "
+        + ("yes" if summary["human_decisions_preserved"] else "no")
+    )
 
 
 def is_missing_fixture_field(case: dict, field: str) -> bool:
