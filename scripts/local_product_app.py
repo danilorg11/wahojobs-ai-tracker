@@ -399,7 +399,7 @@ def add_applicant_update(conn, profile_id, source, title, url, status, previous_
     )
 
 
-def build_card_index(matches, pipeline_records, tracked):
+def build_card_index(matches, pipeline_records, tracked, explore_market=None):
     index = {
         "exact": {},
         "near": {},
@@ -429,6 +429,18 @@ def build_card_index(matches, pipeline_records, tracked):
             f"#{card_id_for_record(record)}",
             "pipeline",
         )
+    for bucket_name, bucket in (explore_market or {}).items():
+        if bucket_name == "summary" or not isinstance(bucket, list):
+            continue
+        for match in bucket:
+            record = demo.tracked_record_for_match(match, tracked)
+            add_card_index_entry(
+                index,
+                match["source"],
+                match["display_title"],
+                f"#{card_id_for_explore_match(match, record)}",
+                "explore",
+            )
     return index
 
 
@@ -467,6 +479,10 @@ def card_id_for_match(match, record=None):
         match["display_title"],
         match.get("url") or "",
     )
+
+
+def card_id_for_explore_match(match, record=None):
+    return "explore-" + card_id_for_match(match, record)
 
 
 def card_id_for_record(record):
@@ -541,7 +557,13 @@ def render_dashboard(context, message=None, error=None):
     }
     actions = visible_actions(context["next_actions"], tracked)
     secondary_actions = visible_actions(context.get("also_worth_reviewing", []), tracked)
-    card_index = build_card_index(visible_match_buckets, pipeline_report["records"], tracked)
+    explore_market = context.get("explore_market", {})
+    card_index = build_card_index(
+        visible_match_buckets,
+        pipeline_report["records"],
+        tracked,
+        explore_market=explore_market,
+    )
 
     parts = [
         "<!doctype html>",
@@ -568,6 +590,7 @@ def render_dashboard(context, message=None, error=None):
             include_actions=True,
             empty="No strong live matches found right now.",
         ),
+        render_explore_market(explore_market, tracked, profile["profile_id"]),
         render_pipeline(pipeline_report["records"], profile["profile_id"]),
         render_matches(
             "New Matches This Week",
@@ -681,9 +704,9 @@ def render_actions(actions, card_index, daily_action_status=None):
 
 
 def render_secondary_actions(actions, card_index):
-    items = "".join(render_action_item(action, card_index) for action in actions[:8])
+    items = "".join(render_action_item(action, card_index) for action in actions[:4])
     if not items:
-        items = "<li>No additional backlog items surfaced for this profile today.</li>"
+        items = "<li>You're caught up on today's shortlist. You can still browse Explore Market.</li>"
     return f"""
     <section id="also-worth-reviewing">
       <h2>Also Worth Reviewing</h2>
@@ -735,6 +758,86 @@ def render_matches(title, section_id, matches, tracked, profile_id, card_index, 
       <div class="stack">{''.join(cards)}</div>
     </section>
     """
+
+
+def render_explore_market(explore_market, tracked, profile_id):
+    groups = (
+        ("Strong fit for you", "strong_fit", "High-fit live opportunities from the broader tracker."),
+        ("Possible fit", "possible_fit", "Relevant live opportunities that may be worth browsing."),
+        ("Broader market", "broader_market", "A small sample of the wider live AI-work market."),
+        ("Already tracked", "already_tracked", "Items already saved, hidden, applied, or otherwise in your tracker."),
+        ("Always-open and public leads", "supplemental", "Useful public leads and always-open application paths."),
+    )
+    group_html = []
+    for title, key, note in groups:
+        matches = explore_market.get(key, [])
+        if not matches:
+            continue
+        cards = "".join(
+            render_explore_card(match, demo.tracked_record_for_match(match, tracked), profile_id)
+            for match in matches
+        )
+        group_html.append(
+            f"""
+            <div class="explore-group">
+              <h3>{e(title)}</h3>
+              <p class="muted">{e(note)}</p>
+              <div class="stack">{cards}</div>
+            </div>
+            """
+        )
+    if not group_html:
+        group_html.append("<p class='empty'>No broader market examples surfaced for this profile today.</p>")
+    total_shown = sum(
+        len(explore_market.get(key, []))
+        for _, key, _ in groups
+    )
+    return f"""
+    <section id="explore-market">
+      <details class="explore-details">
+        <summary>
+          <span>Explore Market</span>
+          <small>Browse all tracked AI-work opportunities ({total_shown} shown)</small>
+        </summary>
+        <p class="muted explore-copy">Your daily plan is intentionally small. Explore Market shows the wider tracked market when you want to browse. These are not tasks for today.</p>
+        {''.join(group_html)}
+      </details>
+    </section>
+    """
+
+
+def render_explore_card(match, record, profile_id):
+    reasons = "; ".join(demo.plain_reasons(match, record)[:3])
+    card_id = card_id_for_explore_match(match, record)
+    label = explore_match_label(match, record)
+    return f"""
+    <article class="card explore-card" id="{e(card_id)}">
+      <div class="card-main">
+        <p class="source">{e(match['source'])}</p>
+        <h3>{e(match['display_title'])}</h3>
+        <p>{e(match['location'])} &middot; {e(match['expertise'])}</p>
+        <p class="muted">{e(reasons)}</p>
+        <p class="pill">{e(label)}</p>
+        <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
+      </div>
+      <div class="card-actions compact-actions">
+        <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">Open</a>
+        {render_explore_forms(match, record, profile_id, card_id)}
+      </div>
+    </article>
+    """
+
+
+def explore_match_label(match, record):
+    pieces = []
+    if record:
+        pieces.append("Already in your tracker")
+        pieces.append(demo.readable_status(record["status"]))
+    else:
+        pieces.append(demo.opportunity_type_label(match))
+    if match.get("variant_count", 1) > 1:
+        pieces.append(f"{match['variant_count']} related postings grouped")
+    return " · ".join(pieces)
 
 
 def render_pipeline(records, profile_id):
@@ -887,6 +990,25 @@ def render_match_forms(match, record, profile_id, return_to):
     )
 
 
+def render_explore_forms(match, record, profile_id, return_to):
+    actions = explore_actions_for_status(record.get("status") if record else None)
+    if not actions:
+        return terminal_status_label(record["status"]) if record else ""
+    return " ".join(
+        action_form(
+            action,
+            ACTION_LABELS[action],
+            profile_id,
+            source=match["source"],
+            title=match["display_title"],
+            url=match["url"],
+            pipeline_id=record.get("id", "") if record else "",
+            return_to=return_to,
+        )
+        for action in actions
+    )
+
+
 def render_pipeline_forms(record, profile_id, return_to):
     actions = actions_for_status(record["status"])
     if not actions:
@@ -923,6 +1045,14 @@ def action_form(action, label, profile_id, source, title, url, pipeline_id="", r
 
 def actions_for_status(status):
     return STATUS_ACTIONS.get(status, ("remind_later", "not_interested"))
+
+
+def explore_actions_for_status(status):
+    if status is None:
+        return ("save", "not_interested")
+    if "not_interested" in actions_for_status(status):
+        return ("not_interested",)
+    return ()
 
 
 def terminal_status_label(status):
@@ -1106,6 +1236,40 @@ button:hover, .open:hover { filter: brightness(.96); }
 .actions { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 18px 18px 38px; }
 .actions li { margin: 6px 0; }
 .secondary-actions { background: #fbfaf7; }
+.explore-details {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px 18px;
+}
+.explore-details summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: space-between;
+  list-style-position: inside;
+}
+.explore-details summary span {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.explore-details summary small {
+  color: var(--muted);
+  font-size: .92rem;
+}
+.explore-copy { margin-top: 12px; }
+.explore-group {
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.explore-card {
+  background: #fffefa;
+}
+.compact-actions {
+  max-width: 240px;
+}
 .jump-link, .back-link {
   color: var(--accent);
   font-weight: 700;
