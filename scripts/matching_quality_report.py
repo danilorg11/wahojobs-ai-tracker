@@ -160,10 +160,36 @@ SCIENCE_TERMS = {
 
 
 @dataclass
+class GoldenSetResolution:
+    """Safe opportunity resolution for benchmark fixtures.
+
+    Golden-set cases may be partial snapshots. Live DB rows are valid benchmark
+    inputs only when an exact stable identifier resolves uniquely. Title/source
+    matches are diagnostics only, because they can drift or match multiple
+    current variants. Future review batches should capture stable identifiers
+    whenever available so benchmark metrics can report exact-live versus
+    fixture-snapshot coverage.
+    """
+
+    row: dict
+    resolution_status: str
+    resolution_source: str
+    identifier_used: str
+    candidate_count: int
+    ambiguity_reason: str
+    selected_row_id: str
+    selected_identifiers: dict
+    used_live_db: bool
+    used_fixture_snapshot: bool
+    diagnostic_candidates: list[dict]
+
+
+@dataclass
 class EvaluatedCase:
     case: dict
     row: dict
     source_status: str
+    resolution: GoldenSetResolution
     score: int
     match_label: str
     current_section: str
@@ -218,8 +244,7 @@ def main() -> None:
     fixture = load_fixture()
     profiles = load_benchmark_profiles(fixture)
 
-    with get_connection() as conn:
-        db_rows = [row_to_dict(row) for row in matcher.get_active_rows(conn)]
+    db_rows = load_benchmark_db_rows()
 
     baseline_hash = get_baseline_commit_hash()
     baseline_matcher = load_baseline_matcher()
@@ -301,6 +326,48 @@ def load_baseline_matcher():
     if not hasattr(module, "score_opportunity"):
         raise SystemExit("Previous matcher from HEAD does not expose score_opportunity.")
     return module
+
+
+def load_benchmark_db_rows() -> list[dict]:
+    """Load active opportunity rows used by benchmark resolution.
+
+    This intentionally includes stable identifiers that the production matcher
+    does not need, such as external_id and source_hash. The rows are read-only
+    inputs for golden-set resolution and diagnostics.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+              j.id AS job_id,
+              j.external_id,
+              j.source_hash,
+              j.title,
+              j.location,
+              j.url,
+              j.department,
+              j.expertise,
+              j.commitment,
+              j.opportunity_kind,
+              j.availability_basis,
+              j.include_in_live_market_estimate,
+              j.canonical_opportunity_id,
+              c.name AS source,
+              c.slug AS source_slug,
+              c.source_tier,
+              c.inventory_model,
+              c.market_count_policy,
+              co.canonical_title,
+              co.source_category
+            FROM jobs j
+            JOIN companies c ON c.id = j.company_id
+            LEFT JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
+            WHERE j.is_active = 1
+              AND j.title NOT LIKE '[SIMULATION]%'
+            ORDER BY c.name ASC, j.title ASC, j.id ASC
+            """
+        ).fetchall()
+    return [row_to_dict(row) for row in rows]
 
 
 def load_fixture() -> dict:
@@ -385,7 +452,9 @@ def load_benchmark_profiles(fixture: dict) -> dict[str, dict]:
 
 
 def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module) -> EvaluatedCase:
-    row, source_status = resolve_case_row(case, db_rows)
+    resolution = resolve_case_opportunity(case, db_rows)
+    row = resolution.row
+    source_status = resolution.resolution_status
     scored = matcher_module.score_opportunity(profile, row)
     score = scored["score"]
     raw_match_label = match_strength_from_score(score)
@@ -409,6 +478,7 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
         case=case,
         row=row,
         source_status=source_status,
+        resolution=resolution,
         score=score,
         match_label=projection.raw_match_label,
         current_section=projection.raw_section,
@@ -528,34 +598,187 @@ def label_from_raw_match_label(raw_match_label: str) -> str:
 
 
 def resolve_case_row(case: dict, db_rows: list[dict]) -> tuple[dict, str]:
-    source_slug = normalize_slug(case.get("source_slug") or case["source"])
-    title_key = normalize_title_key(case["title"])
-    url = normalize_url(case.get("url"))
-    canonical_id = case.get("canonical_opportunity_id")
+    resolution = resolve_case_opportunity(case, db_rows)
+    return resolution.row, resolution.resolution_status
 
-    candidates = [
-        row
-        for row in db_rows
+
+def resolve_case_opportunity(case: dict, db_rows: list[dict]) -> GoldenSetResolution:
+    """Resolve a golden-set case to either exact live data or its fixture row.
+
+    The benchmark must not use title similarity as proof of identity. Title and
+    source matches are collected only as diagnostics so stale or partial fixture
+    cases remain evaluable without silently selecting a wrong current row.
+    """
+    source_slug = normalize_slug(case.get("source_slug") or case["source"])
+    source_rows = [
+        row for row in db_rows
         if normalize_slug(row.get("source_slug") or row.get("source")) == source_slug
-        and normalize_title_key(row.get("title") or row.get("canonical_title")) == title_key
+    ]
+    title_candidates = title_diagnostic_candidates(case, source_rows)
+    attempted_identifier = False
+    missing_live_match = False
+
+    for identifier in ("source_hash", "external_id", "url", "canonical_opportunity_id"):
+        value = identifier_value(case, identifier)
+        if not value:
+            continue
+        attempted_identifier = True
+        matches = identifier_matches(identifier, value, db_rows, source_rows)
+        if len(matches) == 1:
+            return live_resolution(case, identifier, matches[0], len(matches), title_candidates)
+        if len(matches) > 1:
+            return fixture_resolution(
+                case=case,
+                status="ambiguous_fixture_fallback",
+                source="fixture_snapshot",
+                identifier=identifier,
+                candidate_count=len(matches),
+                ambiguity_reason=ambiguity_message(identifier, value, len(matches)),
+                diagnostic_candidates=diagnostic_candidates(matches),
+            )
+        missing_live_match = True
+
+    if attempted_identifier and missing_live_match:
+        return fixture_resolution(
+            case=case,
+            status="fixture_snapshot_missing_live_row",
+            source="fixture_snapshot",
+            identifier="stable_identifier",
+            candidate_count=len(title_candidates),
+            ambiguity_reason="Stable identifier was present but did not match an active benchmark row.",
+            diagnostic_candidates=diagnostic_candidates(title_candidates),
+        )
+
+    return fixture_resolution(
+        case=case,
+        status="fixture_snapshot_missing_identifier",
+        source="fixture_snapshot",
+        identifier="",
+        candidate_count=len(title_candidates),
+        ambiguity_reason=(
+            "No stable identifier is present; title/source candidates are diagnostic only."
+            if title_candidates
+            else "No stable identifier is present and no title/source diagnostic candidates were found."
+        ),
+        diagnostic_candidates=diagnostic_candidates(title_candidates),
+    )
+
+
+def identifier_value(case: dict, identifier: str) -> str:
+    if identifier == "url":
+        return normalize_url(case.get("url"))
+    value = case.get(identifier)
+    return "" if value is None else str(value).strip()
+
+
+def identifier_matches(
+    identifier: str,
+    value: str,
+    db_rows: list[dict],
+    source_rows: list[dict],
+) -> list[dict]:
+    if identifier == "source_hash":
+        return [row for row in db_rows if clean_identifier(row.get("source_hash")) == value]
+    if identifier == "external_id":
+        return [row for row in source_rows if clean_identifier(row.get("external_id")) == value]
+    if identifier == "url":
+        return [row for row in db_rows if normalize_url(row.get("url")) == value]
+    if identifier == "canonical_opportunity_id":
+        return [
+            row for row in db_rows
+            if clean_identifier(row.get("canonical_opportunity_id")) == value
+        ]
+    return []
+
+
+def clean_identifier(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def title_diagnostic_candidates(case: dict, source_rows: list[dict]) -> list[dict]:
+    title_key = normalize_title_key(case["title"])
+    return [
+        row for row in source_rows
+        if normalize_title_key(row.get("title") or row.get("canonical_title")) == title_key
     ]
 
-    if url:
-        url_matches = [row for row in candidates if normalize_url(row.get("url")) == url]
-        if url_matches:
-            return url_matches[0], "live_db_url"
 
-    if canonical_id:
-        canonical_matches = [
-            row for row in candidates if str(row.get("canonical_opportunity_id") or "") == str(canonical_id)
-        ]
-        if canonical_matches:
-            return canonical_matches[0], "live_db_canonical"
+def live_resolution(
+    case: dict,
+    identifier: str,
+    row: dict,
+    candidate_count: int,
+    title_candidates: list[dict],
+) -> GoldenSetResolution:
+    return GoldenSetResolution(
+        row=row,
+        resolution_status=f"live_db_{identifier}",
+        resolution_source="live_db",
+        identifier_used=identifier,
+        candidate_count=candidate_count,
+        ambiguity_reason="",
+        selected_row_id=clean_identifier(row.get("job_id")),
+        selected_identifiers=selected_identifiers(row),
+        used_live_db=True,
+        used_fixture_snapshot=False,
+        diagnostic_candidates=diagnostic_candidates(title_candidates),
+    )
 
-    if candidates:
-        return candidates[0], "live_db_title"
 
-    return build_snapshot_row(case), "fixture_snapshot"
+def fixture_resolution(
+    case: dict,
+    status: str,
+    source: str,
+    identifier: str,
+    candidate_count: int,
+    ambiguity_reason: str,
+    diagnostic_candidates: list[dict],
+) -> GoldenSetResolution:
+    return GoldenSetResolution(
+        row=build_snapshot_row(case),
+        resolution_status=status,
+        resolution_source=source,
+        identifier_used=identifier,
+        candidate_count=candidate_count,
+        ambiguity_reason=ambiguity_reason,
+        selected_row_id="",
+        selected_identifiers={},
+        used_live_db=False,
+        used_fixture_snapshot=True,
+        diagnostic_candidates=diagnostic_candidates,
+    )
+
+
+def selected_identifiers(row: dict) -> dict:
+    return {
+        "job_id": clean_identifier(row.get("job_id")),
+        "external_id": clean_identifier(row.get("external_id")),
+        "source_hash": clean_identifier(row.get("source_hash")),
+        "url": row.get("url") or "",
+        "canonical_opportunity_id": clean_identifier(row.get("canonical_opportunity_id")),
+    }
+
+
+def diagnostic_candidates(rows: list[dict], limit: int = 8) -> list[dict]:
+    candidates = []
+    for row in rows[:limit]:
+        candidates.append(
+            {
+                "job_id": clean_identifier(row.get("job_id")),
+                "external_id": clean_identifier(row.get("external_id")),
+                "source_hash": clean_identifier(row.get("source_hash")),
+                "url": row.get("url") or "",
+                "title": row.get("title") or row.get("canonical_title") or "",
+                "source": row.get("source") or "",
+                "location": row.get("location") or "",
+                "canonical_opportunity_id": clean_identifier(row.get("canonical_opportunity_id")),
+            }
+        )
+    return candidates
+
+
+def ambiguity_message(identifier: str, value: str, count: int) -> str:
+    return f"{identifier}={value} matched {count} active rows; fixture snapshot used."
 
 
 def build_snapshot_row(case: dict) -> dict:
@@ -568,6 +791,8 @@ def build_snapshot_row(case: dict) -> dict:
 
     return {
         "job_id": case.get("job_id") or f"fixture:{case['case_id']}",
+        "external_id": case.get("external_id"),
+        "source_hash": case.get("source_hash"),
         "title": case["title"],
         "location": case.get("location") or "Unknown",
         "url": case.get("url") or "",
@@ -829,6 +1054,7 @@ def calculate_metrics(evaluated: list[EvaluatedCase]) -> dict:
         "label_distribution_all": Counter(item.case["expected_label"] for item in evaluated),
         "label_distribution_headline": Counter(item.case["expected_label"] for item in headline),
         "source_status": Counter(item.source_status for item in evaluated),
+        "resolution_diagnostics": build_resolution_diagnostics(evaluated),
         "metrics_by_profile": metrics_by_profile,
         "surfacing_false_positives": [item for item in headline if is_surfacing_false_positive(item)],
         "classification_false_positives": [item for item in headline if is_classification_false_positive(item)],
@@ -847,6 +1073,81 @@ def calculate_metrics(evaluated: list[EvaluatedCase]) -> dict:
             for pattern in item.failure_patterns
         ),
     }
+
+
+def build_resolution_diagnostics(evaluated: list[EvaluatedCase]) -> dict:
+    human_reviewed = [item for item in evaluated if item.case.get("label_source") == "human_reviewed"]
+    fixture_snapshot_items = [item for item in human_reviewed if item.resolution.used_fixture_snapshot]
+    title_candidate_items = [
+        item for item in human_reviewed
+        if item.resolution.used_fixture_snapshot and item.resolution.diagnostic_candidates
+    ]
+
+    missing_fields = Counter()
+    for item in fixture_snapshot_items:
+        case = item.case
+        for field in (
+            "url",
+            "external_id",
+            "source_hash",
+            "canonical_opportunity_id",
+            "source_category",
+            "expertise",
+            "department",
+            "opportunity_kind",
+            "inventory_model",
+            "market_count_policy",
+            "language",
+            "language_locale",
+            "required_languages",
+        ):
+            if is_missing_fixture_field(case, field):
+                missing_fields[field] += 1
+
+    return {
+        "human_reviewed_cases": len(human_reviewed),
+        "status": Counter(item.resolution.resolution_status for item in human_reviewed),
+        "identifier_used": Counter(
+            item.resolution.identifier_used or "none" for item in human_reviewed
+        ),
+        "exact_live_by_identifier": Counter(
+            item.resolution.identifier_used
+            for item in human_reviewed
+            if item.resolution.used_live_db
+        ),
+        "ambiguous_fallback": sum(
+            1 for item in human_reviewed
+            if item.resolution.resolution_status == "ambiguous_fixture_fallback"
+        ),
+        "missing_identifier_fallback": sum(
+            1 for item in human_reviewed
+            if item.resolution.resolution_status == "fixture_snapshot_missing_identifier"
+        ),
+        "missing_live_row_fallback": sum(
+            1 for item in human_reviewed
+            if item.resolution.resolution_status == "fixture_snapshot_missing_live_row"
+        ),
+        "title_only_candidates_ignored": len(title_candidate_items),
+        "not_reproducible_from_fixture_alone": sum(1 for item in human_reviewed if item.resolution.used_live_db),
+        "reproducible_from_fixture_snapshot": sum(
+            1 for item in human_reviewed if item.resolution.used_fixture_snapshot
+        ),
+        "missing_fields": missing_fields,
+        "title_only_candidate_cases": [
+            item.case["case_id"] for item in title_candidate_items
+        ],
+    }
+
+
+def is_missing_fixture_field(case: dict, field: str) -> bool:
+    value = case.get(field)
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == "" or value.strip().lower() == "unknown"
+    if isinstance(value, list):
+        return len(value) == 0
+    return False
 
 
 def precision_at(items: list[EvaluatedCase], k: int, relevant_labels: set[str]) -> float:
@@ -1035,6 +1336,28 @@ def render_quality_report(
         f"- DB resolution: {format_counter(metrics['source_status'])}",
         f"- Label distribution, all cases: {format_counter(metrics['label_distribution_all'])}",
         f"- Label distribution, headline cases: {format_counter(metrics['label_distribution_headline'])}",
+        "",
+        "## Golden-Set Resolution Fidelity",
+        "",
+        (
+            "Benchmark opportunities are resolved to live rows only through exact, "
+            "unique stable identifiers. Title/source matches are diagnostic only; "
+            "unsafe title-only candidates fall back to the stored fixture snapshot."
+        ),
+        "",
+        f"- Human-reviewed cases: {metrics['resolution_diagnostics']['human_reviewed_cases']}",
+        f"- Resolution status: {format_counter(metrics['resolution_diagnostics']['status'])}",
+        f"- Exact live DB resolution by identifier: {format_counter(metrics['resolution_diagnostics']['exact_live_by_identifier'])}",
+        f"- Ambiguous stable-identifier fallbacks: {metrics['resolution_diagnostics']['ambiguous_fallback']}",
+        f"- Missing-identifier fixture fallbacks: {metrics['resolution_diagnostics']['missing_identifier_fallback']}",
+        f"- Missing-live-row fixture fallbacks: {metrics['resolution_diagnostics']['missing_live_row_fallback']}",
+        f"- Title/source candidate cases intentionally ignored: {metrics['resolution_diagnostics']['title_only_candidates_ignored']}",
+        f"- Reproducible from fixture snapshot alone: {metrics['resolution_diagnostics']['reproducible_from_fixture_snapshot']}",
+        f"- Dependent on exact live DB resolution: {metrics['resolution_diagnostics']['not_reproducible_from_fixture_alone']}",
+        "",
+        "### Missing Snapshot Fields In Human-Reviewed Fixture Fallbacks",
+        "",
+        *render_missing_fixture_fields(metrics["resolution_diagnostics"]["missing_fields"]),
         "",
         "## Apples-To-Apples Matcher Comparison",
         "",
@@ -1271,6 +1594,12 @@ def comparison_row(label: str, baseline_metrics: dict, current_metrics: dict, ke
     )
 
 
+def render_missing_fixture_fields(missing_fields: Counter) -> list[str]:
+    if not missing_fields:
+        return ["- No missing snapshot fields were detected."]
+    return [f"- `{field}`: {count}" for field, count in missing_fields.most_common()]
+
+
 def render_language_diagnostics(language_diagnostics: dict) -> list[str]:
     lines = [
         "",
@@ -1332,6 +1661,13 @@ def render_failure_block(item: EvaluatedCase) -> list[str]:
             f"{item.evergreen_applicability_reason})"
         ),
         f"- Decisive hard gate: {item.hard_gate_type or '-'} / {item.hard_gate_status or '-'} ({item.hard_gate_reason or '-'})",
+        (
+            "- Golden-set resolution: "
+            f"{item.resolution.resolution_status}; "
+            f"identifier `{item.resolution.identifier_used or '-'}`; "
+            f"{'live DB' if item.resolution.used_live_db else 'fixture snapshot'}"
+        ),
+        f"- Resolution note: {item.resolution.ambiguity_reason or '-'}",
         (
             "- Location eligibility: "
             f"{item.location_eligibility_status} / {item.location_restriction_type} restriction / "
@@ -1418,6 +1754,7 @@ def print_terminal_summary(fixture: dict, metrics: dict, baseline_hash: str, bas
     print(f"Fixture cases: {metrics['total_cases']}")
     print(f"Headline cases: {metrics['headline_cases']}")
     print(f"Review-required cases: {metrics['review_required_cases']}")
+    print(f"Golden-set resolution: {format_counter(metrics['resolution_diagnostics']['status'])}")
     print(
         "Surfacing false positives: "
         f"{len(baseline_metrics['surfacing_false_positives'])} -> "

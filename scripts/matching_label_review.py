@@ -299,8 +299,7 @@ def enrich(args) -> None:
 def load_evaluated_cases():
     fixture = benchmark.load_fixture()
     profiles = benchmark.load_benchmark_profiles(fixture)
-    with get_connection() as conn:
-        rows = [benchmark.row_to_dict(row) for row in benchmark.matcher.get_active_rows(conn)]
+    rows = benchmark.load_benchmark_db_rows()
     evaluated = [
         benchmark.evaluate_case(case, profiles[case["profile_id"]], rows, benchmark.matcher)
         for case in fixture["cases"]
@@ -1138,6 +1137,7 @@ def csv_row(review_case):
         row[column] = ""
     row["job_id"] = clean_cell(case.get("job_id"))
     row["job_external_id"] = clean_cell(case.get("external_id"))
+    row["job_source_hash"] = clean_cell(case.get("source_hash"))
     row["job_canonical_opportunity_id"] = clean_cell(case.get("canonical_opportunity_id"))
     row["job_url"] = clean_cell(case.get("url"))
     return row
@@ -1409,6 +1409,8 @@ def collect_changes(rows, case_index):
         if not updates:
             continue
         case = case_index[case_id]
+        if case.get("label_source") != "human_reviewed":
+            updates.update(identifier_updates(row, case))
         if reviewed_values_already_applied(case, updates):
             continue
         changes.append({"case": case, "row": row, "updates": updates})
@@ -1476,6 +1478,20 @@ def review_updates(row):
         if value:
             updates[fixture_field] = value
 
+    return updates
+
+
+def identifier_updates(row, case):
+    updates = {}
+    for csv_field, fixture_field in (
+        ("job_url", "url"),
+        ("job_external_id", "external_id"),
+        ("job_source_hash", "source_hash"),
+        ("job_canonical_opportunity_id", "canonical_opportunity_id"),
+    ):
+        value = row.get(csv_field, "").strip()
+        if value and case.get(fixture_field) != value:
+            updates[fixture_field] = value
     return updates
 
 
