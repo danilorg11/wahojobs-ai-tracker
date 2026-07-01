@@ -131,6 +131,39 @@ LANGUAGE_ROLE_TERMS = [
     "translator",
 ]
 
+LEGAL_SPECIALIZED_SUBTYPE_TERMS = [
+    "corporate law",
+    "employment law",
+    "energy law",
+    "intellectual property",
+    "ip",
+    "labor law",
+    "litigation",
+    "m&a",
+    "real estate",
+    "regulatory law",
+]
+
+SCIENCE_MEDICAL_SPECIALIZED_SUBTYPE_TERMS = [
+    "academic dermatologist",
+    "biology research",
+    "clinical",
+    "dermatologist",
+    "dermatology",
+    "medicine physician",
+    "microbiology",
+    "pharma",
+    "physician",
+    "research scientist",
+    "scientist",
+]
+
+LANGUAGE_SPECIALIZED_SUBTYPE_TERMS = [
+    "audio",
+    "voice",
+    "translation quality",
+]
+
 GENERALIST_TASK_TERMS = [
     "ai trainer",
     "ai training",
@@ -913,8 +946,17 @@ def score_opportunity(profile, row):
         evergreen_floor_applied = True
 
     effective_section = evergreen_adjusted_section
+    specialized_cap = specialized_actionability_cap(profile, row, effective_section)
+    specialized_actionability_cap_applied = False
+    specialized_actionability_cap_reason = ""
+    if specialized_cap:
+        effective_section = specialized_cap["section"]
+        specialized_actionability_cap_applied = True
+        specialized_actionability_cap_reason = specialized_cap["reason"]
+        reasons.append(specialized_actionability_cap_reason)
+
     location_cap_applied = (
-        location_check.actionability_cap_required and evergreen_adjusted_section != "explore_only"
+        location_check.actionability_cap_required and effective_section != "explore_only"
     )
     if location_cap_applied:
         effective_section = "explore_only"
@@ -961,6 +1003,8 @@ def score_opportunity(profile, row):
         "evergreen_applicability_reason": evergreen_check.reason,
         "evergreen_floor_applied": evergreen_floor_applied,
         "evergreen_visible_reason_added": evergreen_visible_reason_added,
+        "specialized_actionability_cap_applied": specialized_actionability_cap_applied,
+        "specialized_actionability_cap_reason": specialized_actionability_cap_reason,
         "raw_product_section": raw_section,
         "evergreen_adjusted_section": evergreen_adjusted_section,
         "effective_product_section": effective_section,
@@ -988,6 +1032,103 @@ def section_rank(section):
         "best_matches": 3,
         "do_these_first": 4,
     }.get(section or "explore_only", 1)
+
+
+def specialized_actionability_cap(profile, row, current_section):
+    if current_section != "do_these_first":
+        return None
+
+    profile_text = profile_match_text(profile)
+    structured_text = structured_actionability_text(row)
+    profile_features = detect_profile_match_features(profile)
+    role_features = detect_role_match_features(structured_text)
+    role_domains = role_features["professional_domains"]
+    profile_domains = profile_features["professional_domains"]
+
+    structured_science_role = "science_medical" in role_domains or contains_any(
+        structured_text,
+        ["science", "sciences medical", "healthcare medical"],
+    )
+    if "technical" in profile_domains and structured_science_role and "science_medical" not in profile_domains:
+        return {
+            "section": "also_worth_reviewing",
+            "reason": "Specialized cross-domain role; review fit before prioritizing.",
+        }
+
+    if "legal" in profile_domains and "legal" in role_domains:
+        subtype = first_missing_subtype(
+            profile_text,
+            structured_text,
+            LEGAL_SPECIALIZED_SUBTYPE_TERMS,
+        )
+        if subtype:
+            return {
+                "section": "best_matches",
+                "reason": "Specialized legal subtype; review fit before making it a top action.",
+            }
+
+    if "science_medical" in profile_domains and "science_medical" in role_domains:
+        subtype = first_missing_subtype(
+            profile_text,
+            structured_text,
+            SCIENCE_MEDICAL_SPECIALIZED_SUBTYPE_TERMS,
+        )
+        if subtype:
+            return {
+                "section": "best_matches",
+                "reason": "Specialized science or medical subtype; review fit before making it a top action.",
+            }
+
+    language_terms = set(detect_explicit_languages(structured_text))
+    profile_languages = profile_language_set(profile)
+    if language_terms and language_terms <= profile_languages:
+        subtype = first_missing_subtype(
+            profile_text,
+            structured_text,
+            LANGUAGE_SPECIALIZED_SUBTYPE_TERMS,
+        )
+        if subtype:
+            return {
+                "section": "best_matches",
+                "reason": "Specialized language-work subtype; review fit before making it a top action.",
+            }
+
+    return None
+
+
+def first_missing_subtype(profile_text, structured_text, subtype_terms):
+    for term in subtype_terms:
+        if keyword_matches(structured_text, term) and not keyword_matches(profile_text, term):
+            return term
+    return ""
+
+
+def profile_match_text(profile):
+    values = [
+        profile.get("profile_id", ""),
+        profile.get("display_name", ""),
+        profile.get("summary", ""),
+        profile.get("education_level", ""),
+        " ".join(profile.get("degrees_or_domains") or []),
+        " ".join(profile.get("skills") or []),
+        " ".join(profile.get("target_opportunity_types") or []),
+        profile.get("notes", ""),
+    ]
+    return normalize_text(" ".join(str(value or "") for value in values))
+
+
+def structured_actionability_text(row):
+    values = [
+        row.get("source_category"),
+        row.get("expertise"),
+        row.get("department"),
+        row.get("opportunity_kind"),
+        row.get("availability_basis"),
+        row.get("required_languages"),
+        row.get("language"),
+        row.get("language_locale"),
+    ]
+    return normalize_text(" ".join(str(value or "") for value in values))
 
 
 def searchable_text(row, title, expertise):

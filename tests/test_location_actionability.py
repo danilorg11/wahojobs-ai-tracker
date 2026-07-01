@@ -102,7 +102,7 @@ class LocationActionabilityTests(unittest.TestCase):
         expected = {
             "lawyer_002": {
                 "label": "plausible",
-                "section": "do_these_first",
+                "section": "best_matches",
                 "raw_match_label": "Medium",
                 "raw_section": "do_these_first",
                 "score": 30,
