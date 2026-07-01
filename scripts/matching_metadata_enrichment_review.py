@@ -16,6 +16,7 @@ import html
 import json
 import sys
 from collections import Counter, defaultdict
+from copy import deepcopy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -175,6 +176,37 @@ PROPOSED_FIELDS = [
     "proposed_enrichment_notes",
 ]
 
+PROPOSED_TO_MATCHER_INPUT = {
+    "proposed_inventory_model": "inventory_model",
+    "proposed_opportunity_kind": "opportunity_kind",
+    "proposed_market_count_policy": "market_count_policy",
+    "proposed_availability_basis": "availability_basis",
+    "proposed_source_category": "source_category",
+    "proposed_expertise": "expertise",
+    "proposed_department": "department",
+    "proposed_location": "location",
+    "proposed_language": "language",
+    "proposed_language_locale": "language_locale",
+    "proposed_required_languages": "required_languages",
+}
+
+STABLE_ID_PROPOSED_FIELDS = {
+    "proposed_canonical_opportunity_id",
+    "proposed_url",
+    "proposed_external_id",
+    "proposed_source_hash",
+}
+
+NON_APPLY_DECISIONS = {
+    "leave_unchanged",
+    "needs_more_research",
+    "ambiguous_keep_fixture_only",
+    "tie_to_stable_row",
+    "remove_or_replace_case_later",
+}
+
+APPLY_METADATA_SOURCE = "exports/matching_metadata_enrichment_review.csv"
+
 CSV_COLUMNS = [
     "case_id",
     "profile_id",
@@ -226,8 +258,11 @@ INCLUSION_CLASSIFICATIONS = {
 
 def main() -> None:
     args = parse_args()
+    if args.command == "apply":
+        apply_metadata_enrichment_reviews(args)
+        return
     if args.command != "generate":
-        raise SystemExit("Only the 'generate' review-artifact command is supported.")
+        raise SystemExit("Choose a command: generate or apply.")
 
     rows, summary = build_review_batch()
     write_csv(rows, args.csv)
@@ -254,6 +289,17 @@ def parse_args() -> argparse.Namespace:
     generate.add_argument("--csv", type=Path, default=CSV_PATH)
     generate.add_argument("--html", type=Path, default=HTML_PATH)
     generate.add_argument("--summary", type=Path, default=SUMMARY_PATH)
+    apply_parser = subparsers.add_parser(
+        "apply",
+        help="Dry-run or apply reviewed metadata enrichment decisions to golden-set snapshots.",
+    )
+    apply_parser.add_argument("--input", type=Path, default=CSV_PATH)
+    apply_parser.add_argument("--dry-run", action="store_true", default=True)
+    apply_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Actually write the fixture. Omit this for a read-only dry run.",
+    )
     args = parser.parse_args()
     if args.command is None:
         args.command = "generate"
@@ -274,6 +320,311 @@ def build_review_batch() -> tuple[list[dict], dict]:
     rows = select_review_rows(evaluated, profiles, db_rows)
     summary = summarize_rows(rows, evaluated)
     return rows, summary
+
+
+def apply_metadata_enrichment_reviews(args: argparse.Namespace) -> None:
+    if args.yes and args.dry_run:
+        args.dry_run = False
+    fixture = benchmark.load_fixture()
+    profiles = benchmark.load_benchmark_profiles(fixture)
+    rows = read_review_csv(args.input)
+    plan = build_apply_plan(rows, fixture, profiles)
+
+    print_apply_plan(plan, wrote=False)
+    if plan["validation_errors"]:
+        raise SystemExit("Refusing to apply metadata enrichment review due to validation errors.")
+    if args.dry_run:
+        return
+    if not args.yes:
+        raise SystemExit("Refusing to write fixture without --yes.")
+
+    benchmark.FIXTURE_PATH.write_text(
+        json.dumps(plan["updated_fixture"], indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    print_apply_plan(plan, wrote=True)
+
+
+def read_review_csv(path: Path) -> list[dict]:
+    try:
+        with path.open(encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Metadata enrichment review CSV not found: {path}") from exc
+
+
+def build_apply_plan(rows: list[dict], fixture: dict, profiles: dict) -> dict:
+    cases_by_id = {case["case_id"]: case for case in fixture["cases"]}
+    updated_fixture = deepcopy(fixture)
+    updated_cases_by_id = {case["case_id"]: case for case in updated_fixture["cases"]}
+    validation_errors = []
+    skipped_rows = []
+    changes_by_case = {}
+    found_cases = set()
+    missing_cases = []
+    stable_id_proposals = []
+    non_apply_rows = []
+    approved_rows = []
+    rows_with_proposed = []
+
+    for index, row in enumerate(rows, start=2):
+        case_id = clean_cell(row.get("case_id"))
+        decision = clean_cell(row.get("review_decision"))
+        proposed = proposed_values(row)
+        non_note_proposed = {
+            field: value
+            for field, value in proposed.items()
+            if field != "proposed_enrichment_notes"
+        }
+        stable_proposed = {
+            field: value
+            for field, value in proposed.items()
+            if field in STABLE_ID_PROPOSED_FIELDS
+        }
+        if non_note_proposed:
+            rows_with_proposed.append(case_id or f"row_{index}")
+        if not case_id:
+            validation_errors.append(f"Row {index} is missing case_id.")
+            continue
+        if decision not in REVIEW_DECISIONS:
+            validation_errors.append(f"{case_id} has invalid review_decision={decision!r}.")
+            continue
+        case = cases_by_id.get(case_id)
+        updated_case = updated_cases_by_id.get(case_id)
+        if not case or not updated_case:
+            missing_cases.append(case_id)
+            validation_errors.append(f"{case_id} is not present in the fixture.")
+            continue
+        found_cases.add(case_id)
+
+        if stable_proposed:
+            stable_id_proposals.append({"case_id": case_id, "decision": decision, "fields": stable_proposed})
+            if decision != "tie_to_stable_row":
+                validation_errors.append(
+                    f"{case_id} proposes stable IDs under {decision}; stable IDs require tie_to_stable_row."
+                )
+
+        if decision != "approve_metadata_update":
+            non_apply_rows.append(case_id)
+            skipped_rows.append({"case_id": case_id, "decision": decision})
+            forbidden = {
+                field: value
+                for field, value in non_note_proposed.items()
+                if value and not (decision == "tie_to_stable_row" and field in STABLE_ID_PROPOSED_FIELDS)
+            }
+            if forbidden:
+                validation_errors.append(
+                    f"{case_id} has proposed metadata fields under non-apply decision {decision}: "
+                    + ", ".join(sorted(forbidden))
+                )
+            continue
+
+        approved_rows.append(case_id)
+        if case.get("label_source") != "human_reviewed":
+            validation_errors.append(f"{case_id} is not label_source=human_reviewed.")
+            continue
+        snapshot = updated_case.get("matcher_input_snapshot")
+        if not isinstance(snapshot, dict):
+            validation_errors.append(f"{case_id} has no matcher_input_snapshot.")
+            continue
+        matcher_input = snapshot.get("matcher_input")
+        if not isinstance(matcher_input, dict):
+            validation_errors.append(f"{case_id} matcher_input_snapshot.matcher_input is missing.")
+            continue
+        if not non_note_proposed:
+            validation_errors.append(f"{case_id} is approved but has no proposed metadata fields.")
+            continue
+        if not clean_cell(row.get("proposed_enrichment_notes")):
+            validation_errors.append(f"{case_id} is approved but missing proposed_enrichment_notes.")
+            continue
+
+        case_changes = apply_row_to_case(updated_case, row)
+        if case_changes:
+            changes_by_case[case_id] = case_changes
+
+        if decision_fields(updated_case) != decision_fields(case):
+            validation_errors.append(f"{case_id} human decision fields changed unexpectedly.")
+
+    before_items = evaluate_human_reviewed_fixture(fixture, profiles)
+    after_items = evaluate_human_reviewed_fixture(updated_fixture, profiles)
+    before_metrics = benchmark.human_reviewed_agreement(before_items)
+    after_metrics = benchmark.human_reviewed_agreement(after_items)
+    changed_predictions = changed_prediction_signatures(before_items, after_items)
+
+    return {
+        "rows_read": len(rows),
+        "approved_rows": approved_rows,
+        "non_apply_rows": non_apply_rows,
+        "skipped_rows": skipped_rows,
+        "fixture_cases_found": len(found_cases),
+        "fixture_cases_missing": missing_cases,
+        "rows_with_proposed_metadata_fields": rows_with_proposed,
+        "changes_by_case": changes_by_case,
+        "stable_id_proposals": stable_id_proposals,
+        "validation_errors": validation_errors,
+        "before_metrics": before_metrics,
+        "after_metrics": after_metrics,
+        "changed_predictions": changed_predictions,
+        "updated_fixture": updated_fixture,
+    }
+
+
+def proposed_values(row: dict) -> dict:
+    return {
+        field: clean_cell(row.get(field))
+        for field in PROPOSED_FIELDS
+        if clean_cell(row.get(field))
+    }
+
+
+def apply_row_to_case(case: dict, row: dict) -> list[dict]:
+    snapshot = case["matcher_input_snapshot"]
+    matcher_input = snapshot["matcher_input"]
+    metadata = snapshot.setdefault("snapshot_metadata", {})
+    changes = []
+    for csv_field, target_field in PROPOSED_TO_MATCHER_INPUT.items():
+        value = clean_cell(row.get(csv_field))
+        if not value:
+            continue
+        old_value = matcher_input.get(target_field)
+        new_value = coerce_matcher_input_value(target_field, value)
+        if old_value != new_value:
+            matcher_input[target_field] = new_value
+            changes.append(
+                {
+                    "field": f"matcher_input.{target_field}",
+                    "before": old_value,
+                    "after": new_value,
+                }
+            )
+
+    notes = clean_cell(row.get("proposed_enrichment_notes"))
+    metadata_updates = {
+        "metadata_enrichment_reviewed": True,
+        "metadata_enrichment_decision": "approve_metadata_update",
+        "metadata_enrichment_source": APPLY_METADATA_SOURCE,
+    }
+    if notes:
+        metadata_updates["metadata_enrichment_notes"] = notes
+    for key, new_value in metadata_updates.items():
+        old_value = metadata.get(key)
+        if old_value != new_value:
+            metadata[key] = new_value
+            changes.append(
+                {
+                    "field": f"snapshot_metadata.{key}",
+                    "before": old_value,
+                    "after": new_value,
+                }
+            )
+    return changes
+
+
+def coerce_matcher_input_value(field: str, value: str):
+    if field == "include_in_live_market_estimate":
+        return 1 if value.strip().lower() in {"1", "true", "yes"} else 0
+    return value
+
+
+def decision_fields(case: dict) -> dict:
+    return {
+        "expected_label": case.get("expected_label"),
+        "expected_section": case.get("expected_section"),
+        "human_notes": case.get("human_notes"),
+        "review_required": case.get("review_required"),
+        "label_source": case.get("label_source"),
+        "case_id": case.get("case_id"),
+    }
+
+
+def evaluate_human_reviewed_fixture(fixture: dict, profiles: dict) -> list[benchmark.EvaluatedCase]:
+    return [
+        benchmark.evaluate_case(case, profiles[case["profile_id"]], [], benchmark.matcher)
+        for case in fixture["cases"]
+        if case.get("label_source") == "human_reviewed"
+    ]
+
+
+def changed_prediction_signatures(
+    before_items: list[benchmark.EvaluatedCase],
+    after_items: list[benchmark.EvaluatedCase],
+) -> list[dict]:
+    after_by_case = {item.case["case_id"]: item for item in after_items}
+    changed = []
+    for before in before_items:
+        after = after_by_case[before.case["case_id"]]
+        before_signature = benchmark.prediction_signature(before)
+        after_signature = benchmark.prediction_signature(after)
+        if before_signature != after_signature:
+            changed.append(
+                {
+                    "case_id": before.case["case_id"],
+                    "before": before_signature,
+                    "after": after_signature,
+                    "score_delta": after.score - before.score,
+                    "reasons_after": after.reasons,
+                }
+            )
+    return changed
+
+
+def print_apply_plan(plan: dict, wrote: bool) -> None:
+    print("Matching Metadata Enrichment Apply")
+    print("==================================")
+    print(f"Fixture written: {'yes' if wrote else 'no'}")
+    print(f"Rows read: {plan['rows_read']}")
+    print(f"Approved rows: {len(plan['approved_rows'])}")
+    print(f"Non-apply rows: {len(plan['non_apply_rows'])}")
+    print(f"Fixture cases found: {plan['fixture_cases_found']}")
+    print(f"Fixture cases missing: {len(plan['fixture_cases_missing'])}")
+    print(f"Rows skipped by decision: {format_skipped_rows(plan['skipped_rows'])}")
+    print(f"Rows with proposed metadata fields: {len(plan['rows_with_proposed_metadata_fields'])}")
+    print(f"Stable ID proposals found: {len(plan['stable_id_proposals'])}")
+    print(f"Validation errors: {len(plan['validation_errors'])}")
+    for error in plan["validation_errors"]:
+        print(f"  ERROR: {error}")
+    print("")
+    print("Fields that would change")
+    if not plan["changes_by_case"]:
+        print("- none")
+    for case_id, changes in plan["changes_by_case"].items():
+        fields = ", ".join(change["field"] for change in changes)
+        print(f"- {case_id}: {fields}")
+    print("")
+    before = plan["before_metrics"]
+    after = plan["after_metrics"]
+    print(
+        "Before baseline: "
+        f"labels {before['label_agreement']}/{before['total']}, "
+        f"sections {before['section_agreement']}/{before['total']}, "
+        f"full {before['full_agreement']}/{before['total']}"
+    )
+    print(
+        "After simulated enrichment: "
+        f"labels {after['label_agreement']}/{after['total']}, "
+        f"sections {after['section_agreement']}/{after['total']}, "
+        f"full {after['full_agreement']}/{after['total']}"
+    )
+    print(f"Predictions that would change: {len(plan['changed_predictions'])}")
+    for item in plan["changed_predictions"]:
+        print(
+            "- "
+            f"{item['case_id']}: "
+            f"score {item['before']['score']} -> {item['after']['score']}, "
+            f"label {item['before']['evaluation_label']} -> {item['after']['evaluation_label']}, "
+            f"section {item['before']['evaluation_section']} -> {item['after']['evaluation_section']}"
+        )
+
+
+def format_skipped_rows(rows: list[dict]) -> str:
+    if not rows:
+        return "none"
+    counts = Counter(row["decision"] for row in rows)
+    return format_counter(counts)
+
+
+def clean_cell(value) -> str:
+    return "" if value is None else str(value).strip()
 
 
 def select_review_rows(evaluated: list[benchmark.EvaluatedCase], profiles: dict, db_rows: list[dict]) -> list[dict]:

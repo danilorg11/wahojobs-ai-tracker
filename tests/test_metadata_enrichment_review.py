@@ -2,9 +2,11 @@ import csv
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 import scripts.matching_metadata_enrichment_review as enrichment
+import matching_quality_report as benchmark
 
 
 class MetadataEnrichmentReviewTest(unittest.TestCase):
@@ -12,6 +14,10 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
     def setUpClass(cls):
         cls.rows, cls.summary = enrichment.build_review_batch()
         cls.by_case_id = {row["case_id"]: row for row in cls.rows}
+        cls.review_rows = enrichment.read_review_csv(enrichment.CSV_PATH)
+        cls.fixture = benchmark.load_fixture()
+        cls.profiles = benchmark.load_benchmark_profiles(cls.fixture)
+        cls.apply_plan = enrichment.build_apply_plan(cls.review_rows, cls.fixture, cls.profiles)
 
     def test_includes_sparse_human_reviewed_fixture_snapshots(self):
         focused = set(enrichment.FOCUSED_CASE_ORDER)
@@ -111,6 +117,101 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
             ),
             (9, 17, 8, 30),
         )
+
+    def test_apply_dry_run_reads_reviewed_csv_counts(self):
+        self.assertEqual(self.apply_plan["rows_read"], 22)
+        self.assertEqual(len(self.apply_plan["approved_rows"]), 20)
+        self.assertEqual(len(self.apply_plan["non_apply_rows"]), 2)
+        self.assertEqual(len(self.apply_plan["rows_with_proposed_metadata_fields"]), 20)
+        self.assertEqual(self.apply_plan["validation_errors"], [])
+        self.assertIn("phd_history_researcher_011", self.apply_plan["non_apply_rows"])
+        self.assertIn("generalist_no_degree_013", self.apply_plan["non_apply_rows"])
+
+    def test_non_approving_rows_do_not_mutate_snapshot_fields(self):
+        original = {case["case_id"]: case for case in self.fixture["cases"]}
+        updated = {case["case_id"]: case for case in self.apply_plan["updated_fixture"]["cases"]}
+        for case_id in {"phd_history_researcher_011", "generalist_no_degree_013"}:
+            self.assertEqual(
+                updated[case_id]["matcher_input_snapshot"]["matcher_input"],
+                original[case_id]["matcher_input_snapshot"]["matcher_input"],
+            )
+            self.assertEqual(
+                updated[case_id]["matcher_input_snapshot"].get("snapshot_metadata"),
+                original[case_id]["matcher_input_snapshot"].get("snapshot_metadata"),
+            )
+
+    def test_approved_proposed_metadata_maps_to_matcher_input(self):
+        updated = {case["case_id"]: case for case in self.apply_plan["updated_fixture"]["cases"]}
+        lawyer = updated["lawyer_002"]["matcher_input_snapshot"]["matcher_input"]
+        self.assertEqual(lawyer["source_category"], "Law")
+        self.assertEqual(lawyer["expertise"], "Intellectual Property")
+        self.assertEqual(lawyer["department"], "Law")
+
+        bilingual = updated["portuguese_english_reviewer_010"]["matcher_input_snapshot"]["matcher_input"]
+        self.assertEqual(bilingual["opportunity_kind"], "evergreen_application")
+        self.assertEqual(bilingual["market_count_policy"], "report_separately")
+        self.assertEqual(bilingual["availability_basis"], "evergreen_application")
+        self.assertIsNone(bilingual["required_languages"])
+
+    def test_stable_id_fields_are_not_applied_from_approve_metadata_update(self):
+        rows = deepcopy(self.review_rows)
+        rows[0]["proposed_url"] = "https://example.test/not-safe"
+        plan = enrichment.build_apply_plan(rows, self.fixture, self.profiles)
+
+        self.assertTrue(
+            any("proposes stable IDs under approve_metadata_update" in error for error in plan["validation_errors"])
+        )
+        updated = {case["case_id"]: case for case in plan["updated_fixture"]["cases"]}
+        self.assertEqual(
+            updated[rows[0]["case_id"]]["matcher_input_snapshot"]["matcher_input"]["url"],
+            "",
+        )
+
+    def test_apply_plan_preserves_human_decision_fields(self):
+        original = {case["case_id"]: case for case in self.fixture["cases"]}
+        updated = {case["case_id"]: case for case in self.apply_plan["updated_fixture"]["cases"]}
+        for case_id in self.apply_plan["approved_rows"]:
+            self.assertEqual(
+                enrichment.decision_fields(updated[case_id]),
+                enrichment.decision_fields(original[case_id]),
+            )
+
+    def test_missing_case_id_fails_conservatively(self):
+        rows = deepcopy(self.review_rows)
+        rows[0]["case_id"] = "missing_case_id"
+        plan = enrichment.build_apply_plan(rows, self.fixture, self.profiles)
+
+        self.assertIn("missing_case_id", plan["fixture_cases_missing"])
+        self.assertTrue(any("missing_case_id is not present" in error for error in plan["validation_errors"]))
+
+    def test_invalid_review_decision_fails_validation(self):
+        rows = deepcopy(self.review_rows)
+        rows[0]["review_decision"] = "please_apply"
+        plan = enrichment.build_apply_plan(rows, self.fixture, self.profiles)
+
+        self.assertTrue(any("invalid review_decision" in error for error in plan["validation_errors"]))
+
+    def test_non_apply_decision_with_metadata_field_is_rejected(self):
+        rows = deepcopy(self.review_rows)
+        row = next(item for item in rows if item["case_id"] == "phd_history_researcher_011")
+        row["proposed_source_category"] = "Healthcare & Medical"
+        plan = enrichment.build_apply_plan(rows, self.fixture, self.profiles)
+
+        self.assertTrue(
+            any(
+                "phd_history_researcher_011 has proposed metadata fields under non-apply decision"
+                in error
+                for error in plan["validation_errors"]
+            )
+        )
+
+    def test_apply_dry_run_leaves_fixture_file_unchanged(self):
+        fixture_path = Path("tests/fixtures/matching_golden_set.json")
+        before = fixture_path.read_text(encoding="utf-8")
+        enrichment.build_apply_plan(self.review_rows, self.fixture, self.profiles)
+        after = fixture_path.read_text(encoding="utf-8")
+
+        self.assertEqual(before, after)
 
 
 if __name__ == "__main__":
