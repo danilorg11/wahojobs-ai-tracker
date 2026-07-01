@@ -273,7 +273,7 @@ class GoldenSetSnapshotTests(unittest.TestCase):
             and benchmark.expected_section(item.case) == item.evaluation_section
         )
 
-        self.assertEqual((label_agreement, section_agreement, full_agreement), (13, 28, 13))
+        self.assertEqual((label_agreement, section_agreement, full_agreement), (19, 28, 19))
 
     def test_migration_applies_snapshots_to_human_reviewed_cases_only(self):
         human = human_case(case_id="human_001", url="https://example.test/jobs/1")

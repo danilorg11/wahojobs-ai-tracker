@@ -120,7 +120,7 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
                 baseline["full_agreement"],
                 baseline["total"],
             ),
-            (13, 28, 13, 30),
+            (19, 28, 19, 30),
         )
 
     def test_apply_dry_run_reads_reviewed_csv_counts(self):

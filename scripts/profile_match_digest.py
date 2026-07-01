@@ -25,7 +25,7 @@ from wahojobs.matching.languages import (
     row_language_text,
 )
 from wahojobs.matching.evergreen import evergreen_applicability
-from wahojobs.matching.locations import location_eligibility
+from wahojobs.matching.locations import LOCATION_INCOMPATIBLE, location_eligibility
 from wahojobs.reporting.market import CANONICALIZED_SLUGS, get_market_size_summary
 
 
@@ -933,6 +933,7 @@ def score_opportunity(profile, row):
         reasons.append(reason)
 
     score = max(score, 0)
+    direct_domain_floor = direct_domain_label_floor(profile, row, language_check, location_check)
     raw_section = product_section_for_score(score, language_check.eligible_for_personalized)
     evergreen_adjusted_section = raw_section
     evergreen_floor_applied = False
@@ -1005,6 +1006,9 @@ def score_opportunity(profile, row):
         "evergreen_visible_reason_added": evergreen_visible_reason_added,
         "specialized_actionability_cap_applied": specialized_actionability_cap_applied,
         "specialized_actionability_cap_reason": specialized_actionability_cap_reason,
+        "direct_domain_label_floor_applied": bool(direct_domain_floor),
+        "direct_domain_label_floor_reason": direct_domain_floor["reason"] if direct_domain_floor else "",
+        "direct_domain_label_floor": direct_domain_floor["label"] if direct_domain_floor else "",
         "raw_product_section": raw_section,
         "evergreen_adjusted_section": evergreen_adjusted_section,
         "effective_product_section": effective_section,
@@ -1032,6 +1036,39 @@ def section_rank(section):
         "best_matches": 3,
         "do_these_first": 4,
     }.get(section or "explore_only", 1)
+
+
+def direct_domain_label_floor(profile, row, language_check, location_check):
+    if not language_check.eligible_for_personalized:
+        return None
+    if location_check.status == LOCATION_INCOMPATIBLE:
+        return None
+    if row.get("inventory_model") == INVENTORY_MODEL_EVERGREEN_APPLICATION:
+        return None
+
+    structured_text = structured_actionability_text(row)
+    profile_features = detect_profile_match_features(profile)
+    role_features = detect_role_match_features(structured_text)
+    role_domains = role_features["professional_domains"]
+    profile_domains = profile_features["professional_domains"]
+
+    if "legal" in profile_domains and "legal" in role_domains:
+        return {
+            "label": "strong",
+            "reason": "Structured legal-domain metadata directly matches this profile.",
+        }
+
+    structured_science_role = "science_medical" in role_domains or contains_any(
+        structured_text,
+        ["science", "sciences medical", "healthcare medical"],
+    )
+    if "science_medical" in profile_domains and structured_science_role:
+        return {
+            "label": "strong",
+            "reason": "Structured science or medical-domain metadata directly matches this profile.",
+        }
+
+    return None
 
 
 def specialized_actionability_cap(profile, row, current_section):

@@ -101,7 +101,7 @@ class LocationActionabilityTests(unittest.TestCase):
         by_case = {case["case_id"]: case for case in fixture["cases"]}
         expected = {
             "lawyer_002": {
-                "label": "plausible",
+                "label": "strong",
                 "section": "best_matches",
                 "raw_match_label": "Medium",
                 "raw_section": "do_these_first",
