@@ -936,12 +936,12 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Bilingual",
+          "expertise": "Bilingual",
+          "source_category": "Bilingual",
           "commitment": "",
-          "opportunity_kind": "live_posting",
-          "availability_basis": "api_feed",
+          "opportunity_kind": "evergreen_application",
+          "availability_basis": "evergreen_application",
           "inventory_model": "evergreen_application",
           "market_count_policy": "report_separately",
           "include_in_live_market_estimate": 1,
@@ -987,7 +987,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat DataAnnotation Bilingual AI Trainer as a broad evergreen bilingual application pool, not as a live API posting. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. Leave required_languages blank unless a specific language pair is later confirmed; the intended benchmark signal is that this is a bilingual evergreen opportunity relevant to a Portuguese-English reviewer."
         }
       }
     },
@@ -1700,8 +1704,8 @@
           "location": "Remote",
           "url": "",
           "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "expertise": "Real Estate / Energy Law",
+          "source_category": "Law",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -1750,7 +1754,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Attorney / Legal Expert opportunity as legal-domain work with Real Estate / Energy Law specialization for benchmark purposes. The current snapshot lacks structured legal metadata, even though the human decision is that it is a strong match for a lawyer/legal expert profile. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches rather than do_these_first because the role is a specialized legal subtype and should not automatically be treated as the top immediate action."
         }
       }
     },
@@ -1794,9 +1802,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Law",
+          "expertise": "Intellectual Property",
+          "source_category": "Law",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -1845,7 +1853,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed IP Expert opportunity as legal/intellectual-property work for benchmark purposes. The current snapshot lacks structured legal metadata, which causes the matcher to under-rank it for a lawyer profile. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule."
         }
       }
     },
@@ -1917,8 +1929,8 @@
           "location": "Remote",
           "url": "",
           "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "expertise": "Employment / Labor Law",
+          "source_category": "Law",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -1967,7 +1979,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Legal Expert - Employment/Labor Law opportunity as legal-domain work with Employment / Labor Law specialization for benchmark purposes. The current snapshot lacks structured legal metadata, even though the human decision is that it is a strong match for a lawyer/legal expert profile. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches rather than do_these_first because the role is a specialized legal subtype and should not automatically be treated as the top immediate action."
         }
       }
     },
@@ -2821,9 +2837,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Sciences/Medical",
+          "expertise": "Microbiology",
+          "source_category": "Sciences/Medical",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -2872,7 +2888,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Microbiology Specialist opportunity as science/medical domain work for benchmark purposes. The current snapshot lacks structured science/medical metadata, which causes the matcher to under-rank it for a biology/medicine academic profile. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches rather than do_these_first because specific microbiology credentials are not explicit in the benchmark profile."
         }
       }
     },
@@ -2970,9 +2990,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Sciences/Medical",
+          "expertise": "Biology Research",
+          "source_category": "Sciences/Medical",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -3021,7 +3041,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Biology Research Scientist opportunity as biology/life-sciences domain work for benchmark purposes. The current snapshot lacks structured science/medical metadata, even though the human decision is that this is a strong direct match for a biology/medicine academic profile. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches rather than do_these_first because job context and eligibility are only partially resolved."
         }
       }
     },
@@ -3065,9 +3089,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Healthcare & Medical",
+          "expertise": "Dermatology",
+          "source_category": "Healthcare & Medical",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -3116,7 +3140,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Academic Dermatologist opportunity as healthcare/medical domain work with dermatology expertise for benchmark purposes. The current snapshot lacks structured medical metadata, which causes the matcher to under-rank it for a biology/medicine academic profile. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches rather than do_these_first because explicit dermatologist/physician credentials are not confirmed for the benchmark profile."
         }
       }
     },
@@ -3160,9 +3188,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Healthcare & Medical",
+          "expertise": "Medicine / Physician",
+          "source_category": "Healthcare & Medical",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -3211,7 +3239,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Medicine Physician opportunity as healthcare/medical domain work for benchmark purposes. The current snapshot lacks structured medical metadata, which causes the matcher to under-label it even though the human decision is that it is a strong medical-domain match for a biology/medicine academic profile. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches rather than do_these_first because physician/licensure requirements and exact eligibility are not fully resolved."
         }
       }
     },
@@ -3579,9 +3611,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Audio",
+          "expertise": "French Voice/Audio AI Data",
+          "source_category": "Language Data",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -3589,9 +3621,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "French",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "French"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -3630,7 +3662,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed French Voice/Audio AI Data Roles opportunity as language/audio AI data work requiring French for benchmark purposes. The current snapshot lacks structured language and audio-data metadata, which causes the matcher to under-label it even though the human decision is that it is a strong match for a multilingual translator/linguist profile with French. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches because location eligibility and exact role requirements are not fully known from the stored data."
         }
       }
     },
@@ -3674,9 +3710,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Audio",
+          "expertise": "Spanish Voice/Audio AI Data",
+          "source_category": "Language Data",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -3684,9 +3720,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "Spanish",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "Spanish"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -3725,7 +3761,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Spanish Voice/Audio AI Data Roles opportunity as language/audio AI data work requiring Spanish for benchmark purposes. The current snapshot lacks structured language and audio-data metadata, which causes the matcher to under-label it even though the human decision is that it is a strong match for a multilingual translator/linguist profile with Spanish. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction, not an automatic title-derived taxonomy rule. Keep the human section as best_matches because location eligibility and exact role requirements are not fully known from the stored data."
         }
       }
     },
@@ -3850,12 +3890,12 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Bilingual",
+          "expertise": "Bilingual",
+          "source_category": "Bilingual",
           "commitment": "",
-          "opportunity_kind": "live_posting",
-          "availability_basis": "api_feed",
+          "opportunity_kind": "evergreen_application",
+          "availability_basis": "evergreen_application",
           "inventory_model": "evergreen_application",
           "market_count_policy": "report_separately",
           "include_in_live_market_estimate": 1,
@@ -3901,7 +3941,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat DataAnnotation Bilingual AI Trainer as a broad evergreen bilingual application pool, not as a live API posting. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. Leave required_languages blank unless specific language requirements are later confirmed; the intended benchmark signal is that this is a broad bilingual/multilingual evergreen opportunity relevant to a multilingual translator profile."
         }
       }
     },
@@ -4505,9 +4549,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "STEM/Writing",
+          "expertise": "Polish STEM Writing",
+          "source_category": "Writing",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -4515,9 +4559,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "Polish",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "Polish"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -4556,7 +4600,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Polish STEM Writing opportunity as writing/STEM-domain work requiring Polish for benchmark purposes. The human decision is false_positive/exclude because the English Teacher profile has English teaching, writing feedback, grammar, and content review skills, but does not list Polish language eligibility or STEM-domain expertise. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction to make the unsupported required language and STEM-writing requirement explicit, not an automatic title-derived taxonomy rule."
         }
       }
     },
@@ -5219,7 +5267,7 @@
           "source": "Welocalize",
           "source_slug": "welocalize",
           "source_tier": "core",
-          "location": "Remote",
+          "location": "Remote - Morocco",
           "url": "",
           "department": "Unknown",
           "expertise": "Unknown",
@@ -5272,7 +5320,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. The title “French Search & Data Labelling Rater - Morocco” is strong human-reviewed evidence that the opportunity is likely geographically tied to Morocco, even though the current snapshot only says Remote. Set location to Remote - Morocco for benchmark purposes so location actionability can treat this as a geographically restricted remote role. Do not infer this automatically in general from titles, and do not tie this case to a live row without a stable identifier."
         }
       }
     },
@@ -5498,9 +5550,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Translation",
+          "expertise": "Spanish Translation Quality Review",
+          "source_category": "Translation",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -5508,9 +5560,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
-          "language_locale": null,
-          "required_languages": null
+          "language": "Spanish",
+          "language_locale": "Spanish (US)",
+          "required_languages": "Spanish"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -5549,7 +5601,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Spanish (US) Translation Quality Reviewer opportunity as language/translation quality-review work requiring Spanish/Spanish (US) language relevance for benchmark purposes. The current snapshot lacks structured language and taxonomy metadata, even though the human decision is that this is a strong match for a beginner English-Spanish bilingual profile. Do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id because no exact stable live row is available. Keep the human section as best_matches rather than do_these_first because detailed requirements and location/actionability are not fully resolved."
         }
       }
     },
@@ -5647,12 +5703,12 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Bilingual",
+          "expertise": "Bilingual",
+          "source_category": "Bilingual",
           "commitment": "",
-          "opportunity_kind": "live_posting",
-          "availability_basis": "api_feed",
+          "opportunity_kind": "evergreen_application",
+          "availability_basis": "evergreen_application",
           "inventory_model": "evergreen_application",
           "market_count_policy": "report_separately",
           "include_in_live_market_estimate": 1,
@@ -5698,7 +5754,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat DataAnnotation Bilingual AI Trainer as a broad evergreen bilingual application pool, not as a live API posting or a specific English-Spanish role. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. Leave required_languages blank unless specific language requirements are later confirmed; the intended benchmark signal is that this broad bilingual evergreen opportunity is plausible for a beginner bilingual profile and belongs in also_worth_reviewing rather than explore_only."
         }
       }
     },
@@ -5924,9 +5984,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Translation",
+          "expertise": "Catalan Translation Quality Review",
+          "source_category": "Translation",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -5934,9 +5994,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "Catalan",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "Catalan"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -5975,7 +6035,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Catalan Translation Quality Rater opportunity as language/translation quality-review work requiring Catalan for benchmark purposes. The human decision is false_positive/exclude because the beginner bilingual profile lists English and Spanish, and Spanish should not be treated as Catalan eligibility. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction to make the unsupported required language explicit, not an automatic title-derived taxonomy rule."
         }
       }
     },
@@ -6019,9 +6083,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Translation",
+          "expertise": "Czech Translation Quality Review",
+          "source_category": "Translation",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -6029,9 +6093,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "Czech",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "Czech"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -6070,7 +6134,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Czech Translation Quality Rater opportunity as language/translation quality-review work requiring Czech for benchmark purposes. The human decision is false_positive/exclude because the beginner bilingual profile lists English and Spanish, and neither should be treated as Czech eligibility. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction to make the unsupported required language explicit, not an automatic title-derived taxonomy rule."
         }
       }
     },
@@ -6114,9 +6182,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Translation",
+          "expertise": "Danish Translation Quality Review",
+          "source_category": "Translation",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -6124,9 +6192,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "Danish",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "Danish"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -6165,7 +6233,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Danish Translation Quality Rater opportunity as language/translation quality-review work requiring Danish for benchmark purposes. The human decision is false_positive/exclude because the beginner bilingual profile lists English and Spanish, and neither should be treated as Danish eligibility. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction to make the unsupported required language explicit, not an automatic title-derived taxonomy rule."
         }
       }
     },
@@ -6209,9 +6281,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Translation",
+          "expertise": "Dutch Translation Quality Review",
+          "source_category": "Translation",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -6219,9 +6291,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "Dutch",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "Dutch"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -6260,7 +6332,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Dutch Translation Quality Rater opportunity as language/translation quality-review work requiring Dutch for benchmark purposes. The human decision is false_positive/exclude because the beginner bilingual profile lists English and Spanish, and neither should be treated as Dutch eligibility. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction to make the unsupported required language explicit, not an automatic title-derived taxonomy rule."
         }
       }
     },
@@ -6304,9 +6380,9 @@
           "source_tier": "core",
           "location": "Remote",
           "url": "",
-          "department": "Unknown",
-          "expertise": "Unknown",
-          "source_category": "Unknown",
+          "department": "Language/Translation",
+          "expertise": "Korean Translation Quality Review",
+          "source_category": "Translation",
           "commitment": "",
           "opportunity_kind": "live_posting",
           "availability_basis": "api_feed",
@@ -6314,9 +6390,9 @@
           "market_count_policy": "count_live",
           "include_in_live_market_estimate": 1,
           "canonical_opportunity_id": null,
-          "language": null,
+          "language": "Korean",
           "language_locale": null,
-          "required_languages": null
+          "required_languages": "Korean"
         },
         "snapshot_metadata": {
           "snapshot_schema_version": 1,
@@ -6355,7 +6431,11 @@
             "language": "fixture_snapshot_fields",
             "language_locale": "fixture_snapshot_fields",
             "required_languages": "fixture_snapshot_fields"
-          }
+          },
+          "metadata_enrichment_reviewed": true,
+          "metadata_enrichment_decision": "approve_metadata_update",
+          "metadata_enrichment_source": "exports/matching_metadata_enrichment_review.csv",
+          "metadata_enrichment_notes": "Approve fixture-only metadata update. Treat this reviewed Korean Translation Quality Rater opportunity as language/translation quality-review work requiring Korean for benchmark purposes. The human decision is false_positive/exclude because the beginner bilingual profile lists English and Spanish, and neither should be treated as Korean eligibility. No exact stable live row is available, so do not tie this case to a URL, external_id, source_hash, or canonical_opportunity_id. This is a human-approved fixture metadata correction to make the unsupported required language explicit, not an automatic title-derived taxonomy rule."
         }
       }
     },

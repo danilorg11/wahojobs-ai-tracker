@@ -252,7 +252,7 @@ class GoldenSetSnapshotTests(unittest.TestCase):
         self.assertEqual(item.evaluation_label, "false_positive")
         self.assertEqual(item.evaluation_section, "exclude")
 
-    def test_current_human_reviewed_baseline_is_unchanged_without_real_snapshots(self):
+    def test_current_human_reviewed_baseline_reflects_enriched_snapshots(self):
         fixture = benchmark.load_fixture()
         profiles = benchmark.load_benchmark_profiles(fixture)
         rows = benchmark.load_benchmark_db_rows()
@@ -273,7 +273,7 @@ class GoldenSetSnapshotTests(unittest.TestCase):
             and benchmark.expected_section(item.case) == item.evaluation_section
         )
 
-        self.assertEqual((label_agreement, section_agreement, full_agreement), (9, 17, 8))
+        self.assertEqual((label_agreement, section_agreement, full_agreement), (13, 19, 8))
 
     def test_migration_applies_snapshots_to_human_reviewed_cases_only(self):
         human = human_case(case_id="human_001", url="https://example.test/jobs/1")

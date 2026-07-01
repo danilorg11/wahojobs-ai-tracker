@@ -26,7 +26,7 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
         self.assertGreaterEqual(len(self.rows), len(focused))
         self.assertTrue(all(row["case_id"] for row in self.rows))
 
-    def test_dataannotation_bilingual_cases_flag_evergreen_metadata_inconsistency(self):
+    def test_dataannotation_bilingual_cases_keep_only_unresolved_language_gap(self):
         for case_id in {
             "portuguese_english_reviewer_010",
             "multilingual_translator_010",
@@ -35,10 +35,15 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
             row = self.by_case_id[case_id]
             self.assertEqual(row["fidelity_classification"], "fixture_missing_structured_metadata")
             self.assertEqual(row["primary_issue"], "dataannotation_bilingual_evergreen_archetype_gap")
-            self.assertIn("opportunity_kind", row["suspicious_fields"])
-            self.assertIn("availability_basis", row["suspicious_fields"])
+            self.assertEqual(row["source_category"], "Bilingual")
+            self.assertEqual(row["expertise"], "Bilingual")
+            self.assertEqual(row["department"], "Bilingual")
+            self.assertEqual(row["opportunity_kind"], "evergreen_application")
+            self.assertEqual(row["availability_basis"], "evergreen_application")
             self.assertIn("language", row["suspicious_fields"])
-            self.assertIn("evergreen_application", row["internal_inconsistencies"])
+            self.assertNotIn("opportunity_kind", row["suspicious_fields"])
+            self.assertNotIn("availability_basis", row["suspicious_fields"])
+            self.assertEqual(row["proposed_source_category"], "")
 
     def test_unsafe_title_only_candidates_are_diagnostic_only(self):
         row = self.by_case_id["generalist_no_degree_013"]
@@ -63,16 +68,16 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
         row = self.by_case_id["lawyer_002"]
 
         self.assertEqual(row["primary_issue"], "legal_ip_metadata_gap")
-        self.assertEqual(row["source_category"], "Unknown")
-        self.assertEqual(row["expertise"], "Unknown")
-        self.assertEqual(row["department"], "Unknown")
+        self.assertEqual(row["source_category"], "Law")
+        self.assertEqual(row["expertise"], "Intellectual Property")
+        self.assertEqual(row["department"], "Law")
         self.assertEqual(row["proposed_source_category"], "")
 
     def test_location_case_does_not_parse_title_location_into_structured_location(self):
         row = self.by_case_id["phd_history_researcher_013"]
 
         self.assertEqual(row["primary_issue"], "location_actionability_metadata_gap")
-        self.assertEqual(row["location"], "Remote")
+        self.assertEqual(row["location"], "Remote - Morocco")
         self.assertEqual(row["proposed_location"], "")
         self.assertIn("Morocco", row["internal_inconsistencies"])
 
@@ -106,7 +111,7 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
         after = fixture_path.read_text(encoding="utf-8")
         self.assertEqual(json.loads(before), json.loads(after))
 
-    def test_baseline_metrics_remain_unchanged(self):
+    def test_baseline_metrics_reflect_applied_metadata_enrichment(self):
         baseline = self.summary["baseline"]
         self.assertEqual(
             (
@@ -115,7 +120,7 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
                 baseline["full_agreement"],
                 baseline["total"],
             ),
-            (9, 17, 8, 30),
+            (13, 19, 8, 30),
         )
 
     def test_apply_dry_run_reads_reviewed_csv_counts(self):
@@ -123,6 +128,9 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
         self.assertEqual(len(self.apply_plan["approved_rows"]), 20)
         self.assertEqual(len(self.apply_plan["non_apply_rows"]), 2)
         self.assertEqual(len(self.apply_plan["rows_with_proposed_metadata_fields"]), 20)
+        self.assertEqual(self.apply_plan["changes_by_case"], {})
+        self.assertEqual(self.apply_plan["changed_predictions"], [])
+        self.assertEqual(self.apply_plan["before_metrics"], self.apply_plan["after_metrics"])
         self.assertEqual(self.apply_plan["validation_errors"], [])
         self.assertIn("phd_history_researcher_011", self.apply_plan["non_apply_rows"])
         self.assertIn("generalist_no_degree_013", self.apply_plan["non_apply_rows"])
@@ -152,6 +160,11 @@ class MetadataEnrichmentReviewTest(unittest.TestCase):
         self.assertEqual(bilingual["market_count_policy"], "report_separately")
         self.assertEqual(bilingual["availability_basis"], "evergreen_application")
         self.assertIsNone(bilingual["required_languages"])
+
+        metadata = updated["lawyer_002"]["matcher_input_snapshot"]["snapshot_metadata"]
+        self.assertIs(metadata["metadata_enrichment_reviewed"], True)
+        self.assertEqual(metadata["metadata_enrichment_decision"], "approve_metadata_update")
+        self.assertEqual(metadata["metadata_enrichment_source"], "exports/matching_metadata_enrichment_review.csv")
 
     def test_stable_id_fields_are_not_applied_from_approve_metadata_update(self):
         rows = deepcopy(self.review_rows)
