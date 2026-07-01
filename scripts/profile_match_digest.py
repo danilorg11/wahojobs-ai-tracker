@@ -934,6 +934,7 @@ def score_opportunity(profile, row):
 
     score = max(score, 0)
     direct_domain_floor = direct_domain_label_floor(profile, row, language_check, location_check)
+    evergreen_label_floor = evergreen_label_floor_for_applicability(evergreen_check, location_check)
     raw_section = product_section_for_score(score, language_check.eligible_for_personalized)
     evergreen_adjusted_section = raw_section
     evergreen_floor_applied = False
@@ -1009,6 +1010,9 @@ def score_opportunity(profile, row):
         "direct_domain_label_floor_applied": bool(direct_domain_floor),
         "direct_domain_label_floor_reason": direct_domain_floor["reason"] if direct_domain_floor else "",
         "direct_domain_label_floor": direct_domain_floor["label"] if direct_domain_floor else "",
+        "evergreen_label_floor_applied": bool(evergreen_label_floor),
+        "evergreen_label_floor_reason": evergreen_label_floor["reason"] if evergreen_label_floor else "",
+        "evergreen_label_floor": evergreen_label_floor["label"] if evergreen_label_floor else "",
         "raw_product_section": raw_section,
         "evergreen_adjusted_section": evergreen_adjusted_section,
         "effective_product_section": effective_section,
@@ -1069,6 +1073,19 @@ def direct_domain_label_floor(profile, row, language_check, location_check):
         }
 
     return None
+
+
+def evergreen_label_floor_for_applicability(evergreen_check, location_check):
+    if not evergreen_check.qualifies:
+        return None
+    if location_check.status == LOCATION_INCOMPATIBLE:
+        return None
+    if location_check.actionability_cap_required:
+        return None
+    return {
+        "label": "plausible",
+        "reason": "Broad evergreen application is relevant enough to keep in the application pipeline.",
+    }
 
 
 def specialized_actionability_cap(profile, row, current_section):

@@ -310,6 +310,8 @@ class EvaluatedCase:
     specialized_actionability_cap_reason: str
     direct_domain_label_floor_applied: bool
     direct_domain_label_floor_reason: str
+    evergreen_label_floor_applied: bool
+    evergreen_label_floor_reason: str
     eligible_for_personalized: bool
     language_eligibility_reason: str
     reasons: list[str]
@@ -666,6 +668,8 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
         specialized_actionability_cap_reason=scored.get("specialized_actionability_cap_reason", ""),
         direct_domain_label_floor_applied=bool(scored.get("direct_domain_label_floor_applied")),
         direct_domain_label_floor_reason=scored.get("direct_domain_label_floor_reason", ""),
+        evergreen_label_floor_applied=bool(scored.get("evergreen_label_floor_applied")),
+        evergreen_label_floor_reason=scored.get("evergreen_label_floor_reason", ""),
         eligible_for_personalized=eligible_for_personalized,
         language_eligibility_reason=scored.get("language_eligibility_reason", "-"),
         reasons=scored["reasons"],
@@ -706,6 +710,8 @@ def project_benchmark_prediction(
     evaluation_label = label_from_raw_match_label(raw_match_label)
     if scored.get("direct_domain_label_floor") == "strong":
         evaluation_label = "strong"
+    elif scored.get("evergreen_label_floor") == "plausible" and evaluation_label == "weak":
+        evaluation_label = "plausible"
     return BenchmarkPrediction(
         evaluation_label=evaluation_label,
         evaluation_section=effective_section or raw_section,
