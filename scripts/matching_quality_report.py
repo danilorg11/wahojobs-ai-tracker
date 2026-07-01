@@ -312,6 +312,8 @@ class EvaluatedCase:
     direct_domain_label_floor_reason: str
     evergreen_label_floor_applied: bool
     evergreen_label_floor_reason: str
+    professional_domain_hard_gate_applied: bool
+    professional_domain_hard_gate_reason: str
     eligible_for_personalized: bool
     language_eligibility_reason: str
     reasons: list[str]
@@ -670,6 +672,8 @@ def evaluate_case(case: dict, profile: dict, db_rows: list[dict], matcher_module
         direct_domain_label_floor_reason=scored.get("direct_domain_label_floor_reason", ""),
         evergreen_label_floor_applied=bool(scored.get("evergreen_label_floor_applied")),
         evergreen_label_floor_reason=scored.get("evergreen_label_floor_reason", ""),
+        professional_domain_hard_gate_applied=bool(scored.get("professional_domain_hard_gate_applied")),
+        professional_domain_hard_gate_reason=scored.get("professional_domain_hard_gate_reason", ""),
         eligible_for_personalized=eligible_for_personalized,
         language_eligibility_reason=scored.get("language_eligibility_reason", "-"),
         reasons=scored["reasons"],
@@ -739,6 +743,13 @@ def decisive_hard_gate_failure(scored: dict) -> dict | None:
                 "reason": scored.get("language_eligibility_reason")
                 or "Explicit language eligibility gate failed.",
             }
+    if scored.get("professional_domain_hard_gate_applied"):
+        return {
+            "type": "professional_domain",
+            "status": "failed",
+            "reason": scored.get("professional_domain_hard_gate_reason")
+            or "Professional-domain mismatch hard gate failed.",
+        }
     return None
 
 

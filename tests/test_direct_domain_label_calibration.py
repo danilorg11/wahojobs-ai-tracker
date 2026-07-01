@@ -190,9 +190,10 @@ class DirectDomainLabelCalibrationTests(unittest.TestCase):
         projection = project(scored)
 
         self.assertEqual(scored["score"], 0)
-        self.assertEqual(projection.evaluation_label, "weak")
-        self.assertEqual(projection.evaluation_section, "explore_only")
+        self.assertEqual(projection.evaluation_label, "false_positive")
+        self.assertEqual(projection.evaluation_section, "exclude")
         self.assertFalse(scored["direct_domain_label_floor_applied"])
+        self.assertTrue(scored["professional_domain_hard_gate_applied"])
 
     def test_broad_evergreen_application_does_not_get_domain_floor(self):
         scored = score_opportunity(

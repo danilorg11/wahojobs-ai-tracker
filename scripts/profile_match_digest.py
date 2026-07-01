@@ -164,6 +164,10 @@ LANGUAGE_SPECIALIZED_SUBTYPE_TERMS = [
     "translation quality",
 ]
 
+PROFESSIONAL_DOMAIN_HARD_GATE_REASONS = {
+    "Specialized science or medical role does not match this profile",
+}
+
 GENERALIST_TASK_TERMS = [
     "ai trainer",
     "ai training",
@@ -924,15 +928,17 @@ def score_opportunity(profile, row):
             score -= 12
             reasons.append("Possible requirement mismatch; review carefully")
 
-    for reason, penalty in match_quality_gate_penalties(
+    quality_penalties = match_quality_gate_penalties(
         profile,
         row,
         quality_gate_text(row, title, expertise),
-    ):
+    )
+    for reason, penalty in quality_penalties:
         score -= penalty
         reasons.append(reason)
 
     score = max(score, 0)
+    professional_domain_hard_gate = professional_domain_hard_gate_for_penalties(score, quality_penalties, row)
     direct_domain_floor = direct_domain_label_floor(profile, row, language_check, location_check)
     evergreen_label_floor = evergreen_label_floor_for_applicability(evergreen_check, location_check)
     raw_section = product_section_for_score(score, language_check.eligible_for_personalized)
@@ -1013,6 +1019,10 @@ def score_opportunity(profile, row):
         "evergreen_label_floor_applied": bool(evergreen_label_floor),
         "evergreen_label_floor_reason": evergreen_label_floor["reason"] if evergreen_label_floor else "",
         "evergreen_label_floor": evergreen_label_floor["label"] if evergreen_label_floor else "",
+        "professional_domain_hard_gate_applied": bool(professional_domain_hard_gate),
+        "professional_domain_hard_gate_reason": (
+            professional_domain_hard_gate["reason"] if professional_domain_hard_gate else ""
+        ),
         "raw_product_section": raw_section,
         "evergreen_adjusted_section": evergreen_adjusted_section,
         "effective_product_section": effective_section,
@@ -1086,6 +1096,20 @@ def evergreen_label_floor_for_applicability(evergreen_check, location_check):
         "label": "plausible",
         "reason": "Broad evergreen application is relevant enough to keep in the application pipeline.",
     }
+
+
+def professional_domain_hard_gate_for_penalties(score, quality_penalties, row):
+    if score != 0:
+        return None
+    if row.get("inventory_model") == INVENTORY_MODEL_EVERGREEN_APPLICATION:
+        return None
+    for reason, _penalty in quality_penalties:
+        if reason in PROFESSIONAL_DOMAIN_HARD_GATE_REASONS:
+            return {
+                "type": "professional_domain",
+                "reason": reason,
+            }
+    return None
 
 
 def specialized_actionability_cap(profile, row, current_section):
