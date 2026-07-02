@@ -113,6 +113,66 @@ class ProfileNormalizerInterfaceTests(unittest.TestCase):
         self.assertIn("no phone calls preferred", canonical["constraints"]["soft_preferences"])
         self.assertIn("coding", canonical["constraints"]["avoid_keywords"])
 
+    def test_remote_preference_does_not_become_explicit_location(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        result = normalizer.normalize(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "short_paragraph",
+            {"profile_id": "remote_case"},
+        )
+        canonical = result.canonical_profile
+
+        self.assertEqual(canonical["location"]["country"], "")
+        self.assertEqual(canonical["location"]["remote_eligibility"], "unknown")
+        self.assertTrue(canonical["preferences"]["remote"])
+        self.assertIn("location", canonical["provenance"]["missing_fields"])
+
+    def test_negative_biology_medical_credentials_do_not_become_positive_domains(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        result = normalizer.normalize(
+            "Python backend engineer. I don't have biology or medical credentials, but I can evaluate coding tasks.",
+            "long_paragraph",
+            {"profile_id": "software_negative_credentials"},
+        )
+        canonical = result.canonical_profile
+
+        self.assertIn("software engineering", canonical["education"]["fields_or_domains"])
+        self.assertNotIn("biology", canonical["education"]["fields_or_domains"])
+        self.assertNotIn("medicine", canonical["education"]["fields_or_domains"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+        self.assertIn("no biology or medical credentials", canonical["constraints"]["hard_constraints"])
+
+    def test_not_licensed_physician_records_license_absence(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        result = normalizer.normalize(
+            "Biology researcher interested in medicine AI review, but I am not a licensed physician.",
+            "long_paragraph",
+            {"profile_id": "biology_no_physician_license"},
+        )
+        canonical = result.canonical_profile
+
+        self.assertIn("biology", canonical["education"]["fields_or_domains"])
+        self.assertIn("medicine", canonical["education"]["fields_or_domains"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+        self.assertIn("no medical license", canonical["constraints"]["hard_constraints"])
+
+    def test_biology_research_extracts_microbiology_and_writing_context(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        result = normalizer.normalize(
+            "PhD microbiologist with biology research, academic writing, and scientific writing experience. Not a licensed physician.",
+            "long_paragraph",
+            {"profile_id": "microbiology_researcher"},
+        )
+        canonical = result.canonical_profile
+
+        self.assertIn("biology", canonical["education"]["fields_or_domains"])
+        self.assertIn("microbiology", canonical["education"]["fields_or_domains"])
+        self.assertIn("microbiology", canonical["experience"]["specialties"])
+        self.assertIn("academic writing", canonical["experience"]["specialties"])
+        self.assertIn("academic writing", canonical["skills"]["normalized"])
+        self.assertIn("scientific writing", canonical["skills"]["normalized"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+
     def test_compare_helper_identifies_missing_language_credential_and_location(self):
         expected = deepcopy(self.cases[0]["expected_canonical_profile"])
         actual = deepcopy(expected)

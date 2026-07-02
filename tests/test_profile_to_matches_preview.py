@@ -23,7 +23,7 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
     def test_inline_preview_json_contains_valid_canonical_profile(self):
         data = run_preview_json(
             "--input-text",
-            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks with no phone calls.",
             "--input-style",
             "short_paragraph",
         )
@@ -34,6 +34,10 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         self.assertIn("BaselineHeuristicProfileNormalizer", data["disclaimer"])
         self.assertIn("matches", data)
         self.assertTrue(set(preview.SECTION_ORDER) <= set(data["matches"]))
+        self.assertEqual(data["canonical_profile"]["location"]["remote_eligibility"], "unknown")
+        self.assertTrue(data["canonical_profile"]["preferences"]["remote"])
+        self.assertEqual(data["canonical_profile"]["preferences"]["phone_preference"], "non-phone preferred")
+        self.assertTrue(any("Location is missing" in warning for warning in data["warnings"]))
 
     def test_input_file_preview_json_runs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -80,6 +84,24 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         self.assertIn("Canonical Profile Preview", text)
         self.assertIn("heuristic/demo-only", html)
         self.assertIn("Recommended Opportunities", html)
+        self.assertIn("Remote preference", html)
+
+    def test_preview_shows_unconfirmed_language_metadata_gap(self):
+        context = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "short_paragraph",
+            limit=5,
+        )
+
+        warnings = "\n".join(context["warnings"])
+        self.assertIn("unconfirmed language requirements", warnings)
+        flagged = [
+            match
+            for section in ("excluded",)
+            for match in context["matches"][section]
+            if any("Detected unsupported language requirement" in diagnostic for diagnostic in match["preview_diagnostics"])
+        ]
+        self.assertTrue(flagged)
 
     def test_preview_does_not_change_matcher_benchmark(self):
         fixture = benchmark.load_fixture()

@@ -62,6 +62,9 @@ SECTION_LABELS = {
     "excluded": "Excluded / Not Personalized",
 }
 DEFAULT_LIMIT = 5
+UNCONFIRMED_LANGUAGE_TERMS = {
+    "basque",
+}
 
 
 def main() -> int:
@@ -134,6 +137,7 @@ def build_preview_context(raw_input: str, input_style: str, limit: int = DEFAULT
     matcher_profile = canonical_to_matcher_profile(canonical)
     grouped_matches = build_grouped_matches(matcher_profile, limit)
     canonical_summary = canonical_profile_debug_summary(canonical)
+    preview_warnings = build_preview_warnings(normalization.warnings, normalization, grouped_matches)
 
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -148,7 +152,8 @@ def build_preview_context(raw_input: str, input_style: str, limit: int = DEFAULT
         "canonical_profile": canonical,
         "canonical_summary": canonical_summary,
         "matcher_profile": matcher_profile,
-        "warnings": normalization.warnings,
+        "warnings": preview_warnings,
+        "normalization_warnings": normalization.warnings,
         "missing_fields": normalization.missing_fields,
         "ambiguous_fields": normalization.ambiguous_fields,
         "extraction_quality": normalization.extraction_quality,
@@ -163,6 +168,7 @@ def build_grouped_matches(profile: dict, limit: int) -> dict:
     for row in rows:
         match = matcher.score_opportunity(profile, row)
         match["preview_section"] = preview_section_for_match(match)
+        match["preview_diagnostics"] = preview_diagnostics_for_match(match)
         scored.append(match)
 
     deduped = dedupe_matches(scored)
@@ -205,6 +211,72 @@ def preview_section_for_match(match: dict) -> str:
         return "explore_only"
     section = match.get("effective_product_section") or "explore_only"
     return section if section in SECTION_ORDER else "explore_only"
+
+
+def preview_diagnostics_for_match(match: dict) -> list[str]:
+    diagnostics = []
+    if match.get("unsupported_languages"):
+        diagnostics.append(
+            "Detected unsupported language requirement: "
+            + ", ".join(match["unsupported_languages"])
+        )
+    if match.get("location_actionability_cap_applied"):
+        diagnostics.append("Location/actionability needs review before prioritizing.")
+    if match.get("professional_domain_hard_gate_applied"):
+        diagnostics.append("Professional-domain mismatch.")
+    title_text = normalize_text(match.get("display_title"))
+    detected_languages = set(match.get("detected_languages") or [])
+    for term in sorted(UNCONFIRMED_LANGUAGE_TERMS):
+        if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", title_text) and term not in detected_languages:
+            diagnostics.append(
+                f"Possible unconfirmed language requirement in title: {term}. "
+                "This should be fixed with opportunity metadata, not matcher scoring."
+            )
+    return diagnostics
+
+
+def build_preview_warnings(normalizer_warnings: list[str], normalization, grouped_matches: dict) -> list[str]:
+    warnings = list(normalizer_warnings)
+    missing = set(normalization.missing_fields)
+    ambiguous = set(normalization.ambiguous_fields)
+    if "location" in missing:
+        warnings.append("Location is missing; country-specific opportunities may be demoted or need review.")
+    if "languages" in missing or "language proficiency" in ambiguous:
+        warnings.append(
+            "Language information is incomplete; unconfirmed language requirements in titles may need review."
+        )
+    else:
+        warnings.append(
+            "Opportunity language metadata may be incomplete; unconfirmed language requirements in titles should be reviewed."
+        )
+    if "licenses" in missing:
+        warnings.append("No license was extracted; licensed professional roles may require manual review.")
+
+    unsupported_count = sum(
+        1
+        for match in grouped_matches.get("excluded", [])
+        if match.get("unsupported_languages")
+    )
+    if unsupported_count:
+        warnings.append(
+            f"{unsupported_count} shown excluded rows have detected unsupported language requirements."
+        )
+
+    metadata_gap_count = sum(
+        1
+        for section in ("do_these_first", "best_matches", "also_worth_reviewing", "explore_only")
+        for match in grouped_matches.get(section, [])
+        if any(
+            "Possible unconfirmed language requirement" in diagnostic
+            for diagnostic in match.get("preview_diagnostics", [])
+        )
+    )
+    if metadata_gap_count:
+        warnings.append(
+            f"{metadata_gap_count} visible rows may have unconfirmed language requirements in titles; "
+            "this is an opportunity metadata normalization gap."
+        )
+    return unique_list(warnings)
 
 
 def dedupe_matches(matches: list[dict]) -> list[dict]:
@@ -276,10 +348,13 @@ def render_text(context: dict) -> str:
         "-------------------------",
         f"Languages: {join_languages(canonical)}",
         f"Location: {location_label(canonical)}",
+        f"Remote preference: {remote_preference_label(canonical)}",
         f"Education: {canonical['education'].get('education_level') or 'unknown'}",
         f"Domains: {', '.join(canonical['education'].get('fields_or_domains') or []) or '-'}",
+        f"Specialties: {', '.join(canonical['experience'].get('specialties') or []) or '-'}",
         f"Skills: {', '.join(canonical['skills'].get('normalized') or []) or '-'}",
         f"Preferences: {', '.join(canonical['preferences'].get('work_preferences') or []) or '-'}",
+        f"Credentials/licenses: {credentials_label(canonical)}",
         f"Constraints: {', '.join(canonical['constraints'].get('hard_constraints') or []) or '-'}",
         f"Missing fields: {', '.join(context['missing_fields']) or '-'}",
         f"Ambiguous fields: {', '.join(context['ambiguous_fields']) or '-'}",
@@ -308,11 +383,15 @@ def format_text_match(match: dict) -> list[str]:
         flags.append("location needs review")
     if match.get("professional_domain_hard_gate_applied"):
         flags.append("professional-domain mismatch")
+    for diagnostic in match.get("preview_diagnostics") or []:
+        if diagnostic.startswith("Possible unconfirmed language requirement"):
+            flags.append("possible unconfirmed language requirement")
     flag_text = f" [{'; '.join(flags)}]" if flags else ""
     return [
         f"- {match['display_title']} — {match['source']} ({match['score']} pts){flag_text}",
         f"  Location: {match.get('location') or 'Unknown'} | Area: {match.get('expertise') or 'Unknown'}",
         f"  Reasons: {reasons}",
+        f"  Diagnostics: {'; '.join(match.get('preview_diagnostics') or []) or '-'}",
         f"  URL: {match.get('url') or '-'}",
     ]
 
@@ -343,11 +422,17 @@ def render_html(context: dict) -> str:
   <div class="grid">
     <div class="box"><strong>Languages</strong><br>{html_escape(join_languages(canonical))}</div>
     <div class="box"><strong>Location</strong><br>{html_escape(location_label(canonical))}</div>
+    <div class="box"><strong>Remote preference</strong><br>{html_escape(remote_preference_label(canonical))}</div>
     <div class="box"><strong>Education</strong><br>{html_escape(canonical['education'].get('education_level') or 'unknown')}</div>
     <div class="box"><strong>Domains</strong><br>{html_escape(', '.join(canonical['education'].get('fields_or_domains') or []) or '-')}</div>
+    <div class="box"><strong>Credentials/licenses</strong><br>{html_escape(credentials_label(canonical))}</div>
     <div class="box"><strong>Missing</strong><br>{html_escape(', '.join(context['missing_fields']) or '-')}</div>
     <div class="box"><strong>Ambiguous</strong><br>{html_escape(', '.join(context['ambiguous_fields']) or '-')}</div>
   </div>
+  <h2>Warnings</h2>
+  <ul>
+    {''.join(f'<li>{html_escape(warning)}</li>' for warning in context['warnings']) or '<li>-</li>'}
+  </ul>
   <h2>Recommended Opportunities</h2>
   {sections}
 </body>
@@ -369,6 +454,7 @@ def render_html_match(match: dict) -> str:
   <h4>{html_escape(match['display_title'])}</h4>
   <p class="meta">{html_escape(match['source'])} | {html_escape(match.get('location') or 'Unknown')} | {html_escape(match.get('expertise') or 'Unknown')} | {match['score']} pts</p>
   <p>{html_escape(reasons)}</p>
+  <p class="meta">Diagnostics: {html_escape('; '.join(match.get('preview_diagnostics') or []) or '-')}</p>
   <p>{link}</p>
 </article>
 """
@@ -393,6 +479,7 @@ def match_summary(match: dict) -> dict:
         "location_actionability_cap_applied",
         "professional_domain_hard_gate_applied",
         "reasons",
+        "preview_diagnostics",
         "variant_count",
     )
     return {key: match.get(key) for key in keys}
@@ -413,11 +500,47 @@ def join_languages(canonical: dict) -> str:
 def location_label(canonical: dict) -> str:
     location = canonical["location"]
     parts = [location.get(field, "") for field in ("city", "region", "country") if location.get(field)]
-    return ", ".join(parts) or location.get("remote_eligibility") or "-"
+    return ", ".join(parts) or "-"
+
+
+def remote_preference_label(canonical: dict) -> str:
+    preferences = canonical["preferences"]
+    if preferences.get("remote"):
+        return "remote preferred"
+    return "not specified"
+
+
+def credentials_label(canonical: dict) -> str:
+    credentials = canonical["credentials"]
+    parts = []
+    if credentials.get("certifications"):
+        parts.append("certifications: " + ", ".join(credentials["certifications"]))
+    if credentials.get("licenses"):
+        parts.append("licenses: " + ", ".join(credentials["licenses"]))
+    if credentials.get("jurisdictions"):
+        parts.append("jurisdictions: " + ", ".join(credentials["jurisdictions"]))
+    status = credentials.get("credential_status") or "unknown"
+    if status == "absent":
+        parts.append("license/credential absence stated")
+    else:
+        parts.append("status: " + status)
+    return "; ".join(parts)
 
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def unique_list(values: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for value in values:
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
 
 
 if __name__ == "__main__":

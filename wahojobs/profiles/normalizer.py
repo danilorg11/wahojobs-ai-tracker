@@ -485,7 +485,7 @@ def detect_location(text: str) -> dict:
         "residence": country,
         "work_authorization": UNKNOWN,
         "eligible_countries": [],
-        "remote_eligibility": "explicit" if "remote" in text else UNKNOWN,
+        "remote_eligibility": UNKNOWN,
         "restrictions": [],
     }
 
@@ -527,7 +527,7 @@ def detect_credentials(text: str) -> dict:
         licenses.append("attorney license")
         jurisdictions.append("California")
         status = "explicit"
-    if "not a licensed physician" in text or "no clinical license" in text or "medical license no" in text:
+    if has_medical_license_absence(text) or has_legal_license_absence(text) or has_biology_or_medical_credential_absence(text):
         status = "absent"
     return {
         "certifications": unique_list(certifications),
@@ -575,7 +575,8 @@ def detect_domains(text: str) -> list[str]:
         ("software engineering", ("python", "typescript", "react", "software", "backend", "javascript", "coding", "code review")),
         ("legal", ("lawyer", "attorney", "legal", "contract", "ip", "jd", "law")),
         ("finance", ("finance", "financial", "accounting", "investment", "equity", "valuation", "cfa")),
-        ("biology", ("biology", "microbiology", "biologist", "antimicrobial")),
+        ("biology", ("biology", "microbiology", "microbiologist", "biologist", "antimicrobial")),
+        ("microbiology", ("microbiology", "microbiologist", "antimicrobial")),
         ("medicine", ("medical", "medicine", "physician", "clinical", "dermatology")),
         ("history", ("history", "historian", "archival", "humanities")),
         ("education", ("teacher", "teaching", "tutor", "esl", "student", "grading")),
@@ -583,7 +584,7 @@ def detect_domains(text: str) -> list[str]:
         ("generalist", ("generalist", "annotation", "annotator", "online research", "web research", "content moderation", "data annotation", "review")),
     ]
     for domain, terms in domain_terms:
-        if any(contains_text_term(text, term) for term in terms):
+        if any(contains_positive_term(text, term) for term in terms):
             domains.append(domain)
     return unique_list(domains or ["generalist"])
 
@@ -595,7 +596,10 @@ def detect_specialties(text: str) -> list[str]:
         "employment law",
         "contracts",
         "microbiology",
+        "microbiologist",
         "antimicrobial resistance",
+        "academic research",
+        "academic writing",
         "backend",
         "test automation",
         "grammar correction",
@@ -605,7 +609,7 @@ def detect_specialties(text: str) -> list[str]:
         "subtitles",
     ):
         if contains_text_term(text, term):
-            specialties.append(term)
+            specialties.append("microbiology" if term == "microbiologist" else term)
     return unique_list(specialties)
 
 
@@ -623,6 +627,8 @@ def detect_skills(text: str, domains: list[str]) -> list[str]:
         "online research",
         "content moderation",
         "data annotation",
+        "research",
+        "academic writing",
         "translation",
         "localization",
         "mtpe",
@@ -700,12 +706,15 @@ def detect_constraints(text: str) -> dict:
     avoid = []
     if "no college" in text or "no degree" in text:
         hard.append("no college degree")
-    if "not a licensed physician" in text or "no clinical license" in text or "medical license no" in text:
-        hard.append("no clinical license")
+    if has_medical_license_absence(text):
+        hard.append("no medical license")
         avoid.append("licensed physician")
-    if "do not have biology or medical credentials" in text:
+    if has_legal_license_absence(text):
+        hard.append("no law license")
+        avoid.append("attorney license")
+    if has_biology_or_medical_credential_absence(text):
         hard.append("no biology or medical credentials")
-        avoid.extend(["biology", "medical"])
+        avoid.extend(["biology credentials", "medical credentials"])
     if "no phone" in text or "not calls" in text:
         soft.append("no phone calls preferred")
         avoid.append("phone calls")
@@ -840,3 +849,53 @@ def contains_text_term(text: str, term: str) -> bool:
         re.escape(part) for part in normalized_term.split()
     ) + r"(?![a-z0-9])"
     return re.search(pattern, text) is not None
+
+
+def contains_positive_term(text: str, term: str) -> bool:
+    normalized_term = normalize_language_text(term)
+    if not normalized_term:
+        return False
+    pattern = r"(?<![a-z0-9])" + r"\s+".join(
+        re.escape(part) for part in normalized_term.split()
+    ) + r"(?![a-z0-9])"
+    for match in re.finditer(pattern, text):
+        if not term_is_negated(text, match.start(), match.end()):
+            return True
+    return False
+
+
+def term_is_negated(text: str, start: int, end: int) -> bool:
+    before = text[max(0, start - 48):start]
+    after = text[end:end + 36]
+    if re.search(r"\b(no|not|without|lack|lacking)\b[^.]{0,40}\b(credentials?|license|licensed|degree)\b", before):
+        return True
+    if re.search(r"\b(do not|don t|dont|does not|doesn t|doesnt|no)\s+(have|hold|possess)\b", before):
+        return True
+    if re.search(r"\bnot\s+(a\s+)?licensed\b", before):
+        return True
+    if re.search(r"\bcredentials?\b", after) and re.search(r"\b(no|not|don t|dont|do not|without)\b", before):
+        return True
+    return False
+
+
+def has_medical_license_absence(text: str) -> bool:
+    return bool(
+        re.search(r"\bnot\s+(a\s+)?licensed\s+physician\b", text)
+        or re.search(r"\bno\s+(medical|clinical)\s+license\b", text)
+        or re.search(r"\bmedical\s+license\s+(no|none|absent)\b", text)
+    )
+
+
+def has_legal_license_absence(text: str) -> bool:
+    return bool(
+        re.search(r"\bno\s+(law|legal|attorney)\s+license\b", text)
+        or re.search(r"\bnot\s+(a\s+)?licensed\s+(attorney|lawyer)\b", text)
+    )
+
+
+def has_biology_or_medical_credential_absence(text: str) -> bool:
+    return bool(
+        re.search(r"\b(do not|don t|dont|no|without)\s+(have\s+)?(biology|medical)[^.,;]{0,30}credentials?\b", text)
+        or re.search(r"\b(do not|don t|dont|no|without)\s+(have\s+)?biology\s+or\s+medical\s+credentials?\b", text)
+        or re.search(r"\bno\s+(biology|medical)\s+credentials?\b", text)
+    )
