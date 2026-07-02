@@ -735,10 +735,11 @@ def signals_for_domains(domains: list[str], skills: list[str]) -> list[dict]:
         ("Generalist AI-work signal", ["generalist", "ai trainer", "ai training"], 9, {"generalist"}),
         ("Data annotation signal", ["annotation", "annotator", "data validation"], 7, {"generalist"}),
         ("Language/translation signal", ["language", "translation", "translator", "localization", "bilingual"], 10, {"language"}),
-        ("Software/coding signal", ["python", "coding", "software", "developer", "code"], 11, {"software engineering"}),
+        ("Software/coding signal", ["python", "coding", "software", "developer", "code"], 14, {"software engineering"}),
         ("Legal domain signal", ["legal", "law", "lawyer", "attorney", "contract"], 11, {"legal"}),
         ("Finance domain signal", ["finance", "accounting", "investment", "equity"], 10, {"finance"}),
         ("Science/medical signal", ["biology", "medical", "medicine", "science"], 10, {"biology", "medicine"}),
+        ("Microbiology/research writing signal", ["microbiology", "research", "academic writing", "scientific writing"], 8, {"microbiology"}),
         ("Teaching/writing/review signal", ["teacher", "education", "writing", "review"], 9, {"education", "history"}),
     ]
     domain_set = set(domains)

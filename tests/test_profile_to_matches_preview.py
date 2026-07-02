@@ -90,11 +90,34 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         context = preview.build_preview_context(
             "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
             "short_paragraph",
-            limit=5,
+            limit=80,
         )
 
         warnings = "\n".join(context["warnings"])
         self.assertIn("unconfirmed language requirements", warnings)
+        visible_flagged = [
+            match
+            for section in ("do_these_first", "best_matches", "also_worth_reviewing")
+            for match in context["matches"][section]
+            if any(
+                "Possible unconfirmed language requirement" in diagnostic
+                for diagnostic in match["preview_diagnostics"]
+            )
+        ]
+        self.assertEqual(visible_flagged, [])
+        capped_flagged = [
+            match
+            for match in all_preview_matches(context)
+            if any(
+                "Possible unconfirmed language requirement" in diagnostic
+                for diagnostic in match["preview_diagnostics"]
+            )
+        ]
+        self.assertTrue(capped_flagged)
+        self.assertTrue(
+            all(match["preview_section"] == "explore_only" for match in capped_flagged),
+            capped_flagged[:3],
+        )
         flagged = [
             match
             for section in ("excluded",)
@@ -102,6 +125,77 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             if any("Detected unsupported language requirement" in diagnostic for diagnostic in match["preview_diagnostics"])
         ]
         self.assertTrue(flagged)
+
+    def test_software_preview_caps_science_coding_roles_when_credentials_are_absent(self):
+        context = preview.build_preview_context(
+            "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. "
+            "I don't have biology or medical credentials, but I can evaluate coding tasks and tests. "
+            "Looking for remote AI coding evaluator work.",
+            "resume_or_linkedin_style",
+            limit=100,
+        )
+
+        canonical = context["canonical_profile"]
+        self.assertIn("software engineering", canonical["education"]["fields_or_domains"])
+        self.assertNotIn("biology", canonical["education"]["fields_or_domains"])
+        self.assertIn("no biology or medical credentials", canonical["constraints"]["hard_constraints"])
+
+        best_titles = {match["display_title"] for match in context["matches"]["best_matches"]}
+        self.assertIn("Backend Engineer (Coding Agent Experience)", best_titles)
+
+        visible_science_coding = [
+            match
+            for section in ("do_these_first", "best_matches", "also_worth_reviewing")
+            for match in context["matches"][section]
+            if title_has_any(match, ("biology", "biologist", "chemistry", "material science", "materials science"))
+            and title_has_any(match, ("python", "coding", "software", "code"))
+        ]
+        self.assertEqual(visible_science_coding, [])
+
+        capped = [
+            match
+            for match in context["matches"]["explore_only"]
+            if any(
+                "no biology or medical credentials" in diagnostic
+                for diagnostic in match["preview_diagnostics"]
+            )
+        ]
+        self.assertTrue(capped)
+
+    def test_biology_preview_preserves_research_signals_without_overpromoting_licensed_roles(self):
+        context = preview.build_preview_context(
+            "PhD microbiologist with biology research, academic writing, and scientific writing experience. "
+            "I can review biology and medicine-related AI outputs, but I am not a licensed physician. "
+            "Remote work preferred.",
+            "long_paragraph",
+            limit=100,
+        )
+
+        canonical = context["canonical_profile"]
+        self.assertIn("microbiology", canonical["education"]["fields_or_domains"])
+        self.assertIn("academic writing", canonical["skills"]["normalized"])
+        self.assertIn("scientific writing", canonical["skills"]["normalized"])
+        self.assertIn("no medical license", canonical["constraints"]["hard_constraints"])
+        signal_names = {signal[0] for signal in context["matcher_profile"]["signals"]}
+        self.assertIn("Microbiology/research writing signal", signal_names)
+
+        microbio_matches = [
+            match
+            for match in all_preview_matches(context)
+            if "microbiology" in match["display_title"].lower()
+        ]
+        self.assertTrue(microbio_matches)
+        self.assertTrue(
+            any("Microbiology/research writing signal" in "; ".join(match["reasons"]) for match in microbio_matches)
+        )
+
+        licensed_visible = [
+            match
+            for section in ("do_these_first", "best_matches", "also_worth_reviewing")
+            for match in context["matches"][section]
+            if title_has_any(match, ("registered nurse", "licensed physician", "medical doctor", "physician"))
+        ]
+        self.assertEqual(licensed_visible, [])
 
     def test_preview_does_not_change_matcher_benchmark(self):
         fixture = benchmark.load_fixture()
@@ -143,6 +237,19 @@ def run_preview_json(*args):
         text=True,
     )
     return json.loads(result.stdout)
+
+
+def all_preview_matches(context):
+    return [
+        match
+        for section in preview.SECTION_ORDER
+        for match in context["matches"][section]
+    ]
+
+
+def title_has_any(match, terms):
+    title = match["display_title"].lower()
+    return any(term in title for term in terms)
 
 
 if __name__ == "__main__":

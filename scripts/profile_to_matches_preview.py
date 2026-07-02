@@ -63,7 +63,58 @@ SECTION_LABELS = {
 }
 DEFAULT_LIMIT = 5
 UNCONFIRMED_LANGUAGE_TERMS = {
-    "basque",
+    "american sign language": "american sign language",
+    "assamese": "assamese",
+    "asl": "american sign language",
+    "asturian": "asturian",
+    "aymara": "aymara",
+    "basque": "basque",
+}
+SCIENCE_MEDICAL_PREVIEW_TERMS = (
+    "biology",
+    "biologist",
+    "biomedical",
+    "chemistry",
+    "chemical engineering",
+    "clinical",
+    "dermatology",
+    "healthcare",
+    "life science",
+    "material science",
+    "materials science",
+    "medical",
+    "medicine",
+    "microbiology",
+    "pharma",
+    "physician",
+)
+CODING_PREVIEW_TERMS = (
+    "api",
+    "code",
+    "coding",
+    "developer",
+    "engineering",
+    "javascript",
+    "python",
+    "software",
+    "typescript",
+)
+LICENSED_MEDICAL_PREVIEW_TERMS = (
+    "licensed physician",
+    "medical doctor",
+    "physician",
+    "physicians",
+    "registered nurse",
+    "registered nurses",
+    "nurse",
+    "nurses",
+)
+ACTIONABILITY_RANK = {
+    "excluded": 0,
+    "explore_only": 1,
+    "also_worth_reviewing": 2,
+    "best_matches": 3,
+    "do_these_first": 4,
 }
 
 
@@ -167,8 +218,7 @@ def build_grouped_matches(profile: dict, limit: int) -> dict:
     scored = []
     for row in rows:
         match = matcher.score_opportunity(profile, row)
-        match["preview_section"] = preview_section_for_match(match)
-        match["preview_diagnostics"] = preview_diagnostics_for_match(match)
+        match = apply_preview_guardrails(profile, row, match)
         scored.append(match)
 
     deduped = dedupe_matches(scored)
@@ -201,6 +251,23 @@ def load_preview_rows() -> list[dict]:
     return rows
 
 
+def apply_preview_guardrails(profile: dict, row: dict, match: dict) -> dict:
+    match = dict(match)
+    base_section = preview_section_for_match(match)
+    diagnostics = preview_diagnostics_for_match(profile, row, match)
+    capped_section = base_section
+    for diagnostic in diagnostics:
+        if diagnostic.startswith("Possible unconfirmed language requirement"):
+            capped_section = cap_section(capped_section, "explore_only")
+        elif diagnostic.startswith("Profile states no biology or medical credentials"):
+            capped_section = cap_section(capped_section, "explore_only")
+        elif diagnostic.startswith("Medical license or credential may be required"):
+            capped_section = cap_section(capped_section, "explore_only")
+    match["preview_section"] = capped_section
+    match["preview_diagnostics"] = diagnostics
+    return match
+
+
 def preview_section_for_match(match: dict) -> str:
     if (
         not match.get("eligible_for_personalized", True)
@@ -213,7 +280,13 @@ def preview_section_for_match(match: dict) -> str:
     return section if section in SECTION_ORDER else "explore_only"
 
 
-def preview_diagnostics_for_match(match: dict) -> list[str]:
+def cap_section(section: str, cap: str) -> str:
+    if ACTIONABILITY_RANK.get(section, 1) > ACTIONABILITY_RANK[cap]:
+        return cap
+    return section
+
+
+def preview_diagnostics_for_match(profile: dict, row: dict, match: dict) -> list[str]:
     diagnostics = []
     if match.get("unsupported_languages"):
         diagnostics.append(
@@ -225,14 +298,93 @@ def preview_diagnostics_for_match(match: dict) -> list[str]:
     if match.get("professional_domain_hard_gate_applied"):
         diagnostics.append("Professional-domain mismatch.")
     title_text = normalize_text(match.get("display_title"))
+    row_text = preview_row_text(row)
+    profile_languages = matcher.profile_language_set(profile)
     detected_languages = set(match.get("detected_languages") or [])
-    for term in sorted(UNCONFIRMED_LANGUAGE_TERMS):
-        if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", title_text) and term not in detected_languages:
+    for term, canonical_language in sorted(UNCONFIRMED_LANGUAGE_TERMS.items()):
+        if (
+            re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", title_text)
+            and canonical_language not in detected_languages
+            and canonical_language not in profile_languages
+        ):
             diagnostics.append(
                 f"Possible unconfirmed language requirement in title: {term}. "
-                "This should be fixed with opportunity metadata, not matcher scoring."
+                "Capped to Explore Only pending opportunity metadata review."
             )
+            break
+    if profile_has_no_biology_medical_credentials(profile) and cross_domain_science_coding_row(row_text, profile):
+        diagnostics.append(
+            "Profile states no biology or medical credentials; cross-domain science/coding role "
+            "capped to Explore Only."
+        )
+    if profile_has_no_medical_license(profile) and licensed_medical_row(row_text):
+        diagnostics.append(
+            "Medical license or credential may be required; capped to Explore Only until confirmed."
+        )
     return diagnostics
+
+
+def preview_row_text(row: dict) -> str:
+    values = [
+        row.get("title"),
+        row.get("canonical_title"),
+        row.get("source_category"),
+        row.get("department"),
+        row.get("expertise"),
+        row.get("description"),
+        row.get("location"),
+    ]
+    return normalize_text(" ".join(str(value or "") for value in values))
+
+
+def profile_has_no_biology_medical_credentials(profile: dict) -> bool:
+    text = normalize_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                " ".join(profile.get("constraints") or []),
+                " ".join(profile.get("avoid_keywords") or []),
+                profile.get("summary", ""),
+            )
+        )
+    )
+    return (
+        "no biology or medical credentials" in text
+        or "biology credentials" in text
+        or "medical credentials" in text
+    )
+
+
+def profile_has_no_medical_license(profile: dict) -> bool:
+    text = normalize_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                " ".join(profile.get("constraints") or []),
+                " ".join(profile.get("avoid_keywords") or []),
+                profile.get("summary", ""),
+            )
+        )
+    )
+    return "no medical license" in text or "licensed physician" in text
+
+
+def cross_domain_science_coding_row(row_text: str, profile: dict) -> bool:
+    profile_domains = {normalize_text(value) for value in profile.get("degrees_or_domains") or []}
+    if "biology" in profile_domains or "medicine" in profile_domains or "microbiology" in profile_domains:
+        return False
+    return contains_preview_term(row_text, SCIENCE_MEDICAL_PREVIEW_TERMS) and contains_preview_term(
+        row_text,
+        CODING_PREVIEW_TERMS,
+    )
+
+
+def licensed_medical_row(row_text: str) -> bool:
+    return contains_preview_term(row_text, LICENSED_MEDICAL_PREVIEW_TERMS)
+
+
+def contains_preview_term(text: str, terms: tuple[str, ...]) -> bool:
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) for term in terms)
 
 
 def build_preview_warnings(normalizer_warnings: list[str], normalization, grouped_matches: dict) -> list[str]:
@@ -442,6 +594,12 @@ def render_html(context: dict) -> str:
 
 def render_html_section(section: str, matches: list[dict]) -> str:
     cards = "\n".join(render_html_match(match) for match in matches) if matches else "<p>None in this preview.</p>"
+    if section in {"explore_only", "excluded"}:
+        return (
+            f"<details><summary>{html_escape(SECTION_LABELS[section])} ({len(matches)}) "
+            "- diagnostic browse results</summary>"
+            f"{cards}</details>"
+        )
     return f"<section><h3>{html_escape(SECTION_LABELS[section])} ({len(matches)})</h3>{cards}</section>"
 
 
