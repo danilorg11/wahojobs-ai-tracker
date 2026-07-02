@@ -583,7 +583,7 @@ def detect_domains(text: str) -> list[str]:
         ("generalist", ("generalist", "annotation", "annotator", "online research", "web research", "content moderation", "data annotation", "review")),
     ]
     for domain, terms in domain_terms:
-        if any(term in text for term in terms):
+        if any(contains_text_term(text, term) for term in terms):
             domains.append(domain)
     return unique_list(domains or ["generalist"])
 
@@ -604,7 +604,7 @@ def detect_specialties(text: str) -> list[str]:
         "audio validation",
         "subtitles",
     ):
-        if term in text:
+        if contains_text_term(text, term):
             specialties.append(term)
     return unique_list(specialties)
 
@@ -636,7 +636,7 @@ def detect_skills(text: str, domains: list[str]) -> list[str]:
         "scientific writing",
     ]
     for term in skill_terms:
-        if term in text:
+        if contains_text_term(text, term):
             skills.append(term)
     if "language" in domains and "bilingual communication" not in skills:
         skills.append("bilingual communication")
@@ -830,3 +830,13 @@ def unique_list(values: list) -> list:
         seen.add(key)
         result.append(value)
     return result
+
+
+def contains_text_term(text: str, term: str) -> bool:
+    normalized_term = normalize_language_text(term)
+    if not normalized_term:
+        return False
+    pattern = r"(?<![a-z0-9])" + r"\s+".join(
+        re.escape(part) for part in normalized_term.split()
+    ) + r"(?![a-z0-9])"
+    return re.search(pattern, text) is not None
