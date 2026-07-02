@@ -1,0 +1,5528 @@
+{
+  "schema_version": "profile_normalization_suite_v1",
+  "description": "Raw user input examples with expected canonical_profile_v1 outputs for future deterministic profile normalization evaluation.",
+  "cases": [
+    {
+      "case_id": "pnv1_beginner_bilingual_short",
+      "archetype_id": "beginner_bilingual_no_degree",
+      "input_style": "short_paragraph",
+      "raw_input": "I speak English and Spanish, no college degree, looking for remote beginner AI data or language tasks.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "beginner_bilingual_no_degree",
+          "display_name": "Beginner bilingual no-degree worker",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "fluent",
+            "locale": "",
+            "evidence": [],
+            "confidence": "high"
+          },
+          {
+            "language": "Spanish",
+            "proficiency": "conversational",
+            "locale": "",
+            "evidence": [],
+            "confidence": "high"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "no_degree",
+          "degrees": [],
+          "fields_or_domains": [
+            "generalist",
+            "language"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "generalist",
+            "language"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "bilingual communication",
+            "web research",
+            "basic writing",
+            "review"
+          ],
+          "free_text_labels": [
+            "bilingual communication",
+            "web research",
+            "basic writing",
+            "review"
+          ],
+          "entries": [
+            {
+              "skill": "bilingual communication",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "web research",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "basic writing",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "review",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "data annotation",
+            "search evaluation",
+            "language review",
+            "AI training generalist"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [
+            "no college degree"
+          ],
+          "soft_preferences": [],
+          "avoid_keywords": [
+            "catalan",
+            "korean",
+            "danish",
+            "dutch"
+          ],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Generalist AI-work signal",
+              "keywords": [
+                "generalist",
+                "ai trainer",
+                "ai training"
+              ],
+              "points": 9
+            },
+            {
+              "reason": "Data annotation signal",
+              "keywords": [
+                "annotation",
+                "annotator",
+                "data validation"
+              ],
+              "points": 7
+            },
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "generalist",
+            "language"
+          ],
+          "derived_target_work_types": [
+            "data annotation",
+            "search evaluation",
+            "language review",
+            "AI training generalist"
+          ],
+          "avoid_keywords": [
+            "catalan",
+            "korean",
+            "danish",
+            "dutch"
+          ]
+        },
+        "matcher_compatible_profile": {
+          "summary": "I speak English and Spanish, no college degree, looking for remote beginner AI data or language tasks.",
+          "education_level": "no_degree",
+          "degrees_or_domains": [
+            "generalist",
+            "language"
+          ],
+          "languages": [
+            "English",
+            "Spanish"
+          ],
+          "skills": [
+            "bilingual communication",
+            "web research",
+            "basic writing",
+            "review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [
+            "no college degree"
+          ],
+          "target_opportunity_types": [
+            "data annotation",
+            "search evaluation",
+            "language review",
+            "AI training generalist"
+          ],
+          "notes": "",
+          "avoid_keywords": [
+            "catalan",
+            "korean",
+            "danish",
+            "dutch"
+          ],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data or language tasks."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "No unsupported languages or degree should be invented.",
+      "normalization_focus": [
+        "languages",
+        "education",
+        "remote_preference",
+        "bilingual_pool",
+        "professional_domain_guardrail"
+      ]
+    },
+    {
+      "case_id": "pnv1_beginner_bilingual_resume",
+      "archetype_id": "beginner_bilingual_no_degree",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "Profile bilingual support volunteer. Languages English fluent, Spanish native. Education high school. Seeking remote entry-level data annotation; no phone calls preferred.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "beginner_bilingual_no_degree",
+          "display_name": "Beginner bilingual no-degree worker",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "fluent",
+            "locale": "",
+            "evidence": [
+              "English fluent"
+            ],
+            "confidence": "high"
+          },
+          {
+            "language": "Spanish",
+            "proficiency": "native",
+            "locale": "",
+            "evidence": [
+              "Spanish native"
+            ],
+            "confidence": "high"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "no_degree",
+          "degrees": [],
+          "fields_or_domains": [
+            "generalist",
+            "language"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "generalist",
+            "language"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "bilingual communication",
+            "support",
+            "data annotation"
+          ],
+          "free_text_labels": [
+            "bilingual communication",
+            "support",
+            "data annotation"
+          ],
+          "entries": [
+            {
+              "skill": "bilingual communication",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "support",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "data annotation",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": false,
+          "employment_types": [
+            "entry-level"
+          ],
+          "phone_preference": "non-phone preferred",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "data annotation",
+            "language review",
+            "AI training generalist"
+          ],
+          "work_preferences": [
+            "remote",
+            "entry-level"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [
+            "no college degree"
+          ],
+          "soft_preferences": [
+            "no phone calls preferred"
+          ],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Generalist AI-work signal",
+              "keywords": [
+                "generalist",
+                "ai trainer",
+                "ai training"
+              ],
+              "points": 9
+            },
+            {
+              "reason": "Data annotation signal",
+              "keywords": [
+                "annotation",
+                "annotator",
+                "data validation"
+              ],
+              "points": 7
+            },
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "generalist",
+            "language"
+          ],
+          "derived_target_work_types": [
+            "data annotation",
+            "language review",
+            "AI training generalist"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Profile bilingual support volunteer. Languages English fluent, Spanish native. Education high school. Seeking remote entry-level data annotation; no phone calls preferred.",
+          "education_level": "no_degree",
+          "degrees_or_domains": [
+            "generalist",
+            "language"
+          ],
+          "languages": [
+            "English",
+            "Spanish"
+          ],
+          "skills": [
+            "bilingual communication",
+            "support",
+            "data annotation"
+          ],
+          "work_preferences": [
+            "remote",
+            "entry-level"
+          ],
+          "constraints": [
+            "no college degree",
+            "no phone calls preferred"
+          ],
+          "target_opportunity_types": [
+            "data annotation",
+            "language review",
+            "AI training generalist"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "Profile bilingual support volunteer. Languages English fluent, Spanish native. Education high school. Seeking remote entry-level data annotation; no phone calls"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Phone preference is a preference, not an eligibility rule.",
+      "normalization_focus": [
+        "languages",
+        "phone_preference",
+        "education",
+        "remote_preference"
+      ]
+    },
+    {
+      "case_id": "pnv1_beginner_bilingual_messy",
+      "archetype_id": "beginner_bilingual_no_degree",
+      "input_style": "messy_sparse_input",
+      "raw_input": "need remote work. english/spanish. beginner. no degree. can review websites maybe",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "beginner_bilingual_no_degree",
+          "display_name": "Beginner bilingual no-degree worker",
+          "source_inputs": [
+            {
+              "type": "messy_sparse_input"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "Spanish",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "no_degree",
+          "degrees": [],
+          "fields_or_domains": [
+            "generalist",
+            "language"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "generalist",
+            "language"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "website review",
+            "basic review"
+          ],
+          "free_text_labels": [
+            "website review",
+            "basic review"
+          ],
+          "entries": [
+            {
+              "skill": "website review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "basic review",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "data annotation",
+            "search evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [
+            "no college degree"
+          ],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Generalist AI-work signal",
+              "keywords": [
+                "generalist",
+                "ai trainer",
+                "ai training"
+              ],
+              "points": 9
+            },
+            {
+              "reason": "Data annotation signal",
+              "keywords": [
+                "annotation",
+                "annotator",
+                "data validation"
+              ],
+              "points": 7
+            },
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "generalist",
+            "language"
+          ],
+          "derived_target_work_types": [
+            "data annotation",
+            "search evaluation"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "need remote work. english/spanish. beginner. no degree. can review websites maybe",
+          "education_level": "no_degree",
+          "degrees_or_domains": [
+            "generalist",
+            "language"
+          ],
+          "languages": [
+            "English",
+            "Spanish"
+          ],
+          "skills": [
+            "website review",
+            "basic review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [
+            "no college degree"
+          ],
+          "target_opportunity_types": [
+            "data annotation",
+            "search evaluation"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "messy_sparse_input",
+          "evidence_snippets": [
+            "need remote work. english/spanish. beginner. no degree. can review websites maybe"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": [
+            "language proficiency",
+            "availability"
+          ]
+        }
+      },
+      "review_notes": "Sparse input should preserve uncertainty.",
+      "normalization_focus": [
+        "messy_input",
+        "languages",
+        "missing_ambiguous",
+        "remote_preference"
+      ]
+    },
+    {
+      "case_id": "pnv1_portuguese_short",
+      "archetype_id": "portuguese_english_reviewer",
+      "input_style": "short_paragraph",
+      "raw_input": "Portuguese native speaker in Brazil with advanced English. I have content review and search quality experience and want remote AI evaluation work.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "portuguese_english_reviewer",
+          "display_name": "Portuguese-English AI Reviewer",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "Portuguese",
+            "proficiency": "native",
+            "locale": "Brazil",
+            "evidence": [],
+            "confidence": "high"
+          },
+          {
+            "language": "English",
+            "proficiency": "advanced",
+            "locale": "",
+            "evidence": [],
+            "confidence": "high"
+          }
+        ],
+        "location": {
+          "country": "Brazil",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "Brazil",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "not_specified",
+          "degrees": [],
+          "fields_or_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "content review",
+            "search quality",
+            "evaluation",
+            "translation"
+          ],
+          "free_text_labels": [
+            "content review",
+            "search quality",
+            "evaluation",
+            "translation"
+          ],
+          "entries": [
+            {
+              "skill": "content review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "search quality",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "evaluation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "translation",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            },
+            {
+              "reason": "Portuguese language match",
+              "keywords": [
+                "portuguese",
+                "brazilian"
+              ],
+              "points": 12
+            }
+          ],
+          "derived_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "derived_target_work_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Portuguese native speaker in Brazil with advanced English. I have content review and search quality experience and want remote AI evaluation work.",
+          "education_level": "not_specified",
+          "degrees_or_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "languages": [
+            "Portuguese",
+            "English"
+          ],
+          "skills": [
+            "content review",
+            "search quality",
+            "evaluation",
+            "translation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "Brazil",
+          "residence": "Brazil",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "Portuguese native speaker in Brazil with advanced English. I have content review and search quality experience and want remote AI evaluation work."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Brazil is location evidence and Portuguese is explicit language evidence.",
+      "normalization_focus": [
+        "languages",
+        "location",
+        "remote_preference",
+        "bilingual_pool"
+      ]
+    },
+    {
+      "case_id": "pnv1_portuguese_long",
+      "archetype_id": "portuguese_english_reviewer",
+      "input_style": "long_paragraph",
+      "raw_input": "I worked on app reviews, ads quality checks, and translation QA. My strongest language is Brazilian Portuguese and I use English daily. I prefer remote flexible work and non-phone tasks.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "portuguese_english_reviewer",
+          "display_name": "Portuguese-English AI Reviewer",
+          "source_inputs": [
+            {
+              "type": "long_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "Portuguese",
+            "proficiency": "native",
+            "locale": "Brazil",
+            "evidence": [
+              "Brazilian Portuguese"
+            ],
+            "confidence": "high"
+          },
+          {
+            "language": "English",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "not_specified",
+          "degrees": [],
+          "fields_or_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "app review",
+            "ads quality",
+            "translation QA",
+            "evaluation"
+          ],
+          "free_text_labels": [
+            "app review",
+            "ads quality",
+            "translation QA",
+            "evaluation"
+          ],
+          "entries": [
+            {
+              "skill": "app review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "ads quality",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "translation QA",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "evaluation",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "non-phone preferred",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            },
+            {
+              "reason": "AI evaluation/reviewer signal",
+              "keywords": [
+                "evaluation",
+                "reviewer",
+                "rater",
+                "quality"
+              ],
+              "points": 8
+            }
+          ],
+          "derived_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "derived_target_work_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "I worked on app reviews, ads quality checks, and translation QA. My strongest language is Brazilian Portuguese and I use English daily. I prefer remote flexible work and non-phone ",
+          "education_level": "not_specified",
+          "degrees_or_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "languages": [
+            "Portuguese",
+            "English"
+          ],
+          "skills": [
+            "app review",
+            "ads quality",
+            "translation QA",
+            "evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "long_paragraph",
+          "evidence_snippets": [
+            "I worked on app reviews, ads quality checks, and translation QA. My strongest language is Brazilian Portuguese and I use English daily. I prefer remote flexible"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Non-phone is a preference, not a hard exclusion.",
+      "normalization_focus": [
+        "languages",
+        "phone_preference",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_portuguese_resume",
+      "archetype_id": "portuguese_english_reviewer",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "Language QA Analyst Portuguese BR, English. 3 years content moderation and search relevance review. Location Sao Paulo, Brazil. Open to freelance remote AI rater roles.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "portuguese_english_reviewer",
+          "display_name": "Portuguese-English AI Reviewer",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "Portuguese",
+            "proficiency": "professional",
+            "locale": "BR",
+            "evidence": [],
+            "confidence": "high"
+          },
+          {
+            "language": "English",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "high"
+          }
+        ],
+        "location": {
+          "country": "Brazil",
+          "region": "Sao Paulo",
+          "city": "Sao Paulo",
+          "timezone": "",
+          "residence": "Brazil",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "not_specified",
+          "degrees": [],
+          "fields_or_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": 3,
+          "years_by_domain": {
+            "content moderation": 3
+          },
+          "seniority": "mid",
+          "recent_roles": [
+            "Language QA Analyst"
+          ],
+          "professional_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "content moderation",
+            "search relevance",
+            "language QA"
+          ],
+          "free_text_labels": [
+            "content moderation",
+            "search relevance",
+            "language QA"
+          ],
+          "entries": [
+            {
+              "skill": "content moderation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "search relevance",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "language QA",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": false,
+          "employment_types": [
+            "freelance"
+          ],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "work_preferences": [
+            "remote",
+            "freelance"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "derived_target_work_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Language QA Analyst Portuguese BR, English. 3 years content moderation and search relevance review. Location Sao Paulo, Brazil. Open to freelance remote AI rater roles.",
+          "education_level": "not_specified",
+          "degrees_or_domains": [
+            "language",
+            "search quality",
+            "ai evaluation"
+          ],
+          "languages": [
+            "Portuguese",
+            "English"
+          ],
+          "skills": [
+            "content moderation",
+            "search relevance",
+            "language QA"
+          ],
+          "work_preferences": [
+            "remote",
+            "freelance"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "AI evaluation",
+            "search quality",
+            "language review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "Brazil",
+          "residence": "Brazil",
+          "city": "Sao Paulo",
+          "region": "Sao Paulo"
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "Language QA Analyst Portuguese BR, English. 3 years content moderation and search relevance review. Location Sao Paulo, Brazil. Open to freelance remote AI rate"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Years are explicit here and should be captured.",
+      "normalization_focus": [
+        "languages",
+        "location",
+        "years_experience",
+        "employment_type"
+      ]
+    },
+    {
+      "case_id": "pnv1_multilingual_short",
+      "archetype_id": "multilingual_translator",
+      "input_style": "short_paragraph",
+      "raw_input": "Translator: English, Spanish, Portuguese and French. I do localization, MTPE, audio QA and language review.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "multilingual_translator",
+          "display_name": "Multilingual Translator / Linguist",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "Spanish",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "Portuguese",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "French",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "not_specified",
+          "degrees": [],
+          "fields_or_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "translation",
+            "localization",
+            "MTPE",
+            "audio QA",
+            "language review"
+          ],
+          "free_text_labels": [
+            "translation",
+            "localization",
+            "MTPE",
+            "audio QA",
+            "language review"
+          ],
+          "entries": [
+            {
+              "skill": "translation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "localization",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "MTPE",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "audio QA",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "language review",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "language review",
+            "translation evaluation",
+            "AI linguistics"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "derived_target_work_types": [
+            "language review",
+            "translation evaluation",
+            "AI linguistics"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Translator: English, Spanish, Portuguese and French. I do localization, MTPE, audio QA and language review.",
+          "education_level": "not_specified",
+          "degrees_or_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "languages": [
+            "English",
+            "Spanish",
+            "Portuguese",
+            "French"
+          ],
+          "skills": [
+            "translation",
+            "localization",
+            "MTPE",
+            "audio QA",
+            "language review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "language review",
+            "translation evaluation",
+            "AI linguistics"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "Translator: English, Spanish, Portuguese and French. I do localization, MTPE, audio QA and language review."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Multiple languages are explicit, but locale is unknown.",
+      "normalization_focus": [
+        "languages",
+        "domain_specialty",
+        "bilingual_pool"
+      ]
+    },
+    {
+      "case_id": "pnv1_multilingual_resume",
+      "archetype_id": "multilingual_translator",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "Freelance localization specialist, 6 years. ES to EN and PT-BR to EN, French reading. Tools QA checks, subtitles, audio validation.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "multilingual_translator",
+          "display_name": "Multilingual Translator / Linguist",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "Spanish",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "high"
+          },
+          {
+            "language": "English",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "high"
+          },
+          {
+            "language": "Portuguese",
+            "proficiency": "professional",
+            "locale": "BR",
+            "evidence": [],
+            "confidence": "high"
+          },
+          {
+            "language": "French",
+            "proficiency": "reading",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "not_specified",
+          "degrees": [],
+          "fields_or_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": 6,
+          "years_by_domain": {
+            "localization": 6
+          },
+          "seniority": "mid",
+          "recent_roles": [
+            "Freelance localization specialist"
+          ],
+          "professional_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "localization",
+            "subtitles",
+            "audio validation",
+            "QA checks"
+          ],
+          "free_text_labels": [
+            "localization",
+            "subtitles",
+            "audio validation",
+            "QA checks"
+          ],
+          "entries": [
+            {
+              "skill": "localization",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "subtitles",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "audio validation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "QA checks",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": false,
+          "employment_types": [
+            "freelance"
+          ],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "language review",
+            "translation evaluation",
+            "AI linguistics"
+          ],
+          "work_preferences": [
+            "remote",
+            "freelance"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "derived_target_work_types": [
+            "language review",
+            "translation evaluation",
+            "AI linguistics"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Freelance localization specialist, 6 years. ES to EN and PT-BR to EN, French reading. Tools QA checks, subtitles, audio validation.",
+          "education_level": "not_specified",
+          "degrees_or_domains": [
+            "language",
+            "translation",
+            "linguistics"
+          ],
+          "languages": [
+            "Spanish",
+            "English",
+            "Portuguese",
+            "French"
+          ],
+          "skills": [
+            "localization",
+            "subtitles",
+            "audio validation",
+            "QA checks"
+          ],
+          "work_preferences": [
+            "remote",
+            "freelance"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "language review",
+            "translation evaluation",
+            "AI linguistics"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "Freelance localization specialist, 6 years. ES to EN and PT-BR to EN, French reading. Tools QA checks, subtitles, audio validation."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "French is reading-level only, not full bilingual fluency.",
+      "normalization_focus": [
+        "languages",
+        "locale",
+        "years_experience",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_multilingual_messy",
+      "archetype_id": "multilingual_translator",
+      "input_style": "messy_sparse_input",
+      "raw_input": "spanish portuguese french english; did translation audio checks; remote ok",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "multilingual_translator",
+          "display_name": "Multilingual Translator / Linguist",
+          "source_inputs": [
+            {
+              "type": "messy_sparse_input"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "Spanish",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "Portuguese",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "French",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "not_specified",
+          "degrees": [],
+          "fields_or_domains": [
+            "language",
+            "translation"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "language",
+            "translation"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "translation",
+            "audio checks"
+          ],
+          "free_text_labels": [
+            "translation",
+            "audio checks"
+          ],
+          "entries": [
+            {
+              "skill": "translation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "audio checks",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "language review",
+            "translation evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Language/translation signal",
+              "keywords": [
+                "language",
+                "linguistic",
+                "translation",
+                "translator",
+                "localization",
+                "bilingual"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "language",
+            "translation"
+          ],
+          "derived_target_work_types": [
+            "language review",
+            "translation evaluation"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "spanish portuguese french english; did translation audio checks; remote ok",
+          "education_level": "not_specified",
+          "degrees_or_domains": [
+            "language",
+            "translation"
+          ],
+          "languages": [
+            "Spanish",
+            "Portuguese",
+            "French",
+            "English"
+          ],
+          "skills": [
+            "translation",
+            "audio checks"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "language review",
+            "translation evaluation"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "messy_sparse_input",
+          "evidence_snippets": [
+            "spanish portuguese french english; did translation audio checks; remote ok"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": [
+            "language proficiency",
+            "locale"
+          ]
+        }
+      },
+      "review_notes": "Languages are present but proficiency and locale are unknown.",
+      "normalization_focus": [
+        "messy_input",
+        "languages",
+        "missing_ambiguous"
+      ]
+    },
+    {
+      "case_id": "pnv1_english_teacher_short",
+      "archetype_id": "english_teacher_remote",
+      "input_style": "short_paragraph",
+      "raw_input": "I am an English teacher. I can review grammar, writing feedback and student answers. Looking for remote AI writing evaluation.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "english_teacher_remote",
+          "display_name": "English Teacher Seeking Remote AI Work",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "native",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "bachelor",
+          "degrees": [],
+          "fields_or_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "teaching",
+            "grammar",
+            "writing feedback",
+            "student assessment"
+          ],
+          "free_text_labels": [
+            "teaching",
+            "grammar",
+            "writing feedback",
+            "student assessment"
+          ],
+          "entries": [
+            {
+              "skill": "teaching",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "grammar",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "writing feedback",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "student assessment",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [
+            "part-time"
+          ],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "AI writing evaluation",
+            "AI training",
+            "content review",
+            "language evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible",
+            "part-time"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Teaching/writing/review signal",
+              "keywords": [
+                "teacher",
+                "teaching",
+                "education",
+                "writing",
+                "review",
+                "content"
+              ],
+              "points": 9
+            }
+          ],
+          "derived_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "derived_target_work_types": [
+            "AI writing evaluation",
+            "AI training",
+            "content review",
+            "language evaluation"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "I am an English teacher. I can review grammar, writing feedback and student answers. Looking for remote AI writing evaluation.",
+          "education_level": "bachelor",
+          "degrees_or_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "teaching",
+            "grammar",
+            "writing feedback",
+            "student assessment"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible",
+            "part-time"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "AI writing evaluation",
+            "AI training",
+            "content review",
+            "language evaluation"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "I am an English teacher. I can review grammar, writing feedback and student answers. Looking for remote AI writing evaluation."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Teaching and writing feedback are explicit; no second language should be inferred.",
+      "normalization_focus": [
+        "education",
+        "skills",
+        "remote_preference",
+        "employment_type"
+      ]
+    },
+    {
+      "case_id": "pnv1_english_teacher_resume",
+      "archetype_id": "english_teacher_remote",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "BA English Education. ESL tutor and writing instructor, 5 years. Skills grammar correction, rubric grading, content review. Prefers part-time remote work.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "english_teacher_remote",
+          "display_name": "English Teacher Seeking Remote AI Work",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "high"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "bachelor",
+          "degrees": [
+            "BA English Education"
+          ],
+          "fields_or_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": 5,
+          "years_by_domain": {
+            "teaching": 5
+          },
+          "seniority": "mid",
+          "recent_roles": [
+            "ESL tutor",
+            "writing instructor"
+          ],
+          "professional_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "grammar correction",
+            "rubric grading",
+            "content review",
+            "writing instruction"
+          ],
+          "free_text_labels": [
+            "grammar correction",
+            "rubric grading",
+            "content review",
+            "writing instruction"
+          ],
+          "entries": [
+            {
+              "skill": "grammar correction",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "rubric grading",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "content review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "writing instruction",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": false,
+          "employment_types": [
+            "part-time"
+          ],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "AI writing evaluation",
+            "content review",
+            "language evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "part-time"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Teaching/writing/review signal",
+              "keywords": [
+                "teacher",
+                "teaching",
+                "education",
+                "writing",
+                "review",
+                "content"
+              ],
+              "points": 9
+            }
+          ],
+          "derived_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "derived_target_work_types": [
+            "AI writing evaluation",
+            "content review",
+            "language evaluation"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "BA English Education. ESL tutor and writing instructor, 5 years. Skills grammar correction, rubric grading, content review. Prefers part-time remote work.",
+          "education_level": "bachelor",
+          "degrees_or_domains": [
+            "English",
+            "education",
+            "teaching"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "grammar correction",
+            "rubric grading",
+            "content review",
+            "writing instruction"
+          ],
+          "work_preferences": [
+            "remote",
+            "part-time"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "AI writing evaluation",
+            "content review",
+            "language evaluation"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "BA English Education. ESL tutor and writing instructor, 5 years. Skills grammar correction, rubric grading, content review. Prefers part-time remote work."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Degree and years are explicit.",
+      "normalization_focus": [
+        "education",
+        "years_experience",
+        "employment_type",
+        "writing_review"
+      ]
+    },
+    {
+      "case_id": "pnv1_software_short",
+      "archetype_id": "software_engineer",
+      "input_style": "short_paragraph",
+      "raw_input": "Python backend engineer, interested in AI coding evaluations and code review. Remote contract preferred.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "software_engineer",
+          "display_name": "Software Engineer / Coding Evaluator",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "technical",
+          "degrees": [],
+          "fields_or_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "python",
+            "backend",
+            "code review",
+            "testing"
+          ],
+          "free_text_labels": [
+            "python",
+            "backend",
+            "code review",
+            "testing"
+          ],
+          "entries": [
+            {
+              "skill": "python",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "backend",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "code review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "testing",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": false,
+          "employment_types": [
+            "contract"
+          ],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "work_preferences": [
+            "remote",
+            "contract"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Coding/technical signal",
+              "keywords": [
+                "software",
+                "coding",
+                "python",
+                "developer",
+                "programming",
+                "technical"
+              ],
+              "points": 12
+            }
+          ],
+          "derived_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "derived_target_work_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Python backend engineer, interested in AI coding evaluations and code review. Remote contract preferred.",
+          "education_level": "technical",
+          "degrees_or_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "python",
+            "backend",
+            "code review",
+            "testing"
+          ],
+          "work_preferences": [
+            "remote",
+            "contract"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "Python backend engineer, interested in AI coding evaluations and code review. Remote contract preferred."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Software domain is explicit; science expertise should not be inferred.",
+      "normalization_focus": [
+        "skills",
+        "professional_domain_guardrail",
+        "employment_type"
+      ]
+    },
+    {
+      "case_id": "pnv1_software_resume",
+      "archetype_id": "software_engineer",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. Led backend teams. Looking for remote AI coding evaluator work.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "software_engineer",
+          "display_name": "Software Engineer / Coding Evaluator",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "technical",
+          "degrees": [],
+          "fields_or_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": 8,
+          "years_by_domain": {
+            "software engineering": 8
+          },
+          "seniority": "senior",
+          "recent_roles": [
+            "Senior Software Engineer",
+            "backend lead"
+          ],
+          "professional_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "python",
+            "typescript",
+            "react",
+            "api",
+            "test automation",
+            "backend"
+          ],
+          "free_text_labels": [
+            "python",
+            "typescript",
+            "react",
+            "api",
+            "test automation",
+            "backend"
+          ],
+          "entries": [
+            {
+              "skill": "python",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "typescript",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "react",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "api",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "test automation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "backend",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Coding/technical signal",
+              "keywords": [
+                "software",
+                "coding",
+                "python",
+                "developer",
+                "programming",
+                "technical"
+              ],
+              "points": 12
+            }
+          ],
+          "derived_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "derived_target_work_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. Led backend teams. Looking for remote AI coding evaluator work.",
+          "education_level": "technical",
+          "degrees_or_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "python",
+            "typescript",
+            "react",
+            "api",
+            "test automation",
+            "backend"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. Led backend teams. Looking for remote AI coding evaluator work."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Seniority and years are explicit.",
+      "normalization_focus": [
+        "skills",
+        "seniority",
+        "years_experience",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_software_long",
+      "archetype_id": "software_engineer",
+      "input_style": "long_paragraph",
+      "raw_input": "I have built web services in Python and JavaScript and reviewed pull requests. I do not have biology or medical credentials, but I can evaluate coding tasks and tests.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "software_engineer",
+          "display_name": "Software Engineer / Coding Evaluator",
+          "source_inputs": [
+            {
+              "type": "long_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "technical",
+          "degrees": [],
+          "fields_or_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "absent"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "python",
+            "javascript",
+            "pull request review",
+            "testing"
+          ],
+          "free_text_labels": [
+            "python",
+            "javascript",
+            "pull request review",
+            "testing"
+          ],
+          "entries": [
+            {
+              "skill": "python",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "javascript",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "pull request review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "testing",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": [
+            "no biology credentials",
+            "no medical credentials"
+          ]
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Coding/technical signal",
+              "keywords": [
+                "software",
+                "coding",
+                "python",
+                "developer",
+                "programming",
+                "technical"
+              ],
+              "points": 12
+            }
+          ],
+          "derived_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "derived_target_work_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "I have built web services in Python and JavaScript and reviewed pull requests. I do not have biology or medical credentials, but I can evaluate coding tasks and tests.",
+          "education_level": "technical",
+          "degrees_or_domains": [
+            "software",
+            "coding",
+            "python"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "python",
+            "javascript",
+            "pull request review",
+            "testing"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "coding evaluation",
+            "technical review",
+            "AI coding"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "long_paragraph",
+          "evidence_snippets": [
+            "I have built web services in Python and JavaScript and reviewed pull requests. I do not have biology or medical credentials, but I can evaluate coding tasks and"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Explicit absence of medical or science credentials should be preserved.",
+      "normalization_focus": [
+        "professional_domain_guardrail",
+        "license_absence",
+        "skills"
+      ]
+    },
+    {
+      "case_id": "pnv1_biology_long",
+      "archetype_id": "biology_or_medicine_academic",
+      "input_style": "long_paragraph",
+      "raw_input": "PhD microbiologist with academic research and scientific writing experience. I can review biology and medicine-related AI outputs, but I am not a licensed physician.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "biology_or_medicine_academic",
+          "display_name": "Biology / Medicine Academic",
+          "source_inputs": [
+            {
+              "type": "long_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "phd",
+          "degrees": [
+            "PhD microbiology"
+          ],
+          "fields_or_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "absent"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "advanced",
+          "recent_roles": [],
+          "professional_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "specialties": [
+            "microbiology",
+            "biology research"
+          ]
+        },
+        "skills": {
+          "normalized": [
+            "microbiology",
+            "scientific writing",
+            "medical review",
+            "biology research"
+          ],
+          "free_text_labels": [
+            "microbiology",
+            "scientific writing",
+            "medical review",
+            "biology research"
+          ],
+          "entries": [
+            {
+              "skill": "microbiology",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "scientific writing",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "medical review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "biology research",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "STEM expert AI training",
+            "medical AI review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [
+            "not a licensed physician"
+          ],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Science/medical signal",
+              "keywords": [
+                "biology",
+                "medicine",
+                "medical",
+                "clinical",
+                "chemistry",
+                "physics",
+                "science"
+              ],
+              "points": 14
+            }
+          ],
+          "derived_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "derived_target_work_types": [
+            "STEM expert AI training",
+            "medical AI review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "PhD microbiologist with academic research and scientific writing experience. I can review biology and medicine-related AI outputs, but I am not a licensed physician.",
+          "education_level": "phd",
+          "degrees_or_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "microbiology",
+            "scientific writing",
+            "medical review",
+            "biology research"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [
+            "not a licensed physician"
+          ],
+          "target_opportunity_types": [
+            "STEM expert AI training",
+            "medical AI review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "long_paragraph",
+          "evidence_snippets": [
+            "PhD microbiologist with academic research and scientific writing experience. I can review biology and medicine-related AI outputs, but I am not a licensed physi"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Academic biomedical expertise is distinct from physician licensure.",
+      "normalization_focus": [
+        "credentials",
+        "license_absence",
+        "professional_domain_guardrail",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_biology_resume",
+      "archetype_id": "biology_or_medicine_academic",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "Research Scientist, microbiology. PhD Biology, 7 years lab research, publications in antimicrobial resistance. No clinical license listed.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "biology_or_medicine_academic",
+          "display_name": "Biology / Medicine Academic",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "advanced_degree",
+          "degrees": [
+            "PhD Biology"
+          ],
+          "fields_or_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": 7,
+          "years_by_domain": {
+            "microbiology": 7
+          },
+          "seniority": "senior",
+          "recent_roles": [
+            "Research Scientist"
+          ],
+          "professional_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "specialties": [
+            "microbiology",
+            "antimicrobial resistance"
+          ]
+        },
+        "skills": {
+          "normalized": [
+            "microbiology",
+            "lab research",
+            "scientific writing",
+            "antimicrobial resistance"
+          ],
+          "free_text_labels": [
+            "microbiology",
+            "lab research",
+            "scientific writing",
+            "antimicrobial resistance"
+          ],
+          "entries": [
+            {
+              "skill": "microbiology",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "lab research",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "scientific writing",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "antimicrobial resistance",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "STEM expert AI training",
+            "medical AI review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Science/medical signal",
+              "keywords": [
+                "biology",
+                "medicine",
+                "medical",
+                "clinical",
+                "chemistry",
+                "physics",
+                "science"
+              ],
+              "points": 14
+            }
+          ],
+          "derived_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "derived_target_work_types": [
+            "STEM expert AI training",
+            "medical AI review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Research Scientist, microbiology. PhD Biology, 7 years lab research, publications in antimicrobial resistance. No clinical license listed.",
+          "education_level": "advanced_degree",
+          "degrees_or_domains": [
+            "biology",
+            "medicine",
+            "life sciences"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "microbiology",
+            "lab research",
+            "scientific writing",
+            "antimicrobial resistance"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "STEM expert AI training",
+            "medical AI review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "Research Scientist, microbiology. PhD Biology, 7 years lab research, publications in antimicrobial resistance. No clinical license listed."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "No clinical license is listed, so license remains unknown rather than invented.",
+      "normalization_focus": [
+        "education",
+        "years_experience",
+        "license_absence",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_biology_messy",
+      "archetype_id": "biology_or_medicine_academic",
+      "input_style": "messy_sparse_input",
+      "raw_input": "biology phd, papers, can do science review. medical license? no",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "biology_or_medicine_academic",
+          "display_name": "Biology / Medicine Academic",
+          "source_inputs": [
+            {
+              "type": "messy_sparse_input"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "phd",
+          "degrees": [],
+          "fields_or_domains": [
+            "biology",
+            "science"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "absent"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "biology",
+            "science"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "science review",
+            "academic writing"
+          ],
+          "free_text_labels": [
+            "science review",
+            "academic writing"
+          ],
+          "entries": [
+            {
+              "skill": "science review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "academic writing",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "STEM expert AI training"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [
+            "no medical license"
+          ],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Science/medical signal",
+              "keywords": [
+                "biology",
+                "medicine",
+                "medical",
+                "clinical",
+                "chemistry",
+                "physics",
+                "science"
+              ],
+              "points": 14
+            }
+          ],
+          "derived_domains": [
+            "biology",
+            "science"
+          ],
+          "derived_target_work_types": [
+            "STEM expert AI training"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "biology phd, papers, can do science review. medical license? no",
+          "education_level": "phd",
+          "degrees_or_domains": [
+            "biology",
+            "science"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "science review",
+            "academic writing"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [
+            "no medical license"
+          ],
+          "target_opportunity_types": [
+            "STEM expert AI training"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "messy_sparse_input",
+          "evidence_snippets": [
+            "biology phd, papers, can do science review. medical license? no"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": [
+            "years of experience",
+            "specialty depth"
+          ]
+        }
+      },
+      "review_notes": "Sparse input explicitly says no medical license.",
+      "normalization_focus": [
+        "messy_input",
+        "license_absence",
+        "missing_ambiguous"
+      ]
+    },
+    {
+      "case_id": "pnv1_lawyer_short",
+      "archetype_id": "lawyer",
+      "input_style": "short_paragraph",
+      "raw_input": "Lawyer with contract and IP experience, interested in legal AI training and expert review. Remote work preferred.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "lawyer",
+          "display_name": "Legal Expert / Lawyer",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "professional",
+          "degrees": [],
+          "fields_or_domains": [
+            "law",
+            "legal"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "law",
+            "legal"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "contracts",
+            "IP",
+            "legal reasoning",
+            "expert review"
+          ],
+          "free_text_labels": [
+            "contracts",
+            "IP",
+            "legal reasoning",
+            "expert review"
+          ],
+          "entries": [
+            {
+              "skill": "contracts",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "IP",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "legal reasoning",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "expert review",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "legal AI training",
+            "expert review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Legal domain signal",
+              "keywords": [
+                "legal",
+                "law",
+                "lawyer",
+                "attorney"
+              ],
+              "points": 14
+            }
+          ],
+          "derived_domains": [
+            "law",
+            "legal"
+          ],
+          "derived_target_work_types": [
+            "legal AI training",
+            "expert review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Lawyer with contract and IP experience, interested in legal AI training and expert review. Remote work preferred.",
+          "education_level": "professional",
+          "degrees_or_domains": [
+            "law",
+            "legal"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "contracts",
+            "IP",
+            "legal reasoning",
+            "expert review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "legal AI training",
+            "expert review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "Lawyer with contract and IP experience, interested in legal AI training and expert review. Remote work preferred."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Legal experience is explicit; jurisdiction and license are not.",
+      "normalization_focus": [
+        "credentials",
+        "domain_specialty",
+        "remote_preference"
+      ]
+    },
+    {
+      "case_id": "pnv1_lawyer_resume",
+      "archetype_id": "lawyer",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "JD, attorney admitted in California. 6 years employment law and contracts. Interested in remote legal AI evaluation.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "lawyer",
+          "display_name": "Legal Expert / Lawyer",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "professional",
+          "degrees": [
+            "JD"
+          ],
+          "fields_or_domains": [
+            "law",
+            "legal"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [
+            "attorney"
+          ],
+          "jurisdictions": [
+            "California"
+          ],
+          "credential_status": "explicit"
+        },
+        "experience": {
+          "total_years": 6,
+          "years_by_domain": {
+            "law": 6
+          },
+          "seniority": "mid",
+          "recent_roles": [],
+          "professional_domains": [
+            "law",
+            "legal"
+          ],
+          "specialties": [
+            "employment law",
+            "contracts"
+          ]
+        },
+        "skills": {
+          "normalized": [
+            "employment law",
+            "contracts",
+            "legal analysis"
+          ],
+          "free_text_labels": [
+            "employment law",
+            "contracts",
+            "legal analysis"
+          ],
+          "entries": [
+            {
+              "skill": "employment law",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "contracts",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "legal analysis",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "legal AI training",
+            "expert review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Legal domain signal",
+              "keywords": [
+                "legal",
+                "law",
+                "lawyer",
+                "attorney"
+              ],
+              "points": 14
+            }
+          ],
+          "derived_domains": [
+            "law",
+            "legal"
+          ],
+          "derived_target_work_types": [
+            "legal AI training",
+            "expert review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "JD, attorney admitted in California. 6 years employment law and contracts. Interested in remote legal AI evaluation.",
+          "education_level": "professional",
+          "degrees_or_domains": [
+            "law",
+            "legal"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "employment law",
+            "contracts",
+            "legal analysis"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "legal AI training",
+            "expert review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "JD, attorney admitted in California. 6 years employment law and contracts. Interested in remote legal AI evaluation."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "location"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Jurisdiction and license are explicit.",
+      "normalization_focus": [
+        "credentials",
+        "jurisdiction",
+        "years_experience",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_finance_short",
+      "archetype_id": "finance_professional",
+      "input_style": "short_paragraph",
+      "raw_input": "Finance professional with accounting and investment analysis background. Looking for AI expert evaluation projects.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "finance_professional",
+          "display_name": "Finance / Accounting Professional",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "professional",
+          "degrees": [],
+          "fields_or_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "finance",
+            "accounting",
+            "investment analysis",
+            "review"
+          ],
+          "free_text_labels": [
+            "finance",
+            "accounting",
+            "investment analysis",
+            "review"
+          ],
+          "entries": [
+            {
+              "skill": "finance",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "accounting",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "investment analysis",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "review",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "finance AI training",
+            "expert evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Finance/accounting signal",
+              "keywords": [
+                "finance",
+                "financial",
+                "accounting",
+                "investment",
+                "tax"
+              ],
+              "points": 14
+            }
+          ],
+          "derived_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "derived_target_work_types": [
+            "finance AI training",
+            "expert evaluation"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Finance professional with accounting and investment analysis background. Looking for AI expert evaluation projects.",
+          "education_level": "professional",
+          "degrees_or_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "finance",
+            "accounting",
+            "investment analysis",
+            "review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "finance AI training",
+            "expert evaluation"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "Finance professional with accounting and investment analysis background. Looking for AI expert evaluation projects."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Finance domain is explicit; no CPA credential is stated.",
+      "normalization_focus": [
+        "domain_specialty",
+        "professional_domain_guardrail"
+      ]
+    },
+    {
+      "case_id": "pnv1_finance_resume",
+      "archetype_id": "finance_professional",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "Senior financial analyst, 9 years. CFA Level II candidate. Equity research, accounting review, valuation models. Remote freelance expert work preferred.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "finance_professional",
+          "display_name": "Finance / Accounting Professional",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "professional",
+          "degrees": [],
+          "fields_or_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [
+            "CFA Level II candidate"
+          ],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "explicit"
+        },
+        "experience": {
+          "total_years": 9,
+          "years_by_domain": {
+            "finance": 9
+          },
+          "seniority": "senior",
+          "recent_roles": [
+            "Senior financial analyst"
+          ],
+          "professional_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "specialties": [
+            "equity research",
+            "valuation"
+          ]
+        },
+        "skills": {
+          "normalized": [
+            "equity research",
+            "accounting review",
+            "valuation models",
+            "investment analysis"
+          ],
+          "free_text_labels": [
+            "equity research",
+            "accounting review",
+            "valuation models",
+            "investment analysis"
+          ],
+          "entries": [
+            {
+              "skill": "equity research",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "accounting review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "valuation models",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "investment analysis",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": false,
+          "employment_types": [
+            "freelance"
+          ],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "finance AI training",
+            "expert evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "freelance"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Finance/accounting signal",
+              "keywords": [
+                "finance",
+                "financial",
+                "accounting",
+                "investment",
+                "tax"
+              ],
+              "points": 14
+            }
+          ],
+          "derived_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "derived_target_work_types": [
+            "finance AI training",
+            "expert evaluation"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Senior financial analyst, 9 years. CFA Level II candidate. Equity research, accounting review, valuation models. Remote freelance expert work preferred.",
+          "education_level": "professional",
+          "degrees_or_domains": [
+            "finance",
+            "accounting",
+            "investment"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "equity research",
+            "accounting review",
+            "valuation models",
+            "investment analysis"
+          ],
+          "work_preferences": [
+            "remote",
+            "freelance"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "finance AI training",
+            "expert evaluation"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "Senior financial analyst, 9 years. CFA Level II candidate. Equity research, accounting review, valuation models. Remote freelance expert work preferred."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "licenses",
+            "location"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "CFA candidacy is certification evidence, not a completed charter unless stated.",
+      "normalization_focus": [
+        "credentials",
+        "seniority",
+        "years_experience",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_history_short",
+      "archetype_id": "phd_history_researcher",
+      "input_style": "short_paragraph",
+      "raw_input": "PhD historian. I do archival research, source evaluation, academic writing and fact checking. Looking for remote humanities AI tasks.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "phd_history_researcher",
+          "display_name": "PhD History Researcher",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "French",
+            "proficiency": "reading",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "phd",
+          "degrees": [
+            "PhD History"
+          ],
+          "fields_or_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "advanced",
+          "recent_roles": [],
+          "professional_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "specialties": [
+            "history",
+            "archival research"
+          ]
+        },
+        "skills": {
+          "normalized": [
+            "archival research",
+            "source evaluation",
+            "academic writing",
+            "fact checking"
+          ],
+          "free_text_labels": [
+            "archival research",
+            "source evaluation",
+            "academic writing",
+            "fact checking"
+          ],
+          "entries": [
+            {
+              "skill": "archival research",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "source evaluation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "academic writing",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "fact checking",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "expert AI training",
+            "research evaluation",
+            "humanities AI tasks",
+            "writing review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Research/humanities signal",
+              "keywords": [
+                "history",
+                "historian",
+                "research",
+                "humanities",
+                "academic"
+              ],
+              "points": 10
+            }
+          ],
+          "derived_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "derived_target_work_types": [
+            "expert AI training",
+            "research evaluation",
+            "humanities AI tasks",
+            "writing review"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "PhD historian. I do archival research, source evaluation, academic writing and fact checking. Looking for remote humanities AI tasks.",
+          "education_level": "phd",
+          "degrees_or_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "languages": [
+            "English",
+            "French"
+          ],
+          "skills": [
+            "archival research",
+            "source evaluation",
+            "academic writing",
+            "fact checking"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "expert AI training",
+            "research evaluation",
+            "humanities AI tasks",
+            "writing review"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "PhD historian. I do archival research, source evaluation, academic writing and fact checking. Looking for remote humanities AI tasks."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Humanities expertise should not imply medical or legal eligibility.",
+      "normalization_focus": [
+        "education",
+        "domain_specialty",
+        "professional_domain_guardrail"
+      ]
+    },
+    {
+      "case_id": "pnv1_history_resume",
+      "archetype_id": "phd_history_researcher",
+      "input_style": "resume_or_linkedin_style",
+      "raw_input": "Lecturer and historian, PhD, 4 years teaching. French reading for archival sources. Publications in modern history. Remote research evaluation preferred.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "phd_history_researcher",
+          "display_name": "PhD History Researcher",
+          "source_inputs": [
+            {
+              "type": "resume_or_linkedin_style"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "professional",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          },
+          {
+            "language": "French",
+            "proficiency": "reading",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "phd",
+          "degrees": [
+            "PhD History"
+          ],
+          "fields_or_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": 4,
+          "years_by_domain": {
+            "teaching": 4
+          },
+          "seniority": "advanced",
+          "recent_roles": [
+            "Lecturer",
+            "historian"
+          ],
+          "professional_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "specialties": [
+            "modern history"
+          ]
+        },
+        "skills": {
+          "normalized": [
+            "teaching",
+            "academic writing",
+            "source evaluation",
+            "archival research"
+          ],
+          "free_text_labels": [
+            "teaching",
+            "academic writing",
+            "source evaluation",
+            "archival research"
+          ],
+          "entries": [
+            {
+              "skill": "teaching",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "academic writing",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "source evaluation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "archival research",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "expert AI training",
+            "research evaluation",
+            "humanities AI tasks"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [],
+          "soft_preferences": [],
+          "avoid_keywords": [],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Research/humanities signal",
+              "keywords": [
+                "history",
+                "historian",
+                "research",
+                "humanities",
+                "academic"
+              ],
+              "points": 10
+            },
+            {
+              "reason": "Teaching/writing/review signal",
+              "keywords": [
+                "teacher",
+                "teaching",
+                "education",
+                "writing",
+                "review",
+                "content"
+              ],
+              "points": 9
+            }
+          ],
+          "derived_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "derived_target_work_types": [
+            "expert AI training",
+            "research evaluation",
+            "humanities AI tasks"
+          ],
+          "avoid_keywords": []
+        },
+        "matcher_compatible_profile": {
+          "summary": "Lecturer and historian, PhD, 4 years teaching. French reading for archival sources. Publications in modern history. Remote research evaluation preferred.",
+          "education_level": "phd",
+          "degrees_or_domains": [
+            "history",
+            "humanities",
+            "academic research"
+          ],
+          "languages": [
+            "English",
+            "French"
+          ],
+          "skills": [
+            "teaching",
+            "academic writing",
+            "source evaluation",
+            "archival research"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [],
+          "target_opportunity_types": [
+            "expert AI training",
+            "research evaluation",
+            "humanities AI tasks"
+          ],
+          "notes": "",
+          "avoid_keywords": [],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "resume_or_linkedin_style",
+          "evidence_snippets": [
+            "Lecturer and historian, PhD, 4 years teaching. French reading for archival sources. Publications in modern history. Remote research evaluation preferred."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "French is reading proficiency, not necessarily fluent translation ability.",
+      "normalization_focus": [
+        "education",
+        "language_proficiency",
+        "years_experience",
+        "domain_specialty"
+      ]
+    },
+    {
+      "case_id": "pnv1_generalist_short",
+      "archetype_id": "generalist_no_degree",
+      "input_style": "short_paragraph",
+      "raw_input": "No degree. I can do online research, social media review, content moderation and simple annotation. Need remote flexible work.",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "generalist_no_degree",
+          "display_name": "Generalist Remote Starter",
+          "source_inputs": [
+            {
+              "type": "short_paragraph"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "intermediate",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "no_degree",
+          "degrees": [],
+          "fields_or_domains": [
+            "generalist"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "generalist"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "online research",
+            "social media review",
+            "content moderation",
+            "simple annotation"
+          ],
+          "free_text_labels": [
+            "online research",
+            "social media review",
+            "content moderation",
+            "simple annotation"
+          ],
+          "entries": [
+            {
+              "skill": "online research",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "social media review",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "content moderation",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "simple annotation",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "unknown",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "AI training",
+            "AI evaluation",
+            "data annotation",
+            "search evaluation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [
+            "no college degree"
+          ],
+          "soft_preferences": [],
+          "avoid_keywords": [
+            "doctorate",
+            "attorney",
+            "medical",
+            "finance",
+            "legal"
+          ],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Generalist AI-work signal",
+              "keywords": [
+                "generalist",
+                "ai trainer",
+                "ai training"
+              ],
+              "points": 9
+            },
+            {
+              "reason": "Data annotation signal",
+              "keywords": [
+                "annotation",
+                "annotator",
+                "data validation"
+              ],
+              "points": 7
+            }
+          ],
+          "derived_domains": [
+            "generalist"
+          ],
+          "derived_target_work_types": [
+            "AI training",
+            "AI evaluation",
+            "data annotation",
+            "search evaluation"
+          ],
+          "avoid_keywords": [
+            "doctorate",
+            "attorney",
+            "medical",
+            "finance",
+            "legal"
+          ]
+        },
+        "matcher_compatible_profile": {
+          "summary": "No degree. I can do online research, social media review, content moderation and simple annotation. Need remote flexible work.",
+          "education_level": "no_degree",
+          "degrees_or_domains": [
+            "generalist"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "online research",
+            "social media review",
+            "content moderation",
+            "simple annotation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [
+            "no college degree"
+          ],
+          "target_opportunity_types": [
+            "AI training",
+            "AI evaluation",
+            "data annotation",
+            "search evaluation"
+          ],
+          "notes": "",
+          "avoid_keywords": [
+            "doctorate",
+            "attorney",
+            "medical",
+            "finance",
+            "legal"
+          ],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "short_paragraph",
+          "evidence_snippets": [
+            "No degree. I can do online research, social media review, content moderation and simple annotation. Need remote flexible work."
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": []
+        }
+      },
+      "review_notes": "Generalist skills should not become professional-domain expertise.",
+      "normalization_focus": [
+        "education",
+        "remote_preference",
+        "constraints",
+        "generalist_annotation"
+      ]
+    },
+    {
+      "case_id": "pnv1_generalist_messy",
+      "archetype_id": "generalist_no_degree",
+      "input_style": "messy_sparse_input",
+      "raw_input": "remote tasks pls. can write review. no college. not coding. not calls",
+      "expected_canonical_profile": {
+        "schema_version": "canonical_profile_v1",
+        "identity": {
+          "profile_id": "generalist_no_degree",
+          "display_name": "Generalist Remote Starter",
+          "source_inputs": [
+            {
+              "type": "messy_sparse_input"
+            }
+          ]
+        },
+        "languages": [
+          {
+            "language": "English",
+            "proficiency": "unknown",
+            "locale": "",
+            "evidence": [],
+            "confidence": "medium"
+          }
+        ],
+        "location": {
+          "country": "",
+          "region": "",
+          "city": "",
+          "timezone": "",
+          "residence": "",
+          "work_authorization": "unknown",
+          "eligible_countries": [],
+          "remote_eligibility": "explicit",
+          "restrictions": []
+        },
+        "education": {
+          "education_level": "no_degree",
+          "degrees": [],
+          "fields_or_domains": [
+            "generalist"
+          ],
+          "institutions": [],
+          "graduation_years": []
+        },
+        "credentials": {
+          "certifications": [],
+          "licenses": [],
+          "jurisdictions": [],
+          "credential_status": "unknown"
+        },
+        "experience": {
+          "total_years": null,
+          "years_by_domain": {},
+          "seniority": "unknown",
+          "recent_roles": [],
+          "professional_domains": [
+            "generalist"
+          ],
+          "specialties": []
+        },
+        "skills": {
+          "normalized": [
+            "writing",
+            "review"
+          ],
+          "free_text_labels": [
+            "writing",
+            "review"
+          ],
+          "entries": [
+            {
+              "skill": "writing",
+              "evidence": [],
+              "confidence": "medium"
+            },
+            {
+              "skill": "review",
+              "evidence": [],
+              "confidence": "medium"
+            }
+          ]
+        },
+        "preferences": {
+          "remote": true,
+          "flexible": true,
+          "employment_types": [],
+          "phone_preference": "non-phone preferred",
+          "schedule": [],
+          "availability": "unknown",
+          "rate_pay_preference": "",
+          "target_opportunity_types": [
+            "AI training",
+            "data annotation"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ]
+        },
+        "constraints": {
+          "hard_constraints": [
+            "no college degree"
+          ],
+          "soft_preferences": [
+            "not coding",
+            "not calls"
+          ],
+          "avoid_keywords": [
+            "coding",
+            "phone calls"
+          ],
+          "negative_constraints": []
+        },
+        "derived_matcher_signals": {
+          "signals": [
+            {
+              "reason": "Generalist AI-work signal",
+              "keywords": [
+                "generalist",
+                "ai trainer",
+                "ai training"
+              ],
+              "points": 9
+            },
+            {
+              "reason": "Data annotation signal",
+              "keywords": [
+                "annotation",
+                "annotator",
+                "data validation"
+              ],
+              "points": 7
+            },
+            {
+              "reason": "Teaching/writing/review signal",
+              "keywords": [
+                "teacher",
+                "teaching",
+                "education",
+                "writing",
+                "review",
+                "content"
+              ],
+              "points": 9
+            }
+          ],
+          "derived_domains": [
+            "generalist"
+          ],
+          "derived_target_work_types": [
+            "AI training",
+            "data annotation"
+          ],
+          "avoid_keywords": [
+            "coding",
+            "phone calls"
+          ]
+        },
+        "matcher_compatible_profile": {
+          "summary": "remote tasks pls. can write review. no college. not coding. not calls",
+          "education_level": "no_degree",
+          "degrees_or_domains": [
+            "generalist"
+          ],
+          "languages": [
+            "English"
+          ],
+          "skills": [
+            "writing",
+            "review"
+          ],
+          "work_preferences": [
+            "remote",
+            "flexible"
+          ],
+          "constraints": [
+            "no college degree",
+            "not coding",
+            "not calls"
+          ],
+          "target_opportunity_types": [
+            "AI training",
+            "data annotation"
+          ],
+          "notes": "",
+          "avoid_keywords": [
+            "coding",
+            "phone calls"
+          ],
+          "location": "",
+          "country": "",
+          "residence": "",
+          "city": "",
+          "region": ""
+        },
+        "provenance": {
+          "extracted_from": "messy_sparse_input",
+          "evidence_snippets": [
+            "remote tasks pls. can write review. no college. not coding. not calls"
+          ],
+          "confidence": "medium",
+          "missing_fields": [
+            "certifications",
+            "licenses",
+            "location",
+            "total_years"
+          ],
+          "ambiguous_fields": [
+            "language proficiency",
+            "availability"
+          ]
+        }
+      },
+      "review_notes": "Do not infer coding skill; capture non-phone as preference.",
+      "normalization_focus": [
+        "messy_input",
+        "phone_preference",
+        "constraints",
+        "missing_ambiguous"
+      ]
+    }
+  ]
+}

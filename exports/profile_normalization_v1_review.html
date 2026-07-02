@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Profile Normalization Suite V1</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; color: #17202a; }
+    h1, h2 { margin-bottom: 0.3rem; }
+    .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+    .box { border: 1px solid #d8dee4; border-radius: 6px; padding: 12px; background: #f8fafc; }
+    .case { border-top: 1px solid #d8dee4; padding: 18px 0; }
+    .meta span { display: inline-block; margin: 0 6px 6px 0; padding: 3px 7px; border-radius: 999px; background: #eef2ff; font-size: 12px; }
+    pre { white-space: pre-wrap; background: #f6f8fa; padding: 12px; border-radius: 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border: 1px solid #d8dee4; padding: 6px; text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; }
+  </style>
+</head>
+<body>
+  <h1>Profile Normalization Suite V1</h1>
+  <p>This suite defines expected <code>canonical_profile_v1</code> outputs for future profile extraction. It is not an extractor.</p>
+  <div class="summary">
+    <div class="box"><strong>Total cases</strong><br>25</div>
+    <div class="box"><strong>Archetypes</strong><br>beginner_bilingual_no_degree: 3, biology_or_medicine_academic: 3, english_teacher_remote: 2, finance_professional: 2, generalist_no_degree: 2, lawyer: 2, multilingual_translator: 3, phd_history_researcher: 2, portuguese_english_reviewer: 3, software_engineer: 3</div>
+    <div class="box"><strong>Input styles</strong><br>long_paragraph: 3, messy_sparse_input: 4, resume_or_linkedin_style: 9, short_paragraph: 9</div>
+  </div>
+  <h2>Cases</h2>
+  
+<section class="case" id="pnv1_beginner_bilingual_short">
+  <h3>pnv1_beginner_bilingual_short</h3>
+  <div class="meta">
+    <span>beginner_bilingual_no_degree</span>
+    <span>short_paragraph</span>
+    <span>languages</span><span>education</span><span>remote_preference</span><span>bilingual_pool</span><span>professional_domain_guardrail</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>I speak English and Spanish, no college degree, looking for remote beginner AI data or language tasks.</pre>
+  <table>
+    <tr><th>Languages</th><td>English (fluent), Spanish (conversational)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>no_degree / generalist, language</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>bilingual communication, web research, basic writing, review</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>No unsupported languages or degree should be invented.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_beginner_bilingual_resume">
+  <h3>pnv1_beginner_bilingual_resume</h3>
+  <div class="meta">
+    <span>beginner_bilingual_no_degree</span>
+    <span>resume_or_linkedin_style</span>
+    <span>languages</span><span>phone_preference</span><span>education</span><span>remote_preference</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Profile bilingual support volunteer. Languages English fluent, Spanish native. Education high school. Seeking remote entry-level data annotation; no phone calls preferred.</pre>
+  <table>
+    <tr><th>Languages</th><td>English (fluent), Spanish (native)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>no_degree / generalist, language</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>bilingual communication, support, data annotation</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Phone preference is a preference, not an eligibility rule.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_beginner_bilingual_messy">
+  <h3>pnv1_beginner_bilingual_messy</h3>
+  <div class="meta">
+    <span>beginner_bilingual_no_degree</span>
+    <span>messy_sparse_input</span>
+    <span>messy_input</span><span>languages</span><span>missing_ambiguous</span><span>remote_preference</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>need remote work. english/spanish. beginner. no degree. can review websites maybe</pre>
+  <table>
+    <tr><th>Languages</th><td>English, Spanish</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>no_degree / generalist, language</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>website review, basic review</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years, language proficiency, availability</td></tr>
+    <tr><th>Review notes</th><td>Sparse input should preserve uncertainty.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_portuguese_short">
+  <h3>pnv1_portuguese_short</h3>
+  <div class="meta">
+    <span>portuguese_english_reviewer</span>
+    <span>short_paragraph</span>
+    <span>languages</span><span>location</span><span>remote_preference</span><span>bilingual_pool</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Portuguese native speaker in Brazil with advanced English. I have content review and search quality experience and want remote AI evaluation work.</pre>
+  <table>
+    <tr><th>Languages</th><td>Portuguese (native) [Brazil], English (advanced)</td></tr>
+    <tr><th>Location</th><td>Brazil</td></tr>
+    <tr><th>Education</th><td>not_specified / language, search quality, ai evaluation</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>content review, search quality, evaluation, translation</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, total_years</td></tr>
+    <tr><th>Review notes</th><td>Brazil is location evidence and Portuguese is explicit language evidence.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_portuguese_long">
+  <h3>pnv1_portuguese_long</h3>
+  <div class="meta">
+    <span>portuguese_english_reviewer</span>
+    <span>long_paragraph</span>
+    <span>languages</span><span>phone_preference</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>I worked on app reviews, ads quality checks, and translation QA. My strongest language is Brazilian Portuguese and I use English daily. I prefer remote flexible work and non-phone tasks.</pre>
+  <table>
+    <tr><th>Languages</th><td>Portuguese (native) [Brazil], English (professional)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>not_specified / language, search quality, ai evaluation</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>app review, ads quality, translation QA, evaluation</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Non-phone is a preference, not a hard exclusion.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_portuguese_resume">
+  <h3>pnv1_portuguese_resume</h3>
+  <div class="meta">
+    <span>portuguese_english_reviewer</span>
+    <span>resume_or_linkedin_style</span>
+    <span>languages</span><span>location</span><span>years_experience</span><span>employment_type</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Language QA Analyst Portuguese BR, English. 3 years content moderation and search relevance review. Location Sao Paulo, Brazil. Open to freelance remote AI rater roles.</pre>
+  <table>
+    <tr><th>Languages</th><td>Portuguese (professional) [BR], English (professional)</td></tr>
+    <tr><th>Location</th><td>Sao Paulo, Sao Paulo, Brazil</td></tr>
+    <tr><th>Education</th><td>not_specified / language, search quality, ai evaluation</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>3 years; mid</td></tr>
+    <tr><th>Skills</th><td>content moderation, search relevance, language QA</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses</td></tr>
+    <tr><th>Review notes</th><td>Years are explicit here and should be captured.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_multilingual_short">
+  <h3>pnv1_multilingual_short</h3>
+  <div class="meta">
+    <span>multilingual_translator</span>
+    <span>short_paragraph</span>
+    <span>languages</span><span>domain_specialty</span><span>bilingual_pool</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Translator: English, Spanish, Portuguese and French. I do localization, MTPE, audio QA and language review.</pre>
+  <table>
+    <tr><th>Languages</th><td>English (professional), Spanish (professional), Portuguese (professional), French (professional)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>not_specified / language, translation, linguistics</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>translation, localization, MTPE, audio QA, language review</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Multiple languages are explicit, but locale is unknown.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_multilingual_resume">
+  <h3>pnv1_multilingual_resume</h3>
+  <div class="meta">
+    <span>multilingual_translator</span>
+    <span>resume_or_linkedin_style</span>
+    <span>languages</span><span>locale</span><span>years_experience</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Freelance localization specialist, 6 years. ES to EN and PT-BR to EN, French reading. Tools QA checks, subtitles, audio validation.</pre>
+  <table>
+    <tr><th>Languages</th><td>Spanish (professional), English (professional), Portuguese (professional) [BR], French (reading)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>not_specified / language, translation, linguistics</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>6 years; mid</td></tr>
+    <tr><th>Skills</th><td>localization, subtitles, audio validation, QA checks</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location</td></tr>
+    <tr><th>Review notes</th><td>French is reading-level only, not full bilingual fluency.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_multilingual_messy">
+  <h3>pnv1_multilingual_messy</h3>
+  <div class="meta">
+    <span>multilingual_translator</span>
+    <span>messy_sparse_input</span>
+    <span>messy_input</span><span>languages</span><span>missing_ambiguous</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>spanish portuguese french english; did translation audio checks; remote ok</pre>
+  <table>
+    <tr><th>Languages</th><td>Spanish, Portuguese, French, English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>not_specified / language, translation</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>translation, audio checks</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years, language proficiency, locale</td></tr>
+    <tr><th>Review notes</th><td>Languages are present but proficiency and locale are unknown.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_english_teacher_short">
+  <h3>pnv1_english_teacher_short</h3>
+  <div class="meta">
+    <span>english_teacher_remote</span>
+    <span>short_paragraph</span>
+    <span>education</span><span>skills</span><span>remote_preference</span><span>employment_type</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>I am an English teacher. I can review grammar, writing feedback and student answers. Looking for remote AI writing evaluation.</pre>
+  <table>
+    <tr><th>Languages</th><td>English (native)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>bachelor / English, education, teaching</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>teaching, grammar, writing feedback, student assessment</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Teaching and writing feedback are explicit; no second language should be inferred.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_english_teacher_resume">
+  <h3>pnv1_english_teacher_resume</h3>
+  <div class="meta">
+    <span>english_teacher_remote</span>
+    <span>resume_or_linkedin_style</span>
+    <span>education</span><span>years_experience</span><span>employment_type</span><span>writing_review</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>BA English Education. ESL tutor and writing instructor, 5 years. Skills grammar correction, rubric grading, content review. Prefers part-time remote work.</pre>
+  <table>
+    <tr><th>Languages</th><td>English (professional)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>bachelor / English, education, teaching</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>5 years; mid</td></tr>
+    <tr><th>Skills</th><td>grammar correction, rubric grading, content review, writing instruction</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location</td></tr>
+    <tr><th>Review notes</th><td>Degree and years are explicit.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_software_short">
+  <h3>pnv1_software_short</h3>
+  <div class="meta">
+    <span>software_engineer</span>
+    <span>short_paragraph</span>
+    <span>skills</span><span>professional_domain_guardrail</span><span>employment_type</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Python backend engineer, interested in AI coding evaluations and code review. Remote contract preferred.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>technical / software, coding, python</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>python, backend, code review, testing</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Software domain is explicit; science expertise should not be inferred.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_software_resume">
+  <h3>pnv1_software_resume</h3>
+  <div class="meta">
+    <span>software_engineer</span>
+    <span>resume_or_linkedin_style</span>
+    <span>skills</span><span>seniority</span><span>years_experience</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. Led backend teams. Looking for remote AI coding evaluator work.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>technical / software, coding, python</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>8 years; senior</td></tr>
+    <tr><th>Skills</th><td>python, typescript, react, api, test automation, backend</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location</td></tr>
+    <tr><th>Review notes</th><td>Seniority and years are explicit.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_software_long">
+  <h3>pnv1_software_long</h3>
+  <div class="meta">
+    <span>software_engineer</span>
+    <span>long_paragraph</span>
+    <span>professional_domain_guardrail</span><span>license_absence</span><span>skills</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>I have built web services in Python and JavaScript and reviewed pull requests. I do not have biology or medical credentials, but I can evaluate coding tasks and tests.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>technical / software, coding, python</td></tr>
+    <tr><th>Credentials</th><td>status: absent</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>python, javascript, pull request review, testing</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Explicit absence of medical or science credentials should be preserved.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_biology_long">
+  <h3>pnv1_biology_long</h3>
+  <div class="meta">
+    <span>biology_or_medicine_academic</span>
+    <span>long_paragraph</span>
+    <span>credentials</span><span>license_absence</span><span>professional_domain_guardrail</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>PhD microbiologist with academic research and scientific writing experience. I can review biology and medicine-related AI outputs, but I am not a licensed physician.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>phd / biology, medicine, life sciences</td></tr>
+    <tr><th>Credentials</th><td>status: absent</td></tr>
+    <tr><th>Experience</th><td>advanced; microbiology, biology research</td></tr>
+    <tr><th>Skills</th><td>microbiology, scientific writing, medical review, biology research</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Academic biomedical expertise is distinct from physician licensure.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_biology_resume">
+  <h3>pnv1_biology_resume</h3>
+  <div class="meta">
+    <span>biology_or_medicine_academic</span>
+    <span>resume_or_linkedin_style</span>
+    <span>education</span><span>years_experience</span><span>license_absence</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Research Scientist, microbiology. PhD Biology, 7 years lab research, publications in antimicrobial resistance. No clinical license listed.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>advanced_degree / biology, medicine, life sciences</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>7 years; senior; microbiology, antimicrobial resistance</td></tr>
+    <tr><th>Skills</th><td>microbiology, lab research, scientific writing, antimicrobial resistance</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location</td></tr>
+    <tr><th>Review notes</th><td>No clinical license is listed, so license remains unknown rather than invented.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_biology_messy">
+  <h3>pnv1_biology_messy</h3>
+  <div class="meta">
+    <span>biology_or_medicine_academic</span>
+    <span>messy_sparse_input</span>
+    <span>messy_input</span><span>license_absence</span><span>missing_ambiguous</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>biology phd, papers, can do science review. medical license? no</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>phd / biology, science</td></tr>
+    <tr><th>Credentials</th><td>status: absent</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>science review, academic writing</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years, years of experience, specialty depth</td></tr>
+    <tr><th>Review notes</th><td>Sparse input explicitly says no medical license.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_lawyer_short">
+  <h3>pnv1_lawyer_short</h3>
+  <div class="meta">
+    <span>lawyer</span>
+    <span>short_paragraph</span>
+    <span>credentials</span><span>domain_specialty</span><span>remote_preference</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Lawyer with contract and IP experience, interested in legal AI training and expert review. Remote work preferred.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>professional / law, legal</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>contracts, IP, legal reasoning, expert review</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Legal experience is explicit; jurisdiction and license are not.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_lawyer_resume">
+  <h3>pnv1_lawyer_resume</h3>
+  <div class="meta">
+    <span>lawyer</span>
+    <span>resume_or_linkedin_style</span>
+    <span>credentials</span><span>jurisdiction</span><span>years_experience</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>JD, attorney admitted in California. 6 years employment law and contracts. Interested in remote legal AI evaluation.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>professional / law, legal</td></tr>
+    <tr><th>Credentials</th><td>licenses: attorney; jurisdictions: California; status: explicit</td></tr>
+    <tr><th>Experience</th><td>6 years; mid; employment law, contracts</td></tr>
+    <tr><th>Skills</th><td>employment law, contracts, legal analysis</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, location</td></tr>
+    <tr><th>Review notes</th><td>Jurisdiction and license are explicit.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_finance_short">
+  <h3>pnv1_finance_short</h3>
+  <div class="meta">
+    <span>finance_professional</span>
+    <span>short_paragraph</span>
+    <span>domain_specialty</span><span>professional_domain_guardrail</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Finance professional with accounting and investment analysis background. Looking for AI expert evaluation projects.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>professional / finance, accounting, investment</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>finance, accounting, investment analysis, review</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Finance domain is explicit; no CPA credential is stated.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_finance_resume">
+  <h3>pnv1_finance_resume</h3>
+  <div class="meta">
+    <span>finance_professional</span>
+    <span>resume_or_linkedin_style</span>
+    <span>credentials</span><span>seniority</span><span>years_experience</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Senior financial analyst, 9 years. CFA Level II candidate. Equity research, accounting review, valuation models. Remote freelance expert work preferred.</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>professional / finance, accounting, investment</td></tr>
+    <tr><th>Credentials</th><td>certifications: CFA Level II candidate; status: explicit</td></tr>
+    <tr><th>Experience</th><td>9 years; senior; equity research, valuation</td></tr>
+    <tr><th>Skills</th><td>equity research, accounting review, valuation models, investment analysis</td></tr>
+    <tr><th>Missing / ambiguous</th><td>licenses, location</td></tr>
+    <tr><th>Review notes</th><td>CFA candidacy is certification evidence, not a completed charter unless stated.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_history_short">
+  <h3>pnv1_history_short</h3>
+  <div class="meta">
+    <span>phd_history_researcher</span>
+    <span>short_paragraph</span>
+    <span>education</span><span>domain_specialty</span><span>professional_domain_guardrail</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>PhD historian. I do archival research, source evaluation, academic writing and fact checking. Looking for remote humanities AI tasks.</pre>
+  <table>
+    <tr><th>Languages</th><td>English, French (reading)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>phd / history, humanities, academic research</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>advanced; history, archival research</td></tr>
+    <tr><th>Skills</th><td>archival research, source evaluation, academic writing, fact checking</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Humanities expertise should not imply medical or legal eligibility.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_history_resume">
+  <h3>pnv1_history_resume</h3>
+  <div class="meta">
+    <span>phd_history_researcher</span>
+    <span>resume_or_linkedin_style</span>
+    <span>education</span><span>language_proficiency</span><span>years_experience</span><span>domain_specialty</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>Lecturer and historian, PhD, 4 years teaching. French reading for archival sources. Publications in modern history. Remote research evaluation preferred.</pre>
+  <table>
+    <tr><th>Languages</th><td>English (professional), French (reading)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>phd / history, humanities, academic research</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>4 years; advanced; modern history</td></tr>
+    <tr><th>Skills</th><td>teaching, academic writing, source evaluation, archival research</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location</td></tr>
+    <tr><th>Review notes</th><td>French is reading proficiency, not necessarily fluent translation ability.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_generalist_short">
+  <h3>pnv1_generalist_short</h3>
+  <div class="meta">
+    <span>generalist_no_degree</span>
+    <span>short_paragraph</span>
+    <span>education</span><span>remote_preference</span><span>constraints</span><span>generalist_annotation</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>No degree. I can do online research, social media review, content moderation and simple annotation. Need remote flexible work.</pre>
+  <table>
+    <tr><th>Languages</th><td>English (intermediate)</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>no_degree / generalist</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>online research, social media review, content moderation, simple annotation</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years</td></tr>
+    <tr><th>Review notes</th><td>Generalist skills should not become professional-domain expertise.</td></tr>
+  </table>
+</section>
+
+
+<section class="case" id="pnv1_generalist_messy">
+  <h3>pnv1_generalist_messy</h3>
+  <div class="meta">
+    <span>generalist_no_degree</span>
+    <span>messy_sparse_input</span>
+    <span>messy_input</span><span>phone_preference</span><span>constraints</span><span>missing_ambiguous</span>
+  </div>
+  <p><strong>Raw input:</strong></p>
+  <pre>remote tasks pls. can write review. no college. not coding. not calls</pre>
+  <table>
+    <tr><th>Languages</th><td>English</td></tr>
+    <tr><th>Location</th><td>explicit</td></tr>
+    <tr><th>Education</th><td>no_degree / generalist</td></tr>
+    <tr><th>Credentials</th><td>status: unknown</td></tr>
+    <tr><th>Experience</th><td>-</td></tr>
+    <tr><th>Skills</th><td>writing, review</td></tr>
+    <tr><th>Missing / ambiguous</th><td>certifications, licenses, location, total_years, language proficiency, availability</td></tr>
+    <tr><th>Review notes</th><td>Do not infer coding skill; capture non-phone as preference.</td></tr>
+  </table>
+</section>
+
+</body>
+</html>
