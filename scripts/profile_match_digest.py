@@ -761,7 +761,10 @@ def get_active_rows(conn, policy=None, policy_not=None, inventory_models=None):
           c.inventory_model,
           c.market_count_policy,
           co.canonical_title,
-          co.source_category
+          co.source_category,
+          co.language,
+          co.language_locale,
+          NULL AS required_languages
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         LEFT JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
@@ -793,7 +796,10 @@ def get_post_baseline_new_rows(conn, cutoff):
           c.inventory_model,
           c.market_count_policy,
           co.canonical_title,
-          co.source_category
+          co.source_category,
+          co.language,
+          co.language_locale,
+          NULL AS required_languages
         FROM job_events je
         JOIN jobs j ON j.id = je.job_id
         JOIN companies c ON c.id = j.company_id
@@ -989,6 +995,9 @@ def score_opportunity(profile, row):
         "market_count_policy": row["market_count_policy"],
         "include_in_live_market_estimate": row["include_in_live_market_estimate"],
         "is_canonical_representative": bool(row["canonical_opportunity_id"]),
+        "language": optional_row_value(row, "language"),
+        "language_locale": optional_row_value(row, "language_locale"),
+        "required_languages": optional_row_value(row, "required_languages"),
         "eligible_for_personalized": language_check.eligible_for_personalized,
         "language_requirement_mode": language_check.requirement_mode,
         "detected_languages": sorted(language_check.detected_languages),
@@ -1040,6 +1049,15 @@ def product_section_for_score(score, eligible_for_personalized=True):
     if score >= ALSO_WORTH_REVIEWING_SCORE_THRESHOLD:
         return "also_worth_reviewing"
     return "explore_only"
+
+
+def optional_row_value(row, key):
+    if hasattr(row, "get"):
+        return row.get(key)
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
 
 
 def section_rank(section):

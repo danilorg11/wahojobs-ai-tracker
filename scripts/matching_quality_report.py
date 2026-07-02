@@ -513,7 +513,10 @@ def load_benchmark_db_rows() -> list[dict]:
               c.inventory_model,
               c.market_count_policy,
               co.canonical_title,
-              co.source_category
+              co.source_category,
+              co.language,
+              co.language_locale,
+              NULL AS required_languages
             FROM jobs j
             JOIN companies c ON c.id = j.company_id
             LEFT JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id

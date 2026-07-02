@@ -341,6 +341,9 @@ def language_variants(language: str) -> list[str]:
 
 def row_language_text(row: dict) -> str:
     values = [
+        row_value(row, "required_languages"),
+        row_value(row, "language"),
+        row_value(row, "language_locale"),
         row_value(row, "title"),
         row_value(row, "canonical_title"),
         row_value(row, "department"),
