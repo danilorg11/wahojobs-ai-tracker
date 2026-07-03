@@ -32,6 +32,11 @@ from wahojobs.classification import (  # noqa: E402
     SOURCE_TIER_EXPERIMENTAL,
 )
 from wahojobs.db.connection import get_connection  # noqa: E402
+from wahojobs.matching.metadata_overlay import (  # noqa: E402
+    DEFAULT_OVERLAY_PATH,
+    apply_overlay_to_rows,
+    load_overlay,
+)
 from wahojobs.profiles.canonical import (  # noqa: E402
     canonical_profile_debug_summary,
     canonical_to_matcher_profile,
@@ -121,7 +126,12 @@ ACTIONABILITY_RANK = {
 def main() -> int:
     args = parse_args()
     raw_input = read_input(args)
-    context = build_preview_context(raw_input, args.input_style, limit=args.limit)
+    context = build_preview_context(
+        raw_input,
+        args.input_style,
+        limit=args.limit,
+        use_overlay=not args.no_overlay,
+    )
     rendered = render_context(context, args.format)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -160,6 +170,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Optional output path. No files are written unless this is provided.",
     )
+    parser.add_argument(
+        "--no-overlay",
+        action="store_true",
+        help="Disable the reviewed opportunity metadata overlay sidecar.",
+    )
     return parser.parse_args()
 
 
@@ -173,7 +188,12 @@ def read_input(args: argparse.Namespace) -> str:
     return value.strip()
 
 
-def build_preview_context(raw_input: str, input_style: str, limit: int = DEFAULT_LIMIT) -> dict:
+def build_preview_context(
+    raw_input: str,
+    input_style: str,
+    limit: int = DEFAULT_LIMIT,
+    use_overlay: bool = True,
+) -> dict:
     normalizer = BaselineHeuristicProfileNormalizer()
     normalization = normalizer.normalize(
         raw_input,
@@ -186,7 +206,7 @@ def build_preview_context(raw_input: str, input_style: str, limit: int = DEFAULT
     canonical = normalization.canonical_profile
     validate_canonical_profile(canonical)
     matcher_profile = canonical_to_matcher_profile(canonical)
-    grouped_matches = build_grouped_matches(matcher_profile, limit)
+    grouped_matches, overlay_status = build_grouped_matches(matcher_profile, limit, use_overlay=use_overlay)
     canonical_summary = canonical_profile_debug_summary(canonical)
     preview_warnings = build_preview_warnings(normalization.warnings, normalization, grouped_matches)
 
@@ -210,11 +230,12 @@ def build_preview_context(raw_input: str, input_style: str, limit: int = DEFAULT
         "extraction_quality": normalization.extraction_quality,
         "matches": grouped_matches,
         "match_summary": {section: len(grouped_matches[section]) for section in SECTION_ORDER},
+        "metadata_overlay": overlay_status,
     }
 
 
-def build_grouped_matches(profile: dict, limit: int) -> dict:
-    rows = load_preview_rows()
+def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -> tuple[dict, dict]:
+    rows, overlay_status = load_preview_rows(use_overlay=use_overlay)
     scored = []
     for row in rows:
         match = matcher.score_opportunity(profile, row)
@@ -228,10 +249,10 @@ def build_grouped_matches(profile: dict, limit: int) -> dict:
         if len(groups[section]) >= limit:
             continue
         groups[section].append(match)
-    return groups
+    return groups, overlay_status
 
 
-def load_preview_rows() -> list[dict]:
+def load_preview_rows(use_overlay: bool = True) -> tuple[list[dict], dict]:
     with get_connection() as conn:
         live_rows = matcher.get_active_rows(conn, policy=MARKET_COUNT_POLICY_COUNT_LIVE)
         evergreen_rows = matcher.get_active_rows(
@@ -248,7 +269,22 @@ def load_preview_rows() -> list[dict]:
         dict(row) for row in list(live_rows) + list(evergreen_rows) + list(public_rows)
         if row["source_tier"] != SOURCE_TIER_EXPERIMENTAL
     ]
-    return rows
+    if not use_overlay:
+        return rows, {
+            "enabled": False,
+            "path": str(DEFAULT_OVERLAY_PATH),
+            "records_loaded": 0,
+            "rows_enriched": 0,
+        }
+
+    overlay = load_overlay()
+    enriched_rows = apply_overlay_to_rows(rows, overlay)
+    return enriched_rows, {
+        "enabled": overlay.enabled,
+        "path": str(overlay.path),
+        "records_loaded": len(overlay.records_by_key),
+        "rows_enriched": sum(1 for row in enriched_rows if row.get("metadata_overlay_applied")),
+    }
 
 
 def apply_preview_guardrails(profile: dict, row: dict, match: dict) -> dict:
@@ -297,6 +333,24 @@ def preview_diagnostics_for_match(profile: dict, row: dict, match: dict) -> list
         diagnostics.append("Location/actionability needs review before prioritizing.")
     if match.get("professional_domain_hard_gate_applied"):
         diagnostics.append("Professional-domain mismatch.")
+    if match.get("metadata_overlay_applied"):
+        pieces = []
+        if match.get("overlay_required_languages"):
+            pieces.append("required languages: " + ", ".join(match["overlay_required_languages"]))
+        if match.get("overlay_language_locale"):
+            pieces.append("language locale: " + ", ".join(match["overlay_language_locale"][:4]))
+        if match.get("overlay_location_restriction"):
+            pieces.append("location restriction: " + ", ".join(match["overlay_location_restriction"]))
+        review_ids = match.get("overlay_review_ids") or []
+        diagnostics.append(
+            "Reviewed metadata overlay applied"
+            + (": " + "; ".join(pieces) if pieces else "")
+            + (f" (reviews: {', '.join(review_ids[:3])})" if review_ids else "")
+        )
+    if match.get("overlay_location_restriction"):
+        diagnostics.append(
+            "Reviewed title-derived location restriction exists; inspect before prioritizing."
+        )
     title_text = normalize_text(match.get("display_title"))
     row_text = preview_row_text(row)
     profile_languages = matcher.profile_language_set(profile)
@@ -511,6 +565,12 @@ def render_text(context: dict) -> str:
         f"Missing fields: {', '.join(context['missing_fields']) or '-'}",
         f"Ambiguous fields: {', '.join(context['ambiguous_fields']) or '-'}",
         f"Warnings: {', '.join(context['warnings']) or '-'}",
+        (
+            "Metadata overlay: "
+            f"{'enabled' if context['metadata_overlay']['enabled'] else 'disabled'}; "
+            f"records={context['metadata_overlay']['records_loaded']}; "
+            f"rows enriched={context['metadata_overlay']['rows_enriched']}"
+        ),
         "",
         "Recommended Opportunities",
         "-------------------------",
@@ -570,6 +630,9 @@ def render_html(context: dict) -> str:
   <h1>Profile to Matches Preview</h1>
   <p class="notice">{html_escape(context['disclaimer'])}</p>
   <p class="meta">Generated: {html_escape(context['generated_at'])} | Input style: {html_escape(context['input_style'])}</p>
+  <p class="meta">Metadata overlay: {html_escape('enabled' if context['metadata_overlay']['enabled'] else 'disabled')} |
+     records={context['metadata_overlay']['records_loaded']} |
+     rows enriched={context['metadata_overlay']['rows_enriched']}</p>
   <h2>Canonical Profile Preview</h2>
   <div class="grid">
     <div class="box"><strong>Languages</strong><br>{html_escape(join_languages(canonical))}</div>
@@ -642,6 +705,11 @@ def match_summary(match: dict) -> dict:
         "reasons",
         "preview_diagnostics",
         "variant_count",
+        "metadata_overlay_applied",
+        "overlay_required_languages",
+        "overlay_language_locale",
+        "overlay_location_restriction",
+        "overlay_review_ids",
     )
     return {key: match.get(key) for key in keys}
 

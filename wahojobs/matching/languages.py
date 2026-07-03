@@ -41,6 +41,7 @@ LANGUAGE_ALIASES = {
     "arabic": "arabic",
     "armenian": "armenian",
     "azerbaijani": "azerbaijani",
+    "assamese": "assamese",
     "bengali": "bengali",
     "bangla": "bengali",
     "bosnian": "bosnian",

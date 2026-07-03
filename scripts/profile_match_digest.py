@@ -1032,6 +1032,14 @@ def score_opportunity(profile, row):
         "professional_domain_hard_gate_reason": (
             professional_domain_hard_gate["reason"] if professional_domain_hard_gate else ""
         ),
+        "metadata_overlay_applied": bool(optional_row_value(row, "metadata_overlay_applied")),
+        "metadata_overlay_key": optional_row_value(row, "metadata_overlay_key"),
+        "metadata_overlay_source": optional_row_value(row, "metadata_overlay_source"),
+        "overlay_required_languages": optional_row_value(row, "overlay_required_languages") or [],
+        "overlay_language_locale": optional_row_value(row, "overlay_language_locale") or [],
+        "overlay_location_restriction": optional_row_value(row, "overlay_location_restriction") or [],
+        "overlay_review_ids": optional_row_value(row, "overlay_review_ids") or [],
+        "overlay_warnings": optional_row_value(row, "overlay_warnings") or [],
         "raw_product_section": raw_section,
         "evergreen_adjusted_section": evergreen_adjusted_section,
         "effective_product_section": effective_section,
