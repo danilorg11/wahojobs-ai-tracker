@@ -67,6 +67,13 @@ SECTION_LABELS = {
     "excluded": "Excluded / Not Personalized",
 }
 DEFAULT_LIMIT = 5
+HTML_SECTION_LIMITS = {
+    "do_these_first": 5,
+    "best_matches": 8,
+    "also_worth_reviewing": 8,
+    "explore_only": 8,
+    "excluded": 8,
+}
 UNCONFIRMED_LANGUAGE_TERMS = {
     "american sign language": "american sign language",
     "assamese": "assamese",
@@ -608,75 +615,248 @@ def format_text_match(match: dict) -> list[str]:
     ]
 
 
+def html_profile_chips(canonical: dict) -> str:
+    chips = [
+        ("Languages", join_languages(canonical)),
+        ("Location", location_label(canonical)),
+        ("Remote", remote_preference_label(canonical)),
+        ("Education", canonical["education"].get("education_level") or "unknown"),
+    ]
+    domains = ", ".join(canonical["education"].get("fields_or_domains") or [])
+    if domains:
+        chips.append(("Domains", domains))
+    skills = ", ".join((canonical["skills"].get("normalized") or [])[:4])
+    if skills:
+        chips.append(("Skills", skills))
+    return "".join(
+        f'<span class="chip"><strong>{html_escape(label)}:</strong> {html_escape(value or "-")}</span>'
+        for label, value in chips
+    )
+
+
+def html_missing_items(context: dict) -> str:
+    prompts = clarification_prompts(context)
+    if not prompts:
+        prompts = ["Nothing urgent. The profile has enough information for a first matching pass."]
+    return "".join(f"<li>{html_escape(prompt)}</li>" for prompt in prompts)
+
+
+def clarification_prompts(context: dict) -> list[str]:
+    prompts = []
+    missing = set(context.get("missing_fields") or [])
+    ambiguous = set(context.get("ambiguous_fields") or [])
+    canonical = context["canonical_profile"]
+    credentials = canonical.get("credentials") or {}
+    experience = canonical.get("experience") or {}
+
+    if "location" in missing or location_label(canonical) == "-":
+        prompts.append("Your country or work location, so country-specific roles can be prioritized safely.")
+    if "languages" in missing or "language proficiency" in ambiguous:
+        prompts.append("Your working languages and proficiency levels, especially for language-review roles.")
+    if not canonical["education"].get("education_level") or canonical["education"].get("education_level") == "unknown":
+        prompts.append("Your education level or degree status, if relevant to expert roles.")
+    if credentials.get("credential_status") in {"unknown", ""}:
+        prompts.append("Whether you hold any professional licenses or certifications.")
+    if experience.get("total_years") in {None, ""}:
+        prompts.append("Approximate years of experience or seniority.")
+    if "messy_input" in ambiguous:
+        prompts.append("A little more detail about the work you want to do.")
+    return unique_list(prompts)
+
+
+def html_section_note(section: str) -> str:
+    notes = {
+        "do_these_first": "Start here. These are the few matches most worth acting on first.",
+        "best_matches": "Strong fits worth reviewing next.",
+        "also_worth_reviewing": "Good possibilities, but not today's top priority.",
+    }
+    note = notes.get(section, "")
+    return f'<p class="section-note">{html_escape(note)}</p>' if note else ""
+
+
+def user_fit_reason(match: dict) -> str:
+    reasons = match.get("reasons") or []
+    friendly = []
+    for reason in reasons:
+        text = friendly_reason(reason)
+        if text and text not in friendly:
+            friendly.append(text)
+        if len(friendly) >= 2:
+            break
+    if friendly:
+        return " ".join(friendly)
+    if match.get("matched_languages"):
+        languages = ", ".join(language.title() for language in match["matched_languages"])
+        return f"It appears to match your listed language(s): {languages}."
+    return "It shares some profile signals, but you should review the details before acting."
+
+
+def friendly_reason(reason: str) -> str:
+    text = str(reason or "")
+    lowered = text.lower()
+    if "language" in lowered:
+        return "It lines up with your language background."
+    if "remote" in lowered or "flexible" in lowered:
+        return "It appears compatible with remote or flexible work."
+    if "coding" in lowered or "technical" in lowered or "python" in lowered:
+        return "It matches your technical or coding background."
+    if "legal" in lowered:
+        return "It matches your legal background."
+    if "finance" in lowered or "accounting" in lowered:
+        return "It matches your finance or accounting background."
+    if "biology" in lowered or "medical" in lowered or "science" in lowered or "microbiology" in lowered:
+        return "It matches your science or medical background."
+    if "evergreen" in lowered:
+        return "It is an always-open application surface that may be useful."
+    if "public inventory" in lowered or "mixed" in lowered:
+        return "It is a useful public lead, even if it is not a live-market posting."
+    if "review" in lowered or "rater" in lowered or "evaluation" in lowered:
+        return "It matches review or evaluation work signals."
+    if "live/countable" in lowered:
+        return "It is currently tracked as an active opportunity."
+    return text.rstrip(".") + "." if text else ""
+
+
+def user_caution_note(match: dict) -> str:
+    cautions = []
+    if match.get("unsupported_languages"):
+        cautions.append(
+            "This role appears to require "
+            + ", ".join(language.title() for language in match["unsupported_languages"])
+            + ", which is not listed on the profile."
+        )
+    if match.get("location_actionability_cap_applied"):
+        cautions.append("Location eligibility needs review before prioritizing this.")
+    if match.get("professional_domain_hard_gate_applied"):
+        cautions.append("The professional domain does not appear to match this profile.")
+    for diagnostic in match.get("preview_diagnostics") or []:
+        if diagnostic.startswith("Possible unconfirmed language requirement"):
+            cautions.append("The title may contain an unconfirmed language requirement.")
+        elif diagnostic.startswith("Medical license or credential may be required"):
+            cautions.append("A medical or professional credential may be required.")
+        elif diagnostic.startswith("Reviewed title-derived location restriction"):
+            cautions.append("A reviewed title-derived location restriction may apply.")
+    return " ".join(unique_list(cautions)[:2])
+
+
 def render_html(context: dict) -> str:
     canonical = context["canonical_profile"]
     sections = "\n".join(render_html_section(section, context["matches"][section]) for section in SECTION_ORDER)
+    missing_items = html_missing_items(context)
+    profile_chips = html_profile_chips(canonical)
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>Profile to Matches Preview</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 32px; color: #17202a; line-height: 1.45; }}
+    body {{ font-family: Arial, sans-serif; margin: 0; color: #17202a; line-height: 1.45; background: #f7f8fb; }}
+    main {{ max-width: 1080px; margin: 0 auto; padding: 32px; }}
+    .hero {{ background: #ffffff; border-bottom: 1px solid #d8dee4; padding: 28px 32px; }}
+    .hero-inner {{ max-width: 1080px; margin: 0 auto; }}
+    .subtle {{ color: #57606a; }}
     .notice {{ border: 1px solid #d8dee4; background: #f6f8fa; padding: 12px; border-radius: 6px; }}
     .grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
-    .box, .match {{ border: 1px solid #d8dee4; border-radius: 6px; padding: 12px; margin: 10px 0; }}
-    .match {{ background: #fff; }}
+    .box, .match {{ border: 1px solid #d8dee4; border-radius: 6px; padding: 14px; margin: 10px 0; background: #fff; }}
+    .chips {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }}
+    .chip {{ border: 1px solid #d8dee4; border-radius: 999px; padding: 6px 10px; background: #fff; font-size: 0.92rem; }}
+    .section-note {{ color: #57606a; margin-top: -4px; }}
     .meta {{ color: #57606a; font-size: 0.92rem; }}
+    .card-top {{ display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }}
+    .badge {{ border: 1px solid #d8dee4; border-radius: 999px; padding: 4px 8px; white-space: nowrap; color: #57606a; font-size: 0.82rem; }}
+    .fit {{ margin: 8px 0; }}
+    .caution {{ border-left: 3px solid #bf8700; padding-left: 10px; color: #5f4b00; }}
+    details {{ margin: 14px 0; }}
+    details.diagnostic {{ border: 1px solid #d8dee4; border-radius: 6px; padding: 12px; background: #fff; }}
+    summary {{ cursor: pointer; font-weight: 700; }}
     code {{ background: #f6f8fa; padding: 1px 4px; border-radius: 4px; }}
+    @media (max-width: 760px) {{ main, .hero {{ padding: 20px; }} .grid {{ grid-template-columns: 1fr; }} .card-top {{ display: block; }} }}
   </style>
 </head>
 <body>
-  <h1>Profile to Matches Preview</h1>
-  <p class="notice">{html_escape(context['disclaimer'])}</p>
-  <p class="meta">Generated: {html_escape(context['generated_at'])} | Input style: {html_escape(context['input_style'])}</p>
-  <p class="meta">Metadata overlay: {html_escape('enabled' if context['metadata_overlay']['enabled'] else 'disabled')} |
-     records={context['metadata_overlay']['records_loaded']} |
-     rows enriched={context['metadata_overlay']['rows_enriched']}</p>
-  <h2>Canonical Profile Preview</h2>
-  <div class="grid">
-    <div class="box"><strong>Languages</strong><br>{html_escape(join_languages(canonical))}</div>
-    <div class="box"><strong>Location</strong><br>{html_escape(location_label(canonical))}</div>
-    <div class="box"><strong>Remote preference</strong><br>{html_escape(remote_preference_label(canonical))}</div>
-    <div class="box"><strong>Education</strong><br>{html_escape(canonical['education'].get('education_level') or 'unknown')}</div>
-    <div class="box"><strong>Domains</strong><br>{html_escape(', '.join(canonical['education'].get('fields_or_domains') or []) or '-')}</div>
-    <div class="box"><strong>Credentials/licenses</strong><br>{html_escape(credentials_label(canonical))}</div>
-    <div class="box"><strong>Missing</strong><br>{html_escape(', '.join(context['missing_fields']) or '-')}</div>
-    <div class="box"><strong>Ambiguous</strong><br>{html_escape(', '.join(context['ambiguous_fields']) or '-')}</div>
-  </div>
-  <h2>Warnings</h2>
-  <ul>
-    {''.join(f'<li>{html_escape(warning)}</li>' for warning in context['warnings']) or '<li>-</li>'}
-  </ul>
-  <h2>Recommended Opportunities</h2>
-  {sections}
+  <header class="hero">
+    <div class="hero-inner">
+      <h1>AI Work Match Preview</h1>
+      <p class="subtle">A local preview of how Wahojobs understands a profile and turns it into a short opportunity plan.</p>
+      <p class="notice">{html_escape(context['disclaimer'])}</p>
+      <p class="meta">Generated: {html_escape(context['generated_at'])} | Input style: {html_escape(context['input_style'])}</p>
+    </div>
+  </header>
+  <main>
+    <section>
+      <h2>Profile Understood</h2>
+      <p class="subtle">These are the main signals we extracted from the profile.</p>
+      <div class="chips">{profile_chips}</div>
+      <div class="grid">
+        <div class="box"><strong>Languages</strong><br>{html_escape(join_languages(canonical))}</div>
+        <div class="box"><strong>Remote preference</strong><br>{html_escape(remote_preference_label(canonical))}</div>
+        <div class="box"><strong>Domains</strong><br>{html_escape(', '.join(canonical['education'].get('fields_or_domains') or []) or '-')}</div>
+        <div class="box"><strong>Credentials/licenses</strong><br>{html_escape(credentials_label(canonical))}</div>
+      </div>
+    </section>
+    <section>
+      <h2>What We Still Need To Know</h2>
+      <p class="subtle">Clarifying these details can improve fit and prevent bad recommendations.</p>
+      <ul>{missing_items}</ul>
+    </section>
+    <section>
+      <h2>Recommended Opportunities</h2>
+      <p class="subtle">The short list below is capped for readability. Broader browse and excluded results are collapsed by default.</p>
+      {sections}
+    </section>
+    <details class="diagnostic">
+      <summary>Technical details</summary>
+      <p class="meta">Metadata overlay: {html_escape('enabled' if context['metadata_overlay']['enabled'] else 'disabled')} |
+         records={context['metadata_overlay']['records_loaded']} |
+         rows enriched={context['metadata_overlay']['rows_enriched']}</p>
+      <p class="meta">Normalizer: {html_escape(context['normalizer'])} ({html_escape(context['extraction_quality'])})</p>
+      <p class="meta">Warnings: {html_escape('; '.join(context['warnings']) or '-')}</p>
+      <p class="meta">Missing fields: {html_escape(', '.join(context['missing_fields']) or '-')}</p>
+      <p class="meta">Ambiguous fields: {html_escape(', '.join(context['ambiguous_fields']) or '-')}</p>
+    </details>
+  </main>
 </body>
 </html>
 """
 
 
 def render_html_section(section: str, matches: list[dict]) -> str:
-    cards = "\n".join(render_html_match(match) for match in matches) if matches else "<p>None in this preview.</p>"
+    visible_limit = HTML_SECTION_LIMITS.get(section, 8)
+    visible_matches = matches[:visible_limit]
+    cards = "\n".join(render_html_match(match, section) for match in visible_matches) if visible_matches else "<p>None in this preview.</p>"
+    more = len(matches) - len(visible_matches)
+    more_note = f"<p class=\"meta\">Showing {len(visible_matches)} of {len(matches)}. {more} more kept out of the main view.</p>" if more > 0 else ""
     if section in {"explore_only", "excluded"}:
         return (
-            f"<details><summary>{html_escape(SECTION_LABELS[section])} ({len(matches)}) "
-            "- diagnostic browse results</summary>"
-            f"{cards}</details>"
+            f"<details class=\"diagnostic\"><summary>{html_escape(SECTION_LABELS[section])} ({len(matches)}) "
+            "- broader browse and diagnostic results</summary>"
+            f"<p class=\"section-note\">These are not primary recommendations. Open when you want to inspect edge cases or broader market inventory.</p>"
+            f"{cards}{more_note}</details>"
         )
-    return f"<section><h3>{html_escape(SECTION_LABELS[section])} ({len(matches)})</h3>{cards}</section>"
+    note = html_section_note(section)
+    return f"<section><h3>{html_escape(SECTION_LABELS[section])} ({len(matches)})</h3>{note}{cards}{more_note}</section>"
 
 
-def render_html_match(match: dict) -> str:
-    reasons = "; ".join(match.get("reasons") or []) or "-"
+def render_html_match(match: dict, section: str) -> str:
+    fit_reason = user_fit_reason(match)
+    caution = user_caution_note(match)
     url = match.get("url") or ""
     link = f'<a href="{html_escape(url)}">Open</a>' if url else "-"
     return f"""
 <article class="match">
-  <h4>{html_escape(match['display_title'])}</h4>
-  <p class="meta">{html_escape(match['source'])} | {html_escape(match.get('location') or 'Unknown')} | {html_escape(match.get('expertise') or 'Unknown')} | {match['score']} pts</p>
-  <p>{html_escape(reasons)}</p>
-  <p class="meta">Diagnostics: {html_escape('; '.join(match.get('preview_diagnostics') or []) or '-')}</p>
+  <div class="card-top">
+    <h4>{html_escape(match['display_title'])}</h4>
+    <span class="badge">{html_escape(SECTION_LABELS.get(section, section))}</span>
+  </div>
+  <p class="meta">{html_escape(match['source'])} | {html_escape(match.get('location') or 'Unknown')} | {html_escape(match.get('expertise') or 'Unknown')}</p>
+  <p class="fit"><strong>Why it may fit:</strong> {html_escape(fit_reason)}</p>
+  {f'<p class="caution"><strong>Check first:</strong> {html_escape(caution)}</p>' if caution else ''}
   <p>{link}</p>
+  <details>
+    <summary>Technical details</summary>
+    <p class="meta">Score: {match['score']} | Reasons: {html_escape('; '.join(match.get('reasons') or []) or '-')}</p>
+    <p class="meta">Diagnostics: {html_escape('; '.join(match.get('preview_diagnostics') or []) or '-')}</p>
+  </details>
 </article>
 """
 

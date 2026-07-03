@@ -86,6 +86,56 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         self.assertIn("Recommended Opportunities", html)
         self.assertIn("Remote preference", html)
 
+    def test_html_preview_has_product_friendly_profile_summary(self):
+        context = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks with no phone calls.",
+            "short_paragraph",
+            limit=12,
+        )
+        html = preview.render_context(context, "html")
+
+        self.assertIn("AI Work Match Preview", html)
+        self.assertIn("Profile Understood", html)
+        self.assertIn("What We Still Need To Know", html)
+        self.assertIn("These are the main signals we extracted", html)
+        self.assertIn("Your country or work location", html)
+
+    def test_html_preview_limits_visible_opportunity_cards(self):
+        context = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "short_paragraph",
+            limit=40,
+        )
+        html = preview.render_context(context, "html")
+
+        self.assertLessEqual(html.count('<article class="match">'), sum(preview.HTML_SECTION_LIMITS.values()))
+        self.assertIn("Showing 8 of", html)
+
+    def test_html_collapses_explore_and_excluded_as_diagnostic_sections(self):
+        context = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "short_paragraph",
+            limit=20,
+        )
+        html = preview.render_context(context, "html")
+
+        self.assertIn('<details class="diagnostic"><summary>Explore Only', html)
+        self.assertIn('<details class="diagnostic"><summary>Excluded / Not Personalized', html)
+        self.assertIn("broader browse and diagnostic results", html)
+
+    def test_html_keeps_technical_diagnostics_collapsed(self):
+        context = preview.build_preview_context(
+            "Senior Software Engineer, 8 years. Python, TypeScript, React. Remote contract preferred.",
+            "resume_or_linkedin_style",
+            limit=4,
+        )
+        html = preview.render_context(context, "html")
+
+        self.assertIn("<summary>Technical details</summary>", html)
+        self.assertIn("Score:", html)
+        self.assertIn("Metadata overlay:", html)
+        self.assertNotIn(" pts</p>", html)
+
     def test_preview_shows_unconfirmed_language_metadata_gap(self):
         context = preview.build_preview_context(
             "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
