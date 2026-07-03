@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from html import escape as html_escape
@@ -77,6 +78,12 @@ CSV_COLUMNS = [
     "apply_eligible",
 ]
 
+APPLY_METADATA_FIELDS = (
+    "human_required_languages",
+    "human_language_locale",
+    "human_location_restriction",
+)
+
 SOURCE_PRIORITY = {
     "oneforma": 0,
     "mercor": 1,
@@ -117,8 +124,25 @@ class ReviewCandidate:
         return self.data["candidate_confidence"]
 
 
+@dataclass
+class ApplyPlan:
+    rows_read: int
+    approved_rows: int
+    skipped_by_decision: Counter
+    overlay_records: list[dict]
+    rows_merged: int
+    conflicts: list[str]
+    warnings: list[str]
+    counts_by_source: Counter
+    counts_by_metadata_type: Counter
+    validation_errors: list[str]
+
+
 def main() -> int:
     args = parse_args()
+    if args.command == "apply":
+        return run_apply_command(args)
+
     with get_connection() as conn:
         rows = load_review_rows(conn)
     candidates = select_review_batch(build_candidates(rows), max_rows=args.max_rows)
@@ -129,6 +153,34 @@ def main() -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command")
+
+    apply_parser = subparsers.add_parser(
+        "apply",
+        help="Validate reviewed CSV decisions and build a deterministic metadata overlay.",
+    )
+    apply_parser.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="Reviewed opportunity metadata gap CSV.",
+    )
+    apply_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate and summarize the overlay without writing files.",
+    )
+    apply_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm writing the overlay JSON.",
+    )
+    apply_parser.add_argument(
+        "--output",
+        type=Path,
+        help="Output JSON path for confirmed apply mode.",
+    )
+
     parser.add_argument(
         "--output-prefix",
         type=Path,
@@ -510,6 +562,314 @@ def print_summary(candidates: list[ReviewCandidate], output_prefix: Path) -> Non
 
 def compact_counter(counter: Counter) -> str:
     return ", ".join(f"{key}={value}" for key, value in sorted(counter.items())) or "-"
+
+
+def run_apply_command(args: argparse.Namespace) -> int:
+    if not args.dry_run and not args.yes:
+        raise SystemExit("Apply mode is write-protected; use --dry-run or rerun with --yes.")
+    if args.yes and args.dry_run:
+        raise SystemExit("Use either --dry-run or --yes, not both.")
+    if args.yes and not args.output:
+        raise SystemExit("--yes requires --output.")
+    if args.output and not args.yes:
+        raise SystemExit("--output is only allowed with --yes.")
+
+    rows = read_review_csv(args.input)
+    plan = build_apply_plan(rows, reviewed_source=args.input)
+    print_apply_summary(plan, dry_run=bool(args.dry_run))
+    if plan.validation_errors or plan.conflicts:
+        return 1
+
+    if args.yes:
+        payload = overlay_payload(plan, reviewed_source=args.input)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Overlay written: {args.output}")
+    else:
+        print("No files or database rows were written.")
+    return 0
+
+
+def read_review_csv(path: Path) -> list[dict]:
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        return [dict(row) for row in reader]
+
+
+def build_apply_plan(rows: list[dict], reviewed_source: Path | str) -> ApplyPlan:
+    validation_errors = validate_review_rows(rows)
+    approved = [
+        row
+        for row in rows
+        if clean(row.get("review_decision")) == "approve_inferred_metadata"
+        and clean(row.get("apply_eligible")).lower() == "yes"
+    ]
+    skipped_by_decision = Counter(
+        clean(row.get("review_decision")) or "(blank)"
+        for row in rows
+        if row not in approved
+    )
+    records_by_key: dict[str, dict] = {}
+    source_counts = Counter()
+    metadata_counts = Counter()
+    warnings = []
+    conflicts = []
+    rows_merged = 0
+
+    for row in approved:
+        key, key_warning = stable_opportunity_key(row)
+        if key_warning:
+            warnings.append(f"{row.get('review_id')}: {key_warning}")
+        if clean(row.get("candidate_confidence")) == "ambiguous" or clean(row.get("candidate_type")) == "ambiguous_metadata":
+            warnings.append(
+                f"{row.get('review_id')}: human-approved override from ambiguous pattern "
+                f"{clean(row.get('candidate_pattern')) or 'unknown'}."
+            )
+        metadata = row_human_metadata(row)
+        for metadata_type, values in metadata.items():
+            if values:
+                metadata_counts[metadata_type] += 1
+        source_counts[clean(row.get("source")) or "(blank)"] += 1
+
+        if key not in records_by_key:
+            records_by_key[key] = new_overlay_record(row, key, reviewed_source)
+        else:
+            rows_merged += 1
+        merge_row_into_overlay(records_by_key[key], row, metadata, conflicts)
+
+    overlay_records = sorted(records_by_key.values(), key=lambda record: record["stable_opportunity_key"])
+    for record in overlay_records:
+        record["required_languages"] = sorted_unique(record["required_languages"])
+        record["language_locale"] = sorted_unique(record["language_locale"])
+        record["location_restriction"] = sorted_unique(record["location_restriction"])
+
+    return ApplyPlan(
+        rows_read=len(rows),
+        approved_rows=len(approved),
+        skipped_by_decision=skipped_by_decision,
+        overlay_records=overlay_records,
+        rows_merged=rows_merged,
+        conflicts=conflicts,
+        warnings=warnings,
+        counts_by_source=source_counts,
+        counts_by_metadata_type=metadata_counts,
+        validation_errors=validation_errors,
+    )
+
+
+def validate_review_rows(rows: list[dict]) -> list[str]:
+    errors = []
+    review_ids = Counter(clean(row.get("review_id")) for row in rows)
+    for review_id, count in sorted(review_ids.items()):
+        if not review_id:
+            errors.append("Row is missing review_id.")
+        elif count > 1:
+            errors.append(f"Duplicate review_id {review_id!r}.")
+
+    for row in rows:
+        review_id = clean(row.get("review_id")) or "(missing review_id)"
+        decision = clean(row.get("review_decision"))
+        apply_eligible = clean(row.get("apply_eligible")).lower()
+        human_metadata = [clean(row.get(field)) for field in APPLY_METADATA_FIELDS]
+        is_approved = decision == "approve_inferred_metadata"
+
+        if not decision or decision not in REVIEW_DECISIONS:
+            errors.append(f"{review_id}: invalid review_decision {decision!r}.")
+        if is_approved and apply_eligible != "yes":
+            errors.append(f"{review_id}: approved row must have apply_eligible=yes.")
+        if is_approved and not any(human_metadata):
+            errors.append(f"{review_id}: approved row has no human metadata fields.")
+        if is_approved and not clean(row.get("human_notes")):
+            errors.append(f"{review_id}: approved row has no human_notes.")
+        if not is_approved and any(human_metadata):
+            errors.append(f"{review_id}: non-approved row contains human metadata fields.")
+        if not clean(row.get("candidate_pattern")):
+            errors.append(f"{review_id}: missing candidate_pattern provenance.")
+        if not clean(row.get("candidate_confidence")):
+            errors.append(f"{review_id}: missing candidate_confidence provenance.")
+        if not clean(row.get("evidence_text")):
+            errors.append(f"{review_id}: missing evidence_text.")
+        if not clean(row.get("risk_notes")):
+            errors.append(f"{review_id}: missing risk_notes.")
+    return errors
+
+
+def stable_opportunity_key(row: dict) -> tuple[str, str]:
+    source = clean(row.get("source"))
+    canonical_id = clean(row.get("canonical_opportunity_id"))
+    if canonical_id:
+        return f"canonical_opportunity_id:{canonical_id}", ""
+    job_id = clean(row.get("job_id"))
+    if job_id:
+        return f"job_id:{source}:{job_id}", ""
+    external_id = clean(row.get("external_id"))
+    if external_id:
+        return f"external_id:{source}:{external_id}", ""
+    url = clean(row.get("url"))
+    title = clean(row.get("title"))
+    return (
+        f"source_url_title:{source}:{slug(url)}:{slug(title)}",
+        "fallback source+url+title key used because no canonical_opportunity_id, job_id, or external_id was available.",
+    )
+
+
+def row_human_metadata(row: dict) -> dict[str, list[str]]:
+    return {
+        "required_languages": split_metadata_values(row.get("human_required_languages")),
+        "language_locale": split_metadata_values(row.get("human_language_locale")),
+        "location_restriction": split_metadata_values(row.get("human_location_restriction")),
+    }
+
+
+def split_metadata_values(value) -> list[str]:
+    return [
+        clean(part)
+        for part in re.split(r"\s*[,;]\s*", clean(value))
+        if clean(part)
+    ]
+
+
+def new_overlay_record(row: dict, key: str, reviewed_source: Path | str) -> dict:
+    return {
+        "stable_opportunity_key": key,
+        "source": clean(row.get("source")),
+        "company": clean(row.get("company")),
+        "title": clean(row.get("title")),
+        "url": clean(row.get("url")),
+        "job_id": clean(row.get("job_id")),
+        "external_id": clean(row.get("external_id")),
+        "canonical_opportunity_id": clean(row.get("canonical_opportunity_id")),
+        "source_hash": clean(row.get("source_hash")),
+        "required_languages": [],
+        "language_locale": [],
+        "location_restriction": [],
+        "provenance": [],
+        "apply_status": "pending_overlay",
+        "warnings": [],
+        "metadata_source": "human_reviewed_title_inference",
+        "reviewed_source": str(reviewed_source),
+    }
+
+
+def merge_row_into_overlay(record: dict, row: dict, metadata: dict[str, list[str]], conflicts: list[str]) -> None:
+    review_id = clean(row.get("review_id"))
+    for field, values in metadata.items():
+        if not values:
+            continue
+        existing = record[field]
+        if field == "location_restriction" and existing:
+            existing_set = {normalize_metadata_value(value) for value in existing}
+            new_set = {normalize_metadata_value(value) for value in values}
+            if not existing_set.intersection(new_set):
+                conflicts.append(
+                    f"{record['stable_opportunity_key']}: {field} conflict from {review_id}; "
+                    f"existing={existing!r}, new={values!r}."
+                )
+                continue
+        for value in values:
+            if value and value not in existing:
+                existing.append(value)
+
+    record["provenance"].append(
+        {
+            "review_id": review_id,
+            "evidence_text": clean(row.get("evidence_text")),
+            "candidate_pattern": clean(row.get("candidate_pattern")),
+            "candidate_confidence": clean(row.get("candidate_confidence")),
+            "human_notes": clean(row.get("human_notes")),
+            "reviewed_source": record["reviewed_source"],
+            "metadata_source": record["metadata_source"],
+        }
+    )
+    if clean(row.get("candidate_confidence")) == "ambiguous" or clean(row.get("candidate_type")) == "ambiguous_metadata":
+        record["warnings"].append(
+            f"Human-approved override from ambiguous pattern {clean(row.get('candidate_pattern')) or 'unknown'}."
+        )
+
+
+def normalize_metadata_value(value: str) -> str:
+    return re.sub(r"\s+", " ", clean(value).lower())
+
+
+def sorted_unique(values: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for value in sorted(values, key=lambda item: item.lower()):
+        key = normalize_metadata_value(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def overlay_payload(plan: ApplyPlan, reviewed_source: Path | str) -> dict:
+    return {
+        "schema_version": 1,
+        "tool": "scripts/opportunity_metadata_gap_review.py apply",
+        "reviewed_source": str(reviewed_source),
+        "metadata_source": "human_reviewed_title_inference",
+        "records": plan.overlay_records,
+        "summary": {
+            "rows_read": plan.rows_read,
+            "approved_rows": plan.approved_rows,
+            "overlay_records": len(plan.overlay_records),
+            "rows_merged": plan.rows_merged,
+            "skipped_by_decision": dict(sorted(plan.skipped_by_decision.items())),
+            "counts_by_source": dict(sorted(plan.counts_by_source.items())),
+            "counts_by_metadata_type": dict(sorted(plan.counts_by_metadata_type.items())),
+            "warnings": len(plan.warnings),
+            "conflicts": len(plan.conflicts),
+        },
+    }
+
+
+def print_apply_summary(plan: ApplyPlan, dry_run: bool) -> None:
+    print("Opportunity Metadata Gap Apply")
+    print("==============================")
+    print("Overlay-only workflow; no database rows are changed.")
+    print(f"Mode: {'dry-run' if dry_run else 'write overlay'}")
+    print(f"Rows read: {plan.rows_read}")
+    print(f"Approved rows: {plan.approved_rows}")
+    print(f"Skipped rows by decision: {compact_counter(plan.skipped_by_decision)}")
+    print(f"Overlay records {'that would be created' if dry_run else 'created'}: {len(plan.overlay_records)}")
+    print(f"Merged records count: {sum(1 for record in plan.overlay_records if len(record['provenance']) > 1)}")
+    print(f"Rows merged into existing overlay records: {plan.rows_merged}")
+    print(f"Counts by source: {compact_counter(plan.counts_by_source)}")
+    print(f"Counts by metadata type: {compact_counter(plan.counts_by_metadata_type)}")
+    print(f"Fallback-key warnings: {sum(1 for warning in plan.warnings if 'fallback' in warning)}")
+    print(f"Other warnings: {sum(1 for warning in plan.warnings if 'fallback' not in warning)}")
+    print(f"Conflicts: {len(plan.conflicts)}")
+    print(f"Validation errors: {len(plan.validation_errors)}")
+    print("Benchmark metrics: unchanged by design; overlay is not applied to matcher inputs.")
+    print("Current matcher benchmark remains labels 26/30, sections 29/30, full 26/30 when validated separately.")
+    if plan.validation_errors:
+        print("")
+        print("Validation errors")
+        for error in plan.validation_errors[:20]:
+            print(f"- {error}")
+    if plan.conflicts:
+        print("")
+        print("Conflicts")
+        for conflict in plan.conflicts[:20]:
+            print(f"- {conflict}")
+    if plan.warnings:
+        print("")
+        print("Warnings")
+        for warning in plan.warnings[:20]:
+            print(f"- {warning}")
+    print("")
+    print("Examples")
+    for record in plan.overlay_records[:5]:
+        print(
+            f"- {record['stable_opportunity_key']}: {record['title']} | "
+            f"required={record['required_languages'] or '-'} | "
+            f"locale={record['language_locale'] or '-'} | "
+            f"location={record['location_restriction'] or '-'}"
+        )
 
 
 def candidate_languages(title: str, hit) -> str:
