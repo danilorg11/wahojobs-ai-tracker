@@ -1,0 +1,1483 @@
+{
+  "metadata_source": "human_reviewed_title_inference",
+  "records": [
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1110",
+      "company": "Meridial",
+      "external_id": "4651799101",
+      "job_id": "279",
+      "language_locale": [
+        "Spanish (Latin America)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project; location=Mexico; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-locale_language-dash-locale_279",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project; location=Colombia; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-locale_language-dash-locale_280",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "df7bbda607c1f9815e903a7563e4f8ae00a896690e2fdd928cf1b90794ed8fc7",
+      "stable_opportunity_key": "canonical_opportunity_id:1110",
+      "title": "LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651799101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1226",
+      "company": "Meridial",
+      "external_id": "4651788101",
+      "job_id": "433",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=German Translator - Freelance AI Trainer Project; location=World Wide - Remote; pattern=translation_or_translator; value=german",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_translation-or-translator_433",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "German"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "e2026d3ea57bda60298f11e12c83a8691542b4b13eef0a0887bed03d0760502b",
+      "stable_opportunity_key": "canonical_opportunity_id:1226",
+      "title": "German Translator - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651788101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1227",
+      "company": "Meridial",
+      "external_id": "4651789101",
+      "job_id": "434",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Chinese Translator - Freelance AI Trainer Project; location=Singapore; pattern=translation_or_translator; value=chinese",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_translation-or-translator_434",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Chinese"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "b1b88d45f3f831ad369c8bbd90e15e6b142396400210d61747fef9efff734651",
+      "stable_opportunity_key": "canonical_opportunity_id:1227",
+      "title": "Chinese Translator - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651789101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1323",
+      "company": "Meridial",
+      "external_id": "4660215101",
+      "job_id": "534",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_specialist_or_expert",
+          "evidence_text": "title=Mandarin Chinese Language Specialist - Freelance AI Trainer Project; location=Singapore; pattern=language_specialist_or_expert; value=chinese",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_language-specialist-or-expert_534",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Mandarin Chinese"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "70b4371bf49239923200513b0aeb0040970451560576dfde0c61fd4bcfce041a",
+      "stable_opportunity_key": "canonical_opportunity_id:1323",
+      "title": "Mandarin Chinese Language Specialist - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4660215101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1388",
+      "company": "Meridial",
+      "external_id": "4787630101",
+      "job_id": "650",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=Hindi Audio Specialist - Freelance AI Trainer Project; location=World Wide - Remote; pattern=audio_language_role; value=hindi",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_audio-language-role_650",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Hindi"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "445003599f747c99e6f1c82d38d9468716272c5d24b73cd4bd0f49e5449e17be",
+      "stable_opportunity_key": "canonical_opportunity_id:1388",
+      "title": "Hindi Audio Specialist - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4787630101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1389",
+      "company": "Meridial",
+      "external_id": "4787631101",
+      "job_id": "651",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=Spanish Audio Specialist - Freelance AI Trainer Project; location=World Wide - Remote; pattern=audio_language_role; value=spanish",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_audio-language-role_651",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "7d621660e13e4874c7184a646800432ddbb4de73d4277553adb8656a52ce54c8",
+      "stable_opportunity_key": "canonical_opportunity_id:1389",
+      "title": "Spanish Audio Specialist - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4787631101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "521",
+      "company": "OneForma",
+      "external_id": "oneforma::177962::french-france",
+      "job_id": "6522",
+      "language_locale": [
+        "French (France)",
+        "Spanish (Spain)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Andromeda - French - France; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6522",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Andromeda - Spanish - Spain; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6526",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "French",
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "155a844f12fc65c8a24fb9b30dc1ba95f5019b3d4e3befb272b9c3293ba89e87",
+      "stable_opportunity_key": "canonical_opportunity_id:521",
+      "title": "Andromeda - French - France",
+      "url": "https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802653759969281",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "531",
+      "company": "OneForma",
+      "external_id": "oneforma::177728::10528",
+      "job_id": "6598",
+      "language_locale": [
+        "English (Canada)",
+        "English (United States)",
+        "French (Canada)",
+        "French (France)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - English - Canada; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6598",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - English - United States; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6601",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - French - Canada; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6602",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - French - France; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6603",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "French"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "ba8322d04bd3d85961f77e1c813497c750bff8a1bdc4d2e56ca88863cca1d8b5",
+      "stable_opportunity_key": "canonical_opportunity_id:531",
+      "title": "Ava Audio Collection - English - Canada",
+      "url": "https://my.oneforma.com/crowd/jobs/10528?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11891",
+      "job_id": "6851",
+      "language_locale": [
+        "Arabic (Saudi Arabia)",
+        "Bengali (India)",
+        "Bulgarian (Bulgaria)",
+        "Catalan (Spain)",
+        "Croatian (Croatia)",
+        "Dutch (Belgium)",
+        "English (United States)",
+        "Estonian (Estonia)",
+        "Gujarati (India)",
+        "Hindi (India)",
+        "Kannada (India)",
+        "Malayalam (India)",
+        "Marathi (India)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Bulgarian (Bulgaria); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6851",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Catalan (Spain); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6852",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Croatian (Croatia); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6855",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Dutch (Belgium); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6858",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Estonian (Estonia); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6854",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Farsi (Persian); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language metadata. The title explicitly identifies English (United States) and Farsi/Persian. Use English (United States) as the locale; treat Farsi/Persian as the required language name/alias, not as a geographic locale. Keep title-derived provenance; this is reviewed inferred metadata, not source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6869",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Bengali (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6839",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Gujarati (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6840",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Hindi (India); location=Worldwide; pattern=translation_or_translator; value=arabic, hindi",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6841",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Kannada (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6842",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Malayalam (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6843",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Marathi (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6844",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Arabic",
+        "Bengali",
+        "Bulgarian",
+        "Catalan",
+        "Croatian",
+        "Dutch",
+        "English",
+        "Estonian",
+        "Farsi",
+        "Gujarati",
+        "Hindi",
+        "Kannada",
+        "Malayalam",
+        "Marathi"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "dba597b383ee5a151a6d4f2b1e56e1b5003b40be1cf862df0877bc40f58c041f",
+      "stable_opportunity_key": "canonical_opportunity_id:542",
+      "title": "Acceptability and Preference: Translation Raters - English (United States) - Bulgarian (Bulgaria)",
+      "url": "https://my.oneforma.com/crowd/jobs/11891?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "552",
+      "company": "Welocalize",
+      "external_id": "6e0ac589-3fba-429a-8ce4-5c48a2cf0e2d",
+      "job_id": "7522",
+      "language_locale": [
+        "Portuguese (Brazil)",
+        "Spanish (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=*Scout Junior Quality Coordinator - Portuguese (Brazil); location=Brazil; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7522",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=*Scout Junior Quality Coordinator - Spanish (Mexico); location=Mexico City, Mexico; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7523",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Portuguese",
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "8c871d9f7aadec219e827db4d992fae5287edcf1c644eb70cebbcebd1ac5bb8e",
+      "stable_opportunity_key": "canonical_opportunity_id:552",
+      "title": "*Scout Junior Quality Coordinator - Portuguese (Brazil)",
+      "url": "https://jobs.lever.co/weloglobal/6e0ac589-3fba-429a-8ce4-5c48a2cf0e2d",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "690",
+      "company": "Welocalize",
+      "external_id": "abd22b8d-f748-47b7-b925-d9af5a71d865",
+      "job_id": "7665",
+      "language_locale": [
+        "English (United States)",
+        "French (France)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=English (United States) <> French (France) Lyric Translation Reviewer; location=France; pattern=translation_or_translator; value=english, french",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7665",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "French"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "b4ddbc589d9c747abad69cbae54f283de2d7c86d05bc0e240e8910679f6f605e",
+      "stable_opportunity_key": "canonical_opportunity_id:690",
+      "title": "English (United States) <> French (France) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/abd22b8d-f748-47b7-b925-d9af5a71d865",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "691",
+      "company": "Welocalize",
+      "external_id": "2a57f3d9-4ec8-4838-89a0-8fc6e421e9ca",
+      "job_id": "7666",
+      "language_locale": [
+        "English (United States)",
+        "German (Germany)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=English (United States) > German (Germany) Lyric Translation Reviewer; location=Germany; pattern=translation_or_translator; value=english, german",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7666",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "German"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "9fa20f859569e0c5dc13095f40b83e61973a70b5cb58bc6112e98a58563f7fe9",
+      "stable_opportunity_key": "canonical_opportunity_id:691",
+      "title": "English (United States) > German (Germany) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/2a57f3d9-4ec8-4838-89a0-8fc6e421e9ca",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "740",
+      "company": "Welocalize",
+      "external_id": "c321add1-b7cb-4390-ae91-6f338ec0e6ee",
+      "job_id": "7718",
+      "language_locale": [
+        "English (United States)",
+        "Korean (Korea)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Korean (Korea) <> English (United States) Lyric Translation Reviewer; location=South Korea; pattern=translation_or_translator; value=english, korean",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7718",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "Korean"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "0bd131f316aff294306f20363ca2e25bcbcb792175681245d7c122d5247b3150",
+      "stable_opportunity_key": "canonical_opportunity_id:740",
+      "title": "Korean (Korea) <> English (United States) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/c321add1-b7cb-4390-ae91-6f338ec0e6ee",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "741",
+      "company": "Welocalize",
+      "external_id": "d1f093c7-88fe-44d3-9e2a-337766962cd0",
+      "job_id": "7719",
+      "language_locale": [
+        "Japanese (Japan)",
+        "Korean (Korea)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Korean (Korea) > Japanese (Japan) Lyric Translation Reviewer; location=Japan; pattern=translation_or_translator; value=japanese, korean",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7719",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Japanese",
+        "Korean"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "1f3530f84a439bbe69cca24c37c38c07ffa4a31a068d06744fa0328415169728",
+      "stable_opportunity_key": "canonical_opportunity_id:741",
+      "title": "Korean (Korea) > Japanese (Japan) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/d1f093c7-88fe-44d3-9e2a-337766962cd0",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "914",
+      "company": "Welocalize",
+      "external_id": "c43ab912-0d54-431a-abb4-e9b2c1ca9749",
+      "job_id": "7550",
+      "language_locale": [
+        "Mandarin (Taiwan)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Ads Quality Rater - Mandarin (Taiwan); location=Taiwan; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7550",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Mandarin"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "2411a48bb10992f3739dbeb9ba39acaa158d92caf943b3cf17c0774e36034060",
+      "stable_opportunity_key": "canonical_opportunity_id:914",
+      "title": "Ads Quality Rater - Mandarin (Taiwan)",
+      "url": "https://jobs.lever.co/weloglobal/c43ab912-0d54-431a-abb4-e9b2c1ca9749",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "918",
+      "company": "Welocalize",
+      "external_id": "d9a91e49-8052-4ce6-836d-9ee264214b7d",
+      "job_id": "7554",
+      "language_locale": [
+        "Spanish (Argentina)",
+        "Spanish (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Ads Quality Rater - Spanish (Argentina); location=Argentina; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7554",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Ads Quality Rater - Spanish (Mexico); location=Mexico City, Mexico; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7555",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "f756403770b741cfea8df38ece4a59250789680b840fb8924d7c209b3c896be1",
+      "stable_opportunity_key": "canonical_opportunity_id:918",
+      "title": "Ads Quality Rater - Spanish (Argentina)",
+      "url": "https://jobs.lever.co/weloglobal/d9a91e49-8052-4ce6-836d-9ee264214b7d",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "98bbe8f8-ab5c-48db-bcd6-93a8f747646b",
+      "job_id": "19",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Remote Japanese to Thai Translation Project; location=Japan; pattern=translation_or_translator; value=japanese",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-requirement_translation-or-translator_19",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Japanese",
+        "Thai"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "86a642e006be0078d98ac42c16f0cfe1c9f5ea59c1e2b3915f3fc1e60a260219",
+      "stable_opportunity_key": "job_id:appen:19",
+      "title": "Remote Japanese to Thai Translation Project",
+      "url": "https://jobs.lever.co/appen/98bbe8f8-ab5c-48db-bcd6-93a8f747646b",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "f2c085ae-9426-4a7a-b2ea-a8254918e680",
+      "job_id": "25",
+      "language_locale": [
+        "Spanish (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Social Media Evaluator (Spanish-Mexico); location=Mexico; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-locale_language-dash-locale_25",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "3c07bbdfd13444a85e0206fd3c32695076ef46e8e8062e804c237b22c89770d5",
+      "stable_opportunity_key": "job_id:appen:25",
+      "title": "Social Media Evaluator (Spanish-Mexico)",
+      "url": "https://jobs.lever.co/appen/f2c085ae-9426-4a7a-b2ea-a8254918e680",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "9cafde4f-6d7f-4105-955c-f0ac29312034",
+      "job_id": "28",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Translation Evaluator – Korean/English; location=Any; pattern=translation_or_translator; value=english, korean",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-requirement_translation-or-translator_28",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "Korean"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "f4efa80b8db54951d07fff43a9bc546eefea8ea37a6c050c8a49aff0921d69b3",
+      "stable_opportunity_key": "job_id:appen:28",
+      "title": "Translation Evaluator – Korean/English",
+      "url": "https://jobs.lever.co/appen/9cafde4f-6d7f-4105-955c-f0ac29312034",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "61d70293-c3d0-4975-afe6-abe97a7aa69e",
+      "job_id": "29",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Translation Evaluator – Russian/English (Remote); location=Any; pattern=translation_or_translator; value=english, russian",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-requirement_translation-or-translator_29",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "Russian"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "29bc4f81c983eab1cf0f8bccca435b56ef1371de0423a4fa7c25827c1bf3fba2",
+      "stable_opportunity_key": "job_id:appen:29",
+      "title": "Translation Evaluator – Russian/English (Remote)",
+      "url": "https://jobs.lever.co/appen/61d70293-c3d0-4975-afe6-abe97a7aa69e",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "3e36c055-856a-49bd-a46e-d353f81064ba",
+      "job_id": "30",
+      "language_locale": [
+        "English (France)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Video Collector - (English - France); location=France; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-locale_language-dash-locale_30",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "960164d0dee3ed1f3ac176c6b84a15a6342d34ee0e93a52963706accd6012ae6",
+      "stable_opportunity_key": "job_id:appen:30",
+      "title": "Video Collector - (English - France)",
+      "url": "https://jobs.lever.co/appen/3e36c055-856a-49bd-a46e-d353f81064ba",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "aea92640-d286-41f7-982b-a1544a0947c5",
+      "job_id": "32",
+      "language_locale": [
+        "English (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Video Collector - (English - Mexico); location=Mexico; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-locale_language-dash-locale_32",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "946487944265aaa165d70aa55a97acb0a405080d84546b9668e94a21036edd09",
+      "stable_opportunity_key": "job_id:appen:32",
+      "title": "Video Collector - (English - Mexico)",
+      "url": "https://jobs.lever.co/appen/aea92640-d286-41f7-982b-a1544a0947c5",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "3e018f04-d0ca-41e3-8dbe-404ced7d64ef",
+      "job_id": "33",
+      "language_locale": [
+        "English (Spain)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Video Collector - (English - Spain); location=Spain; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-locale_language-dash-locale_33",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "dd9590603ee833d917cdee9d14cb6a6437bf6615eb6f572ce2ea25867b825c2f",
+      "stable_opportunity_key": "job_id:appen:33",
+      "title": "Video Collector - (English - Spain)",
+      "url": "https://jobs.lever.co/appen/3e018f04-d0ca-41e3-8dbe-404ced7d64ef",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Appen",
+      "external_id": "dc1ac915-13e6-4258-9fe5-203553c345c4",
+      "job_id": "8",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=AI Translation Evaluator; Russian-English; location=Any; pattern=translation_or_translator; value=english, russian",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_appen_language-requirement_translation-or-translator_8",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "Russian"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "appen",
+      "source_hash": "822d1edab3675e772bb2fc06d601e4f773e9d6b6b84111cbd6375d16fb1e69a6",
+      "stable_opportunity_key": "job_id:appen:8",
+      "title": "AI Translation Evaluator; Russian-English",
+      "url": "https://jobs.lever.co/appen/dc1ac915-13e6-4258-9fe5-203553c345c4",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABntQIot7U7jcxj6FLXInZ",
+      "job_id": "7906",
+      "language_locale": [
+        "Spanish (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Spanish (Mexico) Audio Generalist Evaluator Expert; location=Remote; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-parenthetical-locale_7906",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=Spanish (Mexico) Audio Generalist Evaluator Expert; location=Remote; pattern=audio_language_role; value=spanish",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-requirement_audio-language-role_7906",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "c8eceda503a065876cecf37adb1f19de25c5dbc3aebf6d35e55fdba0fee65102",
+      "stable_opportunity_key": "job_id:mercor:7906",
+      "title": "Spanish (Mexico) Audio Generalist Evaluator Expert",
+      "url": "https://work.mercor.com/jobs/list_AAABntQIot7U7jcxj6FLXInZ",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABntQCuEPmRunOSRxC1Z9v",
+      "job_id": "7907",
+      "language_locale": [
+        "Spanish (Spain)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Spanish (Spain) Audio Generalist Evaluator Expert; location=Remote; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-parenthetical-locale_7907",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=Spanish (Spain) Audio Generalist Evaluator Expert; location=Remote; pattern=audio_language_role; value=spanish",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-requirement_audio-language-role_7907",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "327e8be2497e8e1b9aa7c824fdb10aa702d7080869ac347b3a238cae8d766823",
+      "stable_opportunity_key": "job_id:mercor:7907",
+      "title": "Spanish (Spain) Audio Generalist Evaluator Expert",
+      "url": "https://work.mercor.com/jobs/list_AAABntQCuEPmRunOSRxC1Z9v",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnta9W11pnOe6FSxDoalq",
+      "job_id": "7936",
+      "language_locale": [
+        "English (Australia)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=English (Australia) Audio Generalist Evaluator Expert; location=Remote; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-parenthetical-locale_7936",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=English (Australia) Audio Generalist Evaluator Expert; location=Remote; pattern=audio_language_role; value=english",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-requirement_audio-language-role_7936",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "23611179d10414a20eed513c60740b6878bad5875fe6efd6de0dc91709a71d82",
+      "stable_opportunity_key": "job_id:mercor:7936",
+      "title": "English (Australia) Audio Generalist Evaluator Expert",
+      "url": "https://work.mercor.com/jobs/list_AAABnta9W11pnOe6FSxDoalq",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABntaxoKcNqVEf461J9pn1",
+      "job_id": "7937",
+      "language_locale": [
+        "English (New Zealand)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=English (New Zealand) Audio Generalist Evaluator Expert; location=Remote; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-parenthetical-locale_7937",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=English (New Zealand) Audio Generalist Evaluator Expert; location=Remote; pattern=audio_language_role; value=english",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-requirement_audio-language-role_7937",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "602d6bf47be538086e93fa7b8f67e3a60e7e09261a99fe5a1a6d47c1031f6e44",
+      "stable_opportunity_key": "job_id:mercor:7937",
+      "title": "English (New Zealand) Audio Generalist Evaluator Expert",
+      "url": "https://work.mercor.com/jobs/list_AAABntaxoKcNqVEf461J9pn1",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnt-IdFdW6Khkn2BM-oId",
+      "job_id": "9231",
+      "language_locale": [
+        "Spanish (Spain)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Internet-Native Bilingual Evaluator Expert (Spanish – Spain); location=Remote; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-dash-locale_9231",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "15d5fef2b2b2e3ad27d1240a9d1e2a26b658dd97d059c5a7cc0f720502285b24",
+      "stable_opportunity_key": "job_id:mercor:9231",
+      "title": "Internet-Native Bilingual Evaluator Expert (Spanish – Spain)",
+      "url": "https://work.mercor.com/jobs/list_AAABnt-IdFdW6Khkn2BM-oId",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnt9zSa62S6Ta1sFAVbcl",
+      "job_id": "9232",
+      "language_locale": [
+        "Spanish (Latin America)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Internet-Native Bilingual Evaluator Expert (Spanish – Latin America); location=Remote; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-dash-locale_9232",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "0a4338ba3e1d0663d4c36d76aff35dce5f94599338ec88e116bdfdd5fc3b7f11",
+      "stable_opportunity_key": "job_id:mercor:9232",
+      "title": "Internet-Native Bilingual Evaluator Expert (Spanish – Latin America)",
+      "url": "https://work.mercor.com/jobs/list_AAABnt9zSa62S6Ta1sFAVbcl",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnpPr7nbORrpA_ahLKJk6",
+      "job_id": "939",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=Japanese Audio Generalist Evaluator Expert; location=Remote; pattern=audio_language_role; value=japanese",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-requirement_audio-language-role_939",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Japanese"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "f0578ad9163644f94651ce9ceea192e53e335398ff02b3932a167730fbb8b396",
+      "stable_opportunity_key": "job_id:mercor:939",
+      "title": "Japanese Audio Generalist Evaluator Expert",
+      "url": "https://work.mercor.com/jobs/list_AAABnpPr7nbORrpA_ahLKJk6",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnpPnj8HDVeWXIWZFYZoE",
+      "job_id": "941",
+      "language_locale": [
+        "English (United States)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=English (US) Audio Generalist Evaluator Expert; location=Remote; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-parenthetical-locale_941",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        },
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=English (US) Audio Generalist Evaluator Expert; location=Remote; pattern=audio_language_role; value=english",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-requirement_audio-language-role_941",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "70ccdc396bc2a5989a831579dd1a254a4a6d92b3bb95dc8835d9f83009c6b369",
+      "stable_opportunity_key": "job_id:mercor:941",
+      "title": "English (US) Audio Generalist Evaluator Expert",
+      "url": "https://work.mercor.com/jobs/list_AAABnpPnj8HDVeWXIWZFYZoE",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnoQC-dC2MUckZJBC9oHw",
+      "job_id": "964",
+      "language_locale": [
+        "Spanish (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Voice Actor: CX Agent Voice Cloning (Spanish - Mexico); location=Remote; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-dash-locale_964",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "b3a37fefb0abe50287de3ad7868ae54889d9c749c2fda945186d4597942564d6",
+      "stable_opportunity_key": "job_id:mercor:964",
+      "title": "Voice Actor: CX Agent Voice Cloning (Spanish - Mexico)",
+      "url": "https://work.mercor.com/jobs/list_AAABnoQC-dC2MUckZJBC9oHw",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnoQC2bLQ9YaeK3JHzIPK",
+      "job_id": "965",
+      "language_locale": [
+        "Spanish (Latin America)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Voice Actor: CX Agent Voice Cloning (Spanish - Latin America); location=Remote; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_language-locale_language-dash-locale_965",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "ad26f5e1d57fd4f89f086cf576d83183b4848221fe81f8b6eed3acc35fa88993",
+      "stable_opportunity_key": "job_id:mercor:965",
+      "title": "Voice Actor: CX Agent Voice Cloning (Spanish - Latin America)",
+      "url": "https://work.mercor.com/jobs/list_AAABnoQC2bLQ9YaeK3JHzIPK",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnni8FYZxYfTTuo1OaYVp",
+      "job_id": "967",
+      "language_locale": [],
+      "location_restriction": [
+        "United Kingdom"
+      ],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "uk_based",
+          "evidence_text": "title=UK-Based Legal Experts: US Finance; location=Remote; pattern=uk_based",
+          "human_notes": "Approve inferred location restriction. The title explicitly indicates a United Kingdom-based applicant/location requirement. Treat as inferred metadata with title provenance, not source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_location-restriction_uk-based_967",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "882056a4d6b593b1cfd1088d24ae2eef2281962a589e911e7383360f7b0c4520",
+      "stable_opportunity_key": "job_id:mercor:967",
+      "title": "UK-Based Legal Experts: US Finance",
+      "url": "https://work.mercor.com/jobs/list_AAABnni8FYZxYfTTuo1OaYVp",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnnh7tFSmvCaQxzJPhoNH",
+      "job_id": "968",
+      "language_locale": [],
+      "location_restriction": [
+        "United Kingdom"
+      ],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "uk_based",
+          "evidence_text": "title=UK-Based Consulting Experts; location=Remote; pattern=uk_based",
+          "human_notes": "Approve inferred location restriction. The title explicitly indicates a United Kingdom-based applicant/location requirement. Treat as inferred metadata with title provenance, not source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_location-restriction_uk-based_968",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "93b1541b513ae5a22f56974777edea406be0fce337643720c604d680a0d788e5",
+      "stable_opportunity_key": "job_id:mercor:968",
+      "title": "UK-Based Consulting Experts",
+      "url": "https://work.mercor.com/jobs/list_AAABnnh7tFSmvCaQxzJPhoNH",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "",
+      "company": "Mercor",
+      "external_id": "list_AAABnh7mSXDbVv1EDKtP5IH3",
+      "job_id": "986",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "ambiguous",
+          "candidate_pattern": "ampersand_language_list",
+          "evidence_text": "title=Generalist - English & Assamese; location=Remote; pattern=ampersand_language_list",
+          "human_notes": "Title explicitly lists English & Assamese. Treat both as required languages for matching/actionability purposes unless source detail later proves this is only a broad project label. Human override of an ambiguous ampersand-language pattern.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_mercor_ambiguous-metadata_ampersand-language-list_986",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Assamese",
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "mercor",
+      "source_hash": "3d6127889d679776b00aefece5e1764e426b04b31d49404b492a2d41a79de1fe",
+      "stable_opportunity_key": "job_id:mercor:986",
+      "title": "Generalist - English & Assamese",
+      "url": "https://work.mercor.com/jobs/list_AAABnh7mSXDbVv1EDKtP5IH3",
+      "warnings": [
+        "Human-approved override from ambiguous pattern ampersand_language_list."
+      ]
+    }
+  ],
+  "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+  "schema_version": 1,
+  "summary": {
+    "approved_rows": 60,
+    "conflicts": 0,
+    "counts_by_metadata_type": {
+      "language_locale": 42,
+      "location_restriction": 2,
+      "required_languages": 58
+    },
+    "counts_by_source": {
+      "appen": 8,
+      "mercor": 18,
+      "meridial": 7,
+      "oneforma": 18,
+      "welocalize": 9
+    },
+    "overlay_records": 37,
+    "rows_merged": 23,
+    "rows_read": 86,
+    "skipped_by_decision": {
+      "keep_diagnostic_only": 10,
+      "needs_more_research": 16
+    },
+    "warnings": 1
+  },
+  "tool": "scripts/opportunity_metadata_gap_review.py apply"
+}
