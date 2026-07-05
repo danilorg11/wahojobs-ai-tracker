@@ -82,6 +82,40 @@ UNCONFIRMED_LANGUAGE_TERMS = {
     "aymara": "aymara",
     "basque": "basque",
 }
+LANGUAGE_LOCALE_BASES = (
+    "english",
+    "spanish",
+    "portuguese",
+    "french",
+    "chinese",
+    "mandarin chinese",
+)
+LANGUAGE_LOCALE_TERMS = (
+    ("united states", ("us", "u s", "usa", "united states", "american")),
+    ("united kingdom", ("uk", "u k", "united kingdom", "british")),
+    ("australia", ("australia", "australian")),
+    ("new zealand", ("new zealand", "nz")),
+    ("singapore", ("singapore",)),
+    ("malta", ("malta",)),
+    ("caribbean", ("caribbean",)),
+    ("belize", ("belize",)),
+    ("guyana", ("guyana",)),
+    ("mexico", ("mexico", "mx")),
+    ("spain", ("spain", "es")),
+    ("latin america", ("latin america", "latin american", "latam", "lat am")),
+    ("brazil", ("brazil", "br", "brazilian")),
+    ("portugal", ("portugal", "pt")),
+    ("canada", ("canada", "canadian")),
+    ("france", ("france",)),
+)
+LOCATION_RESTRICTION_PATTERNS = (
+    (r"\bus only\b|\bunited states only\b|\bu s only\b", "US-only"),
+    (r"\buk[-\s]?based\b|\bunited kingdom[-\s]?based\b", "UK-based"),
+    (r"\bremote\s*[-–—]\s*(india|brazil|canada|united states|uk|united kingdom)\b", "remote country-specific"),
+    (r"\((india)\)", "India"),
+    (r"\((latam|latin america)\)|\blatam\b|\blatin america\b", "LatAm/Latin America"),
+    (r"\b(india|latam|latin america)[-\s]?based\b", "regional"),
+)
 SCIENCE_MEDICAL_PREVIEW_TERMS = (
     "biology",
     "biologist",
@@ -120,6 +154,52 @@ LICENSED_MEDICAL_PREVIEW_TERMS = (
     "registered nurses",
     "nurse",
     "nurses",
+)
+SPECIALIZED_ANNOTATION_TERMS = (
+    "pavement condition index",
+    "pci",
+    "survey and annotation",
+    "survey annotation",
+)
+SPECIALIZED_ANNOTATION_PROFILE_TERMS = (
+    "civil engineering",
+    "geospatial",
+    "infrastructure",
+    "pavement",
+    "road survey",
+    "survey",
+    "transportation",
+)
+BIOLOGY_PROFILE_TERMS = (
+    "biology",
+    "biomedical",
+    "clinical",
+    "life science",
+    "medical",
+    "medicine",
+    "microbiology",
+)
+BIOLOGY_COMPATIBLE_ROLE_TERMS = (
+    "biology",
+    "biomedical",
+    "clinical",
+    "computational biology",
+    "medical",
+    "medicine",
+    "microbiology",
+)
+UNRELATED_SCIENCE_ROLE_TERMS = (
+    "advanced math",
+    "chemistry",
+    "chemical engineering",
+    "computational chemistry",
+    "computational physics",
+    "material science",
+    "materials science",
+    "mathematics",
+    "optical",
+    "physics",
+    "semiconductor",
 )
 ACTIONABILITY_RANK = {
     "excluded": 0,
@@ -213,6 +293,7 @@ def build_preview_context(
     canonical = normalization.canonical_profile
     validate_canonical_profile(canonical)
     matcher_profile = canonical_to_matcher_profile(canonical)
+    matcher_profile["language_locale_keys"] = canonical_language_locale_keys(canonical)
     grouped_matches, overlay_status = build_grouped_matches(matcher_profile, limit, use_overlay=use_overlay)
     canonical_summary = canonical_profile_debug_summary(canonical)
     preview_warnings = build_preview_warnings(normalization.warnings, normalization, grouped_matches)
@@ -302,6 +383,14 @@ def apply_preview_guardrails(profile: dict, row: dict, match: dict) -> dict:
     for diagnostic in diagnostics:
         if diagnostic.startswith("Possible unconfirmed language requirement"):
             capped_section = cap_section(capped_section, "explore_only")
+        elif diagnostic.startswith("Specific language locale/accent may be required"):
+            capped_section = cap_section(capped_section, "also_worth_reviewing")
+        elif diagnostic.startswith("Location or regional eligibility needs confirmation"):
+            capped_section = cap_section(capped_section, "explore_only")
+        elif diagnostic.startswith("Specialized annotation or survey domain does not match"):
+            capped_section = cap_section(capped_section, "explore_only")
+        elif diagnostic.startswith("Science subdomain appears outside profile specialty"):
+            capped_section = cap_section(capped_section, "explore_only")
         elif diagnostic.startswith("Profile states no biology or medical credentials"):
             capped_section = cap_section(capped_section, "explore_only")
         elif diagnostic.startswith("Medical license or credential may be required"):
@@ -373,6 +462,35 @@ def preview_diagnostics_for_match(profile: dict, row: dict, match: dict) -> list
                 "Capped to Explore Only pending opportunity metadata review."
             )
             break
+    locale_requirements = language_locale_requirements_for_row(row, match)
+    unmatched_locale_requirements = [
+        requirement
+        for requirement in locale_requirements
+        if locale_requirement_needs_confirmation(requirement, profile, profile_languages)
+    ]
+    if unmatched_locale_requirements:
+        diagnostics.append(
+            "Specific language locale/accent may be required but is not confirmed in profile: "
+            + ", ".join(format_locale_requirement(requirement) for requirement in unmatched_locale_requirements[:3])
+            + "."
+        )
+    regional_label = regional_location_restriction_label(row, match)
+    if regional_label and not profile_location_known(profile):
+        diagnostics.append(
+            f"Location or regional eligibility needs confirmation for {regional_label}; "
+            "capped to Explore Only until profile location is known."
+        )
+    if specialized_annotation_needs_cap(row_text, profile):
+        diagnostics.append(
+            "Specialized annotation or survey domain does not match profile specialties; "
+            "generic annotation interest is not enough."
+        )
+    science_label = science_subdomain_mismatch_label(row_text, profile)
+    if science_label:
+        diagnostics.append(
+            f"Science subdomain appears outside profile specialty: {science_label}; "
+            "capped until that specialty is confirmed."
+        )
     if profile_has_no_biology_medical_credentials(profile) and cross_domain_science_coding_row(row_text, profile):
         diagnostics.append(
             "Profile states no biology or medical credentials; cross-domain science/coding role "
@@ -394,6 +512,178 @@ def preview_row_text(row: dict) -> str:
         row.get("expertise"),
         row.get("description"),
         row.get("location"),
+    ]
+    return normalize_text(" ".join(str(value or "") for value in values))
+
+
+def canonical_language_locale_keys(canonical: dict) -> list[str]:
+    keys = set()
+    location = canonical.get("location") or {}
+    country = normalize_locale(location.get("country"))
+    for entry in canonical.get("languages") or []:
+        language = normalize_text(entry.get("language"))
+        if not language:
+            continue
+        locale_values = []
+        if entry.get("locale"):
+            locale_values.append(entry["locale"])
+        locale_values.extend(entry.get("evidence") or [])
+        if country:
+            locale_values.append(country)
+        for locale_value in locale_values:
+            for locale in locale_tokens_from_text(locale_value):
+                keys.add(locale_key(language, locale))
+    return sorted(keys)
+
+
+def language_locale_requirements_for_row(row: dict, match: dict) -> list[dict]:
+    requirements = []
+    values = [
+        match.get("language_locale"),
+        match.get("overlay_language_locale"),
+        row.get("language_locale"),
+        row.get("title"),
+        row.get("canonical_title"),
+    ]
+    for value in flatten_values(values):
+        requirements.extend(language_locale_requirements_from_text(value))
+    return unique_locale_requirements(requirements)
+
+
+def language_locale_requirements_from_text(value: str) -> list[dict]:
+    text = normalize_text(value)
+    if not text:
+        return []
+    requirements = []
+    for language in LANGUAGE_LOCALE_BASES:
+        language_pattern = re.escape(language)
+        for match in re.finditer(rf"(?<![a-z0-9]){language_pattern}\s*\(([^)]{{1,80}})\)", text):
+            requirements.extend(locale_requirements_for_piece(language, match.group(1)))
+        for match in re.finditer(rf"(?<![a-z0-9]){language_pattern}\s*[-–—]\s*([a-z][a-z\s]{{1,35}})", text):
+            requirements.extend(locale_requirements_for_piece(language, match.group(1)))
+    return requirements
+
+
+def locale_requirements_for_piece(language: str, piece: str) -> list[dict]:
+    return [
+        {"language": base_language(language), "locale": locale}
+        for locale in locale_tokens_from_text(piece)
+    ]
+
+
+def locale_tokens_from_text(value: str) -> list[str]:
+    text = normalize_text(value)
+    tokens = []
+    for canonical, aliases in LANGUAGE_LOCALE_TERMS:
+        if any(re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", text) for alias in aliases):
+            tokens.append(canonical)
+    return unique_list(tokens)
+
+
+def locale_requirement_needs_confirmation(requirement: dict, profile: dict, profile_languages: set[str]) -> bool:
+    language = requirement["language"]
+    locale = requirement["locale"]
+    if language not in profile_languages:
+        return False
+    profile_locale_keys = set(profile.get("language_locale_keys") or [])
+    return locale_key(language, locale) not in profile_locale_keys
+
+
+def locale_key(language: str, locale: str) -> str:
+    return f"{base_language(language)}:{normalize_locale(locale)}"
+
+
+def base_language(language: str) -> str:
+    language = normalize_text(language)
+    if language == "mandarin chinese":
+        return "chinese"
+    return language
+
+
+def normalize_locale(value: str) -> str:
+    text = normalize_text(value)
+    for canonical, aliases in LANGUAGE_LOCALE_TERMS:
+        if text == canonical or text in aliases:
+            return canonical
+    return text
+
+
+def format_locale_requirement(requirement: dict) -> str:
+    language = requirement["language"].title()
+    locale = requirement["locale"].title()
+    return f"{language} ({locale})"
+
+
+def unique_locale_requirements(requirements: list[dict]) -> list[dict]:
+    result = []
+    seen = set()
+    for requirement in requirements:
+        key = locale_key(requirement["language"], requirement["locale"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(requirement)
+    return result
+
+
+def flatten_values(values: list) -> list[str]:
+    result = []
+    for value in values:
+        if isinstance(value, (list, tuple, set)):
+            result.extend(flatten_values(list(value)))
+        elif value:
+            result.append(str(value))
+    return result
+
+
+def regional_location_restriction_label(row: dict, match: dict) -> str:
+    title = normalize_text(match.get("display_title") or row.get("title") or "")
+    if not title:
+        return ""
+    for pattern, label in LOCATION_RESTRICTION_PATTERNS:
+        if re.search(pattern, title):
+            return label
+    return ""
+
+
+def profile_location_known(profile: dict) -> bool:
+    return any(
+        normalize_text(profile.get(field))
+        for field in ("country", "location", "residence", "city", "region")
+    )
+
+
+def specialized_annotation_needs_cap(row_text: str, profile: dict) -> bool:
+    if not contains_preview_term(row_text, SPECIALIZED_ANNOTATION_TERMS):
+        return False
+    return not profile_has_term(profile, SPECIALIZED_ANNOTATION_PROFILE_TERMS)
+
+
+def science_subdomain_mismatch_label(row_text: str, profile: dict) -> str:
+    if not profile_has_term(profile, BIOLOGY_PROFILE_TERMS):
+        return ""
+    if contains_preview_term(row_text, BIOLOGY_COMPATIBLE_ROLE_TERMS):
+        return ""
+    for term in UNRELATED_SCIENCE_ROLE_TERMS:
+        if contains_preview_term(row_text, (term,)) and not profile_has_term(profile, (term,)):
+            return term
+    return ""
+
+
+def profile_has_term(profile: dict, terms: tuple[str, ...]) -> bool:
+    text = profile_specificity_text(profile)
+    return contains_preview_term(text, terms)
+
+
+def profile_specificity_text(profile: dict) -> str:
+    values = [
+        profile.get("summary"),
+        profile.get("notes"),
+        " ".join(profile.get("degrees_or_domains") or []),
+        " ".join(profile.get("skills") or []),
+        " ".join(profile.get("constraints") or []),
+        " ".join(profile.get("target_opportunity_types") or []),
+        " ".join(profile.get("work_preferences") or []),
     ]
     return normalize_text(" ".join(str(value or "") for value in values))
 
@@ -694,6 +984,8 @@ def user_fit_reason(match: dict) -> str:
 def friendly_reason(reason: str) -> str:
     text = str(reason or "")
     lowered = text.lower()
+    if "generalist ai-work signal" in lowered:
+        return ""
     if "language" in lowered:
         return "It lines up with your language background."
     if "remote" in lowered or "flexible" in lowered:
@@ -732,6 +1024,16 @@ def user_caution_note(match: dict) -> str:
     for diagnostic in match.get("preview_diagnostics") or []:
         if diagnostic.startswith("Possible unconfirmed language requirement"):
             cautions.append("The title may contain an unconfirmed language requirement.")
+        elif diagnostic.startswith("Specific language locale/accent may be required"):
+            cautions.append(
+                "This may require a specific language locale or accent not confirmed in your profile."
+            )
+        elif diagnostic.startswith("Location or regional eligibility needs confirmation"):
+            cautions.append("Location or regional eligibility needs confirmation before prioritizing this.")
+        elif diagnostic.startswith("Specialized annotation or survey domain does not match"):
+            cautions.append("This appears to be a specialized annotation task outside your stated specialty.")
+        elif diagnostic.startswith("Science subdomain appears outside profile specialty"):
+            cautions.append("This science specialty is not confirmed in your profile.")
         elif diagnostic.startswith("Medical license or credential may be required"):
             cautions.append("A medical or professional credential may be required.")
         elif diagnostic.startswith("Reviewed title-derived location restriction"):

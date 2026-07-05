@@ -176,6 +176,59 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         ]
         self.assertTrue(flagged)
 
+    def test_beginner_bilingual_caps_locale_specific_language_roles(self):
+        context = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "short_paragraph",
+            limit=140,
+        )
+
+        locale_terms = (
+            "english (malta)",
+            "english (singapore)",
+            "english (australia)",
+            "english (us)",
+            "spanish (mexico)",
+            "spanish (spain)",
+        )
+        primary = context["matches"]["do_these_first"] + context["matches"]["best_matches"]
+        for term in locale_terms:
+            matches = matches_with_title_terms(context, (term,))
+            self.assertTrue(matches, term)
+            self.assertFalse(any(match in primary for match in matches), term)
+            self.assertTrue(
+                any(
+                    diagnostic.startswith("Specific language locale/accent may be required")
+                    for match in matches
+                    for diagnostic in match["preview_diagnostics"]
+                ),
+                term,
+            )
+
+        excluded_titles = " ".join(match["display_title"].lower() for match in context["matches"]["excluded"])
+        self.assertIn("assamese", excluded_titles)
+        self.assertIn("japanese", excluded_titles)
+        self.assertIn("dutch", excluded_titles)
+
+    def test_explicit_profile_locale_does_not_cap_matching_locale_roles(self):
+        context = preview.build_preview_context(
+            "I am fluent in English (US) and Spanish (Mexico), no college degree, and want remote AI data tasks.",
+            "short_paragraph",
+            limit=140,
+        )
+
+        for term in ("english (us)", "spanish (mexico)"):
+            matches = matches_with_title_terms(context, (term,))
+            self.assertTrue(matches, term)
+            self.assertFalse(
+                any(
+                    diagnostic.startswith("Specific language locale/accent may be required")
+                    for match in matches
+                    for diagnostic in match["preview_diagnostics"]
+                ),
+                term,
+            )
+
     def test_software_preview_caps_science_coding_roles_when_credentials_are_absent(self):
         context = preview.build_preview_context(
             "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. "
@@ -192,6 +245,37 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
 
         best_titles = {match["display_title"] for match in context["matches"]["best_matches"]}
         self.assertIn("Backend Engineer (Coding Agent Experience)", best_titles)
+
+        primary_titles = " ".join(
+            match["display_title"].lower()
+            for match in context["matches"]["do_these_first"] + context["matches"]["best_matches"]
+        )
+        self.assertNotIn("pavement condition index", primary_titles)
+        self.assertNotIn("customer success engineer (india)", primary_titles)
+        self.assertNotIn("customer success engineer (latam)", primary_titles)
+
+        pci_match = guarded_synthetic_match(
+            context["matcher_profile"],
+            "Pavement Condition Index (PCI) Survey & Annotation Specialist",
+            expertise="Data Annotation",
+        )
+        self.assertEqual(pci_match["preview_section"], "explore_only")
+        self.assertTrue(
+            any(
+                diagnostic.startswith("Specialized annotation or survey domain does not match")
+                for diagnostic in pci_match["preview_diagnostics"]
+            )
+        )
+
+        regional_customer_success = matches_with_title_terms(
+            context,
+            ("customer success engineer (india)", "customer success engineer (latam)"),
+        )
+        self.assertTrue(regional_customer_success)
+        self.assertTrue(
+            all(match["preview_section"] == "explore_only" for match in regional_customer_success),
+            regional_customer_success,
+        )
 
         visible_science_coding = [
             match
@@ -229,6 +313,24 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         signal_names = {signal[0] for signal in context["matcher_profile"]["signals"]}
         self.assertIn("Microbiology/research writing signal", signal_names)
 
+        best_titles = " ".join(match["display_title"].lower() for match in context["matches"]["best_matches"])
+        for term in ("advanced math", "computational chemistry", "computational physics", "material science"):
+            self.assertNotIn(term, best_titles)
+
+        capped_science = [
+            match
+            for match in all_preview_matches(context)
+            if title_has_any(match, ("advanced math", "computational chemistry", "computational physics", "material science"))
+        ]
+        self.assertTrue(capped_science)
+        self.assertTrue(
+            any(
+                diagnostic.startswith("Science subdomain appears outside profile specialty")
+                for match in capped_science
+                for diagnostic in match["preview_diagnostics"]
+            )
+        )
+
         microbio_matches = [
             match
             for match in all_preview_matches(context)
@@ -246,6 +348,28 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             if title_has_any(match, ("registered nurse", "licensed physician", "medical doctor", "physician"))
         ]
         self.assertEqual(licensed_visible, [])
+
+    def test_specificity_guardrail_cautions_are_user_facing(self):
+        beginner = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "short_paragraph",
+            limit=140,
+        )
+        locale_match = matches_with_title_terms(beginner, ("english (us)",))[0]
+        self.assertIn("specific language locale or accent", preview.user_caution_note(locale_match))
+
+        software = preview.build_preview_context(
+            "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. "
+            "I don't have biology or medical credentials. Looking for remote AI coding evaluator work.",
+            "resume_or_linkedin_style",
+            limit=120,
+        )
+        pci_match = guarded_synthetic_match(
+            software["matcher_profile"],
+            "Pavement Condition Index (PCI) Survey & Annotation Specialist",
+            expertise="Data Annotation",
+        )
+        self.assertIn("specialized annotation task", preview.user_caution_note(pci_match))
 
     def test_preview_does_not_change_matcher_benchmark(self):
         fixture = benchmark.load_fixture()
@@ -300,6 +424,40 @@ def all_preview_matches(context):
 def title_has_any(match, terms):
     title = match["display_title"].lower()
     return any(term in title for term in terms)
+
+
+def matches_with_title_terms(context, terms):
+    return [
+        match
+        for match in all_preview_matches(context)
+        if title_has_any(match, terms)
+    ]
+
+
+def guarded_synthetic_match(profile, title, expertise="Unknown", location="Remote"):
+    row = {
+        "title": title,
+        "canonical_title": title,
+        "source_category": expertise,
+        "department": expertise,
+        "expertise": expertise,
+        "description": "",
+        "location": location,
+    }
+    match = {
+        "score": 30,
+        "display_title": title,
+        "source": "Synthetic",
+        "source_slug": "synthetic",
+        "location": location,
+        "expertise": expertise,
+        "url": "",
+        "effective_product_section": "best_matches",
+        "eligible_for_personalized": True,
+        "preview_diagnostics": [],
+        "reasons": ["Generalist AI-work signal"],
+    }
+    return preview.apply_preview_guardrails(profile, row, match)
 
 
 if __name__ == "__main__":
