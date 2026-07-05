@@ -102,6 +102,8 @@ class OpportunityMetadataGapReviewTests(unittest.TestCase):
         self.assertFalse(plan.conflicts)
         self.assertEqual(16, plan.skipped_by_decision["needs_more_research"])
         self.assertEqual(10, plan.skipped_by_decision["keep_diagnostic_only"])
+        self.assertEqual(55, len(plan.overlay_records))
+        self.assertEqual(5, plan.rows_merged)
 
     def test_apply_accepts_assamese_human_override(self):
         rows = review.read_review_csv(ROOT / "exports" / "opportunity_metadata_gap_review.csv")
@@ -181,6 +183,38 @@ class OpportunityMetadataGapReviewTests(unittest.TestCase):
         self.assertEqual(["English", "Norwegian"], record["required_languages"])
         self.assertEqual(["English (US)", "Norwegian (Norway)"], record["language_locale"])
         self.assertEqual(2, len(record["provenance"]))
+
+    def test_apply_does_not_merge_language_variants_by_broad_canonical_id(self):
+        rows = [
+            apply_row(
+                "arabic-bengali",
+                source="oneforma",
+                job_id="6839",
+                title="Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Bengali (India)",
+                human_required_languages="Arabic, Bengali",
+                human_language_locale="Arabic (Saudi Arabia), Bengali (India)",
+            ),
+            apply_row(
+                "arabic-gujarati",
+                source="oneforma",
+                job_id="6840",
+                title="Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Gujarati (India)",
+                human_required_languages="Arabic, Gujarati",
+                human_language_locale="Arabic (Saudi Arabia), Gujarati (India)",
+            ),
+        ]
+        for row in rows:
+            row["canonical_opportunity_id"] = "542"
+
+        plan = review.build_apply_plan(rows, reviewed_source="review.csv")
+
+        self.assertFalse(plan.validation_errors)
+        self.assertFalse(plan.conflicts)
+        self.assertEqual(2, len(plan.overlay_records))
+        self.assertEqual(0, plan.rows_merged)
+        by_key = {record["stable_opportunity_key"]: record for record in plan.overlay_records}
+        self.assertEqual(["Arabic", "Bengali"], by_key["job_id:oneforma:6839"]["required_languages"])
+        self.assertEqual(["Arabic", "Gujarati"], by_key["job_id:oneforma:6840"]["required_languages"])
 
     def test_apply_conflicting_location_restriction_fails_conservatively(self):
         rows = [

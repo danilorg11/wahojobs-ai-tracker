@@ -117,19 +117,22 @@ def find_overlay_record(row: dict, overlay: OpportunityMetadataOverlay) -> tuple
 def stable_keys_for_row(row: dict) -> list[str]:
     source = clean(row.get("source_slug") or row.get("source"))
     keys = []
-    canonical_id = clean(row.get("canonical_opportunity_id"))
-    if canonical_id:
-        keys.append(f"canonical_opportunity_id:{canonical_id}")
     job_id = clean(row.get("job_id"))
     if job_id:
         keys.append(f"job_id:{source}:{job_id}")
     external_id = clean(row.get("external_id"))
     if external_id:
         keys.append(f"external_id:{source}:{external_id}")
+    source_hash = clean(row.get("source_hash"))
+    if source_hash:
+        keys.append(f"source_hash:{source}:{source_hash}")
     url = clean(row.get("url"))
     title = clean(row.get("title"))
     if source and (url or title):
         keys.append(f"source_url_title:{source}:{slug(url)}:{slug(title)}")
+    canonical_id = clean(row.get("canonical_opportunity_id"))
+    if canonical_id:
+        keys.append(f"canonical_opportunity_id:{canonical_id}")
     return keys
 
 

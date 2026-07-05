@@ -699,17 +699,30 @@ def validate_review_rows(rows: list[dict]) -> list[str]:
 
 def stable_opportunity_key(row: dict) -> tuple[str, str]:
     source = clean(row.get("source"))
+    metadata = row_human_metadata(row)
+    language_or_locale_metadata = bool(metadata["required_languages"] or metadata["language_locale"])
+    job_id = clean(row.get("job_id"))
+    if language_or_locale_metadata and job_id:
+        return f"job_id:{source}:{job_id}", ""
+    external_id = clean(row.get("external_id"))
+    if language_or_locale_metadata and external_id:
+        return f"external_id:{source}:{external_id}", ""
+    source_hash = clean(row.get("source_hash"))
+    if language_or_locale_metadata and source_hash:
+        return f"source_hash:{source}:{source_hash}", ""
+    url = clean(row.get("url"))
+    title = clean(row.get("title"))
+    if language_or_locale_metadata and source and (url or title):
+        return f"source_url_title:{source}:{slug(url)}:{slug(title)}", ""
     canonical_id = clean(row.get("canonical_opportunity_id"))
     if canonical_id:
         return f"canonical_opportunity_id:{canonical_id}", ""
-    job_id = clean(row.get("job_id"))
     if job_id:
         return f"job_id:{source}:{job_id}", ""
-    external_id = clean(row.get("external_id"))
     if external_id:
         return f"external_id:{source}:{external_id}", ""
-    url = clean(row.get("url"))
-    title = clean(row.get("title"))
+    if source_hash:
+        return f"source_hash:{source}:{source_hash}", ""
     return (
         f"source_url_title:{source}:{slug(url)}:{slug(title)}",
         "fallback source+url+title key used because no canonical_opportunity_id, job_id, or external_id was available.",

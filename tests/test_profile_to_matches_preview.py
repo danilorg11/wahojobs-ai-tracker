@@ -165,7 +165,7 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         ]
         self.assertTrue(capped_flagged)
         self.assertTrue(
-            all(match["preview_section"] == "explore_only" for match in capped_flagged),
+            all(match["preview_section"] in {"explore_only", "excluded"} for match in capped_flagged),
             capped_flagged[:3],
         )
         flagged = [
@@ -188,6 +188,8 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             "english (singapore)",
             "english (australia)",
             "english (us)",
+            "spanish (andean",
+            "spanish (chile)",
             "spanish (mexico)",
             "spanish (spain)",
         )
@@ -209,6 +211,35 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         self.assertIn("assamese", excluded_titles)
         self.assertIn("japanese", excluded_titles)
         self.assertIn("dutch", excluded_titles)
+
+    def test_beginner_bilingual_caps_title_only_dialect_and_language_roles(self):
+        context = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
+            "short_paragraph",
+            limit=160,
+        )
+
+        primary = context["matches"]["do_these_first"] + context["matches"]["best_matches"]
+        terms = (
+            "alexandrian dialect",
+            "bedawi dialect",
+            "belarusian language specialist",
+            "british sign language",
+            "cebuano language specialist",
+            "chichewa language specialist",
+        )
+        for term in terms:
+            matches = matches_with_title_terms(context, (term,))
+            self.assertTrue(matches, term)
+            self.assertFalse(any(match in primary for match in matches), term)
+            self.assertTrue(
+                any(
+                    diagnostic.startswith("Unsupported title-only language or dialect")
+                    for match in matches
+                    for diagnostic in match["preview_diagnostics"]
+                ),
+                term,
+            )
 
     def test_explicit_profile_locale_does_not_cap_matching_locale_roles(self):
         context = preview.build_preview_context(
@@ -251,6 +282,7 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             for match in context["matches"]["do_these_first"] + context["matches"]["best_matches"]
         )
         self.assertNotIn("pavement condition index", primary_titles)
+        self.assertNotIn("building code & permitting specialists", primary_titles)
         self.assertNotIn("customer success engineer (india)", primary_titles)
         self.assertNotIn("customer success engineer (latam)", primary_titles)
 
@@ -275,6 +307,17 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         self.assertTrue(
             all(match["preview_section"] == "explore_only" for match in regional_customer_success),
             regional_customer_success,
+        )
+
+        building_code = matches_with_title_terms(context, ("building code & permitting specialists",))
+        self.assertTrue(building_code)
+        self.assertTrue(all(match["preview_section"] == "explore_only" for match in building_code))
+        self.assertTrue(
+            any(
+                diagnostic.startswith("Location or regional eligibility needs confirmation")
+                for match in building_code
+                for diagnostic in match["preview_diagnostics"]
+            )
         )
 
         visible_science_coding = [
@@ -349,6 +392,13 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         ]
         self.assertEqual(licensed_visible, [])
 
+        credential_match = guarded_synthetic_match(
+            context["matcher_profile"],
+            "Medical Doctor Biology Review Specialist",
+            expertise="Science",
+        )
+        self.assertIn("degree, seniority, or license", preview.user_caution_note(credential_match))
+
     def test_specificity_guardrail_cautions_are_user_facing(self):
         beginner = preview.build_preview_context(
             "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
@@ -370,6 +420,13 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             expertise="Data Annotation",
         )
         self.assertIn("specialized annotation task", preview.user_caution_note(pci_match))
+
+        science_python = guarded_synthetic_match(
+            software["matcher_profile"],
+            "Material Science Expert with Python",
+            expertise="STEM",
+        )
+        self.assertIn("domain expertise", preview.user_caution_note(science_python))
 
     def test_preview_does_not_change_matcher_benchmark(self):
         fixture = benchmark.load_fixture()

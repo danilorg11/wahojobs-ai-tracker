@@ -3,728 +3,6 @@
   "records": [
     {
       "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "1110",
-      "company": "Meridial",
-      "external_id": "4651799101",
-      "job_id": "279",
-      "language_locale": [
-        "Spanish (Latin America)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project; location=Mexico; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_meridial_language-locale_language-dash-locale_279",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project; location=Colombia; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_meridial_language-locale_language-dash-locale_280",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Spanish"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "meridial",
-      "source_hash": "df7bbda607c1f9815e903a7563e4f8ae00a896690e2fdd928cf1b90794ed8fc7",
-      "stable_opportunity_key": "canonical_opportunity_id:1110",
-      "title": "LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project",
-      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651799101",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "1226",
-      "company": "Meridial",
-      "external_id": "4651788101",
-      "job_id": "433",
-      "language_locale": [],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=German Translator - Freelance AI Trainer Project; location=World Wide - Remote; pattern=translation_or_translator; value=german",
-          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_meridial_language-requirement_translation-or-translator_433",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "German"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "meridial",
-      "source_hash": "e2026d3ea57bda60298f11e12c83a8691542b4b13eef0a0887bed03d0760502b",
-      "stable_opportunity_key": "canonical_opportunity_id:1226",
-      "title": "German Translator - Freelance AI Trainer Project",
-      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651788101",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "1227",
-      "company": "Meridial",
-      "external_id": "4651789101",
-      "job_id": "434",
-      "language_locale": [],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Chinese Translator - Freelance AI Trainer Project; location=Singapore; pattern=translation_or_translator; value=chinese",
-          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_meridial_language-requirement_translation-or-translator_434",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Chinese"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "meridial",
-      "source_hash": "b1b88d45f3f831ad369c8bbd90e15e6b142396400210d61747fef9efff734651",
-      "stable_opportunity_key": "canonical_opportunity_id:1227",
-      "title": "Chinese Translator - Freelance AI Trainer Project",
-      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651789101",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "1323",
-      "company": "Meridial",
-      "external_id": "4660215101",
-      "job_id": "534",
-      "language_locale": [],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_specialist_or_expert",
-          "evidence_text": "title=Mandarin Chinese Language Specialist - Freelance AI Trainer Project; location=Singapore; pattern=language_specialist_or_expert; value=chinese",
-          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_meridial_language-requirement_language-specialist-or-expert_534",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Mandarin Chinese"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "meridial",
-      "source_hash": "70b4371bf49239923200513b0aeb0040970451560576dfde0c61fd4bcfce041a",
-      "stable_opportunity_key": "canonical_opportunity_id:1323",
-      "title": "Mandarin Chinese Language Specialist - Freelance AI Trainer Project",
-      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4660215101",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "1388",
-      "company": "Meridial",
-      "external_id": "4787630101",
-      "job_id": "650",
-      "language_locale": [],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "audio_language_role",
-          "evidence_text": "title=Hindi Audio Specialist - Freelance AI Trainer Project; location=World Wide - Remote; pattern=audio_language_role; value=hindi",
-          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_meridial_language-requirement_audio-language-role_650",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Hindi"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "meridial",
-      "source_hash": "445003599f747c99e6f1c82d38d9468716272c5d24b73cd4bd0f49e5449e17be",
-      "stable_opportunity_key": "canonical_opportunity_id:1388",
-      "title": "Hindi Audio Specialist - Freelance AI Trainer Project",
-      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4787630101",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "1389",
-      "company": "Meridial",
-      "external_id": "4787631101",
-      "job_id": "651",
-      "language_locale": [],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "audio_language_role",
-          "evidence_text": "title=Spanish Audio Specialist - Freelance AI Trainer Project; location=World Wide - Remote; pattern=audio_language_role; value=spanish",
-          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_meridial_language-requirement_audio-language-role_651",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Spanish"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "meridial",
-      "source_hash": "7d621660e13e4874c7184a646800432ddbb4de73d4277553adb8656a52ce54c8",
-      "stable_opportunity_key": "canonical_opportunity_id:1389",
-      "title": "Spanish Audio Specialist - Freelance AI Trainer Project",
-      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4787631101",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "521",
-      "company": "OneForma",
-      "external_id": "oneforma::177962::french-france",
-      "job_id": "6522",
-      "language_locale": [
-        "French (France)",
-        "Spanish (Spain)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=Andromeda - French - France; location=Worldwide; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6522",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=Andromeda - Spanish - Spain; location=Worldwide; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6526",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "French",
-        "Spanish"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "oneforma",
-      "source_hash": "155a844f12fc65c8a24fb9b30dc1ba95f5019b3d4e3befb272b9c3293ba89e87",
-      "stable_opportunity_key": "canonical_opportunity_id:521",
-      "title": "Andromeda - French - France",
-      "url": "https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802653759969281",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "531",
-      "company": "OneForma",
-      "external_id": "oneforma::177728::10528",
-      "job_id": "6598",
-      "language_locale": [
-        "English (Canada)",
-        "English (United States)",
-        "French (Canada)",
-        "French (France)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=Ava Audio Collection - English - Canada; location=Worldwide; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6598",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=Ava Audio Collection - English - United States; location=Worldwide; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6601",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=Ava Audio Collection - French - Canada; location=Worldwide; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6602",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_dash_locale",
-          "evidence_text": "title=Ava Audio Collection - French - France; location=Worldwide; pattern=language_dash_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6603",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "English",
-        "French"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "oneforma",
-      "source_hash": "ba8322d04bd3d85961f77e1c813497c750bff8a1bdc4d2e56ca88863cca1d8b5",
-      "stable_opportunity_key": "canonical_opportunity_id:531",
-      "title": "Ava Audio Collection - English - Canada",
-      "url": "https://my.oneforma.com/crowd/jobs/10528?from=list&tab=all",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "542",
-      "company": "OneForma",
-      "external_id": "oneforma::176234::11891",
-      "job_id": "6851",
-      "language_locale": [
-        "Arabic (Saudi Arabia)",
-        "Bengali (India)",
-        "Bulgarian (Bulgaria)",
-        "Catalan (Spain)",
-        "Croatian (Croatia)",
-        "Dutch (Belgium)",
-        "English (United States)",
-        "Estonian (Estonia)",
-        "Gujarati (India)",
-        "Hindi (India)",
-        "Kannada (India)",
-        "Malayalam (India)",
-        "Marathi (India)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Bulgarian (Bulgaria); location=Worldwide; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6851",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Catalan (Spain); location=Worldwide; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6852",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Croatian (Croatia); location=Worldwide; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6855",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Dutch (Belgium); location=Worldwide; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6858",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Estonian (Estonia); location=Worldwide; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6854",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Farsi (Persian); location=Worldwide; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language metadata. The title explicitly identifies English (United States) and Farsi/Persian. Use English (United States) as the locale; treat Farsi/Persian as the required language name/alias, not as a geographic locale. Keep title-derived provenance; this is reviewed inferred metadata, not source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6869",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Bengali (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6839",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Gujarati (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6840",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Hindi (India); location=Worldwide; pattern=translation_or_translator; value=arabic, hindi",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6841",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Kannada (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6842",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Malayalam (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6843",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Marathi (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6844",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Arabic",
-        "Bengali",
-        "Bulgarian",
-        "Catalan",
-        "Croatian",
-        "Dutch",
-        "English",
-        "Estonian",
-        "Farsi",
-        "Gujarati",
-        "Hindi",
-        "Kannada",
-        "Malayalam",
-        "Marathi"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "oneforma",
-      "source_hash": "dba597b383ee5a151a6d4f2b1e56e1b5003b40be1cf862df0877bc40f58c041f",
-      "stable_opportunity_key": "canonical_opportunity_id:542",
-      "title": "Acceptability and Preference: Translation Raters - English (United States) - Bulgarian (Bulgaria)",
-      "url": "https://my.oneforma.com/crowd/jobs/11891?from=list&tab=all",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "552",
-      "company": "Welocalize",
-      "external_id": "6e0ac589-3fba-429a-8ce4-5c48a2cf0e2d",
-      "job_id": "7522",
-      "language_locale": [
-        "Portuguese (Brazil)",
-        "Spanish (Mexico)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=*Scout Junior Quality Coordinator - Portuguese (Brazil); location=Brazil; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7522",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=*Scout Junior Quality Coordinator - Spanish (Mexico); location=Mexico City, Mexico; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7523",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Portuguese",
-        "Spanish"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "welocalize",
-      "source_hash": "8c871d9f7aadec219e827db4d992fae5287edcf1c644eb70cebbcebd1ac5bb8e",
-      "stable_opportunity_key": "canonical_opportunity_id:552",
-      "title": "*Scout Junior Quality Coordinator - Portuguese (Brazil)",
-      "url": "https://jobs.lever.co/weloglobal/6e0ac589-3fba-429a-8ce4-5c48a2cf0e2d",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "690",
-      "company": "Welocalize",
-      "external_id": "abd22b8d-f748-47b7-b925-d9af5a71d865",
-      "job_id": "7665",
-      "language_locale": [
-        "English (United States)",
-        "French (France)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=English (United States) <> French (France) Lyric Translation Reviewer; location=France; pattern=translation_or_translator; value=english, french",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7665",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "English",
-        "French"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "welocalize",
-      "source_hash": "b4ddbc589d9c747abad69cbae54f283de2d7c86d05bc0e240e8910679f6f605e",
-      "stable_opportunity_key": "canonical_opportunity_id:690",
-      "title": "English (United States) <> French (France) Lyric Translation Reviewer",
-      "url": "https://jobs.lever.co/weloglobal/abd22b8d-f748-47b7-b925-d9af5a71d865",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "691",
-      "company": "Welocalize",
-      "external_id": "2a57f3d9-4ec8-4838-89a0-8fc6e421e9ca",
-      "job_id": "7666",
-      "language_locale": [
-        "English (United States)",
-        "German (Germany)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=English (United States) > German (Germany) Lyric Translation Reviewer; location=Germany; pattern=translation_or_translator; value=english, german",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7666",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "English",
-        "German"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "welocalize",
-      "source_hash": "9fa20f859569e0c5dc13095f40b83e61973a70b5cb58bc6112e98a58563f7fe9",
-      "stable_opportunity_key": "canonical_opportunity_id:691",
-      "title": "English (United States) > German (Germany) Lyric Translation Reviewer",
-      "url": "https://jobs.lever.co/weloglobal/2a57f3d9-4ec8-4838-89a0-8fc6e421e9ca",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "740",
-      "company": "Welocalize",
-      "external_id": "c321add1-b7cb-4390-ae91-6f338ec0e6ee",
-      "job_id": "7718",
-      "language_locale": [
-        "English (United States)",
-        "Korean (Korea)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Korean (Korea) <> English (United States) Lyric Translation Reviewer; location=South Korea; pattern=translation_or_translator; value=english, korean",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7718",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "English",
-        "Korean"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "welocalize",
-      "source_hash": "0bd131f316aff294306f20363ca2e25bcbcb792175681245d7c122d5247b3150",
-      "stable_opportunity_key": "canonical_opportunity_id:740",
-      "title": "Korean (Korea) <> English (United States) Lyric Translation Reviewer",
-      "url": "https://jobs.lever.co/weloglobal/c321add1-b7cb-4390-ae91-6f338ec0e6ee",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "741",
-      "company": "Welocalize",
-      "external_id": "d1f093c7-88fe-44d3-9e2a-337766962cd0",
-      "job_id": "7719",
-      "language_locale": [
-        "Japanese (Japan)",
-        "Korean (Korea)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "medium",
-          "candidate_pattern": "translation_or_translator",
-          "evidence_text": "title=Korean (Korea) > Japanese (Japan) Lyric Translation Reviewer; location=Japan; pattern=translation_or_translator; value=japanese, korean",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7719",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Japanese",
-        "Korean"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "welocalize",
-      "source_hash": "1f3530f84a439bbe69cca24c37c38c07ffa4a31a068d06744fa0328415169728",
-      "stable_opportunity_key": "canonical_opportunity_id:741",
-      "title": "Korean (Korea) > Japanese (Japan) Lyric Translation Reviewer",
-      "url": "https://jobs.lever.co/weloglobal/d1f093c7-88fe-44d3-9e2a-337766962cd0",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "914",
-      "company": "Welocalize",
-      "external_id": "c43ab912-0d54-431a-abb4-e9b2c1ca9749",
-      "job_id": "7550",
-      "language_locale": [
-        "Mandarin (Taiwan)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Ads Quality Rater - Mandarin (Taiwan); location=Taiwan; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7550",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Mandarin"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "welocalize",
-      "source_hash": "2411a48bb10992f3739dbeb9ba39acaa158d92caf943b3cf17c0774e36034060",
-      "stable_opportunity_key": "canonical_opportunity_id:914",
-      "title": "Ads Quality Rater - Mandarin (Taiwan)",
-      "url": "https://jobs.lever.co/weloglobal/c43ab912-0d54-431a-abb4-e9b2c1ca9749",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
-      "canonical_opportunity_id": "918",
-      "company": "Welocalize",
-      "external_id": "d9a91e49-8052-4ce6-836d-9ee264214b7d",
-      "job_id": "7554",
-      "language_locale": [
-        "Spanish (Argentina)",
-        "Spanish (Mexico)"
-      ],
-      "location_restriction": [],
-      "metadata_source": "human_reviewed_title_inference",
-      "provenance": [
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Ads Quality Rater - Spanish (Argentina); location=Argentina; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7554",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        },
-        {
-          "candidate_confidence": "high",
-          "candidate_pattern": "language_parenthetical_locale",
-          "evidence_text": "title=Ads Quality Rater - Spanish (Mexico); location=Mexico City, Mexico; pattern=language_parenthetical_locale",
-          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
-          "metadata_source": "human_reviewed_title_inference",
-          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7555",
-          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
-        }
-      ],
-      "required_languages": [
-        "Spanish"
-      ],
-      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
-      "source": "welocalize",
-      "source_hash": "f756403770b741cfea8df38ece4a59250789680b840fb8924d7c209b3c896be1",
-      "stable_opportunity_key": "canonical_opportunity_id:918",
-      "title": "Ads Quality Rater - Spanish (Argentina)",
-      "url": "https://jobs.lever.co/weloglobal/d9a91e49-8052-4ce6-836d-9ee264214b7d",
-      "warnings": []
-    },
-    {
-      "apply_status": "pending_overlay",
       "canonical_opportunity_id": "",
       "company": "Appen",
       "external_id": "98bbe8f8-ab5c-48db-bcd6-93a8f747646b",
@@ -1451,6 +729,1149 @@
       "warnings": [
         "Human-approved override from ambiguous pattern ampersand_language_list."
       ]
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1110",
+      "company": "Meridial",
+      "external_id": "4651799101",
+      "job_id": "279",
+      "language_locale": [
+        "Spanish (Latin America)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project; location=Mexico; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-locale_language-dash-locale_279",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "df7bbda607c1f9815e903a7563e4f8ae00a896690e2fdd928cf1b90794ed8fc7",
+      "stable_opportunity_key": "job_id:meridial:279",
+      "title": "LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651799101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1110",
+      "company": "Meridial",
+      "external_id": "4651800101",
+      "job_id": "280",
+      "language_locale": [
+        "Spanish (Latin America)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project; location=Colombia; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-locale_language-dash-locale_280",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "419c3f3019ad5beecd55576230463f864ebaa7848bdaf24473b31519fe5ae946",
+      "stable_opportunity_key": "job_id:meridial:280",
+      "title": "LaTex Specialist (Fluent in Spanish- Latin America) - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651800101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1226",
+      "company": "Meridial",
+      "external_id": "4651788101",
+      "job_id": "433",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=German Translator - Freelance AI Trainer Project; location=World Wide - Remote; pattern=translation_or_translator; value=german",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_translation-or-translator_433",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "German"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "e2026d3ea57bda60298f11e12c83a8691542b4b13eef0a0887bed03d0760502b",
+      "stable_opportunity_key": "job_id:meridial:433",
+      "title": "German Translator - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651788101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1227",
+      "company": "Meridial",
+      "external_id": "4651789101",
+      "job_id": "434",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Chinese Translator - Freelance AI Trainer Project; location=Singapore; pattern=translation_or_translator; value=chinese",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_translation-or-translator_434",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Chinese"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "b1b88d45f3f831ad369c8bbd90e15e6b142396400210d61747fef9efff734651",
+      "stable_opportunity_key": "job_id:meridial:434",
+      "title": "Chinese Translator - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651789101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1323",
+      "company": "Meridial",
+      "external_id": "4660215101",
+      "job_id": "534",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_specialist_or_expert",
+          "evidence_text": "title=Mandarin Chinese Language Specialist - Freelance AI Trainer Project; location=Singapore; pattern=language_specialist_or_expert; value=chinese",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_language-specialist-or-expert_534",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Mandarin Chinese"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "70b4371bf49239923200513b0aeb0040970451560576dfde0c61fd4bcfce041a",
+      "stable_opportunity_key": "job_id:meridial:534",
+      "title": "Mandarin Chinese Language Specialist - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4660215101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1388",
+      "company": "Meridial",
+      "external_id": "4787630101",
+      "job_id": "650",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=Hindi Audio Specialist - Freelance AI Trainer Project; location=World Wide - Remote; pattern=audio_language_role; value=hindi",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_audio-language-role_650",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Hindi"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "445003599f747c99e6f1c82d38d9468716272c5d24b73cd4bd0f49e5449e17be",
+      "stable_opportunity_key": "job_id:meridial:650",
+      "title": "Hindi Audio Specialist - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4787630101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "1389",
+      "company": "Meridial",
+      "external_id": "4787631101",
+      "job_id": "651",
+      "language_locale": [],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "audio_language_role",
+          "evidence_text": "title=Spanish Audio Specialist - Freelance AI Trainer Project; location=World Wide - Remote; pattern=audio_language_role; value=spanish",
+          "human_notes": "Approve inferred required-language metadata. The title explicitly indicates the required language(s). Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_meridial_language-requirement_audio-language-role_651",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "meridial",
+      "source_hash": "7d621660e13e4874c7184a646800432ddbb4de73d4277553adb8656a52ce54c8",
+      "stable_opportunity_key": "job_id:meridial:651",
+      "title": "Spanish Audio Specialist - Freelance AI Trainer Project",
+      "url": "https://job-boards.eu.greenhouse.io/agency/jobs/4787631101",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "521",
+      "company": "OneForma",
+      "external_id": "oneforma::177962::french-france",
+      "job_id": "6522",
+      "language_locale": [
+        "French (France)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Andromeda - French - France; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6522",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "French"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "155a844f12fc65c8a24fb9b30dc1ba95f5019b3d4e3befb272b9c3293ba89e87",
+      "stable_opportunity_key": "job_id:oneforma:6522",
+      "title": "Andromeda - French - France",
+      "url": "https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802653759969281",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "521",
+      "company": "OneForma",
+      "external_id": "oneforma::177962::spanish-spain",
+      "job_id": "6526",
+      "language_locale": [
+        "Spanish (Spain)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Andromeda - Spanish - Spain; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6526",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "280658b70aa54591b762b49c38879a29d5826f31727edcbca49fd1707df315d0",
+      "stable_opportunity_key": "job_id:oneforma:6526",
+      "title": "Andromeda - Spanish - Spain",
+      "url": "https://my.oneforma.com/webapp/dataCollection/signup?requestId=1802653992628225",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "531",
+      "company": "OneForma",
+      "external_id": "oneforma::177728::10528",
+      "job_id": "6598",
+      "language_locale": [
+        "English (Canada)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - English - Canada; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6598",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "ba8322d04bd3d85961f77e1c813497c750bff8a1bdc4d2e56ca88863cca1d8b5",
+      "stable_opportunity_key": "job_id:oneforma:6598",
+      "title": "Ava Audio Collection - English - Canada",
+      "url": "https://my.oneforma.com/crowd/jobs/10528?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "531",
+      "company": "OneForma",
+      "external_id": "oneforma::177728::10525",
+      "job_id": "6601",
+      "language_locale": [
+        "English (United States)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - English - United States; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6601",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "2ee3c30a25ef7538b43fbfdd33ec64b38872c5d6b69ce218813357b2c6ccf439",
+      "stable_opportunity_key": "job_id:oneforma:6601",
+      "title": "Ava Audio Collection - English - United States",
+      "url": "https://my.oneforma.com/crowd/jobs/10525?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "531",
+      "company": "OneForma",
+      "external_id": "oneforma::177728::10516",
+      "job_id": "6602",
+      "language_locale": [
+        "French (Canada)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - French - Canada; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6602",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "French"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "226d626573de2b7d5e121370b27532ed9e91c02a365fd0dea46d5c58b583e86e",
+      "stable_opportunity_key": "job_id:oneforma:6602",
+      "title": "Ava Audio Collection - French - Canada",
+      "url": "https://my.oneforma.com/crowd/jobs/10516?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "531",
+      "company": "OneForma",
+      "external_id": "oneforma::177728::10515",
+      "job_id": "6603",
+      "language_locale": [
+        "French (France)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_dash_locale",
+          "evidence_text": "title=Ava Audio Collection - French - France; location=Worldwide; pattern=language_dash_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-dash-locale_6603",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "French"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "528573b8ac2b39417f5b5860e7b92077b44dc6022ae738f930120eb0e3cf1d55",
+      "stable_opportunity_key": "job_id:oneforma:6603",
+      "title": "Ava Audio Collection - French - France",
+      "url": "https://my.oneforma.com/crowd/jobs/10515?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11906",
+      "job_id": "6839",
+      "language_locale": [
+        "Arabic (Saudi Arabia)",
+        "Bengali (India)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Bengali (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6839",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Arabic",
+        "Bengali"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "3db9257bd8825e74c3cb79d825c399a7571ee92595384a644b787207e0ca9001",
+      "stable_opportunity_key": "job_id:oneforma:6839",
+      "title": "Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Bengali (India)",
+      "url": "https://my.oneforma.com/crowd/jobs/11906?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11907",
+      "job_id": "6840",
+      "language_locale": [
+        "Arabic (Saudi Arabia)",
+        "Gujarati (India)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Gujarati (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6840",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Arabic",
+        "Gujarati"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "28e64bf3535aa93b8f82f0dcd56a0e583776d684f3c22c9affb0c23770e58d23",
+      "stable_opportunity_key": "job_id:oneforma:6840",
+      "title": "Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Gujarati (India)",
+      "url": "https://my.oneforma.com/crowd/jobs/11907?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11908",
+      "job_id": "6841",
+      "language_locale": [
+        "Arabic (Saudi Arabia)",
+        "Hindi (India)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Hindi (India); location=Worldwide; pattern=translation_or_translator; value=arabic, hindi",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6841",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Arabic",
+        "Hindi"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "fc3ed72bbdbee6821102f71079f7af8fab9b3903e9cba79fd8afa3e533222f68",
+      "stable_opportunity_key": "job_id:oneforma:6841",
+      "title": "Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Hindi (India)",
+      "url": "https://my.oneforma.com/crowd/jobs/11908?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11909",
+      "job_id": "6842",
+      "language_locale": [
+        "Arabic (Saudi Arabia)",
+        "Kannada (India)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Kannada (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6842",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Arabic",
+        "Kannada"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "38a8ae90b333adcd3c41781541dda302e5cd2b72182314eec3c72abb3e636415",
+      "stable_opportunity_key": "job_id:oneforma:6842",
+      "title": "Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Kannada (India)",
+      "url": "https://my.oneforma.com/crowd/jobs/11909?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::arabic-saudi-arabia-malayalam-india",
+      "job_id": "6843",
+      "language_locale": [
+        "Arabic (Saudi Arabia)",
+        "Malayalam (India)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Malayalam (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6843",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Arabic",
+        "Malayalam"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "afbc48b80c1a49503b9646f29c99234958491985cf42d218cde54da41fc3b0c6",
+      "stable_opportunity_key": "job_id:oneforma:6843",
+      "title": "Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Malayalam (India)",
+      "url": "https://my.oneforma.com/crowd/jobs/11911?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::arabic-saudi-arabia-marathi-india",
+      "job_id": "6844",
+      "language_locale": [
+        "Arabic (Saudi Arabia)",
+        "Marathi (India)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Marathi (India); location=Worldwide; pattern=translation_or_translator; value=arabic",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-requirement_translation-or-translator_6844",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Arabic",
+        "Marathi"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "db4aef8cc6dac9da8f1201cdc73f8ac314dd88593d6363a4c7f0747530a0c165",
+      "stable_opportunity_key": "job_id:oneforma:6844",
+      "title": "Acceptability and Preference: Translation Raters - Arabic (Saudi Arabia) - Marathi (India)",
+      "url": "https://my.oneforma.com/crowd/jobs/11912?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11891",
+      "job_id": "6851",
+      "language_locale": [
+        "Bulgarian (Bulgaria)",
+        "English (United States)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Bulgarian (Bulgaria); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6851",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Bulgarian",
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "dba597b383ee5a151a6d4f2b1e56e1b5003b40be1cf862df0877bc40f58c041f",
+      "stable_opportunity_key": "job_id:oneforma:6851",
+      "title": "Acceptability and Preference: Translation Raters - English (United States) - Bulgarian (Bulgaria)",
+      "url": "https://my.oneforma.com/crowd/jobs/11891?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11865",
+      "job_id": "6852",
+      "language_locale": [
+        "Catalan (Spain)",
+        "English (United States)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Catalan (Spain); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6852",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Catalan",
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "e934ce6eeb2a050d5d8adac5eca4aa5b727d12e4e77f744051da6279b5672165",
+      "stable_opportunity_key": "job_id:oneforma:6852",
+      "title": "Acceptability and Preference: Translation Raters - English (United States) - Catalan (Spain)",
+      "url": "https://my.oneforma.com/crowd/jobs/11865?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11868",
+      "job_id": "6854",
+      "language_locale": [
+        "English (United States)",
+        "Estonian (Estonia)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Estonian (Estonia); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6854",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "Estonian"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "3eb89adeaf1bf7ed1c7370a539c88d4e3388357fe081b2890421198f1c3bed78",
+      "stable_opportunity_key": "job_id:oneforma:6854",
+      "title": "Acceptability and Preference: Translation Raters - English (United States) - Estonian (Estonia)",
+      "url": "https://my.oneforma.com/crowd/jobs/11868?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11867",
+      "job_id": "6855",
+      "language_locale": [
+        "Croatian (Croatia)",
+        "English (United States)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Croatian (Croatia); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6855",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Croatian",
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "965d1efd17b545cf930dbcd58916f342b4f8ec4cca9e70e477e5ba0b51851412",
+      "stable_opportunity_key": "job_id:oneforma:6855",
+      "title": "Acceptability and Preference: Translation Raters - English (United States) - Croatian (Croatia)",
+      "url": "https://my.oneforma.com/crowd/jobs/11867?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::11890",
+      "job_id": "6858",
+      "language_locale": [
+        "Dutch (Belgium)",
+        "English (United States)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Dutch (Belgium); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6858",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Dutch",
+        "English"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "59af248a650e9b15488a5ca8b5c94c686da9b60d0b905d204578b29beb8e52b6",
+      "stable_opportunity_key": "job_id:oneforma:6858",
+      "title": "Acceptability and Preference: Translation Raters - English (United States) - Dutch (Belgium)",
+      "url": "https://my.oneforma.com/crowd/jobs/11890?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "542",
+      "company": "OneForma",
+      "external_id": "oneforma::176234::english-united-states-farsi-persian",
+      "job_id": "6869",
+      "language_locale": [
+        "English (United States)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Acceptability and Preference: Translation Raters - English (United States) - Farsi (Persian); location=Worldwide; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language metadata. The title explicitly identifies English (United States) and Farsi/Persian. Use English (United States) as the locale; treat Farsi/Persian as the required language name/alias, not as a geographic locale. Keep title-derived provenance; this is reviewed inferred metadata, not source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_oneforma_language-locale_language-parenthetical-locale_6869",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "Farsi"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "oneforma",
+      "source_hash": "7bb3f572af62d41682cefee66844c6292acd16beec0f7ae8f82bb0b2dbfc2d9a",
+      "stable_opportunity_key": "job_id:oneforma:6869",
+      "title": "Acceptability and Preference: Translation Raters - English (United States) - Farsi (Persian)",
+      "url": "https://my.oneforma.com/crowd/jobs/11912?from=list&tab=all",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "552",
+      "company": "Welocalize",
+      "external_id": "6e0ac589-3fba-429a-8ce4-5c48a2cf0e2d",
+      "job_id": "7522",
+      "language_locale": [
+        "Portuguese (Brazil)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=*Scout Junior Quality Coordinator - Portuguese (Brazil); location=Brazil; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7522",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Portuguese"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "8c871d9f7aadec219e827db4d992fae5287edcf1c644eb70cebbcebd1ac5bb8e",
+      "stable_opportunity_key": "job_id:welocalize:7522",
+      "title": "*Scout Junior Quality Coordinator - Portuguese (Brazil)",
+      "url": "https://jobs.lever.co/weloglobal/6e0ac589-3fba-429a-8ce4-5c48a2cf0e2d",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "552",
+      "company": "Welocalize",
+      "external_id": "aaae7990-493d-4359-afc5-8e118e8f0d04",
+      "job_id": "7523",
+      "language_locale": [
+        "Spanish (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=*Scout Junior Quality Coordinator - Spanish (Mexico); location=Mexico City, Mexico; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7523",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "87d4754548d174d2b07ddf916cbe5eddeebffa59e36ea6d64846562834da21c4",
+      "stable_opportunity_key": "job_id:welocalize:7523",
+      "title": "*Scout Junior Quality Coordinator - Spanish (Mexico)",
+      "url": "https://jobs.lever.co/weloglobal/aaae7990-493d-4359-afc5-8e118e8f0d04",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "914",
+      "company": "Welocalize",
+      "external_id": "c43ab912-0d54-431a-abb4-e9b2c1ca9749",
+      "job_id": "7550",
+      "language_locale": [
+        "Mandarin (Taiwan)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Ads Quality Rater - Mandarin (Taiwan); location=Taiwan; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7550",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Mandarin"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "2411a48bb10992f3739dbeb9ba39acaa158d92caf943b3cf17c0774e36034060",
+      "stable_opportunity_key": "job_id:welocalize:7550",
+      "title": "Ads Quality Rater - Mandarin (Taiwan)",
+      "url": "https://jobs.lever.co/weloglobal/c43ab912-0d54-431a-abb4-e9b2c1ca9749",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "918",
+      "company": "Welocalize",
+      "external_id": "d9a91e49-8052-4ce6-836d-9ee264214b7d",
+      "job_id": "7554",
+      "language_locale": [
+        "Spanish (Argentina)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Ads Quality Rater - Spanish (Argentina); location=Argentina; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7554",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "f756403770b741cfea8df38ece4a59250789680b840fb8924d7c209b3c896be1",
+      "stable_opportunity_key": "job_id:welocalize:7554",
+      "title": "Ads Quality Rater - Spanish (Argentina)",
+      "url": "https://jobs.lever.co/weloglobal/d9a91e49-8052-4ce6-836d-9ee264214b7d",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "918",
+      "company": "Welocalize",
+      "external_id": "2c640bb3-55d0-40b7-9724-1169443d4431",
+      "job_id": "7555",
+      "language_locale": [
+        "Spanish (Mexico)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "high",
+          "candidate_pattern": "language_parenthetical_locale",
+          "evidence_text": "title=Ads Quality Rater - Spanish (Mexico); location=Mexico City, Mexico; pattern=language_parenthetical_locale",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the language and locale/market. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-locale_language-parenthetical-locale_7555",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Spanish"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "a2a15adccade6a7e446ffa099e45b014b8d85c2ff5d2bfffc95d3c0637cd92a2",
+      "stable_opportunity_key": "job_id:welocalize:7555",
+      "title": "Ads Quality Rater - Spanish (Mexico)",
+      "url": "https://jobs.lever.co/weloglobal/2c640bb3-55d0-40b7-9724-1169443d4431",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "690",
+      "company": "Welocalize",
+      "external_id": "abd22b8d-f748-47b7-b925-d9af5a71d865",
+      "job_id": "7665",
+      "language_locale": [
+        "English (United States)",
+        "French (France)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=English (United States) <> French (France) Lyric Translation Reviewer; location=France; pattern=translation_or_translator; value=english, french",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7665",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "French"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "b4ddbc589d9c747abad69cbae54f283de2d7c86d05bc0e240e8910679f6f605e",
+      "stable_opportunity_key": "job_id:welocalize:7665",
+      "title": "English (United States) <> French (France) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/abd22b8d-f748-47b7-b925-d9af5a71d865",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "691",
+      "company": "Welocalize",
+      "external_id": "2a57f3d9-4ec8-4838-89a0-8fc6e421e9ca",
+      "job_id": "7666",
+      "language_locale": [
+        "English (United States)",
+        "German (Germany)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=English (United States) > German (Germany) Lyric Translation Reviewer; location=Germany; pattern=translation_or_translator; value=english, german",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7666",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "German"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "9fa20f859569e0c5dc13095f40b83e61973a70b5cb58bc6112e98a58563f7fe9",
+      "stable_opportunity_key": "job_id:welocalize:7666",
+      "title": "English (United States) > German (Germany) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/2a57f3d9-4ec8-4838-89a0-8fc6e421e9ca",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "740",
+      "company": "Welocalize",
+      "external_id": "c321add1-b7cb-4390-ae91-6f338ec0e6ee",
+      "job_id": "7718",
+      "language_locale": [
+        "English (United States)",
+        "Korean (Korea)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Korean (Korea) <> English (United States) Lyric Translation Reviewer; location=South Korea; pattern=translation_or_translator; value=english, korean",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7718",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "English",
+        "Korean"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "0bd131f316aff294306f20363ca2e25bcbcb792175681245d7c122d5247b3150",
+      "stable_opportunity_key": "job_id:welocalize:7718",
+      "title": "Korean (Korea) <> English (United States) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/c321add1-b7cb-4390-ae91-6f338ec0e6ee",
+      "warnings": []
+    },
+    {
+      "apply_status": "pending_overlay",
+      "canonical_opportunity_id": "741",
+      "company": "Welocalize",
+      "external_id": "d1f093c7-88fe-44d3-9e2a-337766962cd0",
+      "job_id": "7719",
+      "language_locale": [
+        "Japanese (Japan)",
+        "Korean (Korea)"
+      ],
+      "location_restriction": [],
+      "metadata_source": "human_reviewed_title_inference",
+      "provenance": [
+        {
+          "candidate_confidence": "medium",
+          "candidate_pattern": "translation_or_translator",
+          "evidence_text": "title=Korean (Korea) > Japanese (Japan) Lyric Translation Reviewer; location=Japan; pattern=translation_or_translator; value=japanese, korean",
+          "human_notes": "Approve inferred language/locale metadata. The title explicitly identifies the required language pair and locale/market for each side. Use this as reviewed inferred metadata with title provenance, not as source-provided truth.",
+          "metadata_source": "human_reviewed_title_inference",
+          "review_id": "omgr_welocalize_language-requirement_translation-or-translator_7719",
+          "reviewed_source": "exports\\opportunity_metadata_gap_review.csv"
+        }
+      ],
+      "required_languages": [
+        "Japanese",
+        "Korean"
+      ],
+      "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
+      "source": "welocalize",
+      "source_hash": "1f3530f84a439bbe69cca24c37c38c07ffa4a31a068d06744fa0328415169728",
+      "stable_opportunity_key": "job_id:welocalize:7719",
+      "title": "Korean (Korea) > Japanese (Japan) Lyric Translation Reviewer",
+      "url": "https://jobs.lever.co/weloglobal/d1f093c7-88fe-44d3-9e2a-337766962cd0",
+      "warnings": []
     }
   ],
   "reviewed_source": "exports\\opportunity_metadata_gap_review.csv",
@@ -1470,8 +1891,8 @@
       "oneforma": 18,
       "welocalize": 9
     },
-    "overlay_records": 37,
-    "rows_merged": 23,
+    "overlay_records": 55,
+    "rows_merged": 5,
     "rows_read": 86,
     "skipped_by_decision": {
       "keep_diagnostic_only": 10,

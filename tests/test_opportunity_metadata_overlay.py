@@ -28,7 +28,7 @@ class OpportunityMetadataOverlayTests(unittest.TestCase):
         overlay = load_overlay(DEFAULT_OVERLAY_PATH, required=True)
 
         self.assertTrue(overlay.enabled)
-        self.assertEqual(37, len(overlay.records_by_key))
+        self.assertEqual(55, len(overlay.records_by_key))
         assamese = overlay.records_by_key["job_id:mercor:986"]
         self.assertEqual(["Assamese", "English"], assamese["required_languages"])
         self.assertTrue(assamese["provenance"])
@@ -103,7 +103,7 @@ class OpportunityMetadataOverlayTests(unittest.TestCase):
         rows_without_overlay, disabled = preview.load_preview_rows(use_overlay=False)
 
         self.assertTrue(status["enabled"])
-        self.assertEqual(37, status["records_loaded"])
+        self.assertEqual(55, status["records_loaded"])
         self.assertGreater(status["rows_enriched"], 0)
         self.assertFalse(disabled["enabled"])
         self.assertEqual(0, disabled["rows_enriched"])
@@ -160,6 +160,37 @@ class OpportunityMetadataOverlayTests(unittest.TestCase):
 
         self.assertFalse(data["metadata_overlay"]["enabled"])
         self.assertEqual(0, data["metadata_overlay"]["rows_enriched"])
+
+    def test_oneforma_language_pair_overlay_does_not_merge_unrelated_variants(self):
+        overlay = load_overlay(DEFAULT_OVERLAY_PATH, required=True)
+        records = [
+            record
+            for record in overlay.records_by_key.values()
+            if any(
+                "Arabic (Saudi Arabia) - Bengali (India)" in provenance["evidence_text"]
+                for provenance in record["provenance"]
+            )
+        ]
+
+        self.assertEqual(1, len(records))
+        record = records[0]
+        self.assertEqual("job_id:oneforma:6839", record["stable_opportunity_key"])
+        self.assertEqual(["Arabic", "Bengali"], record["required_languages"])
+        self.assertEqual(["Arabic (Saudi Arabia)", "Bengali (India)"], record["language_locale"])
+        self.assertEqual(["omgr_oneforma_language-requirement_translation-or-translator_6839"], [
+            provenance["review_id"] for provenance in record["provenance"]
+        ])
+
+    def test_overlay_review_ids_appear_once_across_overlay(self):
+        overlay = load_overlay(DEFAULT_OVERLAY_PATH, required=True)
+        review_ids = [
+            provenance["review_id"]
+            for record in overlay.records_by_key.values()
+            for provenance in record["provenance"]
+        ]
+
+        self.assertEqual(60, len(review_ids))
+        self.assertEqual(60, len(set(review_ids)))
 
 
 def matcher_row(**overrides):
