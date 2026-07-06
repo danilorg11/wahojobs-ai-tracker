@@ -103,6 +103,8 @@ LANGUAGE_LOCALE_TERMS = (
     ("belize", ("belize",)),
     ("guyana", ("guyana",)),
     ("mexico", ("mexico", "mx")),
+    ("colombia", ("colombia", "colombian")),
+    ("el salvador", ("el salvador", "salvadoran")),
     ("spain", ("spain", "es")),
     ("latin america", ("latin america", "latin american", "latam", "lat am")),
     ("brazil", ("brazil", "br", "brazilian")),
@@ -126,6 +128,26 @@ TITLE_ONLY_LANGUAGE_REQUIREMENTS = (
     ("british sign language", ("british sign language", "bsl")),
     ("cebuano", ("cebuano",)),
     ("chichewa", ("chichewa",)),
+    ("guarani", ("guarani", "guaraní")),
+    ("k'iche'", ("k'iche'", "kiche", "k'iche' mayan")),
+    ("kaqchikel", ("kaqchikel", "kaqchikel mayan")),
+    ("kurdish kurmanji", ("kurdish kurmanji", "kurmanji")),
+    ("kurdish sorani", ("kurdish sorani", "sorani")),
+    ("odia", ("odia",)),
+)
+PRIMARY_PLAN_FALLBACK_LIMIT = 3
+PRIMARY_PLAN_BLOCKING_DIAGNOSTIC_PREFIXES = (
+    "Detected unsupported language requirement",
+    "Possible unconfirmed language requirement",
+    "Unsupported title-only language or dialect",
+    "Specific language locale/accent may be required",
+    "Location or regional eligibility needs confirmation",
+    "Specialized annotation or survey domain does not match",
+    "Science subdomain appears outside profile specialty",
+    "Cross-domain technical role may require",
+    "Profile states no biology or medical credentials",
+    "Medical license or credential may be required",
+    "Credential or education requirement may apply",
 )
 SCIENCE_MEDICAL_PREVIEW_TERMS = (
     "biology",
@@ -348,6 +370,7 @@ def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -
         scored.append(match)
 
     deduped = dedupe_matches(scored)
+    deduped = ensure_safe_do_these_first(deduped, profile)
     groups = {section: [] for section in SECTION_ORDER}
     for match in sorted(deduped, key=match_sort_key):
         section = match["preview_section"]
@@ -586,6 +609,18 @@ def language_locale_requirements_for_row(row: dict, match: dict) -> list[dict]:
     return unique_locale_requirements(requirements)
 
 
+def language_locale_requirements_for_match(match: dict) -> list[dict]:
+    requirements = []
+    values = [
+        match.get("language_locale"),
+        match.get("overlay_language_locale"),
+        match.get("display_title"),
+    ]
+    for value in flatten_values(values):
+        requirements.extend(language_locale_requirements_from_text(value))
+    return unique_locale_requirements(requirements)
+
+
 def title_only_language_requirement_labels(title_text: str, profile_languages: set[str]) -> list[str]:
     labels = []
     for label, aliases in TITLE_ONLY_LANGUAGE_REQUIREMENTS:
@@ -616,6 +651,14 @@ def language_locale_requirements_from_text(value: str) -> list[dict]:
             requirements.extend(locale_requirements_for_piece(language, match.group(1)))
         for match in re.finditer(rf"(?<![a-z0-9]){language_pattern}\s*[-–—]\s*([a-z][a-z\s]{{1,35}})", text):
             requirements.extend(locale_requirements_for_piece(language, match.group(1)))
+        role_terms = (
+            r"(?:language|audio)\s+"
+            r"(?:data\s+contributor|specialist|expert|evaluator|trainer|rater|reviewer|annotator)"
+        )
+        for match in re.finditer(rf"(?<![a-z0-9]){language_pattern}\s+{role_terms}\s*\(([^)]{{1,80}})\)", text):
+            requirements.extend(locale_requirements_for_piece(language, match.group(1)))
+    for match in re.finditer(r"(?<![a-z0-9])espa.{0,3}ol\s*\(([^)]{1,80})\)", text):
+        requirements.extend(locale_requirements_for_piece("spanish", match.group(1)))
     return requirements
 
 
@@ -904,6 +947,66 @@ def dedupe_matches(matches: list[dict]) -> list[dict]:
     return deduped
 
 
+def ensure_safe_do_these_first(matches: list[dict], profile: dict) -> list[dict]:
+    if any(match["preview_section"] == "do_these_first" for match in matches):
+        return matches
+
+    profile_languages = matcher.profile_language_set(profile)
+    promoted_by_key = {}
+    for match in sorted(matches, key=match_sort_key):
+        if not safe_generic_language_primary_action(match, profile_languages):
+            continue
+        promoted = dict(match)
+        promoted["preview_section"] = "do_these_first"
+        diagnostics = list(promoted.get("preview_diagnostics") or [])
+        diagnostics.append(
+            "Preview daily plan fallback promoted safe generic language match because "
+            "no higher-priority action was available."
+        )
+        promoted["preview_diagnostics"] = diagnostics
+        promoted_by_key[match_key(match)] = promoted
+        if len(promoted_by_key) >= PRIMARY_PLAN_FALLBACK_LIMIT:
+            break
+
+    if not promoted_by_key:
+        return matches
+    return [promoted_by_key.get(match_key(match), match) for match in matches]
+
+
+def safe_generic_language_primary_action(match: dict, profile_languages: set[str]) -> bool:
+    if match["preview_section"] not in {"best_matches", "also_worth_reviewing"}:
+        return False
+    if not match.get("eligible_for_personalized", True):
+        return False
+    if match.get("unsupported_languages"):
+        return False
+    if match.get("location_actionability_cap_applied") or match.get("professional_domain_hard_gate_applied"):
+        return False
+    diagnostics = match.get("preview_diagnostics") or []
+    if any(
+        diagnostic.startswith(PRIMARY_PLAN_BLOCKING_DIAGNOSTIC_PREFIXES)
+        for diagnostic in diagnostics
+    ):
+        return False
+    if language_locale_requirements_for_match(match):
+        return False
+    title_text = normalize_text(match.get("display_title"))
+    return bool(supported_profile_languages_in_title(title_text, profile_languages))
+
+
+def supported_profile_languages_in_title(title_text: str, profile_languages: set[str]) -> list[str]:
+    supported = []
+    for language in sorted(profile_languages):
+        variants = getattr(matcher, "language_variants_for_name", lambda value: [value])(language)
+        if any(
+            re.search(rf"(?<![a-z0-9]){re.escape(normalize_text(variant))}(?![a-z0-9])", title_text)
+            for variant in variants
+            if normalize_text(variant)
+        ):
+            supported.append(language)
+    return supported
+
+
 def match_key(match: dict):
     canonical_id = match.get("canonical_opportunity_id")
     if canonical_id:
@@ -1130,7 +1233,15 @@ def user_caution_note(match: dict) -> str:
         if diagnostic.startswith("Possible unconfirmed language requirement"):
             cautions.append("The title may contain an unconfirmed language requirement.")
         elif diagnostic.startswith("Unsupported title-only language or dialect"):
-            cautions.append("This appears to require a language or dialect not listed in your profile.")
+            title_only_labels = title_only_labels_from_diagnostic(diagnostic)
+            if title_only_labels:
+                cautions.append(
+                    "This role appears to require "
+                    + format_title_only_labels(title_only_labels)
+                    + ", which is not listed on the profile."
+                )
+            else:
+                cautions.append("This appears to require a language or dialect not listed in your profile.")
         elif diagnostic.startswith("Specific language locale/accent may be required"):
             cautions.append(
                 "This may require a specific language locale or accent not confirmed in your profile."
@@ -1152,6 +1263,17 @@ def user_caution_note(match: dict) -> str:
         elif diagnostic.startswith("Reviewed title-derived location restriction"):
             cautions.append("A reviewed title-derived location restriction may apply.")
     return " ".join(unique_list(cautions)[:2])
+
+
+def title_only_labels_from_diagnostic(diagnostic: str) -> list[str]:
+    if ":" not in diagnostic:
+        return []
+    label_text = diagnostic.split(":", 1)[1].strip().rstrip(".")
+    return [label.strip() for label in label_text.split(",") if label.strip()]
+
+
+def format_title_only_labels(labels: list[str]) -> str:
+    return ", ".join(label.title() for label in labels)
 
 
 def render_html(context: dict) -> str:

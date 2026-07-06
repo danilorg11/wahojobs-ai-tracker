@@ -189,7 +189,9 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             "english (australia)",
             "english (us)",
             "spanish (andean",
+            "spanish (colombia)",
             "spanish (chile)",
+            "el salvador",
             "spanish (mexico)",
             "spanish (spain)",
         )
@@ -206,6 +208,20 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
                 ),
                 term,
             )
+
+        mexico_expert_matches = matches_with_title_terms(context, ("spanish language expert (mexico)",))
+        self.assertTrue(mexico_expert_matches)
+        self.assertFalse(any(match in context["matches"]["do_these_first"] for match in mexico_expert_matches))
+        self.assertTrue(
+            any(match["preview_section"] == "also_worth_reviewing" for match in mexico_expert_matches)
+        )
+        self.assertTrue(
+            any(
+                diagnostic.startswith("Specific language locale/accent may be required")
+                for match in mexico_expert_matches
+                for diagnostic in match["preview_diagnostics"]
+            )
+        )
 
         excluded_titles = " ".join(match["display_title"].lower() for match in context["matches"]["excluded"])
         self.assertIn("assamese", excluded_titles)
@@ -227,6 +243,13 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             "british sign language",
             "cebuano language specialist",
             "chichewa language specialist",
+            "guaraní language expert",
+            "guaraní language specialist",
+            "k'iche' (mayan) language expert",
+            "kaqchikel (mayan) language expert",
+            "kurdish (kurmanji) language expert",
+            "kurdish (sorani) language expert",
+            "generalist - english & odia",
         )
         for term in terms:
             matches = matches_with_title_terms(context, (term,))
@@ -240,6 +263,35 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
                 ),
                 term,
             )
+
+        odia_matches = matches_with_title_terms(context, ("generalist - english & odia",))
+        self.assertTrue(odia_matches)
+        self.assertIn("Odia", preview.user_caution_note(odia_matches[0]))
+
+        do_these_first_titles = " ".join(
+            match["display_title"].lower()
+            for match in context["matches"]["do_these_first"]
+        )
+        self.assertTrue(
+            any(
+                title in do_these_first_titles
+                for title in (
+                    "english language data contributor",
+                    "spanish audio specialist",
+                    "english language expert",
+                )
+            ),
+            do_these_first_titles,
+        )
+
+        visible_titles = " ".join(
+            match["display_title"].lower()
+            for section in ("do_these_first", "best_matches", "also_worth_reviewing")
+            for match in context["matches"][section]
+        )
+        self.assertIn("english language data contributor", visible_titles)
+        self.assertIn("spanish audio specialist", visible_titles)
+        self.assertIn("english language expert", visible_titles)
 
     def test_explicit_profile_locale_does_not_cap_matching_locale_roles(self):
         context = preview.build_preview_context(
