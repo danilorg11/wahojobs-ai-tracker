@@ -127,6 +127,71 @@ class ProfileNormalizerInterfaceTests(unittest.TestCase):
         self.assertTrue(canonical["preferences"]["remote"])
         self.assertIn("location", canonical["provenance"]["missing_fields"])
 
+    def test_explicit_us_residence_sets_location(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        examples = (
+            "I live in the US and want remote AI data work.",
+            "I live in the United States and want remote AI data work.",
+            "Based in the US. English native, Spanish fluent.",
+            "Located in the United States; available for remote AI work.",
+            "My location is US. I prefer flexible work.",
+            "Location: United States. I can do annotation tasks.",
+        )
+
+        for text in examples:
+            with self.subTest(text=text):
+                result = normalizer.normalize(text, "short_paragraph", {"profile_id": "us_case"})
+                canonical = result.canonical_profile
+                self.assertEqual(canonical["location"]["country"], "United States")
+                self.assertEqual(canonical["location"]["residence"], "United States")
+                self.assertNotIn("location", canonical["provenance"]["missing_fields"])
+
+    def test_ambiguous_us_market_mentions_do_not_set_location(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        examples = (
+            "Interested in US jobs and English language data tasks.",
+            "Experience in US English data and annotation QA.",
+            "Worked on projects in the United States market.",
+            "I reviewed US market research and want remote work.",
+        )
+
+        for text in examples:
+            with self.subTest(text=text):
+                result = normalizer.normalize(text, "short_paragraph", {"profile_id": "us_market_case"})
+                canonical = result.canonical_profile
+                self.assertEqual(canonical["location"]["country"], "")
+                self.assertIn("location", canonical["provenance"]["missing_fields"])
+
+    def test_later_language_proficiency_statements_update_languages(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        result = normalizer.normalize(
+            "I speak English and Spanish for AI data work. Later note: English native and Spanish fluent.",
+            "short_paragraph",
+            {"profile_id": "later_language_proficiency"},
+        )
+        languages = {
+            item["language"]: item["proficiency"]
+            for item in result.canonical_profile["languages"]
+        }
+
+        self.assertEqual(languages["English"], "native")
+        self.assertEqual(languages["Spanish"], "fluent")
+        self.assertNotIn("language proficiency", result.canonical_profile["provenance"]["ambiguous_fields"])
+
+    def test_generic_professional_license_absence_removes_credential_missing_fields(self):
+        normalizer = BaselineHeuristicProfileNormalizer()
+        result = normalizer.normalize(
+            "I do not hold any professional license or certification. I can review remote AI tasks.",
+            "short_paragraph",
+            {"profile_id": "no_professional_license"},
+        )
+        canonical = result.canonical_profile
+
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+        self.assertIn("no professional license or certification", canonical["constraints"]["hard_constraints"])
+        self.assertNotIn("licenses", canonical["provenance"]["missing_fields"])
+        self.assertNotIn("certifications", canonical["provenance"]["missing_fields"])
+
     def test_negative_biology_medical_credentials_do_not_become_positive_domains(self):
         normalizer = BaselineHeuristicProfileNormalizer()
         result = normalizer.normalize(

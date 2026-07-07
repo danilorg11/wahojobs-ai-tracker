@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import product_demo_report as demo
+import profile_to_matches_preview as profile_preview
 import product_state
 from wahojobs.db.connection import get_connection
 
@@ -20,6 +21,35 @@ from wahojobs.db.connection import get_connection
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_PROFILE_ID = "portuguese_english_reviewer"
+
+PREVIEW_SAMPLES = {
+    "beginner_bilingual": {
+        "label": "Beginner bilingual",
+        "style": "short_paragraph",
+        "text": (
+            "I speak English and Spanish, no college degree, looking for remote beginner "
+            "AI data tasks with no phone calls."
+        ),
+    },
+    "software_engineer": {
+        "label": "Software engineer",
+        "style": "resume_or_linkedin_style",
+        "text": (
+            "Senior Software Engineer with 8 years of Python, TypeScript, React, API, "
+            "and data platform experience. Interested in remote AI coding, evaluation, "
+            "and software review work. No biology or medical credentials."
+        ),
+    },
+    "biology_academic": {
+        "label": "Biology academic",
+        "style": "resume_or_linkedin_style",
+        "text": (
+            "PhD biology researcher with computational biology, genomics, microbiology, "
+            "and academic research experience. Looking for remote AI evaluation and "
+            "biology expert review work. No medical license."
+        ),
+    },
+}
 
 ACTION_STATUSES = {
     "show_again": "saved",
@@ -117,6 +147,10 @@ def make_handler(default_profile):
             if parsed.path == "/health":
                 self.write_text("ok\n")
                 return
+            if parsed.path == "/preview":
+                params = parse_qs(parsed.query)
+                self.write_html(render_preview_from_params(params))
+                return
             if parsed.path != "/":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
@@ -139,6 +173,11 @@ def make_handler(default_profile):
 
         def do_POST(self):
             parsed = urlparse(self.path)
+            if parsed.path == "/preview":
+                length = int(self.headers.get("Content-Length", "0"))
+                form = parse_qs(self.rfile.read(length).decode("utf-8"))
+                self.write_html(render_preview_from_params(form))
+                return
             if parsed.path != "/action":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
@@ -621,6 +660,237 @@ def render_dashboard(context, message=None, error=None):
     return "\n".join(parts)
 
 
+def render_preview_from_params(params):
+    sample_id = first_value(params, "sample")
+    sample = PREVIEW_SAMPLES.get(sample_id, {})
+    input_text = first_value(params, "input_text") or sample.get("text", "")
+    input_style = first_value(params, "input_style") or sample.get("style", "short_paragraph")
+    if input_style not in profile_preview.INPUT_STYLES:
+        input_style = "short_paragraph"
+
+    context = None
+    error = ""
+    if input_text:
+        try:
+            context = profile_preview.build_preview_context(
+                input_text,
+                input_style,
+                limit=160,
+            )
+        except Exception as exc:
+            error = f"Preview failed: {exc}"
+
+    return render_profile_preview_page(
+        input_text=input_text,
+        input_style=input_style,
+        sample_id=sample_id,
+        context=context,
+        error=error,
+    )
+
+
+def render_profile_preview_page(input_text, input_style, sample_id="", context=None, error=""):
+    parts = [
+        "<!doctype html>",
+        "<html lang='en'>",
+        "<head>",
+        "<meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
+        "<title>Wahojobs - Profile Match Preview</title>",
+        f"<style>{CSS}</style>",
+        "</head>",
+        "<body>",
+        "<main>",
+        render_preview_header(),
+        render_preview_form(input_text, input_style, sample_id),
+        render_notice(None, error),
+    ]
+    if context:
+        parts.extend(
+            [
+                render_preview_profile_summary(context),
+                render_preview_matches(context),
+                render_preview_diagnostics(context),
+            ]
+        )
+    else:
+        parts.append(
+            "<section class='notice'><p>Paste a profile or choose a sample to preview recommendations.</p></section>"
+        )
+    parts.extend(["</main>", "</body>", "</html>"])
+    return "\n".join(parts)
+
+
+def render_preview_header():
+    return """
+    <section class="hero preview-hero">
+      <div>
+        <p class="eyebrow">Local QA preview</p>
+        <h1>Profile to opportunity preview</h1>
+        <p class="lead">Paste a background summary and see how Wahojobs turns it into a short, guarded AI-work opportunity plan.</p>
+        <p class="muted">This uses the same local preview guardrails as the approved diagnostic HTML. It is heuristic/demo-only and does not call external AI services.</p>
+      </div>
+      <div class="profile-box">
+        <p><strong>Use this for:</strong> product QA, profile copy testing, and checking language/location/specialty guardrails.</p>
+        <p><strong>Link note:</strong> Open links come from the local tracker snapshot and are not live-verified on this page.</p>
+        <p><a class="jump-link" href="/">Back to product dashboard</a></p>
+      </div>
+    </section>
+    """
+
+
+def render_preview_form(input_text, input_style, sample_id):
+    sample_buttons = "".join(
+        f"<button type='submit' name='sample' value='{e(key)}'>{e(sample['label'])}</button>"
+        for key, sample in PREVIEW_SAMPLES.items()
+    )
+    style_options = "".join(
+        f"<option value='{e(style)}' {'selected' if style == input_style else ''}>{e(style.replace('_', ' '))}</option>"
+        for style in sorted(profile_preview.INPUT_STYLES)
+    )
+    return f"""
+    <section class="preview-input" id="profile-preview-input">
+      <h2>Try a profile</h2>
+      <form method="get" action="/preview" class="sample-actions">
+        {sample_buttons}
+      </form>
+      <form method="post" action="/preview" class="preview-form">
+        <label for="input_text">Profile text</label>
+        <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
+        <details class="advanced-options">
+          <summary>Advanced QA parser mode</summary>
+          <p class="muted">This is an internal test option for the baseline parser. Most users should not need to change it.</p>
+          <label for="input_style">Parser input style</label>
+          <select id="input_style" name="input_style">{style_options}</select>
+        </details>
+        <input type="hidden" name="sample" value="{e(sample_id)}">
+        <button type="submit">Preview matches</button>
+      </form>
+    </section>
+    """
+
+
+def render_preview_profile_summary(context):
+    canonical = context["canonical_profile"]
+    profile_chips = profile_preview.html_profile_chips(canonical)
+    missing_items = profile_preview.html_missing_items(context)
+    return f"""
+    <section id="profile-understood">
+      <h2>Profile Understood</h2>
+      <p class="muted">These are the main signals extracted from the pasted profile.</p>
+      <div class="chips">{profile_chips}</div>
+      <div class="preview-grid">
+        <div class="profile-box"><strong>Languages</strong><br>{e(profile_preview.join_languages(canonical))}</div>
+        <div class="profile-box"><strong>Remote preference</strong><br>{e(profile_preview.remote_preference_label(canonical))}</div>
+        <div class="profile-box"><strong>Domains</strong><br>{e(', '.join(canonical['education'].get('fields_or_domains') or []) or '-')}</div>
+        <div class="profile-box"><strong>Credentials/licenses</strong><br>{e(profile_preview.credentials_label(canonical))}</div>
+      </div>
+    </section>
+    <section id="profile-questions">
+      <h2>What We Still Need To Know</h2>
+      <p class="muted">Clarifying these details helps avoid bad recommendations.</p>
+      <ul class="question-list">{missing_items}</ul>
+    </section>
+    """
+
+
+def render_preview_matches(context):
+    sections = []
+    for section in profile_preview.SECTION_ORDER:
+        matches = context["matches"].get(section, [])
+        sections.append(render_preview_section(section, matches))
+    return f"""
+    <section id="preview-recommendations">
+      <h2>Recommended Opportunities</h2>
+      <p class="muted">Primary sections stay small. Broader and excluded sections are collapsed for QA.</p>
+      <p class="muted">Open links are from the current local tracker snapshot; this preview does not verify that each page is still live.</p>
+      {''.join(sections)}
+    </section>
+    """
+
+
+def render_preview_section(section, matches):
+    label = profile_preview.SECTION_LABELS[section]
+    visible_limit = profile_preview.HTML_SECTION_LIMITS.get(section, 8)
+    visible = matches[:visible_limit]
+    cards = "".join(render_preview_card(match, section) for match in visible) or "<p class='empty'>None in this preview.</p>"
+    more = len(matches) - len(visible)
+    more_note = f"<p class='muted'>Showing {len(visible)} of {len(matches)}. {more} more kept out of the main view.</p>" if more > 0 else ""
+    if section in {"explore_only", "excluded"}:
+        return f"""
+        <details class="explore-details preview-diagnostic">
+          <summary><span>{e(label)}</span><small>{len(matches)} diagnostic/broader results</small></summary>
+          <p class="muted">These are useful for QA and broader browsing, but they are not primary recommendations.</p>
+          <div class="stack">{cards}</div>
+          {more_note}
+        </details>
+        """
+    return f"""
+    <section class="preview-section" id="preview-{e(section)}">
+      <h3>{e(label)} ({len(matches)})</h3>
+      <p class="muted">{e(preview_section_note(section))}</p>
+      <div class="stack">{cards}</div>
+      {more_note}
+    </section>
+    """
+
+
+def render_preview_card(match, section):
+    caution = profile_preview.user_caution_note(match)
+    fit_reason = profile_preview.user_fit_reason(match)
+    url = match.get("url") or ""
+    open_link = f'<a class="open" href="{e(url)}" target="_blank" rel="noreferrer">Open</a>' if url else ""
+    diagnostics = "; ".join(match.get("preview_diagnostics") or []) or "-"
+    reasons = "; ".join(match.get("reasons") or []) or "-"
+    return f"""
+    <article class="card preview-card">
+      <div class="card-main">
+        <p class="source">{e(match['source'])}</p>
+        <h3>{e(match['display_title'])}</h3>
+        <p>{e(match.get('location') or 'Unknown')} &middot; {e(match.get('expertise') or 'Unknown')}</p>
+        <p><strong>Why it may fit:</strong> {e(fit_reason)}</p>
+        {f'<p class="caution"><strong>Check first:</strong> {e(caution)}</p>' if caution else ''}
+        <p class="pill">{e(profile_preview.SECTION_LABELS.get(section, section))}</p>
+      </div>
+      <div class="card-actions">
+        {open_link}
+        <details class="technical-details">
+          <summary>Technical details</summary>
+          <p class="muted">Score: {e(match.get('score'))}</p>
+          <p class="muted">Reasons: {e(reasons)}</p>
+          <p class="muted">Diagnostics: {e(diagnostics)}</p>
+        </details>
+      </div>
+    </article>
+    """
+
+
+def preview_section_note(section):
+    notes = {
+        "do_these_first": "Start here. These are safe, high-priority actions for this profile.",
+        "best_matches": "Strong fits worth reviewing next.",
+        "also_worth_reviewing": "Good possibilities, but not today's top priority.",
+    }
+    return notes.get(section, "")
+
+
+def render_preview_diagnostics(context):
+    warnings = "; ".join(context.get("warnings") or []) or "-"
+    missing = ", ".join(context.get("missing_fields") or []) or "-"
+    ambiguous = ", ".join(context.get("ambiguous_fields") or []) or "-"
+    overlay = context.get("metadata_overlay") or {}
+    return f"""
+    <details class="explore-details preview-diagnostic">
+      <summary><span>Technical diagnostics</span><small>optional QA details</small></summary>
+      <p class="muted">Normalizer: {e(context.get('normalizer'))} ({e(context.get('extraction_quality'))})</p>
+      <p class="muted">Metadata overlay: {e('enabled' if overlay.get('enabled') else 'disabled')} | records={e(overlay.get('records_loaded'))} | rows enriched={e(overlay.get('rows_enriched'))}</p>
+      <p class="muted">Warnings: {e(warnings)}</p>
+      <p class="muted">Missing fields: {e(missing)}</p>
+      <p class="muted">Ambiguous fields: {e(ambiguous)}</p>
+    </details>
+    """
+
+
 def render_header(context, profiles):
     profile = context["profile"]
     market = context["market_summary"]
@@ -640,6 +910,7 @@ def render_header(context, profiles):
         <p class="eyebrow">Local prototype</p>
         <h1>Your AI-work opportunity dashboard</h1>
         <p class="lead">A focused view of the best leads, active applications, and directional applicant signals for one profile.</p>
+        <p><a class="jump-link" href="/preview">Try profile-to-matches preview</a></p>
         {render_profile_selector(profiles, profile["profile_id"])}
       </div>
       <div class="profile-box">
@@ -1187,6 +1458,59 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   min-width: min(360px, 100%);
   padding: 6px 9px;
 }
+.preview-form {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+.preview-form label {
+  color: var(--muted);
+  font-weight: 700;
+}
+.preview-form textarea, .preview-form select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  padding: 9px;
+  width: 100%;
+}
+.advanced-options {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+}
+.advanced-options summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.preview-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.sample-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.chip {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  padding: 6px 10px;
+}
 .stack { display: grid; gap: 10px; }
 .card {
   display: grid;
@@ -1225,6 +1549,19 @@ button:hover, .open:hover { filter: brightness(.96); }
   border-radius: 999px;
   font-size: .86rem;
   margin-bottom: 0;
+}
+.caution {
+  border-left: 3px solid #bf8700;
+  color: #5f4b00;
+  padding-left: 10px;
+}
+.technical-details {
+  color: var(--muted);
+  max-width: 300px;
+}
+.technical-details summary {
+  cursor: pointer;
+  font-weight: 700;
 }
 .status-note {
   color: var(--muted);
@@ -1285,7 +1622,7 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px; 
 th { color: var(--muted); font-size: .86rem; }
 tr:last-child td { border-bottom: 0; }
 @media (max-width: 820px) {
-  .hero, .card { grid-template-columns: 1fr; }
+  .hero, .card, .preview-grid { grid-template-columns: 1fr; }
   .card-actions { justify-content: flex-start; max-width: none; }
 }
 """

@@ -414,10 +414,13 @@ def detect_profile_languages(raw_input: str) -> list[dict]:
             continue
         seen.add(language)
         evidence = language_evidence(raw_input, mention)
+        proficiency = detect_language_proficiency(evidence, language)
+        if proficiency == UNKNOWN:
+            proficiency = detect_explicit_language_proficiency(raw_input, language)
         languages.append(
             {
                 "language": LANGUAGE_DISPLAY_NAMES.get(language, language.title()),
-                "proficiency": detect_language_proficiency(evidence, language),
+                "proficiency": proficiency,
                 "locale": detect_language_locale(language, evidence),
                 "evidence": [evidence.strip()] if evidence.strip() else [],
                 "confidence": "high" if evidence.strip() else "medium",
@@ -435,14 +438,10 @@ def language_evidence(raw_input: str, mention: dict) -> str:
 def detect_language_proficiency(evidence: str, language: str | None = None) -> str:
     text = normalize_language_text(evidence)
     if language:
-        language = normalize_language_text(language)
-        for term in ("native", "fluent", "advanced", "conversational"):
-            if re.search(rf"\b{term}\s+{re.escape(language)}\b", text):
-                return term
-            if re.search(rf"\b{re.escape(language)}\s+{term}\b", text):
-                return term
-        if re.search(rf"\b{re.escape(language)}\s+reading\b", text):
-            return "reading"
+        explicit = detect_explicit_language_proficiency(text, language)
+        if explicit != UNKNOWN:
+            return explicit
+        return UNKNOWN
     for term in ("native", "fluent", "advanced", "conversational"):
         if term in text:
             return term
@@ -450,6 +449,21 @@ def detect_language_proficiency(evidence: str, language: str | None = None) -> s
         return "reading"
     if "daily" in text:
         return "advanced"
+    return UNKNOWN
+
+
+def detect_explicit_language_proficiency(text: str, language: str | None = None) -> str:
+    text = normalize_language_text(text)
+    language = normalize_language_text(language)
+    if not text or not language:
+        return UNKNOWN
+    for term in ("native", "fluent", "advanced", "conversational"):
+        if re.search(rf"\b{term}\s+{re.escape(language)}\b", text):
+            return term
+        if re.search(rf"\b{re.escape(language)}\s+{term}\b", text):
+            return term
+    if re.search(rf"\b{re.escape(language)}\s+reading\b", text):
+        return "reading"
     return UNKNOWN
 
 
@@ -471,12 +485,22 @@ def detect_location(text: str) -> dict:
     country = ""
     region = ""
     city = ""
+    us_country = r"(?:the\s+)?(?:us|u s|usa|united states)"
+    non_residence_tail = r"(?!\s+(?:jobs?|market|data|projects?|work))"
     if "sao paulo" in text:
         country = "Brazil"
         region = "Sao Paulo"
         city = "Sao Paulo"
     elif re.search(r"\b(in|location|located in|based in) brazil\b", text):
         country = "Brazil"
+    elif (
+        re.search(rf"\b(?:i\s+)?live\s+in\s+{us_country}\b{non_residence_tail}", text)
+        or re.search(rf"\b(?:i\s+am\s+)?based\s+in\s+{us_country}\b{non_residence_tail}", text)
+        or re.search(rf"\b(?:i\s+am\s+)?located\s+in\s+{us_country}\b{non_residence_tail}", text)
+        or re.search(rf"\bmy\s+location\s+is\s+{us_country}\b{non_residence_tail}", text)
+        or re.search(rf"\blocation\s*(?::|=)?\s*{us_country}\b{non_residence_tail}", text)
+    ):
+        country = "United States"
     return {
         "country": country,
         "region": region,
@@ -527,7 +551,12 @@ def detect_credentials(text: str) -> dict:
         licenses.append("attorney license")
         jurisdictions.append("California")
         status = "explicit"
-    if has_medical_license_absence(text) or has_legal_license_absence(text) or has_biology_or_medical_credential_absence(text):
+    if (
+        has_medical_license_absence(text)
+        or has_legal_license_absence(text)
+        or has_biology_or_medical_credential_absence(text)
+        or has_professional_credential_absence(text)
+    ):
         status = "absent"
     return {
         "certifications": unique_list(certifications),
@@ -715,6 +744,9 @@ def detect_constraints(text: str) -> dict:
     if has_biology_or_medical_credential_absence(text):
         hard.append("no biology or medical credentials")
         avoid.extend(["biology credentials", "medical credentials"])
+    if has_professional_credential_absence(text):
+        hard.append("no professional license or certification")
+        avoid.extend(["professional license", "certification"])
     if "no phone" in text or "not calls" in text:
         soft.append("no phone calls preferred")
         avoid.append("phone calls")
@@ -806,10 +838,11 @@ def missing_fields_for_baseline(languages: list[dict], location: dict, credentia
         missing.append("languages")
     if not any(location.get(field) for field in ("country", "region", "city", "residence")):
         missing.append("location")
-    if not credentials.get("certifications"):
-        missing.append("certifications")
-    if not credentials.get("licenses"):
-        missing.append("licenses")
+    if credentials.get("credential_status") != "absent":
+        if not credentials.get("certifications"):
+            missing.append("certifications")
+        if not credentials.get("licenses"):
+            missing.append("licenses")
     if experience.get("total_years") is None:
         missing.append("total_years")
     return missing
@@ -899,4 +932,21 @@ def has_biology_or_medical_credential_absence(text: str) -> bool:
         re.search(r"\b(do not|don t|dont|no|without)\s+(have\s+)?(biology|medical)[^.,;]{0,30}credentials?\b", text)
         or re.search(r"\b(do not|don t|dont|no|without)\s+(have\s+)?biology\s+or\s+medical\s+credentials?\b", text)
         or re.search(r"\bno\s+(biology|medical)\s+credentials?\b", text)
+    )
+
+
+def has_professional_credential_absence(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(do not|don t|dont|no|without)\s+(hold|have|possess)\s+"
+            r"(any\s+)?(professional\s+)?(licenses?|certifications?|credentials?)\b",
+            text,
+        )
+        or re.search(
+            r"\b(do not|don t|dont|no|without)\s+(hold|have|possess)\s+"
+            r"(any\s+)?professional\s+(licenses?|certifications?|credentials?)\s+"
+            r"(or|and)\s+(certifications?|licenses?|credentials?)\b",
+            text,
+        )
+        or re.search(r"\bno\s+professional\s+(licenses?|certifications?|credentials?)\b", text)
     )
