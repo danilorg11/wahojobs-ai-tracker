@@ -312,6 +312,51 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
                 term,
             )
 
+    def test_us_beginner_profile_caps_foreign_language_locale_roles(self):
+        context = preview.build_preview_context(
+            "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks "
+            "with no phone calls. I live in the US and have 10 years experience.",
+            "short_paragraph",
+            limit=160,
+        )
+
+        primary = context["matches"]["do_these_first"] + context["matches"]["best_matches"]
+        blocked_terms = (
+            "english (ireland) language specialist",
+            "english (india) recording specialist",
+            "spanish (rioplatense",
+            "azeri (latin)",
+        )
+        for term in blocked_terms:
+            matches = matches_with_title_terms(context, (term,))
+            self.assertTrue(matches, term)
+            self.assertFalse(any(match in primary for match in matches), term)
+            self.assertTrue(
+                any(
+                    diagnostic.startswith("Specific language locale/accent may be required")
+                    or diagnostic.startswith("Possible unconfirmed language requirement")
+                    for match in matches
+                    for diagnostic in match["preview_diagnostics"]
+                ),
+                term,
+            )
+            if "azeri" in term:
+                self.assertIn("unconfirmed language requirement", preview.user_caution_note(matches[0]))
+            else:
+                self.assertIn("specific language locale or accent", preview.user_caution_note(matches[0]))
+
+        do_these_first_titles = " ".join(
+            match["display_title"].lower()
+            for match in context["matches"]["do_these_first"]
+        )
+        self.assertIn("english language data contributor", do_these_first_titles)
+        self.assertTrue(
+            "spanish audio specialist" in do_these_first_titles
+            or "spanish voice actor" in do_these_first_titles
+            or "english language expert" in do_these_first_titles,
+            do_these_first_titles,
+        )
+
     def test_software_preview_caps_science_coding_roles_when_credentials_are_absent(self):
         context = preview.build_preview_context(
             "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. "

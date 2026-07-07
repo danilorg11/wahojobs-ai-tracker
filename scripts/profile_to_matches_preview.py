@@ -80,6 +80,7 @@ UNCONFIRMED_LANGUAGE_TERMS = {
     "asl": "american sign language",
     "asturian": "asturian",
     "aymara": "aymara",
+    "azeri": "azeri",
     "basque": "basque",
 }
 LANGUAGE_LOCALE_BASES = (
@@ -97,8 +98,13 @@ LANGUAGE_LOCALE_TERMS = (
     ("new zealand", ("new zealand", "nz")),
     ("singapore", ("singapore",)),
     ("malta", ("malta",)),
+    ("ireland", ("ireland", "irish")),
+    ("india", ("india", "indian")),
     ("andean", ("andean", "peru", "bolivia", "ecuador")),
     ("chile", ("chile", "cl")),
+    ("rioplatense", ("rioplatense",)),
+    ("argentina", ("argentina", "argentinian")),
+    ("uruguay", ("uruguay", "uruguayan")),
     ("caribbean", ("caribbean",)),
     ("belize", ("belize",)),
     ("guyana", ("guyana",)),
