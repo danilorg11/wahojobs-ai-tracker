@@ -223,6 +223,14 @@ def build_demo_context(
             (generated_at - timedelta(days=30)).isoformat(),
         )
 
+    live_rows = normalize_tracker_rows(live_rows)
+    evergreen_rows = normalize_tracker_rows(evergreen_rows)
+    public_rows = normalize_tracker_rows(public_rows)
+    recommendation_rows = normalize_tracker_rows(recommendation_rows)
+    all_rows = normalize_tracker_rows(all_rows)
+    new_rows = normalize_tracker_rows(new_rows)
+    new_30d_rows = normalize_tracker_rows(new_30d_rows)
+
     row_index = build_row_index(all_rows)
     pipeline_report = build_pipeline_report(
         profile,
@@ -280,6 +288,13 @@ def build_demo_context(
         "explore_market": explore_market,
         "applicant_signals": applicant_signals,
     }
+
+
+def normalize_tracker_rows(rows):
+    return [
+        row if hasattr(row, "get") else dict(row)
+        for row in rows
+    ]
 
 
 def load_product_state_profiles():

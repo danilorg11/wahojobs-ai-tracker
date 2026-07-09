@@ -305,6 +305,8 @@ def build_row_index(rows):
     by_url = {}
     by_source_title = {}
     for row in rows:
+        if not hasattr(row, "get"):
+            row = dict(row)
         if row["url"]:
             by_url.setdefault(row["url"], row)
         by_source_title.setdefault(source_title_key(row["source"], row["title"]), row)
@@ -315,6 +317,8 @@ def build_row_index(rows):
 
 
 def build_pipeline_report(profile, pipeline_records, active_rows, new_rows, row_index):
+    active_rows = normalize_match_rows(active_rows)
+    new_rows = normalize_match_rows(new_rows)
     records = [record for record in pipeline_records if record["profile_id"] == profile["profile_id"]]
     enriched = [
         enrich_pipeline_record(profile, record, row_index)
@@ -356,6 +360,13 @@ def build_pipeline_report(profile, pipeline_records, active_rows, new_rows, row_
         "risk_items": build_risk_items(enriched, new_matches, evergreen_matches),
         "evergreen_checklist": build_evergreen_checklist(evergreen_matches, enriched),
     }
+
+
+def normalize_match_rows(rows):
+    return [
+        row if hasattr(row, "get") else dict(row)
+        for row in rows
+    ]
 
 
 def enrich_pipeline_record(profile, record, row_index):

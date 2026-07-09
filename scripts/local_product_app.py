@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import html
 import re
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -73,6 +74,16 @@ ACTION_LABELS = {
     "not_interested": "Not interested",
     "accepted": "Accepted",
     "rejected": "Rejected",
+}
+
+PREVIEW_ACTION_LABELS = {
+    **ACTION_LABELS,
+    "save": "Save / interested",
+    "applied": "Applied",
+    "assessment_started": "Invited to test",
+    "assessment_completed": "Waiting for result",
+    "not_interested": "Skip / not interested",
+    "rejected": "Rejected / not selected",
 }
 
 ACTIVE_PIPELINE_STATUSES = {
@@ -149,7 +160,7 @@ def make_handler(default_profile):
                 return
             if parsed.path == "/preview":
                 params = parse_qs(parsed.query)
-                self.write_html(render_preview_from_params(params))
+                self.write_html(render_preview_from_params(params, default_profile))
                 return
             if parsed.path != "/":
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -176,7 +187,7 @@ def make_handler(default_profile):
             if parsed.path == "/preview":
                 length = int(self.headers.get("Content-Length", "0"))
                 form = parse_qs(self.rfile.read(length).decode("utf-8"))
-                self.write_html(render_preview_from_params(form))
+                self.write_html(render_preview_from_params(form, default_profile))
                 return
             if parsed.path != "/action":
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -660,7 +671,7 @@ def render_dashboard(context, message=None, error=None):
     return "\n".join(parts)
 
 
-def render_preview_from_params(params):
+def render_preview_from_params(params, profile_id=DEFAULT_PROFILE_ID):
     sample_id = first_value(params, "sample")
     sample = PREVIEW_SAMPLES.get(sample_id, {})
     input_text = first_value(params, "input_text") or sample.get("text", "")
@@ -680,16 +691,68 @@ def render_preview_from_params(params):
         except Exception as exc:
             error = f"Preview failed: {exc}"
 
+    tracked = load_preview_tracked(profile_id)
     return render_profile_preview_page(
         input_text=input_text,
         input_style=input_style,
         sample_id=sample_id,
         context=context,
         error=error,
+        profile_id=profile_id,
+        tracked=tracked,
     )
 
 
-def render_profile_preview_page(input_text, input_style, sample_id="", context=None, error=""):
+def load_preview_tracked(profile_id):
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  id,
+                  pipeline_item_id,
+                  source,
+                  opportunity_title,
+                  opportunity_url,
+                  status,
+                  reminder_date
+                FROM user_pipeline_items
+                WHERE profile_id = ?
+                ORDER BY id
+                """,
+                (profile_id,),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+
+    records = []
+    for row in rows:
+        url = row["opportunity_url"] or ""
+        record = {
+            "id": row["id"],
+            "pipeline_item_id": row["pipeline_item_id"],
+            "source": row["source"],
+            "title": row["opportunity_title"],
+            "url": url,
+            "status": row["status"],
+            "reminder_date": row["reminder_date"] or "",
+        }
+        record["match_key"] = preview_pipeline_match_key(record)
+        records.append(record)
+    return demo.build_tracked_index(records)
+
+
+def preview_pipeline_match_key(record):
+    if record.get("url"):
+        return re.sub(r"\s+", " ", str(record["url"]).strip().lower())
+    return "|".join(
+        re.sub(r"\s+", " ", str(part or "").strip().lower())
+        for part in (record.get("source"), record.get("title"))
+    )
+
+
+def render_profile_preview_page(input_text, input_style, sample_id="", context=None, error="", profile_id=DEFAULT_PROFILE_ID, tracked=None):
+    tracked = tracked or demo.build_tracked_index([])
     parts = [
         "<!doctype html>",
         "<html lang='en'>",
@@ -709,13 +772,13 @@ def render_profile_preview_page(input_text, input_style, sample_id="", context=N
         parts.extend(
             [
                 render_preview_profile_summary(context),
-                render_preview_matches(context),
+                render_preview_matches(context, tracked, profile_id),
                 render_preview_diagnostics(context),
             ]
         )
     else:
         parts.append(
-            "<section class='notice'><p>Paste a profile or choose a sample to preview recommendations.</p></section>"
+            "<section class='notice'><p>Paste your background or choose an example to see a focused opportunity plan.</p></section>"
         )
     parts.extend(["</main>", "</body>", "</html>"])
     return "\n".join(parts)
@@ -725,14 +788,14 @@ def render_preview_header():
     return """
     <section class="hero preview-hero">
       <div>
-        <p class="eyebrow">Local QA preview</p>
-        <h1>Profile to opportunity preview</h1>
-        <p class="lead">Paste a background summary and see how Wahojobs turns it into a short, guarded AI-work opportunity plan.</p>
-        <p class="muted">This uses the same local preview guardrails as the approved diagnostic HTML. It is heuristic/demo-only and does not call external AI services.</p>
+        <p class="eyebrow">Wahojobs 2.0 preview</p>
+        <h1>Find AI work that fits your background</h1>
+        <p class="lead">Paste a short profile and Wahojobs will turn it into a focused opportunity plan.</p>
+        <p class="muted">This local prototype uses a heuristic parser and deterministic matching guardrails. It does not call external AI services.</p>
       </div>
       <div class="profile-box">
-        <p><strong>Use this for:</strong> product QA, profile copy testing, and checking language/location/specialty guardrails.</p>
-        <p><strong>Link note:</strong> Open links come from the local tracker snapshot and are not live-verified on this page.</p>
+        <p><strong>What you get:</strong> a short plan, a few strong matches, and notes about anything to check before applying.</p>
+        <p><strong>Link note:</strong> Links come from the latest local tracker snapshot and may change.</p>
         <p><a class="jump-link" href="/">Back to product dashboard</a></p>
       </div>
     </section>
@@ -750,21 +813,23 @@ def render_preview_form(input_text, input_style, sample_id):
     )
     return f"""
     <section class="preview-input" id="profile-preview-input">
-      <h2>Try a profile</h2>
+      <h2>Tell us about your background</h2>
+      <p class="muted">A paragraph is enough for a first pass. Add location, languages, credentials, and work preferences when you know them.</p>
+      <p class="sample-label">Examples</p>
       <form method="get" action="/preview" class="sample-actions">
         {sample_buttons}
       </form>
       <form method="post" action="/preview" class="preview-form">
-        <label for="input_text">Profile text</label>
+        <label for="input_text">Your background</label>
         <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
         <details class="advanced-options">
           <summary>Advanced QA parser mode</summary>
-          <p class="muted">This is an internal test option for the baseline parser. Most users should not need to change it.</p>
+          <p class="muted">Optional internal control for testing how the baseline parser reads different input styles.</p>
           <label for="input_style">Parser input style</label>
           <select id="input_style" name="input_style">{style_options}</select>
         </details>
         <input type="hidden" name="sample" value="{e(sample_id)}">
-        <button type="submit">Preview matches</button>
+        <button type="submit">Find matches</button>
       </form>
     </section>
     """
@@ -777,7 +842,7 @@ def render_preview_profile_summary(context):
     return f"""
     <section id="profile-understood">
       <h2>Profile Understood</h2>
-      <p class="muted">These are the main signals extracted from the pasted profile.</p>
+      <p class="muted">Here is what Wahojobs can use so far. This is a first-pass reading, not a final resume profile.</p>
       <div class="chips">{profile_chips}</div>
       <div class="preview-grid">
         <div class="profile-box"><strong>Languages</strong><br>{e(profile_preview.join_languages(canonical))}</div>
@@ -788,39 +853,43 @@ def render_preview_profile_summary(context):
     </section>
     <section id="profile-questions">
       <h2>What We Still Need To Know</h2>
-      <p class="muted">Clarifying these details helps avoid bad recommendations.</p>
+      <p class="muted">To improve your matches, you can add these details when available.</p>
       <ul class="question-list">{missing_items}</ul>
     </section>
     """
 
 
-def render_preview_matches(context):
+def render_preview_matches(context, tracked, profile_id):
     sections = []
     for section in profile_preview.SECTION_ORDER:
         matches = context["matches"].get(section, [])
-        sections.append(render_preview_section(section, matches))
+        sections.append(render_preview_section(section, matches, tracked, profile_id))
     return f"""
     <section id="preview-recommendations">
       <h2>Recommended Opportunities</h2>
-      <p class="muted">Primary sections stay small. Broader and excluded sections are collapsed for QA.</p>
-      <p class="muted">Open links are from the current local tracker snapshot; this preview does not verify that each page is still live.</p>
+      <p class="muted">Your plan stays intentionally small. Browse the lower sections only when you want more context.</p>
+      <p class="snapshot-note">Links come from the latest local tracker snapshot and may change.</p>
+      <p class="muted">Actions save to the default local profile tracker, then continue in the product dashboard.</p>
       {''.join(sections)}
     </section>
     """
 
 
-def render_preview_section(section, matches):
+def render_preview_section(section, matches, tracked, profile_id):
     label = profile_preview.SECTION_LABELS[section]
     visible_limit = profile_preview.HTML_SECTION_LIMITS.get(section, 8)
     visible = matches[:visible_limit]
-    cards = "".join(render_preview_card(match, section) for match in visible) or "<p class='empty'>None in this preview.</p>"
+    cards = "".join(
+        render_preview_card(match, section, tracked, profile_id)
+        for match in visible
+    ) or "<p class='empty'>None in this preview.</p>"
     more = len(matches) - len(visible)
     more_note = f"<p class='muted'>Showing {len(visible)} of {len(matches)}. {more} more kept out of the main view.</p>" if more > 0 else ""
     if section in {"explore_only", "excluded"}:
         return f"""
         <details class="explore-details preview-diagnostic">
           <summary><span>{e(label)}</span><small>{len(matches)} diagnostic/broader results</small></summary>
-          <p class="muted">These are useful for QA and broader browsing, but they are not primary recommendations.</p>
+          <p class="muted">{e(preview_section_note(section))}</p>
           <div class="stack">{cards}</div>
           {more_note}
         </details>
@@ -835,25 +904,29 @@ def render_preview_section(section, matches):
     """
 
 
-def render_preview_card(match, section):
+def render_preview_card(match, section, tracked, profile_id):
+    record = demo.tracked_record_for_match(match, tracked)
     caution = profile_preview.user_caution_note(match)
     fit_reason = profile_preview.user_fit_reason(match)
     url = match.get("url") or ""
     open_link = f'<a class="open" href="{e(url)}" target="_blank" rel="noreferrer">Open</a>' if url else ""
     diagnostics = "; ".join(match.get("preview_diagnostics") or []) or "-"
     reasons = "; ".join(match.get("reasons") or []) or "-"
+    status = demo.readable_status(record["status"]) if record else profile_preview.SECTION_LABELS.get(section, section)
+    controls = render_preview_card_actions(match, record, profile_id, section)
     return f"""
     <article class="card preview-card">
       <div class="card-main">
         <p class="source">{e(match['source'])}</p>
         <h3>{e(match['display_title'])}</h3>
-        <p>{e(match.get('location') or 'Unknown')} &middot; {e(match.get('expertise') or 'Unknown')}</p>
+        <p class="muted">Location: {e(match.get('location') or 'Unknown')} &middot; Area: {e(match.get('expertise') or 'Unknown')}</p>
         <p><strong>Why it may fit:</strong> {e(fit_reason)}</p>
         {f'<p class="caution"><strong>Check first:</strong> {e(caution)}</p>' if caution else ''}
-        <p class="pill">{e(profile_preview.SECTION_LABELS.get(section, section))}</p>
+        <p class="pill">{e(status)}</p>
       </div>
       <div class="card-actions">
         {open_link}
+        {controls}
         <details class="technical-details">
           <summary>Technical details</summary>
           <p class="muted">Score: {e(match.get('score'))}</p>
@@ -865,11 +938,61 @@ def render_preview_card(match, section):
     """
 
 
+def render_preview_card_actions(match, record, profile_id, section):
+    if section in {"explore_only", "excluded"}:
+        return terminal_status_label(record["status"]) if record else ""
+    if section == "also_worth_reviewing":
+        return render_preview_light_forms(match, record, profile_id, "application-tracker")
+    return render_preview_full_forms(match, record, profile_id, "application-tracker")
+
+
+def render_preview_full_forms(match, record, profile_id, return_to):
+    pipeline_id = record.get("id") if record else ""
+    status = record.get("status") if record else None
+    actions = actions_for_status(status)
+    if not actions:
+        return terminal_status_label(status)
+    return " ".join(
+        action_form(
+            action,
+            PREVIEW_ACTION_LABELS[action],
+            profile_id,
+            source=match["source"],
+            title=match["display_title"],
+            url=match.get("url", ""),
+            pipeline_id=pipeline_id,
+            return_to=return_to,
+        )
+        for action in actions
+    )
+
+
+def render_preview_light_forms(match, record, profile_id, return_to):
+    actions = explore_actions_for_status(record.get("status") if record else None)
+    if not actions:
+        return terminal_status_label(record["status"]) if record else ""
+    return " ".join(
+        action_form(
+            action,
+            PREVIEW_ACTION_LABELS[action],
+            profile_id,
+            source=match["source"],
+            title=match["display_title"],
+            url=match.get("url", ""),
+            pipeline_id=record.get("id", "") if record else "",
+            return_to=return_to,
+        )
+        for action in actions
+    )
+
+
 def preview_section_note(section):
     notes = {
-        "do_these_first": "Start here. These are safe, high-priority actions for this profile.",
-        "best_matches": "Strong fits worth reviewing next.",
-        "also_worth_reviewing": "Good possibilities, but not today's top priority.",
+        "do_these_first": "Start with these. They look the most actionable based on the information provided.",
+        "best_matches": "Strong options to review next.",
+        "also_worth_reviewing": "Potential fits that may need one extra check.",
+        "explore_only": "Useful for broader browsing and QA, but not primary recommendations.",
+        "excluded": "Not personalized for this profile. Kept collapsed for QA and trust checks.",
     }
     return notes.get(section, "")
 
@@ -881,7 +1004,7 @@ def render_preview_diagnostics(context):
     overlay = context.get("metadata_overlay") or {}
     return f"""
     <details class="explore-details preview-diagnostic">
-      <summary><span>Technical diagnostics</span><small>optional QA details</small></summary>
+      <summary><span>Advanced diagnostics</span><small>optional QA details</small></summary>
       <p class="muted">Normalizer: {e(context.get('normalizer'))} ({e(context.get('extraction_quality'))})</p>
       <p class="muted">Metadata overlay: {e('enabled' if overlay.get('enabled') else 'disabled')} | records={e(overlay.get('records_loaded'))} | rows enriched={e(overlay.get('rows_enriched'))}</p>
       <p class="muted">Warnings: {e(warnings)}</p>
@@ -1498,6 +1621,11 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   gap: 8px;
   margin-bottom: 10px;
 }
+.sample-label {
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -1510,6 +1638,14 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   border-radius: 999px;
   display: inline-flex;
   padding: 6px 10px;
+}
+.chip strong { margin-right: 4px; }
+.snapshot-note {
+  background: #fbfaf7;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 10px 12px;
 }
 .stack { display: grid; gap: 10px; }
 .card {
