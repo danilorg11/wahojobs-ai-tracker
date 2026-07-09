@@ -1019,6 +1019,12 @@ def render_preview_tracker_profile(profiles, selected_profile_id):
 
 def render_preview_form(input_text, input_style, sample_id, profile_id):
     sample_buttons = "".join(
+        f"<button type='button' class='sample-loader' "
+        f"data-sample-id='{e(key)}' data-sample-style='{e(sample['style'])}' "
+        f"data-sample-text='{e(sample['text'])}'>{e(sample['label'])}</button>"
+        for key, sample in PREVIEW_SAMPLES.items()
+    )
+    fallback_sample_buttons = "".join(
         f"<button type='submit' name='sample' value='{e(key)}'>{e(sample['label'])}</button>"
         for key, sample in PREVIEW_SAMPLES.items()
     )
@@ -1031,10 +1037,16 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
       <h2>Tell us about your background</h2>
       <p class="muted">A paragraph is enough for a first pass. Add location, languages, credentials, and work preferences when you know them.</p>
       <p class="sample-label">Examples</p>
-      <form method="get" action="/find-matches" class="sample-actions">
-        <input type="hidden" name="profile" value="{e(profile_id)}">
+      <div class="sample-actions" aria-label="Example profiles">
         {sample_buttons}
-      </form>
+      </div>
+      <p id="sample-loaded-note" class="muted sample-loaded-note" role="status" aria-live="polite" hidden></p>
+      <noscript>
+        <form method="get" action="/find-matches" class="sample-actions">
+          <input type="hidden" name="profile" value="{e(profile_id)}">
+          {fallback_sample_buttons}
+        </form>
+      </noscript>
       <form method="post" action="/find-matches" class="preview-form">
         <label for="input_text">Your background</label>
         <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
@@ -1048,6 +1060,24 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
         <input type="hidden" name="profile" value="{e(profile_id)}">
         <button type="submit">Find matches</button>
       </form>
+      <script>
+      (() => {{
+        const input = document.getElementById("input_text");
+        const inputStyle = document.getElementById("input_style");
+        const sampleId = document.querySelector('.preview-form input[name="sample"]');
+        const note = document.getElementById("sample-loaded-note");
+        document.querySelectorAll(".sample-loader").forEach((button) => {{
+          button.addEventListener("click", () => {{
+            input.value = button.dataset.sampleText || "";
+            inputStyle.value = button.dataset.sampleStyle || "short_paragraph";
+            sampleId.value = button.dataset.sampleId || "";
+            note.textContent = "Example loaded. Click Find matches to refresh recommendations.";
+            note.hidden = false;
+            input.focus();
+          }});
+        }});
+      }})();
+      </script>
     </section>
     """
 
@@ -1876,6 +1906,7 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   font-weight: 700;
   margin-bottom: 8px;
 }
+.sample-loaded-note { margin-bottom: 10px; }
 .chips {
   display: flex;
   flex-wrap: wrap;
