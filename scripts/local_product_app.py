@@ -22,6 +22,9 @@ from wahojobs.db.connection import get_connection
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_PROFILE_ID = "portuguese_english_reviewer"
+FIND_MATCHES_PATHS = {"/find-matches", "/preview"}
+TRACKER_PATHS = {"/", "/tracker"}
+ACTION_RETURN_PATHS = FIND_MATCHES_PATHS | TRACKER_PATHS
 
 PREVIEW_SAMPLES = {
     "beginner_bilingual": {
@@ -158,11 +161,11 @@ def make_handler(default_profile):
             if parsed.path == "/health":
                 self.write_text("ok\n")
                 return
-            if parsed.path == "/preview":
+            if parsed.path in FIND_MATCHES_PATHS:
                 params = parse_qs(parsed.query)
                 self.write_html(render_preview_from_params(params, default_profile))
                 return
-            if parsed.path != "/":
+            if parsed.path not in TRACKER_PATHS:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
@@ -184,7 +187,7 @@ def make_handler(default_profile):
 
         def do_POST(self):
             parsed = urlparse(self.path)
-            if parsed.path == "/preview":
+            if parsed.path in FIND_MATCHES_PATHS:
                 length = int(self.headers.get("Content-Length", "0"))
                 form = parse_qs(self.rfile.read(length).decode("utf-8"))
                 self.write_html(render_preview_from_params(form, default_profile))
@@ -196,13 +199,16 @@ def make_handler(default_profile):
             form = parse_qs(self.rfile.read(length).decode("utf-8"))
             profile_id = first_value(form, "profile") or default_profile
             return_to = first_value(form, "return_to") or "do-these-first"
+            return_path = first_value(form, "return_path") or "/tracker"
+            if return_path not in ACTION_RETURN_PATHS:
+                return_path = "/tracker"
             try:
                 message = handle_action(form, profile_id)
-                self.redirect("/", fragment=return_to, profile=profile_id, message=message)
+                self.redirect(return_path, fragment=return_to, profile=profile_id, message=message)
             except SystemExit as exc:
-                self.redirect("/", fragment=return_to, profile=profile_id, error=str(exc))
+                self.redirect(return_path, fragment=return_to, profile=profile_id, error=str(exc))
             except Exception as exc:
-                self.redirect("/", fragment=return_to, profile=profile_id, error=f"Action failed: {exc}")
+                self.redirect(return_path, fragment=return_to, profile=profile_id, error=f"Action failed: {exc}")
 
         def redirect(self, path, fragment="", **params):
             query = urlencode({key: value for key, value in params.items() if value})
@@ -759,7 +765,7 @@ def render_profile_preview_page(input_text, input_style, sample_id="", context=N
         "<head>",
         "<meta charset='utf-8'>",
         "<meta name='viewport' content='width=device-width, initial-scale=1'>",
-        "<title>Wahojobs - Profile Match Preview</title>",
+        "<title>Wahojobs - Find Matches</title>",
         f"<style>{CSS}</style>",
         "</head>",
         "<body>",
@@ -788,7 +794,7 @@ def render_preview_header():
     return """
     <section class="hero preview-hero">
       <div>
-        <p class="eyebrow">Wahojobs 2.0 preview</p>
+        <p class="eyebrow">Find Matches</p>
         <h1>Find AI work that fits your background</h1>
         <p class="lead">Paste a short profile and Wahojobs will turn it into a focused opportunity plan.</p>
         <p class="muted">This local prototype uses a heuristic parser and deterministic matching guardrails. It does not call external AI services.</p>
@@ -796,7 +802,7 @@ def render_preview_header():
       <div class="profile-box">
         <p><strong>What you get:</strong> a short plan, a few strong matches, and notes about anything to check before applying.</p>
         <p><strong>Link note:</strong> Links come from the latest local tracker snapshot and may change.</p>
-        <p><a class="jump-link" href="/">Back to product dashboard</a></p>
+        <p><a class="jump-link" href="/tracker">View application tracker</a></p>
       </div>
     </section>
     """
@@ -816,10 +822,10 @@ def render_preview_form(input_text, input_style, sample_id):
       <h2>Tell us about your background</h2>
       <p class="muted">A paragraph is enough for a first pass. Add location, languages, credentials, and work preferences when you know them.</p>
       <p class="sample-label">Examples</p>
-      <form method="get" action="/preview" class="sample-actions">
+      <form method="get" action="/find-matches" class="sample-actions">
         {sample_buttons}
       </form>
-      <form method="post" action="/preview" class="preview-form">
+      <form method="post" action="/find-matches" class="preview-form">
         <label for="input_text">Your background</label>
         <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
         <details class="advanced-options">
@@ -869,7 +875,7 @@ def render_preview_matches(context, tracked, profile_id):
       <h2>Recommended Opportunities</h2>
       <p class="muted">Your plan stays intentionally small. Browse the lower sections only when you want more context.</p>
       <p class="snapshot-note">Links come from the latest local tracker snapshot and may change.</p>
-      <p class="muted">Actions save to the default local profile tracker, then continue in the product dashboard.</p>
+      <p class="muted">Actions are saved to your local Application Tracker.</p>
       {''.join(sections)}
     </section>
     """
@@ -1030,10 +1036,10 @@ def render_header(context, profiles):
     return f"""
     <section class="hero">
       <div>
-        <p class="eyebrow">Local prototype</p>
-        <h1>Your AI-work opportunity dashboard</h1>
-        <p class="lead">A focused view of the best leads, active applications, and directional applicant signals for one profile.</p>
-        <p><a class="jump-link" href="/preview">Try profile-to-matches preview</a></p>
+        <p class="eyebrow">Application Tracker</p>
+        <h1>Application Tracker</h1>
+        <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
+        <p><a class="jump-link" href="/find-matches">Find new matches</a></p>
         {render_profile_selector(profiles, profile["profile_id"])}
       </div>
       <div class="profile-box">
@@ -1055,7 +1061,7 @@ def render_profile_selector(profiles, selected_profile_id):
         for row in profiles
     )
     return f"""
-    <form class="profile-switcher" method="get" action="/">
+    <form class="profile-switcher" method="get" action="/tracker">
       <label for="profile">View profile</label>
       <select id="profile" name="profile">
         {options}
@@ -1422,7 +1428,7 @@ def render_pipeline_forms(record, profile_id, return_to):
     )
 
 
-def action_form(action, label, profile_id, source, title, url, pipeline_id="", return_to="do-these-first"):
+def action_form(action, label, profile_id, source, title, url, pipeline_id="", return_to="do-these-first", return_path="/tracker"):
     return f"""
     <form method="post" action="/action">
       <input type="hidden" name="profile" value="{e(profile_id)}">
@@ -1432,6 +1438,7 @@ def action_form(action, label, profile_id, source, title, url, pipeline_id="", r
       <input type="hidden" name="url" value="{e(url or '')}">
       <input type="hidden" name="pipeline_item_id" value="{e(str(pipeline_id or ''))}">
       <input type="hidden" name="return_to" value="{e(return_to)}">
+      <input type="hidden" name="return_path" value="{e(return_path)}">
       <button type="submit">{e(label)}</button>
     </form>
     """
