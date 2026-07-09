@@ -24,6 +24,7 @@ DEFAULT_PORT = 8765
 DEFAULT_PROFILE_ID = "portuguese_english_reviewer"
 FIND_MATCHES_PATHS = {"/find-matches", "/preview"}
 TRACKER_PATHS = {"/", "/tracker"}
+HEAVY_DASHBOARD_PATHS = {"/dashboard", "/market-dashboard"}
 ACTION_RETURN_PATHS = FIND_MATCHES_PATHS | TRACKER_PATHS
 
 PREVIEW_SAMPLES = {
@@ -165,20 +166,24 @@ def make_handler(default_profile):
                 params = parse_qs(parsed.query)
                 self.write_html(render_preview_from_params(params, default_profile))
                 return
-            if parsed.path not in TRACKER_PATHS:
+            if parsed.path not in TRACKER_PATHS | HEAVY_DASHBOARD_PATHS:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
             params = parse_qs(parsed.query)
-            profile_id = first_value(params, "profile") or default_profile
+            profile_id = selected_profile_id(params, default_profile)
             message = first_value(params, "message")
             error = first_value(params, "error")
             try:
-                context = demo.build_demo_context(
-                    profile_id=profile_id,
-                    use_product_state=True,
-                )
-                body = render_dashboard(context, message=message, error=error)
+                if parsed.path in HEAVY_DASHBOARD_PATHS:
+                    context = demo.build_demo_context(
+                        profile_id=profile_id,
+                        use_product_state=True,
+                    )
+                    body = render_dashboard(context, message=message, error=error)
+                else:
+                    context = load_lightweight_tracker_context(profile_id, default_profile)
+                    body = render_lightweight_tracker(context, message=message, error=error)
                 self.write_html(body)
             except SystemExit as exc:
                 self.write_html(render_error(str(exc)), status=HTTPStatus.BAD_REQUEST)
@@ -600,6 +605,114 @@ def load_profile_options():
         ).fetchall()
 
 
+def load_lightweight_tracker_context(requested_profile_id, default_profile_id=DEFAULT_PROFILE_ID):
+    profiles = load_profile_options()
+    profile_id = resolve_profile_id(profiles, requested_profile_id, default_profile_id)
+    display_name = profile_display_name(profiles, profile_id)
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+              id,
+              pipeline_item_id,
+              profile_id,
+              source,
+              opportunity_title,
+              opportunity_url,
+              status,
+              status_date,
+              notes,
+              user_priority,
+              reminder_date,
+              last_user_action,
+              updated_at
+            FROM user_pipeline_items
+            WHERE profile_id = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (profile_id,),
+        ).fetchall()
+    records = [lightweight_pipeline_record(row) for row in rows]
+    return {
+        "profile": {
+            "profile_id": profile_id,
+            "display_name": display_name,
+        },
+        "profiles": profiles,
+        "records": records,
+    }
+
+
+def lightweight_pipeline_record(row):
+    record = {
+        "id": row["id"],
+        "pipeline_item_id": row["pipeline_item_id"],
+        "profile_id": row["profile_id"],
+        "source": row["source"],
+        "title": row["opportunity_title"],
+        "url": row["opportunity_url"] or "",
+        "status": row["status"],
+        "status_date": row["status_date"] or "",
+        "notes": row["notes"] or "",
+        "user_priority": row["user_priority"] or "medium",
+        "reminder_date": row["reminder_date"] or "",
+        "last_user_action": row["last_user_action"] or "",
+        "updated_at": row["updated_at"] or "",
+        "match_score": None,
+    }
+    record["next_action"] = lightweight_next_action(record)
+    return record
+
+
+def lightweight_next_action(record):
+    status = record["status"]
+    labels = {
+        "recommended": "Review this opportunity when you are ready.",
+        "saved": "Saved for review; apply when it feels like a good fit.",
+        "remind_later": "This will stay in your tracker until its reminder is due.",
+        "applied": "Watch for an assessment or next-step message.",
+        "waiting": "Waiting for an update from the source.",
+        "assessment_invited": "Start the assessment when you have focused time.",
+        "assessment_started": "Continue the assessment already in progress.",
+        "assessment_completed": "Waiting for the assessment result or next step.",
+        "accepted": "Accepted opportunity.",
+        "active_worker": "Active work relationship.",
+        "paid_task_received": "Paid task received.",
+        "not_interested": "Hidden from recommendations until you show it again.",
+        "rejected": "Closed after a rejection or selection decision.",
+        "expired": "This opportunity is marked expired.",
+    }
+    return labels.get(status, "Review the current tracker status.")
+
+
+def selected_profile_id(params, default_profile_id):
+    return (
+        first_value(params, "profile")
+        or first_value(params, "profile_id")
+        or default_profile_id
+    )
+
+
+def profile_display_name(profiles, profile_id):
+    for profile in profiles:
+        if profile["profile_id"] == profile_id:
+            return profile["display_name"]
+    return profile_id.replace("_", " ").title()
+
+
+def resolve_profile_id(profiles, requested_profile_id, default_profile_id):
+    available_ids = {profile["profile_id"] for profile in profiles}
+    if requested_profile_id in available_ids or not available_ids:
+        return requested_profile_id
+    if default_profile_id in available_ids:
+        return default_profile_id
+    return profiles[0]["profile_id"]
+
+
+def profile_url(path, profile_id):
+    return f"{path}?{urlencode({'profile': profile_id})}"
+
+
 def render_dashboard(context, message=None, error=None):
     profile = context["profile"]
     pipeline_report = context["pipeline_report"]
@@ -677,7 +790,58 @@ def render_dashboard(context, message=None, error=None):
     return "\n".join(parts)
 
 
+def render_lightweight_tracker(context, message=None, error=None):
+    profile = context["profile"]
+    parts = [
+        "<!doctype html>",
+        "<html lang='en'>",
+        "<head>",
+        "<meta charset='utf-8'>",
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>",
+        f"<title>Wahojobs Tracker - {e(profile['display_name'])}</title>",
+        f"<style>{CSS}</style>",
+        "</head>",
+        "<body>",
+        "<main>",
+        render_lightweight_tracker_header(profile, context["profiles"]),
+        render_notice(message, error),
+        render_pipeline(context["records"], profile["profile_id"], tracker_only=True),
+        render_tracker_disclaimer(),
+        "</main>",
+        "</body>",
+        "</html>",
+    ]
+    return "\n".join(parts)
+
+
+def render_lightweight_tracker_header(profile, profiles):
+    find_matches_url = profile_url("/find-matches", profile["profile_id"])
+    dashboard_url = profile_url("/dashboard", profile["profile_id"])
+    return f"""
+    <section class="hero tracker-hero">
+      <div>
+        <p class="eyebrow">Application Tracker</p>
+        <h1>Application Tracker</h1>
+        <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
+        <p><a class="jump-link" href="{e(find_matches_url)}">Find new matches</a></p>
+        {render_profile_selector(profiles, profile["profile_id"], action_path="/dashboard")}
+      </div>
+      <div class="profile-box">
+        <p class="eyebrow">Active tracker profile</p>
+        <h2>{e(profile['display_name'])}</h2>
+        <p>Only opportunities saved to this local profile are shown here.</p>
+        <p class="muted">This page loads tracker status only, so actions return quickly.</p>
+        <p><a class="back-link" href="{e(dashboard_url)}">Open full opportunity dashboard</a></p>
+      </div>
+    </section>
+    """
+
+
 def render_preview_from_params(params, profile_id=DEFAULT_PROFILE_ID):
+    default_profile_id = profile_id
+    profile_id = selected_profile_id(params, default_profile_id)
+    profiles = load_profile_options()
+    profile_id = resolve_profile_id(profiles, profile_id, default_profile_id)
     sample_id = first_value(params, "sample")
     sample = PREVIEW_SAMPLES.get(sample_id, {})
     input_text = first_value(params, "input_text") or sample.get("text", "")
@@ -705,6 +869,7 @@ def render_preview_from_params(params, profile_id=DEFAULT_PROFILE_ID):
         context=context,
         error=error,
         profile_id=profile_id,
+        profiles=profiles,
         tracked=tracked,
     )
 
@@ -757,7 +922,17 @@ def preview_pipeline_match_key(record):
     )
 
 
-def render_profile_preview_page(input_text, input_style, sample_id="", context=None, error="", profile_id=DEFAULT_PROFILE_ID, tracked=None):
+def render_profile_preview_page(
+    input_text,
+    input_style,
+    sample_id="",
+    context=None,
+    error="",
+    profile_id=DEFAULT_PROFILE_ID,
+    profiles=None,
+    tracked=None,
+):
+    profiles = profiles if profiles is not None else load_profile_options()
     tracked = tracked or demo.build_tracked_index([])
     parts = [
         "<!doctype html>",
@@ -770,8 +945,9 @@ def render_profile_preview_page(input_text, input_style, sample_id="", context=N
         "</head>",
         "<body>",
         "<main>",
-        render_preview_header(),
-        render_preview_form(input_text, input_style, sample_id),
+        render_preview_header(profile_id),
+        render_preview_tracker_profile(profiles, profile_id),
+        render_preview_form(input_text, input_style, sample_id, profile_id),
         render_notice(None, error),
     ]
     if context:
@@ -790,8 +966,9 @@ def render_profile_preview_page(input_text, input_style, sample_id="", context=N
     return "\n".join(parts)
 
 
-def render_preview_header():
-    return """
+def render_preview_header(profile_id):
+    tracker_url = profile_url("/tracker", profile_id)
+    return f"""
     <section class="hero preview-hero">
       <div>
         <p class="eyebrow">Find Matches</p>
@@ -802,13 +979,45 @@ def render_preview_header():
       <div class="profile-box">
         <p><strong>What you get:</strong> a short plan, a few strong matches, and notes about anything to check before applying.</p>
         <p><strong>Link note:</strong> Links come from the latest local tracker snapshot and may change.</p>
-        <p><a class="jump-link" href="/tracker">View application tracker</a></p>
+        <p><a class="jump-link" href="{e(tracker_url)}">View application tracker</a></p>
       </div>
     </section>
     """
 
 
-def render_preview_form(input_text, input_style, sample_id):
+def render_preview_tracker_profile(profiles, selected_profile_id):
+    display_name = profile_display_name(profiles, selected_profile_id)
+    if profiles:
+        options = "".join(
+            f"<option value=\"{e(row['profile_id'])}\" "
+            f"{'selected' if row['profile_id'] == selected_profile_id else ''}>"
+            f"{e(row['display_name'])}</option>"
+            for row in profiles
+        )
+        selector = f"""
+        <form class="profile-switcher" method="get" action="/find-matches">
+          <label for="preview-profile">Save actions to tracker profile</label>
+          <select id="preview-profile" name="profile">{options}</select>
+          <button type="submit">Switch</button>
+        </form>
+        """
+    else:
+        selector = (
+            "<p class='muted'>No product-state profiles found. Import profiles before saving actions.</p>"
+        )
+    return f"""
+    <section class="notice tracker-profile-panel" id="tracking-profile">
+      <div>
+        <p class="eyebrow">Tracking profile</p>
+        <h2>{e(display_name)}</h2>
+        <p>Pasted text is used to find matches for this session. Saved actions go to the selected local tracker profile.</p>
+      </div>
+      {selector}
+    </section>
+    """
+
+
+def render_preview_form(input_text, input_style, sample_id, profile_id):
     sample_buttons = "".join(
         f"<button type='submit' name='sample' value='{e(key)}'>{e(sample['label'])}</button>"
         for key, sample in PREVIEW_SAMPLES.items()
@@ -823,6 +1032,7 @@ def render_preview_form(input_text, input_style, sample_id):
       <p class="muted">A paragraph is enough for a first pass. Add location, languages, credentials, and work preferences when you know them.</p>
       <p class="sample-label">Examples</p>
       <form method="get" action="/find-matches" class="sample-actions">
+        <input type="hidden" name="profile" value="{e(profile_id)}">
         {sample_buttons}
       </form>
       <form method="post" action="/find-matches" class="preview-form">
@@ -835,6 +1045,7 @@ def render_preview_form(input_text, input_style, sample_id):
           <select id="input_style" name="input_style">{style_options}</select>
         </details>
         <input type="hidden" name="sample" value="{e(sample_id)}">
+        <input type="hidden" name="profile" value="{e(profile_id)}">
         <button type="submit">Find matches</button>
       </form>
     </section>
@@ -1033,16 +1244,18 @@ def render_header(context, profiles):
         f"<p><strong>{e(label)}:</strong> {e(value)}</p>"
         for label, value in profile_summary
     )
+    find_matches_url = profile_url("/find-matches", profile["profile_id"])
     return f"""
     <section class="hero">
       <div>
         <p class="eyebrow">Application Tracker</p>
         <h1>Application Tracker</h1>
         <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
-        <p><a class="jump-link" href="/find-matches">Find new matches</a></p>
+        <p><a class="jump-link" href="{e(find_matches_url)}">Find new matches</a></p>
         {render_profile_selector(profiles, profile["profile_id"])}
       </div>
       <div class="profile-box">
+        <p class="eyebrow">Active tracker profile</p>
         {rows}
         <p><strong>Live opportunities tracked:</strong> {market['estimated_market_opportunities']}</p>
       </div>
@@ -1050,7 +1263,7 @@ def render_header(context, profiles):
     """
 
 
-def render_profile_selector(profiles, selected_profile_id):
+def render_profile_selector(profiles, selected_profile_id, action_path="/tracker"):
     if not profiles:
         return """
         <p class="muted">No product-state profiles found. Import profiles before switching users.</p>
@@ -1061,8 +1274,8 @@ def render_profile_selector(profiles, selected_profile_id):
         for row in profiles
     )
     return f"""
-    <form class="profile-switcher" method="get" action="/tracker">
-      <label for="profile">View profile</label>
+    <form class="profile-switcher" method="get" action="{e(action_path)}">
+      <label for="profile">Active tracker profile</label>
       <select id="profile" name="profile">
         {options}
       </select>
@@ -1240,27 +1453,31 @@ def explore_match_label(match, record):
     return " · ".join(pieces)
 
 
-def render_pipeline(records, profile_id):
+def render_pipeline(records, profile_id, tracker_only=False):
     groups = pipeline_groups(records)
     active_body = render_pipeline_group(
         groups["active"],
         profile_id,
         "No active application items yet.",
+        tracker_only=tracker_only,
     )
     accepted_body = render_pipeline_group(
         groups["accepted"],
         profile_id,
         "No accepted or active work items yet.",
+        tracker_only=tracker_only,
     )
     hidden_body = render_pipeline_group(
         groups["hidden"],
         profile_id,
         "No hidden opportunities.",
+        tracker_only=tracker_only,
     )
     closed_body = render_pipeline_group(
         groups["closed"],
         profile_id,
         "No closed or expired items.",
+        tracker_only=tracker_only,
     )
     return f"""
     <section id="application-tracker">
@@ -1296,10 +1513,13 @@ def pipeline_groups(records):
     return groups
 
 
-def render_pipeline_group(records, profile_id, empty):
+def render_pipeline_group(records, profile_id, empty, tracker_only=False):
     if not records:
         return f"<p class='empty'>{e(empty)}</p>"
-    return "".join(render_pipeline_card(record, profile_id) for record in records)
+    return "".join(
+        render_pipeline_card(record, profile_id, tracker_only=tracker_only)
+        for record in records
+    )
 
 
 def render_reminder_note(record):
@@ -1308,7 +1528,12 @@ def render_reminder_note(record):
     return ""
 
 
-def render_pipeline_card(record, profile_id):
+def render_pipeline_card(record, profile_id, tracker_only=False):
+    navigation = (
+        f'<p><a class="back-link" href="{e(profile_url("/find-matches", profile_id))}">Find new matches</a></p>'
+        if tracker_only
+        else '<p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>'
+    )
     return f"""
     <article class="card tracker" id="{e(card_id_for_record(record))}">
       <div class="card-main">
@@ -1317,7 +1542,7 @@ def render_pipeline_card(record, profile_id):
         <p class="pill">{e(demo.readable_status(record['status']))}</p>
         {render_reminder_note(record)}
         <p class="muted">{e(record['next_action'])}</p>
-        <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
+        {navigation}
       </div>
       <div class="card-actions">
         {f'<a class="open" href="{e(record["url"])}" target="_blank" rel="noreferrer">Open</a>' if record["url"] else ""}
@@ -1365,6 +1590,15 @@ def render_disclaimer():
     <section class="disclaimer">
       <h2>Prototype Notes</h2>
       <p>This is a local prototype using sample/product-state data on this machine. Applicant signals are directional and mock-like for product exploration. Actions update only local product-state tables.</p>
+    </section>
+    """
+
+
+def render_tracker_disclaimer():
+    return """
+    <section class="disclaimer">
+      <h2>Local Prototype</h2>
+      <p>Tracker pages are read-only until you explicitly click an action. Actions update only local product-state tables for the active tracker profile.</p>
     </section>
     """
 
@@ -1588,6 +1822,15 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   min-width: min(360px, 100%);
   padding: 6px 9px;
 }
+.tracker-profile-panel {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: space-between;
+}
+.tracker-profile-panel > div { flex: 1 1 420px; }
+.tracker-profile-panel .profile-switcher { flex: 0 1 380px; margin-top: 0; }
 .preview-form {
   background: var(--panel);
   border: 1px solid var(--line);
