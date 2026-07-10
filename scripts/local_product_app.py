@@ -5,6 +5,7 @@ import re
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,6 +23,7 @@ from wahojobs.db.connection import get_connection
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_PROFILE_ID = "portuguese_english_reviewer"
+PREVIEW_MATCH_LIMIT = 160
 FIND_MATCHES_PATHS = {"/find-matches", "/preview"}
 TRACKER_PATHS = {"/", "/tracker"}
 HEAVY_DASHBOARD_PATHS = {"/dashboard", "/market-dashboard"}
@@ -853,10 +855,11 @@ def render_preview_from_params(params, profile_id=DEFAULT_PROFILE_ID):
     error = ""
     if input_text:
         try:
-            context = profile_preview.build_preview_context(
+            context = build_cached_preview_context(
                 input_text,
                 input_style,
-                limit=160,
+                PREVIEW_MATCH_LIMIT,
+                preview_data_signature(),
             )
         except Exception as exc:
             error = f"Preview failed: {exc}"
@@ -871,6 +874,34 @@ def render_preview_from_params(params, profile_id=DEFAULT_PROFILE_ID):
         profile_id=profile_id,
         profiles=profiles,
         tracked=tracked,
+    )
+
+
+def preview_data_signature():
+    with get_connection() as conn:
+        jobs = conn.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(is_active), 0), COALESCE(MAX(updated_at), '')
+            FROM jobs
+            """
+        ).fetchone()
+        canonical = conn.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(is_active), 0), COALESCE(MAX(updated_at), '')
+            FROM canonical_opportunities
+            """
+        ).fetchone()
+    overlay_path = profile_preview.DEFAULT_OVERLAY_PATH
+    overlay_mtime = overlay_path.stat().st_mtime_ns if overlay_path.exists() else 0
+    return tuple(jobs) + tuple(canonical) + (overlay_mtime,)
+
+
+@lru_cache(maxsize=16)
+def build_cached_preview_context(input_text, input_style, limit, _data_signature):
+    return profile_preview.build_preview_context(
+        input_text,
+        input_style,
+        limit=limit,
     )
 
 
@@ -1047,7 +1078,7 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
           {fallback_sample_buttons}
         </form>
       </noscript>
-      <form method="post" action="/find-matches" class="preview-form">
+      <form method="post" action="/find-matches" class="preview-form" id="find-matches-form">
         <label for="input_text">Your background</label>
         <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
         <details class="advanced-options">
@@ -1058,7 +1089,7 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
         </details>
         <input type="hidden" name="sample" value="{e(sample_id)}">
         <input type="hidden" name="profile" value="{e(profile_id)}">
-        <button type="submit">Find matches</button>
+        <button type="submit" id="find-matches-button">Find matches</button>
       </form>
       <script>
       (() => {{
@@ -1066,6 +1097,8 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
         const inputStyle = document.getElementById("input_style");
         const sampleId = document.querySelector('.preview-form input[name="sample"]');
         const note = document.getElementById("sample-loaded-note");
+        const findForm = document.getElementById("find-matches-form");
+        const findButton = document.getElementById("find-matches-button");
         document.querySelectorAll(".sample-loader").forEach((button) => {{
           button.addEventListener("click", () => {{
             input.value = button.dataset.sampleText || "";
@@ -1075,6 +1108,10 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
             note.hidden = false;
             input.focus();
           }});
+        }});
+        findForm.addEventListener("submit", () => {{
+          findButton.disabled = true;
+          findButton.textContent = "Finding matches...";
         }});
       }})();
       </script>
