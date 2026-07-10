@@ -826,7 +826,7 @@ def render_lightweight_tracker_header(profile, profiles):
         <h1>Application Tracker</h1>
         <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
         <p><a class="jump-link" href="{e(find_matches_url)}">Find new matches</a></p>
-        {render_profile_selector(profiles, profile["profile_id"], action_path="/dashboard")}
+        {render_profile_selector(profiles, profile["profile_id"])}
       </div>
       <div class="profile-box">
         <p class="eyebrow">Active tracker profile</p>
@@ -1319,7 +1319,7 @@ def render_header(context, profiles):
         <h1>Application Tracker</h1>
         <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
         <p><a class="jump-link" href="{e(find_matches_url)}">Find new matches</a></p>
-        {render_profile_selector(profiles, profile["profile_id"])}
+        {render_profile_selector(profiles, profile["profile_id"], action_path="/dashboard")}
       </div>
       <div class="profile-box">
         <p class="eyebrow">Active tracker profile</p>
