@@ -496,7 +496,7 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         )
         self.assertIn("degree, seniority, or license", preview.user_caution_note(credential_match))
 
-    def test_specificity_guardrail_cautions_are_user_facing(self):
+    def test_locale_specificity_guardrail_caution_is_user_facing(self):
         beginner = preview.build_preview_context(
             "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
             "short_paragraph",
@@ -505,6 +505,7 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         locale_match = matches_with_title_terms(beginner, ("english (us)",))[0]
         self.assertIn("specific language locale or accent", preview.user_caution_note(locale_match))
 
+    def test_software_specificity_guardrail_cautions_are_user_facing(self):
         software = preview.build_preview_context(
             "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. "
             "I don't have biology or medical credentials. Looking for remote AI coding evaluator work.",

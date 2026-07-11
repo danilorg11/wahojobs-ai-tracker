@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from datetime import timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
@@ -141,6 +142,23 @@ class LocalProductAppFlowTests(unittest.TestCase):
             "score": 30,
             "reasons": ["Relevant background signal"],
             "preview_diagnostics": [],
+            "primary_recommendation_eligible": True,
+            "primary_admission_source": "affirmative_fit_supported",
+            "primary_admission_reasons": [],
+            "actionability_cap_reasons": [],
+            "affirmative_fit_status": "supported",
+            "affirmative_fit_why": ["Your relevant background aligns with this opportunity."],
+            "affirmative_fit": {
+                "required_groups": [],
+                "satisfied_groups": ["Relevant background"],
+                "supported_evidence": [],
+                "adjacencies_used": [],
+                "missing_requirements": [],
+                "unmodeled_requirements": [],
+                "conflicting_requirements": [],
+                "location_and_locale_evidence": [],
+                "why_fit_statements": ["Your relevant background aligns with this opportunity."],
+            },
         }
         matches = {section: [] for section in app.profile_preview.SECTION_ORDER}
         matches["do_these_first"] = [match]
@@ -368,6 +386,93 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertTrue(location.startswith("/find-matches?"))
         self.assertEqual(parse_qs(urlparse(location).query)["run"], [run_id])
         self.assertNotIn("/tracker", location)
+
+    def test_applied_remind_and_skip_actions_keep_same_run_owner(self):
+        self.start_server(demo_mode=False)
+        run_id = self.create_run(
+            {"input_text": "General reviewer seeking remote AI work.", "input_style": "short_paragraph"}
+        )
+
+        _, _, html = self.request("GET", f"/find-matches?run={run_id}")
+        applied_fields = self.first_action(html, "applied")
+        status, _, payload = self.request(
+            "POST",
+            "/action",
+            applied_fields,
+            "application/json",
+            {app.INLINE_ACTION_HEADER: "1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["status"], "applied")
+
+        _, _, html = self.request("GET", f"/find-matches?run={run_id}")
+        remind_fields = self.first_action(html, "remind_later")
+        status, _, payload = self.request(
+            "POST",
+            "/action",
+            remind_fields,
+            "application/json",
+            {app.INLINE_ACTION_HEADER: "1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["status"], "remind_later")
+        row = self.pipeline_rows("local_user")[0]
+        expected_reminder = (
+            app.datetime.now(app.timezone.utc).date() + timedelta(days=7)
+        ).isoformat()
+        self.assertEqual(row["reminder_date"], expected_reminder)
+
+        _, _, html = self.request("GET", f"/find-matches?run={run_id}")
+        skip_fields = self.first_action(html, "not_interested")
+        status, _, payload = self.request(
+            "POST",
+            "/action",
+            skip_fields,
+            "application/json",
+            {app.INLINE_ACTION_HEADER: "1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["status"], "not_interested")
+        self.assertEqual(self.pipeline_rows("local_user")[0]["status"], "not_interested")
+        self.assertEqual(self.registry.get(run_id).owner_profile_id, "local_user")
+
+    def test_edit_profile_creates_new_immutable_run_for_same_owner(self):
+        self.start_server(demo_mode=False)
+        original_text = "General reviewer seeking remote AI work."
+        original_run_id = self.create_run(
+            {"input_text": original_text, "input_style": "short_paragraph"}
+        )
+
+        status, _, edit_page = self.request(
+            "GET",
+            f"/find-matches?run={original_run_id}&edit=1",
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(original_text, edit_page)
+        self.assertIn(f'name="edit_run_id" value="{original_run_id}"', edit_page)
+        self.assertIn("Submitting these edits creates a new match run.", edit_page)
+
+        edited_text = "Software engineer with Python experience seeking remote AI coding work."
+        edited_run_id = self.create_run(
+            {
+                "edit_run_id": original_run_id,
+                "input_text": edited_text,
+                "input_style": "resume_or_linkedin_style",
+                "profile": "portuguese_english_reviewer",
+            }
+        )
+
+        self.assertNotEqual(edited_run_id, original_run_id)
+        original_run = self.registry.get(original_run_id)
+        edited_run = self.registry.get(edited_run_id)
+        self.assertEqual(original_run.owner_profile_id, "local_user")
+        self.assertEqual(edited_run.owner_profile_id, original_run.owner_profile_id)
+        self.assertEqual(original_run.raw_input, original_text)
+        self.assertEqual(edited_run.raw_input, edited_text)
+        self.assertEqual(
+            edited_run.recommendation_context["matches"]["do_these_first"][0]["display_title"],
+            "Python Coding Evaluator",
+        )
 
     def test_registry_is_bounded_and_evicts_least_recently_used_run(self):
         registry = app.MatchRunRegistry(max_size=2)

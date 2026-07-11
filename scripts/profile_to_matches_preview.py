@@ -37,6 +37,15 @@ from wahojobs.matching.metadata_overlay import (  # noqa: E402
     apply_overlay_to_rows,
     load_overlay,
 )
+from wahojobs.matching.fit_evidence import (  # noqa: E402
+    SUPPORTED as AFFIRMATIVE_FIT_SUPPORTED,
+    assess_affirmative_fit,
+    build_profile_fit_evidence,
+)
+from wahojobs.matching.specializations import (  # noqa: E402
+    evaluate_specialization_requirements,
+    specialization_evidence,
+)
 from wahojobs.profiles.canonical import (  # noqa: E402
     canonical_profile_debug_summary,
     canonical_to_matcher_profile,
@@ -120,9 +129,10 @@ LANGUAGE_LOCALE_TERMS = (
 )
 LOCATION_RESTRICTION_PATTERNS = (
     (r"\bus only\b|\bunited states only\b|\bu s only\b", "US-only"),
+    (r"\b(?:us|u s|united states)[-\s]?based\b", "US-based"),
     (r"\buk[-\s]?based\b|\bunited kingdom[-\s]?based\b", "UK-based"),
     (r"\bremote\s*[-–—]\s*(india|brazil|canada|united states|uk|united kingdom)\b", "remote country-specific"),
-    (r"\((india)\)", "India"),
+    (r"\((india)(?:\s*[,;-][^)]*)?\)", "India"),
     (r"\((latam|latin america)\)|\blatam\b|\blatin america\b", "LatAm/Latin America"),
     (r"\b(india|latam|latin america)[-\s]?based\b", "regional"),
     (r"\bonly\s+(cal|ca|california)\s*(and|&)\s*(fl|florida)\b", "California/Florida only"),
@@ -154,6 +164,7 @@ PRIMARY_PLAN_BLOCKING_DIAGNOSTIC_PREFIXES = (
     "Profile states no biology or medical credentials",
     "Medical license or credential may be required",
     "Credential or education requirement may apply",
+    "Unsupported explicit specialization requirements",
 )
 SCIENCE_MEDICAL_PREVIEW_TERMS = (
     "biology",
@@ -253,6 +264,17 @@ ACTIONABILITY_RANK = {
     "best_matches": 3,
     "do_these_first": 4,
 }
+DECISIVE_PREVIEW_CAP_RULES = (
+    ("Possible unconfirmed language requirement", "explore_only", "unconfirmed_language_requirement"),
+    ("Unsupported title-only language or dialect", "excluded", "unsupported_title_language_or_dialect"),
+    ("Specific language locale/accent may be required", "also_worth_reviewing", "unconfirmed_language_locale"),
+    ("Location or regional eligibility needs confirmation", "explore_only", "unconfirmed_location_restriction"),
+    ("Specialized annotation or survey domain does not match", "explore_only", "specialized_annotation_mismatch"),
+    ("Science subdomain appears outside profile specialty", "explore_only", "science_subdomain_mismatch"),
+    ("Profile states no biology or medical credentials", "explore_only", "absent_science_credentials"),
+    ("Medical license or credential may be required", "explore_only", "medical_credential_requirement"),
+    ("Unsupported explicit specialization requirements", "also_worth_reviewing", "unsupported_specialization"),
+)
 
 
 def main() -> int:
@@ -369,10 +391,18 @@ def build_preview_context(
 
 def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -> tuple[dict, dict]:
     rows, overlay_status = load_preview_rows(use_overlay=use_overlay)
+    supported_specializations = specialization_evidence(profile)
+    profile_fit_evidence = build_profile_fit_evidence(profile)
     scored = []
     for row in rows:
         match = matcher.score_opportunity(profile, row)
-        match = apply_preview_guardrails(profile, row, match)
+        match = apply_preview_guardrails(
+            profile,
+            row,
+            match,
+            supported_specializations=supported_specializations,
+            profile_fit_evidence=profile_fit_evidence,
+        )
         scored.append(match)
 
     deduped = dedupe_matches(scored)
@@ -421,31 +451,81 @@ def load_preview_rows(use_overlay: bool = True) -> tuple[list[dict], dict]:
     }
 
 
-def apply_preview_guardrails(profile: dict, row: dict, match: dict) -> dict:
+def apply_preview_guardrails(
+    profile: dict,
+    row: dict,
+    match: dict,
+    supported_specializations: set[str] | None = None,
+    profile_fit_evidence=None,
+) -> dict:
     match = dict(match)
     base_section = preview_section_for_match(match)
-    diagnostics = preview_diagnostics_for_match(profile, row, match)
+    diagnostics = preview_diagnostics_for_match(
+        profile,
+        row,
+        match,
+        supported_specializations=supported_specializations,
+    )
     capped_section = base_section
+    cap_reasons = []
+    if not match.get("eligible_for_personalized", True):
+        cap_reasons.append("personalized_eligibility_failed")
+    if match.get("professional_domain_hard_gate_applied"):
+        cap_reasons.append("professional_domain_hard_gate")
+    if match.get("location_actionability_cap_applied"):
+        cap_reasons.append("location_actionability_cap")
     for diagnostic in diagnostics:
-        if diagnostic.startswith("Possible unconfirmed language requirement"):
-            capped_section = cap_section(capped_section, "explore_only")
-        elif diagnostic.startswith("Unsupported title-only language or dialect"):
-            capped_section = "excluded"
-        elif diagnostic.startswith("Specific language locale/accent may be required"):
-            capped_section = cap_section(capped_section, "also_worth_reviewing")
-        elif diagnostic.startswith("Location or regional eligibility needs confirmation"):
-            capped_section = cap_section(capped_section, "explore_only")
-        elif diagnostic.startswith("Specialized annotation or survey domain does not match"):
-            capped_section = cap_section(capped_section, "explore_only")
-        elif diagnostic.startswith("Science subdomain appears outside profile specialty"):
-            capped_section = cap_section(capped_section, "explore_only")
-        elif diagnostic.startswith("Profile states no biology or medical credentials"):
-            capped_section = cap_section(capped_section, "explore_only")
-        elif diagnostic.startswith("Medical license or credential may be required"):
-            capped_section = cap_section(capped_section, "explore_only")
+        rule = decisive_preview_cap_rule(diagnostic)
+        if not rule:
+            continue
+        cap, reason = rule
+        capped_section = cap_section(capped_section, cap)
+        cap_reasons.append(reason)
+    credential_label = match.get("preview_credential_requirement") or ""
+    if credential_label and credential_requirement_conflicts(profile, credential_label):
+        cap_reasons.append("explicit_credential_incompatibility")
     match["preview_section"] = capped_section
     match["preview_diagnostics"] = diagnostics
+    match["actionability_cap_reasons"] = unique_list(cap_reasons)
+    assessment = assess_affirmative_fit(
+        profile,
+        row,
+        match,
+        profile_fit_evidence=profile_fit_evidence,
+    )
+    match["affirmative_fit"] = assessment.as_dict()
+    match["affirmative_fit_status"] = assessment.status
+    match["affirmative_fit_supported_evidence"] = [
+        {
+            "requirement": item.requirement,
+            "profile_evidence": item.profile_evidence,
+            "source": item.source,
+        }
+        for item in assessment.supported_evidence
+    ]
+    match["affirmative_fit_why"] = list(assessment.why_fit_statements)
+    admission_reasons = list(match["actionability_cap_reasons"])
+    if assessment.status != AFFIRMATIVE_FIT_SUPPORTED:
+        admission_reasons.append(f"affirmative_fit_{assessment.status}")
+    match["primary_admission_reasons"] = unique_list(admission_reasons)
+    match["primary_recommendation_eligible"] = (
+        not match["actionability_cap_reasons"]
+        and assessment.status == AFFIRMATIVE_FIT_SUPPORTED
+    )
+    if match["primary_recommendation_eligible"]:
+        match["primary_admission_source"] = "affirmative_fit_supported"
+    elif match["actionability_cap_reasons"]:
+        match["primary_admission_source"] = "guardrail_demoted"
+    else:
+        match["primary_admission_source"] = f"affirmative_fit_{assessment.status}"
     return match
+
+
+def decisive_preview_cap_rule(diagnostic: str) -> tuple[str, str] | None:
+    for prefix, cap, reason in DECISIVE_PREVIEW_CAP_RULES:
+        if diagnostic.startswith(prefix):
+            return cap, reason
+    return None
 
 
 def preview_section_for_match(match: dict) -> str:
@@ -466,7 +546,12 @@ def cap_section(section: str, cap: str) -> str:
     return section
 
 
-def preview_diagnostics_for_match(profile: dict, row: dict, match: dict) -> list[str]:
+def preview_diagnostics_for_match(
+    profile: dict,
+    row: dict,
+    match: dict,
+    supported_specializations: set[str] | None = None,
+) -> list[str]:
     diagnostics = []
     if match.get("unsupported_languages"):
         diagnostics.append(
@@ -561,9 +646,25 @@ def preview_diagnostics_for_match(profile: dict, row: dict, match: dict) -> list
             "Medical license or credential may be required; capped to Explore Only until confirmed."
         )
     credential_label = credential_requirement_label(row_text, profile)
+    match["preview_credential_requirement"] = credential_label
     if credential_label:
         diagnostics.append(
             f"Credential or education requirement may apply: {credential_label} not confirmed in profile."
+        )
+    specialization = evaluate_specialization_requirements(
+        match.get("display_title") or row.get("title") or "",
+        profile,
+        supported_concepts=supported_specializations,
+    )
+    match["specialization_requirements"] = specialization["requirements"]
+    match["supported_specialization_groups"] = specialization["supported_groups"]
+    match["missing_specialization_groups"] = specialization["missing_groups"]
+    match["supported_specialization_concepts"] = specialization["supported_concepts"]
+    if specialization["missing_groups"]:
+        diagnostics.append(
+            "Unsupported explicit specialization requirements: "
+            + "; ".join(group["label"] for group in specialization["missing_groups"])
+            + "."
         )
     return diagnostics
 
@@ -808,6 +909,21 @@ def profile_confirms_credential(profile: dict, label: str) -> bool:
     return False
 
 
+def credential_requirement_conflicts(profile: dict, label: str) -> bool:
+    text = profile_specificity_text(profile)
+    education = normalize_text(profile.get("education_level"))
+    if any(term in label.lower() for term in ("bachelor", "master", "phd", "doctorate")):
+        return education == "no_degree" or "no college degree" in text or "no degree" in text
+    if "license" in label.lower():
+        return (
+            "no medical license" in text
+            or "no law license" in text
+            or "no professional license" in text
+            or "not licensed" in text
+        )
+    return False
+
+
 def profile_has_term(profile: dict, terms: tuple[str, ...]) -> bool:
     text = profile_specificity_text(profile)
     return contains_preview_term(text, terms)
@@ -954,7 +1070,12 @@ def dedupe_matches(matches: list[dict]) -> list[dict]:
 
 
 def ensure_safe_do_these_first(matches: list[dict], profile: dict) -> list[dict]:
-    if any(match["preview_section"] == "do_these_first" for match in matches):
+    if any(
+        match["preview_section"] == "do_these_first"
+        and match.get("primary_recommendation_eligible")
+        and match.get("affirmative_fit_status") == AFFIRMATIVE_FIT_SUPPORTED
+        for match in matches
+    ):
         return matches
 
     profile_languages = matcher.profile_language_set(profile)
@@ -964,6 +1085,8 @@ def ensure_safe_do_these_first(matches: list[dict], profile: dict) -> list[dict]
             continue
         promoted = dict(match)
         promoted["preview_section"] = "do_these_first"
+        promoted["primary_recommendation_eligible"] = True
+        promoted["primary_admission_source"] = "safe_fallback"
         diagnostics = list(promoted.get("preview_diagnostics") or [])
         diagnostics.append(
             "Preview daily plan fallback promoted safe generic language match because "
@@ -987,6 +1110,10 @@ def safe_generic_language_primary_action(match: dict, profile_languages: set[str
     if match.get("unsupported_languages"):
         return False
     if match.get("location_actionability_cap_applied") or match.get("professional_domain_hard_gate_applied"):
+        return False
+    if not match.get("primary_recommendation_eligible", True):
+        return False
+    if match.get("affirmative_fit_status") != AFFIRMATIVE_FIT_SUPPORTED:
         return False
     diagnostics = match.get("preview_diagnostics") or []
     if any(
@@ -1179,6 +1306,9 @@ def html_section_note(section: str) -> str:
 
 
 def user_fit_reason(match: dict) -> str:
+    affirmative_reasons = match.get("affirmative_fit_why") or []
+    if affirmative_reasons:
+        return " ".join(affirmative_reasons[:2])
     reasons = match.get("reasons") or []
     friendly = []
     for reason in reasons:
@@ -1266,6 +1396,17 @@ def user_caution_note(match: dict) -> str:
             cautions.append("A medical or professional credential may be required.")
         elif diagnostic.startswith("Credential or education requirement may apply"):
             cautions.append("This may require a degree, seniority, or license not confirmed in your profile.")
+        elif diagnostic.startswith("Unsupported explicit specialization requirements"):
+            labels = specialization_labels_from_diagnostic(diagnostic)
+            if labels:
+                requirement = " and ".join(labels)
+                cautions.append(
+                    f"This role appears to require {requirement}, which is not listed in your profile."
+                )
+            else:
+                cautions.append(
+                    "This role appears to require a specialization not listed in your profile."
+                )
         elif diagnostic.startswith("Reviewed title-derived location restriction"):
             cautions.append("A reviewed title-derived location restriction may apply.")
     return " ".join(unique_list(cautions)[:2])
@@ -1276,6 +1417,13 @@ def title_only_labels_from_diagnostic(diagnostic: str) -> list[str]:
         return []
     label_text = diagnostic.split(":", 1)[1].strip().rstrip(".")
     return [label.strip() for label in label_text.split(",") if label.strip()]
+
+
+def specialization_labels_from_diagnostic(diagnostic: str) -> list[str]:
+    if ":" not in diagnostic:
+        return []
+    label_text = diagnostic.split(":", 1)[1].strip().rstrip(".")
+    return [label.strip() for label in label_text.split(";") if label.strip()]
 
 
 def format_title_only_labels(labels: list[str]) -> str:
@@ -1433,6 +1581,14 @@ def match_summary(match: dict) -> dict:
         "overlay_language_locale",
         "overlay_location_restriction",
         "overlay_review_ids",
+        "primary_recommendation_eligible",
+        "primary_admission_source",
+        "primary_admission_reasons",
+        "actionability_cap_reasons",
+        "affirmative_fit_status",
+        "affirmative_fit_supported_evidence",
+        "affirmative_fit_why",
+        "affirmative_fit",
     )
     return {key: match.get(key) for key in keys}
 

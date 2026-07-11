@@ -30,6 +30,12 @@ DEFAULT_PORT = 8765
 NORMAL_OWNER_PROFILE_ID = "local_user"
 PREVIEW_MATCH_LIMIT = 160
 MATCH_RUN_REGISTRY_LIMIT = 64
+PRESENTATION_MATCH_LIMIT = 10
+ACTIONABLE_PRESENTATION_SECTIONS = (
+    "do_these_first",
+    "best_matches",
+    "also_worth_reviewing",
+)
 INLINE_ACTION_HEADER = "X-Wahojobs-Inline-Action"
 LOCAL_PRODUCT_PROFILE_SEED_PATH = (
     Path(__file__).resolve().parent.parent / "profiles" / "local_product_profiles.json"
@@ -441,9 +447,16 @@ def require_owner_profile(profile_id):
 
 
 def create_match_run(form, registry, demo_mode=False):
+    edit_run_id = first_value(form, "edit_run_id")
+    parent_run = require_match_run(registry, edit_run_id) if edit_run_id else None
     demo_persona = first_value(form, "sample") if demo_mode else ""
     sample = PREVIEW_SAMPLES.get(demo_persona) if demo_persona else None
-    if sample:
+    if parent_run:
+        owner_profile_id = parent_run.owner_profile_id
+        demo_persona = parent_run.demo_persona or ""
+        raw_input = first_value(form, "input_text")
+        input_style = first_value(form, "input_style") or parent_run.input_style
+    elif sample:
         owner_profile_id = sample["owner_profile_id"]
         raw_input = sample["text"]
         input_style = sample["style"]
@@ -1150,6 +1163,7 @@ def render_preview_from_params(params, registry, demo_mode=False):
     input_text = run.raw_input if run else sample.get("text", "")
     input_style = run.input_style if run else sample.get("style", "short_paragraph")
     context = run.recommendation_context if run else None
+    editing = bool(run and first_value(params, "edit") == "1")
     owner_profile_id = (
         run.owner_profile_id
         if run
@@ -1166,6 +1180,7 @@ def render_preview_from_params(params, registry, demo_mode=False):
         owner_profile_id=owner_profile_id,
         match_run_id=run_id,
         demo_mode=demo_mode,
+        editing=editing,
         tracked=tracked,
     )
 
@@ -1196,6 +1211,24 @@ def build_cached_preview_context(input_text, input_style, limit, _data_signature
         input_style,
         limit=limit,
     )
+
+
+def build_ranked_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
+    ranked = []
+    matches_by_section = (context or {}).get("matches") or {}
+    for section in ACTIONABLE_PRESENTATION_SECTIONS:
+        for match in matches_by_section.get(section, []):
+            if not match.get("primary_recommendation_eligible", True):
+                continue
+            if match.get("affirmative_fit_status") != "supported":
+                continue
+            presented = dict(match)
+            presented["presentation_rank"] = len(ranked) + 1
+            presented["presentation_source_section"] = section
+            ranked.append(presented)
+            if len(ranked) >= limit:
+                return ranked
+    return ranked
 
 
 def load_preview_tracked(profile_id):
@@ -1256,6 +1289,7 @@ def render_profile_preview_page(
     owner_profile_id=NORMAL_OWNER_PROFILE_ID,
     match_run_id="",
     demo_mode=False,
+    editing=False,
     tracked=None,
 ):
     tracked = tracked or demo.build_tracked_index([])
@@ -1271,22 +1305,38 @@ def render_profile_preview_page(
         "<body>",
         "<main>",
         render_product_nav(match_run_id, current="matches"),
-        render_preview_header(match_run_id),
+        render_preview_header(match_run_id, demo_mode=demo_mode),
         render_demo_owner_panel(owner_profile_id, sample_id) if demo_mode else "",
-        render_preview_form(input_text, input_style, sample_id, demo_mode),
         f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
     ]
-    if context:
+    if context and editing:
         parts.extend(
             [
-                render_preview_profile_summary(context),
-                render_preview_matches(context, tracked, match_run_id),
-                render_preview_diagnostics(context),
+                render_preview_edit_intro(match_run_id),
+                render_preview_form(
+                    input_text,
+                    input_style,
+                    sample_id,
+                    demo_mode,
+                    edit_run_id=match_run_id,
+                ),
+            ]
+        )
+    elif context:
+        parts.extend(
+            [
+                render_preview_profile_context(context, match_run_id),
+                render_ranked_preview_matches(context, tracked, match_run_id),
+                render_demo_persona_switcher(sample_id) if demo_mode else "",
+                render_preview_qa_details(context) if demo_mode else "",
             ]
         )
     else:
-        parts.append(
-            "<section class='notice'><p>Paste your background or choose an example to see a focused opportunity plan.</p></section>"
+        parts.extend(
+            [
+                render_preview_form(input_text, input_style, sample_id, demo_mode),
+                "<section class='notice'><p>Paste your background to see a focused set of opportunities.</p></section>",
+            ]
         )
     parts.extend([render_inline_action_script(), "</main>", "</body>", "</html>"])
     return "\n".join(parts)
@@ -1307,7 +1357,7 @@ def render_product_nav(match_run_id, current):
     """
 
 
-def render_preview_header(match_run_id):
+def render_preview_header(match_run_id, demo_mode=False):
     tracker_url = "/tracker"
     if match_run_id:
         tracker_url += f"?{urlencode({'run': match_run_id})}"
@@ -1316,13 +1366,13 @@ def render_preview_header(match_run_id):
       <div>
         <p class="eyebrow">Find Matches</p>
         <h1>Find AI work that fits your background</h1>
-        <p class="lead">Paste a short profile and Wahojobs will turn it into a focused opportunity plan.</p>
-        <p class="muted">This local prototype uses a heuristic parser and deterministic matching guardrails. It does not call external AI services.</p>
+        <p class="lead">Tell us about your background and Wahojobs will surface a focused set of opportunities to review.</p>
+        {f'<p class="muted">Demo mode keeps development personas and quality checks available below.</p>' if demo_mode else ''}
       </div>
       <div class="profile-box">
-        <p><strong>What you get:</strong> a short plan, a few strong matches, and notes about anything to check before applying.</p>
-        <p><strong>Link note:</strong> Links come from the latest local tracker snapshot and may change.</p>
-        <p><a class="jump-link" href="{e(tracker_url)}">View application tracker</a></p>
+        <p><strong>Focused recommendations:</strong> up to ten opportunities, ordered by how useful they appear for your background.</p>
+        <p><strong>Check before applying:</strong> each match calls out important eligibility details when they are known.</p>
+        <p><a class="jump-link" href="{e(tracker_url)}">View My Jobs</a></p>
       </div>
     </section>
     """
@@ -1342,9 +1392,26 @@ def render_demo_owner_panel(owner_profile_id, sample_id):
     """
 
 
-def render_preview_form(input_text, input_style, sample_id, demo_mode=False):
+def render_preview_edit_intro(match_run_id):
+    return f"""
+    <section class="preview-edit-intro">
+      <p class="eyebrow">Edit profile</p>
+      <h2>Update what we should match against</h2>
+      <p class="muted">Your current results stay unchanged. Submitting these edits creates a new match run.</p>
+      <p><a class="back-link" href="{e('/find-matches?' + urlencode({'run': match_run_id}))}">Cancel and return to matches</a></p>
+    </section>
+    """
+
+
+def render_preview_form(
+    input_text,
+    input_style,
+    sample_id,
+    demo_mode=False,
+    edit_run_id="",
+):
     sample_controls = ""
-    if demo_mode:
+    if demo_mode and not edit_run_id:
         sample_buttons = "".join(
             f"<button type='button' class='sample-loader' "
             f"data-sample-id='{e(key)}' data-sample-style='{e(sample['style'])}' "
@@ -1363,10 +1430,24 @@ def render_preview_form(input_text, input_style, sample_id, demo_mode=False):
           <form method="get" action="/find-matches" class="sample-actions">{fallback_sample_buttons}</form>
         </noscript>
         """
-    style_options = "".join(
-        f"<option value='{e(style)}' {'selected' if style == input_style else ''}>{e(style.replace('_', ' '))}</option>"
-        for style in sorted(profile_preview.INPUT_STYLES)
-    )
+    if demo_mode:
+        style_options = "".join(
+            f"<option value='{e(style)}' {'selected' if style == input_style else ''}>{e(style.replace('_', ' '))}</option>"
+            for style in sorted(profile_preview.INPUT_STYLES)
+        )
+        input_style_control = f"""
+        <details class="advanced-options">
+          <summary>Advanced QA parser mode</summary>
+          <p class="muted">Optional internal control for testing how the baseline parser reads different input styles.</p>
+          <label for="input_style">Parser input style</label>
+          <select id="input_style" name="input_style">{style_options}</select>
+        </details>
+        """
+    else:
+        input_style_control = (
+            f'<input type="hidden" id="input_style" name="input_style" value="{e(input_style)}">'
+        )
+    submit_label = "Update matches" if edit_run_id else "Find matches"
     return f"""
     <section class="preview-input" id="profile-preview-input">
       <h2>Tell us about your background</h2>
@@ -1375,14 +1456,10 @@ def render_preview_form(input_text, input_style, sample_id, demo_mode=False):
       <form method="post" action="/find-matches" class="preview-form" id="find-matches-form">
         <label for="input_text">Your background</label>
         <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
-        <details class="advanced-options">
-          <summary>Advanced QA parser mode</summary>
-          <p class="muted">Optional internal control for testing how the baseline parser reads different input styles.</p>
-          <label for="input_style">Parser input style</label>
-          <select id="input_style" name="input_style">{style_options}</select>
-        </details>
+        {input_style_control}
         <input type="hidden" name="sample" value="{e(sample_id)}">
-        <button type="submit" id="find-matches-button">Find matches</button>
+        <input type="hidden" name="edit_run_id" value="{e(edit_run_id)}">
+        <button type="submit" id="find-matches-button">{e(submit_label)}</button>
       </form>
       <script>
       (() => {{
@@ -1406,10 +1483,203 @@ def render_preview_form(input_text, input_style, sample_id, demo_mode=False):
         }});
         findForm.addEventListener("submit", () => {{
           findButton.disabled = true;
-          findButton.textContent = "Finding matches...";
+          findButton.textContent = "{e('Updating matches...' if edit_run_id else 'Finding matches...')}";
         }});
       }})();
       </script>
+    </section>
+    """
+
+
+def render_preview_profile_context(context, match_run_id):
+    canonical = context["canonical_profile"]
+    languages = profile_preview.join_languages(canonical)
+    domains = ", ".join(canonical["education"].get("fields_or_domains") or []) or "Not specified"
+    location = canonical.get("location") or {}
+    location_label = location.get("country") or location.get("region") or "Not specified"
+    edit_url = "/find-matches?" + urlencode({"run": match_run_id, "edit": "1"})
+    return f"""
+    <section class="profile-context" id="profile-context">
+      <div>
+        <p class="eyebrow">Matches based on your profile</p>
+        <p><strong>Languages:</strong> {e(languages)}</p>
+        <p><strong>Background:</strong> {e(domains)}</p>
+        <p><strong>Location:</strong> {e(location_label)} &middot; <strong>Work preference:</strong> {e(profile_preview.remote_preference_label(canonical))}</p>
+      </div>
+      <a class="open secondary-link" href="{e(edit_url)}">Edit profile</a>
+    </section>
+    """
+
+
+def render_ranked_preview_matches(context, tracked, match_run_id):
+    matches = build_ranked_presentation_matches(context)
+    cards = "".join(
+        render_ranked_preview_card(match, tracked, match_run_id)
+        for match in matches
+    )
+    if not cards:
+        cards = """
+        <div class="notice">
+          <p><strong>No clear matches surfaced from this profile yet.</strong></p>
+          <p class="muted">Try adding your location, languages, credentials, or the kinds of work you want.</p>
+        </div>
+        """
+    count_note = (
+        f"Showing {len(matches)} focused opportunities."
+        if len(matches) == PRESENTATION_MATCH_LIMIT
+        else f"We found {len(matches)} opportunities worth showing right now."
+    )
+    return f"""
+    <section id="your-best-matches" class="ranked-matches">
+      <h2>Your best matches</h2>
+      <p class="muted">{e(count_note)} This list is intentionally focused and is not padded with lower-confidence results.</p>
+      <div class="stack">{cards}</div>
+    </section>
+    """
+
+
+def render_ranked_preview_card(match, tracked, match_run_id):
+    record = demo.tracked_record_for_match(match, tracked)
+    section = match["presentation_source_section"]
+    caution = profile_preview.user_caution_note(match)
+    fit_reason = profile_preview.user_fit_reason(match)
+    url = match.get("url") or ""
+    card_id = f"ranked-{match_opportunity_key(match)}"
+    status = (
+        f'<p class="pill js-card-status">{e(demo.readable_status(record["status"]))}</p>'
+        if record
+        else '<p class="pill js-card-status">Ready to review</p>'
+    )
+    controls = render_preview_card_actions(match, record, match_run_id, section, card_id)
+    return f"""
+    <article class="card preview-card ranked-card" id="{e(card_id)}" data-action-card>
+      <div class="match-rank" aria-label="Rank {match['presentation_rank']}">#{match['presentation_rank']}</div>
+      <div class="card-main">
+        <p class="source">{e(match['source'])}</p>
+        <h3>{e(match['display_title'])}</h3>
+        <p class="muted">{e(match.get('location') or 'Location not listed')}</p>
+        <p><strong>Why it fits:</strong> {e(fit_reason)}</p>
+        {f'<p class="caution"><strong>Check before applying:</strong> {e(caution)}</p>' if caution else ''}
+        {status}
+      </div>
+      <div class="card-actions">
+        {f'<a class="open" href="{e(url)}" target="_blank" rel="noreferrer">View job</a>' if url else ''}
+        <div class="js-card-controls">{controls}</div>
+      </div>
+    </article>
+    """
+
+
+def render_demo_persona_switcher(sample_id):
+    forms = "".join(
+        f"""
+        <form method="post" action="/find-matches">
+          <input type="hidden" name="sample" value="{e(key)}">
+          <button type="submit" {'disabled' if key == sample_id else ''}>{e(sample['label'])}</button>
+        </form>
+        """
+        for key, sample in PREVIEW_SAMPLES.items()
+    )
+    return f"""
+    <section class="demo-persona-switcher">
+      <p class="eyebrow">Development personas</p>
+      <div class="sample-actions">{forms}</div>
+    </section>
+    """
+
+
+def render_preview_qa_details(context):
+    bucket_rows = "".join(
+        f"<tr><td>{e(profile_preview.SECTION_LABELS[section])}</td><td>{len(context['matches'].get(section, []))}</td></tr>"
+        for section in profile_preview.SECTION_ORDER
+    )
+    return f"""
+    <details class="explore-details preview-diagnostic qa-details">
+      <summary><span>QA details</span><small>profile parsing and internal result buckets</small></summary>
+      {render_preview_profile_summary(context)}
+      <section>
+        <h3>Internal result buckets</h3>
+        <table><thead><tr><th>Bucket</th><th>Count</th></tr></thead><tbody>{bucket_rows}</tbody></table>
+      </section>
+      {render_primary_omissions(context)}
+      {render_affirmative_fit_qa(context)}
+      {render_preview_diagnostics(context)}
+    </details>
+    """
+
+
+def render_primary_omissions(context):
+    omitted = [
+        (section, match)
+        for section in ACTIONABLE_PRESENTATION_SECTIONS
+        for match in context["matches"].get(section, [])
+        if not match.get("primary_recommendation_eligible", True)
+    ]
+    if not omitted:
+        return "<section><h3>Omitted from primary list</h3><p class='muted'>None.</p></section>"
+    rows = "".join(
+        "<tr>"
+        f"<td>{e(match.get('source') or '-')}</td>"
+        f"<td>{e(match.get('display_title') or match.get('title') or '-')}</td>"
+        f"<td>{e(profile_preview.SECTION_LABELS.get(section, section))}</td>"
+        f"<td>{e(', '.join(match.get('primary_admission_reasons') or match.get('actionability_cap_reasons') or []))}</td>"
+        "</tr>"
+        for section, match in omitted[:30]
+    )
+    return f"""
+    <section>
+      <h3>Omitted from primary list</h3>
+      <p class="muted">Guardrail-demoted rows remain available here for demo QA.</p>
+      <table>
+        <thead><tr><th>Source</th><th>Opportunity</th><th>Internal bucket</th><th>Admission reason</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </section>
+    """
+
+
+def render_affirmative_fit_qa(context):
+    rows = []
+    for section in profile_preview.SECTION_ORDER:
+        for match in context["matches"].get(section, []):
+            assessment = match.get("affirmative_fit") or {}
+            required = "; ".join(
+                f"{item.get('label', '-') } [{item.get('mode', '-')}]"
+                for item in assessment.get("required_groups") or []
+            ) or "-"
+            supported = "; ".join(
+                f"{item.get('requirement', '-')}: {item.get('profile_evidence', '-')}"
+                for item in assessment.get("supported_evidence") or []
+            ) or "-"
+            rows.append(
+                "<tr>"
+                f"<td>{e(match.get('source') or '-')}</td>"
+                f"<td>{e(match.get('display_title') or match.get('title') or '-')}</td>"
+                f"<td>{e(match.get('affirmative_fit_status') or '-')}</td>"
+                f"<td>{e(required)}</td>"
+                f"<td>{e('; '.join(assessment.get('satisfied_groups') or []) or '-')}</td>"
+                f"<td>{e(supported)}</td>"
+                f"<td>{e('; '.join(assessment.get('adjacencies_used') or []) or '-')}</td>"
+                f"<td>{e('; '.join(assessment.get('missing_requirements') or []) or '-')}</td>"
+                f"<td>{e('; '.join(assessment.get('unmodeled_requirements') or []) or '-')}</td>"
+                f"<td>{e('; '.join(assessment.get('conflicting_requirements') or []) or '-')}</td>"
+                f"<td>{e('; '.join(assessment.get('location_and_locale_evidence') or []) or '-')}</td>"
+                f"<td>{e('; '.join(assessment.get('why_fit_statements') or []) or '-')}</td>"
+                f"<td>{e('yes' if match.get('primary_recommendation_eligible') else 'no')}</td>"
+                "</tr>"
+            )
+    if not rows:
+        return "<section><h3>Affirmative fit evidence</h3><p class='muted'>No opportunity rows.</p></section>"
+    return f"""
+    <section>
+      <h3>Affirmative fit evidence</h3>
+      <p class="muted">Preview-only evidence and admission diagnostics for every result row.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Source</th><th>Opportunity</th><th>Status</th><th>Required groups</th><th>Satisfied</th><th>Evidence</th><th>Adjacency</th><th>Missing</th><th>Unmodeled</th><th>Conflicts</th><th>Location/locale</th><th>Why</th><th>Admitted</th></tr></thead>
+          <tbody>{''.join(rows)}</tbody>
+        </table>
+      </div>
     </section>
     """
 
@@ -2353,6 +2623,41 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   gap: 10px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.profile-context {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 16px 18px;
+}
+.profile-context p { margin-bottom: 5px; }
+.profile-context .secondary-link { flex: 0 0 auto; }
+.preview-edit-intro { max-width: 760px; }
+.ranked-matches > .muted { max-width: 72ch; }
+.ranked-card {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+}
+.match-rank {
+  align-items: center;
+  background: var(--accent-soft);
+  border-radius: 6px;
+  color: var(--accent);
+  display: flex;
+  font-size: 1.05rem;
+  font-weight: 800;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+.demo-persona-switcher {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+.demo-persona-switcher form { margin: 0; }
+.qa-details > section { margin-left: 0; margin-right: 0; }
 .sample-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2500,7 +2805,8 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px; 
 th { color: var(--muted); font-size: .86rem; }
 tr:last-child td { border-bottom: 0; }
 @media (max-width: 820px) {
-  .hero, .card, .preview-grid { grid-template-columns: 1fr; }
+  .hero, .card, .preview-grid, .ranked-card { grid-template-columns: 1fr; }
+  .profile-context { align-items: flex-start; flex-direction: column; }
   .card-actions { justify-content: flex-start; max-width: none; }
 }
 """

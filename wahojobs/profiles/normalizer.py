@@ -899,8 +899,37 @@ def contains_positive_term(text: str, term: str) -> bool:
 
 
 def term_is_negated(text: str, start: int, end: int) -> bool:
-    before = text[max(0, start - 48):start]
-    after = text[end:end + 36]
+    clause_start = max(
+        text.rfind(".", 0, start),
+        text.rfind(";", 0, start),
+        text.rfind("!", 0, start),
+        text.rfind("?", 0, start),
+        text.rfind("\n", 0, start),
+    ) + 1
+    contrast_matches = list(re.finditer(r"\b(?:but|however)\b", text[clause_start:start]))
+    if contrast_matches:
+        clause_start += contrast_matches[-1].end()
+
+    clause_end_candidates = [
+        position
+        for delimiter in (".", ";", "!", "?", "\n")
+        if (position := text.find(delimiter, end)) >= 0
+    ]
+    clause_end = min(clause_end_candidates, default=len(text))
+    contrast_after = re.search(r"\b(?:but|however)\b", text[end:clause_end])
+    if contrast_after:
+        clause_end = end + contrast_after.start()
+
+    before = text[max(clause_start, start - 64):start]
+    after = text[end:min(clause_end, end + 48)]
+    negative_credential_or_experience = (
+        re.search(r"\b(no|not|without|lack|lacking)\b", before)
+        and re.search(r"\b(credentials?|licenses?|licensed|experience|degree)\b", after)
+    )
+    if negative_credential_or_experience:
+        return True
+    if re.search(r"\bno\s+experience\s+in\s*$", before):
+        return True
     if re.search(r"\b(no|not|without|lack|lacking)\b[^.]{0,40}\b(credentials?|license|licensed|degree)\b", before):
         return True
     if re.search(r"\b(do not|don t|dont|does not|doesn t|doesnt|no)\s+(have|hold|possess)\b", before):
@@ -916,6 +945,11 @@ def has_medical_license_absence(text: str) -> bool:
     return bool(
         re.search(r"\bnot\s+(a\s+)?licensed\s+physician\b", text)
         or re.search(r"\bno\s+(medical|clinical)\s+license\b", text)
+        or re.search(
+            r"\b(do not|don t|dont|does not|doesn t|doesnt)\s+"
+            r"(?:have|hold|possess)\s+(?:a\s+)?(?:medical|clinical)\s+license\b",
+            text,
+        )
         or re.search(r"\bmedical\s+license\s+(no|none|absent)\b", text)
     )
 

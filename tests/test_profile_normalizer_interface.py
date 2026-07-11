@@ -207,6 +207,87 @@ class ProfileNormalizerInterfaceTests(unittest.TestCase):
         self.assertEqual(canonical["credentials"]["credential_status"], "absent")
         self.assertIn("no biology or medical credentials", canonical["constraints"]["hard_constraints"])
 
+    def test_negated_medical_license_does_not_create_medicine_domain(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "I am a software engineer. I have no medical license.",
+            "short_paragraph",
+            {"profile_id": "software_no_medical_license"},
+        ).canonical_profile
+
+        self.assertEqual(canonical["education"]["fields_or_domains"], ["software engineering"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+        self.assertIn("no medical license", canonical["constraints"]["hard_constraints"])
+
+    def test_negated_medical_credentials_do_not_create_medicine_domain(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "I have no medical credentials.",
+            "short_paragraph",
+            {"profile_id": "no_medical_credentials"},
+        ).canonical_profile
+
+        self.assertNotIn("medicine", canonical["education"]["fields_or_domains"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+
+    def test_negated_biology_and_medical_credentials_create_neither_domain(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "I have no biology or medical credentials.",
+            "short_paragraph",
+            {"profile_id": "no_biology_or_medical_credentials"},
+        ).canonical_profile
+
+        self.assertNotIn("biology", canonical["education"]["fields_or_domains"])
+        self.assertNotIn("medicine", canonical["education"]["fields_or_domains"])
+
+    def test_positive_biology_with_negated_medical_license_retains_only_biology(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "I have a PhD in biology. I have no medical license.",
+            "long_paragraph",
+            {"profile_id": "biology_no_medical_license"},
+        ).canonical_profile
+
+        self.assertIn("biology", canonical["education"]["fields_or_domains"])
+        self.assertNotIn("medicine", canonical["education"]["fields_or_domains"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+
+    def test_positive_medical_research_survives_separate_license_negation(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "I am a medical researcher, but I do not have a medical license.",
+            "long_paragraph",
+            {"profile_id": "medical_researcher_no_license"},
+        ).canonical_profile
+
+        self.assertIn("medicine", canonical["education"]["fields_or_domains"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+        self.assertIn("no medical license", canonical["constraints"]["hard_constraints"])
+
+    def test_positive_medical_experience_remains_medicine(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "I have professional experience in medicine.",
+            "short_paragraph",
+            {"profile_id": "medical_experience"},
+        ).canonical_profile
+
+        self.assertIn("medicine", canonical["education"]["fields_or_domains"])
+
+    def test_no_experience_in_medicine_does_not_create_medicine_domain(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "I have no experience in medicine.",
+            "short_paragraph",
+            {"profile_id": "no_medical_experience"},
+        ).canonical_profile
+
+        self.assertNotIn("medicine", canonical["education"]["fields_or_domains"])
+
+    def test_software_domain_is_not_contaminated_by_negative_science_credentials(self):
+        canonical = BaselineHeuristicProfileNormalizer().normalize(
+            "Software engineer with Python. I have no biology or medical credentials.",
+            "long_paragraph",
+            {"profile_id": "software_negative_science_credentials"},
+        ).canonical_profile
+
+        self.assertEqual(canonical["education"]["fields_or_domains"], ["software engineering"])
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+
     def test_not_licensed_physician_records_license_absence(self):
         normalizer = BaselineHeuristicProfileNormalizer()
         result = normalizer.normalize(
