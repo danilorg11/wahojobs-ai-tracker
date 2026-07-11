@@ -1,9 +1,14 @@
 import argparse
 import hashlib
 import html
+import json
 import re
+import secrets
 import sqlite3
 import sys
+import threading
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from http import HTTPStatus
@@ -22,16 +27,21 @@ from wahojobs.db.connection import get_connection
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-DEFAULT_PROFILE_ID = "portuguese_english_reviewer"
+NORMAL_OWNER_PROFILE_ID = "local_user"
 PREVIEW_MATCH_LIMIT = 160
+MATCH_RUN_REGISTRY_LIMIT = 64
+INLINE_ACTION_HEADER = "X-Wahojobs-Inline-Action"
+LOCAL_PRODUCT_PROFILE_SEED_PATH = (
+    Path(__file__).resolve().parent.parent / "profiles" / "local_product_profiles.json"
+)
 FIND_MATCHES_PATHS = {"/find-matches", "/preview"}
 TRACKER_PATHS = {"/", "/tracker"}
 HEAVY_DASHBOARD_PATHS = {"/dashboard", "/market-dashboard"}
-ACTION_RETURN_PATHS = FIND_MATCHES_PATHS | TRACKER_PATHS
 
 PREVIEW_SAMPLES = {
     "beginner_bilingual": {
         "label": "Beginner bilingual",
+        "owner_profile_id": "beginner_bilingual_no_degree",
         "style": "short_paragraph",
         "text": (
             "I speak English and Spanish, no college degree, looking for remote beginner "
@@ -40,6 +50,7 @@ PREVIEW_SAMPLES = {
     },
     "software_engineer": {
         "label": "Software engineer",
+        "owner_profile_id": "software_engineer",
         "style": "resume_or_linkedin_style",
         "text": (
             "Senior Software Engineer with 8 years of Python, TypeScript, React, API, "
@@ -49,6 +60,7 @@ PREVIEW_SAMPLES = {
     },
     "biology_academic": {
         "label": "Biology academic",
+        "owner_profile_id": "biology_or_medicine_academic",
         "style": "resume_or_linkedin_style",
         "text": (
             "PhD biology researcher with computational biology, genomics, microbiology, "
@@ -57,6 +69,75 @@ PREVIEW_SAMPLES = {
         ),
     },
 }
+
+
+@dataclass(frozen=True)
+class MatchRun:
+    match_run_id: str
+    owner_profile_id: str
+    raw_input: str
+    input_style: str
+    demo_persona: str | None
+    recommendation_context: dict | None
+    created_at: datetime
+    last_accessed_at: datetime
+
+
+class MatchRunRegistry:
+    """Bounded process-local run storage for the local prototype."""
+
+    def __init__(self, max_size=MATCH_RUN_REGISTRY_LIMIT):
+        if max_size < 1:
+            raise ValueError("MatchRun registry max_size must be positive.")
+        self.max_size = max_size
+        self._runs = OrderedDict()
+        self._lock = threading.RLock()
+
+    def create(
+        self,
+        owner_profile_id,
+        raw_input,
+        input_style,
+        demo_persona=None,
+        recommendation_context=None,
+    ):
+        now = datetime.now(timezone.utc)
+        run = MatchRun(
+            match_run_id=secrets.token_urlsafe(18),
+            owner_profile_id=owner_profile_id,
+            raw_input=raw_input,
+            input_style=input_style,
+            demo_persona=demo_persona,
+            recommendation_context=recommendation_context,
+            created_at=now,
+            last_accessed_at=now,
+        )
+        with self._lock:
+            self._runs[run.match_run_id] = run
+            self._runs.move_to_end(run.match_run_id)
+            while len(self._runs) > self.max_size:
+                self._runs.popitem(last=False)
+        return run
+
+    def get(self, match_run_id):
+        with self._lock:
+            run = self._runs.get(match_run_id)
+            if run is None:
+                return None
+            run = replace(run, last_accessed_at=datetime.now(timezone.utc))
+            self._runs[match_run_id] = run
+            self._runs.move_to_end(match_run_id)
+            return run
+
+    def __len__(self):
+        with self._lock:
+            return len(self._runs)
+
+
+class ActionError(Exception):
+    def __init__(self, message, status=HTTPStatus.BAD_REQUEST):
+        super().__init__(message)
+        self.status = status
 
 ACTION_STATUSES = {
     "show_again": "saved",
@@ -126,18 +207,36 @@ STATUS_ACTIONS = {
 }
 
 
+def seed_local_product_profiles():
+    profiles, _ = product_state.load_profiles(LOCAL_PRODUCT_PROFILE_SEED_PATH)
+    with get_connection() as conn:
+        existing_ids = {
+            row["profile_id"]
+            for row in conn.execute("SELECT profile_id FROM user_profiles").fetchall()
+        }
+        for profile in profiles:
+            if profile["profile_id"] not in existing_ids:
+                product_state.upsert_profile(conn, profile)
+
+
 def main():
     args = parse_args()
     product_state.initialize_product_state_schema()
+    seed_local_product_profiles()
+    registry = MatchRunRegistry()
     server = ThreadingHTTPServer(
         (args.host, args.port),
-        make_handler(args.default_profile),
+        make_handler(registry=registry, demo_mode=args.demo),
     )
     url = f"http://{args.host}:{args.port}/"
     print("")
     print("Wahojobs Local Product UI")
     print("=========================")
     print(f"Open: {url}")
+    if args.demo:
+        print(f"Demo personas: {url}find-matches")
+    else:
+        print("Normal mode owner: local_user")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
@@ -153,12 +252,21 @@ def parse_args():
     )
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--default-profile", default=DEFAULT_PROFILE_ID)
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Expose the three explicit development personas on Find Matches.",
+    )
     return parser.parse_args()
 
 
-def make_handler(default_profile):
+def make_handler(registry=None, demo_mode=False):
+    registry = registry if registry is not None else MatchRunRegistry()
+
     class ProductAppHandler(BaseHTTPRequestHandler):
+        match_run_registry = registry
+        is_demo_mode = demo_mode
+
         def do_GET(self):
             parsed = urlparse(self.path)
             if parsed.path == "/health":
@@ -166,27 +274,55 @@ def make_handler(default_profile):
                 return
             if parsed.path in FIND_MATCHES_PATHS:
                 params = parse_qs(parsed.query)
-                self.write_html(render_preview_from_params(params, default_profile))
+                run_id = first_value(params, "run")
+                if run_id and registry.get(run_id) is None:
+                    self.write_html(
+                        render_error("That match run is unknown or has expired. Start a new search."),
+                        status=HTTPStatus.GONE,
+                    )
+                    return
+                self.write_html(
+                    render_preview_from_params(
+                        params,
+                        registry=registry,
+                        demo_mode=demo_mode,
+                    )
+                )
                 return
             if parsed.path not in TRACKER_PATHS | HEAVY_DASHBOARD_PATHS:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
             params = parse_qs(parsed.query)
-            profile_id = selected_profile_id(params, default_profile)
             message = first_value(params, "message")
             error = first_value(params, "error")
             try:
+                run = resolve_tracker_match_run(params, registry, demo_mode)
+                profile_id = run.owner_profile_id
                 if parsed.path in HEAVY_DASHBOARD_PATHS:
                     context = demo.build_demo_context(
                         profile_id=profile_id,
                         use_product_state=True,
                     )
-                    body = render_dashboard(context, message=message, error=error)
+                    body = render_dashboard(
+                        context,
+                        match_run_id=run.match_run_id,
+                        demo_mode=demo_mode,
+                        message=message,
+                        error=error,
+                    )
                 else:
-                    context = load_lightweight_tracker_context(profile_id, default_profile)
-                    body = render_lightweight_tracker(context, message=message, error=error)
+                    context = load_lightweight_tracker_context(profile_id)
+                    body = render_lightweight_tracker(
+                        context,
+                        match_run_id=run.match_run_id,
+                        demo_mode=demo_mode,
+                        message=message,
+                        error=error,
+                    )
                 self.write_html(body)
+            except ActionError as exc:
+                self.write_html(render_error(str(exc)), status=exc.status)
             except SystemExit as exc:
                 self.write_html(render_error(str(exc)), status=HTTPStatus.BAD_REQUEST)
             except Exception as exc:
@@ -195,27 +331,70 @@ def make_handler(default_profile):
         def do_POST(self):
             parsed = urlparse(self.path)
             if parsed.path in FIND_MATCHES_PATHS:
-                length = int(self.headers.get("Content-Length", "0"))
-                form = parse_qs(self.rfile.read(length).decode("utf-8"))
-                self.write_html(render_preview_from_params(form, default_profile))
+                form = self.read_form()
+                try:
+                    run = create_match_run(form, registry, demo_mode)
+                    self.redirect("/find-matches", run=run.match_run_id)
+                except (ActionError, SystemExit) as exc:
+                    status = exc.status if isinstance(exc, ActionError) else HTTPStatus.BAD_REQUEST
+                    self.write_html(render_error(str(exc)), status=status)
                 return
             if parsed.path != "/action":
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
-            length = int(self.headers.get("Content-Length", "0"))
-            form = parse_qs(self.rfile.read(length).decode("utf-8"))
-            profile_id = first_value(form, "profile") or default_profile
-            return_to = first_value(form, "return_to") or "do-these-first"
-            return_path = first_value(form, "return_path") or "/tracker"
-            if return_path not in ACTION_RETURN_PATHS:
-                return_path = "/tracker"
+
+            form = self.read_form()
+            return_to = first_value(form, "return_to") or "preview-recommendations"
+            run_id = first_value(form, "match_run_id")
+            wants_json = (
+                "application/json" in self.headers.get("Accept", "").lower()
+                or self.headers.get(INLINE_ACTION_HEADER, "") == "1"
+            )
             try:
-                message = handle_action(form, profile_id)
-                self.redirect(return_path, fragment=return_to, profile=profile_id, message=message)
+                run = require_match_run(registry, run_id)
+                result = handle_action(form, run)
+                if wants_json:
+                    self.write_json(action_json_payload(result, run, form))
+                else:
+                    self.redirect(
+                        "/find-matches",
+                        fragment=return_to,
+                        run=run.match_run_id,
+                        message=result["message"],
+                    )
+            except ActionError as exc:
+                self.write_action_error(exc, wants_json, run_id, return_to)
             except SystemExit as exc:
-                self.redirect(return_path, fragment=return_to, profile=profile_id, error=str(exc))
+                self.write_action_error(
+                    ActionError(str(exc)),
+                    wants_json,
+                    run_id,
+                    return_to,
+                )
             except Exception as exc:
-                self.redirect(return_path, fragment=return_to, profile=profile_id, error=f"Action failed: {exc}")
+                self.write_action_error(
+                    ActionError(f"Action failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR),
+                    wants_json,
+                    run_id,
+                    return_to,
+                )
+
+        def read_form(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            return parse_qs(self.rfile.read(length).decode("utf-8"))
+
+        def write_action_error(self, exc, wants_json, run_id, return_to):
+            if wants_json:
+                self.write_json({"ok": False, "error": str(exc)}, status=exc.status)
+            elif run_id:
+                self.redirect(
+                    "/find-matches",
+                    fragment=return_to,
+                    run=run_id,
+                    error=str(exc),
+                )
+            else:
+                self.write_html(render_error(str(exc)), status=exc.status)
 
         def redirect(self, path, fragment="", **params):
             query = urlencode({key: value for key, value in params.items() if value})
@@ -242,44 +421,166 @@ def make_handler(default_profile):
             self.end_headers()
             self.wfile.write(payload)
 
+        def write_json(self, content, status=HTTPStatus.OK):
+            payload = json.dumps(content, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
         def log_message(self, format, *args):
             return
 
     return ProductAppHandler
 
 
-def handle_action(form, profile_id):
+def require_owner_profile(profile_id):
+    with get_connection() as conn:
+        product_state.require_profile(conn, profile_id)
+
+
+def create_match_run(form, registry, demo_mode=False):
+    demo_persona = first_value(form, "sample") if demo_mode else ""
+    sample = PREVIEW_SAMPLES.get(demo_persona) if demo_persona else None
+    if sample:
+        owner_profile_id = sample["owner_profile_id"]
+        raw_input = sample["text"]
+        input_style = sample["style"]
+    else:
+        demo_persona = ""
+        owner_profile_id = NORMAL_OWNER_PROFILE_ID
+        raw_input = first_value(form, "input_text")
+        input_style = first_value(form, "input_style") or "short_paragraph"
+    if not raw_input:
+        raise ActionError("Add a short background before finding matches.")
+    if input_style not in profile_preview.INPUT_STYLES:
+        input_style = "short_paragraph"
+    require_owner_profile(owner_profile_id)
+    context = build_cached_preview_context(
+        raw_input,
+        input_style,
+        PREVIEW_MATCH_LIMIT,
+        preview_data_signature(),
+    )
+    return registry.create(
+        owner_profile_id=owner_profile_id,
+        raw_input=raw_input,
+        input_style=input_style,
+        demo_persona=demo_persona or None,
+        recommendation_context=context,
+    )
+
+
+def resolve_tracker_match_run(params, registry, demo_mode=False):
+    run_id = first_value(params, "run")
+    if run_id:
+        return require_match_run(registry, run_id)
+    demo_persona = first_value(params, "persona") if demo_mode else ""
+    sample = PREVIEW_SAMPLES.get(demo_persona) if demo_persona else None
+    owner_profile_id = sample["owner_profile_id"] if sample else NORMAL_OWNER_PROFILE_ID
+    require_owner_profile(owner_profile_id)
+    return registry.create(
+        owner_profile_id=owner_profile_id,
+        raw_input="",
+        input_style="short_paragraph",
+        demo_persona=demo_persona or None,
+        recommendation_context=None,
+    )
+
+
+def require_match_run(registry, run_id):
+    if not run_id:
+        raise ActionError("Missing match run. Return to Matches and try again.")
+    run = registry.get(run_id)
+    if run is None:
+        raise ActionError(
+            "That match run is unknown or has expired. Start a new search.",
+            HTTPStatus.GONE,
+        )
+    return run
+
+
+def opportunity_key(source, title, url):
+    identity = "\x1f".join(
+        re.sub(r"\s+", " ", str(value or "").strip().lower())
+        for value in (source, title, url)
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+
+
+def match_opportunity_key(match):
+    return opportunity_key(match.get("source"), match.get("display_title"), match.get("url"))
+
+
+def iter_match_run_opportunities(run):
+    context = run.recommendation_context or {}
+    for matches in (context.get("matches") or {}).values():
+        for match in matches:
+            yield match
+
+
+def resolve_run_opportunity(run, requested_key):
+    if not requested_key:
+        raise ActionError("Missing opportunity reference.")
+    for match in iter_match_run_opportunities(run):
+        if match_opportunity_key(match) == requested_key:
+            return {
+                "source": match.get("source") or "",
+                "title": match.get("display_title") or match.get("title") or "",
+                "url": match.get("url") or "",
+            }
+    raise ActionError("That opportunity is not part of this match run.")
+
+
+def handle_action(form, run):
     action = first_value(form, "action")
     if action not in ACTION_STATUSES:
-        raise SystemExit(f"Unknown action: {action}")
+        raise ActionError(f"Unknown action: {action}")
 
-    source = required_form_value(form, "source")
-    title = required_form_value(form, "title")
-    url = first_value(form, "url")
     pipeline_id = first_value(form, "pipeline_item_id")
     note = action_note(action)
     status = ACTION_STATUSES[action]
+    owner_profile_id = run.owner_profile_id
 
     with get_connection() as conn:
         if pipeline_id:
             item = product_state.require_pipeline_item(conn, pipeline_id)
+            if item["profile_id"] != owner_profile_id:
+                raise ActionError(
+                    "That tracker item belongs to a different profile.",
+                    HTTPStatus.FORBIDDEN,
+                )
+            source = item["source"]
+            title = item["opportunity_title"]
+            url = item["opportunity_url"] or ""
         else:
-            item = ensure_pipeline_item(conn, profile_id, source, title, url)
+            opportunity = resolve_run_opportunity(
+                run,
+                first_value(form, "opportunity_key"),
+            )
+            source = opportunity["source"]
+            title = opportunity["title"]
+            url = opportunity["url"]
+            item = ensure_pipeline_item(
+                conn,
+                owner_profile_id,
+                source,
+                title,
+                url,
+            )
 
         allowed_actions = actions_for_status(item["status"])
-        if action not in allowed_actions and action != "save":
-            raise SystemExit(
+        if action not in allowed_actions and item["status"] != status:
+            raise ActionError(
                 f"That action is not available while this item is {demo.readable_status(item['status'])}."
             )
 
-        if action == "save":
-            return action_success_message(action, title)
-
-        if action == "show_again":
-            update_pipeline_item(conn, item, status=status, note=note)
-            return action_success_message(action, title)
-
-        if status == "remind_later":
+        previous_status = item["status"]
+        message = action_success_message(action, title)
+        if item["status"] == status:
+            pass
+        elif status == "remind_later":
             reminder_date = (datetime.now(timezone.utc).date() + timedelta(days=7)).isoformat()
             update_pipeline_item(
                 conn,
@@ -288,11 +589,11 @@ def handle_action(form, profile_id):
                 note=note,
                 reminder_date=reminder_date,
             )
-            return f"Reminder set for {reminder_date}: {title}"
+            message = f"Reminder set for {reminder_date}: {title}"
+        else:
+            update_pipeline_item(conn, item, status=status, note=note)
 
-        update_pipeline_item(conn, item, status=status, note=note)
-
-        if status in {
+        if previous_status != status and status in {
             "applied",
             "assessment_started",
             "assessment_completed",
@@ -301,16 +602,23 @@ def handle_action(form, profile_id):
         }:
             add_applicant_update(
                 conn,
-                profile_id=profile_id,
+                profile_id=owner_profile_id,
                 source=source,
                 title=title,
                 url=url,
                 status=status,
-                previous_status=item["status"],
+                previous_status=previous_status,
                 note=note,
             )
+        item = product_state.require_pipeline_item(conn, str(item["id"]))
 
-    return action_success_message(action, title)
+    return {
+        "message": message,
+        "item": dict(item),
+        "source": source,
+        "title": title,
+        "url": url,
+    }
 
 
 def ensure_pipeline_item(conn, profile_id, source, title, url):
@@ -353,6 +661,7 @@ def ensure_pipeline_item(conn, profile_id, source, title, url):
           is_sample
         )
         VALUES (?, ?, ?, ?, ?, ?, '', NULL, 'saved', ?, 'medium', '', '', 'Saved from local UI', 0)
+        ON CONFLICT(pipeline_item_id) DO NOTHING
         """,
         (
             pipeline_item_id,
@@ -607,9 +916,12 @@ def load_profile_options():
         ).fetchall()
 
 
-def load_lightweight_tracker_context(requested_profile_id, default_profile_id=DEFAULT_PROFILE_ID):
+def load_lightweight_tracker_context(requested_profile_id):
     profiles = load_profile_options()
-    profile_id = resolve_profile_id(profiles, requested_profile_id, default_profile_id)
+    available_ids = {profile["profile_id"] for profile in profiles}
+    if requested_profile_id not in available_ids:
+        raise ActionError(f"Unknown tracker owner: {requested_profile_id}.")
+    profile_id = requested_profile_id
     display_name = profile_display_name(profiles, profile_id)
     with get_connection() as conn:
         rows = conn.execute(
@@ -687,14 +999,6 @@ def lightweight_next_action(record):
     return labels.get(status, "Review the current tracker status.")
 
 
-def selected_profile_id(params, default_profile_id):
-    return (
-        first_value(params, "profile")
-        or first_value(params, "profile_id")
-        or default_profile_id
-    )
-
-
 def profile_display_name(profiles, profile_id):
     for profile in profiles:
         if profile["profile_id"] == profile_id:
@@ -702,26 +1006,12 @@ def profile_display_name(profiles, profile_id):
     return profile_id.replace("_", " ").title()
 
 
-def resolve_profile_id(profiles, requested_profile_id, default_profile_id):
-    available_ids = {profile["profile_id"] for profile in profiles}
-    if requested_profile_id in available_ids or not available_ids:
-        return requested_profile_id
-    if default_profile_id in available_ids:
-        return default_profile_id
-    return profiles[0]["profile_id"]
-
-
-def profile_url(path, profile_id):
-    return f"{path}?{urlencode({'profile': profile_id})}"
-
-
-def render_dashboard(context, message=None, error=None):
+def render_dashboard(context, match_run_id, demo_mode=False, message=None, error=None):
     profile = context["profile"]
     pipeline_report = context["pipeline_report"]
     applicant_signals = context["applicant_signals"]
     matches = context["matches"]
     tracked = context["tracked"]
-    profiles = load_profile_options()
     visible_match_buckets = {
         key: visible_matches(bucket, tracked)
         for key, bucket in matches.items()
@@ -747,8 +1037,9 @@ def render_dashboard(context, message=None, error=None):
         "</head>",
         "<body>",
         "<main>",
-        render_header(context, profiles),
-        render_notice(message, error),
+        render_product_nav(match_run_id, current="tracker"),
+        render_header(context, match_run_id),
+        f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
         render_actions(actions, card_index, context.get("daily_action_status", {})),
         render_secondary_actions(secondary_actions, card_index),
         render_matches(
@@ -756,19 +1047,19 @@ def render_dashboard(context, message=None, error=None):
             "best-matches",
             visible_match_buckets["live"],
             tracked,
-            profile["profile_id"],
+            match_run_id,
             card_index,
             include_actions=True,
             empty="No strong live matches found right now.",
         ),
-        render_explore_market(explore_market, tracked, profile["profile_id"]),
-        render_pipeline(pipeline_report["records"], profile["profile_id"]),
+        render_explore_market(explore_market, tracked, match_run_id),
+        render_pipeline(pipeline_report["records"], match_run_id),
         render_matches(
             "New Matches This Week",
             "new-matches",
             visible_match_buckets["new"],
             tracked,
-            profile["profile_id"],
+            match_run_id,
             card_index,
             include_actions=True,
             empty="No especially relevant new matches this week.",
@@ -778,13 +1069,14 @@ def render_dashboard(context, message=None, error=None):
             "always-open",
             visible_match_buckets["evergreen"],
             tracked,
-            profile["profile_id"],
+            match_run_id,
             card_index,
             include_actions=True,
             empty="No profile-relevant always-open applications surfaced today.",
         ),
         render_applicant_signals(applicant_signals),
         render_disclaimer(),
+        render_inline_action_script(),
         "</main>",
         "</body>",
         "</html>",
@@ -792,7 +1084,13 @@ def render_dashboard(context, message=None, error=None):
     return "\n".join(parts)
 
 
-def render_lightweight_tracker(context, message=None, error=None):
+def render_lightweight_tracker(
+    context,
+    match_run_id,
+    demo_mode=False,
+    message=None,
+    error=None,
+):
     profile = context["profile"]
     parts = [
         "<!doctype html>",
@@ -805,10 +1103,15 @@ def render_lightweight_tracker(context, message=None, error=None):
         "</head>",
         "<body>",
         "<main>",
-        render_lightweight_tracker_header(profile, context["profiles"]),
-        render_notice(message, error),
-        render_pipeline(context["records"], profile["profile_id"], tracker_only=True),
+        render_product_nav(match_run_id, current="tracker"),
+        render_lightweight_tracker_header(
+            profile,
+            match_run_id,
+        ),
+        f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
+        render_pipeline(context["records"], match_run_id, tracker_only=True),
         render_tracker_disclaimer(),
+        render_inline_action_script(),
         "</main>",
         "</body>",
         "</html>",
@@ -816,9 +1119,10 @@ def render_lightweight_tracker(context, message=None, error=None):
     return "\n".join(parts)
 
 
-def render_lightweight_tracker_header(profile, profiles):
-    find_matches_url = profile_url("/find-matches", profile["profile_id"])
-    dashboard_url = profile_url("/dashboard", profile["profile_id"])
+def render_lightweight_tracker_header(profile, match_run_id):
+    query = urlencode({"run": match_run_id})
+    find_matches_url = f"/find-matches?{query}"
+    dashboard_url = f"/dashboard?{query}"
     return f"""
     <section class="hero tracker-hero">
       <div>
@@ -826,7 +1130,6 @@ def render_lightweight_tracker_header(profile, profiles):
         <h1>Application Tracker</h1>
         <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
         <p><a class="jump-link" href="{e(find_matches_url)}">Find new matches</a></p>
-        {render_profile_selector(profiles, profile["profile_id"])}
       </div>
       <div class="profile-box">
         <p class="eyebrow">Active tracker profile</p>
@@ -839,40 +1142,30 @@ def render_lightweight_tracker_header(profile, profiles):
     """
 
 
-def render_preview_from_params(params, profile_id=DEFAULT_PROFILE_ID):
-    default_profile_id = profile_id
-    profile_id = selected_profile_id(params, default_profile_id)
-    profiles = load_profile_options()
-    profile_id = resolve_profile_id(profiles, profile_id, default_profile_id)
-    sample_id = first_value(params, "sample")
-    sample = PREVIEW_SAMPLES.get(sample_id, {})
-    input_text = first_value(params, "input_text") or sample.get("text", "")
-    input_style = first_value(params, "input_style") or sample.get("style", "short_paragraph")
-    if input_style not in profile_preview.INPUT_STYLES:
-        input_style = "short_paragraph"
-
-    context = None
-    error = ""
-    if input_text:
-        try:
-            context = build_cached_preview_context(
-                input_text,
-                input_style,
-                PREVIEW_MATCH_LIMIT,
-                preview_data_signature(),
-            )
-        except Exception as exc:
-            error = f"Preview failed: {exc}"
-
-    tracked = load_preview_tracked(profile_id)
+def render_preview_from_params(params, registry, demo_mode=False):
+    run_id = first_value(params, "run")
+    run = require_match_run(registry, run_id) if run_id else None
+    sample_id = run.demo_persona if run else (first_value(params, "sample") if demo_mode else "")
+    sample = PREVIEW_SAMPLES.get(sample_id, {}) if demo_mode else {}
+    input_text = run.raw_input if run else sample.get("text", "")
+    input_style = run.input_style if run else sample.get("style", "short_paragraph")
+    context = run.recommendation_context if run else None
+    owner_profile_id = (
+        run.owner_profile_id
+        if run
+        else sample.get("owner_profile_id", NORMAL_OWNER_PROFILE_ID)
+    )
+    tracked = load_preview_tracked(owner_profile_id)
     return render_profile_preview_page(
         input_text=input_text,
         input_style=input_style,
         sample_id=sample_id,
         context=context,
-        error=error,
-        profile_id=profile_id,
-        profiles=profiles,
+        message=first_value(params, "message"),
+        error=first_value(params, "error"),
+        owner_profile_id=owner_profile_id,
+        match_run_id=run_id,
+        demo_mode=demo_mode,
         tracked=tracked,
     )
 
@@ -958,12 +1251,13 @@ def render_profile_preview_page(
     input_style,
     sample_id="",
     context=None,
+    message="",
     error="",
-    profile_id=DEFAULT_PROFILE_ID,
-    profiles=None,
+    owner_profile_id=NORMAL_OWNER_PROFILE_ID,
+    match_run_id="",
+    demo_mode=False,
     tracked=None,
 ):
-    profiles = profiles if profiles is not None else load_profile_options()
     tracked = tracked or demo.build_tracked_index([])
     parts = [
         "<!doctype html>",
@@ -976,16 +1270,17 @@ def render_profile_preview_page(
         "</head>",
         "<body>",
         "<main>",
-        render_preview_header(profile_id),
-        render_preview_tracker_profile(profiles, profile_id),
-        render_preview_form(input_text, input_style, sample_id, profile_id),
-        render_notice(None, error),
+        render_product_nav(match_run_id, current="matches"),
+        render_preview_header(match_run_id),
+        render_demo_owner_panel(owner_profile_id, sample_id) if demo_mode else "",
+        render_preview_form(input_text, input_style, sample_id, demo_mode),
+        f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
     ]
     if context:
         parts.extend(
             [
                 render_preview_profile_summary(context),
-                render_preview_matches(context, tracked, profile_id),
+                render_preview_matches(context, tracked, match_run_id),
                 render_preview_diagnostics(context),
             ]
         )
@@ -993,12 +1288,29 @@ def render_profile_preview_page(
         parts.append(
             "<section class='notice'><p>Paste your background or choose an example to see a focused opportunity plan.</p></section>"
         )
-    parts.extend(["</main>", "</body>", "</html>"])
+    parts.extend([render_inline_action_script(), "</main>", "</body>", "</html>"])
     return "\n".join(parts)
 
 
-def render_preview_header(profile_id):
-    tracker_url = profile_url("/tracker", profile_id)
+def render_product_nav(match_run_id, current):
+    matches_url = "/find-matches"
+    tracker_url = "/tracker"
+    if match_run_id:
+        query = urlencode({"run": match_run_id})
+        matches_url += f"?{query}"
+        tracker_url += f"?{query}"
+    return f"""
+    <nav class="product-nav" aria-label="Product navigation">
+      <a href="{e(matches_url)}" {'aria-current="page"' if current == 'matches' else ''}>Matches</a>
+      <a href="{e(tracker_url)}" {'aria-current="page"' if current == 'tracker' else ''}>My Jobs</a>
+    </nav>
+    """
+
+
+def render_preview_header(match_run_id):
+    tracker_url = "/tracker"
+    if match_run_id:
+        tracker_url += f"?{urlencode({'run': match_run_id})}"
     return f"""
     <section class="hero preview-hero">
       <div>
@@ -1016,49 +1328,41 @@ def render_preview_header(profile_id):
     """
 
 
-def render_preview_tracker_profile(profiles, selected_profile_id):
-    display_name = profile_display_name(profiles, selected_profile_id)
-    if profiles:
-        options = "".join(
-            f"<option value=\"{e(row['profile_id'])}\" "
-            f"{'selected' if row['profile_id'] == selected_profile_id else ''}>"
-            f"{e(row['display_name'])}</option>"
-            for row in profiles
-        )
-        selector = f"""
-        <form class="profile-switcher" method="get" action="/find-matches">
-          <label for="preview-profile">Save actions to tracker profile</label>
-          <select id="preview-profile" name="profile">{options}</select>
-          <button type="submit">Switch</button>
-        </form>
-        """
-    else:
-        selector = (
-            "<p class='muted'>No product-state profiles found. Import profiles before saving actions.</p>"
-        )
+def render_demo_owner_panel(owner_profile_id, sample_id):
+    sample = PREVIEW_SAMPLES.get(sample_id) or {}
+    label = sample.get("label") or "Custom local-user input"
     return f"""
     <section class="notice tracker-profile-panel" id="tracking-profile">
       <div>
-        <p class="eyebrow">Tracking profile</p>
-        <h2>{e(display_name)}</h2>
-        <p>Pasted text is used to find matches for this session. Saved actions go to the selected local tracker profile.</p>
+        <p class="eyebrow">Development persona</p>
+        <h2>{e(label)}</h2>
+        <p>Owner: <code>{e(owner_profile_id)}</code>. Persona text, parser mode, identity, and owner move together.</p>
       </div>
-      {selector}
     </section>
     """
 
 
-def render_preview_form(input_text, input_style, sample_id, profile_id):
-    sample_buttons = "".join(
-        f"<button type='button' class='sample-loader' "
-        f"data-sample-id='{e(key)}' data-sample-style='{e(sample['style'])}' "
-        f"data-sample-text='{e(sample['text'])}'>{e(sample['label'])}</button>"
-        for key, sample in PREVIEW_SAMPLES.items()
-    )
-    fallback_sample_buttons = "".join(
-        f"<button type='submit' name='sample' value='{e(key)}'>{e(sample['label'])}</button>"
-        for key, sample in PREVIEW_SAMPLES.items()
-    )
+def render_preview_form(input_text, input_style, sample_id, demo_mode=False):
+    sample_controls = ""
+    if demo_mode:
+        sample_buttons = "".join(
+            f"<button type='button' class='sample-loader' "
+            f"data-sample-id='{e(key)}' data-sample-style='{e(sample['style'])}' "
+            f"data-sample-text='{e(sample['text'])}'>{e(sample['label'])}</button>"
+            for key, sample in PREVIEW_SAMPLES.items()
+        )
+        fallback_sample_buttons = "".join(
+            f"<button type='submit' name='sample' value='{e(key)}'>{e(sample['label'])}</button>"
+            for key, sample in PREVIEW_SAMPLES.items()
+        )
+        sample_controls = f"""
+        <p class="sample-label">Development personas</p>
+        <div class="sample-actions" aria-label="Development personas">{sample_buttons}</div>
+        <p id="sample-loaded-note" class="muted sample-loaded-note" role="status" aria-live="polite" hidden></p>
+        <noscript>
+          <form method="get" action="/find-matches" class="sample-actions">{fallback_sample_buttons}</form>
+        </noscript>
+        """
     style_options = "".join(
         f"<option value='{e(style)}' {'selected' if style == input_style else ''}>{e(style.replace('_', ' '))}</option>"
         for style in sorted(profile_preview.INPUT_STYLES)
@@ -1067,17 +1371,7 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
     <section class="preview-input" id="profile-preview-input">
       <h2>Tell us about your background</h2>
       <p class="muted">A paragraph is enough for a first pass. Add location, languages, credentials, and work preferences when you know them.</p>
-      <p class="sample-label">Examples</p>
-      <div class="sample-actions" aria-label="Example profiles">
-        {sample_buttons}
-      </div>
-      <p id="sample-loaded-note" class="muted sample-loaded-note" role="status" aria-live="polite" hidden></p>
-      <noscript>
-        <form method="get" action="/find-matches" class="sample-actions">
-          <input type="hidden" name="profile" value="{e(profile_id)}">
-          {fallback_sample_buttons}
-        </form>
-      </noscript>
+      {sample_controls}
       <form method="post" action="/find-matches" class="preview-form" id="find-matches-form">
         <label for="input_text">Your background</label>
         <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
@@ -1088,7 +1382,6 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
           <select id="input_style" name="input_style">{style_options}</select>
         </details>
         <input type="hidden" name="sample" value="{e(sample_id)}">
-        <input type="hidden" name="profile" value="{e(profile_id)}">
         <button type="submit" id="find-matches-button">Find matches</button>
       </form>
       <script>
@@ -1104,8 +1397,10 @@ def render_preview_form(input_text, input_style, sample_id, profile_id):
             input.value = button.dataset.sampleText || "";
             inputStyle.value = button.dataset.sampleStyle || "short_paragraph";
             sampleId.value = button.dataset.sampleId || "";
-            note.textContent = "Example loaded. Click Find matches to refresh recommendations.";
-            note.hidden = false;
+            if (note) {{
+              note.textContent = "Development persona loaded. Click Find matches to create its owned run.";
+              note.hidden = false;
+            }}
             input.focus();
           }});
         }});
@@ -1143,11 +1438,11 @@ def render_preview_profile_summary(context):
     """
 
 
-def render_preview_matches(context, tracked, profile_id):
+def render_preview_matches(context, tracked, match_run_id):
     sections = []
     for section in profile_preview.SECTION_ORDER:
         matches = context["matches"].get(section, [])
-        sections.append(render_preview_section(section, matches, tracked, profile_id))
+        sections.append(render_preview_section(section, matches, tracked, match_run_id))
     return f"""
     <section id="preview-recommendations">
       <h2>Recommended Opportunities</h2>
@@ -1159,12 +1454,12 @@ def render_preview_matches(context, tracked, profile_id):
     """
 
 
-def render_preview_section(section, matches, tracked, profile_id):
+def render_preview_section(section, matches, tracked, match_run_id):
     label = profile_preview.SECTION_LABELS[section]
     visible_limit = profile_preview.HTML_SECTION_LIMITS.get(section, 8)
     visible = matches[:visible_limit]
     cards = "".join(
-        render_preview_card(match, section, tracked, profile_id)
+        render_preview_card(match, section, tracked, match_run_id)
         for match in visible
     ) or "<p class='empty'>None in this preview.</p>"
     more = len(matches) - len(visible)
@@ -1188,7 +1483,7 @@ def render_preview_section(section, matches, tracked, profile_id):
     """
 
 
-def render_preview_card(match, section, tracked, profile_id):
+def render_preview_card(match, section, tracked, match_run_id):
     record = demo.tracked_record_for_match(match, tracked)
     caution = profile_preview.user_caution_note(match)
     fit_reason = profile_preview.user_fit_reason(match)
@@ -1197,20 +1492,27 @@ def render_preview_card(match, section, tracked, profile_id):
     diagnostics = "; ".join(match.get("preview_diagnostics") or []) or "-"
     reasons = "; ".join(match.get("reasons") or []) or "-"
     status = demo.readable_status(record["status"]) if record else profile_preview.SECTION_LABELS.get(section, section)
-    controls = render_preview_card_actions(match, record, profile_id, section)
+    card_id = f"preview-{match_opportunity_key(match)}"
+    controls = render_preview_card_actions(
+        match,
+        record,
+        match_run_id,
+        section,
+        card_id,
+    )
     return f"""
-    <article class="card preview-card">
+    <article class="card preview-card" id="{e(card_id)}" data-action-card>
       <div class="card-main">
         <p class="source">{e(match['source'])}</p>
         <h3>{e(match['display_title'])}</h3>
         <p class="muted">Location: {e(match.get('location') or 'Unknown')} &middot; Area: {e(match.get('expertise') or 'Unknown')}</p>
         <p><strong>Why it may fit:</strong> {e(fit_reason)}</p>
         {f'<p class="caution"><strong>Check first:</strong> {e(caution)}</p>' if caution else ''}
-        <p class="pill">{e(status)}</p>
+        <p class="pill js-card-status">{e(status)}</p>
       </div>
       <div class="card-actions">
         {open_link}
-        {controls}
+        <div class="js-card-controls">{controls}</div>
         <details class="technical-details">
           <summary>Technical details</summary>
           <p class="muted">Score: {e(match.get('score'))}</p>
@@ -1222,15 +1524,15 @@ def render_preview_card(match, section, tracked, profile_id):
     """
 
 
-def render_preview_card_actions(match, record, profile_id, section):
+def render_preview_card_actions(match, record, match_run_id, section, return_to):
     if section in {"explore_only", "excluded"}:
         return terminal_status_label(record["status"]) if record else ""
     if section == "also_worth_reviewing":
-        return render_preview_light_forms(match, record, profile_id, "application-tracker")
-    return render_preview_full_forms(match, record, profile_id, "application-tracker")
+        return render_preview_light_forms(match, record, match_run_id, return_to, section)
+    return render_preview_full_forms(match, record, match_run_id, return_to, section)
 
 
-def render_preview_full_forms(match, record, profile_id, return_to):
+def render_preview_full_forms(match, record, match_run_id, return_to, section):
     pipeline_id = record.get("id") if record else ""
     status = record.get("status") if record else None
     actions = actions_for_status(status)
@@ -1240,18 +1542,17 @@ def render_preview_full_forms(match, record, profile_id, return_to):
         action_form(
             action,
             PREVIEW_ACTION_LABELS[action],
-            profile_id,
-            source=match["source"],
-            title=match["display_title"],
-            url=match.get("url", ""),
+            match_run_id,
+            opportunity_key=match_opportunity_key(match),
             pipeline_id=pipeline_id,
             return_to=return_to,
+            section=section,
         )
         for action in actions
     )
 
 
-def render_preview_light_forms(match, record, profile_id, return_to):
+def render_preview_light_forms(match, record, match_run_id, return_to, section):
     actions = explore_actions_for_status(record.get("status") if record else None)
     if not actions:
         return terminal_status_label(record["status"]) if record else ""
@@ -1259,12 +1560,11 @@ def render_preview_light_forms(match, record, profile_id, return_to):
         action_form(
             action,
             PREVIEW_ACTION_LABELS[action],
-            profile_id,
-            source=match["source"],
-            title=match["display_title"],
-            url=match.get("url", ""),
+            match_run_id,
+            opportunity_key=match_opportunity_key(match),
             pipeline_id=record.get("id", "") if record else "",
             return_to=return_to,
+            section=section,
         )
         for action in actions
     )
@@ -1298,7 +1598,7 @@ def render_preview_diagnostics(context):
     """
 
 
-def render_header(context, profiles):
+def render_header(context, match_run_id):
     profile = context["profile"]
     market = context["market_summary"]
     profile_summary = [
@@ -1311,7 +1611,7 @@ def render_header(context, profiles):
         f"<p><strong>{e(label)}:</strong> {e(value)}</p>"
         for label, value in profile_summary
     )
-    find_matches_url = profile_url("/find-matches", profile["profile_id"])
+    find_matches_url = f"/find-matches?{urlencode({'run': match_run_id})}"
     return f"""
     <section class="hero">
       <div>
@@ -1319,7 +1619,6 @@ def render_header(context, profiles):
         <h1>Application Tracker</h1>
         <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
         <p><a class="jump-link" href="{e(find_matches_url)}">Find new matches</a></p>
-        {render_profile_selector(profiles, profile["profile_id"], action_path="/dashboard")}
       </div>
       <div class="profile-box">
         <p class="eyebrow">Active tracker profile</p>
@@ -1327,27 +1626,6 @@ def render_header(context, profiles):
         <p><strong>Live opportunities tracked:</strong> {market['estimated_market_opportunities']}</p>
       </div>
     </section>
-    """
-
-
-def render_profile_selector(profiles, selected_profile_id, action_path="/tracker"):
-    if not profiles:
-        return """
-        <p class="muted">No product-state profiles found. Import profiles before switching users.</p>
-        """
-    options = "".join(
-        f"<option value=\"{e(row['profile_id'])}\" {'selected' if row['profile_id'] == selected_profile_id else ''}>"
-        f"{e(row['display_name'])}</option>"
-        for row in profiles
-    )
-    return f"""
-    <form class="profile-switcher" method="get" action="{e(action_path)}">
-      <label for="profile">Active tracker profile</label>
-      <select id="profile" name="profile">
-        {options}
-      </select>
-      <button type="submit">Switch</button>
-    </form>
     """
 
 
@@ -1405,7 +1683,7 @@ def render_action_item(action, card_index):
     )
 
 
-def render_matches(title, section_id, matches, tracked, profile_id, card_index, include_actions, empty):
+def render_matches(title, section_id, matches, tracked, match_run_id, card_index, include_actions, empty):
     cards = []
     for match in matches[:8]:
         record = demo.tracked_record_for_match(match, tracked)
@@ -1414,18 +1692,18 @@ def render_matches(title, section_id, matches, tracked, profile_id, card_index, 
         card_id = card_id_for_match(match, record)
         cards.append(
             f"""
-            <article class="card" id="{e(card_id)}">
+            <article class="card" id="{e(card_id)}" data-action-card>
               <div class="card-main">
                 <p class="source">{e(match['source'])}</p>
                 <h3>{e(match['display_title'])}</h3>
                 <p>{e(match['location'])} &middot; {e(match['expertise'])}</p>
                 <p class="muted">{e(reasons)}</p>
-                <p class="pill">{e(status)}</p>
+                <p class="pill js-card-status">{e(status)}</p>
                 <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
               </div>
               <div class="card-actions">
                 <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">Open</a>
-                {render_match_forms(match, record, profile_id, card_id) if include_actions else ""}
+                <div class="js-card-controls">{render_match_forms(match, record, match_run_id, card_id) if include_actions else ""}</div>
               </div>
             </article>
             """
@@ -1440,7 +1718,7 @@ def render_matches(title, section_id, matches, tracked, profile_id, card_index, 
     """
 
 
-def render_explore_market(explore_market, tracked, profile_id):
+def render_explore_market(explore_market, tracked, match_run_id):
     groups = (
         ("Strong fit for you", "strong_fit", "High-fit live opportunities from the broader tracker."),
         ("Possible fit", "possible_fit", "Relevant live opportunities that may be worth browsing."),
@@ -1454,7 +1732,7 @@ def render_explore_market(explore_market, tracked, profile_id):
         if not matches:
             continue
         cards = "".join(
-            render_explore_card(match, demo.tracked_record_for_match(match, tracked), profile_id)
+            render_explore_card(match, demo.tracked_record_for_match(match, tracked), match_run_id)
             for match in matches
         )
         group_html.append(
@@ -1486,23 +1764,23 @@ def render_explore_market(explore_market, tracked, profile_id):
     """
 
 
-def render_explore_card(match, record, profile_id):
+def render_explore_card(match, record, match_run_id):
     reasons = "; ".join(demo.plain_reasons(match, record)[:3])
     card_id = card_id_for_explore_match(match, record)
     label = explore_match_label(match, record)
     return f"""
-    <article class="card explore-card" id="{e(card_id)}">
+    <article class="card explore-card" id="{e(card_id)}" data-action-card>
       <div class="card-main">
         <p class="source">{e(match['source'])}</p>
         <h3>{e(match['display_title'])}</h3>
         <p>{e(match['location'])} &middot; {e(match['expertise'])}</p>
         <p class="muted">{e(reasons)}</p>
-        <p class="pill">{e(label)}</p>
+        <p class="pill js-card-status">{e(label)}</p>
         <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
       </div>
       <div class="card-actions compact-actions">
         <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">Open</a>
-        {render_explore_forms(match, record, profile_id, card_id)}
+        <div class="js-card-controls">{render_explore_forms(match, record, match_run_id, card_id)}</div>
       </div>
     </article>
     """
@@ -1520,29 +1798,29 @@ def explore_match_label(match, record):
     return " · ".join(pieces)
 
 
-def render_pipeline(records, profile_id, tracker_only=False):
+def render_pipeline(records, match_run_id, tracker_only=False):
     groups = pipeline_groups(records)
     active_body = render_pipeline_group(
         groups["active"],
-        profile_id,
+        match_run_id,
         "No active application items yet.",
         tracker_only=tracker_only,
     )
     accepted_body = render_pipeline_group(
         groups["accepted"],
-        profile_id,
+        match_run_id,
         "No accepted or active work items yet.",
         tracker_only=tracker_only,
     )
     hidden_body = render_pipeline_group(
         groups["hidden"],
-        profile_id,
+        match_run_id,
         "No hidden opportunities.",
         tracker_only=tracker_only,
     )
     closed_body = render_pipeline_group(
         groups["closed"],
-        profile_id,
+        match_run_id,
         "No closed or expired items.",
         tracker_only=tracker_only,
     )
@@ -1580,11 +1858,11 @@ def pipeline_groups(records):
     return groups
 
 
-def render_pipeline_group(records, profile_id, empty, tracker_only=False):
+def render_pipeline_group(records, match_run_id, empty, tracker_only=False):
     if not records:
         return f"<p class='empty'>{e(empty)}</p>"
     return "".join(
-        render_pipeline_card(record, profile_id, tracker_only=tracker_only)
+        render_pipeline_card(record, match_run_id, tracker_only=tracker_only)
         for record in records
     )
 
@@ -1595,25 +1873,25 @@ def render_reminder_note(record):
     return ""
 
 
-def render_pipeline_card(record, profile_id, tracker_only=False):
+def render_pipeline_card(record, match_run_id, tracker_only=False):
     navigation = (
-        f'<p><a class="back-link" href="{e(profile_url("/find-matches", profile_id))}">Find new matches</a></p>'
+        f'<p><a class="back-link" href="{e("/find-matches?" + urlencode({"run": match_run_id}))}">Back to Matches</a></p>'
         if tracker_only
         else '<p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>'
     )
     return f"""
-    <article class="card tracker" id="{e(card_id_for_record(record))}">
+    <article class="card tracker" id="{e(card_id_for_record(record))}" data-action-card>
       <div class="card-main">
         <p class="source">{e(record['source'])}</p>
         <h3>{e(record['title'])}</h3>
-        <p class="pill">{e(demo.readable_status(record['status']))}</p>
+        <p class="pill js-card-status">{e(demo.readable_status(record['status']))}</p>
         {render_reminder_note(record)}
         <p class="muted">{e(record['next_action'])}</p>
         {navigation}
       </div>
       <div class="card-actions">
         {f'<a class="open" href="{e(record["url"])}" target="_blank" rel="noreferrer">Open</a>' if record["url"] else ""}
-        {render_pipeline_forms(record, profile_id, card_id_for_record(record))}
+        <div class="js-card-controls">{render_pipeline_forms(record, match_run_id, card_id_for_record(record))}</div>
       </div>
     </article>
     """
@@ -1670,7 +1948,7 @@ def render_tracker_disclaimer():
     """
 
 
-def render_match_forms(match, record, profile_id, return_to):
+def render_match_forms(match, record, match_run_id, return_to):
     pipeline_id = record.get("id") if record else ""
     status = record.get("status") if record else None
     actions = actions_for_status(status)
@@ -1680,18 +1958,17 @@ def render_match_forms(match, record, profile_id, return_to):
         action_form(
             action,
             ACTION_LABELS[action],
-            profile_id,
-            source=match["source"],
-            title=match["display_title"],
-            url=match["url"],
+            match_run_id,
+            opportunity_key=match_opportunity_key(match),
             pipeline_id=pipeline_id,
             return_to=return_to,
+            section="dashboard",
         )
         for action in actions
     )
 
 
-def render_explore_forms(match, record, profile_id, return_to):
+def render_explore_forms(match, record, match_run_id, return_to):
     actions = explore_actions_for_status(record.get("status") if record else None)
     if not actions:
         return terminal_status_label(record["status"]) if record else ""
@@ -1699,18 +1976,17 @@ def render_explore_forms(match, record, profile_id, return_to):
         action_form(
             action,
             ACTION_LABELS[action],
-            profile_id,
-            source=match["source"],
-            title=match["display_title"],
-            url=match["url"],
+            match_run_id,
+            opportunity_key=match_opportunity_key(match),
             pipeline_id=record.get("id", "") if record else "",
             return_to=return_to,
+            section="explore",
         )
         for action in actions
     )
 
 
-def render_pipeline_forms(record, profile_id, return_to):
+def render_pipeline_forms(record, match_run_id, return_to):
     actions = actions_for_status(record["status"])
     if not actions:
         return terminal_status_label(record["status"])
@@ -1718,30 +1994,160 @@ def render_pipeline_forms(record, profile_id, return_to):
         action_form(
             action,
             ACTION_LABELS[action],
-            profile_id,
-            source=record["source"],
-            title=record["title"],
-            url=record["url"],
+            match_run_id,
             pipeline_id=record.get("id", ""),
             return_to=return_to,
+            section="tracker",
         )
         for action in actions
     )
 
 
-def action_form(action, label, profile_id, source, title, url, pipeline_id="", return_to="do-these-first", return_path="/tracker"):
+def action_form(
+    action,
+    label,
+    match_run_id,
+    opportunity_key="",
+    pipeline_id="",
+    return_to="preview-recommendations",
+    section="",
+):
     return f"""
-    <form method="post" action="/action">
-      <input type="hidden" name="profile" value="{e(profile_id)}">
+    <form method="post" action="/action" class="js-inline-action">
+      <input type="hidden" name="match_run_id" value="{e(match_run_id)}">
       <input type="hidden" name="action" value="{e(action)}">
-      <input type="hidden" name="source" value="{e(source)}">
-      <input type="hidden" name="title" value="{e(title)}">
-      <input type="hidden" name="url" value="{e(url or '')}">
+      <input type="hidden" name="opportunity_key" value="{e(opportunity_key)}">
       <input type="hidden" name="pipeline_item_id" value="{e(str(pipeline_id or ''))}">
       <input type="hidden" name="return_to" value="{e(return_to)}">
-      <input type="hidden" name="return_path" value="{e(return_path)}">
+      <input type="hidden" name="section" value="{e(section)}">
       <button type="submit">{e(label)}</button>
     </form>
+    """
+
+
+def action_json_payload(result, run, form):
+    item = result["item"]
+    section = first_value(form, "section")
+    return_to = first_value(form, "return_to") or "preview-recommendations"
+    actions = actions_for_status(item["status"])
+    labels = ACTION_LABELS
+    if section in {"also_worth_reviewing", "explore"}:
+        actions = explore_actions_for_status(item["status"])
+    if section in profile_preview.SECTION_ORDER:
+        labels = PREVIEW_ACTION_LABELS
+    controls = " ".join(
+        action_form(
+            action,
+            labels[action],
+            run.match_run_id,
+            opportunity_key=first_value(form, "opportunity_key"),
+            pipeline_id=item["id"],
+            return_to=return_to,
+            section=section,
+        )
+        for action in actions
+    )
+    if not controls:
+        controls = terminal_status_label(item["status"])
+    return {
+        "ok": True,
+        "message": result["message"],
+        "card_id": return_to,
+        "opportunity_key": first_value(form, "opportunity_key"),
+        "source": result["source"],
+        "title": result["title"],
+        "pipeline_item_id": item["id"],
+        "status": item["status"],
+        "status_label": demo.readable_status(item["status"]),
+        "controls_html": controls,
+    }
+
+
+def render_inline_action_script():
+    return """
+    <script>
+    (() => {
+      const genericFailure = "We couldn't update this opportunity. Please try again.";
+      const userFacingError = (message) => {
+        const error = new Error(message);
+        error.userFacing = true;
+        return error;
+      };
+      const showCardMessage = (card, message, isError = false) => {
+        let notice = card.querySelector(".js-action-feedback");
+        if (!notice) {
+          notice = document.createElement("p");
+          notice.className = "js-action-feedback action-feedback";
+          notice.setAttribute("role", "status");
+          notice.setAttribute("aria-live", "polite");
+          (card.querySelector(".card-main") || card).append(notice);
+        }
+        notice.className = `js-action-feedback action-feedback ${isError ? "error" : "success"}`;
+        notice.textContent = message;
+      };
+      document.addEventListener("submit", async (event) => {
+        const form = event.target.closest("form.js-inline-action");
+        if (!form) return;
+        event.preventDefault();
+        const card = form.closest("[data-action-card]");
+        if (!card || card.dataset.actionPending === "true") return;
+        card.dataset.actionPending = "true";
+        const buttons = [...card.querySelectorAll(".js-card-controls button")];
+        buttons.forEach((button) => { button.disabled = true; });
+        try {
+          const endpoint = form.getAttribute("action") || "/action";
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+              "X-Wahojobs-Inline-Action": "1",
+            },
+            body: new URLSearchParams(new FormData(form)),
+            redirect: "error",
+          });
+          const contentType = response.headers.get("Content-Type") || "";
+          if (!contentType.toLowerCase().includes("application/json")) {
+            const responseText = await response.text();
+            console.error("Inline action expected JSON but received another response type.", {
+              status: response.status,
+              url: response.url,
+              contentType,
+              bodyPrefix: responseText.slice(0, 240),
+            });
+            throw userFacingError(genericFailure);
+          }
+          let payload;
+          try {
+            payload = await response.json();
+          } catch (parseError) {
+            console.error("Inline action returned invalid JSON.", parseError);
+            throw userFacingError(genericFailure);
+          }
+          if (!response.ok) {
+            throw userFacingError(payload.error || genericFailure);
+          }
+          if (!payload.ok) {
+            throw userFacingError(payload.error || "The opportunity was not updated. Please try again.");
+          }
+          const status = card.querySelector(".js-card-status");
+          const controls = card.querySelector(".js-card-controls");
+          if (status) status.textContent = payload.status_label;
+          if (controls) controls.innerHTML = payload.controls_html;
+          showCardMessage(card, payload.message);
+        } catch (error) {
+          buttons.forEach((button) => { button.disabled = false; });
+          if (!error || !error.userFacing) {
+            console.error("Inline action request failed.", error);
+          }
+          const message = error && error.userFacing ? error.message : genericFailure;
+          showCardMessage(card, message, true);
+        } finally {
+          card.dataset.actionPending = "false";
+        }
+      });
+    })();
+    </script>
     """
 
 
@@ -1846,6 +2252,21 @@ body {
   font: 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+.product-nav {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 20px;
+  margin-bottom: 18px;
+  min-height: 44px;
+}
+.product-nav a {
+  color: var(--muted);
+  font-weight: 700;
+  padding: 11px 2px 10px;
+  text-decoration: none;
+}
+.product-nav a[aria-current="page"] { border-bottom: 2px solid var(--accent); color: var(--ink); }
 section { margin: 18px 0; }
 section, .card { scroll-margin-top: 18px; }
 .hero {
@@ -2071,6 +2492,9 @@ button:hover, .open:hover { filter: brightness(.96); }
 .back-link { font-size: .88rem; }
 .notice.success { border-color: #b9d8c5; color: var(--ok); background: #eef8f1; }
 .notice.error { border-color: #e0b8a8; color: var(--warn); background: #fff2ec; }
+.action-feedback { font-weight: 700; margin: 10px 0 0; }
+.action-feedback.success { color: var(--ok); }
+.action-feedback.error { color: var(--warn); }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px; vertical-align: top; }
 th { color: var(--muted); font-size: .86rem; }

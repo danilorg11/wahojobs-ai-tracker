@@ -1,0 +1,116 @@
+{
+  "profiles": [
+    {
+      "profile_id": "local_user",
+      "display_name": "My Profile",
+      "education_level": "not_specified",
+      "degrees_or_domains": [],
+      "languages": [],
+      "skills": [],
+      "work_preferences": [],
+      "constraints": [],
+      "target_opportunity_types": [],
+      "notes": "Stable local owner for the normal Wahojobs product flow. Match inputs are normalized per run."
+    },
+    {
+      "profile_id": "beginner_bilingual_no_degree",
+      "display_name": "Beginner Bilingual Remote Worker",
+      "education_level": "no_degree",
+      "degrees_or_domains": [
+        "generalist",
+        "language"
+      ],
+      "languages": [
+        "English",
+        "Spanish"
+      ],
+      "skills": [
+        "bilingual communication",
+        "web research",
+        "basic writing",
+        "review"
+      ],
+      "work_preferences": [
+        "remote",
+        "flexible",
+        "entry-level"
+      ],
+      "constraints": [
+        "no college degree",
+        "beginner",
+        "no phone calls"
+      ],
+      "target_opportunity_types": [
+        "data annotation",
+        "search evaluation",
+        "language review",
+        "AI training generalist"
+      ],
+      "notes": "Explicit demo owner for the beginner bilingual local product scenario."
+    },
+    {
+      "profile_id": "software_engineer",
+      "display_name": "Software Engineer / Coding Evaluator",
+      "education_level": "technical",
+      "degrees_or_domains": [
+        "software",
+        "coding",
+        "python"
+      ],
+      "languages": [
+        "English"
+      ],
+      "skills": [
+        "python",
+        "software engineering",
+        "code review",
+        "testing"
+      ],
+      "work_preferences": [
+        "remote",
+        "flexible"
+      ],
+      "constraints": [
+        "no biology or medical credentials"
+      ],
+      "target_opportunity_types": [
+        "coding evaluation",
+        "technical review",
+        "AI coding"
+      ],
+      "notes": "Explicit demo owner for the software engineer local product scenario."
+    },
+    {
+      "profile_id": "biology_or_medicine_academic",
+      "display_name": "Biology / Medicine Academic",
+      "education_level": "phd",
+      "degrees_or_domains": [
+        "biology",
+        "life sciences",
+        "academic research"
+      ],
+      "languages": [
+        "English"
+      ],
+      "skills": [
+        "computational biology",
+        "genomics",
+        "microbiology",
+        "scientific writing"
+      ],
+      "work_preferences": [
+        "remote",
+        "flexible"
+      ],
+      "constraints": [
+        "no medical license"
+      ],
+      "target_opportunity_types": [
+        "biology AI evaluation",
+        "scientific review",
+        "expert AI training"
+      ],
+      "notes": "Explicit demo owner for the biology academic local product scenario."
+    }
+  ]
+}
