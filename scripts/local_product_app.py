@@ -1049,8 +1049,8 @@ def render_dashboard(context, match_run_id, demo_mode=False, message=None, error
         f"<style>{CSS}</style>",
         "</head>",
         "<body>",
-        "<main>",
         render_product_nav(match_run_id, current="tracker"),
+        "<main class='app-main'>",
         render_header(context, match_run_id),
         f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
         render_actions(actions, card_index, context.get("daily_action_status", {})),
@@ -1115,8 +1115,8 @@ def render_lightweight_tracker(
         f"<style>{CSS}</style>",
         "</head>",
         "<body>",
-        "<main>",
         render_product_nav(match_run_id, current="tracker"),
+        "<main class='app-main'>",
         render_lightweight_tracker_header(
             profile,
             match_run_id,
@@ -1305,9 +1305,8 @@ def render_profile_preview_page(
         f"<style>{CSS}</style>",
         "</head>",
         "<body>",
-        "<main>",
         render_product_nav(match_run_id, current="matches"),
-        render_preview_header(match_run_id, demo_mode=demo_mode),
+        "<main class='app-main'>",
         render_demo_owner_panel(owner_profile_id, sample_id) if demo_mode else "",
         f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
     ]
@@ -1327,6 +1326,7 @@ def render_profile_preview_page(
     elif context:
         parts.extend(
             [
+                render_preview_results_header(context, demo_mode=demo_mode),
                 render_preview_profile_context(context, match_run_id),
                 render_ranked_preview_matches(context, tracked, match_run_id),
                 render_demo_persona_switcher(sample_id) if demo_mode else "",
@@ -1336,8 +1336,8 @@ def render_profile_preview_page(
     else:
         parts.extend(
             [
+                render_preview_header(demo_mode=demo_mode),
                 render_preview_form(input_text, input_style, sample_id, demo_mode),
-                "<section class='notice'><p>Paste your background to see a focused set of opportunities.</p></section>",
             ]
         )
     parts.extend([render_inline_action_script(), "</main>", "</body>", "</html>"])
@@ -1352,29 +1352,47 @@ def render_product_nav(match_run_id, current):
         matches_url += f"?{query}"
         tracker_url += f"?{query}"
     return f"""
-    <nav class="product-nav" aria-label="Product navigation">
-      <a href="{e(matches_url)}" {'aria-current="page"' if current == 'matches' else ''}>Matches</a>
-      <a href="{e(tracker_url)}" {'aria-current="page"' if current == 'tracker' else ''}>My Jobs</a>
-    </nav>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <a class="wordmark" href="{e(matches_url)}" aria-label="Wahojobs Matches">Wahojobs</a>
+        <nav class="product-nav" aria-label="Product navigation">
+          <a href="{e(matches_url)}" {'aria-current="page"' if current == 'matches' else ''}>Matches</a>
+          <a href="{e(tracker_url)}" {'aria-current="page"' if current == 'tracker' else ''}>My Jobs</a>
+        </nav>
+      </div>
+    </header>
     """
 
 
-def render_preview_header(match_run_id, demo_mode=False):
-    tracker_url = "/tracker"
-    if match_run_id:
-        tracker_url += f"?{urlencode({'run': match_run_id})}"
+def render_preview_header(demo_mode=False):
     return f"""
-    <section class="hero preview-hero">
+    <section class="page-intro onboarding-intro">
+      <p class="eyebrow">Matches</p>
+      <h1>Find AI work that fits you</h1>
+      <p class="lead">Tell us about your background. We'll show the best current opportunities for you.</p>
+      {f'<p class="muted">Demo mode keeps development personas and quality checks available below.</p>' if demo_mode else ''}
+    </section>
+    """
+
+
+def render_preview_results_header(context, demo_mode=False):
+    verified_count = len(build_ranked_presentation_matches(context))
+    refresh_count = supported_candidates_withheld_for_refresh(context)
+    verified_label = "1 verified match" if verified_count == 1 else f"{verified_count} verified matches"
+    refresh_label = ""
+    if refresh_count:
+        refresh_label = (
+            "1 more match is being refreshed."
+            if refresh_count == 1
+            else f"{refresh_count} more matches are being refreshed."
+        )
+    return f"""
+    <section class="results-header">
       <div>
-        <p class="eyebrow">Find Matches</p>
-        <h1>Find AI work that fits your background</h1>
-        <p class="lead">Tell us about your background and Wahojobs will surface a focused set of opportunities to review.</p>
+        <p class="eyebrow">Matches</p>
+        <h1>Your matches</h1>
+        <p class="results-summary"><strong>{e(verified_label)}</strong>{f' <span>{e(refresh_label)}</span>' if refresh_label else ''}</p>
         {f'<p class="muted">Demo mode keeps development personas and quality checks available below.</p>' if demo_mode else ''}
-      </div>
-      <div class="profile-box">
-        <p><strong>Focused recommendations:</strong> up to ten opportunities, ordered by how useful they appear for your background.</p>
-        <p><strong>Check before applying:</strong> each match calls out important eligibility details when they are known.</p>
-        <p><a class="jump-link" href="{e(tracker_url)}">View My Jobs</a></p>
       </div>
     </section>
     """
@@ -1398,7 +1416,7 @@ def render_preview_edit_intro(match_run_id):
     return f"""
     <section class="preview-edit-intro">
       <p class="eyebrow">Edit profile</p>
-      <h2>Update what we should match against</h2>
+      <h1>Update what we should match against</h1>
       <p class="muted">Your current results stay unchanged. Submitting these edits creates a new match run.</p>
       <p><a class="back-link" href="{e('/find-matches?' + urlencode({'run': match_run_id}))}">Cancel and return to matches</a></p>
     </section>
@@ -1450,14 +1468,15 @@ def render_preview_form(
             f'<input type="hidden" id="input_style" name="input_style" value="{e(input_style)}">'
         )
     submit_label = "Update matches" if edit_run_id else "Find matches"
+    if not edit_run_id:
+        submit_label = "Find my matches"
     return f"""
     <section class="preview-input" id="profile-preview-input">
-      <h2>Tell us about your background</h2>
-      <p class="muted">A paragraph is enough for a first pass. Add location, languages, credentials, and work preferences when you know them.</p>
       {sample_controls}
       <form method="post" action="/find-matches" class="preview-form" id="find-matches-form">
-        <label for="input_text">Your background</label>
-        <textarea id="input_text" name="input_text" rows="8">{e(input_text)}</textarea>
+        <label for="input_text">About you</label>
+        <p id="profile-input-help" class="field-help">Include your location, languages, experience, skills, and the type of work you want.</p>
+        <textarea id="input_text" name="input_text" rows="6" aria-describedby="profile-input-help">{e(input_text)}</textarea>
         {input_style_control}
         <input type="hidden" name="sample" value="{e(sample_id)}">
         <input type="hidden" name="edit_run_id" value="{e(edit_run_id)}">
@@ -1495,22 +1514,60 @@ def render_preview_form(
 
 def render_preview_profile_context(context, match_run_id):
     canonical = context["canonical_profile"]
-    languages = profile_preview.join_languages(canonical)
-    domains = ", ".join(canonical["education"].get("fields_or_domains") or []) or "Not specified"
-    location = canonical.get("location") or {}
-    location_label = location.get("country") or location.get("region") or "Not specified"
+    summary_items = profile_summary_items(canonical)
+    summary = "".join(f"<li>{e(item)}</li>" for item in summary_items)
+    if not summary:
+        summary = '<li class="muted">Add more profile details to improve your matches.</li>'
     edit_url = "/find-matches?" + urlencode({"run": match_run_id, "edit": "1"})
     return f"""
     <section class="profile-context" id="profile-context">
       <div>
-        <p class="eyebrow">Matches based on your profile</p>
-        <p><strong>Languages:</strong> {e(languages)}</p>
-        <p><strong>Background:</strong> {e(domains)}</p>
-        <p><strong>Location:</strong> {e(location_label)} &middot; <strong>Work preference:</strong> {e(profile_preview.remote_preference_label(canonical))}</p>
+        <p class="profile-context-label">Based on your profile</p>
+        <ul class="profile-summary-line" aria-label="Profile used for these matches">{summary}</ul>
       </div>
       <a class="open secondary-link" href="{e(edit_url)}">Edit profile</a>
     </section>
     """
+
+
+def profile_summary_items(canonical):
+    items = []
+    location = canonical.get("location") or {}
+    location_label = location.get("country") or location.get("region") or location.get("city")
+    if location_label:
+        items.append(str(location_label))
+
+    languages = canonical.get("languages") or []
+    for language in languages:
+        name = str(language.get("language") or "").strip()
+        if not name:
+            continue
+        details = []
+        locale = str(language.get("locale") or "").strip()
+        proficiency = str(language.get("proficiency") or "").strip().lower()
+        if locale:
+            details.append(locale)
+        if proficiency and proficiency not in {"unknown", "not specified", "not_specified"}:
+            details.append(proficiency.replace("_", " "))
+        items.append(f"{name} ({', '.join(details)})" if details else name)
+
+    domains = []
+    for value in (
+        *((canonical.get("education") or {}).get("fields_or_domains") or []),
+        *((canonical.get("experience") or {}).get("professional_domains") or []),
+    ):
+        normalized = str(value or "").strip()
+        if not normalized or normalized.lower() in {"language", "languages"}:
+            continue
+        label = normalized.replace("_", " ").replace("-", " ").title()
+        if label not in domains:
+            domains.append(label)
+    items.extend(domains)
+
+    preferences = canonical.get("preferences") or {}
+    if preferences.get("remote") is True:
+        items.append("Remote preferred")
+    return items
 
 
 def render_ranked_preview_matches(context, tracked, match_run_id):
@@ -1536,17 +1593,8 @@ def render_ranked_preview_matches(context, tracked, match_run_id):
               <p class="muted">Try adding your location, languages, credentials, or the kinds of work you want.</p>
             </div>
             """
-    count_note = (
-        f"Showing {len(matches)} focused opportunities."
-        if len(matches) == PRESENTATION_MATCH_LIMIT
-        else f"We found {len(matches)} opportunities worth showing right now."
-    )
-    if matches and supported_candidates_need_refresh(context):
-        count_note += " Other supported candidates are hidden until their source data is refreshed."
     return f"""
     <section id="your-best-matches" class="ranked-matches">
-      <h2>Your best matches</h2>
-      <p class="muted">{e(count_note)} This list is intentionally focused and is not padded with lower-confidence results.</p>
       <div class="stack">{cards}</div>
     </section>
     """
@@ -1556,11 +1604,16 @@ def supported_candidates_need_refresh(context):
     summary = (context or {}).get("trust_summary") or {}
     if summary.get("has_stale_or_unverified_supported_candidates"):
         return True
-    return any(
-        match.get("affirmative_fit_status") == "supported"
-        and match.get("opportunity_trust_status") in {"stale_source", "unverified_source"}
+    return supported_candidates_withheld_for_refresh(context) > 0
+
+
+def supported_candidates_withheld_for_refresh(context):
+    return sum(
+        1
         for section in ACTIONABLE_PRESENTATION_SECTIONS
         for match in ((context or {}).get("matches") or {}).get(section, [])
+        if match.get("affirmative_fit_status") == "supported"
+        and match.get("opportunity_trust_status") in {"stale_source", "unverified_source"}
     )
 
 
@@ -1572,9 +1625,9 @@ def render_ranked_preview_card(match, tracked, match_run_id):
     url = match.get("url") or ""
     card_id = f"ranked-{match_opportunity_key(match)}"
     status = (
-        f'<p class="pill js-card-status">{e(demo.readable_status(record["status"]))}</p>'
+        f'<p class="pill card-status js-card-status">{e(demo.readable_status(record["status"]))}</p>'
         if record
-        else '<p class="pill js-card-status">Ready to review</p>'
+        else '<p class="pill card-status js-card-status"></p>'
     )
     controls = render_preview_card_actions(match, record, match_run_id, section, card_id)
     return f"""
@@ -1589,7 +1642,7 @@ def render_ranked_preview_card(match, tracked, match_run_id):
         {status}
       </div>
       <div class="card-actions">
-        {f'<a class="open" href="{e(url)}" target="_blank" rel="noreferrer">View job</a>' if url else ''}
+        {f'<a class="open button-primary" href="{e(url)}" target="_blank" rel="noreferrer">View job</a>' if url else ''}
         <div class="js-card-controls">{controls}</div>
       </div>
     </article>
@@ -1978,9 +2031,9 @@ def render_header(context, match_run_id):
 
 def render_notice(message, error):
     if error:
-        return f"<div class='notice error'>{e(error)}</div>"
+        return f"<div class='notice error' role='alert'>{e(error)}</div>"
     if message:
-        return f"<div class='notice success'>{e(message)}</div>"
+        return f"<div class='notice success' role='status'>{e(message)}</div>"
     return ""
 
 
@@ -2359,17 +2412,24 @@ def action_form(
     return_to="preview-recommendations",
     section="",
 ):
+    visual_variant = action_visual_variant(action)
     return f"""
-    <form method="post" action="/action" class="js-inline-action">
+    <form method="post" action="/action" class="js-inline-action action-form action-form-{e(action)} action-{e(visual_variant)}">
       <input type="hidden" name="match_run_id" value="{e(match_run_id)}">
       <input type="hidden" name="action" value="{e(action)}">
       <input type="hidden" name="opportunity_key" value="{e(opportunity_key)}">
       <input type="hidden" name="pipeline_item_id" value="{e(str(pipeline_id or ''))}">
       <input type="hidden" name="return_to" value="{e(return_to)}">
       <input type="hidden" name="section" value="{e(section)}">
-      <button type="submit">{e(label)}</button>
+      <button type="submit" class="action-button">{e(label)}</button>
     </form>
     """
+
+
+def action_visual_variant(action):
+    if action in {"save", "applied", "assessment_started", "assessment_completed"}:
+        return "secondary"
+    return "tertiary"
 
 
 def action_json_payload(result, run, form):
@@ -2425,11 +2485,11 @@ def render_inline_action_script():
         if (!notice) {
           notice = document.createElement("p");
           notice.className = "js-action-feedback action-feedback";
-          notice.setAttribute("role", "status");
-          notice.setAttribute("aria-live", "polite");
           (card.querySelector(".card-main") || card).append(notice);
         }
         notice.className = `js-action-feedback action-feedback ${isError ? "error" : "success"}`;
+        notice.setAttribute("role", isError ? "alert" : "status");
+        notice.setAttribute("aria-live", isError ? "assertive" : "polite");
         notice.textContent = message;
       };
       document.addEventListener("submit", async (event) => {
@@ -2581,41 +2641,70 @@ def e(value):
 CSS = """
 :root {
   color-scheme: light;
-  --bg: #f7f7f4;
-  --ink: #1f2a24;
-  --muted: #657168;
-  --line: #d8ddd5;
-  --panel: #ffffff;
-  --accent: #27614f;
-  --accent-soft: #e4f2ed;
-  --warn: #7a3b24;
-  --ok: #235d38;
+  --bg: #F5F7F6;
+  --panel: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-subtle: #EFF4F1;
+  --ink: #17211C;
+  --muted: #5B6861;
+  --line: #D9E0DC;
+  --accent: #176B52;
+  --accent-hover: #11533F;
+  --accent-soft: #E7F3EE;
+  --focus: #2563EB;
+  --warn: #7A3B24;
+  --ok: #235D38;
 }
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 16px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+.app-header {
+  background: rgba(255, 255, 255, .96);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.app-header-inner {
+  align-items: center;
+  display: flex;
+  height: 64px;
+  justify-content: space-between;
+  margin: 0 auto;
+  padding: 0 24px;
+  width: min(1080px, 100%);
+}
+.wordmark {
+  color: var(--ink);
+  font-size: 1.08rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+.app-main { margin: 0 auto; padding: 36px 24px 64px; width: min(1080px, 100%); }
+.app-main > #action-feedback:empty { display: none; }
 .product-nav {
   align-items: center;
-  border-bottom: 1px solid var(--line);
   display: flex;
-  gap: 20px;
-  margin-bottom: 18px;
-  min-height: 44px;
+  gap: 24px;
+  height: 100%;
 }
 .product-nav a {
   color: var(--muted);
   font-weight: 700;
-  padding: 11px 2px 10px;
+  align-items: center;
+  display: inline-flex;
+  height: 100%;
+  padding: 2px 0 0;
   text-decoration: none;
 }
-.product-nav a[aria-current="page"] { border-bottom: 2px solid var(--accent); color: var(--ink); }
-section { margin: 18px 0; }
-section, .card { scroll-margin-top: 18px; }
+.product-nav a[aria-current="page"] { box-shadow: inset 0 -2px var(--accent); color: var(--ink); }
+section { margin: 24px 0; }
+section, .card { scroll-margin-top: 82px; }
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr);
@@ -2629,11 +2718,17 @@ section, .card { scroll-margin-top: 18px; }
   padding: 18px;
 }
 h1, h2, h3, p { margin-top: 0; }
-h1 { font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1; margin-bottom: 12px; }
-h2 { font-size: 1.35rem; margin-bottom: 10px; }
+h1 { font-size: 36px; line-height: 1.15; margin-bottom: 12px; }
+h2 { font-size: 1.4rem; line-height: 1.25; margin-bottom: 10px; }
 h3 { font-size: 1.02rem; margin-bottom: 8px; }
 .lead { color: var(--muted); font-size: 1.08rem; max-width: 56ch; }
-.eyebrow, .source { color: var(--accent); font-weight: 700; font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 8px; }
+.eyebrow, .source { color: var(--accent); font-size: .78rem; font-weight: 800; letter-spacing: 0; margin-bottom: 8px; text-transform: uppercase; }
+.page-intro { margin: 18px 0 28px; max-width: 720px; }
+.page-intro .lead { font-size: 1.12rem; }
+.results-header { margin: 8px 0 20px; }
+.results-header h1 { margin-bottom: 8px; }
+.results-summary { color: var(--muted); margin-bottom: 0; }
+.results-summary strong { color: var(--ink); }
 .profile-switcher {
   align-items: end;
   display: flex;
@@ -2653,7 +2748,7 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   border-radius: 6px;
   color: var(--ink);
   font: inherit;
-  min-height: 34px;
+  min-height: 40px;
   min-width: min(360px, 100%);
   padding: 6px 9px;
 }
@@ -2671,21 +2766,26 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   border: 1px solid var(--line);
   border-radius: 8px;
   display: grid;
-  gap: 10px;
-  padding: 18px;
+  gap: 12px;
+  padding: 22px;
 }
 .preview-form label {
-  color: var(--muted);
+  color: var(--ink);
   font-weight: 700;
 }
 .preview-form textarea, .preview-form select {
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--ink);
   font: inherit;
-  padding: 9px;
+  padding: 11px 12px;
   width: 100%;
 }
+.preview-form textarea { min-height: 150px; resize: vertical; }
+.preview-form > button { justify-self: start; }
+.preview-input { max-width: 760px; }
+.field-help { color: var(--muted); margin: -6px 0 0; }
 .advanced-options {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -2706,17 +2806,26 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   border: 1px solid var(--line);
   border-radius: 8px;
   display: flex;
-  gap: 18px;
+  gap: 20px;
   justify-content: space-between;
-  padding: 16px 18px;
+  padding: 14px 16px;
 }
-.profile-context p { margin-bottom: 5px; }
+.profile-context p { margin-bottom: 4px; }
 .profile-context .secondary-link { flex: 0 0 auto; }
-.preview-edit-intro { max-width: 760px; }
-.ranked-matches > .muted { max-width: 72ch; }
-.ranked-card {
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+.profile-context-label { color: var(--muted); font-size: .82rem; font-weight: 700; }
+.profile-summary-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
+.profile-summary-line li { color: var(--ink); font-size: .94rem; }
+.profile-summary-line li:not(:last-child)::after { color: #9AA49E; content: "\\2022"; margin: 0 9px; }
+.preview-edit-intro { max-width: 760px; }
+.ranked-matches { margin-top: 16px; }
 .match-rank {
   align-items: center;
   background: var(--accent-soft);
@@ -2770,34 +2879,71 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
 }
 .stack { display: grid; gap: 10px; }
 .card {
+  align-items: start;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
-  align-items: start;
 }
+.card.ranked-card {
+  align-items: start;
+  gap: 16px;
+  grid-template-columns: 44px minmax(0, 1fr) 176px;
+  padding: 16px;
+}
+.ranked-card .card-main { min-width: 0; }
+.ranked-card .card-main > p:last-child { margin-bottom: 0; }
 .card:target {
   border-color: var(--accent);
-  background: #f4fbf7;
-  box-shadow: 0 0 0 3px rgba(39, 97, 79, .12);
+  background: #F4FBF7;
+  box-shadow: 0 0 0 3px rgba(23, 107, 82, .12);
 }
-.card-actions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; max-width: 360px; }
+.card-actions { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; max-width: 360px; }
 .card-actions form { margin: 0; }
+.ranked-card .card-actions {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+  justify-items: stretch;
+  max-width: 176px;
+  width: 176px;
+}
+.ranked-card .js-card-controls { display: grid; gap: 8px; }
+.ranked-card .action-form, .ranked-card .action-button, .ranked-card .button-primary { width: 100%; }
 button, .open {
-  border: 1px solid var(--accent);
   background: var(--accent);
-  color: white;
+  border: 1px solid var(--accent);
   border-radius: 6px;
+  color: white;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  padding: 6px 10px;
-  text-decoration: none;
   font: inherit;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 12px;
   white-space: nowrap;
+  text-decoration: none;
 }
-button:hover, .open:hover { filter: brightness(.96); }
+button:hover, .open:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+button:disabled { cursor: wait; opacity: .58; }
 .open { background: var(--accent-soft); color: var(--accent); }
+.open:hover { color: white; }
+.button-primary { background: var(--accent); color: white; }
+.ranked-card .action-secondary .action-button {
+  background: var(--panel);
+  border-color: #AFC0B8;
+  color: var(--accent);
+}
+.ranked-card .action-secondary .action-button:hover { background: var(--accent-soft); border-color: var(--accent); }
+.ranked-card .action-tertiary .action-button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.ranked-card .action-tertiary .action-button:hover { background: var(--surface-subtle); border-color: var(--line); color: var(--ink); }
+.card-status:empty { display: none; }
 .pill {
   display: inline-block;
   background: var(--accent-soft);
@@ -2877,14 +3023,36 @@ button:hover, .open:hover { filter: brightness(.96); }
 .action-feedback { font-weight: 700; margin: 10px 0 0; }
 .action-feedback.success { color: var(--ok); }
 .action-feedback.error { color: var(--warn); }
+button:focus-visible, a:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px; vertical-align: top; }
 th { color: var(--muted); font-size: .86rem; }
 tr:last-child td { border-bottom: 0; }
 @media (max-width: 820px) {
-  .hero, .card, .preview-grid, .ranked-card { grid-template-columns: 1fr; }
+  .app-header-inner { height: 56px; padding: 0 16px; }
+  .app-main { padding: 26px 16px 48px; }
+  section, .card { scroll-margin-top: 72px; }
+  h1 { font-size: 30px; }
+  .page-intro { margin-top: 8px; }
+  .hero, .card, .preview-grid, .card.ranked-card { grid-template-columns: 1fr; }
+  .card.ranked-card { gap: 12px; padding: 16px; }
+  .match-rank { height: 32px; width: 32px; }
   .profile-context { align-items: flex-start; flex-direction: column; }
   .card-actions { justify-content: flex-start; max-width: none; }
+  .ranked-card .card-actions {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+    width: 100%;
+  }
+  .ranked-card .js-card-controls { display: contents; }
+  button, .open, .profile-switcher select { min-height: 44px; }
+  .preview-form { padding: 16px; }
+  .product-nav { gap: 18px; }
 }
 """
 

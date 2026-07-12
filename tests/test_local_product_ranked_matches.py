@@ -179,7 +179,7 @@ class RankedPresentationTests(unittest.TestCase):
             demo_mode=False,
         )
 
-        self.assertIn("Your best matches", page)
+        self.assertIn("Your matches", page)
         self.assertEqual(page.count('class="match-rank"'), 5)
         self.assertIn('aria-label="Rank 1">#1</div>', page)
         self.assertIn('aria-label="Rank 5">#5</div>', page)
@@ -211,7 +211,7 @@ class RankedPresentationTests(unittest.TestCase):
                     match_run_id=f"run-{persona}",
                     demo_mode=True,
                 )
-                self.assertIn("Your best matches", page)
+                self.assertIn("Your matches", page)
                 self.assertIn("<summary><span>QA details</span>", page)
                 self.assertIn("Do These First", page)
                 self.assertIn("Explore Only", page)
