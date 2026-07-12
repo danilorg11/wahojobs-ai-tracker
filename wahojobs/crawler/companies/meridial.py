@@ -1,16 +1,19 @@
-from wahojobs.crawler.providers.greenhouse import fetch_greenhouse_jobs
-from wahojobs.crawler.types import CompanyCrawlResult
+from wahojobs.crawler.providers.greenhouse import (
+    GreenhouseBoardConfig,
+    fetch_greenhouse_snapshot,
+)
+
+
+MERIDIAL_GREENHOUSE_CONFIG = GreenhouseBoardConfig(
+    source_name="Meridial",
+    board_token="agency",
+    api_host="https://boards-api.greenhouse.io",
+    root_department_id=4012485101,
+)
 
 
 def crawl_meridial(api_url):
-    jobs = [
-        job
-        for job in fetch_greenhouse_jobs(api_url)
-        if job.external_id and job.title and job.url
-    ]
-    return CompanyCrawlResult(
-        jobs=jobs,
-        used_sample_data=False,
-        source_type="greenhouse-tree",
-        source_message=f"Fetched live Meridial projects from Greenhouse department tree: {api_url}",
+    return fetch_greenhouse_snapshot(
+        MERIDIAL_GREENHOUSE_CONFIG,
+        configured_url=api_url,
     )

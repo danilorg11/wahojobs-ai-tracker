@@ -1,0 +1,143 @@
+{
+  "valid_jobs_inventory": {
+    "jobs": [
+      {
+        "id": 1001,
+        "title": "Python Specialist - Freelance AI Trainer Project",
+        "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001",
+        "location": {"name": "World Wide - Remote"},
+        "updated_at": "2026-07-01T12:00:00-04:00",
+        "departments": [
+          {"id": 5001, "name": "Engineering & Technology", "child_ids": [], "parent_id": 4012485101}
+        ],
+        "offices": [
+          {"id": 6001, "name": "Worldwide - Remote", "location": null, "child_ids": [], "parent_id": null}
+        ]
+      },
+      {
+        "id": 1002,
+        "title": "Portuguese Language Specialist - Freelance AI Trainer Project",
+        "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1002",
+        "location": {"name": "Brazil - Remote"},
+        "updated_at": "2026-07-01T12:00:00-04:00",
+        "departments": [
+          {"id": 5002, "name": "Language & Linguistics", "child_ids": [], "parent_id": 4012485101}
+        ],
+        "offices": [
+          {"id": 6002, "name": "Brazil - Remote", "location": null, "child_ids": [], "parent_id": null}
+        ]
+      },
+      {
+        "id": 1003,
+        "title": "Technical Language Evaluator",
+        "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1003",
+        "location": {"name": "World Wide - Remote"},
+        "updated_at": "2026-07-01T12:00:00-04:00",
+        "departments": [
+          {"id": 5001, "name": "Engineering & Technology", "child_ids": [], "parent_id": 4012485101},
+          {"id": 5002, "name": "Language & Linguistics", "child_ids": [], "parent_id": 4012485101}
+        ],
+        "offices": []
+      },
+      {
+        "id": 1004,
+        "title": "Generalist Evaluator",
+        "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1004",
+        "location": {"name": "World Wide - Remote"},
+        "updated_at": "2026-07-01T12:00:00-04:00",
+        "departments": [],
+        "offices": []
+      }
+    ],
+    "meta": {"total": 4}
+  },
+  "valid_department_hierarchy": {
+    "id": 4012485101,
+    "name": "The Agency: Worldwide Sharing",
+    "jobs": [],
+    "children": [
+      {
+        "id": 5001,
+        "name": "Engineering & Technology",
+        "jobs": [
+          {"id": 1001, "title": "Python Specialist - Freelance AI Trainer Project", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": {"name": "World Wide - Remote"}},
+          {"id": 1003, "title": "Technical Language Evaluator", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1003", "location": {"name": "World Wide - Remote"}}
+        ],
+        "children": []
+      },
+      {
+        "id": 5002,
+        "name": "Language & Linguistics",
+        "jobs": [
+          {"id": 1002, "title": "Portuguese Language Specialist - Freelance AI Trainer Project", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1002", "location": {"name": "Brazil - Remote"}},
+          {"id": 1003, "title": "Technical Language Evaluator", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1003", "location": {"name": "World Wide - Remote"}}
+        ],
+        "children": []
+      }
+    ]
+  },
+  "empty_department_hierarchy": {
+    "id": 4012485101,
+    "name": "The Agency: Worldwide Sharing",
+    "jobs": [],
+    "children": []
+  },
+  "invalid_root_envelope": ["not", "an", "object"],
+  "missing_jobs_key": {"meta": {"total": 0}},
+  "jobs_wrong_type": {"jobs": {}, "meta": {"total": 0}},
+  "duplicate_job_ids": {
+    "jobs": [
+      {"id": 1001, "title": "Python Specialist - Freelance AI Trainer Project", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": {"name": "World Wide - Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []},
+      {"id": 1001, "title": "Python Specialist - Freelance AI Trainer Project", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": {"name": "World Wide - Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}
+    ],
+    "meta": {"total": 2}
+  },
+  "conflicting_duplicate_records": {
+    "jobs": [
+      {"id": 1001, "title": "Python Specialist", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": {"name": "World Wide - Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []},
+      {"id": 1001, "title": "Conflicting Python Role", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": {"name": "Brazil - Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}
+    ],
+    "meta": {"total": 2}
+  },
+  "missing_job_id": {
+    "jobs": [{"title": "Missing ID", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": {"name": "Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}],
+    "meta": {"total": 1}
+  },
+  "missing_title": {
+    "jobs": [{"id": 1001, "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": {"name": "Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}],
+    "meta": {"total": 1}
+  },
+  "missing_application_url": {
+    "jobs": [{"id": 1001, "title": "Missing URL", "location": {"name": "Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}],
+    "meta": {"total": 1}
+  },
+  "invalid_application_url": {
+    "jobs": [{"id": 1001, "title": "Board Homepage", "absolute_url": "https://job-boards.eu.greenhouse.io/agency", "location": {"name": "Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}],
+    "meta": {"total": 1}
+  },
+  "invalid_location_structure": {
+    "jobs": [{"id": 1001, "title": "Bad Location", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1001", "location": "Remote", "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}],
+    "meta": {"total": 1}
+  },
+  "department_job_absent_inventory": {
+    "id": 4012485101,
+    "name": "The Agency: Worldwide Sharing",
+    "jobs": [{"id": 9999, "title": "Unknown Job", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/9999", "location": {"name": "Remote"}}],
+    "children": []
+  },
+  "inventory_job_absent_departments": {
+    "jobs": [{"id": 1004, "title": "Generalist Evaluator", "absolute_url": "https://job-boards.eu.greenhouse.io/agency/jobs/1004", "location": {"name": "World Wide - Remote"}, "updated_at": "2026-07-01T12:00:00-04:00", "departments": [], "offices": []}],
+    "meta": {"total": 1}
+  },
+  "invalid_department_hierarchy": {
+    "id": 4012485101,
+    "name": "The Agency: Worldwide Sharing",
+    "jobs": [],
+    "children": [{"id": 5001, "name": "Broken Child", "jobs": []}]
+  },
+  "empty_jobs_inventory": {"jobs": [], "meta": {"total": 0}},
+  "application_level_error": {"error": "Board unavailable", "jobs": [], "meta": {"total": 0}},
+  "invalid_board": {"status": 404, "message": "Board not found"},
+  "http_failure": {"status": 503},
+  "invalid_json": "{not valid json"
+}
