@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -229,72 +230,69 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         self.assertIn("dutch", excluded_titles)
 
     def test_beginner_bilingual_caps_title_only_dialect_and_language_roles(self):
-        context = preview.build_preview_context(
+        _, profile = normalized_matcher_profile(
             "I speak English and Spanish, no college degree, looking for remote beginner AI data tasks.",
             "short_paragraph",
-            limit=160,
         )
 
-        primary = context["matches"]["do_these_first"] + context["matches"]["best_matches"]
-        terms = (
-            "alexandrian dialect",
-            "bedawi dialect",
-            "belarusian language specialist",
-            "british sign language",
-            "cebuano language specialist",
-            "chichewa language specialist",
-            "guaraní language expert",
-            "guaraní language specialist",
-            "k'iche' (mayan) language expert",
-            "kaqchikel (mayan) language expert",
-            "kurdish (kurmanji) language expert",
-            "kurdish (sorani) language expert",
-            "generalist - english & odia",
+        unsupported_titles = (
+            "Alexandrian Dialect Language Expert",
+            "Bedawi Dialect Language Expert",
+            "Belarusian Language Specialist",
+            "British Sign Language Specialist",
+            "Cebuano Language Specialist",
+            "Chichewa Language Specialist",
+            "Guaran\u00ed Language Expert",
+            "Guaran\u00ed Language Specialist",
+            "K'iche' (Mayan) Language Expert",
+            "Kaqchikel (Mayan) Language Expert",
+            "Kurdish (Kurmanji) Language Expert",
+            "Kurdish (Sorani) Language Expert",
+            "Generalist - English & Odia",
         )
-        for term in terms:
-            matches = matches_with_title_terms(context, (term,))
-            self.assertTrue(matches, term)
-            self.assertFalse(any(match in primary for match in matches), term)
+        for title in unsupported_titles:
+            match = guarded_synthetic_match(profile, title, expertise="Language")
+            self.assertNotIn(
+                match["preview_section"],
+                {"do_these_first", "best_matches"},
+                title,
+            )
             self.assertTrue(
                 any(
                     diagnostic.startswith("Unsupported title-only language or dialect")
-                    for match in matches
                     for diagnostic in match["preview_diagnostics"]
                 ),
-                term,
+                title,
             )
 
-        odia_matches = matches_with_title_terms(context, ("generalist - english & odia",))
-        self.assertTrue(odia_matches)
-        self.assertIn("Odia", preview.user_caution_note(odia_matches[0]))
-
-        positive_matches = matches_with_title_terms(
-            context,
-            (
-                "english language data contributor",
-                "spanish audio specialist",
-                "english language expert",
-            ),
+        odia_match = guarded_synthetic_match(
+            profile,
+            "Generalist - English & Odia",
+            expertise="Language",
         )
-        self.assertTrue(positive_matches)
+        self.assertIn("Odia", preview.user_caution_note(odia_match))
+
+        positive_matches = [
+            scored_synthetic_match(profile, title, expertise="Data Annotation")
+            for title in (
+                "English Language Data Contributor",
+                "Spanish Audio Specialist",
+                "English Language Expert (Generalist)",
+            )
+        ]
+        self.assertTrue(
+            all(
+                match["preview_section"]
+                in {"do_these_first", "best_matches", "also_worth_reviewing"}
+                for match in positive_matches
+            )
+        )
         self.assertTrue(
             any(match["affirmative_fit_status"] == "supported" for match in positive_matches)
         )
         self.assertTrue(
-            all(
-                match["opportunity_trust_status"] in {"stale_source", "trusted"}
-                for match in positive_matches
-            )
+            all(match["opportunity_trust_status"] == "trusted" for match in positive_matches)
         )
-
-        visible_titles = " ".join(
-            match["display_title"].lower()
-            for section in ("do_these_first", "best_matches", "also_worth_reviewing")
-            for match in context["matches"][section]
-        )
-        self.assertIn("english language data contributor", visible_titles)
-        self.assertIn("spanish audio specialist", visible_titles)
-        self.assertIn("english language expert", visible_titles)
 
     def test_explicit_profile_locale_does_not_cap_matching_locale_roles(self):
         context = preview.build_preview_context(
@@ -369,33 +367,27 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         )
 
     def test_software_preview_caps_science_coding_roles_when_credentials_are_absent(self):
-        context = preview.build_preview_context(
+        canonical, profile = normalized_matcher_profile(
             "Senior Software Engineer, 8 years. Python, TypeScript, React, APIs, test automation. "
             "I don't have biology or medical credentials, but I can evaluate coding tasks and tests. "
             "Looking for remote AI coding evaluator work.",
             "resume_or_linkedin_style",
-            limit=100,
         )
 
-        canonical = context["canonical_profile"]
         self.assertIn("software engineering", canonical["education"]["fields_or_domains"])
         self.assertNotIn("biology", canonical["education"]["fields_or_domains"])
         self.assertIn("no biology or medical credentials", canonical["constraints"]["hard_constraints"])
 
-        best_titles = {match["display_title"] for match in context["matches"]["best_matches"]}
-        self.assertIn("Backend Engineer (Coding Agent Experience)", best_titles)
-
-        primary_titles = " ".join(
-            match["display_title"].lower()
-            for match in context["matches"]["do_these_first"] + context["matches"]["best_matches"]
+        backend_match = scored_synthetic_match(
+            profile,
+            "Backend Engineer (Coding Agent Experience)",
+            expertise="Software Engineering",
         )
-        self.assertNotIn("pavement condition index", primary_titles)
-        self.assertNotIn("building code & permitting specialists", primary_titles)
-        self.assertNotIn("customer success engineer (india)", primary_titles)
-        self.assertNotIn("customer success engineer (latam)", primary_titles)
+        self.assertEqual(backend_match["preview_section"], "best_matches")
+        self.assertTrue(backend_match["eligible_for_personalized"])
 
         pci_match = guarded_synthetic_match(
-            context["matcher_profile"],
+            profile,
             "Pavement Condition Index (PCI) Survey & Annotation Specialist",
             expertise="Data Annotation",
         )
@@ -407,45 +399,49 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             )
         )
 
-        regional_customer_success = matches_with_title_terms(
-            context,
-            ("customer success engineer (india)", "customer success engineer (latam)"),
-        )
-        self.assertTrue(regional_customer_success)
+        regional_customer_success = [
+            guarded_synthetic_match(profile, title, expertise="Software Engineering")
+            for title in (
+                "Customer Success Engineer (India)",
+                "Customer Success Engineer (LATAM)",
+            )
+        ]
         self.assertTrue(
             all(match["preview_section"] == "explore_only" for match in regional_customer_success),
             regional_customer_success,
         )
 
-        building_code = matches_with_title_terms(context, ("building code & permitting specialists",))
-        self.assertTrue(building_code)
-        self.assertTrue(all(match["preview_section"] == "explore_only" for match in building_code))
+        building_code = guarded_synthetic_match(
+            profile,
+            "Building Code & Permitting Specialists (ONLY Cal & FL)",
+            expertise="Engineering",
+        )
+        self.assertEqual(building_code["preview_section"], "explore_only")
         self.assertTrue(
             any(
                 diagnostic.startswith("Location or regional eligibility needs confirmation")
-                for match in building_code
-                for diagnostic in match["preview_diagnostics"]
+                for diagnostic in building_code["preview_diagnostics"]
             )
         )
 
-        visible_science_coding = [
-            match
-            for section in ("do_these_first", "best_matches", "also_worth_reviewing")
-            for match in context["matches"][section]
-            if title_has_any(match, ("biology", "biologist", "chemistry", "material science", "materials science"))
-            and title_has_any(match, ("python", "coding", "software", "code"))
-        ]
-        self.assertEqual(visible_science_coding, [])
-
-        capped = [
-            match
-            for match in context["matches"]["explore_only"]
-            if any(
-                "no biology or medical credentials" in diagnostic
-                for diagnostic in match["preview_diagnostics"]
+        science_coding_matches = [
+            guarded_synthetic_match(profile, title, expertise="Science")
+            for title in (
+                "Biology Python Coding Expert",
+                "Chemistry Software Evaluation Specialist",
+                "Material Science Coding Expert",
             )
         ]
-        self.assertTrue(capped)
+        self.assertTrue(
+            all(match["preview_section"] == "explore_only" for match in science_coding_matches)
+        )
+        self.assertTrue(
+            any(
+                "no biology or medical credentials" in diagnostic
+                for match in science_coding_matches
+                for diagnostic in match["preview_diagnostics"]
+            )
+        )
 
     def test_biology_preview_preserves_research_signals_without_overpromoting_licensed_roles(self):
         context = preview.build_preview_context(
@@ -598,6 +594,70 @@ def matches_with_title_terms(context, terms):
         for match in all_preview_matches(context)
         if title_has_any(match, terms)
     ]
+
+
+SYNTHETIC_EVALUATED_AT = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+
+
+def normalized_matcher_profile(raw_input, input_style):
+    normalization = preview.BaselineHeuristicProfileNormalizer().normalize(
+        raw_input,
+        input_style,
+        {
+            "profile_id": "preview_profile",
+            "display_name": "Preview Profile",
+        },
+    )
+    canonical = normalization.canonical_profile
+    validate_canonical_profile(canonical)
+    profile = preview.canonical_to_matcher_profile(canonical)
+    profile["language_locale_keys"] = preview.canonical_language_locale_keys(canonical)
+    return canonical, profile
+
+
+def synthetic_opportunity_row(title, expertise="Unknown", location="Remote", job_id=1):
+    observed_at = SYNTHETIC_EVALUATED_AT.isoformat()
+    return {
+        "job_id": job_id,
+        "title": title,
+        "canonical_title": None,
+        "source": "Synthetic",
+        "source_slug": "synthetic",
+        "source_tier": "core",
+        "location": location,
+        "url": f"https://example.test/jobs/{job_id}",
+        "department": expertise,
+        "expertise": expertise,
+        "source_category": expertise,
+        "commitment": "Freelance",
+        "opportunity_kind": "live_posting",
+        "availability_basis": "api_feed",
+        "inventory_model": "live_feed",
+        "market_count_policy": "count_live",
+        "include_in_live_market_estimate": 1,
+        "canonical_opportunity_id": job_id,
+        "canonical_is_active": True,
+        "job_is_active": True,
+        "job_last_seen_at": observed_at,
+        "latest_successful_source_run_at": observed_at,
+        "source_run_started_at": observed_at,
+        "source_run_id": 1,
+        "source_run_qualifies": True,
+        "language": None,
+        "language_locale": None,
+        "required_languages": None,
+    }
+
+
+def scored_synthetic_match(profile, title, expertise="Unknown", location="Remote"):
+    row = synthetic_opportunity_row(title, expertise=expertise, location=location)
+    match = matcher.score_opportunity(profile, row)
+    return preview.apply_preview_guardrails(
+        profile,
+        row,
+        match,
+        evaluated_at=SYNTHETIC_EVALUATED_AT,
+    )
 
 
 def guarded_synthetic_match(profile, title, expertise="Unknown", location="Remote"):
