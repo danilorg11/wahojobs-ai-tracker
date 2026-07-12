@@ -13,6 +13,24 @@ def print_crawl_summary(company, summary):
         print("Data mode: SAMPLE DATA - live jobs were not available.")
     else:
         print("Data mode: LIVE")
+    print(f"Provider outcome: {summary.provider_outcome.value}")
+    print(f"Snapshot complete: {'yes' if summary.snapshot_complete else 'no'}")
+    print(f"Pagination complete: {'yes' if summary.pagination_complete else 'no'}")
+    print(f"Removals authorized: {'yes' if summary.removals_authorized else 'no'}")
+    if summary.removal_skip_reasons:
+        print(f"Removal skip reasons: {'; '.join(summary.removal_skip_reasons)}")
+    if summary.payload_shape:
+        print(f"Payload shape: {summary.payload_shape}")
+    if summary.schema_fingerprint:
+        print(f"Schema fingerprint: {summary.schema_fingerprint}")
+    print(
+        "Provider records: "
+        f"raw={summary.raw_record_count}, "
+        f"normalized={summary.normalized_record_count}, "
+        f"rejected={summary.rejected_record_count}"
+    )
+    for warning in summary.warnings:
+        print(f"Warning: {warning}")
     print("")
     print(f"Jobs found:       {summary.jobs_found}")
     print(f"New jobs:         {summary.jobs_new}")

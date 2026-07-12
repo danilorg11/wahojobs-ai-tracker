@@ -393,7 +393,17 @@ class OpportunityTrustSourceRunTests(unittest.TestCase):
             self.conn,
             1,
             20,
-            CompanyCrawlResult([candidate], False, "fixture", "fixture"),
+            CompanyCrawlResult(
+                [candidate],
+                False,
+                "fixture",
+                "fixture",
+                outcome="success",
+                snapshot_complete=True,
+                pagination_complete=True,
+                raw_record_count=1,
+                normalized_record_count=1,
+            ),
             stale_time,
         )
         self.conn.commit()
@@ -410,7 +420,16 @@ class OpportunityTrustSourceRunTests(unittest.TestCase):
             self.conn,
             1,
             21,
-            CompanyCrawlResult([], False, "fixture", "fixture"),
+            CompanyCrawlResult(
+                [],
+                False,
+                "fixture",
+                "fixture",
+                outcome="success",
+                snapshot_complete=True,
+                pagination_complete=True,
+                empty_snapshot_validated=True,
+            ),
             fresh_time,
         )
         self.conn.commit()

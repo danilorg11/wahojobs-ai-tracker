@@ -383,11 +383,18 @@ def create_crawl_run(conn, company_id, started_at):
     return cursor.lastrowid
 
 
-def finish_crawl_run(conn, crawl_run_id, summary, finished_at):
+def finish_crawl_run(
+    conn,
+    crawl_run_id,
+    summary,
+    finished_at,
+    status="success",
+    error_message=None,
+):
     conn.execute(
         """
         UPDATE crawl_runs
-        SET status = 'success',
+        SET status = ?,
             finished_at = ?,
             jobs_found_count = ?,
             jobs_new_count = ?,
@@ -395,10 +402,11 @@ def finish_crawl_run(conn, crawl_run_id, summary, finished_at):
             jobs_updated_count = ?,
             jobs_removed_count = ?,
             used_sample_data = ?,
-            error_message = NULL
+            error_message = ?
         WHERE id = ?
         """,
         (
+            status,
             finished_at,
             summary.jobs_found,
             summary.jobs_new,
@@ -406,6 +414,7 @@ def finish_crawl_run(conn, crawl_run_id, summary, finished_at):
             summary.jobs_updated,
             summary.jobs_removed,
             int(summary.used_sample_data),
+            error_message,
             crawl_run_id,
         ),
     )

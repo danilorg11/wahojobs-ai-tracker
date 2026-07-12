@@ -23,7 +23,15 @@ from wahojobs.db.repository import (
     finish_crawl_run,
     get_company_by_slug,
 )
-from wahojobs.tracking.service import track_crawl_result
+from wahojobs.crawler.types import (
+    ProviderOutcome,
+    crawl_run_status_for_result,
+    evaluate_removal_authorization,
+)
+from wahojobs.tracking.service import (
+    summarize_crawl_result_without_lifecycle,
+    track_crawl_result,
+)
 
 
 def utc_now():
@@ -62,23 +70,71 @@ def run_crawl(company_slug="appen"):
         crawl_run_id = create_crawl_run(conn, company["id"], started_at)
         conn.commit()
 
+        savepoint_name = None
+        savepoint_active = False
         try:
             crawler = CRAWLERS.get(company_slug)
             if crawler is None:
                 raise ValueError(f"No crawler is implemented for '{company_slug}'.")
 
             crawl_result = crawler(company["careers_url"])
-            summary = track_crawl_result(
-                conn,
-                company["id"],
-                crawl_run_id,
+            removal_authorization = evaluate_removal_authorization(crawl_result)
+
+            if crawl_result.outcome == ProviderOutcome.CONTRACT_DRIFT:
+                summary = summarize_crawl_result_without_lifecycle(
+                    conn,
+                    company["id"],
+                    crawl_result,
+                )
+            else:
+                conn.execute("BEGIN")
+                savepoint_name = f"crawl_lifecycle_{int(crawl_run_id)}"
+                conn.execute(f"SAVEPOINT {savepoint_name}")
+                savepoint_active = True
+                summary = track_crawl_result(
+                    conn,
+                    company["id"],
+                    crawl_run_id,
+                    crawl_result,
+                    utc_now(),
+                )
+                conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
+                savepoint_active = False
+
+            crawl_run_status = crawl_run_status_for_result(
                 crawl_result,
-                utc_now(),
+                removal_authorization,
             )
-            finish_crawl_run(conn, crawl_run_id, summary, utc_now())
+            finish_crawl_run(
+                conn,
+                crawl_run_id,
+                summary,
+                utc_now(),
+                status=crawl_run_status,
+                error_message=non_success_diagnostic(crawl_run_status, summary),
+            )
             conn.commit()
             return company, summary
         except Exception as exc:
+            if savepoint_active and savepoint_name:
+                try:
+                    conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+                    conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
+                except Exception:
+                    pass
+            conn.rollback()
             fail_crawl_run(conn, crawl_run_id, str(exc), utc_now())
             conn.commit()
             raise
+
+
+def non_success_diagnostic(crawl_run_status, summary):
+    if crawl_run_status == "success":
+        return None
+    details = [
+        summary.source_message,
+        *summary.removal_skip_reasons,
+        *summary.warnings,
+    ]
+    details = [detail for detail in details if detail]
+    return f"{crawl_run_status}: {'; '.join(details)}"

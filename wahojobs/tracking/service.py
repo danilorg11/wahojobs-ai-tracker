@@ -8,7 +8,13 @@ from wahojobs.canonical.service import (
     sync_turing_canonical_opportunities,
     sync_welocalize_canonical_opportunities,
 )
-from wahojobs.crawler.types import CompanyCrawlResult, TrackingSummary
+from wahojobs.crawler.types import (
+    LEGACY_CONTRACT_WARNING,
+    CompanyCrawlResult,
+    ProviderOutcome,
+    TrackingSummary,
+    evaluate_removal_authorization,
+)
 from wahojobs.db.repository import (
     count_active_jobs,
     create_job_event,
@@ -34,19 +40,28 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     if company is None:
         raise RuntimeError(f"Unknown company id: {company_id}")
 
+    if crawl_result.outcome == ProviderOutcome.CONTRACT_DRIFT:
+        return summarize_crawl_result_without_lifecycle(
+            conn,
+            company_id,
+            crawl_result,
+        )
+
     candidates = dedupe_candidates(
         with_source_hash(company["slug"], candidate)
         for candidate in crawl_result.jobs
     )
     seen_hashes = [candidate.source_hash for candidate in candidates]
-    guard_suspicious_mindrift_partial_crawl(
-        conn,
-        company["slug"],
-        company_id,
-        len(candidates),
-        seen_hashes,
-        crawl_result.used_sample_data,
-    )
+    removal_authorization = evaluate_removal_authorization(crawl_result)
+    if removal_authorization.authorized:
+        guard_suspicious_mindrift_partial_crawl(
+            conn,
+            company["slug"],
+            company_id,
+            len(candidates),
+            seen_hashes,
+            crawl_result.used_sample_data,
+        )
 
     jobs_new = 0
     jobs_reactivated = 0
@@ -69,7 +84,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         update_seen_job(conn, existing["id"], candidate, now)
 
     jobs_removed = 0
-    if not crawl_result.used_sample_data:
+    if removal_authorization.authorized:
         removed_job_ids = mark_missing_jobs_inactive(conn, company_id, seen_hashes, now)
         jobs_removed = len(removed_job_ids)
         for job_id in removed_job_ids:
@@ -104,7 +119,58 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         active_jobs_total=active_jobs_total,
         used_sample_data=crawl_result.used_sample_data,
         source_message=crawl_result.source_message,
+        provider_outcome=crawl_result.outcome,
+        snapshot_complete=crawl_result.snapshot_complete,
+        pagination_complete=crawl_result.pagination_complete,
+        removals_authorized=removal_authorization.authorized,
+        removal_skip_reasons=removal_authorization.skip_reasons,
+        raw_record_count=crawl_result.raw_record_count,
+        normalized_record_count=crawl_result.normalized_record_count,
+        rejected_record_count=crawl_result.rejected_record_count,
+        warnings=result_warnings(crawl_result),
+        payload_shape=crawl_result.payload_shape,
+        schema_fingerprint=crawl_result.schema_fingerprint,
     )
+
+
+def summarize_crawl_result_without_lifecycle(conn, company_id, crawl_result):
+    removal_authorization = evaluate_removal_authorization(crawl_result)
+    return TrackingSummary(
+        source_type=crawl_result.source_type,
+        jobs_found=0,
+        jobs_new=0,
+        jobs_reactivated=0,
+        jobs_updated=0,
+        jobs_removed=0,
+        active_jobs_total=count_active_jobs(conn, company_id),
+        used_sample_data=crawl_result.used_sample_data,
+        source_message=crawl_result.source_message,
+        provider_outcome=crawl_result.outcome,
+        snapshot_complete=crawl_result.snapshot_complete,
+        pagination_complete=crawl_result.pagination_complete,
+        removals_authorized=removal_authorization.authorized,
+        removal_skip_reasons=removal_authorization.skip_reasons,
+        raw_record_count=crawl_result.raw_record_count,
+        normalized_record_count=crawl_result.normalized_record_count,
+        rejected_record_count=crawl_result.rejected_record_count,
+        warnings=result_warnings(crawl_result),
+        payload_shape=crawl_result.payload_shape,
+        schema_fingerprint=crawl_result.schema_fingerprint,
+    )
+
+
+def result_warnings(crawl_result):
+    warnings = list(crawl_result.warnings)
+    if (
+        crawl_result.outcome == ProviderOutcome.PARTIAL
+        and not crawl_result.snapshot_complete
+        and not crawl_result.pagination_complete
+        and not crawl_result.payload_shape
+        and not crawl_result.schema_fingerprint
+        and LEGACY_CONTRACT_WARNING not in warnings
+    ):
+        warnings.append(LEGACY_CONTRACT_WARNING)
+    return tuple(warnings)
 
 
 def dedupe_candidates(candidates):
