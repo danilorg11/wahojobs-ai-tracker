@@ -69,3 +69,77 @@ superseded, corrected, and undone rows remain queryable in the append-only ledge
 
 `applicant_status_updates` remains unchanged. It is still a legacy external-funnel and
 directional-signal record, not the authoritative pipeline transition ledger.
+
+## Product-action orchestration foundation
+
+`wahojobs.pipeline_actions` composes the low-level state service, the temporary legacy
+mirror, and applicant updates under one outer `pipeline_state.atomic()` boundary. Current
+production callers are intentionally not connected yet.
+
+Every product mutation requires an owner, MatchRun identity, and an unpredictable caller
+idempotency key. Expected versions must be built-in integers: zero or omission is accepted
+only for opportunity-identity creation requests, while existing items require a positive
+version. Booleans, integer subclasses, coercible values, explicit null, and negative values
+are rejected before stored-key lookup or any write.
+
+Caller keys may not use the reserved `wahojobs-internal:pipeline-action:v1:` namespace.
+The caller key is reserved for the operation's terminal ledger transition. Preparatory
+initialization or unknown-workflow resolution keys hash the caller key, complete canonical
+operation fingerprint, pipeline identity, and stable step name under that reserved prefix.
+They reveal none of the original payload and remain inside the same transaction.
+
+The terminal transition acts as the complete-operation commit marker. Its metadata stores
+the canonical request fingerprint and a versioned original result snapshot: item identity,
+normalized state/version, compatibility fields and timestamps, creation outcome, terminal
+and preparatory transition identities, and the complete applicant row returned at operation
+time or explicit null. Exact retries validate persisted ownership and snapshot integrity,
+then return the immutable snapshot without querying mutable applicant, projection, or mirror
+state. Changed semantic input receives the privacy-preserving global idempotency conflict.
+
+`wahojobs.pipeline_transition_metadata` owns the shared fail-closed contracts used by replay
+and reconciliation. New terminal operations, operation no-ops, user initializations, and
+applicant receipts carry explicit versioned schema identifiers. Applicant-producing actions
+also store a canonical receipt bound to the action, deterministic update ID, status, profile,
+opportunity, and writer-controlled fields; non-applicant actions store an explicit null
+receipt. Snapshot objects reject missing, extra, coercible, or incorrectly typed fields.
+Migration 001 predates these identifiers, so its legacy baseline contract instead recognizes
+the exact five-field payload already installed: raw status/reminder, reminder validity,
+classification, and the legacy-snapshot marker. Empty or semantically incompatible baseline
+metadata is blocking drift, while the 70 existing baseline rows remain unchanged.
+
+Migration-created `legacy_snapshot` transitions remain `baseline`. New product items use a
+protected `user_initialization` transition class on the existing workflow dimension, with
+Saved as the initial state and an internal key. Accepted fresh-key repeats use a protected
+`operation_noop` workflow-class transition: before/after dimensions are identical, version
+increments once, and no applicant or legacy compatibility field changes. Initialization,
+no-op, visibility, and reminder transitions are excluded from funnel conversions; no-op and
+user-initialization transitions cannot be corrected or undone.
+
+Repeated-action no-ops are action/state bound by one shared contract. Save, Applied,
+Assessment Started, Assessment Completed, Accepted, and Rejected require the matching
+workflow state; Remind Later requires the same canonical reminder; Not Interested requires
+hidden visibility; and Show Again requires a visible Saved item. New user-created items may
+start only with Save, Applied, or Not Interested. Their initialization metadata is bound to
+exactly one terminal operation by item, owner, complete operation fingerprint, action,
+terminal shape, explicit preparatory transition reference, and an exactly recomputed
+SHA-256 internal key. A reserved-prefix lookalike is not sufficient.
+
+The compatibility mirror is deterministic: hidden state maps to `not_interested`, then a
+known workflow wins over any reminder, then an unknown workflow with a reminder maps to
+`remind_later`. A visible unknown workflow without a reminder is an invariant error.
+Reminder dates are mirrored independently. This layer remains transitional and never
+becomes authoritative.
+
+`wahojobs.pipeline_records` supplies a non-repairing joined read model. The read-only
+`scripts/pipeline_state_reconcile.py --db PATH` command checks migration objects,
+projection/ledger consistency, ownership, version chains, mirrors, unresolved workflows,
+and deterministically expected applicant updates. Ledger reconciliation parses every state,
+checks complete before/after continuity, dimension-specific changes, initialization/no-op
+contracts, references, branching and cycles, and final projection equality. Applicant rows
+are grouped by stable update identity and compared with the latest deterministic orchestrator
+snapshot; database-generated `id`, `created_at`, and `updated_at` are intentionally excluded.
+It reports migration baselines, user initializations, and operation no-ops separately and
+has no repair mode. Human output groups blocking findings by stable reason code and prints
+only safe item/transition identifiers plus a concise remediation description; JSON uses the
+same findings. Neither format exposes raw fingerprints, snapshots, applicant evidence, or
+notes.

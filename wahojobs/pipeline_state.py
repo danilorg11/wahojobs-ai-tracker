@@ -65,6 +65,10 @@ class StaleStateVersion(PipelineStateError):
     pass
 
 
+class InvalidExpectedVersion(StaleStateVersion):
+    pass
+
+
 class IdempotencyConflict(PipelineStateError):
     pass
 
@@ -225,7 +229,12 @@ def initialize_projection(
     actor_source: str = "system",
     metadata: dict | None = None,
     occurred_at: str | None = None,
+    affected_dimension: str = "baseline",
 ) -> MutationResult:
+    if affected_dimension not in {"baseline", "workflow"}:
+        raise InvalidTransition(
+            f"Unsupported projection initialization dimension: {affected_dimension}"
+        )
     target = validate_state(
         {
             "workflow_status": workflow_status,
@@ -242,6 +251,7 @@ def initialize_projection(
         "action_name": action_name,
         "actor_source": actor_source,
         "metadata": metadata or {},
+        "affected_dimension": affected_dimension,
     }
     fingerprint = request_fingerprint(request)
     metadata = metadata or {}
@@ -290,7 +300,7 @@ def initialize_projection(
                     conn,
                     pipeline_item_id=pipeline_item_id,
                     profile_id=owner_profile_id,
-                    affected_dimension="baseline",
+                    affected_dimension=affected_dimension,
                     action_name=action_name,
                     before_state=None,
                     after_state=target,
@@ -359,6 +369,54 @@ def change_workflow_status(
         expected_version=expected_version,
         idempotency_key=idempotency_key,
         request_payload={"workflow_status": workflow_status},
+        state_builder=build_target,
+        actor_source=actor_source,
+        metadata=metadata,
+    )
+
+
+def resolve_unknown_workflow(
+    conn,
+    *,
+    pipeline_item_id: str,
+    owner_profile_id: str,
+    workflow_status: str,
+    expected_version: int,
+    idempotency_key: str,
+    action_name: str | None = None,
+    actor_source: str = "system",
+    metadata: dict | None = None,
+) -> MutationResult:
+    """Resolve a migrated unknown workflow through an explicit user action."""
+    if workflow_status not in WORKFLOW_STATUSES:
+        raise InvalidTransition(f"Unknown workflow status: {workflow_status}")
+
+    def build_target(_conn, current):
+        if (
+            current["workflow_status"] is not None
+            or current["workflow_status_provenance"] != "unknown_legacy"
+        ):
+            raise InvalidTransition(
+                "Only an unknown migrated workflow can be explicitly resolved."
+            )
+        return {
+            **current,
+            "workflow_status": workflow_status,
+            "workflow_status_provenance": "known",
+        }, None, None
+
+    return apply_mutation(
+        conn,
+        pipeline_item_id=pipeline_item_id,
+        owner_profile_id=owner_profile_id,
+        affected_dimension="workflow",
+        action_name=action_name or f"resolve_workflow_{workflow_status}",
+        expected_version=expected_version,
+        idempotency_key=idempotency_key,
+        request_payload={
+            "workflow_status": workflow_status,
+            "resolution": "post_migration_user_action",
+        },
         state_builder=build_target,
         actor_source=actor_source,
         metadata=metadata,
@@ -493,6 +551,8 @@ def undo_transition(
             raise InvalidTransition("Unknown transition for this pipeline item.")
         if original["affected_dimension"] in {"baseline", "undo"}:
             raise InvalidTransition("That transition cannot be undone.")
+        if protected_transition_class(original) is not None:
+            raise InvalidTransition("That transition cannot be undone.")
         require_transition_has_no_child(inner_conn, original["transition_id"])
         if original["state_version_after"] != expected_version:
             raise InvalidTransition(
@@ -551,6 +611,8 @@ def correct_state(
             raise InvalidTransition(
                 "Only a workflow transition or its terminal correction may be corrected."
             )
+        if protected_transition_class(original) is not None:
+            raise InvalidTransition("That transition cannot be corrected.")
         require_transition_has_no_child(inner_conn, original["transition_id"])
         later_funnel_row = inner_conn.execute(
             """
@@ -701,6 +763,88 @@ def apply_mutation(
     )
 
 
+def record_operation_noop(
+    conn,
+    *,
+    pipeline_item_id: str,
+    owner_profile_id: str,
+    expected_version: int,
+    idempotency_key: str,
+    action_name: str,
+    actor_source: str = "system",
+    metadata: dict | None = None,
+) -> MutationResult:
+    """Record an accepted product operation that intentionally changes no dimension."""
+    require_expected_version(expected_version)
+    metadata = dict(metadata or {})
+    if metadata.get("transition_class") != "operation_noop":
+        raise InvalidTransition("Operation no-op metadata is missing its transition class.")
+    request = {
+        "operation": "operation_noop",
+        "pipeline_item_id": pipeline_item_id,
+        "owner_profile_id": owner_profile_id,
+        "action_name": action_name,
+        "expected_version": expected_version,
+        "actor_source": actor_source,
+        "metadata": metadata,
+    }
+    fingerprint = request_fingerprint(request)
+    with atomic(conn):
+        replay = replay_result(
+            conn,
+            pipeline_item_id,
+            owner_profile_id,
+            idempotency_key,
+            fingerprint,
+        )
+        if replay:
+            return replay
+        require_owned_pipeline_item(conn, pipeline_item_id, owner_profile_id)
+        row = conn.execute(
+            "SELECT * FROM user_pipeline_state WHERE pipeline_item_id = ?",
+            (pipeline_item_id,),
+        ).fetchone()
+        if row is None:
+            raise ProjectionNotInitialized(
+                f"Pipeline state is not initialized: {pipeline_item_id}"
+            )
+        if row["version"] != expected_version:
+            raise StaleStateVersion(
+                f"Expected version {expected_version}, found {row['version']}."
+            )
+        state = projection_state(row)
+        transition = insert_transition(
+            conn,
+            pipeline_item_id=pipeline_item_id,
+            profile_id=owner_profile_id,
+            affected_dimension="workflow",
+            action_name=action_name,
+            before_state=state,
+            after_state=state,
+            occurred_at=now_utc(),
+            actor_source=actor_source,
+            idempotency_key=idempotency_key,
+            fingerprint=fingerprint,
+            version_before=expected_version,
+            version_after=expected_version + 1,
+            metadata=metadata,
+        )
+        cursor = conn.execute(
+            """
+            UPDATE user_pipeline_state
+            SET version = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE pipeline_item_id = ? AND version = ?
+            """,
+            (expected_version + 1, pipeline_item_id, expected_version),
+        )
+        if cursor.rowcount != 1:
+            raise StaleStateVersion("Projection changed during the mutation.")
+    return MutationResult(
+        state=public_state(pipeline_item_id, state, expected_version + 1),
+        transition=transition,
+    )
+
+
 def insert_transition(
     conn,
     *,
@@ -806,8 +950,10 @@ def replay_result(
 
 
 def require_expected_version(version):
-    if not isinstance(version, int) or version < 1:
-        raise StaleStateVersion("A positive expected state version is required.")
+    if type(version) is not int or version < 1:
+        raise InvalidExpectedVersion(
+            "A built-in positive integer expected state version is required."
+        )
 
 
 def request_fingerprint(payload: dict) -> str:
@@ -834,6 +980,17 @@ def stable_transition_id(pipeline_item_id: str, idempotency_key: str) -> str:
         f"{pipeline_item_id}\x1f{idempotency_key}".encode("utf-8")
     ).hexdigest()[:24]
     return f"pipeline-transition::{digest}"
+
+
+def protected_transition_class(row) -> str | None:
+    try:
+        metadata = json.loads(row["metadata_json"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return None
+    transition_class = metadata.get("transition_class")
+    if transition_class in {"user_initialization", "operation_noop"}:
+        return transition_class
+    return None
 
 
 def list_transition_history(conn, pipeline_item_id: str, owner_profile_id: str) -> list[dict]:
@@ -911,6 +1068,11 @@ def list_effective_funnel_transitions(
 
 
 def is_genuine_workflow_transition(transition: dict) -> bool:
+    if transition.get("metadata", {}).get("transition_class") in {
+        "user_initialization",
+        "operation_noop",
+    }:
+        return False
     before_status = transition["before_state"].get("workflow_status")
     after_status = transition["after_state"].get("workflow_status")
     return (
