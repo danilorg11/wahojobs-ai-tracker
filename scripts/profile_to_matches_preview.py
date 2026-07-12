@@ -37,6 +37,14 @@ from wahojobs.matching.metadata_overlay import (  # noqa: E402
     apply_overlay_to_rows,
     load_overlay,
 )
+from wahojobs.matching.opportunity_trust import (  # noqa: E402
+    INCOMPATIBLE_LOCATION as TRUST_INCOMPATIBLE_LOCATION,
+    NO_COMPATIBLE_LIVE_VARIANT,
+    STALE_SOURCE,
+    TRUSTED as OPPORTUNITY_TRUSTED,
+    UNVERIFIED_SOURCE,
+    assess_opportunity_trust,
+)
 from wahojobs.matching.fit_evidence import (  # noqa: E402
     SUPPORTED as AFFIRMATIVE_FIT_SUPPORTED,
     assess_affirmative_fit,
@@ -385,6 +393,7 @@ def build_preview_context(
         "extraction_quality": normalization.extraction_quality,
         "matches": grouped_matches,
         "match_summary": {section: len(grouped_matches[section]) for section in SECTION_ORDER},
+        "trust_summary": build_trust_summary(grouped_matches),
         "metadata_overlay": overlay_status,
     }
 
@@ -393,6 +402,7 @@ def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -
     rows, overlay_status = load_preview_rows(use_overlay=use_overlay)
     supported_specializations = specialization_evidence(profile)
     profile_fit_evidence = build_profile_fit_evidence(profile)
+    evaluated_at = datetime.now(timezone.utc)
     scored = []
     for row in rows:
         match = matcher.score_opportunity(profile, row)
@@ -402,6 +412,7 @@ def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -
             match,
             supported_specializations=supported_specializations,
             profile_fit_evidence=profile_fit_evidence,
+            evaluated_at=evaluated_at,
         )
         scored.append(match)
 
@@ -457,6 +468,7 @@ def apply_preview_guardrails(
     match: dict,
     supported_specializations: set[str] | None = None,
     profile_fit_evidence=None,
+    evaluated_at: datetime | None = None,
 ) -> dict:
     match = dict(match)
     base_section = preview_section_for_match(match)
@@ -474,6 +486,8 @@ def apply_preview_guardrails(
         cap_reasons.append("professional_domain_hard_gate")
     if match.get("location_actionability_cap_applied"):
         cap_reasons.append("location_actionability_cap")
+    if match.get("location_eligibility_status") == "incompatible":
+        cap_reasons.append("incompatible_location")
     for diagnostic in diagnostics:
         rule = decisive_preview_cap_rule(diagnostic)
         if not rule:
@@ -484,6 +498,14 @@ def apply_preview_guardrails(
     credential_label = match.get("preview_credential_requirement") or ""
     if credential_label and credential_requirement_conflicts(profile, credential_label):
         cap_reasons.append("explicit_credential_incompatibility")
+    trust = assess_opportunity_trust(
+        {**dict(row), **match},
+        match.get("location_eligibility_status") or "unknown",
+        now=evaluated_at,
+    )
+    match["opportunity_trust"] = trust.as_dict()
+    match["opportunity_trust_status"] = trust.status
+    match["opportunity_trust_reasons"] = list(trust.reasons)
     match["preview_section"] = capped_section
     match["preview_diagnostics"] = diagnostics
     match["actionability_cap_reasons"] = unique_list(cap_reasons)
@@ -504,6 +526,9 @@ def apply_preview_guardrails(
         for item in assessment.supported_evidence
     ]
     match["affirmative_fit_why"] = list(assessment.why_fit_statements)
+    if trust.status != OPPORTUNITY_TRUSTED:
+        cap_reasons.append(f"opportunity_trust_{trust.status}")
+    match["actionability_cap_reasons"] = unique_list(cap_reasons)
     admission_reasons = list(match["actionability_cap_reasons"])
     if assessment.status != AFFIRMATIVE_FIT_SUPPORTED:
         admission_reasons.append(f"affirmative_fit_{assessment.status}")
@@ -511,6 +536,7 @@ def apply_preview_guardrails(
     match["primary_recommendation_eligible"] = (
         not match["actionability_cap_reasons"]
         and assessment.status == AFFIRMATIVE_FIT_SUPPORTED
+        and trust.status == OPPORTUNITY_TRUSTED
     )
     if match["primary_recommendation_eligible"]:
         match["primary_admission_source"] = "affirmative_fit_supported"
@@ -1053,20 +1079,105 @@ def build_preview_warnings(normalizer_warnings: list[str], normalization, groupe
 
 
 def dedupe_matches(matches: list[dict]) -> list[dict]:
-    best_by_key = {}
-    variant_counts = Counter()
+    matches_by_key = {}
     for match in matches:
         key = match_key(match)
-        variant_counts[key] += 1
-        existing = best_by_key.get(key)
-        if existing is None or match["score"] > existing["score"]:
-            best_by_key[key] = match
+        matches_by_key.setdefault(key, []).append(match)
+
     deduped = []
-    for key, match in best_by_key.items():
-        match = dict(match)
-        match["variant_count"] = variant_counts[key]
-        deduped.append(match)
+    for key, variants in matches_by_key.items():
+        eligible = [
+            match
+            for match in variants
+            if match.get("opportunity_trust_status") == OPPORTUNITY_TRUSTED
+            and match.get("primary_recommendation_eligible")
+        ]
+        selected = choose_representative(eligible) if eligible else None
+        representative = dict(selected or choose_representative(variants))
+        representative["variant_count"] = len(variants)
+        representative["considered_canonical_variants"] = [
+            canonical_variant_diagnostic(match)
+            for match in sorted(variants, key=representative_sort_key)
+        ]
+
+        trust = dict(representative.get("opportunity_trust") or {})
+        selected_variant_id = selected.get("job_id") if selected else None
+        trust["selected_variant_id"] = selected_variant_id
+        representative["selected_variant_id"] = selected_variant_id
+
+        if selected is None:
+            representative["primary_recommendation_eligible"] = False
+            admission_reasons = list(representative.get("primary_admission_reasons") or [])
+            if representative.get("canonical_opportunity_id"):
+                admission_reasons.append("no_eligible_canonical_variant")
+            representative["primary_admission_reasons"] = unique_list(admission_reasons)
+            if variants and all(
+                match.get("opportunity_trust_status") == TRUST_INCOMPATIBLE_LOCATION
+                for match in variants
+            ):
+                trust["status"] = NO_COMPATIBLE_LIVE_VARIANT
+                trust_reasons = list(trust.get("reasons") or [])
+                trust_reasons.append(
+                    "No active canonical variant is compatible with the profile location."
+                )
+                trust["reasons"] = unique_list(trust_reasons)
+                representative["opportunity_trust_status"] = NO_COMPATIBLE_LIVE_VARIANT
+                representative["opportunity_trust_reasons"] = list(trust["reasons"])
+        representative["opportunity_trust"] = trust
+        deduped.append(representative)
     return deduped
+
+
+def choose_representative(matches: list[dict]) -> dict:
+    if not matches:
+        raise ValueError("Cannot choose a representative from an empty match list.")
+    return min(matches, key=representative_sort_key)
+
+
+def representative_sort_key(match: dict):
+    job_id = match.get("job_id")
+    return (
+        -int(match.get("score") or 0),
+        int(job_id) if str(job_id or "").isdigit() else 2**63 - 1,
+        str(match.get("source") or ""),
+        str(match.get("display_title") or ""),
+        str(match.get("url") or ""),
+    )
+
+
+def canonical_variant_diagnostic(match: dict) -> dict:
+    return {
+        "job_id": match.get("job_id"),
+        "url": match.get("url") or "",
+        "location": match.get("location") or "",
+        "job_is_active": bool(match.get("job_is_active", True)),
+        "canonical_is_active": match.get("canonical_is_active"),
+        "location_eligibility_status": match.get("location_eligibility_status") or "unknown",
+        "opportunity_trust_status": match.get("opportunity_trust_status") or UNVERIFIED_SOURCE,
+        "primary_recommendation_eligible": bool(match.get("primary_recommendation_eligible")),
+    }
+
+
+def build_trust_summary(grouped_matches: dict) -> dict:
+    counts = Counter()
+    supported_untrusted = 0
+    refreshable_supported = 0
+    for section in SECTION_ORDER:
+        for match in grouped_matches.get(section, []):
+            status = match.get("opportunity_trust_status") or UNVERIFIED_SOURCE
+            counts[status] += 1
+            if (
+                match.get("affirmative_fit_status") == AFFIRMATIVE_FIT_SUPPORTED
+                and status != OPPORTUNITY_TRUSTED
+            ):
+                supported_untrusted += 1
+                if status in {STALE_SOURCE, UNVERIFIED_SOURCE}:
+                    refreshable_supported += 1
+    return {
+        "counts": dict(sorted(counts.items())),
+        "supported_untrusted_count": supported_untrusted,
+        "has_stale_or_unverified_supported_candidates": refreshable_supported > 0,
+    }
 
 
 def ensure_safe_do_these_first(matches: list[dict], profile: dict) -> list[dict]:
@@ -1306,6 +1417,11 @@ def html_section_note(section: str) -> str:
 
 
 def user_fit_reason(match: dict) -> str:
+    trust_status = match.get("opportunity_trust_status")
+    if trust_status in {TRUST_INCOMPATIBLE_LOCATION, NO_COMPATIBLE_LIVE_VARIANT}:
+        return "Some profile signals align, but the available location is not compatible with this profile."
+    if trust_status in {STALE_SOURCE, UNVERIFIED_SOURCE}:
+        return "Some profile signals align, but this opportunity needs current source verification before we recommend it."
     affirmative_reasons = match.get("affirmative_fit_why") or []
     if affirmative_reasons:
         return " ".join(affirmative_reasons[:2])
@@ -1355,6 +1471,13 @@ def friendly_reason(reason: str) -> str:
 
 def user_caution_note(match: dict) -> str:
     cautions = []
+    trust_status = match.get("opportunity_trust_status")
+    if trust_status == STALE_SOURCE:
+        cautions.append("This opportunity has not been verified by a recent source refresh.")
+    elif trust_status == UNVERIFIED_SOURCE:
+        cautions.append("Current source verification is unavailable for this opportunity.")
+    elif trust_status in {TRUST_INCOMPATIBLE_LOCATION, NO_COMPATIBLE_LIVE_VARIANT}:
+        cautions.append("The available opportunity location is not compatible with this profile.")
     if match.get("unsupported_languages"):
         cautions.append(
             "This role appears to require "
@@ -1547,6 +1670,7 @@ def render_html_match(match: dict, section: str) -> str:
     <summary>Technical details</summary>
     <p class="meta">Score: {match['score']} | Reasons: {html_escape('; '.join(match.get('reasons') or []) or '-')}</p>
     <p class="meta">Diagnostics: {html_escape('; '.join(match.get('preview_diagnostics') or []) or '-')}</p>
+    <p class="meta">Trust: {html_escape(match.get('opportunity_trust_status') or '-')} | {html_escape('; '.join(match.get('opportunity_trust_reasons') or []) or '-')}</p>
   </details>
 </article>
 """
@@ -1589,6 +1713,11 @@ def match_summary(match: dict) -> dict:
         "affirmative_fit_supported_evidence",
         "affirmative_fit_why",
         "affirmative_fit",
+        "opportunity_trust_status",
+        "opportunity_trust_reasons",
+        "opportunity_trust",
+        "considered_canonical_variants",
+        "selected_variant_id",
     )
     return {key: match.get(key) for key in keys}
 

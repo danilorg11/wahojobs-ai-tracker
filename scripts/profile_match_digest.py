@@ -755,6 +755,8 @@ def get_active_rows(conn, policy=None, policy_not=None, inventory_models=None):
           j.availability_basis,
           j.include_in_live_market_estimate,
           j.canonical_opportunity_id,
+          j.is_active AS job_is_active,
+          j.last_seen_at AS job_last_seen_at,
           c.name AS source,
           c.slug AS source_slug,
           c.source_tier,
@@ -764,10 +766,26 @@ def get_active_rows(conn, policy=None, policy_not=None, inventory_models=None):
           co.source_category,
           co.language,
           co.language_locale,
+          co.is_active AS canonical_is_active,
+          source_run.id AS source_run_id,
+          source_run.started_at AS source_run_started_at,
+          COALESCE(source_run.finished_at, source_run.started_at) AS latest_successful_source_run_at,
+          CASE WHEN source_run.id IS NULL THEN 0 ELSE 1 END AS source_run_qualifies,
           NULL AS required_languages
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         LEFT JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
+        LEFT JOIN crawl_runs source_run
+          ON source_run.id = (
+            SELECT cr.id
+            FROM crawl_runs cr
+            WHERE cr.company_id = c.id
+              AND cr.status = 'success'
+              AND cr.used_sample_data = 0
+              AND cr.error_message IS NULL
+            ORDER BY COALESCE(cr.finished_at, cr.started_at) DESC, cr.id DESC
+            LIMIT 1
+          )
         WHERE {" AND ".join(where)}
         ORDER BY c.name ASC, j.title ASC
         """,
@@ -790,6 +808,8 @@ def get_post_baseline_new_rows(conn, cutoff):
           j.availability_basis,
           j.include_in_live_market_estimate,
           j.canonical_opportunity_id,
+          j.is_active AS job_is_active,
+          j.last_seen_at AS job_last_seen_at,
           c.name AS source,
           c.slug AS source_slug,
           c.source_tier,
@@ -799,12 +819,28 @@ def get_post_baseline_new_rows(conn, cutoff):
           co.source_category,
           co.language,
           co.language_locale,
+          co.is_active AS canonical_is_active,
+          source_run.id AS source_run_id,
+          source_run.started_at AS source_run_started_at,
+          COALESCE(source_run.finished_at, source_run.started_at) AS latest_successful_source_run_at,
+          CASE WHEN source_run.id IS NULL THEN 0 ELSE 1 END AS source_run_qualifies,
           NULL AS required_languages
         FROM job_events je
         JOIN jobs j ON j.id = je.job_id
         JOIN companies c ON c.id = j.company_id
         JOIN ({baseline_crawl_sql()}) b ON b.company_id = c.id
         LEFT JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
+        LEFT JOIN crawl_runs source_run
+          ON source_run.id = (
+            SELECT cr.id
+            FROM crawl_runs cr
+            WHERE cr.company_id = c.id
+              AND cr.status = 'success'
+              AND cr.used_sample_data = 0
+              AND cr.error_message IS NULL
+            ORDER BY COALESCE(cr.finished_at, cr.started_at) DESC, cr.id DESC
+            LIMIT 1
+          )
         WHERE je.created_at >= ?
           AND je.event_type = 'discovered'
           AND je.crawl_run_id != b.baseline_crawl_run_id
@@ -989,6 +1025,15 @@ def score_opportunity(profile, row):
         "url": row["url"],
         "job_id": row["job_id"],
         "canonical_opportunity_id": row["canonical_opportunity_id"],
+        "job_is_active": bool(optional_row_value(row, "job_is_active", True)),
+        "canonical_is_active": optional_row_value(row, "canonical_is_active"),
+        "job_last_seen_at": optional_row_value(row, "job_last_seen_at") or "",
+        "source_run_id": optional_row_value(row, "source_run_id"),
+        "source_run_started_at": optional_row_value(row, "source_run_started_at") or "",
+        "latest_successful_source_run_at": (
+            optional_row_value(row, "latest_successful_source_run_at") or ""
+        ),
+        "source_run_qualifies": bool(optional_row_value(row, "source_run_qualifies")),
         "opportunity_kind": row["opportunity_kind"],
         "availability_basis": row["availability_basis"],
         "inventory_model": row["inventory_model"],
@@ -1059,13 +1104,13 @@ def product_section_for_score(score, eligible_for_personalized=True):
     return "explore_only"
 
 
-def optional_row_value(row, key):
+def optional_row_value(row, key, default=None):
     if hasattr(row, "get"):
-        return row.get(key)
+        return row.get(key, default)
     try:
         return row[key]
     except (KeyError, IndexError):
-        return None
+        return default
 
 
 def section_rank(section):

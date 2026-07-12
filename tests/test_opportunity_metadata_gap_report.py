@@ -125,25 +125,40 @@ def build_memory_db():
           availability_basis TEXT,
           include_in_live_market_estimate INTEGER,
           canonical_opportunity_id INTEGER,
-          is_active INTEGER
+          is_active INTEGER,
+          last_seen_at TEXT
         );
         CREATE TABLE canonical_opportunities (
           id INTEGER PRIMARY KEY,
           canonical_title TEXT,
           source_category TEXT,
           language TEXT,
-          language_locale TEXT
+          language_locale TEXT,
+          is_active INTEGER
+        );
+        CREATE TABLE crawl_runs (
+          id INTEGER PRIMARY KEY,
+          company_id INTEGER,
+          status TEXT,
+          started_at TEXT,
+          finished_at TEXT,
+          used_sample_data INTEGER,
+          error_message TEXT
         );
         INSERT INTO companies VALUES (1, 'Example', 'example', 'core', 'live_feed', 'count_live');
-        INSERT INTO canonical_opportunities VALUES (1, 'Audio Evaluator', 'Audio', 'Spanish', 'Spanish Mexico');
-        INSERT INTO canonical_opportunities VALUES (2, 'General AI Reviewer', 'Generalist', NULL, NULL);
+        INSERT INTO canonical_opportunities VALUES (1, 'Audio Evaluator', 'Audio', 'Spanish', 'Spanish Mexico', 1);
+        INSERT INTO canonical_opportunities VALUES (2, 'General AI Reviewer', 'Generalist', NULL, NULL, 1);
         INSERT INTO jobs VALUES (
           1, 1, 'Audio Evaluator', 'Remote', 'https://example.com/1', 'Audio', 'Audio',
-          'Freelance', 'live_posting', 'api_feed', 1, 1, 1
+          'Freelance', 'live_posting', 'api_feed', 1, 1, 1, '2026-07-11T00:00:00+00:00'
         );
         INSERT INTO jobs VALUES (
           2, 1, 'General AI Reviewer', 'Remote', 'https://example.com/2', 'Generalist', 'Generalist',
-          'Freelance', 'live_posting', 'api_feed', 1, 2, 1
+          'Freelance', 'live_posting', 'api_feed', 1, 2, 1, '2026-07-11T00:00:00+00:00'
+        );
+        INSERT INTO crawl_runs VALUES (
+          1, 1, 'success', '2026-07-11T00:00:00+00:00',
+          '2026-07-11T00:00:00+00:00', 0, NULL
         );
         """
     )

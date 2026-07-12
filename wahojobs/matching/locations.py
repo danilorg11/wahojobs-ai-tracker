@@ -48,6 +48,7 @@ LOCATION_COUNTRY_TERMS = {
     "netherlands",
     "new zealand",
     "portugal",
+    "singapore",
     "spain",
     "united kingdom",
     "uk",

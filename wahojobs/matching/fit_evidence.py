@@ -105,6 +105,7 @@ CONFLICTING_CAP_REASONS = {
     "professional_domain_hard_gate",
     "explicit_credential_incompatibility",
     "unsupported_title_language_or_dialect",
+    "incompatible_location",
 }
 
 GENERIC_AI_ROLE_PATTERNS = (
@@ -209,6 +210,13 @@ def assess_affirmative_fit(
     missing.extend(location_result["missing"])
     conflicts.extend(location_result["conflicts"])
     location_locale.extend(location_result["details"])
+    if match.get("location_eligibility_status") == "incompatible":
+        structured_reason = (
+            match.get("location_eligibility_reason")
+            or "Stored opportunity location is incompatible with the profile location."
+        )
+        conflicts.append(structured_reason)
+        location_locale.append(structured_reason)
 
     credential_result = _evaluate_title_credentials(profile, normalized_title)
     requirements.extend(credential_result["requirements"])
@@ -733,6 +741,7 @@ def _cap_reason_label(reason: str) -> str:
         "professional_domain_hard_gate": "Existing professional-domain hard gate",
         "explicit_credential_incompatibility": "Explicit credential incompatibility",
         "unsupported_title_language_or_dialect": "Unsupported required language or dialect",
+        "incompatible_location": "Explicit location incompatibility",
     }.get(reason, reason.replace("_", " "))
 
 

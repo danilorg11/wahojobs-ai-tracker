@@ -1222,6 +1222,8 @@ def build_ranked_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
                 continue
             if match.get("affirmative_fit_status") != "supported":
                 continue
+            if match.get("opportunity_trust_status") != "trusted":
+                continue
             presented = dict(match)
             presented["presentation_rank"] = len(ranked) + 1
             presented["presentation_source_section"] = section
@@ -1518,17 +1520,29 @@ def render_ranked_preview_matches(context, tracked, match_run_id):
         for match in matches
     )
     if not cards:
-        cards = """
-        <div class="notice">
-          <p><strong>No clear matches surfaced from this profile yet.</strong></p>
-          <p class="muted">Try adding your location, languages, credentials, or the kinds of work you want.</p>
-        </div>
-        """
+        if supported_candidates_need_refresh(context):
+            edit_url = "/find-matches?" + urlencode({"run": match_run_id, "edit": "1"})
+            cards = f"""
+            <div class="notice stale-data-state">
+              <p><strong>We're refreshing the latest opportunities.</strong></p>
+              <p class="muted">Your profile is ready, but the available job data needs a recent update.</p>
+              <p><a class="open secondary-link" href="{e(edit_url)}">Review or retry your profile</a></p>
+            </div>
+            """
+        else:
+            cards = """
+            <div class="notice no-match-state">
+              <p><strong>No clear matches surfaced from this profile yet.</strong></p>
+              <p class="muted">Try adding your location, languages, credentials, or the kinds of work you want.</p>
+            </div>
+            """
     count_note = (
         f"Showing {len(matches)} focused opportunities."
         if len(matches) == PRESENTATION_MATCH_LIMIT
         else f"We found {len(matches)} opportunities worth showing right now."
     )
+    if matches and supported_candidates_need_refresh(context):
+        count_note += " Other supported candidates are hidden until their source data is refreshed."
     return f"""
     <section id="your-best-matches" class="ranked-matches">
       <h2>Your best matches</h2>
@@ -1536,6 +1550,18 @@ def render_ranked_preview_matches(context, tracked, match_run_id):
       <div class="stack">{cards}</div>
     </section>
     """
+
+
+def supported_candidates_need_refresh(context):
+    summary = (context or {}).get("trust_summary") or {}
+    if summary.get("has_stale_or_unverified_supported_candidates"):
+        return True
+    return any(
+        match.get("affirmative_fit_status") == "supported"
+        and match.get("opportunity_trust_status") in {"stale_source", "unverified_source"}
+        for section in ACTIONABLE_PRESENTATION_SECTIONS
+        for match in ((context or {}).get("matches") or {}).get(section, [])
+    )
 
 
 def render_ranked_preview_card(match, tracked, match_run_id):
@@ -1602,6 +1628,7 @@ def render_preview_qa_details(context):
         <table><thead><tr><th>Bucket</th><th>Count</th></tr></thead><tbody>{bucket_rows}</tbody></table>
       </section>
       {render_primary_omissions(context)}
+      {render_opportunity_trust_qa(context)}
       {render_affirmative_fit_qa(context)}
       {render_preview_diagnostics(context)}
     </details>
@@ -1634,6 +1661,56 @@ def render_primary_omissions(context):
         <thead><tr><th>Source</th><th>Opportunity</th><th>Internal bucket</th><th>Admission reason</th></tr></thead>
         <tbody>{rows}</tbody>
       </table>
+    </section>
+    """
+
+
+def render_opportunity_trust_qa(context):
+    rows = []
+    for section in profile_preview.SECTION_ORDER:
+        for match in context["matches"].get(section, []):
+            trust = match.get("opportunity_trust") or {}
+            variants = match.get("considered_canonical_variants") or []
+            variant_summary = "; ".join(
+                f"{variant.get('job_id')}: {variant.get('location') or '-'} / "
+                f"{variant.get('opportunity_trust_status') or '-'}"
+                for variant in variants
+            ) or "-"
+            age = trust.get("source_age_hours")
+            rows.append(
+                "<tr>"
+                f"<td>{e(match.get('source') or '-')}</td>"
+                f"<td>{e(match.get('display_title') or '-')}</td>"
+                f"<td>{e(trust.get('status') or '-')}</td>"
+                f"<td>{e('; '.join(trust.get('reasons') or []) or '-')}</td>"
+                f"<td>{e('yes' if trust.get('job_is_active') else 'no')}</td>"
+                f"<td>{e('-' if trust.get('canonical_is_active') is None else ('yes' if trust.get('canonical_is_active') else 'no'))}</td>"
+                f"<td>{e(trust.get('job_last_seen_at') or '-')}</td>"
+                f"<td>{e(trust.get('latest_successful_source_run_at') or '-')}</td>"
+                f"<td>{e('-' if age is None else age)}</td>"
+                f"<td>{e(trust.get('inventory_model') or '-')}</td>"
+                f"<td>{e(trust.get('market_count_policy') or '-')}</td>"
+                f"<td>{e(trust.get('freshness_max_age_hours') if trust.get('freshness_max_age_hours') is not None else '-')}</td>"
+                f"<td>{e(trust.get('source_run_id') or '-')}</td>"
+                f"<td>{e('yes' if trust.get('source_run_qualifies') else 'no')}</td>"
+                f"<td>{e(match.get('location_eligibility_status') or '-')}</td>"
+                f"<td>{e(variant_summary)}</td>"
+                f"<td>{e(trust.get('selected_variant_id') or '-')}</td>"
+                f"<td>{e('yes' if match.get('primary_recommendation_eligible') else 'no')}</td>"
+                "</tr>"
+            )
+    if not rows:
+        return "<section><h3>Opportunity trust</h3><p class='muted'>No opportunity rows.</p></section>"
+    return f"""
+    <section>
+      <h3>Opportunity trust</h3>
+      <p class="muted">Demo-only lifecycle, freshness, location, and variant-selection diagnostics.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Source</th><th>Opportunity</th><th>Trust</th><th>Reasons</th><th>Job active</th><th>Canonical active</th><th>Last seen</th><th>Latest qualifying run</th><th>Age hours</th><th>Inventory</th><th>Count policy</th><th>Max age</th><th>Run ID</th><th>Run qualifies</th><th>Location</th><th>Considered variants</th><th>Selected variant</th><th>Admitted</th></tr></thead>
+          <tbody>{''.join(rows)}</tbody>
+        </table>
+      </div>
     </section>
     """
 

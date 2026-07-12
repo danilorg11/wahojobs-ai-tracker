@@ -147,6 +147,15 @@ class LocalProductAppFlowTests(unittest.TestCase):
             "primary_admission_reasons": [],
             "actionability_cap_reasons": [],
             "affirmative_fit_status": "supported",
+            "opportunity_trust_status": "trusted",
+            "opportunity_trust_reasons": [],
+            "opportunity_trust": {
+                "status": "trusted",
+                "reasons": [],
+                "job_is_active": True,
+                "canonical_is_active": True,
+                "selected_variant_id": 1,
+            },
             "affirmative_fit_why": ["Your relevant background aligns with this opportunity."],
             "affirmative_fit": {
                 "required_groups": [],

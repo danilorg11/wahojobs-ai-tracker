@@ -268,20 +268,23 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
         self.assertTrue(odia_matches)
         self.assertIn("Odia", preview.user_caution_note(odia_matches[0]))
 
-        do_these_first_titles = " ".join(
-            match["display_title"].lower()
-            for match in context["matches"]["do_these_first"]
+        positive_matches = matches_with_title_terms(
+            context,
+            (
+                "english language data contributor",
+                "spanish audio specialist",
+                "english language expert",
+            ),
+        )
+        self.assertTrue(positive_matches)
+        self.assertTrue(
+            any(match["affirmative_fit_status"] == "supported" for match in positive_matches)
         )
         self.assertTrue(
-            any(
-                title in do_these_first_titles
-                for title in (
-                    "english language data contributor",
-                    "spanish audio specialist",
-                    "english language expert",
-                )
-            ),
-            do_these_first_titles,
+            all(
+                match["opportunity_trust_status"] in {"stale_source", "trusted"}
+                for match in positive_matches
+            )
         )
 
         visible_titles = " ".join(
@@ -345,16 +348,24 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             else:
                 self.assertIn("specific language locale or accent", preview.user_caution_note(matches[0]))
 
-        do_these_first_titles = " ".join(
-            match["display_title"].lower()
-            for match in context["matches"]["do_these_first"]
+        positive_matches = matches_with_title_terms(
+            context,
+            (
+                "english language data contributor",
+                "spanish audio specialist",
+                "spanish voice actor",
+                "english language expert",
+            ),
         )
-        self.assertIn("english language data contributor", do_these_first_titles)
+        self.assertTrue(positive_matches)
         self.assertTrue(
-            "spanish audio specialist" in do_these_first_titles
-            or "spanish voice actor" in do_these_first_titles
-            or "english language expert" in do_these_first_titles,
-            do_these_first_titles,
+            any(match["affirmative_fit_status"] == "supported" for match in positive_matches)
+        )
+        self.assertTrue(
+            all(
+                match["opportunity_trust_status"] in {"stale_source", "trusted"}
+                for match in positive_matches
+            )
         )
 
     def test_software_preview_caps_science_coding_roles_when_credentials_are_absent(self):
