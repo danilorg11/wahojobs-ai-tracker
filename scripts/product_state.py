@@ -161,9 +161,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def initialize_product_state_schema():
-    with get_connection() as conn:
-        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+def initialize_product_state_schema(db_path=DB_PATH):
+    conn = get_connection(db_path)
+    try:
+        with conn:
+            conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    finally:
+        conn.close()
 
 
 def import_profiles(path):
