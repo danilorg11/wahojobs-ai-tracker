@@ -160,23 +160,30 @@ ACTION_STATUSES = {
 ACTION_LABELS = {
     "show_again": "Show again",
     "save": "Save",
-    "applied": "Mark applied",
-    "assessment_started": "Assessment started",
-    "assessment_completed": "Assessment completed",
-    "remind_later": "Remind in 7 days",
+    "applied": "Mark as applied",
+    "assessment_started": "Mark assessment started",
+    "assessment_completed": "Mark assessment complete",
+    "remind_later": "Remind me in 7 days",
     "not_interested": "Not interested",
-    "accepted": "Accepted",
-    "rejected": "Rejected",
+    "accepted": "Mark as accepted",
+    "rejected": "Mark as not selected",
 }
 
-PREVIEW_ACTION_LABELS = {
-    **ACTION_LABELS,
-    "save": "Save / interested",
+STATUS_LABELS = {
+    "recommended": "Recommended",
+    "saved": "Saved",
+    "remind_later": "Saved",
     "applied": "Applied",
-    "assessment_started": "Invited to test",
+    "waiting": "Waiting for update",
+    "assessment_invited": "Assessment ready",
+    "assessment_started": "Assessment in progress",
     "assessment_completed": "Waiting for result",
-    "not_interested": "Skip / not interested",
-    "rejected": "Rejected / not selected",
+    "accepted": "Accepted",
+    "active_worker": "Active",
+    "paid_task_received": "Paid task received",
+    "not_interested": "Not interested",
+    "rejected": "Not selected",
+    "expired": "No longer available",
 }
 
 ACTIVE_PIPELINE_STATUSES = {
@@ -193,6 +200,27 @@ ACCEPTED_STATUSES = {"accepted", "active_worker", "paid_task_received"}
 HIDDEN_STATUSES = {"not_interested"}
 CLOSED_STATUSES = {"rejected", "expired"}
 MAIN_RECOMMENDATION_EXCLUDED_STATUSES = ACCEPTED_STATUSES | HIDDEN_STATUSES | CLOSED_STATUSES
+
+TRACKER_FILTERS = (
+    ("all", "All"),
+    ("saved", "Saved"),
+    ("in_progress", "In progress"),
+    ("active", "Active"),
+    ("closed", "Closed"),
+)
+TRACKER_FILTER_STATUSES = {
+    "saved": {"recommended", "saved", "remind_later"},
+    "in_progress": {
+        "applied",
+        "waiting",
+        "assessment_invited",
+        "assessment_started",
+        "assessment_completed",
+    },
+    "active": ACCEPTED_STATUSES,
+    "closed": CLOSED_STATUSES,
+    "hidden": HIDDEN_STATUSES,
+}
 
 STATUS_ACTIONS = {
     None: ("save", "applied", "not_interested"),
@@ -322,6 +350,7 @@ def make_handler(registry=None, demo_mode=False):
                     body = render_lightweight_tracker(
                         context,
                         match_run_id=run.match_run_id,
+                        tracker_view=first_value(params, "view") or "all",
                         demo_mode=demo_mode,
                         message=message,
                         error=error,
@@ -586,13 +615,14 @@ def handle_action(form, run):
         allowed_actions = actions_for_status(item["status"])
         if action not in allowed_actions and item["status"] != status:
             raise ActionError(
-                f"That action is not available while this item is {demo.readable_status(item['status'])}."
+                f"That action is not available while this item is {readable_status(item['status'])}."
             )
 
         previous_status = item["status"]
-        message = action_success_message(action, title)
+        message = action_success_message(action)
         if item["status"] == status:
-            pass
+            if action == "remind_later" and item["reminder_date"]:
+                message = reminder_success_message(item["reminder_date"])
         elif status == "remind_later":
             reminder_date = (datetime.now(timezone.utc).date() + timedelta(days=7)).isoformat()
             update_pipeline_item(
@@ -602,7 +632,7 @@ def handle_action(form, run):
                 note=note,
                 reminder_date=reminder_date,
             )
-            message = f"Reminder set for {reminder_date}: {title}"
+            message = reminder_success_message(reminder_date)
         else:
             update_pipeline_item(conn, item, status=status, note=note)
 
@@ -1007,7 +1037,7 @@ def lightweight_next_action(record):
         "paid_task_received": "Paid task received.",
         "not_interested": "Hidden from recommendations until you show it again.",
         "rejected": "Closed after a rejection or selection decision.",
-        "expired": "This opportunity is marked expired.",
+        "expired": "This job is no longer available.",
     }
     return labels.get(status, "Review the current tracker status.")
 
@@ -1100,6 +1130,7 @@ def render_dashboard(context, match_run_id, demo_mode=False, message=None, error
 def render_lightweight_tracker(
     context,
     match_run_id,
+    tracker_view="all",
     demo_mode=False,
     message=None,
     error=None,
@@ -1117,13 +1148,9 @@ def render_lightweight_tracker(
         "<body>",
         render_product_nav(match_run_id, current="tracker"),
         "<main class='app-main'>",
-        render_lightweight_tracker_header(
-            profile,
-            match_run_id,
-        ),
+        render_lightweight_tracker_header(context["records"]),
         f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
-        render_pipeline(context["records"], match_run_id, tracker_only=True),
-        render_tracker_disclaimer(),
+        render_my_jobs_workspace(context["records"], match_run_id, tracker_view),
         render_inline_action_script(),
         "</main>",
         "</body>",
@@ -1132,25 +1159,26 @@ def render_lightweight_tracker(
     return "\n".join(parts)
 
 
-def render_lightweight_tracker_header(profile, match_run_id):
-    query = urlencode({"run": match_run_id})
-    find_matches_url = f"/find-matches?{query}"
-    dashboard_url = f"/dashboard?{query}"
+def render_lightweight_tracker_header(records):
+    active_count = sum(
+        1
+        for record in records
+        if record["status"] in TRACKER_FILTER_STATUSES["in_progress"]
+    )
+    reminder_count = sum(
+        1
+        for record in records
+        if record["status"] == "remind_later" and record.get("reminder_date")
+    )
+    job_label = "1 job" if len(records) == 1 else f"{len(records)} jobs"
+    progress_label = "1 in progress" if active_count == 1 else f"{active_count} in progress"
+    reminder_label = "1 reminder" if reminder_count == 1 else f"{reminder_count} reminders"
     return f"""
-    <section class="hero tracker-hero">
-      <div>
-        <p class="eyebrow">Application Tracker</p>
-        <h1>Application Tracker</h1>
-        <p class="lead">Manage saved opportunities, applications, tests, and follow-ups.</p>
-        <p><a class="jump-link" href="{e(find_matches_url)}">Find new matches</a></p>
-      </div>
-      <div class="profile-box">
-        <p class="eyebrow">Active tracker profile</p>
-        <h2>{e(profile['display_name'])}</h2>
-        <p>Only opportunities saved to this local profile are shown here.</p>
-        <p class="muted">This page loads tracker status only, so actions return quickly.</p>
-        <p><a class="back-link" href="{e(dashboard_url)}">Open full opportunity dashboard</a></p>
-      </div>
+    <section class="my-jobs-header">
+      <p class="eyebrow">Workspace</p>
+      <h1>My Jobs</h1>
+      <p class="lead">Track saved jobs, applications, assessments, and follow-ups.</p>
+      <p class="my-jobs-summary"><span>{e(job_label)}</span><span>{e(progress_label)}</span><span>{e(reminder_label)}</span></p>
     </section>
     """
 
@@ -1391,7 +1419,8 @@ def render_preview_results_header(context, demo_mode=False):
       <div>
         <p class="eyebrow">Matches</p>
         <h1>Your matches</h1>
-        <p class="results-summary"><strong>{e(verified_label)}</strong>{f' <span>{e(refresh_label)}</span>' if refresh_label else ''}</p>
+        <p class="results-summary"><strong>{e(verified_label)}</strong></p>
+        {f'<p class="refresh-summary">{e(refresh_label)}</p>' if refresh_label else ''}
         {f'<p class="muted">Demo mode keeps development personas and quality checks available below.</p>' if demo_mode else ''}
       </div>
     </section>
@@ -1625,7 +1654,7 @@ def render_ranked_preview_card(match, tracked, match_run_id):
     url = match.get("url") or ""
     card_id = f"ranked-{match_opportunity_key(match)}"
     status = (
-        f'<p class="pill card-status js-card-status">{e(demo.readable_status(record["status"]))}</p>'
+        f'<p class="pill card-status js-card-status">{e(readable_status(record["status"]))}</p>'
         if record
         else '<p class="pill card-status js-card-status"></p>'
     )
@@ -1848,7 +1877,7 @@ def render_preview_matches(context, tracked, match_run_id):
       <h2>Recommended Opportunities</h2>
       <p class="muted">Your plan stays intentionally small. Browse the lower sections only when you want more context.</p>
       <p class="snapshot-note">Links come from the latest local tracker snapshot and may change.</p>
-      <p class="muted">Actions are saved to your local Application Tracker.</p>
+      <p class="muted">Actions are saved to My Jobs.</p>
       {''.join(sections)}
     </section>
     """
@@ -1888,10 +1917,10 @@ def render_preview_card(match, section, tracked, match_run_id):
     caution = profile_preview.user_caution_note(match)
     fit_reason = profile_preview.user_fit_reason(match)
     url = match.get("url") or ""
-    open_link = f'<a class="open" href="{e(url)}" target="_blank" rel="noreferrer">Open</a>' if url else ""
+    open_link = f'<a class="open" href="{e(url)}" target="_blank" rel="noreferrer">View job</a>' if url else ""
     diagnostics = "; ".join(match.get("preview_diagnostics") or []) or "-"
     reasons = "; ".join(match.get("reasons") or []) or "-"
-    status = demo.readable_status(record["status"]) if record else profile_preview.SECTION_LABELS.get(section, section)
+    status = readable_status(record["status"]) if record else profile_preview.SECTION_LABELS.get(section, section)
     card_id = f"preview-{match_opportunity_key(match)}"
     controls = render_preview_card_actions(
         match,
@@ -1941,7 +1970,7 @@ def render_preview_full_forms(match, record, match_run_id, return_to, section):
     return " ".join(
         action_form(
             action,
-            PREVIEW_ACTION_LABELS[action],
+            ACTION_LABELS[action],
             match_run_id,
             opportunity_key=match_opportunity_key(match),
             pipeline_id=pipeline_id,
@@ -1959,7 +1988,7 @@ def render_preview_light_forms(match, record, match_run_id, return_to, section):
     return " ".join(
         action_form(
             action,
-            PREVIEW_ACTION_LABELS[action],
+            ACTION_LABELS[action],
             match_run_id,
             opportunity_key=match_opportunity_key(match),
             pipeline_id=record.get("id", "") if record else "",
@@ -2088,7 +2117,7 @@ def render_matches(title, section_id, matches, tracked, match_run_id, card_index
     for match in matches[:8]:
         record = demo.tracked_record_for_match(match, tracked)
         reasons = "; ".join(demo.plain_reasons(match, record)[:3])
-        status = demo.pipeline_label(record)
+        status = readable_status(record["status"]) if record else "Not tracked yet"
         card_id = card_id_for_match(match, record)
         cards.append(
             f"""
@@ -2102,7 +2131,7 @@ def render_matches(title, section_id, matches, tracked, match_run_id, card_index
                 <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
               </div>
               <div class="card-actions">
-                <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">Open</a>
+                <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">View job</a>
                 <div class="js-card-controls">{render_match_forms(match, record, match_run_id, card_id) if include_actions else ""}</div>
               </div>
             </article>
@@ -2179,7 +2208,7 @@ def render_explore_card(match, record, match_run_id):
         <p><a class="back-link" href="#do-these-first">Back to Do These First</a></p>
       </div>
       <div class="card-actions compact-actions">
-        <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">Open</a>
+        <a class="open" href="{e(match['url'])}" target="_blank" rel="noreferrer">View job</a>
         <div class="js-card-controls">{render_explore_forms(match, record, match_run_id, card_id)}</div>
       </div>
     </article>
@@ -2190,12 +2219,135 @@ def explore_match_label(match, record):
     pieces = []
     if record:
         pieces.append("Already in your tracker")
-        pieces.append(demo.readable_status(record["status"]))
+        pieces.append(readable_status(record["status"]))
     else:
         pieces.append(demo.opportunity_type_label(match))
     if match.get("variant_count", 1) > 1:
         pieces.append(f"{match['variant_count']} related postings grouped")
     return " · ".join(pieces)
+
+
+def normalize_tracker_view(view):
+    valid_views = {key for key, _ in TRACKER_FILTERS} | {"hidden"}
+    return view if view in valid_views else "all"
+
+
+def tracker_records_for_view(records, view):
+    view = normalize_tracker_view(view)
+    if view == "all":
+        return [record for record in records if record["status"] not in HIDDEN_STATUSES]
+    statuses = TRACKER_FILTER_STATUSES[view]
+    return [record for record in records if record["status"] in statuses]
+
+
+def tracker_filter_href(match_run_id, view):
+    params = {"run": match_run_id}
+    if view != "all":
+        params["view"] = view
+    return "/tracker?" + urlencode(params)
+
+
+def tracker_filter_current(view, candidate):
+    return ' aria-current="true"' if view == candidate else ""
+
+
+def render_my_jobs_workspace(records, match_run_id, tracker_view="all"):
+    view = normalize_tracker_view(tracker_view)
+    if not records:
+        find_matches_url = "/find-matches?" + urlencode({"run": match_run_id})
+        return f"""
+        <section id="my-jobs-list" class="my-jobs-workspace">
+          <div class="my-jobs-empty">
+            <p>You haven&apos;t saved any jobs yet.</p>
+            <a class="open button-primary" href="{e(find_matches_url)}">Find matches</a>
+          </div>
+        </section>
+        """
+
+    filtered = tracker_records_for_view(records, view)
+    hidden_count = sum(1 for record in records if record["status"] in HIDDEN_STATUSES)
+    filters = "".join(
+        f'<a class="tracker-filter" href="{e(tracker_filter_href(match_run_id, key))}"'
+        f'{tracker_filter_current(view, key)}>{e(label)}</a>'
+        for key, label in TRACKER_FILTERS
+    )
+    hidden_link = ""
+    if hidden_count:
+        hidden_label = f"Show hidden ({hidden_count})" if view != "hidden" else f"Hidden ({hidden_count})"
+        hidden_link = (
+            f'<a class="show-hidden" href="{e(tracker_filter_href(match_run_id, "hidden"))}"'
+            f'{tracker_filter_current(view, "hidden")}>{e(hidden_label)}</a>'
+        )
+    cards = "".join(render_my_jobs_card(record, match_run_id) for record in filtered)
+    if not cards:
+        cards = '<p class="empty my-jobs-filter-empty">No jobs in this view.</p>'
+    return f"""
+    <section id="my-jobs-list" class="my-jobs-workspace">
+      <div class="my-jobs-filter-row">
+        <nav class="tracker-filters" aria-label="Filter My Jobs">{filters}</nav>
+        {hidden_link}
+      </div>
+      <div class="stack my-jobs-stack">{cards}</div>
+    </section>
+    """
+
+
+def render_my_jobs_card(record, match_run_id):
+    status = record["status"]
+    card_id = card_id_for_record(record)
+    reminder = render_reminder_note(record)
+    next_action = record.get("next_action") or ""
+    if status == "expired":
+        next_action = "This job is no longer available."
+    controls = render_my_jobs_forms(record, match_run_id, card_id)
+    view_class = (
+        "button-primary"
+        if status in TRACKER_FILTER_STATUSES["saved"]
+        else "button-secondary"
+    )
+    return f"""
+    <article class="card tracker my-job-card" id="{e(card_id)}" data-action-card data-job-status="{e(status)}">
+      <div class="card-main">
+        <p class="source">{e(record['source'])}</p>
+        <h3>{e(record['title'])}</h3>
+        <p class="pill card-status js-card-status" aria-label="Current status: {e(readable_status(status))}"><span class="visually-hidden">Current status: </span>{e(readable_status(status))}</p>
+        {reminder}
+        {f'<p class="muted next-step">{e(next_action)}</p>' if next_action else ''}
+      </div>
+      <div class="card-actions my-job-actions">
+        {f'<a class="open {view_class}" href="{e(record["url"])}" target="_blank" rel="noreferrer">View job</a>' if record["url"] else ''}
+        <div class="js-card-controls">{controls}</div>
+      </div>
+    </article>
+    """
+
+
+def render_my_jobs_forms(record, match_run_id, return_to):
+    actions = actions_for_status(record["status"])
+    if not actions:
+        return ""
+    return " ".join(
+        action_form(
+            action,
+            ACTION_LABELS[action],
+            match_run_id,
+            pipeline_id=record.get("id", ""),
+            return_to=return_to,
+            section="tracker",
+            visual_variant=my_jobs_action_variant(record["status"], action),
+        )
+        for action in actions
+    )
+
+
+def my_jobs_action_variant(status, action):
+    if status in {"applied", "waiting", "assessment_invited"} and action == "assessment_started":
+        return "primary"
+    if status == "assessment_started" and action == "assessment_completed":
+        return "primary"
+    if status == "not_interested" and action == "show_again":
+        return "secondary"
+    return action_visual_variant(action)
 
 
 def render_pipeline(records, match_run_id, tracker_only=False):
@@ -2269,7 +2421,7 @@ def render_pipeline_group(records, match_run_id, empty, tracker_only=False):
 
 def render_reminder_note(record):
     if record["status"] == "remind_later" and record.get("reminder_date"):
-        return f"<p class='muted'>Remind on {e(record['reminder_date'])}</p>"
+        return f"<p class='reminder-note'>Reminder set for {e(record['reminder_date'])}.</p>"
     return ""
 
 
@@ -2284,13 +2436,13 @@ def render_pipeline_card(record, match_run_id, tracker_only=False):
       <div class="card-main">
         <p class="source">{e(record['source'])}</p>
         <h3>{e(record['title'])}</h3>
-        <p class="pill js-card-status">{e(demo.readable_status(record['status']))}</p>
+        <p class="pill js-card-status">{e(readable_status(record['status']))}</p>
         {render_reminder_note(record)}
         <p class="muted">{e(record['next_action'])}</p>
         {navigation}
       </div>
       <div class="card-actions">
-        {f'<a class="open" href="{e(record["url"])}" target="_blank" rel="noreferrer">Open</a>' if record["url"] else ""}
+        {f'<a class="open" href="{e(record["url"])}" target="_blank" rel="noreferrer">View job</a>' if record["url"] else ""}
         <div class="js-card-controls">{render_pipeline_forms(record, match_run_id, card_id_for_record(record))}</div>
       </div>
     </article>
@@ -2411,8 +2563,9 @@ def action_form(
     pipeline_id="",
     return_to="preview-recommendations",
     section="",
+    visual_variant=None,
 ):
-    visual_variant = action_visual_variant(action)
+    visual_variant = visual_variant or action_visual_variant(action)
     return f"""
     <form method="post" action="/action" class="js-inline-action action-form action-form-{e(action)} action-{e(visual_variant)}">
       <input type="hidden" name="match_run_id" value="{e(match_run_id)}">
@@ -2441,7 +2594,7 @@ def action_json_payload(result, run, form):
     if section in {"also_worth_reviewing", "explore"}:
         actions = explore_actions_for_status(item["status"])
     if section in profile_preview.SECTION_ORDER:
-        labels = PREVIEW_ACTION_LABELS
+        labels = ACTION_LABELS
     controls = " ".join(
         action_form(
             action,
@@ -2451,6 +2604,11 @@ def action_json_payload(result, run, form):
             pipeline_id=item["id"],
             return_to=return_to,
             section=section,
+            visual_variant=(
+                my_jobs_action_variant(item["status"], action)
+                if section == "tracker"
+                else None
+            ),
         )
         for action in actions
     )
@@ -2465,7 +2623,7 @@ def action_json_payload(result, run, form):
         "title": result["title"],
         "pipeline_item_id": item["id"],
         "status": item["status"],
-        "status_label": demo.readable_status(item["status"]),
+        "status_label": readable_status(item["status"]),
         "controls_html": controls,
     }
 
@@ -2474,7 +2632,7 @@ def render_inline_action_script():
     return """
     <script>
     (() => {
-      const genericFailure = "We couldn't update this opportunity. Please try again.";
+      const genericFailure = "We couldn't update this job. Try again.";
       const userFacingError = (message) => {
         const error = new Error(message);
         error.userFacing = true;
@@ -2539,7 +2697,10 @@ def render_inline_action_script():
           }
           const status = card.querySelector(".js-card-status");
           const controls = card.querySelector(".js-card-controls");
-          if (status) status.textContent = payload.status_label;
+          if (status) {
+            status.textContent = payload.status_label;
+            status.setAttribute("aria-label", `Current status: ${payload.status_label}`);
+          }
           if (controls) controls.innerHTML = payload.controls_html;
           showCardMessage(card, payload.message);
         } catch (error) {
@@ -2559,7 +2720,11 @@ def render_inline_action_script():
 
 
 def actions_for_status(status):
-    return STATUS_ACTIONS.get(status, ("remind_later", "not_interested"))
+    return STATUS_ACTIONS.get(status, ())
+
+
+def readable_status(status):
+    return STATUS_LABELS.get(status, "Status unavailable")
 
 
 def explore_actions_for_status(status):
@@ -2571,15 +2736,7 @@ def explore_actions_for_status(status):
 
 
 def terminal_status_label(status):
-    labels = {
-        "not_interested": "Hidden / Not interested",
-        "expired": "Expired",
-        "accepted": "Accepted",
-        "active_worker": "Active",
-        "paid_task_received": "Paid task received",
-        "rejected": "Rejected",
-    }
-    return f"<p class='status-note'>{e(labels.get(status, demo.readable_status(status)))}</p>"
+    return f"<p class='status-note'>{e(readable_status(status))}</p>"
 
 
 def action_note(action):
@@ -2597,19 +2754,23 @@ def action_note(action):
     return labels[action]
 
 
-def action_success_message(action, title):
+def action_success_message(action):
     labels = {
-        "show_again": "Shown again",
-        "save": "Saved",
-        "applied": "Marked as applied",
-        "assessment_started": "Assessment started",
-        "assessment_completed": "Assessment completed",
-        "remind_later": "Remind later set for",
-        "not_interested": "Marked not interested",
-        "accepted": "Marked accepted",
-        "rejected": "Marked rejected",
+        "show_again": "Shown in My Jobs again.",
+        "save": "Saved to My Jobs.",
+        "applied": "Marked as applied.",
+        "assessment_started": "Assessment started.",
+        "assessment_completed": "Assessment marked complete.",
+        "remind_later": "Reminder set.",
+        "not_interested": "Marked not interested.",
+        "accepted": "Marked as accepted.",
+        "rejected": "Marked as not selected.",
     }
-    return f"{labels[action]}: {title}"
+    return labels[action]
+
+
+def reminder_success_message(reminder_date):
+    return f"Reminder set for {reminder_date}."
 
 
 def render_error(message):
@@ -2729,6 +2890,12 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
 .results-header h1 { margin-bottom: 8px; }
 .results-summary { color: var(--muted); margin-bottom: 0; }
 .results-summary strong { color: var(--ink); }
+.refresh-summary { color: var(--muted); margin: 2px 0 0; }
+.my-jobs-header { margin: 8px 0 22px; max-width: 720px; }
+.my-jobs-header h1 { margin-bottom: 8px; }
+.my-jobs-header .lead { margin-bottom: 14px; }
+.my-jobs-summary { color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 0; margin-bottom: 0; }
+.my-jobs-summary span:not(:last-child)::after { color: #9AA49E; content: "\\2022"; margin: 0 9px; }
 .profile-switcher {
   align-items: end;
   display: flex;
@@ -2944,6 +3111,100 @@ button:disabled { cursor: wait; opacity: .58; }
 }
 .ranked-card .action-tertiary .action-button:hover { background: var(--surface-subtle); border-color: var(--line); color: var(--ink); }
 .card-status:empty { display: none; }
+.my-jobs-workspace { margin-top: 16px; }
+.my-jobs-filter-row {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.tracker-filters {
+  display: flex;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 3px;
+  scrollbar-width: thin;
+}
+.tracker-filter, .show-hidden {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: .92rem;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 8px 11px;
+  text-decoration: none;
+}
+.tracker-filter:hover, .show-hidden:hover { background: var(--surface-subtle); color: var(--ink); }
+.tracker-filter[aria-current="true"], .show-hidden[aria-current="true"] {
+  background: var(--accent-soft);
+  border-color: #B8D4C9;
+  color: var(--accent);
+}
+.show-hidden { font-weight: 600; white-space: nowrap; }
+.my-jobs-stack { gap: 10px; }
+.card.my-job-card {
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  padding: 16px;
+}
+.my-job-card .card-main { min-width: 0; }
+.my-job-card .card-main h3 { font-size: 1.08rem; }
+.my-job-actions {
+  align-content: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+  max-width: 200px;
+  width: 200px;
+}
+.my-job-actions .js-card-controls { display: grid; gap: 8px; }
+.my-job-actions .action-form, .my-job-actions .action-button, .my-job-actions .open { width: 100%; }
+.button-secondary, .my-job-card .action-secondary .action-button {
+  background: var(--panel);
+  border-color: #AFC0B8;
+  color: var(--accent);
+}
+.button-secondary:hover, .my-job-card .action-secondary .action-button:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.my-job-card .action-primary .action-button { background: var(--accent); color: white; }
+.my-job-card .action-primary .action-button:hover { background: var(--accent-hover); }
+.my-job-card .action-tertiary .action-button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.my-job-card .action-tertiary .action-button:hover {
+  background: var(--surface-subtle);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.reminder-note { color: var(--accent); font-weight: 700; margin-bottom: 8px; }
+.next-step { margin-bottom: 0; max-width: 68ch; }
+.my-jobs-empty, .my-jobs-filter-empty {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+}
+.my-jobs-empty p { font-weight: 700; }
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
 .pill {
   display: inline-block;
   background: var(--accent-soft);
@@ -3051,6 +3312,19 @@ tr:last-child td { border-bottom: 0; }
   }
   .ranked-card .js-card-controls { display: contents; }
   button, .open, .profile-switcher select { min-height: 44px; }
+  .my-jobs-header { margin-top: 4px; }
+  .my-jobs-filter-row { align-items: stretch; flex-direction: column; gap: 6px; }
+  .tracker-filters { margin: 0 -3px; }
+  .tracker-filter, .show-hidden { min-height: 44px; }
+  .show-hidden { align-self: flex-start; }
+  .card.my-job-card { gap: 12px; grid-template-columns: 1fr; }
+  .my-job-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+    width: 100%;
+  }
+  .my-job-actions .js-card-controls { display: contents; }
+  .my-job-actions .action-form, .my-job-actions .action-button, .my-job-actions .open { min-width: 0; }
   .preview-form { padding: 16px; }
   .product-nav { gap: 18px; }
 }

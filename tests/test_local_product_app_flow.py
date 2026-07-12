@@ -1,5 +1,6 @@
 import http.client
 import json
+import re
 import sqlite3
 import tempfile
 import threading
@@ -227,6 +228,111 @@ class LocalProductAppFlowTests(unittest.TestCase):
                 (profile_id,),
             ).fetchall()
 
+    @staticmethod
+    def action_names(html):
+        parser = FormParser()
+        parser.feed(html)
+        return [
+            form["fields"].get("action")
+            for form in parser.forms
+            if form["attrs"].get("action") == "/action"
+        ]
+
+    def assert_unique_card_ids(self, html):
+        card_ids = re.findall(r'<article[^>]+id="([^"]+)"[^>]+data-action-card', html)
+        self.assertTrue(card_ids)
+        self.assertEqual(len(card_ids), len(set(card_ids)))
+
+    def card_html(self, html, title):
+        cards = re.findall(
+            r'<article\b[^>]*data-action-card[^>]*>.*?</article>',
+            html,
+            flags=re.DOTALL,
+        )
+        matching = [card for card in cards if f"<h3>{title}</h3>" in card]
+        self.assertEqual(len(matching), 1, f"Expected one action card for {title}.")
+        return matching[0]
+
+    def create_tracked_run(self, input_text, starting_status):
+        run_id = self.create_run(
+            {"input_text": input_text, "input_style": "short_paragraph"}
+        )
+        _, _, html = self.request("GET", f"/find-matches?run={run_id}")
+        initial_action = "save" if starting_status == "saved" else "applied"
+        fields = self.first_action(html, initial_action)
+        status, _, _ = self.request(
+            "POST",
+            "/action",
+            fields,
+            "application/json",
+            {app.INLINE_ACTION_HEADER: "1"},
+        )
+        self.assertEqual(status, 200)
+        if starting_status == "assessment_started":
+            _, _, html = self.request("GET", f"/find-matches?run={run_id}")
+            fields = self.first_action(html, "assessment_started")
+            status, _, _ = self.request(
+                "POST",
+                "/action",
+                fields,
+                "application/json",
+                {app.INLINE_ACTION_HEADER: "1"},
+            )
+            self.assertEqual(status, 200)
+        _, _, html = self.request("GET", f"/find-matches?run={run_id}")
+        self.assertEqual(self.pipeline_rows("local_user")[-1]["status"], starting_status)
+        return run_id, html
+
+    def assert_hidden_navigation(self, run_id, title):
+        for view in ("all", "saved", "in_progress", "active", "closed"):
+            suffix = "" if view == "all" else f"&view={view}"
+            status, _, html = self.request("GET", f"/tracker?run={run_id}{suffix}")
+            self.assertEqual(status, 200)
+            self.assertIn("Show hidden (1)", html)
+            self.assertIn(f"/tracker?run={run_id}&amp;view=hidden", html)
+            self.assertNotIn(title, html)
+
+        status, _, hidden = self.request("GET", f"/tracker?run={run_id}&view=hidden")
+        self.assertEqual(status, 200)
+        self.assertIn("Hidden (1)", hidden)
+        self.assertIn(title, hidden)
+        self.assertIn("Not interested", hidden)
+        self.assertIn("View job", hidden)
+        self.assertEqual(self.action_names(self.card_html(hidden, title)), ["show_again"])
+        self.assert_unique_card_ids(hidden)
+        return hidden
+
+    def assert_restored_my_jobs(self, run_id, title):
+        status, _, html = self.request("GET", f"/tracker?run={run_id}")
+        self.assertEqual(status, 200)
+        self.assertIn(title, html)
+        self.assertIn("Saved", html)
+        self.assertIn("View job", html)
+        card = self.card_html(html, title)
+        self.assertEqual(
+            self.action_names(card),
+            ["applied", "remind_later", "not_interested"],
+        )
+        self.assertNotIn("Show hidden", html)
+        self.assert_unique_card_ids(html)
+
+    def assert_restored_matches(self, run_id, title):
+        status, _, html = self.request("GET", f"/find-matches?run={run_id}")
+        self.assertEqual(status, 200)
+        self.assertIn(title, html)
+        self.assertIn("Saved", html)
+        self.assertIn("View job", html)
+        card = self.card_html(html, title)
+        self.assertEqual(
+            self.action_names(card),
+            ["applied", "remind_later", "not_interested"],
+        )
+        self.assertNotIn('name="action" value="save"', card)
+        self.assertNotIn('name="action" value="show_again"', card)
+        self.assertNotIn('<article class="card tracker my-job-card"', html)
+        self.assert_unique_card_ids(html)
+        return html
+
     def test_normal_user_save_reload_and_tracker_preserve_run_owner(self):
         self.start_server(demo_mode=False)
         status, _, initial_matches = self.request("GET", "/find-matches")
@@ -271,6 +377,10 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertEqual(action_payload["card_id"], fields["return_to"])
         self.assertEqual(action_payload["opportunity_key"], fields["opportunity_key"])
         self.assertEqual(action_payload["title"], "General AI Reviewer")
+        self.assertEqual(action_payload["message"], "Saved to My Jobs.")
+        self.assertEqual(action_payload["status_label"], "Saved")
+        self.assertIn("Mark as applied", action_payload["controls_html"])
+        self.assertIn("Remind me in 7 days", action_payload["controls_html"])
         self.assertIn(run_id, action_payload["controls_html"])
         self.assertNotIn('name="profile"', action_payload["controls_html"])
         self.assertEqual(len(self.pipeline_rows("local_user")), 1)
@@ -294,6 +404,9 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("General AI Reviewer", tracker)
         self.assertIn(f"/find-matches?run={run_id}", tracker)
+        self.assertIn("<h1>My Jobs</h1>", tracker)
+        self.assertIn('aria-label="Filter My Jobs"', tracker)
+        self.assertNotIn("Application Tracker", tracker)
         self.assertNotIn("Switch", tracker)
 
     def test_demo_personas_have_separate_owners_and_state(self):
@@ -394,6 +507,7 @@ class LocalProductAppFlowTests(unittest.TestCase):
         location = headers["Location"]
         self.assertTrue(location.startswith("/find-matches?"))
         self.assertEqual(parse_qs(urlparse(location).query)["run"], [run_id])
+        self.assertEqual(parse_qs(urlparse(location).query)["message"], ["Saved to My Jobs."])
         self.assertNotIn("/tracker", location)
 
     def test_applied_remind_and_skip_actions_keep_same_run_owner(self):
@@ -412,7 +526,9 @@ class LocalProductAppFlowTests(unittest.TestCase):
             {app.INLINE_ACTION_HEADER: "1"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload)["status"], "applied")
+        applied_payload = json.loads(payload)
+        self.assertEqual(applied_payload["status"], "applied")
+        self.assertEqual(applied_payload["message"], "Marked as applied.")
 
         _, _, html = self.request("GET", f"/find-matches?run={run_id}")
         remind_fields = self.first_action(html, "remind_later")
@@ -424,12 +540,15 @@ class LocalProductAppFlowTests(unittest.TestCase):
             {app.INLINE_ACTION_HEADER: "1"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload)["status"], "remind_later")
+        reminder_payload = json.loads(payload)
+        self.assertEqual(reminder_payload["status"], "remind_later")
         row = self.pipeline_rows("local_user")[0]
         expected_reminder = (
             app.datetime.now(app.timezone.utc).date() + timedelta(days=7)
         ).isoformat()
         self.assertEqual(row["reminder_date"], expected_reminder)
+        self.assertEqual(reminder_payload["message"], f"Reminder set for {expected_reminder}.")
+        self.assertEqual(reminder_payload["status_label"], "Saved")
 
         _, _, html = self.request("GET", f"/find-matches?run={run_id}")
         skip_fields = self.first_action(html, "not_interested")
@@ -441,9 +560,202 @@ class LocalProductAppFlowTests(unittest.TestCase):
             {app.INLINE_ACTION_HEADER: "1"},
         )
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(payload)["status"], "not_interested")
+        skip_payload = json.loads(payload)
+        self.assertEqual(skip_payload["status"], "not_interested")
+        self.assertEqual(skip_payload["message"], "Marked not interested.")
         self.assertEqual(self.pipeline_rows("local_user")[0]["status"], "not_interested")
         self.assertEqual(self.registry.get(run_id).owner_profile_id, "local_user")
+
+    def test_hidden_and_show_again_inline_for_each_supported_starting_status(self):
+        self.start_server(demo_mode=False)
+        cases = (
+            ("saved", "General reviewer seeking remote AI work.", "General AI Reviewer"),
+            ("applied", "Software engineer seeking remote AI work.", "Python Coding Evaluator"),
+            ("assessment_started", "Biology researcher seeking remote AI work.", "Microbiology Specialist"),
+        )
+        for starting_status, input_text, title in cases:
+            with self.subTest(starting_status=starting_status):
+                run_id, matches = self.create_tracked_run(input_text, starting_status)
+                fields = self.first_action(matches, "not_interested")
+                status, headers, payload = self.request(
+                    "POST",
+                    "/action",
+                    fields,
+                    "application/json",
+                    {app.INLINE_ACTION_HEADER: "1"},
+                )
+                self.assertEqual(status, 200)
+                self.assertTrue(headers["Content-Type"].startswith("application/json"))
+                response = json.loads(payload)
+                self.assertEqual(response["status"], "not_interested")
+                self.assertIn("Show again", response["controls_html"])
+                self.assertNotIn("Mark as applied", response["controls_html"])
+                self.assertEqual(self.pipeline_rows("local_user")[-1]["status"], "not_interested")
+
+                repeated_status, _, repeated_payload = self.request(
+                    "POST",
+                    "/action",
+                    fields,
+                    "application/json",
+                    {app.INLINE_ACTION_HEADER: "1"},
+                )
+                self.assertEqual(repeated_status, 200)
+                self.assertEqual(json.loads(repeated_payload)["status"], "not_interested")
+
+                hidden = self.assert_hidden_navigation(run_id, title)
+                show_again = self.first_action(hidden, "show_again")
+                status, _, payload = self.request(
+                    "POST",
+                    "/action",
+                    show_again,
+                    "application/json",
+                    {app.INLINE_ACTION_HEADER: "1"},
+                )
+                self.assertEqual(status, 200)
+                response = json.loads(payload)
+                self.assertEqual(response["status"], "saved")
+                self.assertIn("Mark as applied", response["controls_html"])
+                self.assertNotIn("Show again", response["controls_html"])
+
+                repeated_status, _, repeated_payload = self.request(
+                    "POST",
+                    "/action",
+                    show_again,
+                    "application/json",
+                    {app.INLINE_ACTION_HEADER: "1"},
+                )
+                self.assertEqual(repeated_status, 200)
+                self.assertEqual(json.loads(repeated_payload)["status"], "saved")
+                self.assertEqual(self.pipeline_rows("local_user")[-1]["status"], "saved")
+                self.assert_restored_my_jobs(run_id, title)
+
+    def test_hidden_and_show_again_no_javascript_for_each_supported_starting_status(self):
+        self.start_server(demo_mode=False)
+        cases = (
+            ("saved", "General reviewer seeking remote AI work.", "General AI Reviewer"),
+            ("applied", "Software engineer seeking remote AI work.", "Python Coding Evaluator"),
+            ("assessment_started", "Biology researcher seeking remote AI work.", "Microbiology Specialist"),
+        )
+        for starting_status, input_text, title in cases:
+            with self.subTest(starting_status=starting_status):
+                run_id, matches = self.create_tracked_run(input_text, starting_status)
+                fields = self.first_action(matches, "not_interested")
+                status, headers, _ = self.request("POST", "/action", fields)
+                self.assertEqual(status, 303)
+                self.assertEqual(
+                    parse_qs(urlparse(headers["Location"]).query)["run"],
+                    [run_id],
+                )
+                self.assertEqual(self.pipeline_rows("local_user")[-1]["status"], "not_interested")
+
+                repeated_status, repeated_headers, _ = self.request("POST", "/action", fields)
+                self.assertEqual(repeated_status, 303)
+                self.assertEqual(
+                    parse_qs(urlparse(repeated_headers["Location"]).query)["run"],
+                    [run_id],
+                )
+                self.assertEqual(self.pipeline_rows("local_user")[-1]["status"], "not_interested")
+
+                hidden = self.assert_hidden_navigation(run_id, title)
+                show_again = self.first_action(hidden, "show_again")
+                status, headers, _ = self.request("POST", "/action", show_again)
+                self.assertEqual(status, 303)
+                self.assertTrue(headers["Location"].startswith("/find-matches?"))
+                self.assertEqual(
+                    parse_qs(urlparse(headers["Location"]).query)["run"],
+                    [run_id],
+                )
+                self.assertEqual(self.pipeline_rows("local_user")[-1]["status"], "saved")
+
+                repeated_status, repeated_headers, _ = self.request("POST", "/action", show_again)
+                self.assertEqual(repeated_status, 303)
+                self.assertEqual(
+                    parse_qs(urlparse(repeated_headers["Location"]).query)["run"],
+                    [run_id],
+                )
+                self.assertEqual(self.pipeline_rows("local_user")[-1]["status"], "saved")
+                self.assert_restored_my_jobs(run_id, title)
+
+    def test_matches_reload_restores_saved_controls_after_inline_show_again(self):
+        self.start_server(demo_mode=False)
+        run_id = self.create_run(
+            {"input_text": "General reviewer seeking remote AI work.", "input_style": "short_paragraph"}
+        )
+        _, _, matches = self.request("GET", f"/find-matches?run={run_id}")
+        self.assertEqual(self.action_names(matches), ["save", "applied", "not_interested"])
+        self.assertIn("View job", matches)
+
+        save = self.first_action(matches, "save")
+        self.request("POST", "/action", save, "application/json", {app.INLINE_ACTION_HEADER: "1"})
+        matches = self.assert_restored_matches(run_id, "General AI Reviewer")
+
+        hide = self.first_action(matches, "not_interested")
+        self.request("POST", "/action", hide, "application/json", {app.INLINE_ACTION_HEADER: "1"})
+        _, _, hidden_matches = self.request("GET", f"/find-matches?run={run_id}")
+        self.assertIn("Not interested", hidden_matches)
+        self.assertEqual(self.action_names(hidden_matches), ["show_again"])
+
+        _, _, hidden_tracker = self.request("GET", f"/tracker?run={run_id}&view=hidden")
+        show_again = self.first_action(hidden_tracker, "show_again")
+        status, _, payload = self.request(
+            "POST",
+            "/action",
+            show_again,
+            "application/json",
+            {app.INLINE_ACTION_HEADER: "1"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["status"], "saved")
+        first_reload = self.assert_restored_matches(run_id, "General AI Reviewer")
+        second_reload = self.assert_restored_matches(run_id, "General AI Reviewer")
+        self.assertEqual(self.action_names(first_reload), self.action_names(second_reload))
+
+    def test_matches_reload_restores_saved_controls_after_no_javascript_show_again(self):
+        self.start_server(demo_mode=False)
+        run_id = self.create_run(
+            {"input_text": "General reviewer seeking remote AI work.", "input_style": "short_paragraph"}
+        )
+        _, _, matches = self.request("GET", f"/find-matches?run={run_id}")
+        save = self.first_action(matches, "save")
+        status, headers, _ = self.request("POST", "/action", save)
+        self.assertEqual(status, 303)
+        self.assertEqual(parse_qs(urlparse(headers["Location"]).query)["run"], [run_id])
+
+        matches = self.assert_restored_matches(run_id, "General AI Reviewer")
+        hide = self.first_action(matches, "not_interested")
+        status, _, _ = self.request("POST", "/action", hide)
+        self.assertEqual(status, 303)
+
+        _, _, hidden_tracker = self.request("GET", f"/tracker?run={run_id}&view=hidden")
+        show_again = self.first_action(hidden_tracker, "show_again")
+        status, headers, _ = self.request("POST", "/action", show_again)
+        self.assertEqual(status, 303)
+        self.assertTrue(headers["Location"].startswith("/find-matches?"))
+        self.assertEqual(parse_qs(urlparse(headers["Location"]).query)["run"], [run_id])
+        self.assert_restored_matches(run_id, "General AI Reviewer")
+
+    def test_cross_match_run_opportunity_reference_is_rejected(self):
+        self.start_server(demo_mode=False)
+        first_run = self.create_run(
+            {"input_text": "General reviewer seeking remote AI work.", "input_style": "short_paragraph"}
+        )
+        second_run = self.create_run(
+            {"input_text": "Software engineer seeking remote AI work.", "input_style": "short_paragraph"}
+        )
+        _, _, first_matches = self.request("GET", f"/find-matches?run={first_run}")
+        fields = self.first_action(first_matches, "save")
+        fields["match_run_id"] = second_run
+        status, headers, payload = self.request(
+            "POST",
+            "/action",
+            fields,
+            "application/json",
+            {app.INLINE_ACTION_HEADER: "1"},
+        )
+        self.assertEqual(status, 400)
+        self.assertTrue(headers["Content-Type"].startswith("application/json"))
+        self.assertIn("not part of this match run", json.loads(payload)["error"])
+        self.assertEqual(len(self.pipeline_rows("local_user")), 0)
 
     def test_edit_profile_creates_new_immutable_run_for_same_owner(self):
         self.start_server(demo_mode=False)

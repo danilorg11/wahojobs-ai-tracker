@@ -112,17 +112,15 @@ class LocalProductVisualMilestoneTests(unittest.TestCase):
 
         self.assertIn('class="pill card-status js-card-status">Saved</p>', page)
 
-    def test_navigation_and_tracker_copy_remain_available(self):
+    def test_navigation_and_my_jobs_copy_remain_available(self):
         nav = app.render_product_nav("run-visual", current="matches")
-        tracker = app.render_lightweight_tracker_header(
-            {"display_name": "Preview Profile", "profile_id": "preview"},
-            "run-visual",
-        )
+        tracker = app.render_lightweight_tracker_header([])
 
         self.assertIn("Wahojobs", nav)
         self.assertIn("Matches", nav)
         self.assertIn("My Jobs", nav)
-        self.assertIn("Application Tracker", tracker)
+        self.assertIn("Track saved jobs, applications, assessments, and follow-ups.", tracker)
+        self.assertNotIn("Application Tracker", tracker)
 
     def test_css_locks_ranked_grid_focus_and_mobile_controls(self):
         self.assertIn(".card.ranked-card", app.CSS)
