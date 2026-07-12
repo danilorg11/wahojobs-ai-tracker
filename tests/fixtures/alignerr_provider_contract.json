@@ -1,0 +1,249 @@
+{
+  "legacy_v1_valid": [
+    {
+      "id": "job-a",
+      "name": "Python Expert",
+      "isActive": true,
+      "absolute_url": "https://www.alignerr.com/jobs/job-a",
+      "location": "United States",
+      "category": "CODING",
+      "jobType": "CONTRACT"
+    },
+    {
+      "id": "job-b",
+      "name": "Spanish Language Expert",
+      "isActive": true,
+      "absolute_url": null,
+      "location": "Remote",
+      "category": "LANGUAGE",
+      "jobType": "CONTRACT"
+    },
+    {
+      "id": "job-inactive",
+      "name": "Inactive Expert",
+      "isActive": false,
+      "absolute_url": "https://www.alignerr.com/jobs/job-inactive",
+      "location": "Remote",
+      "category": "GENERAL",
+      "jobType": "CONTRACT"
+    }
+  ],
+  "v2_single_page": {
+    "jobs": [
+      {
+        "id": "job-a",
+        "title": "Python Expert",
+        "description": "Evaluate Python responses.",
+        "pay": "$30-50/hr",
+        "location": "United States",
+        "applyUrl": "/jobs/job-a",
+        "category": "Coding",
+        "originalCategory": "CODING"
+      },
+      {
+        "id": "job-b",
+        "title": "Spanish Language Expert",
+        "description": "Evaluate Spanish responses.",
+        "pay": "$20-40/hr",
+        "location": "Remote",
+        "applyUrl": "/jobs/job-b",
+        "category": "General",
+        "originalCategory": "GENERAL"
+      }
+    ],
+    "limit": 2,
+    "offset": 0,
+    "total": 2
+  },
+  "v2_multiple_pages": [
+    {
+      "jobs": [
+        {
+          "id": "job-a",
+          "title": "Python Expert",
+          "description": "Evaluate Python responses.",
+          "pay": "$30-50/hr",
+          "location": "United States",
+          "applyUrl": "/jobs/job-a",
+          "category": "Coding",
+          "originalCategory": "CODING"
+        },
+        {
+          "id": "job-b",
+          "title": "Spanish Language Expert",
+          "description": "Evaluate Spanish responses.",
+          "pay": "$20-40/hr",
+          "location": "Remote",
+          "applyUrl": "/jobs/job-b",
+          "category": "General",
+          "originalCategory": "GENERAL"
+        }
+      ],
+      "limit": 2,
+      "offset": 0,
+      "total": 3
+    },
+    {
+      "jobs": [
+        {
+          "id": "job-c",
+          "title": "Biology Expert",
+          "description": "Evaluate biology responses.",
+          "pay": "$30-50/hr",
+          "location": "Remote",
+          "applyUrl": "/jobs/job-c",
+          "category": "Stem",
+          "originalCategory": "STEM"
+        }
+      ],
+      "limit": 2,
+      "offset": 2,
+      "total": 3
+    }
+  ],
+  "unknown_envelope": {"results": []},
+  "missing_jobs": {"limit": 2, "offset": 0, "total": 1},
+  "jobs_wrong_type": {"jobs": {}, "limit": 2, "offset": 0, "total": 1},
+  "pagination_missing_limit": {"jobs": [], "offset": 0, "total": 0},
+  "pagination_wrong_total": {"jobs": [], "limit": 2, "offset": 0, "total": "2"},
+  "pagination_negative_offset": {"jobs": [], "limit": 2, "offset": -1, "total": 0},
+  "record_missing_title": {
+    "jobs": [{"id": "job-a", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "Coding"}],
+    "limit": 1,
+    "offset": 0,
+    "total": 1
+  },
+  "record_invalid_title_type": {
+    "jobs": [{"id": "job-a", "title": 123, "location": "Remote", "applyUrl": "/jobs/job-a", "category": "Coding"}],
+    "limit": 1,
+    "offset": 0,
+    "total": 1
+  },
+  "record_invalid_apply_url": {
+    "jobs": [{"id": "job-a", "title": "Python Expert", "location": "Remote", "applyUrl": "not-a-url", "category": "Coding"}],
+    "limit": 1,
+    "offset": 0,
+    "total": 1
+  },
+  "duplicate_page": [
+    {
+      "jobs": [
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 0,
+      "total": 4
+    },
+    {
+      "jobs": [
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 2,
+      "total": 4
+    }
+  ],
+  "duplicate_ids": {
+    "jobs": [
+      {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+      {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"}
+    ],
+    "limit": 2,
+    "offset": 0,
+    "total": 2
+  },
+  "no_progress": [
+    {
+      "jobs": [
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 0,
+      "total": 4
+    },
+    {
+      "jobs": [
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"},
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 2,
+      "total": 4
+    }
+  ],
+  "early_empty_page": [
+    {
+      "jobs": [
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 0,
+      "total": 3
+    },
+    {"jobs": [], "limit": 2, "offset": 2, "total": 3}
+  ],
+  "premature_short_page": {
+    "jobs": [{"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"}],
+    "limit": 2,
+    "offset": 0,
+    "total": 3
+  },
+  "changing_total": [
+    {
+      "jobs": [
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 0,
+      "total": 3
+    },
+    {
+      "jobs": [{"id": "job-c", "title": "C", "location": "Remote", "applyUrl": "/jobs/job-c", "category": "General"}],
+      "limit": 2,
+      "offset": 2,
+      "total": 4
+    }
+  ],
+  "offset_not_advancing": [
+    {
+      "jobs": [
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 0,
+      "total": 3
+    },
+    {
+      "jobs": [{"id": "job-c", "title": "C", "location": "Remote", "applyUrl": "/jobs/job-c", "category": "General"}],
+      "limit": 2,
+      "offset": 0,
+      "total": 3
+    }
+  ],
+  "final_count_mismatch": [
+    {
+      "jobs": [
+        {"id": "job-a", "title": "A", "location": "Remote", "applyUrl": "/jobs/job-a", "category": "General"},
+        {"id": "job-b", "title": "B", "location": "Remote", "applyUrl": "/jobs/job-b", "category": "General"}
+      ],
+      "limit": 2,
+      "offset": 0,
+      "total": 4
+    },
+    {
+      "jobs": [{"id": "job-c", "title": "C", "location": "Remote", "applyUrl": "/jobs/job-c", "category": "General"}],
+      "limit": 2,
+      "offset": 2,
+      "total": 4
+    }
+  ],
+  "zero_result": {"jobs": [], "limit": 120, "offset": 0, "total": 0},
+  "application_error": {"error": "temporarily unavailable"},
+  "invalid_json": "{not valid json"
+}
