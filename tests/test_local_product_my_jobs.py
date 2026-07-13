@@ -7,7 +7,6 @@ import scripts.local_product_app as app
 VALID_STATUSES = (
     "recommended",
     "saved",
-    "remind_later",
     "applied",
     "waiting",
     "assessment_invited",
@@ -19,10 +18,14 @@ VALID_STATUSES = (
     "not_interested",
     "rejected",
     "expired",
+    "workflow_unknown",
 )
 
 
 def record(status, index=1, *, reminder_date=""):
+    hidden = status == "not_interested"
+    unknown = status == "workflow_unknown"
+    workflow_status = None if unknown else "saved" if hidden else status
     return {
         "id": index,
         "pipeline_item_id": f"pipeline-{index}",
@@ -31,6 +34,12 @@ def record(status, index=1, *, reminder_date=""):
         "title": f"Fixture Opportunity {index}",
         "url": f"https://example.test/jobs/{index}",
         "status": status,
+        "workflow_status": workflow_status,
+        "workflow_status_provenance": "unknown_legacy" if unknown else "known",
+        "visibility": "hidden" if hidden else "visible",
+        "reminder_at": f"{reminder_date}T00:00:00+00:00" if reminder_date else None,
+        "state_version": 2,
+        "integrity_error": False,
         "status_date": "2026-07-12",
         "notes": "",
         "user_priority": "medium",
@@ -38,7 +47,14 @@ def record(status, index=1, *, reminder_date=""):
         "last_user_action": "",
         "updated_at": f"2026-07-12 12:00:{index:02d}",
         "match_score": None,
-        "next_action": app.lightweight_next_action({"status": status}),
+        "next_action": app.lightweight_next_action(
+            {
+                "status": status,
+                "workflow_status": workflow_status,
+                "visibility": "hidden" if hidden else "visible",
+                "reminder_at": f"{reminder_date}T00:00:00+00:00" if reminder_date else None,
+            }
+        ),
     }
 
 
@@ -69,9 +85,10 @@ class MyJobsStateModelTests(unittest.TestCase):
                 "not_interested": "Not interested",
                 "rejected": "Not selected",
                 "expired": "No longer available",
+                "workflow_unknown": "Workflow needs confirmation",
             },
         )
-        self.assertEqual(set(app.STATUS_LABELS), set(VALID_STATUSES))
+        self.assertEqual(set(app.STATUS_LABELS), set(VALID_STATUSES) | {"remind_later"})
 
     def test_exact_action_labels_and_transitions_remain_stable(self):
         self.assertEqual(
@@ -134,7 +151,7 @@ class MyJobsStateModelTests(unittest.TestCase):
                 "best_matches",
             )
             jobs_html = app.render_my_jobs_forms(item, "run-labels", "card-labels")
-            for action in app.actions_for_status(status):
+            for action in app.actions_for_record(item):
                 label = app.ACTION_LABELS[action]
                 with self.subTest(status=status, action=action):
                     self.assertIn(f">{label}</button>", matches_html)
@@ -150,11 +167,12 @@ class MyJobsStateModelTests(unittest.TestCase):
                 self.assertNotIn(f">{label}</button>", html)
 
     def test_unknown_status_is_visible_and_read_only(self):
-        item = record("future_state")
+        item = record("workflow_unknown", reminder_date="2026-07-19")
+        item["integrity_error"] = True
         html = app.render_my_jobs_card(item, "run-unknown")
 
-        self.assertEqual(app.actions_for_status("future_state"), ())
-        self.assertIn("Status unavailable", html)
+        self.assertEqual(app.actions_for_record(item), ())
+        self.assertIn("Workflow needs confirmation", html)
         self.assertNotIn("js-inline-action", html)
         self.assertIn("View job", html)
 
@@ -171,7 +189,7 @@ class MyJobsStateModelTests(unittest.TestCase):
 
     def test_reminder_status_uses_saved_badge_and_date_metadata(self):
         html = app.render_my_jobs_card(
-            record("remind_later", reminder_date="2026-07-19"),
+            record("saved", reminder_date="2026-07-19"),
             "run-reminder",
         )
 
@@ -185,7 +203,7 @@ class MyJobsStateModelTests(unittest.TestCase):
         self.assertNotIn("not_interested", {item["status"] for item in app.tracker_records_for_view(records, "all")})
         self.assertEqual(
             {item["status"] for item in app.tracker_records_for_view(records, "saved")},
-            {"recommended", "saved", "remind_later"},
+            {"recommended", "saved"},
         )
         self.assertEqual(
             {item["status"] for item in app.tracker_records_for_view(records, "in_progress")},
@@ -283,6 +301,24 @@ class MyJobsStateModelTests(unittest.TestCase):
         self.assertIn("We couldn't update this job. Try again.", script)
         self.assertIn('<p class="results-summary"><strong>1 verified match</strong></p>', header)
         self.assertIn('<p class="refresh-summary">1 more match is being refreshed.</p>', header)
+
+    def test_header_counts_hidden_reminders_independently_of_workflow(self):
+        hidden = record("not_interested", reminder_date="2026-07-19")
+        hidden["workflow_status"] = "applied"
+        header = app.render_lightweight_tracker_header([hidden])
+
+        self.assertIn("1 job", header)
+        self.assertIn("0 in progress", header)
+        self.assertIn("1 reminder", header)
+
+    def test_mobile_action_controls_allow_long_labels_to_wrap_without_clipping(self):
+        button_block = app.CSS.split("button, .open {", 1)[1].split("}", 1)[0]
+        self.assertIn("overflow-wrap: anywhere", button_block)
+        self.assertIn("white-space: normal", button_block)
+        self.assertIn("text-align: center", button_block)
+        self.assertIn("min-height: 40px", button_block)
+        mobile_block = app.CSS.split("@media (max-width: 820px)", 1)[1]
+        self.assertIn("button, .open, .profile-switcher select { min-height: 44px; }", mobile_block)
 
 
 if __name__ == "__main__":

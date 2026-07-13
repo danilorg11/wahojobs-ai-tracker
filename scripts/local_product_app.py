@@ -22,6 +22,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import product_demo_report as demo
 import profile_to_matches_preview as profile_preview
 import product_state
+import user_pipeline_digest as pipeline_digest
+from wahojobs import (
+    pipeline_actions,
+    pipeline_reconciliation,
+    pipeline_records,
+    pipeline_state,
+)
 from wahojobs.db.connection import get_connection
 
 
@@ -145,6 +152,11 @@ class ActionError(Exception):
         super().__init__(message)
         self.status = status
 
+
+class MalformedActionRequest(ActionError):
+    def __init__(self):
+        super().__init__("Malformed action request.", HTTPStatus.BAD_REQUEST)
+
 ACTION_STATUSES = {
     "show_again": "saved",
     "save": "saved",
@@ -184,6 +196,7 @@ STATUS_LABELS = {
     "not_interested": "Not interested",
     "rejected": "Not selected",
     "expired": "No longer available",
+    "workflow_unknown": "Workflow needs confirmation",
 }
 
 ACTIVE_PIPELINE_STATUSES = {
@@ -209,7 +222,7 @@ TRACKER_FILTERS = (
     ("closed", "Closed"),
 )
 TRACKER_FILTER_STATUSES = {
-    "saved": {"recommended", "saved", "remind_later"},
+    "saved": {"recommended", "saved"},
     "in_progress": {
         "applied",
         "waiting",
@@ -315,13 +328,21 @@ def make_handler(registry=None, demo_mode=False):
                         status=HTTPStatus.GONE,
                     )
                     return
-                self.write_html(
-                    render_preview_from_params(
-                        params,
-                        registry=registry,
-                        demo_mode=demo_mode,
+                try:
+                    self.write_html(
+                        render_preview_from_params(
+                            params,
+                            registry=registry,
+                            demo_mode=demo_mode,
+                        )
                     )
-                )
+                except pipeline_records.PipelineRecordInvariant:
+                    self.write_html(
+                        render_error(
+                            "Matches are temporarily unavailable because pipeline state needs reconciliation."
+                        ),
+                        status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
                 return
             if parsed.path not in TRACKER_PATHS | HEAVY_DASHBOARD_PATHS:
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -337,6 +358,10 @@ def make_handler(registry=None, demo_mode=False):
                     context = demo.build_demo_context(
                         profile_id=profile_id,
                         use_product_state=True,
+                    )
+                    context = normalize_dashboard_pipeline_context(
+                        context,
+                        profile_id,
                     )
                     body = render_dashboard(
                         context,
@@ -358,10 +383,20 @@ def make_handler(registry=None, demo_mode=False):
                 self.write_html(body)
             except ActionError as exc:
                 self.write_html(render_error(str(exc)), status=exc.status)
+            except pipeline_records.PipelineRecordInvariant:
+                self.write_html(
+                    render_error(
+                        "My Jobs is temporarily unavailable because pipeline state needs reconciliation."
+                    ),
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
             except SystemExit as exc:
                 self.write_html(render_error(str(exc)), status=HTTPStatus.BAD_REQUEST)
-            except Exception as exc:
-                self.write_html(render_error(str(exc)), status=HTTPStatus.INTERNAL_SERVER_ERROR)
+            except Exception:
+                self.write_html(
+                    render_error("The page could not be loaded safely."),
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
 
         def do_POST(self):
             parsed = urlparse(self.path)
@@ -378,14 +413,17 @@ def make_handler(registry=None, demo_mode=False):
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return
 
-            form = self.read_form()
-            return_to = first_value(form, "return_to") or "preview-recommendations"
-            run_id = first_value(form, "match_run_id")
+            form = self.read_form(keep_blank_values=True)
+            return_to = safe_action_context_value(form, "return_to") or "preview-recommendations"
+            run_id = safe_action_context_value(form, "match_run_id")
             wants_json = (
                 "application/json" in self.headers.get("Accept", "").lower()
                 or self.headers.get(INLINE_ACTION_HEADER, "") == "1"
             )
             try:
+                validate_action_form(form)
+                return_to = action_form_value(form, "return_to")
+                run_id = action_form_value(form, "match_run_id")
                 run = require_match_run(registry, run_id)
                 result = handle_action(form, run)
                 if wants_json:
@@ -406,21 +444,29 @@ def make_handler(registry=None, demo_mode=False):
                     run_id,
                     return_to,
                 )
-            except Exception as exc:
+            except Exception:
                 self.write_action_error(
-                    ActionError(f"Action failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR),
+                    ActionError(
+                        "The action could not be completed safely.",
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    ),
                     wants_json,
                     run_id,
                     return_to,
                 )
 
-        def read_form(self):
+        def read_form(self, *, keep_blank_values=False):
             length = int(self.headers.get("Content-Length", "0"))
-            return parse_qs(self.rfile.read(length).decode("utf-8"))
+            return parse_qs(
+                self.rfile.read(length).decode("utf-8"),
+                keep_blank_values=keep_blank_values,
+            )
 
         def write_action_error(self, exc, wants_json, run_id, return_to):
             if wants_json:
                 self.write_json({"ok": False, "error": str(exc)}, status=exc.status)
+            elif isinstance(exc, MalformedActionRequest):
+                self.write_html(render_error(str(exc)), status=exc.status)
             elif run_id:
                 self.redirect(
                     "/find-matches",
@@ -572,7 +618,10 @@ def resolve_run_opportunity(run, requested_key):
                 "title": match.get("display_title") or match.get("title") or "",
                 "url": match.get("url") or "",
             }
-    raise ActionError("That opportunity is not part of this match run.")
+    raise ActionError(
+        "That opportunity is not available in this match run.",
+        HTTPStatus.FORBIDDEN,
+    )
 
 
 def handle_action(form, run):
@@ -581,237 +630,213 @@ def handle_action(form, run):
         raise ActionError(f"Unknown action: {action}")
 
     pipeline_id = first_value(form, "pipeline_item_id")
+    idempotency_key = required_form_value(form, "idempotency_key")
     note = action_note(action)
-    status = ACTION_STATUSES[action]
     owner_profile_id = run.owner_profile_id
 
     with get_connection() as conn:
-        if pipeline_id:
-            item = product_state.require_pipeline_item(conn, pipeline_id)
-            if item["profile_id"] != owner_profile_id:
-                raise ActionError(
-                    "That tracker item belongs to a different profile.",
-                    HTTPStatus.FORBIDDEN,
+        try:
+            pipeline_records.require_pipeline_state_schema(conn)
+            require_browser_pipeline_ready(conn)
+            call = {
+                "action": action,
+                "owner_profile_id": owner_profile_id,
+                "idempotency_key": idempotency_key,
+                "match_run_id": run.match_run_id,
+                "note": note,
+            }
+            if action == "remind_later":
+                reminder_date = (
+                    datetime.now(timezone.utc).date() + timedelta(days=7)
+                ).isoformat()
+                call["reminder_at"] = f"{reminder_date}T00:00:00+00:00"
+            if pipeline_id:
+                persisted = conn.execute(
+                    "SELECT profile_id FROM user_pipeline_items WHERE pipeline_item_id = ?",
+                    (pipeline_id,),
+                ).fetchone()
+                if persisted is None:
+                    raise ActionError("That tracker item was not found.", HTTPStatus.NOT_FOUND)
+                if persisted["profile_id"] != owner_profile_id:
+                    raise ActionError(
+                        "That tracker item is unavailable for this profile.",
+                        HTTPStatus.FORBIDDEN,
+                    )
+                record = normalized_browser_record(
+                    pipeline_records.load_pipeline_record(
+                        conn,
+                        pipeline_id,
+                        owner_profile_id=owner_profile_id,
+                        mutation_grade=True,
+                    )
                 )
-            source = item["source"]
-            title = item["opportunity_title"]
-            url = item["opportunity_url"] or ""
-        else:
-            opportunity = resolve_run_opportunity(
-                run,
-                first_value(form, "opportunity_key"),
-            )
-            source = opportunity["source"]
-            title = opportunity["title"]
-            url = opportunity["url"]
-            item = ensure_pipeline_item(
-                conn,
-                owner_profile_id,
-                source,
-                title,
-                url,
-            )
-
-        allowed_actions = actions_for_status(item["status"])
-        if action not in allowed_actions and item["status"] != status:
+                requested_opportunity = first_value(form, "opportunity_key")
+                if requested_opportunity:
+                    opportunity = resolve_run_opportunity(run, requested_opportunity)
+                    if not same_record_opportunity(record, opportunity):
+                        raise ActionError(
+                            "That action does not match this opportunity.",
+                            HTTPStatus.FORBIDDEN,
+                        )
+                expected_version = required_expected_version(form)
+                orchestrator_action = normalized_browser_action(action, form, record)
+                call.update(
+                    action=orchestrator_action,
+                    pipeline_item_id=pipeline_id,
+                    expected_version=expected_version,
+                )
+            else:
+                if "expected_version" in form:
+                    raise ActionError(
+                        "A new opportunity must not submit a state version."
+                    )
+                if action not in {"save", "applied", "not_interested"}:
+                    raise ActionError("That action requires a tracked opportunity.")
+                opportunity = resolve_run_opportunity(
+                    run, first_value(form, "opportunity_key")
+                )
+                call.update(
+                    source=opportunity["source"],
+                    title=opportunity["title"],
+                    url=opportunity["url"],
+                )
+            operation = pipeline_actions.perform_pipeline_action(conn, **call)
+            loaded_record = pipeline_records.load_pipeline_record(
+                    conn,
+                    operation.pipeline_item["pipeline_item_id"],
+                    owner_profile_id=owner_profile_id,
+                    mutation_grade=True,
+                )
+            record = normalized_browser_record(loaded_record)
+            all_records = [
+                normalized_browser_record(current)
+                for current in pipeline_records.list_pipeline_records(
+                    conn, owner_profile_id, mutation_grade=True
+                )
+            ]
+        except ActionError:
+            raise
+        except pipeline_state.OwnershipError as exc:
             raise ActionError(
-                f"That action is not available while this item is {readable_status(item['status'])}."
+                "That tracker item is unavailable for this profile.",
+                HTTPStatus.FORBIDDEN,
+            ) from exc
+        except (pipeline_state.StaleStateVersion, pipeline_state.IdempotencyConflict) as exc:
+            message = (
+                "This item changed since the page was loaded. Refresh and try again."
+                if isinstance(exc, pipeline_state.StaleStateVersion)
+                else "This action conflicts with an earlier request. Refresh and try again."
             )
-
-        previous_status = item["status"]
-        message = action_success_message(action)
-        if item["status"] == status:
-            if action == "remind_later" and item["reminder_date"]:
-                message = reminder_success_message(item["reminder_date"])
-        elif status == "remind_later":
-            reminder_date = (datetime.now(timezone.utc).date() + timedelta(days=7)).isoformat()
-            update_pipeline_item(
-                conn,
-                item,
-                status=status,
-                note=note,
-                reminder_date=reminder_date,
-            )
-            message = reminder_success_message(reminder_date)
-        else:
-            update_pipeline_item(conn, item, status=status, note=note)
-
-        if previous_status != status and status in {
-            "applied",
-            "assessment_started",
-            "assessment_completed",
-            "accepted",
-            "rejected",
-        }:
-            add_applicant_update(
-                conn,
-                profile_id=owner_profile_id,
-                source=source,
-                title=title,
-                url=url,
-                status=status,
-                previous_status=previous_status,
-                note=note,
-            )
-        item = product_state.require_pipeline_item(conn, str(item["id"]))
+            raise ActionError(message, HTTPStatus.CONFLICT) from exc
+        except (pipeline_actions.UnresolvedLegacyWorkflow, pipeline_state.InvalidTransition) as exc:
+            raise ActionError(str(exc), HTTPStatus.CONFLICT) from exc
+        except (
+            pipeline_records.PipelineRecordInvariant,
+            pipeline_actions.PipelineInvariantError,
+            pipeline_state.ProjectionNotInitialized,
+        ) as exc:
+            raise ActionError(
+                "Pipeline state needs reconciliation before this action can continue.",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            ) from exc
+        except pipeline_actions.PipelineActionValidationError as exc:
+            raise ActionError(str(exc), HTTPStatus.BAD_REQUEST) from exc
 
     return {
-        "message": message,
-        "item": dict(item),
-        "source": source,
-        "title": title,
-        "url": url,
+        "message": (
+            reminder_success_message(record["reminder_date"])
+            if action == "remind_later"
+            else action_success_message(action)
+        ),
+        "item": record,
+        "source": record["source"],
+        "title": record["title"],
+        "url": record["url"],
+        "replayed": operation.replayed,
+        "all_records": all_records,
     }
 
 
-def ensure_pipeline_item(conn, profile_id, source, title, url):
-    profile = product_state.require_profile(conn, profile_id)
-    url = url or ""
-    existing = product_state.find_pipeline_item_by_identity(
-        conn,
-        profile_id,
-        source,
-        title,
-        url,
-    )
-    if existing is not None:
-        return existing
+def require_browser_pipeline_ready(conn):
+    report = pipeline_reconciliation.reconcile_pipeline_state(conn)
+    if report["blocking"]:
+        raise pipeline_records.PipelineRecordInvariant(
+            "Normalized pipeline state requires reconciliation."
+        )
 
-    record = {
-        "profile_id": profile_id,
-        "source": source,
-        "title": title,
-        "url": url,
+
+def require_normalized_browser_read_ready(conn):
+    report = pipeline_reconciliation.reconcile_pipeline_state(conn)
+    if not pipeline_reconciliation.is_safe_for_normalized_reads(report):
+        raise pipeline_records.PipelineRecordInvariant(
+            "Normalized pipeline state requires reconciliation."
+        )
+
+
+def required_expected_version(form):
+    raw = action_form_value(form, "expected_version")
+    if not re.fullmatch(r"(?:0|[1-9][0-9]*)", raw, flags=re.ASCII):
+        raise MalformedActionRequest()
+    return int(raw)
+
+
+def normalized_browser_action(action, form, record):
+    resolution_mode = first_value(form, "resolution_mode")
+    if resolution_mode:
+        if action != "show_again" or resolution_mode != "as_saved":
+            raise ActionError("Invalid workflow resolution request.")
+        return "show_again_as_saved"
+    return action
+
+
+def same_record_opportunity(record, opportunity):
+    return (
+        record["source"] == opportunity["source"]
+        and record["title"] == opportunity["title"]
+        and record["url"] == (opportunity["url"] or "")
+    )
+
+
+def normalized_browser_record(record, *, normalized_state=None, compatibility=None):
+    state = normalized_state or record.normalized_state
+    if state is None:
+        raise pipeline_records.PipelineRecordInvariant(
+            "Pipeline item is missing normalized state."
+        )
+    workflow = state["workflow_status"]
+    visibility = state["visibility"]
+    status = (
+        "not_interested"
+        if visibility == "hidden"
+        else workflow if workflow is not None else "workflow_unknown"
+    )
+    reminder_at = state.get("reminder_at")
+    result = {
+        "id": record.pipeline_item["id"],
+        "pipeline_item_id": record.pipeline_item["pipeline_item_id"],
+        "profile_id": record.persisted_owner["profile_id"],
+        "source": record.opportunity["source"],
+        "title": record.opportunity["title"],
+        "url": record.opportunity["url"],
+        "status": status,
+        "workflow_status": workflow,
+        "workflow_status_provenance": state["workflow_status_provenance"],
+        "visibility": visibility,
+        "reminder_at": reminder_at,
+        "reminder_date": reminder_at[:10] if reminder_at else "",
+        "state_version": state["version"],
+        "status_date": (compatibility or record.compatibility)["status_date"] or "",
+        "notes": record.display["notes"] or "",
+        "user_priority": record.display["user_priority"] or "medium",
+        "last_user_action": (compatibility or record.compatibility)["last_user_action"] or "",
+        "updated_at": state.get("updated_at") or "",
+        "match_score": None,
+        "unresolved_workflow": workflow is None,
+        "integrity_error": not record.diagnostics["mutation_grade"],
     }
-    pipeline_item_id = product_state.stable_pipeline_item_id(record)
-    conn.execute(
-        """
-        INSERT INTO user_pipeline_items (
-          pipeline_item_id,
-          user_id,
-          profile_id,
-          source,
-          opportunity_title,
-          opportunity_url,
-          opportunity_external_id,
-          canonical_id,
-          status,
-          status_date,
-          user_priority,
-          reminder_date,
-          notes,
-          last_user_action,
-          is_sample
-        )
-        VALUES (?, ?, ?, ?, ?, ?, '', NULL, 'saved', ?, 'medium', '', '', 'Saved from local UI', 0)
-        ON CONFLICT(pipeline_item_id) DO NOTHING
-        """,
-        (
-            pipeline_item_id,
-            profile["user_id"],
-            profile_id,
-            source,
-            title,
-            url,
-            product_state.today(),
-        ),
-    )
-    return conn.execute(
-        "SELECT * FROM user_pipeline_items WHERE pipeline_item_id = ?",
-        (pipeline_item_id,),
-    ).fetchone()
-
-
-def update_pipeline_item(conn, item, status, note, reminder_date=None):
-    notes = product_state.merge_note(item["notes"], note)
-    status_date = product_state.today()
-    if reminder_date is None:
-        conn.execute(
-            """
-            UPDATE user_pipeline_items
-            SET status = ?,
-                status_date = ?,
-                notes = ?,
-                last_user_action = ?,
-                is_sample = 0,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (status, status_date, notes, note, item["id"]),
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE user_pipeline_items
-            SET status = ?,
-                status_date = ?,
-                reminder_date = ?,
-                notes = ?,
-                last_user_action = ?,
-                is_sample = 0,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (status, status_date, reminder_date, notes, note, item["id"]),
-        )
-
-
-def add_applicant_update(conn, profile_id, source, title, url, status, previous_status, note):
-    profile = product_state.require_profile(conn, profile_id)
-    status_date = product_state.today()
-    update_id = product_state.stable_applicant_update_id(
-        profile_id,
-        source,
-        title,
-        status,
-        status_date,
-        "self_reported",
-        "medium",
-        note,
-    )
-    conn.execute(
-        """
-        INSERT INTO applicant_status_updates (
-          update_id,
-          user_id,
-          anonymous_user_key,
-          profile_id,
-          source,
-          opportunity_title,
-          opportunity_url,
-          opportunity_external_id,
-          canonical_id,
-          status,
-          previous_status,
-          status_date,
-          reported_at,
-          evidence_type,
-          confidence_level,
-          notes,
-          is_sample
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?, ?, ?, 'self_reported', 'medium', ?, 0)
-        ON CONFLICT(update_id) DO UPDATE SET
-          previous_status = excluded.previous_status,
-          reported_at = excluded.reported_at,
-          notes = excluded.notes,
-          updated_at = CURRENT_TIMESTAMP
-        """,
-        (
-            update_id,
-            profile["user_id"],
-            profile["user_id"],
-            profile_id,
-            source,
-            title,
-            url or "",
-            status,
-            previous_status or "",
-            status_date,
-            product_state.now_utc(),
-            note,
-        ),
-    )
+    result["next_action"] = lightweight_next_action(result)
+    result["match_key"] = preview_pipeline_match_key(result)
+    return result
 
 
 def build_card_index(matches, pipeline_records, tracked, explore_market=None):
@@ -967,29 +992,13 @@ def load_lightweight_tracker_context(requested_profile_id):
     profile_id = requested_profile_id
     display_name = profile_display_name(profiles, profile_id)
     with get_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT
-              id,
-              pipeline_item_id,
-              profile_id,
-              source,
-              opportunity_title,
-              opportunity_url,
-              status,
-              status_date,
-              notes,
-              user_priority,
-              reminder_date,
-              last_user_action,
-              updated_at
-            FROM user_pipeline_items
-            WHERE profile_id = ?
-            ORDER BY updated_at DESC, id DESC
-            """,
-            (profile_id,),
-        ).fetchall()
-    records = [lightweight_pipeline_record(row) for row in rows]
+        require_normalized_browser_read_ready(conn)
+        records = [
+            normalized_browser_record(record)
+            for record in pipeline_records.list_pipeline_records(
+                conn, profile_id, mutation_grade=True
+            )
+        ]
     return {
         "profile": {
             "profile_id": profile_id,
@@ -1000,28 +1009,61 @@ def load_lightweight_tracker_context(requested_profile_id):
     }
 
 
-def lightweight_pipeline_record(row):
-    record = {
-        "id": row["id"],
-        "pipeline_item_id": row["pipeline_item_id"],
-        "profile_id": row["profile_id"],
-        "source": row["source"],
-        "title": row["opportunity_title"],
-        "url": row["opportunity_url"] or "",
-        "status": row["status"],
-        "status_date": row["status_date"] or "",
-        "notes": row["notes"] or "",
-        "user_priority": row["user_priority"] or "medium",
-        "reminder_date": row["reminder_date"] or "",
-        "last_user_action": row["last_user_action"] or "",
-        "updated_at": row["updated_at"] or "",
-        "match_score": None,
+def normalize_dashboard_pipeline_context(context, profile_id):
+    with get_connection() as conn:
+        require_normalized_browser_read_ready(conn)
+        normalized_records = [
+            normalized_browser_record(record)
+            for record in pipeline_records.list_pipeline_records(
+                conn,
+                profile_id,
+                mutation_grade=True,
+            )
+        ]
+
+    legacy_report = context["pipeline_report"]
+    legacy_by_id = {
+        record.get("pipeline_item_id"): record
+        for record in legacy_report["records"]
     }
-    record["next_action"] = lightweight_next_action(record)
-    return record
+    records = [
+        {
+            **legacy_by_id.get(record["pipeline_item_id"], {}),
+            **record,
+        }
+        for record in normalized_records
+    ]
+    pipeline_report = {
+        **legacy_report,
+        "records": records,
+        "summary": pipeline_digest.summarize_records(records),
+    }
+    tracked = demo.build_tracked_index(records)
+    action_plan = demo.build_demo_action_plan(
+        context["profile"],
+        pipeline_report,
+        context["matches"],
+        tracked,
+        context["generated_at"].date().isoformat(),
+    )
+    return {
+        **context,
+        "pipeline_source": "SQLite normalized pipeline state",
+        "pipeline_report": pipeline_report,
+        "tracked": tracked,
+        "next_actions": action_plan["primary"],
+        "also_worth_reviewing": action_plan["secondary"],
+        "daily_action_status": action_plan["daily_status"],
+    }
 
 
 def lightweight_next_action(record):
+    if record.get("workflow_status") is None:
+        if record.get("visibility") == "hidden":
+            return "Hidden. The previous workflow stage is unknown."
+        if record.get("reminder_at"):
+            return "Workflow needs confirmation; your reminder is still active."
+        return "Pipeline state needs reconciliation before another action."
     status = record["status"]
     labels = {
         "recommended": "Review this opportunity when you are ready.",
@@ -1038,6 +1080,7 @@ def lightweight_next_action(record):
         "not_interested": "Hidden from recommendations until you show it again.",
         "rejected": "Closed after a rejection or selection decision.",
         "expired": "This job is no longer available.",
+        "workflow_unknown": "Confirm whether this was saved or applied before continuing.",
     }
     return labels.get(status, "Review the current tracker status.")
 
@@ -1163,12 +1206,13 @@ def render_lightweight_tracker_header(records):
     active_count = sum(
         1
         for record in records
-        if record["status"] in TRACKER_FILTER_STATUSES["in_progress"]
+        if record["visibility"] == "visible"
+        and record["workflow_status"] in TRACKER_FILTER_STATUSES["in_progress"]
     )
     reminder_count = sum(
         1
         for record in records
-        if record["status"] == "remind_later" and record.get("reminder_date")
+        if record.get("reminder_at") is not None
     )
     job_label = "1 job" if len(records) == 1 else f"{len(records)} jobs"
     progress_label = "1 in progress" if active_count == 1 else f"{active_count} in progress"
@@ -1264,39 +1308,17 @@ def build_ranked_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
 def load_preview_tracked(profile_id):
     try:
         with get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT
-                  id,
-                  pipeline_item_id,
-                  source,
-                  opportunity_title,
-                  opportunity_url,
-                  status,
-                  reminder_date
-                FROM user_pipeline_items
-                WHERE profile_id = ?
-                ORDER BY id
-                """,
-                (profile_id,),
-            ).fetchall()
-    except sqlite3.OperationalError:
-        rows = []
-
-    records = []
-    for row in rows:
-        url = row["opportunity_url"] or ""
-        record = {
-            "id": row["id"],
-            "pipeline_item_id": row["pipeline_item_id"],
-            "source": row["source"],
-            "title": row["opportunity_title"],
-            "url": url,
-            "status": row["status"],
-            "reminder_date": row["reminder_date"] or "",
-        }
-        record["match_key"] = preview_pipeline_match_key(record)
-        records.append(record)
+            require_normalized_browser_read_ready(conn)
+            records = [
+                normalized_browser_record(record)
+                for record in pipeline_records.list_pipeline_records(
+                    conn, profile_id, mutation_grade=True
+                )
+            ]
+    except sqlite3.OperationalError as exc:
+        raise pipeline_records.PipelineRecordInvariant(
+            "Normalized pipeline state is unavailable."
+        ) from exc
     return demo.build_tracked_index(records)
 
 
@@ -1962,18 +1984,19 @@ def render_preview_card_actions(match, record, match_run_id, section, return_to)
 
 
 def render_preview_full_forms(match, record, match_run_id, return_to, section):
-    pipeline_id = record.get("id") if record else ""
-    status = record.get("status") if record else None
-    actions = actions_for_status(status)
+    pipeline_id = record.get("pipeline_item_id") if record else ""
+    actions = actions_for_record(record)
     if not actions:
-        return terminal_status_label(status)
+        return terminal_status_label(record["status"]) if record else ""
     return " ".join(
         action_form(
             action,
-            ACTION_LABELS[action],
+            action_label_for_record(action, record),
             match_run_id,
             opportunity_key=match_opportunity_key(match),
             pipeline_id=pipeline_id,
+            expected_version=record.get("state_version") if record else None,
+            resolution_mode=resolution_mode_for_record(action, record),
             return_to=return_to,
             section=section,
         )
@@ -1982,16 +2005,18 @@ def render_preview_full_forms(match, record, match_run_id, return_to, section):
 
 
 def render_preview_light_forms(match, record, match_run_id, return_to, section):
-    actions = explore_actions_for_status(record.get("status") if record else None)
+    actions = explore_actions_for_record(record)
     if not actions:
         return terminal_status_label(record["status"]) if record else ""
     return " ".join(
         action_form(
             action,
-            ACTION_LABELS[action],
+            action_label_for_record(action, record),
             match_run_id,
             opportunity_key=match_opportunity_key(match),
-            pipeline_id=record.get("id", "") if record else "",
+            pipeline_id=record.get("pipeline_item_id", "") if record else "",
+            expected_version=record.get("state_version") if record else None,
+            resolution_mode=resolution_mode_for_record(action, record),
             return_to=return_to,
             section=section,
         )
@@ -2235,9 +2260,16 @@ def normalize_tracker_view(view):
 def tracker_records_for_view(records, view):
     view = normalize_tracker_view(view)
     if view == "all":
-        return [record for record in records if record["status"] not in HIDDEN_STATUSES]
+        return [record for record in records if record["visibility"] == "visible"]
+    if view == "hidden":
+        return [record for record in records if record["visibility"] == "hidden"]
     statuses = TRACKER_FILTER_STATUSES[view]
-    return [record for record in records if record["status"] in statuses]
+    return [
+        record
+        for record in records
+        if record["visibility"] == "visible"
+        and record["workflow_status"] in statuses
+    ]
 
 
 def tracker_filter_href(match_run_id, view):
@@ -2265,7 +2297,7 @@ def render_my_jobs_workspace(records, match_run_id, tracker_view="all"):
         """
 
     filtered = tracker_records_for_view(records, view)
-    hidden_count = sum(1 for record in records if record["status"] in HIDDEN_STATUSES)
+    hidden_count = sum(1 for record in records if record["visibility"] == "hidden")
     filters = "".join(
         f'<a class="tracker-filter" href="{e(tracker_filter_href(match_run_id, key))}"'
         f'{tracker_filter_current(view, key)}>{e(label)}</a>'
@@ -2278,7 +2310,10 @@ def render_my_jobs_workspace(records, match_run_id, tracker_view="all"):
             f'<a class="show-hidden" href="{e(tracker_filter_href(match_run_id, "hidden"))}"'
             f'{tracker_filter_current(view, "hidden")}>{e(hidden_label)}</a>'
         )
-    cards = "".join(render_my_jobs_card(record, match_run_id) for record in filtered)
+    cards = "".join(
+        render_my_jobs_card(record, match_run_id, tracker_view=view)
+        for record in filtered
+    )
     if not cards:
         cards = '<p class="empty my-jobs-filter-empty">No jobs in this view.</p>'
     return f"""
@@ -2292,21 +2327,23 @@ def render_my_jobs_workspace(records, match_run_id, tracker_view="all"):
     """
 
 
-def render_my_jobs_card(record, match_run_id):
+def render_my_jobs_card(record, match_run_id, tracker_view="all"):
     status = record["status"]
     card_id = card_id_for_record(record)
     reminder = render_reminder_note(record)
     next_action = record.get("next_action") or ""
     if status == "expired":
         next_action = "This job is no longer available."
-    controls = render_my_jobs_forms(record, match_run_id, card_id)
+    controls = render_my_jobs_forms(
+        record, match_run_id, card_id, tracker_view=tracker_view
+    )
     view_class = (
         "button-primary"
         if status in TRACKER_FILTER_STATUSES["saved"]
         else "button-secondary"
     )
     return f"""
-    <article class="card tracker my-job-card" id="{e(card_id)}" data-action-card data-job-status="{e(status)}">
+    <article class="card tracker my-job-card" id="{e(card_id)}" data-action-card data-job-status="{e(status)}" data-state-version="{e(record.get('state_version'))}">
       <div class="card-main">
         <p class="source">{e(record['source'])}</p>
         <h3>{e(record['title'])}</h3>
@@ -2322,18 +2359,21 @@ def render_my_jobs_card(record, match_run_id):
     """
 
 
-def render_my_jobs_forms(record, match_run_id, return_to):
-    actions = actions_for_status(record["status"])
+def render_my_jobs_forms(record, match_run_id, return_to, tracker_view="all"):
+    actions = actions_for_record(record)
     if not actions:
         return ""
     return " ".join(
         action_form(
             action,
-            ACTION_LABELS[action],
+            action_label_for_record(action, record),
             match_run_id,
-            pipeline_id=record.get("id", ""),
+            pipeline_id=record.get("pipeline_item_id", ""),
+            expected_version=record.get("state_version"),
+            resolution_mode=resolution_mode_for_record(action, record),
             return_to=return_to,
             section="tracker",
+            tracker_view=tracker_view,
             visual_variant=my_jobs_action_variant(record["status"], action),
         )
         for action in actions
@@ -2420,7 +2460,7 @@ def render_pipeline_group(records, match_run_id, empty, tracker_only=False):
 
 
 def render_reminder_note(record):
-    if record["status"] == "remind_later" and record.get("reminder_date"):
+    if record.get("reminder_date"):
         return f"<p class='reminder-note'>Reminder set for {e(record['reminder_date'])}.</p>"
     return ""
 
@@ -2501,18 +2541,19 @@ def render_tracker_disclaimer():
 
 
 def render_match_forms(match, record, match_run_id, return_to):
-    pipeline_id = record.get("id") if record else ""
-    status = record.get("status") if record else None
-    actions = actions_for_status(status)
+    pipeline_id = record.get("pipeline_item_id") if record else ""
+    actions = actions_for_record(record)
     if not actions:
-        return terminal_status_label(status)
+        return terminal_status_label(record["status"]) if record else ""
     return " ".join(
         action_form(
             action,
-            ACTION_LABELS[action],
+            action_label_for_record(action, record),
             match_run_id,
             opportunity_key=match_opportunity_key(match),
             pipeline_id=pipeline_id,
+            expected_version=record.get("state_version") if record else None,
+            resolution_mode=resolution_mode_for_record(action, record),
             return_to=return_to,
             section="dashboard",
         )
@@ -2521,16 +2562,18 @@ def render_match_forms(match, record, match_run_id, return_to):
 
 
 def render_explore_forms(match, record, match_run_id, return_to):
-    actions = explore_actions_for_status(record.get("status") if record else None)
+    actions = explore_actions_for_record(record)
     if not actions:
         return terminal_status_label(record["status"]) if record else ""
     return " ".join(
         action_form(
             action,
-            ACTION_LABELS[action],
+            action_label_for_record(action, record),
             match_run_id,
             opportunity_key=match_opportunity_key(match),
-            pipeline_id=record.get("id", "") if record else "",
+            pipeline_id=record.get("pipeline_item_id", "") if record else "",
+            expected_version=record.get("state_version") if record else None,
+            resolution_mode=resolution_mode_for_record(action, record),
             return_to=return_to,
             section="explore",
         )
@@ -2539,15 +2582,17 @@ def render_explore_forms(match, record, match_run_id, return_to):
 
 
 def render_pipeline_forms(record, match_run_id, return_to):
-    actions = actions_for_status(record["status"])
+    actions = actions_for_record(record)
     if not actions:
         return terminal_status_label(record["status"])
     return " ".join(
         action_form(
             action,
-            ACTION_LABELS[action],
+            action_label_for_record(action, record),
             match_run_id,
-            pipeline_id=record.get("id", ""),
+            pipeline_id=record.get("pipeline_item_id", ""),
+            expected_version=record.get("state_version"),
+            resolution_mode=resolution_mode_for_record(action, record),
             return_to=return_to,
             section="tracker",
         )
@@ -2561,19 +2606,36 @@ def action_form(
     match_run_id,
     opportunity_key="",
     pipeline_id="",
+    expected_version=None,
+    resolution_mode="",
     return_to="preview-recommendations",
     section="",
+    tracker_view="",
     visual_variant=None,
 ):
     visual_variant = visual_variant or action_visual_variant(action)
+    version_field = (
+        f'<input type="hidden" name="expected_version" value="{e(expected_version)}">'
+        if pipeline_id and expected_version is not None
+        else ""
+    )
+    resolution_field = (
+        f'<input type="hidden" name="resolution_mode" value="{e(resolution_mode)}">'
+        if resolution_mode
+        else ""
+    )
     return f"""
     <form method="post" action="/action" class="js-inline-action action-form action-form-{e(action)} action-{e(visual_variant)}">
       <input type="hidden" name="match_run_id" value="{e(match_run_id)}">
       <input type="hidden" name="action" value="{e(action)}">
+      <input type="hidden" name="idempotency_key" value="{e(secrets.token_urlsafe(24))}">
       <input type="hidden" name="opportunity_key" value="{e(opportunity_key)}">
       <input type="hidden" name="pipeline_item_id" value="{e(str(pipeline_id or ''))}">
+      {version_field}
+      {resolution_field}
       <input type="hidden" name="return_to" value="{e(return_to)}">
       <input type="hidden" name="section" value="{e(section)}">
+      <input type="hidden" name="tracker_view" value="{e(tracker_view)}">
       <button type="submit" class="action-button">{e(label)}</button>
     </form>
     """
@@ -2588,22 +2650,26 @@ def action_visual_variant(action):
 def action_json_payload(result, run, form):
     item = result["item"]
     section = first_value(form, "section")
+    tracker_view = first_value(form, "tracker_view") or "all"
     return_to = first_value(form, "return_to") or "preview-recommendations"
-    actions = actions_for_status(item["status"])
+    actions = actions_for_record(item)
     labels = ACTION_LABELS
     if section in {"also_worth_reviewing", "explore"}:
-        actions = explore_actions_for_status(item["status"])
+        actions = explore_actions_for_record(item)
     if section in profile_preview.SECTION_ORDER:
         labels = ACTION_LABELS
     controls = " ".join(
         action_form(
             action,
-            labels[action],
+            action_label_for_record(action, item),
             run.match_run_id,
             opportunity_key=first_value(form, "opportunity_key"),
-            pipeline_id=item["id"],
+            pipeline_id=item["pipeline_item_id"],
+            expected_version=item["state_version"],
+            resolution_mode=resolution_mode_for_record(action, item),
             return_to=return_to,
             section=section,
+            tracker_view=tracker_view if section == "tracker" else "",
             visual_variant=(
                 my_jobs_action_variant(item["status"], action)
                 if section == "tracker"
@@ -2614,18 +2680,68 @@ def action_json_payload(result, run, form):
     )
     if not controls:
         controls = terminal_status_label(item["status"])
-    return {
+    remains_in_view = record_remains_in_browser_view(
+        item,
+        section=section,
+        tracker_view=tracker_view,
+    )
+    all_records = result["all_records"]
+    hidden_count = sum(
+        1 for record in all_records if record["visibility"] == "hidden"
+    )
+    current_view_count = (
+        len(tracker_records_for_view(all_records, tracker_view))
+        if section == "tracker"
+        else visible_match_run_count(run, all_records)
+    )
+    payload = {
         "ok": True,
         "message": result["message"],
         "card_id": return_to,
         "opportunity_key": first_value(form, "opportunity_key"),
         "source": result["source"],
         "title": result["title"],
-        "pipeline_item_id": item["id"],
+        "pipeline_item_id": item["pipeline_item_id"],
         "status": item["status"],
         "status_label": readable_status(item["status"]),
         "controls_html": controls,
+        "state_version": item["state_version"],
+        "replayed": result["replayed"],
+        "reminder_date": item["reminder_date"],
+        "next_action": item["next_action"],
+        "remains_in_view": remains_in_view,
+        "remove_card": not remains_in_view,
+        "hidden_count": hidden_count,
+        "current_view_count": current_view_count,
     }
+    if section == "tracker":
+        payload["workspace_html"] = render_my_jobs_workspace(
+            all_records,
+            run.match_run_id,
+            tracker_view,
+        )
+        payload["tracker_header_html"] = render_lightweight_tracker_header(
+            all_records
+        )
+    return payload
+
+
+def record_remains_in_browser_view(record, *, section, tracker_view):
+    if section == "tracker":
+        return bool(tracker_records_for_view([record], tracker_view))
+    return record["status"] not in MAIN_RECOMMENDATION_EXCLUDED_STATUSES
+
+
+def visible_match_run_count(run, records):
+    tracked = demo.build_tracked_index(records)
+    return sum(
+        1
+        for match in build_ranked_presentation_matches(run.recommendation_context)
+        if (
+            (record := demo.tracked_record_for_match(match, tracked)) is None
+            or record["status"] not in MAIN_RECOMMENDATION_EXCLUDED_STATUSES
+        )
+    )
 
 
 def render_inline_action_script():
@@ -2649,6 +2765,16 @@ def render_inline_action_script():
         notice.setAttribute("role", isError ? "alert" : "status");
         notice.setAttribute("aria-live", isError ? "assertive" : "polite");
         notice.textContent = message;
+      };
+      const showPageMessage = (message, isError = false) => {
+        const region = document.querySelector("#action-feedback");
+        if (!region) return;
+        region.innerHTML = "";
+        const notice = document.createElement("div");
+        notice.className = `notice ${isError ? "error" : "success"}`;
+        notice.setAttribute("role", isError ? "alert" : "status");
+        notice.textContent = message;
+        region.append(notice);
       };
       document.addEventListener("submit", async (event) => {
         const form = event.target.closest("form.js-inline-action");
@@ -2695,12 +2821,53 @@ def render_inline_action_script():
           if (!payload.ok) {
             throw userFacingError(payload.error || "The opportunity was not updated. Please try again.");
           }
+          if (payload.workspace_html) {
+            const workspace = document.querySelector("#my-jobs-list");
+            const trackerHeader = document.querySelector(".my-jobs-header");
+            if (workspace) workspace.outerHTML = payload.workspace_html;
+            if (trackerHeader && payload.tracker_header_html) {
+              trackerHeader.outerHTML = payload.tracker_header_html;
+            }
+            showPageMessage(payload.message);
+            return;
+          }
+          if (payload.remove_card) {
+            const container = card.parentElement;
+            card.remove();
+            const count = document.querySelector(".results-summary strong");
+            if (count) {
+              const noun = payload.current_view_count === 1 ? "match" : "matches";
+              count.textContent = `${payload.current_view_count} verified ${noun}`;
+            }
+            if (container && !container.querySelector("[data-action-card]")) {
+              const empty = document.createElement("p");
+              empty.className = "empty";
+              empty.textContent = "No personalized opportunities remain in this view.";
+              container.append(empty);
+            }
+            showPageMessage(payload.message);
+            return;
+          }
           const status = card.querySelector(".js-card-status");
           const controls = card.querySelector(".js-card-controls");
           if (status) {
             status.textContent = payload.status_label;
             status.setAttribute("aria-label", `Current status: ${payload.status_label}`);
           }
+          card.dataset.stateVersion = String(payload.state_version);
+          let reminder = card.querySelector(".reminder-note");
+          if (payload.reminder_date) {
+            if (!reminder) {
+              reminder = document.createElement("p");
+              reminder.className = "reminder-note";
+              (card.querySelector(".card-main") || card).append(reminder);
+            }
+            reminder.textContent = `Reminder set for ${payload.reminder_date}.`;
+          } else if (reminder) {
+            reminder.remove();
+          }
+          const nextStep = card.querySelector(".next-step");
+          if (nextStep) nextStep.textContent = payload.next_action || "";
           if (controls) controls.innerHTML = payload.controls_html;
           showCardMessage(card, payload.message);
         } catch (error) {
@@ -2723,14 +2890,51 @@ def actions_for_status(status):
     return STATUS_ACTIONS.get(status, ())
 
 
+def actions_for_record(record):
+    if record is None:
+        return STATUS_ACTIONS[None]
+    if record.get("integrity_error"):
+        return ()
+    if record.get("visibility") == "hidden":
+        return ("show_again",)
+    if record.get("workflow_status") is None:
+        if not record.get("reminder_at"):
+            return ()
+        return ("save", "applied", "remind_later", "not_interested")
+    return actions_for_status(record["workflow_status"])
+
+
+def action_label_for_record(action, record):
+    if (
+        action == "show_again"
+        and record
+        and record.get("workflow_status") is None
+        and record.get("workflow_status_provenance") == "unknown_legacy"
+    ):
+        return "Show again as Saved"
+    return ACTION_LABELS[action]
+
+
+def resolution_mode_for_record(action, record):
+    if (
+        action == "show_again"
+        and record
+        and record.get("visibility") == "hidden"
+        and record.get("workflow_status") is None
+        and record.get("workflow_status_provenance") == "unknown_legacy"
+    ):
+        return "as_saved"
+    return ""
+
+
 def readable_status(status):
     return STATUS_LABELS.get(status, "Status unavailable")
 
 
-def explore_actions_for_status(status):
-    if status is None:
+def explore_actions_for_record(record):
+    if record is None:
         return ("save", "not_interested")
-    if "not_interested" in actions_for_status(status):
+    if record.get("visibility") == "visible" and "not_interested" in actions_for_record(record):
         return ("not_interested",)
     return ()
 
@@ -2781,6 +2985,102 @@ def render_error(message):
     <body><main><section><h1>Wahojobs Local UI</h1><div class="notice error">{e(message)}</div></section></main></body>
     </html>
     """
+
+
+ACTION_REQUIRED_SINGLE_FIELDS = {
+    "action",
+    "idempotency_key",
+    "match_run_id",
+    "pipeline_item_id",
+    "return_to",
+    "section",
+}
+ACTION_OPTIONAL_SINGLE_FIELDS = {
+    "expected_version",
+    "opportunity_key",
+    "resolution_mode",
+    "tracker_view",
+}
+ACTION_FIELD_ALIASES = {
+    "item_id",
+    "pipeline_id",
+    "opportunity_id",
+    "run_id",
+    "state_version",
+    "version",
+    "resolution",
+}
+
+
+def validate_action_form(form):
+    if ACTION_FIELD_ALIASES.intersection(form):
+        raise MalformedActionRequest()
+    for key in ACTION_REQUIRED_SINGLE_FIELDS:
+        action_form_value(form, key, allow_empty=key == "pipeline_item_id")
+    for key in ACTION_OPTIONAL_SINGLE_FIELDS.intersection(form):
+        action_form_value(
+            form,
+            key,
+            allow_empty=key in {"opportunity_key", "tracker_view"},
+        )
+
+    action = action_form_value(form, "action")
+    pipeline_item_id = action_form_value(form, "pipeline_item_id", allow_empty=True)
+    opportunity_key = optional_action_form_value(
+        form, "opportunity_key", allow_empty=True
+    )
+    idempotency_key = action_form_value(form, "idempotency_key")
+    tracker_view = optional_action_form_value(form, "tracker_view", allow_empty=True)
+    section = action_form_value(form, "section")
+
+    if action not in ACTION_STATUSES:
+        raise MalformedActionRequest()
+    if idempotency_key.startswith(pipeline_actions.INTERNAL_IDEMPOTENCY_PREFIX):
+        raise MalformedActionRequest()
+    if tracker_view and tracker_view != normalize_tracker_view(tracker_view):
+        raise MalformedActionRequest()
+    valid_sections = set(profile_preview.SECTION_ORDER) | {
+        "dashboard",
+        "explore",
+        "tracker",
+    }
+    if section not in valid_sections:
+        raise MalformedActionRequest()
+
+    if pipeline_item_id:
+        required_expected_version(form)
+    elif "expected_version" in form or not opportunity_key:
+        raise MalformedActionRequest()
+
+    if "resolution_mode" in form:
+        resolution_mode = action_form_value(form, "resolution_mode")
+        if action != "show_again" or resolution_mode != "as_saved":
+            raise MalformedActionRequest()
+
+
+def action_form_value(form, key, *, allow_empty=False):
+    values = form.get(key)
+    if not isinstance(values, list) or len(values) != 1:
+        raise MalformedActionRequest()
+    value = values[0]
+    if not isinstance(value, str) or value != value.strip():
+        raise MalformedActionRequest()
+    if not allow_empty and not value:
+        raise MalformedActionRequest()
+    return value
+
+
+def optional_action_form_value(form, key, *, allow_empty=False):
+    if key not in form:
+        return ""
+    return action_form_value(form, key, allow_empty=allow_empty)
+
+
+def safe_action_context_value(form, key):
+    try:
+        return action_form_value(form, key)
+    except ActionError:
+        return ""
 
 
 def first_value(values, key):
@@ -3089,8 +3389,10 @@ button, .open {
   font-weight: 700;
   justify-content: center;
   min-height: 40px;
+  overflow-wrap: anywhere;
   padding: 8px 12px;
-  white-space: nowrap;
+  text-align: center;
+  white-space: normal;
   text-decoration: none;
 }
 button:hover, .open:hover { background: var(--accent-hover); border-color: var(--accent-hover); }

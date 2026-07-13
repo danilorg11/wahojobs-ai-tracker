@@ -181,6 +181,7 @@ def import_profiles(path):
 def import_pipeline(path):
     records, _ = load_pipeline(path)
     with get_connection() as conn:
+        reject_legacy_pipeline_write_on_normalized_database(conn, "import-pipeline")
         for record in records:
             ensure_profile_exists(conn, record["profile_id"])
             pipeline_item_id = record.get("pipeline_item_id") or stable_pipeline_item_id(record)
@@ -488,6 +489,7 @@ def save_opportunity(args):
     note = clean_optional_text(args.note)
 
     with get_connection() as conn:
+        reject_legacy_pipeline_write_on_normalized_database(conn, "save-opportunity")
         profile = require_profile(conn, args.profile)
         existing = find_pipeline_item_by_identity(
             conn,
@@ -562,6 +564,7 @@ def update_pipeline_status(args):
     note = clean_optional_text(args.note)
 
     with get_connection() as conn:
+        reject_legacy_pipeline_write_on_normalized_database(conn, "update-status")
         item = require_pipeline_item(conn, args.pipeline_item_id)
         notes = merge_note(item["notes"], note)
         action = note or f"Marked {status}"
@@ -593,6 +596,7 @@ def remind_later(args):
     note = clean_optional_text(args.note)
 
     with get_connection() as conn:
+        reject_legacy_pipeline_write_on_normalized_database(conn, "remind-later")
         item = require_pipeline_item(conn, args.pipeline_item_id)
         notes = merge_note(item["notes"], note)
         action = note or f"Remind later on {reminder_date}"
@@ -623,6 +627,9 @@ def mark_not_interested(args):
     note = clean_optional_text(args.note)
 
     with get_connection() as conn:
+        reject_legacy_pipeline_write_on_normalized_database(
+            conn, "mark-not-interested"
+        )
         item = require_pipeline_item(conn, args.pipeline_item_id)
         notes = merge_note(item["notes"], note)
         action = note or "Marked not interested"
@@ -1027,6 +1034,30 @@ def merge_note(existing, note):
 
 def today():
     return datetime.now(timezone.utc).date().isoformat()
+
+
+def reject_legacy_pipeline_write_on_normalized_database(conn, command):
+    tables = {
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('wahojobs_schema_migrations','user_pipeline_state','user_pipeline_transitions')"
+        )
+    }
+    installed = (
+        conn.execute(
+            "SELECT 1 FROM wahojobs_schema_migrations WHERE version = ?",
+            ("001_pipeline_state",),
+        ).fetchone()
+        if "wahojobs_schema_migrations" in tables
+        else None
+    )
+    if installed is not None or tables.intersection(
+        {"user_pipeline_state", "user_pipeline_transitions"}
+    ):
+        raise SystemExit(
+            f"{command} is disabled on normalized pipeline-state databases. "
+            "Use the browser action service or a reviewed normalized import workflow."
+        )
 
 
 def now_utc():

@@ -1,8 +1,9 @@
 # Pipeline State Foundation
 
-`user_pipeline_items` remains the compatibility source used by the current local UI.
-The normalized projection and transition ledger are infrastructure for a later reviewed
-cutover; this milestone does not change existing actions or reports.
+`user_pipeline_items` remains a transitional compatibility mirror. The normalized
+projection and transition ledger are authoritative for the cutover browser reads and
+actions described below, while legacy consumers continue to receive the deterministic
+compatibility fields maintained by the orchestrator.
 
 ## State model
 
@@ -143,3 +144,47 @@ has no repair mode. Human output groups blocking findings by stable reason code 
 only safe item/transition identifiers plus a concise remediation description; JSON uses the
 same findings. Neither format exposes raw fingerprints, snapshots, applicant evidence, or
 notes.
+
+## Browser cutover
+
+Matches and My Jobs load browser state through `wahojobs.pipeline_records` and treat
+`user_pipeline_state` as authoritative for workflow, provenance, visibility, reminders,
+versions, filters, badges, and available controls. Browser mutations call only
+`wahojobs.pipeline_actions`; the legacy pipeline row and applicant update are coordinated
+inside that transaction. Rendered forms use server-generated caller keys, omit versions for
+untracked opportunities, and include the current normalized version for tracked items.
+Stale and conflicting requests are reported without automatic retry or stored-request
+disclosure.
+
+Action POSTs use strict single-value parsing for identities, versions, caller keys, and
+return context. Duplicate, whitespace-normalized, aliased, or noncanonical values fail
+before orchestration. Idempotent operation results remain immutable, while browser status,
+controls, reminders, and replacement-form versions are always rendered from a fresh
+normalized record. My Jobs inline responses return server-rendered normalized filter and
+count fragments so cards leave their old view immediately after cross-filter transitions.
+
+The legacy dashboard URLs retain their market/reporting context, but their pipeline records,
+tracked index, action plan, badges, reminders, and controls are overlaid from normalized
+pipeline records before browser rendering. They do not fall back to the compatibility
+status for browser decisions. Reconciliation distinguishes **fully reconciled** state from
+state that is **safe for normalized reads**: legacy status or reminder mirror drift remains
+an operational reconciliation finding, but does not take normalized read-only browser
+surfaces offline. Missing or inconsistent projections, ownership or ledger corruption,
+protected-metadata failures, and other normalized-integrity findings still fail closed.
+
+Browser mutations continue to require fully reconciled state. Pre-existing compatibility
+mirror drift is neither repaired nor bypassed by the read-safety policy, and the normal
+reconciliation CLI retains its existing blocking exit behavior for that drift while also
+reporting whether the database is safe for normalized reads.
+
+Unknown migrated workflows remain explicit. Hidden unknown rows offer only **Show again as
+Saved**, which uses the fixed normalized resolution operation; visible unknown rows with a
+reminder remain outside workflow filters until an explicit workflow action resolves them.
+A visible unknown workflow without a reminder is blocking drift, not an implicit Saved
+state.
+
+The legacy `product_state.py` pipeline writers (`import-pipeline`, `save-opportunity`,
+`update-status`, `remind-later`, and `mark-not-interested`) fail before writing whenever
+migration 001 or its normalized tables are present. Read-only commands and standalone
+applicant-update commands remain available. Legacy-schema test databases without normalized
+objects retain their historical command behavior.

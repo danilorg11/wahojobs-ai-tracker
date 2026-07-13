@@ -98,6 +98,57 @@ class PipelineReconciliationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertFalse(payload["blocking"])
+        self.assertTrue(payload["fully_reconciled"])
+        self.assertTrue(payload["safe_for_normalized_reads"])
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_compatibility_mirror_drift_remains_operationally_blocking_but_read_safe(self):
+        result = self.create("applied")
+        item_id = result.pipeline_item["pipeline_item_id"]
+        self.conn.execute(
+            "UPDATE user_pipeline_items SET status='saved', reminder_date='2099-01-01' "
+            "WHERE pipeline_item_id=?",
+            (item_id,),
+        )
+        self.conn.commit()
+
+        report = pipeline_reconciliation.reconcile_pipeline_state(self.conn)
+        self.assertTrue(report["blocking"])
+        self.assertFalse(report["fully_reconciled"])
+        self.assertTrue(report["safe_for_normalized_reads"])
+        self.assertEqual(report["normalized_read_blocking_reasons"], [])
+        self.assertEqual(
+            report["compatibility_mirror_drift_reasons"],
+            ["legacy_status_mismatches", "reminder_mirror_mismatches"],
+        )
+        self.assertTrue(pipeline_reconciliation.is_safe_for_normalized_reads(report))
+
+        before = self.path.read_bytes()
+        result = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "--db", str(self.path), "--json"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["checks"]["legacy_status_mismatches"])
+        self.assertTrue(payload["checks"]["reminder_mirror_mismatches"])
+        self.assertTrue(payload["safe_for_normalized_reads"])
+
+        human = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "--db", str(self.path)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(human.returncode, 1, human.stderr)
+        self.assertIn("Fully reconciled: no", human.stdout)
+        self.assertIn("Safe for normalized reads: yes", human.stdout)
+        self.assertIn("legacy_status_mismatches", human.stdout)
+        self.assertIn("reminder_mirror_mismatches", human.stdout)
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_missing_migration_and_partial_objects_are_blocking(self):
@@ -108,6 +159,7 @@ class PipelineReconciliationTests(unittest.TestCase):
         report = pipeline_reconciliation.reconcile_pipeline_state(conn)
         self.assertTrue(report["blocking"])
         self.assertIn("migration_schema_incomplete", report["blocking_reasons"])
+        self.assertFalse(report["safe_for_normalized_reads"])
         conn.execute("CREATE TABLE user_pipeline_state (pipeline_item_id TEXT)")
         report = pipeline_reconciliation.reconcile_pipeline_state(conn)
         self.assertTrue(report["blocking"])
@@ -124,6 +176,7 @@ class PipelineReconciliationTests(unittest.TestCase):
         report = pipeline_reconciliation.reconcile_pipeline_state(self.conn)
         self.assertTrue(report["blocking"])
         self.assertEqual(report["checks"]["missing_projections"][0]["pipeline_item_id"], "missing")
+        self.assertFalse(report["safe_for_normalized_reads"])
 
     def test_detects_version_latest_state_chain_and_mirror_drift(self):
         result = self.create("applied")

@@ -50,6 +50,41 @@ BLOCKING_CHECKS = {
     "visible_unresolved_workflows",
     "applicant_update_expectation_mismatches",
 }
+COMPATIBILITY_MIRROR_CHECKS = frozenset(
+    {
+        "legacy_status_mismatches",
+        "reminder_mirror_mismatches",
+    }
+)
+
+
+def normalized_read_blocking_reasons(report: dict) -> list[str]:
+    """Return findings that make authoritative normalized reads unsafe."""
+    return [
+        reason
+        for reason in report.get("blocking_reasons", [])
+        if reason not in COMPATIBILITY_MIRROR_CHECKS
+    ]
+
+
+def is_safe_for_normalized_reads(report: dict) -> bool:
+    return not normalized_read_blocking_reasons(report)
+
+
+def _finalize_report(report: dict, blocking_reasons: list[str]) -> dict:
+    compatibility_reasons = [
+        reason for reason in blocking_reasons if reason in COMPATIBILITY_MIRROR_CHECKS
+    ]
+    normalized_reasons = [
+        reason for reason in blocking_reasons if reason not in COMPATIBILITY_MIRROR_CHECKS
+    ]
+    report["blocking"] = bool(blocking_reasons)
+    report["blocking_reasons"] = blocking_reasons
+    report["fully_reconciled"] = not blocking_reasons
+    report["safe_for_normalized_reads"] = not normalized_reasons
+    report["normalized_read_blocking_reasons"] = normalized_reasons
+    report["compatibility_mirror_drift_reasons"] = compatibility_reasons
+    return report
 
 
 def reconcile_pipeline_state(conn) -> dict:
@@ -91,9 +126,7 @@ def reconcile_pipeline_state(conn) -> dict:
     }
     if missing_objects or not marker_present:
         report["checks"] = _empty_checks()
-        report["blocking"] = True
-        report["blocking_reasons"] = ["migration_schema_incomplete"]
-        return report
+        return _finalize_report(report, ["migration_schema_incomplete"])
 
     checks = _empty_checks()
     checks["missing_projections"] = _rows(
@@ -174,9 +207,7 @@ def reconcile_pipeline_state(conn) -> dict:
     report["transition_classes"] = _transition_class_counts(conn)
     report["checks"] = checks
     blocking_reasons = [name for name in sorted(BLOCKING_CHECKS) if checks[name]]
-    report["blocking"] = bool(blocking_reasons)
-    report["blocking_reasons"] = blocking_reasons
-    return report
+    return _finalize_report(report, blocking_reasons)
 
 
 def _empty_checks():
@@ -487,6 +518,7 @@ def _is_product_terminal(entry):
         or (
             row["actor_source"] == "product_action"
             and metadata.get("transition_class") != "user_initialization"
+            and metadata.get("resolution") != "post_migration_user_action"
         )
     )
 

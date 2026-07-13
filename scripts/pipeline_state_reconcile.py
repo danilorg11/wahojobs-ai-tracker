@@ -85,6 +85,15 @@ def print_human_report(path, report):
         "Missing required objects: "
         + (", ".join(schema["required_objects_missing"]) or "none")
     )
+    print("Fully reconciled: " + ("yes" if report["fully_reconciled"] else "no"))
+    print(
+        "Safe for normalized reads: "
+        + ("yes" if report["safe_for_normalized_reads"] else "no")
+    )
+    print(
+        "Compatibility mirror drift: "
+        + (", ".join(report["compatibility_mirror_drift_reasons"]) or "none")
+    )
     for name, rows in sorted(report["checks"].items()):
         print(f"{name.replace('_', ' ').title()}: {len(rows)}")
     if "unknown_legacy_workflows" in report:

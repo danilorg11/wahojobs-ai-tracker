@@ -36,6 +36,62 @@ class PipelineRecord:
         }
 
 
+def require_pipeline_state_schema(conn):
+    required_tables = {
+        "user_pipeline_items",
+        "user_pipeline_state",
+        "user_pipeline_transitions",
+        "wahojobs_schema_migrations",
+    }
+    present_tables = {
+        row["name"]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        if row["name"] in required_tables
+    }
+    marker = (
+        conn.execute(
+            "SELECT 1 FROM wahojobs_schema_migrations WHERE version = ?",
+            ("001_pipeline_state",),
+        ).fetchone()
+        if "wahojobs_schema_migrations" in present_tables
+        else None
+    )
+    if present_tables != required_tables or marker is None:
+        raise PipelineRecordInvariant(
+            "Pipeline-state migration is not completely installed."
+        )
+
+
+def list_pipeline_records(
+    conn,
+    owner_profile_id: str,
+    *,
+    mutation_grade: bool = False,
+) -> list[PipelineRecord]:
+    """Load all records for one persisted owner from normalized state."""
+    require_pipeline_state_schema(conn)
+    rows = conn.execute(
+        """
+        SELECT pipeline_item_id
+        FROM user_pipeline_items
+        WHERE profile_id = ?
+        ORDER BY updated_at DESC, id DESC
+        """,
+        (owner_profile_id,),
+    ).fetchall()
+    return [
+        load_pipeline_record(
+            conn,
+            row["pipeline_item_id"],
+            owner_profile_id=owner_profile_id,
+            mutation_grade=mutation_grade,
+        )
+        for row in rows
+    ]
+
+
 def load_pipeline_record(
     conn,
     pipeline_item_id: str,
@@ -44,18 +100,7 @@ def load_pipeline_record(
     mutation_grade: bool = False,
 ) -> PipelineRecord:
     """Load normalized and compatibility state without installing or repairing it."""
-    required_tables = {"user_pipeline_items", "user_pipeline_state", "user_pipeline_transitions"}
-    present_tables = {
-        row["name"]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?,?,?)",
-            tuple(sorted(required_tables)),
-        )
-    }
-    if present_tables != required_tables:
-        raise PipelineRecordInvariant(
-            "Pipeline-state migration is not completely installed."
-        )
+    require_pipeline_state_schema(conn)
     item = conn.execute(
         "SELECT * FROM user_pipeline_items WHERE pipeline_item_id = ?",
         (pipeline_item_id,),
