@@ -933,10 +933,18 @@ def score_opportunity(profile, row):
     evergreen_check = evergreen_applicability(profile, row, language_check)
     score = 0
     reasons = []
+    signal_score = 0
+    language_score = 0
+    remote_score = 0
+    inventory_score = 0
+    source_score = 0
+    avoid_keyword_penalty = 0
+    quality_gate_penalty = 0
 
     for reason, keywords, points in profile["signals"]:
         if any(keyword_matches(text, keyword) for keyword in normalize_keywords(keywords)):
             score += points
+            signal_score += points
             reasons.append(reason)
 
     for language in sorted(profile_language_set(profile)):
@@ -944,17 +952,21 @@ def score_opportunity(profile, row):
             continue
         if language in language_check.matched_languages:
             score += 6
+            language_score += 6
             reasons.append(f"{language.title()} language signal")
 
     if wants_remote(profile) and has_remote_signal(row):
         score += 5
+        remote_score += 5
         reasons.append("Remote/flexible signal")
 
     if row["market_count_policy"] == MARKET_COUNT_POLICY_COUNT_LIVE and row["include_in_live_market_estimate"]:
         score += 3
+        inventory_score += 3
         reasons.append("Live/countable opportunity")
     else:
         score += 2
+        inventory_score += 2
         if row["inventory_model"] == INVENTORY_MODEL_EVERGREEN_APPLICATION:
             reasons.append("Evergreen application, useful but not counted in live estimate")
         elif row["inventory_model"] == INVENTORY_MODEL_PUBLIC_INVENTORY:
@@ -964,10 +976,12 @@ def score_opportunity(profile, row):
 
     if row["source_tier"] != SOURCE_TIER_EXPERIMENTAL:
         score += 1
+        source_score += 1
 
     for keyword in normalize_keywords(profile.get("avoid_keywords", [])):
         if keyword_matches(text, keyword):
             score -= 12
+            avoid_keyword_penalty += 12
             reasons.append("Possible requirement mismatch; review carefully")
 
     quality_penalties = match_quality_gate_penalties(
@@ -977,6 +991,7 @@ def score_opportunity(profile, row):
     )
     for reason, penalty in quality_penalties:
         score -= penalty
+        quality_gate_penalty += penalty
         reasons.append(reason)
 
     score = max(score, 0)
@@ -1017,6 +1032,18 @@ def score_opportunity(profile, row):
 
     return {
         "score": score,
+        "score_components": {
+            "profile_signal_score": signal_score,
+            "generic_skill_score": signal_score,
+            "language_writing_score": language_score,
+            "language_score": language_score,
+            "remote_score": remote_score,
+            "inventory_score": inventory_score,
+            "source_score": source_score,
+            "avoid_keyword_penalty": avoid_keyword_penalty,
+            "quality_gate_penalty": quality_gate_penalty,
+            "raw_matcher_score": score,
+        },
         "display_title": title,
         "source": row["source"],
         "source_slug": row["source_slug"],

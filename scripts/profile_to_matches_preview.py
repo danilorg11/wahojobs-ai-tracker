@@ -50,6 +50,7 @@ from wahojobs.matching.fit_evidence import (  # noqa: E402
     assess_affirmative_fit,
     build_profile_fit_evidence,
 )
+from wahojobs.matching.domains import assess_domain_alignment  # noqa: E402
 from wahojobs.matching.specializations import (  # noqa: E402
     evaluate_specialization_requirements,
     specialization_evidence,
@@ -471,6 +472,7 @@ def apply_preview_guardrails(
     evaluated_at: datetime | None = None,
 ) -> dict:
     match = dict(match)
+    match = apply_domain_relevance_projection(profile, row, match)
     base_section = preview_section_for_match(match)
     diagnostics = preview_diagnostics_for_match(
         profile,
@@ -544,6 +546,63 @@ def apply_preview_guardrails(
         match["primary_admission_source"] = "guardrail_demoted"
     else:
         match["primary_admission_source"] = f"affirmative_fit_{assessment.status}"
+    return match
+
+
+def apply_domain_relevance_projection(profile: dict, row: dict, match: dict) -> dict:
+    """Add preview ranking evidence without changing the production matcher score."""
+    alignment = assess_domain_alignment(profile, row)
+    raw_score = int(match.get("score") or 0)
+    ranking_score = max(0, raw_score + alignment.ranking_delta)
+    raw_hard_gate = bool(match.get("professional_domain_hard_gate_applied"))
+
+    match["raw_matcher_score"] = raw_score
+    match["ranking_score"] = ranking_score
+    match["domain_alignment"] = alignment.as_dict()
+    match["core_profile_domains"] = sorted(alignment.profile_domains)
+    match["core_role_domains"] = sorted(alignment.role_domains)
+    match["matched_core_domains"] = sorted(alignment.matched_domains)
+    match["missing_essential_domains"] = sorted(alignment.missing_essential_domains)
+    match["core_domain_score"] = alignment.alignment_score
+    match["specialist_domain_penalty"] = alignment.mismatch_penalty
+    match["raw_professional_domain_hard_gate_applied"] = raw_hard_gate
+    match["preview_domain_hard_gate_applied"] = alignment.hard_gate
+
+    components = dict(match.get("score_components") or {})
+    components.update(
+        {
+            "raw_matcher_score": raw_score,
+            "core_domain_score": alignment.alignment_score,
+            "specialist_domain_penalty": alignment.mismatch_penalty,
+            "ranking_score": ranking_score,
+        }
+    )
+    match["score_components"] = components
+
+    if alignment.hard_gate:
+        match["professional_domain_hard_gate_applied"] = True
+        match["professional_domain_hard_gate_reason"] = alignment.reason
+        match["reasons"] = unique_list([alignment.reason, *(match.get("reasons") or [])])
+        return match
+
+    if alignment.matched_domains:
+        match["reasons"] = unique_list([alignment.reason, *(match.get("reasons") or [])])
+        if (
+            any(domain != "technical" for domain in alignment.matched_domains)
+            and match.get("eligible_for_personalized", True)
+            and not raw_hard_gate
+            and match.get("inventory_model") != INVENTORY_MODEL_EVERGREEN_APPLICATION
+        ):
+            promoted_section = matcher.product_section_for_score(ranking_score, True)
+            specialized_cap = matcher.specialized_actionability_cap(profile, row, promoted_section)
+            if specialized_cap:
+                promoted_section = cap_section(promoted_section, specialized_cap["section"])
+            if match.get("location_actionability_cap_applied"):
+                promoted_section = cap_section(promoted_section, "explore_only")
+            current_section = match.get("effective_product_section") or "explore_only"
+            if ACTIONABILITY_RANK.get(promoted_section, 0) > ACTIONABILITY_RANK.get(current_section, 0):
+                match["preview_domain_promoted_section"] = promoted_section
+                match["effective_product_section"] = promoted_section
     return match
 
 
@@ -1137,7 +1196,7 @@ def choose_representative(matches: list[dict]) -> dict:
 def representative_sort_key(match: dict):
     job_id = match.get("job_id")
     return (
-        -int(match.get("score") or 0),
+        -int(match.get("ranking_score", match.get("score")) or 0),
         int(job_id) if str(job_id or "").isdigit() else 2**63 - 1,
         str(match.get("source") or ""),
         str(match.get("display_title") or ""),
@@ -1264,7 +1323,7 @@ def match_sort_key(match: dict):
     section_rank = {section: index for index, section in enumerate(SECTION_ORDER)}
     return (
         section_rank.get(match["preview_section"], 99),
-        -match["score"],
+        -int(match.get("ranking_score", match.get("score")) or 0),
         match["source"].lower(),
         match["display_title"].lower(),
     )
@@ -1349,7 +1408,8 @@ def format_text_match(match: dict) -> list[str]:
             flags.append("possible unconfirmed language requirement")
     flag_text = f" [{'; '.join(flags)}]" if flags else ""
     return [
-        f"- {match['display_title']} — {match['source']} ({match['score']} pts){flag_text}",
+        f"- {match['display_title']} — {match['source']} "
+        f"({match.get('ranking_score', match['score'])} ranking pts; {match['score']} raw){flag_text}",
         f"  Location: {match.get('location') or 'Unknown'} | Area: {match.get('expertise') or 'Unknown'}",
         f"  Reasons: {reasons}",
         f"  Diagnostics: {'; '.join(match.get('preview_diagnostics') or []) or '-'}",
@@ -1417,6 +1477,11 @@ def html_section_note(section: str) -> str:
 
 
 def user_fit_reason(match: dict) -> str:
+    if match.get("professional_domain_hard_gate_applied"):
+        return (
+            "Some transferable skills overlap, but this role's essential professional "
+            "domain is not supported by your profile."
+        )
     trust_status = match.get("opportunity_trust_status")
     if trust_status in {TRUST_INCOMPATIBLE_LOCATION, NO_COMPATIBLE_LIVE_VARIANT}:
         return "Some profile signals align, but the available location is not compatible with this profile."
@@ -1668,7 +1733,7 @@ def render_html_match(match: dict, section: str) -> str:
   <p>{link}</p>
   <details>
     <summary>Technical details</summary>
-    <p class="meta">Score: {match['score']} | Reasons: {html_escape('; '.join(match.get('reasons') or []) or '-')}</p>
+    <p class="meta">Score: {match['score']} raw | Ranking score: {match.get('ranking_score', match['score'])} | Reasons: {html_escape('; '.join(match.get('reasons') or []) or '-')}</p>
     <p class="meta">Diagnostics: {html_escape('; '.join(match.get('preview_diagnostics') or []) or '-')}</p>
     <p class="meta">Trust: {html_escape(match.get('opportunity_trust_status') or '-')} | {html_escape('; '.join(match.get('opportunity_trust_reasons') or []) or '-')}</p>
   </details>
@@ -1684,6 +1749,18 @@ def match_summary(match: dict) -> dict:
         "expertise",
         "url",
         "score",
+        "raw_matcher_score",
+        "ranking_score",
+        "score_components",
+        "domain_alignment",
+        "core_profile_domains",
+        "core_role_domains",
+        "matched_core_domains",
+        "missing_essential_domains",
+        "core_domain_score",
+        "specialist_domain_penalty",
+        "preview_domain_hard_gate_applied",
+        "preview_domain_promoted_section",
         "preview_section",
         "effective_product_section",
         "raw_product_section",
