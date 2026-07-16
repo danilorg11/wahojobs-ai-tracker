@@ -24,6 +24,7 @@ class LanguageEligibility:
     language_signal_allowed: bool
 
 
+@lru_cache(maxsize=32768)
 def normalize_language_text(value: str | None) -> str:
     text = str(value or "").lower()
     text = unicodedata.normalize("NFKD", text)
@@ -258,6 +259,8 @@ def find_language_mentions_cached(normalized: str) -> tuple[tuple[tuple[str, str
     mentions = []
     seen = set()
     for alias, language, pattern in _ALIAS_PATTERNS:
+        if alias not in normalized:
+            continue
         for match in pattern.finditer(normalized):
             key = (match.start(), match.end(), language)
             if key in seen:
@@ -318,14 +321,20 @@ def normalize_language_name(value: str | None) -> str:
 
 
 def profile_language_set(profile: dict) -> set[str]:
-    return {
+    values = tuple(str(value) for value in (profile.get("languages", []) or []))
+    return set(_profile_language_set_cached(values))
+
+
+@lru_cache(maxsize=1024)
+def _profile_language_set_cached(values: tuple[str, ...]) -> frozenset[str]:
+    return frozenset(
         language
         for language in (
             normalize_language_name(value)
-            for value in profile.get("languages", [])
+            for value in values
         )
         if language
-    }
+    )
 
 
 def language_variants(language: str) -> list[str]:

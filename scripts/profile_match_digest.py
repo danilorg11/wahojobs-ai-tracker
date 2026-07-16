@@ -1337,6 +1337,7 @@ def quality_gate_text(row, title, expertise):
     return normalize_text(" ".join(str(value or "") for value in values))
 
 
+@lru_cache(maxsize=32768)
 def normalize_text(value):
     return re.sub(r"\s+", " ", value.lower()).strip()
 
@@ -1467,6 +1468,7 @@ def detect_profile_match_features_cached(profile_text, languages):
     }
 
 
+@lru_cache(maxsize=16384)
 def detect_role_match_features(text):
     text = normalize_text(text)
     explicit_languages = detect_explicit_languages(text)

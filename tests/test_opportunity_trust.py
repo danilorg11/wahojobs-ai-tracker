@@ -60,7 +60,7 @@ def variant(job_id, location, trust_status, *, score=30, canonical_id=42):
         "primary_recommendation_eligible": primary,
         "primary_admission_reasons": [] if primary else [f"opportunity_trust_{trust_status}"],
         "location_eligibility_status": (
-            "eligible" if trust_status == TRUSTED else "incompatible"
+            "incompatible" if trust_status == INCOMPATIBLE_LOCATION else "eligible"
         ),
         "job_is_active": True,
         "canonical_is_active": True,
@@ -306,10 +306,13 @@ class OpportunityTrustCanonicalSelectionTests(unittest.TestCase):
         self.assertIn("English Language Specialist", qa)
         self.assertIn(STALE_SOURCE, qa)
         self.assertIn("528", qa)
-        self.assertIn("needs current source verification", preview.user_fit_reason(stale))
+        self.assertIn("profile signals", preview.user_fit_reason(stale).lower())
+        self.assertNotIn("source verification", preview.user_fit_reason(stale).lower())
+        self.assertIn("source refresh", preview.user_caution_note(stale).lower())
 
     def test_stale_empty_state_differs_from_genuine_no_match(self):
         stale = variant(1, "Worldwide", STALE_SOURCE)
+        stale["opportunity_trust"]["source_age_hours"] = 200
         context = {"matches": {section: [] for section in preview.SECTION_ORDER}}
         context["matches"]["best_matches"] = [stale]
         stale_page = app.render_ranked_preview_matches(context, {}, "run-stale")
@@ -319,7 +322,8 @@ class OpportunityTrustCanonicalSelectionTests(unittest.TestCase):
             "run-empty",
         )
 
-        self.assertIn("We're refreshing the latest opportunities", stale_page)
+        self.assertIn("Current source verification is overdue", stale_page)
+        self.assertNotIn("being refreshed", stale_page)
         self.assertNotIn("No clear matches surfaced", stale_page)
         self.assertIn("No clear matches surfaced", empty_page)
 

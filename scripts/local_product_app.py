@@ -14,7 +14,7 @@ from functools import lru_cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,6 +38,7 @@ NORMAL_OWNER_PROFILE_ID = "local_user"
 PREVIEW_MATCH_LIMIT = 160
 MATCH_RUN_REGISTRY_LIMIT = 64
 PRESENTATION_MATCH_LIMIT = 10
+RECENT_CACHED_MATCH_MAX_AGE_HOURS = 7 * 24
 ACTIONABLE_PRESENTATION_SECTIONS = (
     "do_these_first",
     "best_matches",
@@ -545,7 +546,7 @@ def create_match_run(form, registry, demo_mode=False):
     if input_style not in profile_preview.INPUT_STYLES:
         input_style = "short_paragraph"
     require_owner_profile(owner_profile_id)
-    context = build_cached_preview_context(
+    context = build_current_preview_context(
         raw_input,
         input_style,
         PREVIEW_MATCH_LIMIT,
@@ -613,6 +614,11 @@ def resolve_run_opportunity(run, requested_key):
         raise ActionError("Missing opportunity reference.")
     for match in iter_match_run_opportunities(run):
         if match_opportunity_key(match) == requested_key:
+            if browser_match_rejection_reasons(match):
+                raise ActionError(
+                    "That opportunity is not safe to open or track from this match run.",
+                    HTTPStatus.FORBIDDEN,
+                )
             return {
                 "source": match.get("source") or "",
                 "title": match.get("display_title") or match.get("title") or "",
@@ -1235,6 +1241,10 @@ def render_preview_from_params(params, registry, demo_mode=False):
     input_text = run.raw_input if run else sample.get("text", "")
     input_style = run.input_style if run else sample.get("style", "short_paragraph")
     context = run.recommendation_context if run else None
+    if context:
+        context = profile_preview.refresh_preview_context_freshness(
+            context, current_utc_time()
+        )
     editing = bool(run and first_value(params, "edit") == "1")
     owner_profile_id = (
         run.owner_profile_id
@@ -1285,6 +1295,32 @@ def build_cached_preview_context(input_text, input_style, limit, _data_signature
     )
 
 
+def current_utc_time():
+    return datetime.now(timezone.utc)
+
+
+def build_current_preview_context(
+    input_text,
+    input_style,
+    limit,
+    data_signature,
+    *,
+    evaluated_at=None,
+):
+    cached = build_cached_preview_context(
+        input_text,
+        input_style,
+        limit,
+        data_signature,
+    )
+    now = evaluated_at or current_utc_time()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    return profile_preview.refresh_preview_context_freshness(cached, now)
+
+
 def build_ranked_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
     ranked = []
     matches_by_section = (context or {}).get("matches") or {}
@@ -1303,6 +1339,125 @@ def build_ranked_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
             if len(ranked) >= limit:
                 return ranked
     return ranked
+
+
+def build_browser_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
+    """Return verified matches plus a bounded recent-cache fallback."""
+    ranked = []
+    seen_identities = set()
+    matches_by_section = (context or {}).get("matches") or {}
+    for data_status in ("recently_verified", "recently_cached"):
+        for section in ACTIONABLE_PRESENTATION_SECTIONS:
+            for match in matches_by_section.get(section, []):
+                if data_status == "recently_verified":
+                    eligible = (
+                        match.get("opportunity_trust_status") == "trusted"
+                        and match.get("primary_recommendation_eligible", True)
+                    )
+                else:
+                    eligible = recent_cached_match_is_usable(match)
+                if (
+                    not eligible
+                    or browser_match_rejection_reasons(match)
+                    or match.get("affirmative_fit_status") != "supported"
+                ):
+                    continue
+                identity = stable_opportunity_identity(match)
+                if data_status == "recently_cached" and identity in seen_identities:
+                    continue
+                seen_identities.add(identity)
+                presented = dict(match)
+                presented["presentation_rank"] = len(ranked) + 1
+                presented["presentation_source_section"] = section
+                presented["presentation_data_status"] = data_status
+                ranked.append(presented)
+                if len(ranked) >= limit:
+                    return ranked
+    return ranked
+
+
+def recent_cached_match_is_usable(match):
+    if match.get("opportunity_trust_status") != "stale_source":
+        return False
+    if browser_match_rejection_reasons(match):
+        return False
+    age_hours = (match.get("opportunity_trust") or {}).get("source_age_hours")
+    try:
+        return 0 <= float(age_hours) <= RECENT_CACHED_MATCH_MAX_AGE_HOURS
+    except (TypeError, ValueError):
+        return False
+
+
+def browser_match_rejection_reasons(match):
+    reasons = []
+    if stable_opportunity_identity(match) is None:
+        reasons.append("invalid_stable_identity")
+    if safe_job_url(match.get("url")) is None:
+        reasons.append("invalid_job_url")
+    if not match.get("eligible_for_personalized", True):
+        reasons.append("personalized_eligibility_failed")
+    if match.get("professional_domain_hard_gate_applied"):
+        reasons.append("professional_domain_hard_gate")
+    if match.get("location_eligibility_status") == "incompatible":
+        reasons.append("incompatible_location")
+    if match.get("affirmative_fit_status") != "supported":
+        reasons.append("affirmative_fit_not_supported")
+    cap_reasons = set(match.get("actionability_cap_reasons") or [])
+    if cap_reasons - {"opportunity_trust_stale_source", "opportunity_trust_unverified_source"}:
+        reasons.append("non_freshness_actionability_cap")
+    trust = match.get("opportunity_trust") or {}
+    if (
+        match.get("job_is_active") is False
+        or match.get("canonical_is_active") is False
+        or trust.get("job_is_active") is False
+        or trust.get("canonical_is_active") is False
+    ):
+        reasons.append("inactive_opportunity")
+    return tuple(dict.fromkeys(reasons))
+
+
+def stable_opportunity_identity(match):
+    canonical_raw = match.get("canonical_opportunity_id")
+    if canonical_raw not in (None, ""):
+        canonical_id = positive_integer_identity(canonical_raw)
+        return ("canonical", canonical_id) if canonical_id is not None else None
+    job_id = positive_integer_identity(match.get("job_id"))
+    if job_id is not None:
+        return ("job", job_id)
+    selected_variant_id = positive_integer_identity(
+        (match.get("opportunity_trust") or {}).get("selected_variant_id")
+    )
+    return (
+        ("job", selected_variant_id)
+        if selected_variant_id is not None
+        else None
+    )
+
+
+def positive_integer_identity(value):
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    text = str(value)
+    if text != text.strip() or not re.fullmatch(r"[1-9][0-9]*", text):
+        return None
+    return int(text)
+
+
+def safe_job_url(value):
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or not parsed.hostname:
+            return None
+        if any(character.isspace() for character in parsed.netloc):
+            return None
+        parsed.port
+    except (TypeError, ValueError):
+        return None
+    return value
 
 
 def load_preview_tracked(profile_id):
@@ -1426,23 +1581,42 @@ def render_preview_header(demo_mode=False):
 
 
 def render_preview_results_header(context, demo_mode=False):
-    verified_count = len(build_ranked_presentation_matches(context))
-    refresh_count = supported_candidates_withheld_for_refresh(context)
-    verified_label = "1 verified match" if verified_count == 1 else f"{verified_count} verified matches"
-    refresh_label = ""
-    if refresh_count:
-        refresh_label = (
-            "1 more match is being refreshed."
-            if refresh_count == 1
-            else f"{refresh_count} more matches are being refreshed."
+    matches = build_browser_presentation_matches(context)
+    verified_count = sum(
+        match.get("presentation_data_status") == "recently_verified" for match in matches
+    )
+    cached_count = len(matches) - verified_count
+    total_label = "1 match" if len(matches) == 1 else f"{len(matches)} matches"
+    if not cached_count:
+        total_label = (
+            "1 verified match" if verified_count == 1 else f"{verified_count} verified matches"
         )
+    verification_count = supported_candidates_needing_verification(context)
+    additional_count = max(0, verification_count - cached_count)
+    status_parts = []
+    if cached_count:
+        status_parts.append(
+            "1 verified match" if verified_count == 1 else f"{verified_count} verified matches"
+        )
+        status_parts.append(
+            "1 recently cached match"
+            if cached_count == 1
+            else f"{cached_count} recently cached matches"
+        )
+    if additional_count:
+        status_parts.append(
+            "1 additional match needs source verification"
+            if additional_count == 1
+            else f"{additional_count} additional matches need source verification"
+        )
+    status_label = "; ".join(status_parts) + ("." if status_parts else "")
     return f"""
     <section class="results-header">
       <div>
         <p class="eyebrow">Matches</p>
         <h1>Your matches</h1>
-        <p class="results-summary"><strong>{e(verified_label)}</strong></p>
-        {f'<p class="refresh-summary">{e(refresh_label)}</p>' if refresh_label else ''}
+        <p class="results-summary"><strong>{e(total_label)}</strong></p>
+        {f'<p class="refresh-summary">{e(status_label)}</p>' if status_label else ''}
         {f'<p class="muted">Demo mode keeps development personas and quality checks available below.</p>' if demo_mode else ''}
       </div>
     </section>
@@ -1622,7 +1796,7 @@ def profile_summary_items(canonical):
 
 
 def render_ranked_preview_matches(context, tracked, match_run_id):
-    matches = build_ranked_presentation_matches(context)
+    matches = build_browser_presentation_matches(context)
     cards = "".join(
         render_ranked_preview_card(match, tracked, match_run_id)
         for match in matches
@@ -1632,8 +1806,8 @@ def render_ranked_preview_matches(context, tracked, match_run_id):
             edit_url = "/find-matches?" + urlencode({"run": match_run_id, "edit": "1"})
             cards = f"""
             <div class="notice stale-data-state">
-              <p><strong>We're refreshing the latest opportunities.</strong></p>
-              <p class="muted">Your profile is ready, but the available job data needs a recent update.</p>
+              <p><strong>Current source verification is overdue.</strong></p>
+              <p class="muted">Your profile is ready, but the available job data is too old to recommend safely.</p>
               <p><a class="open secondary-link" href="{e(edit_url)}">Review or retry your profile</a></p>
             </div>
             """
@@ -1652,20 +1826,23 @@ def render_ranked_preview_matches(context, tracked, match_run_id):
 
 
 def supported_candidates_need_refresh(context):
-    summary = (context or {}).get("trust_summary") or {}
-    if summary.get("has_stale_or_unverified_supported_candidates"):
-        return True
-    return supported_candidates_withheld_for_refresh(context) > 0
+    return supported_candidates_needing_verification(context) > 0
 
 
-def supported_candidates_withheld_for_refresh(context):
+def supported_candidates_needing_verification(context):
     return sum(
         1
         for section in ACTIONABLE_PRESENTATION_SECTIONS
         for match in ((context or {}).get("matches") or {}).get(section, [])
         if match.get("affirmative_fit_status") == "supported"
         and match.get("opportunity_trust_status") in {"stale_source", "unverified_source"}
+        and not browser_match_rejection_reasons(match)
     )
+
+
+def supported_candidates_withheld_for_refresh(context):
+    """Compatibility alias for older tests and callers."""
+    return supported_candidates_needing_verification(context)
 
 
 def render_ranked_preview_card(match, tracked, match_run_id):
@@ -1673,7 +1850,20 @@ def render_ranked_preview_card(match, tracked, match_run_id):
     section = match["presentation_source_section"]
     caution = profile_preview.user_caution_note(match)
     fit_reason = profile_preview.user_fit_reason(match)
-    url = match.get("url") or ""
+    url = safe_job_url(match.get("url")) or ""
+    cached = match.get("presentation_data_status") == "recently_cached"
+    card_classes = (
+        "card preview-card ranked-card cached-source-card"
+        if cached
+        else "card preview-card ranked-card"
+    )
+    freshness_badge = (
+        '<p class="freshness-badge" '
+        'aria-label="Source freshness: Recently cached; source verification needed">'
+        'Recently cached <span>Source verification needed</span></p>'
+        if cached
+        else ""
+    )
     card_id = f"ranked-{match_opportunity_key(match)}"
     status = (
         f'<p class="pill card-status js-card-status">{e(readable_status(record["status"]))}</p>'
@@ -1682,12 +1872,13 @@ def render_ranked_preview_card(match, tracked, match_run_id):
     )
     controls = render_preview_card_actions(match, record, match_run_id, section, card_id)
     return f"""
-    <article class="card preview-card ranked-card" id="{e(card_id)}" data-action-card>
+    <article class="{card_classes}" id="{e(card_id)}" data-action-card>
       <div class="match-rank" aria-label="Rank {match['presentation_rank']}">#{match['presentation_rank']}</div>
       <div class="card-main">
         <p class="source">{e(match['source'])}</p>
         <h3>{e(match['display_title'])}</h3>
         <p class="muted">{e(match.get('location') or 'Location not listed')}</p>
+        {freshness_badge}
         <p><strong>Why it fits:</strong> {e(fit_reason)}</p>
         {f'<p class="caution"><strong>Check before applying:</strong> {e(caution)}</p>' if caution else ''}
         {status}
@@ -1938,7 +2129,7 @@ def render_preview_card(match, section, tracked, match_run_id):
     record = demo.tracked_record_for_match(match, tracked)
     caution = profile_preview.user_caution_note(match)
     fit_reason = profile_preview.user_fit_reason(match)
-    url = match.get("url") or ""
+    url = safe_job_url(match.get("url")) or ""
     open_link = f'<a class="open" href="{e(url)}" target="_blank" rel="noreferrer">View job</a>' if url else ""
     diagnostics = "; ".join(match.get("preview_diagnostics") or []) or "-"
     reasons = "; ".join(match.get("reasons") or []) or "-"
@@ -2736,7 +2927,7 @@ def visible_match_run_count(run, records):
     tracked = demo.build_tracked_index(records)
     return sum(
         1
-        for match in build_ranked_presentation_matches(run.recommendation_context)
+        for match in build_browser_presentation_matches(run.recommendation_context)
         if (
             (record := demo.tracked_record_for_match(match, tracked)) is None
             or record["status"] not in MAIN_RECOMMENDATION_EXCLUDED_STATUSES
@@ -3357,6 +3548,10 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   grid-template-columns: 44px minmax(0, 1fr) 176px;
   padding: 16px;
 }
+.card.ranked-card.cached-source-card {
+  background: #FFFCF3;
+  border-color: #D7C58A;
+}
 .ranked-card .card-main { min-width: 0; }
 .ranked-card .card-main > p:last-child { margin-bottom: 0; }
 .card:target {
@@ -3521,6 +3716,22 @@ button:disabled { cursor: wait; opacity: .58; }
   color: #5f4b00;
   padding-left: 10px;
 }
+.freshness-badge {
+  align-items: center;
+  background: #F6EBC7;
+  border: 1px solid #D7C58A;
+  border-radius: 999px;
+  color: #5F4B00;
+  display: inline-flex;
+  flex-wrap: wrap;
+  font-size: .78rem;
+  font-weight: 800;
+  gap: 5px;
+  margin: 2px 0 8px;
+  max-width: 100%;
+  padding: 4px 8px;
+}
+.freshness-badge span { font-weight: 600; }
 .technical-details {
   color: var(--muted);
   max-width: 300px;

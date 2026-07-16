@@ -15,6 +15,13 @@ class LocalProductVisualMilestoneTests(unittest.TestCase):
         )
 
     def render_results(self, context, tracked=None):
+        stable_id = 1
+        for section in app.profile_preview.SECTION_ORDER:
+            for match in context["matches"].get(section, []):
+                match["job_id"] = stable_id
+                match["canonical_opportunity_id"] = stable_id
+                match.setdefault("opportunity_trust", {})["selected_variant_id"] = stable_id
+                stable_id += 1
         return app.render_profile_preview_page(
             input_text="English and Spanish reviewer",
             input_style="short_paragraph",
@@ -40,31 +47,35 @@ class LocalProductVisualMilestoneTests(unittest.TestCase):
 
     def test_populated_page_uses_results_header_and_dynamic_counts(self):
         context = make_context({"best_matches": 1})
-        stale = make_match("Refreshing role")
+        stale = make_match("Verification overdue role")
         stale["opportunity_trust_status"] = "stale_source"
         stale["primary_recommendation_eligible"] = False
+        stale["opportunity_trust"]["source_age_hours"] = 200
         context["matches"]["best_matches"].append(stale)
 
         page = self.render_results(context)
 
         self.assertIn("Your matches", page)
         self.assertIn("1 verified match", page)
-        self.assertIn("1 more match is being refreshed.", page)
+        self.assertIn("1 additional match needs source verification", page)
+        self.assertNotIn("being refreshed", page)
         self.assertNotIn("Find AI work that fits you", page)
         self.assertEqual(page.count('class="match-rank"'), 1)
 
     def test_results_header_pluralizes_verified_and_refresh_counts(self):
         context = make_context({"best_matches": 2})
-        for title in ("Refreshing one", "Refreshing two"):
+        for title in ("Verification overdue one", "Verification overdue two"):
             match = make_match(title)
-            match["opportunity_trust_status"] = "unverified_source"
+            match["opportunity_trust_status"] = "stale_source"
             match["primary_recommendation_eligible"] = False
+            match["opportunity_trust"]["source_age_hours"] = 100
             context["matches"]["also_worth_reviewing"].append(match)
 
         page = self.render_results(context)
 
         self.assertIn("2 verified matches", page)
-        self.assertIn("2 more matches are being refreshed.", page)
+        self.assertIn("2 recently cached matches", page)
+        self.assertNotIn("being refreshed", page)
 
     def test_profile_summary_omits_unavailable_values(self):
         context = make_context({"best_matches": 1})

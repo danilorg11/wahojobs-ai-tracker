@@ -13,6 +13,7 @@ import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
+from functools import lru_cache
 from html import escape as html_escape
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from wahojobs.matching.opportunity_trust import (  # noqa: E402
     STALE_SOURCE,
     TRUSTED as OPPORTUNITY_TRUSTED,
     UNVERIFIED_SOURCE,
+    age_hours,
     assess_opportunity_trust,
 )
 from wahojobs.matching.fit_evidence import (  # noqa: E402
@@ -397,6 +399,77 @@ def build_preview_context(
         "trust_summary": build_trust_summary(grouped_matches),
         "metadata_overlay": overlay_status,
     }
+
+
+def refresh_preview_context_freshness(context: dict, evaluated_at: datetime) -> dict:
+    """Refresh only wall-clock trust fields in an already-scored preview context."""
+    refreshed = dict(context)
+    refreshed_matches = {}
+    for section in SECTION_ORDER:
+        refreshed_matches[section] = [
+            refresh_match_freshness(match, evaluated_at)
+            for match in (context.get("matches") or {}).get(section, [])
+        ]
+    refreshed["generated_at"] = evaluated_at.replace(microsecond=0).isoformat()
+    refreshed["matches"] = refreshed_matches
+    refreshed["match_summary"] = {
+        section: len(refreshed_matches[section]) for section in SECTION_ORDER
+    }
+    refreshed["trust_summary"] = build_trust_summary(refreshed_matches)
+    return refreshed
+
+
+def refresh_match_freshness(match: dict, evaluated_at: datetime) -> dict:
+    refreshed = dict(match)
+    trust = assess_opportunity_trust(
+        refreshed,
+        refreshed.get("location_eligibility_status") or "unknown",
+        now=evaluated_at,
+    )
+    trust_data = trust.as_dict()
+    if trust.status == OPPORTUNITY_TRUSTED and trust.selected_variant_id is None:
+        trust_data["selected_variant_id"] = (
+            (match.get("opportunity_trust") or {}).get("selected_variant_id")
+        )
+    trust_data["source_age_hours"] = age_hours(
+        refreshed.get("latest_successful_source_run_at"), evaluated_at
+    )
+    refreshed["opportunity_trust"] = trust_data
+    refreshed["opportunity_trust_status"] = trust.status
+    refreshed["opportunity_trust_reasons"] = list(trust.reasons)
+    refreshed["selected_variant_id"] = trust_data["selected_variant_id"]
+
+    cap_reasons = [
+        reason
+        for reason in (refreshed.get("actionability_cap_reasons") or [])
+        if not str(reason).startswith("opportunity_trust_")
+    ]
+    if trust.status != OPPORTUNITY_TRUSTED:
+        cap_reasons.append(f"opportunity_trust_{trust.status}")
+    refreshed["actionability_cap_reasons"] = unique_list(cap_reasons)
+
+    admission_reasons = [
+        reason
+        for reason in (refreshed.get("primary_admission_reasons") or [])
+        if not str(reason).startswith("opportunity_trust_")
+    ]
+    if trust.status != OPPORTUNITY_TRUSTED:
+        admission_reasons.append(f"opportunity_trust_{trust.status}")
+    refreshed["primary_admission_reasons"] = unique_list(admission_reasons)
+    refreshed["primary_recommendation_eligible"] = (
+        not refreshed["actionability_cap_reasons"]
+        and refreshed.get("affirmative_fit_status") == AFFIRMATIVE_FIT_SUPPORTED
+        and trust.status == OPPORTUNITY_TRUSTED
+    )
+    if refreshed["primary_recommendation_eligible"]:
+        refreshed["primary_admission_source"] = "affirmative_fit_supported"
+    elif refreshed["actionability_cap_reasons"]:
+        refreshed["primary_admission_source"] = "guardrail_demoted"
+    else:
+        refreshed["primary_admission_source"] = (
+            f"affirmative_fit_{refreshed.get('affirmative_fit_status') or 'unknown'}"
+        )
+    return refreshed
 
 
 def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -> tuple[dict, dict]:
@@ -1090,7 +1163,12 @@ def licensed_medical_row(row_text: str) -> bool:
 
 
 def contains_preview_term(text: str, terms: tuple[str, ...]) -> bool:
-    return any(re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) for term in terms)
+    return any(preview_term_pattern(term).search(text) for term in terms)
+
+
+@lru_cache(maxsize=512)
+def preview_term_pattern(term: str) -> re.Pattern:
+    return re.compile(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])")
 
 
 def build_preview_warnings(normalizer_warnings: list[str], normalization, grouped_matches: dict) -> list[str]:
@@ -1485,8 +1563,6 @@ def user_fit_reason(match: dict) -> str:
     trust_status = match.get("opportunity_trust_status")
     if trust_status in {TRUST_INCOMPATIBLE_LOCATION, NO_COMPATIBLE_LIVE_VARIANT}:
         return "Some profile signals align, but the available location is not compatible with this profile."
-    if trust_status in {STALE_SOURCE, UNVERIFIED_SOURCE}:
-        return "Some profile signals align, but this opportunity needs current source verification before we recommend it."
     affirmative_reasons = match.get("affirmative_fit_why") or []
     if affirmative_reasons:
         return " ".join(affirmative_reasons[:2])
@@ -1841,6 +1917,7 @@ def credentials_label(canonical: dict) -> str:
     return "; ".join(parts)
 
 
+@lru_cache(maxsize=32768)
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower())
 

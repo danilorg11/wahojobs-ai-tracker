@@ -282,6 +282,8 @@ class MyJobsStateModelTests(unittest.TestCase):
             "matches": {section: [] for section in app.profile_preview.SECTION_ORDER},
         }
         trusted = {
+            "job_id": 901,
+            "canonical_opportunity_id": 901,
             "source": "Fixture",
             "display_title": "Trusted role",
             "title": "Trusted role",
@@ -291,16 +293,29 @@ class MyJobsStateModelTests(unittest.TestCase):
             "primary_recommendation_eligible": True,
             "affirmative_fit_status": "supported",
             "opportunity_trust_status": "trusted",
+            "opportunity_trust": {
+                "status": "trusted",
+                "job_is_active": True,
+                "canonical_is_active": True,
+                "selected_variant_id": 901,
+            },
         }
-        refreshing = dict(trusted, display_title="Refreshing role", title="Refreshing role")
-        refreshing["opportunity_trust_status"] = "stale_source"
-        context["matches"]["best_matches"] = [trusted, refreshing]
+        overdue = dict(trusted, display_title="Verification overdue role", title="Verification overdue role")
+        overdue["job_id"] = 902
+        overdue["canonical_opportunity_id"] = 902
+        overdue["url"] = "https://example.test/verification-overdue"
+        overdue["opportunity_trust_status"] = "stale_source"
+        overdue["opportunity_trust"] = dict(
+            trusted["opportunity_trust"], status="stale_source", source_age_hours=100
+        )
+        context["matches"]["best_matches"] = [trusted, overdue]
 
         header = app.render_preview_results_header(context)
 
         self.assertIn("We couldn't update this job. Try again.", script)
-        self.assertIn('<p class="results-summary"><strong>1 verified match</strong></p>', header)
-        self.assertIn('<p class="refresh-summary">1 more match is being refreshed.</p>', header)
+        self.assertIn('<p class="results-summary"><strong>2 matches</strong></p>', header)
+        self.assertIn("1 recently cached match", header)
+        self.assertNotIn("being refreshed", header)
 
     def test_header_counts_hidden_reminders_independently_of_workflow(self):
         hidden = record("not_interested", reminder_date="2026-07-19")

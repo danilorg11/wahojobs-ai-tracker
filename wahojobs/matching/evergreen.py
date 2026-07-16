@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import re
 import unicodedata
 
@@ -95,21 +96,48 @@ def evergreen_opportunity_kind(row: dict) -> str:
 
 
 def evergreen_profile_kind(profile: dict) -> str:
+    signature = (
+        str(profile.get("profile_id", "")),
+        str(profile.get("display_name", "")),
+        str(profile.get("summary", "")),
+        str(profile.get("education_level", "")),
+        tuple(str(value) for value in (profile.get("degrees_or_domains") or [])),
+        tuple(str(value) for value in (profile.get("skills") or [])),
+        tuple(str(value) for value in (profile.get("target_opportunity_types") or [])),
+        str(profile.get("notes", "")),
+        tuple(str(value) for value in (profile.get("languages") or [])),
+    )
+    return _evergreen_profile_kind_cached(signature)
+
+
+@lru_cache(maxsize=1024)
+def _evergreen_profile_kind_cached(signature: tuple) -> str:
+    (
+        profile_id,
+        display_name,
+        summary,
+        education_level,
+        degrees_or_domains,
+        skills,
+        target_opportunity_types,
+        notes,
+        languages,
+    ) = signature
     text = normalize(
         " ".join(
             [
-                profile.get("profile_id", ""),
-                profile.get("display_name", ""),
-                profile.get("summary", ""),
-                profile.get("education_level", ""),
-                " ".join(profile.get("degrees_or_domains") or []),
-                " ".join(profile.get("skills") or []),
-                " ".join(profile.get("target_opportunity_types") or []),
-                profile.get("notes", ""),
+                profile_id,
+                display_name,
+                summary,
+                education_level,
+                " ".join(degrees_or_domains),
+                " ".join(skills),
+                " ".join(target_opportunity_types),
+                notes,
             ]
         )
     )
-    language_count = len(profile_language_set(profile))
+    language_count = len(profile_language_set({"languages": languages}))
     language_profile = language_count > 1 or contains_any(
         text,
         (

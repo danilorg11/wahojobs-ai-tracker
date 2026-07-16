@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 
 from wahojobs.profiles.normalizer import term_is_negated
 
@@ -632,11 +633,14 @@ def _title_location_requirement(title: str) -> tuple[str, str] | None:
     return None
 
 
-def _role_mentions(title: str) -> list[tuple[int, int, str]]:
+@lru_cache(maxsize=16384)
+def _role_mentions(title: str) -> tuple[tuple[int, int, str], ...]:
     candidates = []
     for concept in ROLE_CONCEPTS:
         for alias in concept.aliases:
-            for match in re.finditer(alias_pattern(alias), title):
+            if normalize_text(alias) not in title:
+                continue
+            for match in alias_pattern(alias).finditer(title):
                 candidates.append((match.start(), match.end(), concept.key))
     candidates.sort(key=lambda value: (value[0], -(value[1] - value[0]), value[2]))
     result = []
@@ -644,7 +648,7 @@ def _role_mentions(title: str) -> list[tuple[int, int, str]]:
         if any(candidate[0] < item[1] and candidate[1] > item[0] for item in result):
             continue
         result.append(candidate)
-    return result
+    return tuple(result)
 
 
 def _profile_requests_general_ai_work(profile: dict) -> bool:
@@ -763,22 +767,24 @@ def country_label(value: str) -> str:
 
 
 def contains_alias(text: str, alias: str) -> bool:
-    return re.search(alias_pattern(alias), text) is not None
+    return alias_pattern(alias).search(text) is not None
 
 
 def contains_positive_alias(text: str, alias: str) -> bool:
     return any(
         not term_is_negated(text, match.start(), match.end())
-        for match in re.finditer(alias_pattern(alias), text)
+        for match in alias_pattern(alias).finditer(text)
     )
 
 
-def alias_pattern(alias: str) -> str:
+@lru_cache(maxsize=256)
+def alias_pattern(alias: str) -> re.Pattern:
     normalized = normalize_text(alias)
     escaped = r"\s+".join(re.escape(part) for part in normalized.split())
-    return rf"(?<![a-z0-9]){escaped}(?![a-z0-9])"
+    return re.compile(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])")
 
 
+@lru_cache(maxsize=32768)
 def normalize_text(value: str | None) -> str:
     text = unicodedata.normalize("NFKD", str(value or "").lower())
     text = "".join(character for character in text if not unicodedata.combining(character))

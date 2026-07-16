@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
 
 from wahojobs.profiles.normalizer import term_is_negated
 
@@ -95,9 +96,17 @@ ALTERNATIVE_SEPARATOR = re.compile(r"^\s*(?:/|\bor\b)\s*$")
 def specialization_requirements(title: str) -> list[dict]:
     """Return all-required groups; concepts within one group are alternatives."""
     text = _normalize_specialization_text(title)
+    return [
+        {"mode": mode, "concepts": list(concepts), "label": label}
+        for mode, concepts, label in _specialization_requirements_cached(text)
+    ]
+
+
+@lru_cache(maxsize=16384)
+def _specialization_requirements_cached(text: str) -> tuple[tuple[str, tuple[str, ...], str], ...]:
     mentions = _non_overlapping_mentions(text)
     if not mentions:
-        return []
+        return ()
 
     groups: list[list[str]] = []
     previous_end = None
@@ -110,14 +119,14 @@ def specialization_requirements(title: str) -> list[dict]:
             groups.append([key])
         previous_end = end
 
-    return [
-        {
-            "mode": "any_of" if len(keys) > 1 else "all_of",
-            "concepts": keys,
-            "label": _group_label(keys),
-        }
+    return tuple(
+        (
+            "any_of" if len(keys) > 1 else "all_of",
+            tuple(keys),
+            _group_label(keys),
+        )
         for keys in groups
-    ]
+    )
 
 
 def specialization_evidence(profile: dict) -> set[str]:
@@ -162,11 +171,14 @@ def evaluate_specialization_requirements(
     }
 
 
-def _non_overlapping_mentions(text: str) -> list[tuple[int, int, str]]:
+@lru_cache(maxsize=16384)
+def _non_overlapping_mentions(text: str) -> tuple[tuple[int, int, str], ...]:
     candidates = []
     for concept in CONCEPTS:
         for alias in concept.aliases:
-            for match in re.finditer(_alias_pattern(alias), text):
+            if _normalize_specialization_text(alias) not in text:
+                continue
+            for match in _alias_pattern(alias).finditer(text):
                 candidates.append((match.start(), match.end(), concept.key))
     candidates.sort(key=lambda item: (item[0], -(item[1] - item[0]), item[2]))
 
@@ -176,26 +188,28 @@ def _non_overlapping_mentions(text: str) -> list[tuple[int, int, str]]:
         if any(start < existing_end and end > existing_start for existing_start, existing_end, _ in selected):
             continue
         selected.append(candidate)
-    return sorted(selected)
+    return tuple(sorted(selected))
 
 
 def _contains_alias(text: str, alias: str) -> bool:
-    return re.search(_alias_pattern(alias), text) is not None
+    return _alias_pattern(alias).search(text) is not None
 
 
 def _contains_positive_alias(text: str, alias: str) -> bool:
     return any(
         not term_is_negated(text, match.start(), match.end())
-        for match in re.finditer(_alias_pattern(alias), text)
+        for match in _alias_pattern(alias).finditer(text)
     )
 
 
-def _alias_pattern(alias: str) -> str:
+@lru_cache(maxsize=256)
+def _alias_pattern(alias: str) -> re.Pattern:
     normalized = _normalize_specialization_text(alias)
     escaped = r"\s+".join(re.escape(part) for part in normalized.split())
-    return rf"(?<![a-z0-9]){escaped}(?![a-z0-9])"
+    return re.compile(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])")
 
 
+@lru_cache(maxsize=32768)
 def _normalize_specialization_text(value: str | None) -> str:
     text = str(value or "").lower()
     text = unicodedata.normalize("NFKD", text)
