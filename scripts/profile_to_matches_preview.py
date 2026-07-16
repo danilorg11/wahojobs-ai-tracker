@@ -284,6 +284,7 @@ DECISIVE_PREVIEW_CAP_RULES = (
     ("Science subdomain appears outside profile specialty", "explore_only", "science_subdomain_mismatch"),
     ("Profile states no biology or medical credentials", "explore_only", "absent_science_credentials"),
     ("Medical license or credential may be required", "explore_only", "medical_credential_requirement"),
+    ("Technical infrastructure specialization is not supported", "explore_only", "technical_infrastructure_mismatch"),
     ("Unsupported explicit specialization requirements", "also_worth_reviewing", "unsupported_specialization"),
 )
 
@@ -369,12 +370,60 @@ def build_preview_context(
         },
     )
     canonical = normalization.canonical_profile
+    return build_preview_context_from_canonical(
+        canonical,
+        raw_input=raw_input,
+        input_style=input_style,
+        limit=limit,
+        use_overlay=use_overlay,
+        normalizer_name=normalizer.name,
+        normalization_warnings=normalization.warnings,
+        missing_fields=normalization.missing_fields,
+        ambiguous_fields=normalization.ambiguous_fields,
+        extraction_quality=normalization.extraction_quality,
+    )
+
+
+def build_preview_context_from_canonical(
+    canonical: dict,
+    *,
+    raw_input: str = "",
+    input_style: str = "reviewed_structured_profile",
+    limit: int = DEFAULT_LIMIT,
+    use_overlay: bool = True,
+    normalizer_name: str = "reviewed_profile",
+    normalization_warnings: list[str] | None = None,
+    missing_fields: list[str] | None = None,
+    ambiguous_fields: list[str] | None = None,
+    extraction_quality: str = "reviewed",
+) -> dict:
+    """Match from a canonical profile without reparsing its original text."""
     validate_canonical_profile(canonical)
     matcher_profile = canonical_to_matcher_profile(canonical)
     matcher_profile["language_locale_keys"] = canonical_language_locale_keys(canonical)
     grouped_matches, overlay_status = build_grouped_matches(matcher_profile, limit, use_overlay=use_overlay)
     canonical_summary = canonical_profile_debug_summary(canonical)
-    preview_warnings = build_preview_warnings(normalization.warnings, normalization, grouped_matches)
+    normalization_warnings = list(normalization_warnings or [])
+    missing_fields = list(
+        missing_fields
+        if missing_fields is not None
+        else canonical["provenance"].get("missing_fields") or []
+    )
+    ambiguous_fields = list(
+        ambiguous_fields
+        if ambiguous_fields is not None
+        else canonical["provenance"].get("ambiguous_fields") or []
+    )
+    normalization_view = type(
+        "NormalizationView",
+        (),
+        {"missing_fields": missing_fields, "ambiguous_fields": ambiguous_fields},
+    )()
+    preview_warnings = build_preview_warnings(
+        normalization_warnings,
+        normalization_view,
+        grouped_matches,
+    )
 
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -385,15 +434,15 @@ def build_preview_context(
         ),
         "raw_input": raw_input,
         "input_style": input_style,
-        "normalizer": normalizer.name,
+        "normalizer": normalizer_name,
         "canonical_profile": canonical,
         "canonical_summary": canonical_summary,
         "matcher_profile": matcher_profile,
         "warnings": preview_warnings,
-        "normalization_warnings": normalization.warnings,
-        "missing_fields": normalization.missing_fields,
-        "ambiguous_fields": normalization.ambiguous_fields,
-        "extraction_quality": normalization.extraction_quality,
+        "normalization_warnings": normalization_warnings,
+        "missing_fields": missing_fields,
+        "ambiguous_fields": ambiguous_fields,
+        "extraction_quality": extraction_quality,
         "matches": grouped_matches,
         "match_summary": {section: len(grouped_matches[section]) for section in SECTION_ORDER},
         "trust_summary": build_trust_summary(grouped_matches),
@@ -474,9 +523,23 @@ def refresh_match_freshness(match: dict, evaluated_at: datetime) -> dict:
 
 def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -> tuple[dict, dict]:
     rows, overlay_status = load_preview_rows(use_overlay=use_overlay)
+    return (
+        build_grouped_matches_from_rows(profile, rows, limit),
+        overlay_status,
+    )
+
+
+def build_grouped_matches_from_rows(
+    profile: dict,
+    rows: list[dict],
+    limit: int,
+    *,
+    evaluated_at: datetime | None = None,
+) -> dict:
+    """Score preloaded rows through the production preview projection."""
     supported_specializations = specialization_evidence(profile)
     profile_fit_evidence = build_profile_fit_evidence(profile)
-    evaluated_at = datetime.now(timezone.utc)
+    evaluated_at = evaluated_at or datetime.now(timezone.utc)
     scored = []
     for row in rows:
         match = matcher.score_opportunity(profile, row)
@@ -498,7 +561,7 @@ def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -
         if len(groups[section]) >= limit:
             continue
         groups[section].append(match)
-    return groups, overlay_status
+    return groups
 
 
 def load_preview_rows(use_overlay: bool = True) -> tuple[list[dict], dict]:
@@ -601,6 +664,11 @@ def apply_preview_guardrails(
         for item in assessment.supported_evidence
     ]
     match["affirmative_fit_why"] = list(assessment.why_fit_statements)
+    match["profile_explanation_evidence"] = profile_explanation_evidence(
+        profile,
+        row,
+        match,
+    )
     if trust.status != OPPORTUNITY_TRUSTED:
         cap_reasons.append(f"opportunity_trust_{trust.status}")
     match["actionability_cap_reasons"] = unique_list(cap_reasons)
@@ -818,6 +886,17 @@ def preview_diagnostics_for_match(
     match["supported_specialization_groups"] = specialization["supported_groups"]
     match["missing_specialization_groups"] = specialization["missing_groups"]
     match["supported_specialization_concepts"] = specialization["supported_concepts"]
+    infrastructure_missing = [
+        group
+        for group in specialization["missing_groups"]
+        if set(group["concepts"]) & {"database_administration", "network_engineering"}
+    ]
+    if infrastructure_missing:
+        diagnostics.append(
+            "Technical infrastructure specialization is not supported by the profile: "
+            + "; ".join(group["label"] for group in infrastructure_missing)
+            + "."
+        )
     if specialization["missing_groups"]:
         diagnostics.append(
             "Unsupported explicit specialization requirements: "
@@ -1061,9 +1140,24 @@ def profile_confirms_credential(profile: dict, label: str) -> bool:
     if "phd" in label.lower() or "doctorate" in label:
         return education == "doctorate" or "phd" in text or "doctorate" in text
     if "license" in label:
-        if "no medical license" in text or "no license" in text or "not licensed" in text:
+        constraints = normalize_text(
+            " ".join(
+                [
+                    *(profile.get("constraints") or []),
+                    *(profile.get("negative_constraints") or []),
+                ]
+            )
+        )
+        if (
+            profile.get("credential_status") == "absent"
+            or "no specialized credentials" in constraints
+            or "no medical license" in constraints
+            or "no professional license" in constraints
+            or "no license" in constraints
+            or "not licensed" in constraints
+        ):
             return False
-        return "licensed" in text or "license" in text or "medical doctor" in text or "physician" in text
+        return bool(profile.get("licenses")) and profile.get("credential_status") == "explicit"
     return False
 
 
@@ -1074,7 +1168,9 @@ def credential_requirement_conflicts(profile: dict, label: str) -> bool:
         return education == "no_degree" or "no college degree" in text or "no degree" in text
     if "license" in label.lower():
         return (
-            "no medical license" in text
+            profile.get("credential_status") == "absent"
+            or "no specialized credentials" in text
+            or "no medical license" in text
             or "no law license" in text
             or "no professional license" in text
             or "not licensed" in text
@@ -1563,9 +1659,22 @@ def user_fit_reason(match: dict) -> str:
     trust_status = match.get("opportunity_trust_status")
     if trust_status in {TRUST_INCOMPATIBLE_LOCATION, NO_COMPATIBLE_LIVE_VARIANT}:
         return "Some profile signals align, but the available location is not compatible with this profile."
-    affirmative_reasons = match.get("affirmative_fit_why") or []
+    affirmative_reasons = [
+        reason
+        for reason in (match.get("affirmative_fit_why") or [])
+        if not any(
+            generic in reason.casefold()
+            for generic in (
+                "stated interest in ai evaluation and data work",
+                "this general language-data role matches",
+            )
+        )
+    ]
     if affirmative_reasons:
         return " ".join(affirmative_reasons[:2])
+    profile_reasons = match.get("profile_explanation_evidence") or []
+    if profile_reasons:
+        return " ".join(profile_reasons[:2])
     reasons = match.get("reasons") or []
     friendly = []
     for reason in reasons:
@@ -1580,6 +1689,84 @@ def user_fit_reason(match: dict) -> str:
         languages = ", ".join(language.title() for language in match["matched_languages"])
         return f"It appears to match your listed language(s): {languages}."
     return "It shares some profile signals, but you should review the details before acting."
+
+
+def profile_explanation_evidence(profile: dict, row: dict, match: dict) -> list[str]:
+    """Return precise user-facing evidence without affecting score or admission."""
+    role_text = normalize_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                match.get("display_title"),
+                row.get("title"),
+                row.get("expertise"),
+                row.get("department"),
+                row.get("description"),
+            )
+        )
+    )
+    evidence = []
+
+    def first_overlap(values):
+        for value in values or []:
+            normalized = normalize_text(value)
+            if len(normalized) >= 3 and re.search(
+                rf"(?<![a-z0-9]){re.escape(normalized)}(?![a-z0-9])",
+                role_text,
+            ):
+                return str(value).strip()
+        return ""
+
+    title = normalize_text(match.get("display_title") or "")
+    constraints = normalize_text(
+        " ".join(
+            [
+                *(profile.get("constraints") or []),
+                *(profile.get("negative_constraints") or []),
+                str(profile.get("phone_preference") or ""),
+                *(profile.get("schedule") or []),
+            ]
+        )
+    )
+    role_terms = role_text.replace("-", " ")
+    constraint_terms = constraints.replace("-", " ")
+    if "entry level" in title.replace("-", " ") and any(
+        term in constraints
+        for term in ("no experience", "no prior experience", "entry level", "student")
+    ):
+        evidence.append("It fits your entry-level search while you build experience.")
+    if (
+        any(term in role_terms for term in ("non phone", "no phone"))
+        and any(term in constraint_terms for term in ("non phone", "no phone"))
+    ):
+        evidence.append("It matches your non-phone work preference.")
+    if "text only" in role_terms and "text only" in constraint_terms:
+        evidence.append("It matches your text-only work preference.")
+    if "asynchronous" in role_terms and "asynchronous" in constraint_terms:
+        evidence.append("It matches your asynchronous work preference.")
+
+    profile_location = normalize_text(
+        profile.get("country") or profile.get("residence") or profile.get("location")
+    )
+    if profile_location and re.search(
+        rf"(?<![a-z0-9]){re.escape(profile_location)}(?![a-z0-9])",
+        role_text,
+    ):
+        evidence.append(f"It explicitly accepts applicants in {profile.get('country') or profile.get('residence')}.")
+
+    domain = first_overlap(profile.get("degrees_or_domains") or [])
+    skill = first_overlap(profile.get("skills") or [])
+    if domain and normalize_text(domain) != "generalist":
+        evidence.append(f"It matches your {domain} background.")
+    if skill and normalize_text(skill) != normalize_text(domain):
+        evidence.append(f"It uses your listed {skill} experience.")
+
+    if not evidence and match.get("matched_languages"):
+        languages = ", ".join(
+            language.title() for language in match["matched_languages"]
+        )
+        evidence.append(f"It matches your listed language background: {languages}.")
+    return unique_list(evidence)
 
 
 def friendly_reason(reason: str) -> str:
@@ -1671,6 +1858,10 @@ def user_caution_note(match: dict) -> str:
                 cautions.append(
                     "This role appears to require a specialization not listed in your profile."
                 )
+        elif diagnostic.startswith("Technical infrastructure specialization is not supported"):
+            cautions.append(
+                "This role appears to require database administration or network engineering experience not listed in your profile."
+            )
         elif diagnostic.startswith("Reviewed title-derived location restriction"):
             cautions.append("A reviewed title-derived location restriction may apply.")
     return " ".join(unique_list(cautions)[:2])

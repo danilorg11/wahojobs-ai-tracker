@@ -11,9 +11,17 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 import re
 from typing import Protocol
+import unicodedata
 
 from wahojobs.matching.languages import find_language_mentions, normalize_language_text
-from wahojobs.profiles.canonical import SCHEMA_VERSION, UNKNOWN, validate_canonical_profile
+from wahojobs.profiles.canonical import (
+    PROFILE_SOURCE_PARSED_TEXT,
+    SCHEMA_VERSION,
+    UNKNOWN,
+    complete_trusted_fixture_provenance,
+    field_sources_for_profile,
+    validate_canonical_profile,
+)
 
 
 EXTRACTION_QUALITY_CONTROL = "control"
@@ -93,7 +101,7 @@ class FixtureExpectedProfileNormalizer:
         if not case_id or case_id not in self.cases_by_id:
             raise ValueError("FixtureExpectedProfileNormalizer requires a known case_id.")
         case = self.cases_by_id[case_id]
-        canonical = deepcopy(case["expected_canonical_profile"])
+        canonical = complete_trusted_fixture_provenance(case["expected_canonical_profile"])
         warnings = []
         if raw_input != case.get("raw_input"):
             warnings.append("Provided raw_input differs from fixture raw_input.")
@@ -128,7 +136,7 @@ class BaselineHeuristicProfileNormalizer:
     ) -> NormalizationResult:
         metadata = dict(metadata or {})
         raw_input = str(raw_input or "")
-        text = normalize_language_text(raw_input)
+        text = normalize_profile_text(raw_input)
         case_id = metadata.get("case_id", "")
         archetype_id = metadata.get("archetype_id") or metadata.get("profile_id") or "normalized_profile"
         display_name = metadata.get("display_name") or display_name_from_profile_id(archetype_id)
@@ -140,10 +148,10 @@ class BaselineHeuristicProfileNormalizer:
         credentials = detect_credentials(text)
         experience = detect_experience(text)
         domains = detect_domains(text)
-        skills = detect_skills(text, domains)
+        skills = detect_skills(text, domains, input_style=input_style)
         preferences = detect_preferences(text, domains)
         constraints = detect_constraints(text)
-        signals = signals_for_domains(domains, skills)
+        signals = signals_for_domains(domains, skills, languages)
         missing_fields = missing_fields_for_baseline(languages, location, credentials, experience)
         ambiguous_fields = ambiguous_fields_for_baseline(text, input_style, languages)
 
@@ -174,7 +182,16 @@ class BaselineHeuristicProfileNormalizer:
                 "avoid_keywords": constraints["avoid_keywords"],
             },
             "matcher_compatible_profile": matcher_profile_block(
-                raw_input,
+                affirmative_matcher_summary(
+                    display_name,
+                    location,
+                    education,
+                    languages,
+                    experience,
+                    domains,
+                    skills,
+                    preferences,
+                ),
                 archetype_id,
                 display_name,
                 education,
@@ -189,11 +206,22 @@ class BaselineHeuristicProfileNormalizer:
             "provenance": {
                 "extracted_from": input_style,
                 "evidence_snippets": [raw_input.strip()] if raw_input.strip() else [],
+                "original_text": raw_input.strip(),
                 "confidence": "low" if input_style == "messy_sparse_input" else "medium",
                 "missing_fields": missing_fields,
                 "ambiguous_fields": ambiguous_fields,
             },
         }
+        canonical["provenance"]["field_sources"] = field_sources_for_profile(
+            canonical,
+            PROFILE_SOURCE_PARSED_TEXT,
+            explicit=False,
+        )
+        for index, language in enumerate(languages):
+            if language.get("proficiency") not in {UNKNOWN, ""}:
+                canonical["provenance"]["field_sources"][
+                    f"languages[{index}].proficiency"
+                ]["explicit"] = True
         result = NormalizationResult(
             canonical_profile=canonical,
             warnings=warnings,
@@ -457,11 +485,28 @@ def detect_explicit_language_proficiency(text: str, language: str | None = None)
     language = normalize_language_text(language)
     if not text or not language:
         return UNKNOWN
-    for term in ("native", "fluent", "advanced", "conversational"):
+    for term in (
+        "native",
+        "fluent",
+        "professional",
+        "intermediate",
+        "basic",
+        "advanced",
+        "conversational",
+    ):
         if re.search(rf"\b{term}\s+{re.escape(language)}\b", text):
             return term
         if re.search(rf"\b{re.escape(language)}\s+{term}\b", text):
             return term
+        if re.search(
+            rf"\b{re.escape(language)}\s+is\s+(?:my\s+)?{term}(?:\s+language)?\b",
+            text,
+        ):
+            return term
+        if re.search(rf"\b{term}\s+in\s+{re.escape(language)}\b", text):
+            return term
+    if re.search(rf"\bmy\s+native\s+language\s+is\s+{re.escape(language)}\b", text):
+        return "native"
     if re.search(rf"\b{re.escape(language)}\s+reading\b", text):
         return "reading"
     return UNKNOWN
@@ -507,25 +552,52 @@ def detect_location(text: str) -> dict:
         "city": city,
         "timezone": "",
         "residence": country,
-        "work_authorization": UNKNOWN,
+        "work_authorization": detect_work_authorization(text),
         "eligible_countries": [],
         "remote_eligibility": UNKNOWN,
         "restrictions": [],
+        "geographic_work_restrictions": [],
     }
+
+
+def detect_work_authorization(text: str) -> str:
+    positive = (
+        r"\blegally\s+(?:allowed|authorized)\s+to\s+work\b",
+        r"\bauthorized\s+to\s+work\b",
+        r"\beligible\s+to\s+work\b",
+        r"\b(?:have|hold)\s+the\s+right\s+to\s+work\b",
+        r"\b(?:have|hold)\s+(?:valid\s+)?work\s+authorization\b",
+        r"\bmy\s+visa\s+allows\s+me\s+to\s+work\b",
+        r"\b(?:have|hold)\s+(?:a\s+)?work\s+permit\b",
+    )
+    if any(re.search(pattern, text) for pattern in positive):
+        return "explicit"
+    if re.search(r"\b(?:need|require|seeking)\s+(?:visa\s+or\s+)?work\s+authorization\b", text):
+        return "required"
+    return UNKNOWN
 
 
 def detect_education(text: str) -> dict:
     degrees = []
     fields = []
     level = "not_specified"
-    if any(term in text for term in ("no college", "no degree", "high school")):
+    if has_degree_absence(text) or "high school" in text:
         level = "no_degree"
     if re.search(r"\bphd\b|doctorate", text):
         level = "doctorate"
         degrees.append("PhD")
+    elif re.search(r"\bmaster(?:\s+s)?\s+(?:degree\s+)?(?:in|of)\b|\bmsc\b|\bma\b", text):
+        level = "master"
+        degrees.append("Master's degree")
     if re.search(r"\bjd\b", text):
         level = "professional_degree"
         degrees.append("JD")
+    elif affirmative_phrase(
+        text,
+        r"\b(?:have|hold|earned|completed)\s+(?:a\s+)?law\s+degree\b",
+    ):
+        level = "professional_degree"
+        degrees.append("Law degree")
     if re.search(r"\bba\b|bachelor", text):
         level = "bachelor"
         degrees.append("BA")
@@ -536,6 +608,7 @@ def detect_education(text: str) -> dict:
         "fields_or_domains": fields,
         "institutions": [],
         "graduation_years": [],
+        "completion_status": "unknown",
     }
 
 
@@ -551,17 +624,28 @@ def detect_credentials(text: str) -> dict:
         licenses.append("attorney license")
         jurisdictions.append("California")
         status = "explicit"
+    if affirmative_phrase(text, r"\blicensed\s+(?:lawyer|attorney)\b"):
+        licenses.append("attorney license")
+        status = "explicit"
+    if affirmative_phrase(text, r"\bregistered\s+nurse\b"):
+        licenses.append("registered nurse license")
+        status = "explicit"
+    if affirmative_phrase(text, r"\b(?:hold|have|possess)\s+(?:a\s+)?medical\s+license\b"):
+        licenses.append("medical license")
+        status = "explicit"
     if (
         has_medical_license_absence(text)
         or has_legal_license_absence(text)
         or has_biology_or_medical_credential_absence(text)
         or has_professional_credential_absence(text)
     ):
-        status = "absent"
+        if not licenses and not certifications:
+            status = "absent"
     return {
         "certifications": unique_list(certifications),
         "licenses": unique_list(licenses),
         "jurisdictions": unique_list(jurisdictions),
+        "security_clearances": [],
         "credential_status": status,
     }
 
@@ -584,8 +668,14 @@ def detect_experience(text: str) -> dict:
         "historian",
         "lawyer",
         "attorney",
+        "legal counsel",
+        "paralegal",
+        "registered nurse",
+        "medical researcher",
+        "writer",
+        "editor",
     ):
-        if term in text:
+        if contains_affirmative_qualification_term(text, term):
             recent_roles.append(term)
     specialties = detect_specialties(text)
     return {
@@ -593,7 +683,11 @@ def detect_experience(text: str) -> dict:
         "years_by_domain": {},
         "seniority": seniority,
         "recent_roles": unique_list(recent_roles),
+        "occupational_families": unique_list(recent_roles),
+        "job_titles": unique_list(recent_roles),
         "professional_domains": domains,
+        "industries": [],
+        "contribution_type": UNKNOWN,
         "specialties": specialties,
     }
 
@@ -602,18 +696,30 @@ def detect_domains(text: str) -> list[str]:
     domains = []
     domain_terms = [
         ("software engineering", ("python", "typescript", "react", "software", "backend", "javascript", "coding", "code review")),
-        ("legal", ("lawyer", "attorney", "legal", "contract", "ip", "jd", "law")),
+        (
+            "legal",
+            (
+                "lawyer",
+                "attorney",
+                "legal counsel",
+                "paralegal",
+                "legal",
+                "intellectual property",
+                "jd",
+                "law",
+            ),
+        ),
         ("finance", ("finance", "financial", "accounting", "investment", "equity", "valuation", "cfa")),
         ("biology", ("biology", "microbiology", "microbiologist", "biologist", "antimicrobial")),
         ("microbiology", ("microbiology", "microbiologist", "antimicrobial")),
-        ("medicine", ("medical", "medicine", "physician", "clinical", "dermatology")),
+        ("medicine", ("medical", "medicine", "physician", "clinical", "dermatology", "registered nurse")),
         ("history", ("history", "historian", "archival", "humanities")),
         ("education", ("teacher", "teaching", "tutor", "esl", "student", "grading")),
         ("language", ("translation", "translator", "localization", "mtpe", "subtitles", "language", "bilingual")),
-        ("generalist", ("generalist", "annotation", "annotator", "online research", "web research", "content moderation", "data annotation", "review")),
+        ("generalist", ("generalist", "annotation", "annotator", "online research", "web research", "content moderation", "data annotation")),
     ]
     for domain, terms in domain_terms:
-        if any(contains_positive_term(text, term) for term in terms):
+        if any(contains_affirmative_qualification_term(text, term) for term in terms):
             domains.append(domain)
     return unique_list(domains or ["generalist"])
 
@@ -626,6 +732,8 @@ def detect_specialties(text: str) -> list[str]:
         "contracts",
         "microbiology",
         "microbiologist",
+        "computational biology",
+        "genomics",
         "antimicrobial resistance",
         "academic research",
         "academic writing",
@@ -637,18 +745,26 @@ def detect_specialties(text: str) -> list[str]:
         "audio validation",
         "subtitles",
     ):
-        if contains_text_term(text, term):
+        if contains_affirmative_qualification_term(text, term):
             specialties.append("microbiology" if term == "microbiologist" else term)
     return unique_list(specialties)
 
 
-def detect_skills(text: str, domains: list[str]) -> list[str]:
+def detect_skills(text: str, domains: list[str], *, input_style="") -> list[str]:
     skills = []
     skill_terms = [
         "python",
+        "javascript",
         "typescript",
         "react",
+        "sql",
         "apis",
+        "backend",
+        "backend development",
+        "debugging",
+        "code review",
+        "software testing",
+        "technical documentation",
         "test automation",
         "writing",
         "review",
@@ -671,7 +787,10 @@ def detect_skills(text: str, domains: list[str]) -> list[str]:
         "scientific writing",
     ]
     for term in skill_terms:
-        if contains_text_term(text, term):
+        if contains_affirmative_qualification_term(text, term) or (
+            input_style == "resume_or_linkedin_style"
+            and contains_resume_skill_evidence(text, term)
+        ):
             skills.append(term)
     if "language" in domains and "bilingual communication" not in skills:
         skills.append("bilingual communication")
@@ -706,7 +825,7 @@ def detect_preferences(text: str, domains: list[str]) -> dict:
         target_types.append("search evaluation")
     if "coding" in text or "code" in text or "python" in text:
         target_types.append("AI coding evaluation")
-    if "legal" in text or "law" in domains:
+    if "law" in domains or "legal" in domains or explicit_legal_work_interest(text):
         target_types.append("legal AI training")
     if "finance" in domains:
         target_types.append("finance AI training")
@@ -720,20 +839,32 @@ def detect_preferences(text: str, domains: list[str]) -> dict:
         "remote": "remote" in work_preferences,
         "flexible": "flexible" in work_preferences,
         "employment_types": unique_list(employment_types),
+        "synchronous_preference": "flexible" if "flexible" in work_preferences else UNKNOWN,
         "phone_preference": "non-phone preferred" if "no phone" in text or "not calls" in text else UNKNOWN,
         "schedule": [],
         "availability": UNKNOWN,
         "rate_pay_preference": "",
         "target_opportunity_types": unique_list(target_types),
+        "preferred_task_types": unique_list(target_types),
         "work_preferences": unique_list(work_preferences),
     }
+
+
+def explicit_legal_work_interest(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:interested\s+in|seeking|want(?:s|ed)?(?:\s+to\s+do)?)\s+"
+            r"(?:legal\s+ai|legal\s+review|contract\s+review)\b",
+            text,
+        )
+    )
 
 
 def detect_constraints(text: str) -> dict:
     hard = []
     soft = []
     avoid = []
-    if "no college" in text or "no degree" in text:
+    if has_degree_absence(text):
         hard.append("no college degree")
     if has_medical_license_absence(text):
         hard.append("no medical license")
@@ -753,15 +884,30 @@ def detect_constraints(text: str) -> dict:
     if "not coding" in text:
         soft.append("not coding")
         avoid.append("coding")
+    negative_constraints = []
+    for pattern, label in (
+        (r"\bno\s+(?:professional\s+)?experience\s+in\s+finance\b", "no finance experience"),
+        (r"\bwithout\s+finance\s+expertise\b", "no finance expertise"),
+        (r"\bnot\s+(?:a\s+)?(?:licensed\s+)?clinician\b", "not a clinician"),
+        (r"\bnot\s+(?:a\s+)?certified\s+accountant\b", "not a certified accountant"),
+    ):
+        if re.search(pattern, text):
+            negative_constraints.append(label)
     return {
         "hard_constraints": unique_list(hard),
         "soft_preferences": unique_list(soft),
         "avoid_keywords": unique_list(avoid),
-        "negative_constraints": [],
+        "negative_constraints": unique_list(negative_constraints),
+        "excluded_domains": [],
+        "accessibility_constraints": [],
     }
 
 
-def signals_for_domains(domains: list[str], skills: list[str]) -> list[dict]:
+def signals_for_domains(
+    domains: list[str],
+    skills: list[str],
+    languages: list[dict] | None = None,
+) -> list[dict]:
     signals = []
     signal_rules = [
         ("Generalist AI-work signal", ["generalist", "ai trainer", "ai training"], 9, {"generalist"}),
@@ -778,6 +924,34 @@ def signals_for_domains(domains: list[str], skills: list[str]) -> list[dict]:
     for reason, keywords, points, applies_to in signal_rules:
         if domain_set & applies_to:
             signals.append({"reason": reason, "keywords": keywords, "points": points})
+    declared_languages = unique_list(
+        row.get("language")
+        for row in (languages or [])
+        if isinstance(row, dict) and row.get("language")
+    )
+    if declared_languages and not any(
+        signal["reason"] == "Language/translation signal"
+        for signal in signals
+    ):
+        signals.append(
+            {
+                "reason": "Declared language capability",
+                "keywords": ["language", "linguistic", *declared_languages],
+                "points": 7,
+            }
+        )
+    skill_set = {str(skill).casefold() for skill in skills}
+    if skill_set.intersection({"writing", "academic writing", "scientific writing", "editing"}) and not any(
+        signal["reason"] == "Teaching/writing/review signal"
+        for signal in signals
+    ):
+        signals.append(
+            {
+                "reason": "Writing/review skill signal",
+                "keywords": ["writing", "writer", "editing", "review"],
+                "points": 6,
+            }
+        )
     if not signals:
         signals.append({"reason": "General profile keyword match", "keywords": skills or ["review"], "points": 6})
     return signals
@@ -791,11 +965,16 @@ def skills_block(skills: list[str]) -> dict:
             {"skill": skill, "evidence": [], "confidence": "medium"}
             for skill in skills
         ],
+        "technical": [],
+        "software_tools": [],
+        "writing_research": [],
+        "administrative_support": [],
+        "domain_specific": skills,
     }
 
 
 def matcher_profile_block(
-    raw_input: str,
+    summary: str,
     profile_id: str,
     display_name: str,
     education: dict,
@@ -810,7 +989,7 @@ def matcher_profile_block(
     return {
         "profile_id": profile_id,
         "display_name": display_name,
-        "summary": raw_input,
+        "summary": summary,
         "education_level": education["education_level"],
         "degrees_or_domains": domains,
         "languages": [entry["language"] for entry in languages],
@@ -830,6 +1009,41 @@ def matcher_profile_block(
         "city": location["city"],
         "region": location["region"],
     }
+
+
+def affirmative_matcher_summary(
+    display_name,
+    location,
+    education,
+    languages,
+    experience,
+    domains,
+    skills,
+    preferences,
+):
+    """Build matcher text without raw interests, hypotheticals, or negations."""
+    values = [
+        display_name,
+        location.get("country"),
+        education.get("education_level"),
+        *(education.get("degrees") or []),
+        *(education.get("fields_or_domains") or []),
+        *(experience.get("recent_roles") or []),
+        *(experience.get("professional_domains") or []),
+        *domains,
+        *skills,
+        *(preferences.get("target_opportunity_types") or []),
+        *(preferences.get("work_preferences") or []),
+    ]
+    for language in languages:
+        values.extend(
+            [
+                language.get("language"),
+                language.get("proficiency"),
+                language.get("locale"),
+            ]
+        )
+    return ". ".join(str(value).strip() for value in unique_list(values) if str(value).strip())
 
 
 def missing_fields_for_baseline(languages: list[dict], location: dict, credentials: dict, experience: dict) -> list[str]:
@@ -885,6 +1099,18 @@ def contains_text_term(text: str, term: str) -> bool:
     return re.search(pattern, text) is not None
 
 
+def normalize_profile_text(value: str | None) -> str:
+    """Normalize words while retaining clause and resume-list boundaries."""
+    text = str(value or "").lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.replace("\u2019", "'").replace("'", " ").replace("&", " and ")
+    text = re.sub(r"[\u2010-\u2015-]", " ", text)
+    text = re.sub(r"[^a-z0-9'.,;!?\n:]+", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return re.sub(r" *\n *", "\n", text).strip()
+
+
 def contains_positive_term(text: str, term: str) -> bool:
     normalized_term = normalize_language_text(term)
     if not normalized_term:
@@ -896,6 +1122,161 @@ def contains_positive_term(text: str, term: str) -> bool:
         if not term_is_negated(text, match.start(), match.end()):
             return True
     return False
+
+
+def affirmative_phrase(text: str, pattern: str) -> bool:
+    for match in re.finditer(pattern, text):
+        if not term_is_negated(text, match.start(), match.end()):
+            return True
+    return False
+
+
+def contains_affirmative_qualification_term(text: str, term: str) -> bool:
+    """Require clause-local professional, education, or expertise evidence."""
+    normalized_term = normalize_language_text(term)
+    if not normalized_term:
+        return False
+    pattern = r"(?<![a-z0-9])" + r"\s+".join(
+        re.escape(part) for part in normalized_term.split()
+    ) + r"(?![a-z0-9])"
+    role_terms = {
+        "teacher", "tutor", "software engineer", "financial analyst", "research scientist",
+        "lecturer", "historian", "lawyer", "attorney", "legal counsel", "paralegal",
+        "registered nurse", "medical researcher",
+        "writer", "editor", "translator", "microbiologist", "biologist", "physician",
+    }
+    for match in re.finditer(pattern, text):
+        if term_is_negated(text, match.start(), match.end()):
+            continue
+        clause = qualification_clause(text, match.start(), match.end())
+        before = clause.text[: match.start() - clause.start]
+        after = clause.text[match.end() - clause.start :]
+        if re.search(
+            r"\b(?:interested\s+in|interest\s+in|would\s+like|want(?:s|ed)?\s+to|"
+            r"looking\s+for|seeking|hope\s+to|might|may|plan\s+to|intend\s+to|"
+            r"pursu(?:e|ing))\b[^.;]{0,60}$",
+            before,
+        ):
+            continue
+        if normalized_term in {"legal", "law"} and work_authorization_clause(clause.text):
+            continue
+        if re.search(r"\b(?:studied|study)\s+(?:some\s+)?$", before) and re.search(
+            r"\b(?:without|but\s+(?:i\s+)?(?:do\s+not|don\s+t|dont))\b[^.;]{0,50}\bdegree\b",
+            after,
+        ):
+            continue
+        if re.search(r"\bproject\b", after) and re.search(
+            r"\bwithout\s+(?:the\s+)?(?:relevant\s+)?(?:expertise|experience)\b",
+            after,
+        ):
+            continue
+        if normalized_term in role_terms and re.search(
+            r"\b(?:i\s+am|i\s+m|worked\s+as|work\s+as|working\s+as|"
+            r"experience\s+as|career\s+as|background\s+as)\s+(?:an?\s+)?"
+            r"(?:(?:licensed|registered|certified|senior)\s+)?$",
+            before,
+        ):
+            return True
+        if re.search(
+            r"\b(?:professional\s+experience|work\s+experience|experience|background|"
+            r"expertise|speciali[sz](?:e|ed|ation)|skilled)\s+(?:in|with)\s+$",
+            before,
+        ):
+            return True
+        if re.search(
+            r"\b(?:professional\s+experience|work\s+experience|research\s+experience|"
+            r"experience|background|expertise|skills?)\s+(?:in|with)\b[^.;]{0,160}$",
+            before,
+        ):
+            return True
+        if re.search(
+            r"\b(?:phd|doctorate|master(?:\s+s)?(?:\s+degree)?|bachelor(?:\s+s)?(?:\s+degree)?|"
+            r"degree|jd)\s+(?:in|of)\s+$",
+            before,
+        ):
+            return True
+        if re.search(r"\b(?:have|hold|earned|completed)\s+(?:a\s+)?$", before) and re.match(
+            r"\s+degree\b", after
+        ):
+            return True
+        if re.search(r"\b(?:researcher|scientist|engineer|analyst|professional|expert|specialist|experience|background)\b", after):
+            return True
+        if re.search(r"\b(?:professionally|at\s+work|for\s+work)\b", after):
+            return True
+    return False
+
+
+def work_authorization_clause(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:legally\s+)?(?:allowed|authorized|eligible)\s+to\s+work\b|"
+            r"\b(?:right\s+to\s+work|work\s+authorization|work\s+permit)\b|"
+            r"\bvisa\b[^.;]{0,40}\bwork\b",
+            text,
+        )
+    )
+
+
+def contains_resume_skill_evidence(text: str, term: str) -> bool:
+    """Accept explicit resume skill lists without treating aspirations as skills."""
+    normalized_term = normalize_language_text(term)
+    if not normalized_term:
+        return False
+    pattern = r"(?<![a-z0-9])" + r"\s+".join(
+        re.escape(part) for part in normalized_term.split()
+    ) + r"(?![a-z0-9])"
+    for match in re.finditer(pattern, text):
+        if term_is_negated(text, match.start(), match.end()):
+            continue
+        clause = qualification_clause(text, match.start(), match.end())
+        before = clause.text[: match.start() - clause.start]
+        after = clause.text[match.end() - clause.start :]
+        if re.search(
+            r"\b(?:interested\s+in|would\s+like|want(?:s|ed)?\s+to|looking\s+for|"
+            r"seeking|hope\s+to|might|may|plan\s+to|intend\s+to|pursu(?:e|ing))\b",
+            before,
+        ):
+            continue
+        if re.search(
+            r"\b(?:without|no)\s+(?:the\s+)?(?:relevant\s+)?(?:skill|skills|expertise|experience)\b",
+            after,
+        ):
+            continue
+        if "," in clause.text or ":" in clause.text:
+            return True
+        prior = text[max(0, clause.start - 180) : clause.start]
+        if re.search(
+            r"\b(?:engineer|developer|analyst|researcher|scientist|writer|editor|"
+            r"translator|teacher|lawyer|attorney|nurse|specialist|professional)\b"
+            r"[^.;!?\n]{0,60}[.;!?\n]\s*$",
+            prior,
+        ):
+            return True
+    return False
+
+
+@dataclass(frozen=True)
+class QualificationClause:
+    text: str
+    start: int
+    end: int
+
+
+def qualification_clause(text: str, start: int, end: int) -> QualificationClause:
+    clause_start = max(
+        text.rfind(".", 0, start),
+        text.rfind(";", 0, start),
+        text.rfind("!", 0, start),
+        text.rfind("?", 0, start),
+        text.rfind("\n", 0, start),
+    ) + 1
+    candidates = [
+        position
+        for delimiter in (".", ";", "!", "?", "\n")
+        if (position := text.find(delimiter, end)) >= 0
+    ]
+    clause_end = min(candidates, default=len(text))
+    return QualificationClause(text[clause_start:clause_end], clause_start, clause_end)
 
 
 def term_is_negated(text: str, start: int, end: int) -> bool:
@@ -924,7 +1305,7 @@ def term_is_negated(text: str, start: int, end: int) -> bool:
     after = text[end:min(clause_end, end + 48)]
     negative_credential_or_experience = (
         re.search(r"\b(no|not|without|lack|lacking)\b", before)
-        and re.search(r"\b(credentials?|licenses?|licensed|experience|degree)\b", after)
+        and re.search(r"\b(credentials?|licenses?|licensed|experience|expertise|degree)\b", after)
     )
     if negative_credential_or_experience:
         return True
@@ -934,9 +1315,15 @@ def term_is_negated(text: str, start: int, end: int) -> bool:
         return True
     if re.search(r"\b(do not|don t|dont|does not|doesn t|doesnt|no)\s+(have|hold|possess)\b", before):
         return True
+    if re.search(r"\b(do not|don t|dont|does not|doesn t|doesnt|no)\s*$", before) and re.match(
+        r"(?:have|hold|possess)\b", text[start:end]
+    ):
+        return True
     if re.search(r"\bnot\s+(a\s+)?licensed\b", before):
         return True
     if re.search(r"\bcredentials?\b", after) and re.search(r"\b(no|not|don t|dont|do not|without)\b", before):
+        return True
+    if re.search(r"\bwithout\s+(?:being\s+)?(?:an?\s+)?$", before):
         return True
     return False
 
@@ -983,4 +1370,26 @@ def has_professional_credential_absence(text: str) -> bool:
             text,
         )
         or re.search(r"\bno\s+professional\s+(licenses?|certifications?|credentials?)\b", text)
+        or re.search(
+            r"\b(do not|don t|dont|no|without)\s+(?:hold|have|possess)\s+"
+            r"(?:a\s+)?(?:university|college)\s+degree\s+(?:or|and)\s+"
+            r"(?:any\s+)?professional\s+(?:licenses?|certifications?|credentials?)\b",
+            text,
+        )
+    )
+
+
+def has_degree_absence(text: str) -> bool:
+    return bool(
+        re.search(r"\bno\s+college\b", text)
+        or re.search(r"\bno\s+(?:college|university)?\s*degree\b", text)
+        or re.search(
+            r"\b(?:do not|don t|dont|does not|doesn t|doesnt)\s+"
+            r"(?:have|hold|possess)\s+(?:a\s+)?(?:(?:college|university)\s+)?degree\b",
+            text,
+        )
+        or re.search(
+            r"\bwithout\s+(?:a\s+)?(?:(?:college|university)\s+)?degree\b",
+            text,
+        )
     )

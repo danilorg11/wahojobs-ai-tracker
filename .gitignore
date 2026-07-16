@@ -7,3 +7,6 @@ data/*.sqlite-*
 .env
 .venv/
 .vscode/
+
+# Generated from live local inventory; use an explicit output path when needed.
+exports/product_readiness_profile_coverage.json

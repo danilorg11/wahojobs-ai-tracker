@@ -158,6 +158,7 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
         for patch in self.patches:
             patch.start()
         app.build_cached_preview_context.cache_clear()
+        app.build_cached_structured_preview_context.cache_clear()
         app.seed_local_product_profiles()
         self.registry = app.MatchRunRegistry(max_size=16)
         handler = app.make_handler(registry=self.registry, demo_mode=False)
@@ -170,6 +171,7 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=5)
         app.build_cached_preview_context.cache_clear()
+        app.build_cached_structured_preview_context.cache_clear()
         for patch in reversed(self.patches):
             patch.stop()
         self.temp_dir.cleanup()
@@ -210,6 +212,7 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
         self.rows = list(rows)
         self.data_generation += 1
         app.build_cached_preview_context.cache_clear()
+        app.build_cached_structured_preview_context.cache_clear()
 
     def request(self, method, path, fields=None):
         connection = http.client.HTTPConnection(
@@ -233,6 +236,16 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
         self.assertEqual(status, 303)
         location = headers["Location"]
         run_id = parse_qs(urlparse(location).query)["run"][0]
+        pending = self.registry.get(run_id)
+        self.assertFalse(pending.profile_confirmed)
+        review_fields = app.profile_review_form_fields(
+            pending.canonical_profile, run_id, pending.review_token
+        )
+        confirm_status, confirm_headers, confirm_body = self.request(
+            "POST", "/find-matches", review_fields
+        )
+        self.assertEqual(confirm_status, 303, confirm_body)
+        location = confirm_headers["Location"]
         get_status, _, html = self.request("GET", location)
         self.assertEqual(get_status, 200)
         return run_id, html
@@ -340,9 +353,10 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
         self.assertEqual(len(titles), 10)
         self.assertIn("Verified Software Engineer", titles)
         self.assertNotIn("Expired Cache Software Engineer", titles)
-        self.assertIn("recently cached match", html)
-        self.assertIn("4 additional matches need source verification", html)
-        self.assertNotIn("being refreshed", html)
+        self.assertIn("10 matches", html)
+        self.assertNotIn("recently cached", html.lower())
+        self.assertNotIn("source verification", html.lower())
+        self.assertNotIn("check before applying", html.lower())
 
         self.set_rows(
             [
@@ -351,13 +365,15 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
             ]
         )
         _, refreshed_html = self.create_run(SOFTWARE_PROFILE)
-        self.assertIn("10 verified matches", refreshed_html)
-        self.assertNotIn("need source verification", refreshed_html)
+        self.assertIn("10 matches", refreshed_html)
+        self.assertNotIn("verified match", refreshed_html.lower())
 
     def test_second_identical_match_run_reuses_the_production_preview_cache(self):
         self.set_rows([make_row(501, "Software Engineer Python")])
-        original = preview.build_preview_context
-        with mock.patch.object(preview, "build_preview_context", wraps=original) as build:
+        original = preview.build_preview_context_from_canonical
+        with mock.patch.object(
+            preview, "build_preview_context_from_canonical", wraps=original
+        ) as build:
             first_run, first_html = self.create_run(SOFTWARE_PROFILE)
             second_run, second_html = self.create_run(SOFTWARE_PROFILE)
 
@@ -373,8 +389,10 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
             make_row(604, "Software Engineer Remains Cached", age_hours=150, now=self.now),
         ]
         self.set_rows(rows)
-        original = preview.build_preview_context
-        with mock.patch.object(preview, "build_preview_context", wraps=original) as build:
+        original = preview.build_preview_context_from_canonical
+        with mock.patch.object(
+            preview, "build_preview_context_from_canonical", wraps=original
+        ) as build:
             first_id, _ = self.create_run(SOFTWARE_PROFILE)
             first = app.build_browser_presentation_matches(
                 self.registry.get(first_id).recommendation_context
@@ -391,7 +409,8 @@ class FindMatchesRouteRegressionTests(unittest.TestCase):
         self.assertEqual(build.call_count, 1)
         self.assertEqual(reload_status, 200)
         self.assertNotIn("Software Engineer Crosses Cached Boundary", reloaded_html)
-        self.assertIn("2 recently cached matches", reloaded_html)
+        self.assertIn("3 matches", reloaded_html)
+        self.assertNotIn("recently cached", reloaded_html.lower())
         self.assertEqual(
             [match["display_title"] for match in first],
             [
@@ -496,7 +515,7 @@ class FindMatchesAdmissionContractTests(unittest.TestCase):
         self.assertEqual(app.build_browser_presentation_matches(context), [])
         self.assertEqual(app.supported_candidates_needing_verification(context), 0)
         header = app.render_preview_results_header(context)
-        self.assertIn("0 verified matches", header)
+        self.assertIn("0 matches", header)
         self.assertNotIn("source verification", header)
 
     def test_exact_freshness_ttl_boundaries(self):
@@ -564,9 +583,9 @@ class FindMatchesAdmissionContractTests(unittest.TestCase):
         )
         self.assertIn("Why it fits", card)
         self.assertIn("software engineering and backend experience", card)
-        self.assertIn("Recently cached", card)
-        self.assertIn("Source verification needed", card)
-        self.assertIn("cached-source-card", card)
+        self.assertNotIn("Recently cached", card)
+        self.assertNotIn("Source verification needed", card)
+        self.assertNotIn("cached-source-card", card)
         self.assertNotIn("being refreshed", card)
 
 

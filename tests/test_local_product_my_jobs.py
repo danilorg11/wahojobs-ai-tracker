@@ -314,8 +314,8 @@ class MyJobsStateModelTests(unittest.TestCase):
 
         self.assertIn("We couldn't update this job. Try again.", script)
         self.assertIn('<p class="results-summary"><strong>2 matches</strong></p>', header)
-        self.assertIn("1 recently cached match", header)
-        self.assertNotIn("being refreshed", header)
+        self.assertNotIn("recently cached", header.lower())
+        self.assertNotIn("source verification", header.lower())
 
     def test_header_counts_hidden_reminders_independently_of_workflow(self):
         hidden = record("not_interested", reminder_date="2026-07-19")

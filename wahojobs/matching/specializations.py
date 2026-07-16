@@ -87,6 +87,28 @@ CONCEPTS = (
         "Audio Engineering",
         ("audio engineer", "audio engineering"),
     ),
+    SpecializationConcept(
+        "database_administration",
+        "Database Administration",
+        (
+            "database administrator",
+            "database administration",
+            "database engineer",
+            "database engineering",
+            "database specialist",
+        ),
+    ),
+    SpecializationConcept(
+        "network_engineering",
+        "Network Engineering",
+        (
+            "network administrator",
+            "network administration",
+            "network engineer",
+            "network engineering",
+            "network specialist",
+        ),
+    ),
 )
 
 CONCEPT_BY_KEY = {concept.key: concept for concept in CONCEPTS}

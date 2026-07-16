@@ -443,6 +443,61 @@ class ProfileToMatchesPreviewTests(unittest.TestCase):
             )
         )
 
+    def test_entry_level_profile_separates_infrastructure_specialists_from_clerical_data_work(self):
+        _canonical, profile = normalized_matcher_profile(
+            "I speak English and want entry-level remote data entry, data annotation, "
+            "and database cleanup work. I have no technical experience or certifications.",
+            "short_paragraph",
+        )
+
+        specialists = [
+            guarded_synthetic_match(profile, title, expertise="Technology")
+            for title in (
+                "Database & Network Specialist",
+                "Database Administrator",
+                "Network Engineer",
+            )
+        ]
+        self.assertTrue(
+            all(match["preview_section"] == "explore_only" for match in specialists),
+            specialists,
+        )
+        self.assertTrue(
+            all(
+                any(
+                    diagnostic.startswith(
+                        "Technical infrastructure specialization is not supported"
+                    )
+                    for diagnostic in match["preview_diagnostics"]
+                )
+                for match in specialists
+            )
+        )
+
+        clerical = [
+            guarded_synthetic_match(profile, title, expertise="Data Operations")
+            for title in (
+                "Data Entry Contributor",
+                "Data Annotation Contributor",
+                "Database Record Cleanup Clerk",
+            )
+        ]
+        self.assertTrue(
+            all(match["preview_section"] == "best_matches" for match in clerical),
+            clerical,
+        )
+        self.assertTrue(
+            all(
+                not any(
+                    diagnostic.startswith(
+                        "Technical infrastructure specialization is not supported"
+                    )
+                    for diagnostic in match["preview_diagnostics"]
+                )
+                for match in clerical
+            )
+        )
+
     def test_biology_preview_preserves_research_signals_without_overpromoting_licensed_roles(self):
         context = preview.build_preview_context(
             "PhD microbiologist with biology research, academic writing, and scientific writing experience. "

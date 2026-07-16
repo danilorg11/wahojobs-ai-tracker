@@ -30,6 +30,18 @@ from wahojobs import (
     pipeline_state,
 )
 from wahojobs.db.connection import get_connection
+from wahojobs.profiles.canonical import (
+    SCHEMA_VERSION,
+    canonical_profile_fingerprint,
+    validate_canonical_profile,
+)
+from wahojobs.profiles.normalizer import normalize_profile_input
+from wahojobs.profiles.review import (
+    CREDENTIAL_STATUSES,
+    EDUCATION_LEVELS,
+    LANGUAGE_PROFICIENCIES,
+    apply_reviewed_profile,
+)
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -95,6 +107,9 @@ class MatchRun:
     recommendation_context: dict | None
     created_at: datetime
     last_accessed_at: datetime
+    canonical_profile: dict | None = None
+    profile_confirmed: bool = False
+    review_token: str = ""
 
 
 class MatchRunRegistry:
@@ -114,6 +129,8 @@ class MatchRunRegistry:
         input_style,
         demo_persona=None,
         recommendation_context=None,
+        canonical_profile=None,
+        profile_confirmed=False,
     ):
         now = datetime.now(timezone.utc)
         run = MatchRun(
@@ -125,6 +142,9 @@ class MatchRunRegistry:
             recommendation_context=recommendation_context,
             created_at=now,
             last_accessed_at=now,
+            canonical_profile=canonical_profile,
+            profile_confirmed=profile_confirmed,
+            review_token=secrets.token_urlsafe(32),
         )
         with self._lock:
             self._runs[run.match_run_id] = run
@@ -132,6 +152,23 @@ class MatchRunRegistry:
             while len(self._runs) > self.max_size:
                 self._runs.popitem(last=False)
         return run
+
+    def confirm_profile(self, match_run_id, canonical_profile, recommendation_context):
+        validate_canonical_profile(canonical_profile)
+        with self._lock:
+            run = self._runs.get(match_run_id)
+            if run is None:
+                return None
+            run = replace(
+                run,
+                canonical_profile=canonical_profile,
+                profile_confirmed=True,
+                recommendation_context=recommendation_context,
+                last_accessed_at=datetime.now(timezone.utc),
+            )
+            self._runs[match_run_id] = run
+            self._runs.move_to_end(match_run_id)
+            return run
 
     def get(self, match_run_id):
         with self._lock:
@@ -157,6 +194,11 @@ class ActionError(Exception):
 class MalformedActionRequest(ActionError):
     def __init__(self):
         super().__init__("Malformed action request.", HTTPStatus.BAD_REQUEST)
+
+
+class MalformedProfileReview(ActionError):
+    def __init__(self, message="The profile review form was malformed. Start the review again."):
+        super().__init__(message, HTTPStatus.BAD_REQUEST)
 
 ACTION_STATUSES = {
     "show_again": "saved",
@@ -402,10 +444,14 @@ def make_handler(registry=None, demo_mode=False):
         def do_POST(self):
             parsed = urlparse(self.path)
             if parsed.path in FIND_MATCHES_PATHS:
-                form = self.read_form()
+                form = self.read_form(keep_blank_values=True)
                 try:
                     run = create_match_run(form, registry, demo_mode)
-                    self.redirect("/find-matches", run=run.match_run_id)
+                    self.redirect(
+                        "/find-matches",
+                        run=run.match_run_id,
+                        review="1" if not run.profile_confirmed else "",
+                    )
                 except (ActionError, SystemExit) as exc:
                     status = exc.status if isinstance(exc, ActionError) else HTTPStatus.BAD_REQUEST
                     self.write_html(render_error(str(exc)), status=status)
@@ -523,8 +569,43 @@ def require_owner_profile(profile_id):
 
 
 def create_match_run(form, registry, demo_mode=False):
-    edit_run_id = first_value(form, "edit_run_id")
+    if "form_action" in form:
+        run, updates = validate_profile_review_submission(form, registry)
+        if run.canonical_profile is None:
+            raise ActionError("This profile review has expired. Start again.")
+        try:
+            canonical = apply_reviewed_profile(
+                run.canonical_profile,
+                updates,
+            )
+        except ValueError as exc:
+            raise ActionError(str(exc)) from exc
+        context = build_current_structured_preview_context(
+            canonical,
+            run.raw_input,
+            run.input_style,
+            PREVIEW_MATCH_LIMIT,
+            preview_data_signature(),
+        )
+        confirmed = registry.confirm_profile(run.match_run_id, canonical, context)
+        if confirmed is None:
+            raise ActionError(
+                "That match run is unknown or has expired. Start a new search.",
+                HTTPStatus.GONE,
+            )
+        return confirmed
+
+    validate_profile_input_form(form)
+    edit_run_id = strict_optional_form_value(form, "edit_run_id")
     parent_run = require_match_run(registry, edit_run_id) if edit_run_id else None
+    edit_review_token = strict_optional_form_value(form, "edit_review_token")
+    if parent_run:
+        if not edit_review_token or not secrets.compare_digest(
+            edit_review_token, parent_run.review_token
+        ):
+            raise ActionError("This profile edit is not authorized.", HTTPStatus.FORBIDDEN)
+    elif edit_review_token:
+        raise MalformedProfileReview()
     demo_persona = first_value(form, "sample") if demo_mode else ""
     sample = PREVIEW_SAMPLES.get(demo_persona) if demo_persona else None
     if parent_run:
@@ -546,19 +627,290 @@ def create_match_run(form, registry, demo_mode=False):
     if input_style not in profile_preview.INPUT_STYLES:
         input_style = "short_paragraph"
     require_owner_profile(owner_profile_id)
-    context = build_current_preview_context(
+    normalization = normalize_profile_input(
         raw_input,
         input_style,
-        PREVIEW_MATCH_LIMIT,
-        preview_data_signature(),
+        metadata={
+            "profile_id": "preview_profile",
+            "display_name": "Preview Profile",
+        },
     )
     return registry.create(
         owner_profile_id=owner_profile_id,
         raw_input=raw_input,
         input_style=input_style,
         demo_persona=demo_persona or None,
-        recommendation_context=context,
+        recommendation_context=None,
+        canonical_profile=normalization.canonical_profile,
+        profile_confirmed=False,
     )
+
+
+def profile_review_updates_from_form(form, language_slots):
+    languages = []
+    for index in range(language_slots):
+        language = strict_review_value(form, f"language_{index}")
+        if not language:
+            continue
+        languages.append(
+            {
+                "language": language,
+                "proficiency": strict_review_value(form, f"language_proficiency_{index}")
+                or "unspecified",
+                "locale": strict_review_value(form, f"language_locale_{index}"),
+            }
+        )
+    list_fields = (
+        "eligible_countries",
+        "geographic_restrictions",
+        "degrees",
+        "education_fields",
+        "institutions",
+        "certifications",
+        "licenses",
+        "jurisdictions",
+        "security_clearances",
+        "job_titles",
+        "occupational_families",
+        "professional_domains",
+        "industries",
+        "specialties",
+        "skills",
+        "technical_skills",
+        "software_tools",
+        "writing_research_skills",
+        "administrative_support_skills",
+        "domain_specific_skills",
+        "employment_types",
+        "schedule",
+        "target_opportunity_types",
+        "hard_constraints",
+        "soft_preferences",
+        "avoid_keywords",
+        "excluded_domains",
+        "accessibility_constraints",
+    )
+    updates = {field: strict_review_value(form, field) for field in list_fields}
+    for field in (
+        "country",
+        "region",
+        "city",
+        "work_authorization",
+        "education_level",
+        "education_status",
+        "credential_status",
+        "total_years",
+        "seniority",
+        "contribution_type",
+        "synchronous_preference",
+        "phone_preference",
+        "availability",
+    ):
+        updates[field] = strict_review_value(form, field)
+    updates.update(
+        {
+            "languages": languages,
+            "remote": strict_review_checkbox(form, "remote"),
+            "flexible": strict_review_checkbox(form, "flexible"),
+            "no_degree": strict_review_checkbox(form, "no_degree"),
+            "no_experience": strict_review_checkbox(form, "no_experience"),
+            "no_specialized_credentials": strict_review_checkbox(
+                form, "no_specialized_credentials"
+            ),
+        }
+    )
+    return updates
+
+
+def profile_review_form_fields(canonical, match_run_id, review_token):
+    """Return the default submitted values for one rendered review form."""
+    location = canonical.get("location") or {}
+    education = canonical.get("education") or {}
+    credentials = canonical.get("credentials") or {}
+    experience = canonical.get("experience") or {}
+    skills = canonical.get("skills") or {}
+    preferences = canonical.get("preferences") or {}
+    constraints = canonical.get("constraints") or {}
+    fields = {
+        "form_action": "confirm_profile",
+        "edit_run_id": match_run_id,
+        "review_token": review_token,
+        "schema_version": SCHEMA_VERSION,
+        "profile_draft_fingerprint": canonical_profile_fingerprint(canonical),
+        "credentials_confirmed": "1",
+        "country": location.get("country") or "",
+        "region": location.get("region") or "",
+        "city": location.get("city") or "",
+        "work_authorization": location.get("work_authorization") or "",
+        "eligible_countries": review_csv(location.get("eligible_countries")),
+        "geographic_restrictions": review_csv(
+            location.get("geographic_work_restrictions") or location.get("restrictions")
+        ),
+        "education_level": education.get("education_level") or "not_specified",
+        "degrees": review_csv(education.get("degrees")),
+        "education_fields": review_csv(education.get("fields_or_domains")),
+        "institutions": review_csv(education.get("institutions")),
+        "education_status": education.get("completion_status") or "unknown",
+        "credential_status": credentials.get("credential_status") or "unknown",
+        "certifications": review_csv(credentials.get("certifications")),
+        "licenses": review_csv(credentials.get("licenses")),
+        "jurisdictions": review_csv(credentials.get("jurisdictions")),
+        "security_clearances": review_csv(credentials.get("security_clearances")),
+        "total_years": "" if experience.get("total_years") is None else str(experience["total_years"]),
+        "seniority": experience.get("seniority") or "unknown",
+        "job_titles": review_csv(experience.get("job_titles") or experience.get("recent_roles")),
+        "occupational_families": review_csv(experience.get("occupational_families")),
+        "professional_domains": review_csv(experience.get("professional_domains")),
+        "industries": review_csv(experience.get("industries")),
+        "contribution_type": experience.get("contribution_type") or "unknown",
+        "specialties": review_csv(experience.get("specialties")),
+        "skills": review_csv(skills.get("normalized")),
+        "technical_skills": review_csv(skills.get("technical")),
+        "software_tools": review_csv(skills.get("software_tools")),
+        "writing_research_skills": review_csv(skills.get("writing_research")),
+        "administrative_support_skills": review_csv(skills.get("administrative_support")),
+        "domain_specific_skills": review_csv(skills.get("domain_specific")),
+        "employment_types": review_csv(preferences.get("employment_types")),
+        "synchronous_preference": preferences.get("synchronous_preference") or "unknown",
+        "phone_preference": preferences.get("phone_preference") or "unknown",
+        "schedule": review_csv(preferences.get("schedule")),
+        "availability": preferences.get("availability") or "unknown",
+        "target_opportunity_types": review_csv(preferences.get("target_opportunity_types")),
+        "hard_constraints": review_csv(constraints.get("hard_constraints")),
+        "soft_preferences": review_csv(constraints.get("soft_preferences")),
+        "avoid_keywords": review_csv(constraints.get("avoid_keywords")),
+        "excluded_domains": review_csv(constraints.get("excluded_domains")),
+        "accessibility_constraints": review_csv(constraints.get("accessibility_constraints")),
+    }
+    if preferences.get("remote") is True:
+        fields["remote"] = "1"
+    if preferences.get("flexible") is True:
+        fields["flexible"] = "1"
+    hard_constraints = constraints.get("hard_constraints") or []
+    if education.get("education_level") == "no_degree" or "no college degree" in hard_constraints:
+        fields["no_degree"] = "1"
+    if "no prior experience" in hard_constraints:
+        fields["no_experience"] = "1"
+    if any("credential" in str(value).lower() for value in hard_constraints):
+        fields["no_specialized_credentials"] = "1"
+    language_slots = profile_review_language_slots(canonical)
+    languages = list(canonical.get("languages") or [])
+    for index in range(language_slots):
+        language = languages[index] if index < len(languages) else {}
+        fields[f"language_{index}"] = language.get("language") or ""
+        proficiency = language.get("proficiency") or "unspecified"
+        if proficiency not in LANGUAGE_PROFICIENCIES:
+            proficiency = "professional" if proficiency == "advanced" else "unspecified"
+        fields[f"language_proficiency_{index}"] = proficiency
+        fields[f"language_locale_{index}"] = language.get("locale") or ""
+    return fields
+
+
+PROFILE_REVIEW_TEXT_FIELDS = {
+    "country", "region", "city", "work_authorization", "eligible_countries",
+    "geographic_restrictions", "education_level", "degrees", "education_fields",
+    "institutions", "education_status", "credential_status", "certifications",
+    "licenses", "jurisdictions", "security_clearances", "total_years", "seniority",
+    "job_titles", "occupational_families", "professional_domains", "industries",
+    "contribution_type", "specialties", "skills", "technical_skills", "software_tools",
+    "writing_research_skills", "administrative_support_skills", "domain_specific_skills",
+    "employment_types", "synchronous_preference", "phone_preference", "schedule",
+    "availability", "target_opportunity_types", "hard_constraints", "soft_preferences",
+    "avoid_keywords", "excluded_domains", "accessibility_constraints",
+}
+PROFILE_REVIEW_CHECKBOX_FIELDS = {
+    "remote", "flexible", "no_degree", "no_experience",
+    "no_specialized_credentials", "credentials_confirmed",
+}
+PROFILE_REVIEW_CONTROL_FIELDS = {
+    "form_action", "edit_run_id", "review_token", "schema_version",
+    "profile_draft_fingerprint",
+}
+
+
+def profile_review_language_slots(canonical):
+    return min(8, max(4, len(canonical.get("languages") or [])))
+
+
+def validate_profile_review_submission(form, registry):
+    if strict_review_value(form, "form_action") != "confirm_profile":
+        raise MalformedProfileReview()
+    run_id = strict_review_value(form, "edit_run_id")
+    run = require_match_run(registry, run_id)
+    if run.canonical_profile is None:
+        raise ActionError("This profile review has expired. Start again.", HTTPStatus.GONE)
+    language_slots = profile_review_language_slots(run.canonical_profile)
+    language_fields = {
+        f"{prefix}_{index}"
+        for index in range(language_slots)
+        for prefix in ("language", "language_proficiency", "language_locale")
+    }
+    allowed = (
+        PROFILE_REVIEW_TEXT_FIELDS
+        | PROFILE_REVIEW_CHECKBOX_FIELDS
+        | PROFILE_REVIEW_CONTROL_FIELDS
+        | language_fields
+    )
+    unsupported = sorted(set(form) - allowed)
+    if unsupported:
+        raise MalformedProfileReview()
+    required = PROFILE_REVIEW_TEXT_FIELDS | PROFILE_REVIEW_CONTROL_FIELDS | language_fields
+    for field in required:
+        strict_review_value(form, field)
+    for field in PROFILE_REVIEW_CHECKBOX_FIELDS:
+        strict_review_checkbox(form, field)
+    if strict_review_value(form, "schema_version") != SCHEMA_VERSION:
+        raise MalformedProfileReview("Unsupported profile schema version.")
+    review_token = strict_review_value(form, "review_token")
+    if not secrets.compare_digest(review_token, run.review_token):
+        raise ActionError("This profile review is not authorized.", HTTPStatus.FORBIDDEN)
+    fingerprint = strict_review_value(form, "profile_draft_fingerprint")
+    if not secrets.compare_digest(
+        fingerprint, canonical_profile_fingerprint(run.canonical_profile)
+    ):
+        raise ActionError("This profile draft is no longer current.", HTTPStatus.FORBIDDEN)
+    if not strict_review_checkbox(form, "credentials_confirmed"):
+        raise ActionError(
+            "Confirm that the licenses and certifications shown are accurate."
+        )
+    return run, profile_review_updates_from_form(form, language_slots)
+
+
+def strict_review_value(form, field):
+    values = form.get(field)
+    if type(values) is not list or len(values) != 1:
+        raise MalformedProfileReview()
+    value = values[0]
+    if type(value) is not str or value != value.strip():
+        raise MalformedProfileReview()
+    return value
+
+
+def strict_review_checkbox(form, field):
+    if field not in form:
+        return False
+    if strict_review_value(form, field) != "1":
+        raise MalformedProfileReview()
+    return True
+
+
+def strict_optional_form_value(form, field):
+    if field not in form:
+        return ""
+    values = form[field]
+    if type(values) is not list or len(values) != 1 or type(values[0]) is not str:
+        raise MalformedProfileReview()
+    if values[0] != values[0].strip():
+        raise MalformedProfileReview()
+    return values[0]
+
+
+def validate_profile_input_form(form):
+    allowed = {"input_text", "input_style", "sample", "edit_run_id", "edit_review_token"}
+    if set(form) - allowed:
+        raise MalformedProfileReview()
+    for field in form:
+        strict_optional_form_value(form, field)
 
 
 def resolve_tracker_match_run(params, registry, demo_mode=False):
@@ -1245,7 +1597,17 @@ def render_preview_from_params(params, registry, demo_mode=False):
         context = profile_preview.refresh_preview_context_freshness(
             context, current_utc_time()
         )
-    editing = bool(run and first_value(params, "edit") == "1")
+    reviewing = bool(
+        run
+        and run.canonical_profile
+        and (
+            not run.profile_confirmed
+            or first_value(params, "review") == "1"
+            or first_value(params, "edit") == "1"
+        )
+        and first_value(params, "edit_text") != "1"
+    )
+    editing_text = bool(run and first_value(params, "edit_text") == "1")
     owner_profile_id = (
         run.owner_profile_id
         if run
@@ -1262,7 +1624,10 @@ def render_preview_from_params(params, registry, demo_mode=False):
         owner_profile_id=owner_profile_id,
         match_run_id=run_id,
         demo_mode=demo_mode,
-        editing=editing,
+        editing=editing_text,
+        reviewing=reviewing,
+        canonical_profile=run.canonical_profile if run else None,
+        review_token=run.review_token if run else "",
         tracked=tracked,
     )
 
@@ -1295,6 +1660,26 @@ def build_cached_preview_context(input_text, input_style, limit, _data_signature
     )
 
 
+@lru_cache(maxsize=16)
+def build_cached_structured_preview_context(
+    canonical_json,
+    raw_input,
+    input_style,
+    limit,
+    _data_signature,
+):
+    canonical = json.loads(canonical_json)
+    return profile_preview.build_preview_context_from_canonical(
+        canonical,
+        raw_input=raw_input,
+        input_style=input_style,
+        limit=limit,
+        normalizer_name="reviewed_profile",
+        normalization_warnings=[],
+        extraction_quality="reviewed",
+    )
+
+
 def current_utc_time():
     return datetime.now(timezone.utc)
 
@@ -1309,6 +1694,30 @@ def build_current_preview_context(
 ):
     cached = build_cached_preview_context(
         input_text,
+        input_style,
+        limit,
+        data_signature,
+    )
+    now = evaluated_at or current_utc_time()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    return profile_preview.refresh_preview_context_freshness(cached, now)
+
+
+def build_current_structured_preview_context(
+    canonical,
+    raw_input,
+    input_style,
+    limit,
+    data_signature,
+    *,
+    evaluated_at=None,
+):
+    cached = build_cached_structured_preview_context(
+        canonical_profile_fingerprint(canonical),
+        raw_input,
         input_style,
         limit,
         data_signature,
@@ -1497,6 +1906,9 @@ def render_profile_preview_page(
     match_run_id="",
     demo_mode=False,
     editing=False,
+    reviewing=False,
+    canonical_profile=None,
+    review_token="",
     tracked=None,
 ):
     tracked = tracked or demo.build_tracked_index([])
@@ -1515,7 +1927,18 @@ def render_profile_preview_page(
         render_demo_owner_panel(owner_profile_id, sample_id) if demo_mode else "",
         f'<div id="action-feedback" aria-live="polite">{render_notice(message, error)}</div>',
     ]
-    if context and editing:
+    if reviewing and canonical_profile:
+        parts.extend(
+            [
+                render_profile_review_intro(match_run_id, bool(context)),
+                render_structured_profile_review(
+                    canonical_profile,
+                    match_run_id,
+                    review_token,
+                ),
+            ]
+        )
+    elif editing:
         parts.extend(
             [
                 render_preview_edit_intro(match_run_id),
@@ -1525,6 +1948,7 @@ def render_profile_preview_page(
                     sample_id,
                     demo_mode,
                     edit_run_id=match_run_id,
+                    edit_review_token=review_token,
                 ),
             ]
         )
@@ -1582,41 +2006,13 @@ def render_preview_header(demo_mode=False):
 
 def render_preview_results_header(context, demo_mode=False):
     matches = build_browser_presentation_matches(context)
-    verified_count = sum(
-        match.get("presentation_data_status") == "recently_verified" for match in matches
-    )
-    cached_count = len(matches) - verified_count
     total_label = "1 match" if len(matches) == 1 else f"{len(matches)} matches"
-    if not cached_count:
-        total_label = (
-            "1 verified match" if verified_count == 1 else f"{verified_count} verified matches"
-        )
-    verification_count = supported_candidates_needing_verification(context)
-    additional_count = max(0, verification_count - cached_count)
-    status_parts = []
-    if cached_count:
-        status_parts.append(
-            "1 verified match" if verified_count == 1 else f"{verified_count} verified matches"
-        )
-        status_parts.append(
-            "1 recently cached match"
-            if cached_count == 1
-            else f"{cached_count} recently cached matches"
-        )
-    if additional_count:
-        status_parts.append(
-            "1 additional match needs source verification"
-            if additional_count == 1
-            else f"{additional_count} additional matches need source verification"
-        )
-    status_label = "; ".join(status_parts) + ("." if status_parts else "")
     return f"""
     <section class="results-header">
       <div>
         <p class="eyebrow">Matches</p>
         <h1>Your matches</h1>
         <p class="results-summary"><strong>{e(total_label)}</strong></p>
-        {f'<p class="refresh-summary">{e(status_label)}</p>' if status_label else ''}
         {f'<p class="muted">Demo mode keeps development personas and quality checks available below.</p>' if demo_mode else ''}
       </div>
     </section>
@@ -1648,12 +2044,234 @@ def render_preview_edit_intro(match_run_id):
     """
 
 
+def render_profile_review_intro(match_run_id, has_results=False):
+    return f"""
+    <section class="page-intro profile-review-intro">
+      <p class="eyebrow">Review your profile</p>
+      <h1>Make sure we understood you</h1>
+      <p class="lead">Correct anything that is missing or inaccurate before we match you with opportunities.</p>
+      <p class="muted">Items were prefilled from your description. Your corrections become authoritative.</p>
+      {f'<p><a class="back-link" href="{e("/find-matches?" + urlencode({"run": match_run_id}))}">Back to current matches</a></p>' if has_results else ''}
+    </section>
+    """
+
+
+def render_structured_profile_review(canonical, match_run_id, review_token):
+    location = canonical.get("location") or {}
+    education = canonical.get("education") or {}
+    credentials = canonical.get("credentials") or {}
+    experience = canonical.get("experience") or {}
+    skills = canonical.get("skills") or {}
+    preferences = canonical.get("preferences") or {}
+    constraints = canonical.get("constraints") or {}
+    languages = list(canonical.get("languages") or [])
+    while len(languages) < 4:
+        languages.append({})
+    language_rows = "".join(render_review_language_row(row, index) for index, row in enumerate(languages[:8]))
+    source_notes = {
+        root: profile_review_source_label(canonical, root)
+        for root in ("location", "languages", "experience", "education", "skills", "preferences", "credentials")
+    }
+    back_url = "/find-matches?" + urlencode({"run": match_run_id, "edit_text": "1"})
+    return f"""
+    <form method="post" action="/find-matches" class="profile-review-form" id="profile-review-form">
+      <input type="hidden" name="form_action" value="confirm_profile">
+      <input type="hidden" name="edit_run_id" value="{e(match_run_id)}">
+      <input type="hidden" name="review_token" value="{e(review_token)}">
+      <input type="hidden" name="schema_version" value="{e(SCHEMA_VERSION)}">
+      <input type="hidden" name="profile_draft_fingerprint" value="{e(canonical_profile_fingerprint(canonical))}">
+
+      <section class="review-section review-section-primary">
+        <div class="review-section-heading"><div><h2>Location</h2><p>Used only to avoid showing work you cannot access.</p></div>{source_notes['location']}</div>
+        <div class="review-grid review-grid-three">
+          {review_text_field('country', 'Country', location.get('country'))}
+          {review_text_field('region', 'Region or state', location.get('region'))}
+          {review_text_field('city', 'City', location.get('city'))}
+        </div>
+        <div class="review-checks">
+          {review_checkbox('remote', 'I prefer remote work', preferences.get('remote') is True)}
+          {review_checkbox('flexible', 'I prefer flexible or asynchronous work', preferences.get('flexible') is True)}
+        </div>
+        <details class="review-more">
+          <summary>Work eligibility and geographic restrictions</summary>
+          <div class="review-grid">
+            {review_text_field('work_authorization', 'Work authorization', location.get('work_authorization'))}
+            {review_text_field('eligible_countries', 'Countries where you can work', review_csv(location.get('eligible_countries')))}
+            {review_text_field('geographic_restrictions', 'Other geographic restrictions', review_csv(location.get('geographic_work_restrictions') or location.get('restrictions')))}
+          </div>
+        </details>
+      </section>
+
+      <section class="review-section review-section-primary">
+        <div class="review-section-heading"><div><h2>Languages</h2><p>Add, remove, or correct proficiency and locale.</p></div>{source_notes['languages']}</div>
+        <div class="language-review-list">{language_rows}</div>
+        <p class="field-help">Clear a language name to remove it. Blank rows let you add another language.</p>
+      </section>
+
+      <section class="review-section">
+        <div class="review-section-heading"><div><h2>Experience</h2><p>Your recent work and transferable background.</p></div>{source_notes['experience']}</div>
+        <div class="review-grid review-grid-three">
+          {review_text_field('job_titles', 'Recent job titles', review_csv(experience.get('job_titles') or experience.get('recent_roles')))}
+          {review_text_field('occupational_families', 'Kinds of work', review_csv(experience.get('occupational_families')))}
+          {review_text_field('total_years', 'Years of experience', experience.get('total_years'), input_type='number', extra='min="0" max="80"')}
+          {review_text_field('professional_domains', 'Professional domains', review_csv(experience.get('professional_domains')))}
+          {review_text_field('industries', 'Industries', review_csv(experience.get('industries')))}
+          {review_text_field('specialties', 'Specialties', review_csv(experience.get('specialties')))}
+        </div>
+        <details class="review-more">
+          <summary>Seniority and contribution style</summary>
+          <div class="review-grid">
+            {review_text_field('seniority', 'Seniority', experience.get('seniority'))}
+            {review_text_field('contribution_type', 'Management or individual contributor', experience.get('contribution_type'))}
+          </div>
+        </details>
+      </section>
+
+      <section class="review-section">
+        <div class="review-section-heading"><div><h2>Education</h2><p>Only confirmed education is used for specialist roles.</p></div>{source_notes['education']}</div>
+        <div class="review-grid review-grid-three">
+          {review_select('education_level', 'Highest level', education.get('education_level'), EDUCATION_LEVELS)}
+          {review_text_field('degrees', 'Degree names', review_csv(education.get('degrees')))}
+          {review_text_field('education_fields', 'Fields of study', review_csv(education.get('fields_or_domains')))}
+          {review_text_field('institutions', 'Institution', review_csv(education.get('institutions')))}
+          {review_text_field('education_status', 'Completed or in progress', education.get('completion_status'))}
+        </div>
+      </section>
+
+      <section class="review-section">
+        <div class="review-section-heading"><div><h2>Skills</h2><p>Keep only skills you would be comfortable using at work.</p></div>{source_notes['skills']}</div>
+        {review_text_field('skills', 'Skills', review_csv(skills.get('normalized')))}
+        <details class="review-more">
+          <summary>Organize skills by type</summary>
+          <div class="review-grid">
+            {review_text_field('technical_skills', 'Technical skills', review_csv(skills.get('technical')))}
+            {review_text_field('software_tools', 'Software and tools', review_csv(skills.get('software_tools')))}
+            {review_text_field('writing_research_skills', 'Writing and research', review_csv(skills.get('writing_research')))}
+            {review_text_field('administrative_support_skills', 'Administrative and support', review_csv(skills.get('administrative_support')))}
+            {review_text_field('domain_specific_skills', 'Domain-specific skills', review_csv(skills.get('domain_specific')))}
+          </div>
+        </details>
+      </section>
+
+      <section class="review-section">
+        <div class="review-section-heading"><div><h2>Work preferences</h2><p>Tell us which opportunities feel practical and worthwhile.</p></div>{source_notes['preferences']}</div>
+        <div class="review-grid review-grid-three">
+          {review_text_field('target_opportunity_types', 'Work you want', review_csv(preferences.get('target_opportunity_types')))}
+          {review_text_field('employment_types', 'Employment types', review_csv(preferences.get('employment_types')))}
+          {review_text_field('phone_preference', 'Phone preference', preferences.get('phone_preference'))}
+          {review_text_field('synchronous_preference', 'Schedule style', preferences.get('synchronous_preference'))}
+          {review_text_field('availability', 'Availability', preferences.get('availability'))}
+          {review_text_field('schedule', 'Schedule details', review_csv(preferences.get('schedule')))}
+        </div>
+      </section>
+
+      <section class="review-section sensitive-review">
+        <div class="review-section-heading"><div><h2>Credentials and constraints</h2><p>Please confirm these details. We never infer a license from job interests.</p></div>{source_notes['credentials']}</div>
+        <div class="review-grid review-grid-three">
+          {review_select('credential_status', 'Credential status', credentials.get('credential_status'), CREDENTIAL_STATUSES)}
+          {review_text_field('certifications', 'Certifications', review_csv(credentials.get('certifications')))}
+          {review_text_field('licenses', 'Professional licenses', review_csv(credentials.get('licenses')))}
+          {review_text_field('jurisdictions', 'License jurisdictions', review_csv(credentials.get('jurisdictions')))}
+          {review_text_field('security_clearances', 'Security clearances', review_csv(credentials.get('security_clearances')))}
+          {review_text_field('excluded_domains', 'Work to exclude', review_csv(constraints.get('excluded_domains')))}
+          {review_text_field('accessibility_constraints', 'Accessibility or working constraints', review_csv(constraints.get('accessibility_constraints')))}
+          {review_text_field('hard_constraints', 'Other firm constraints', review_csv(constraints.get('hard_constraints')))}
+          {review_text_field('soft_preferences', 'Other preferences', review_csv(constraints.get('soft_preferences')))}
+          {review_text_field('avoid_keywords', 'Keywords to avoid', review_csv(constraints.get('avoid_keywords')))}
+        </div>
+        <div class="review-checks">
+          {review_checkbox('no_degree', 'I do not have a university degree', 'no college degree' in (constraints.get('hard_constraints') or []) or education.get('education_level') == 'no_degree')}
+          {review_checkbox('no_experience', 'I do not have prior work experience', 'no prior experience' in (constraints.get('hard_constraints') or []))}
+          {review_checkbox('no_specialized_credentials', 'I do not have specialized credentials', any('credential' in str(value).lower() for value in (constraints.get('hard_constraints') or [])))}
+          {review_checkbox('credentials_confirmed', 'I confirm that the licenses and certifications above are accurate', False, required=True)}
+        </div>
+      </section>
+
+      <div class="review-actions">
+        <a class="open button-secondary" href="{e(back_url)}">Back</a>
+        <button type="submit" id="confirm-profile-button">Find my matches</button>
+      </div>
+    </form>
+    """
+
+
+def render_review_language_row(language, index):
+    proficiency = str(language.get("proficiency") or "unspecified")
+    if proficiency not in LANGUAGE_PROFICIENCIES:
+        proficiency = "professional" if proficiency == "advanced" else "unspecified"
+    return f"""
+    <div class="language-review-row">
+      {review_text_field(f'language_{index}', 'Language', language.get('language'))}
+      {review_select(f'language_proficiency_{index}', 'Proficiency', proficiency, LANGUAGE_PROFICIENCIES)}
+      {review_text_field(f'language_locale_{index}', 'Locale, if relevant', language.get('locale'))}
+    </div>
+    """
+
+
+def profile_review_source_label(canonical, root):
+    sources = canonical.get("provenance", {}).get("field_sources") or {}
+    relevant = [
+        detail
+        for path, detail in sources.items()
+        if path == root or path.startswith(root + ".") or path.startswith(root + "[")
+    ]
+    if relevant and all(detail.get("explicit") is True for detail in relevant):
+        label = "Confirmed by you"
+    elif relevant:
+        label = "Inferred - please confirm"
+    else:
+        label = "Needs your input"
+    return f'<span class="inference-label">{e(label)}</span>'
+
+
+def review_text_field(name, label, value, *, input_type="text", extra=""):
+    return f"""
+    <label class="review-field" for="{e(name)}"><span>{e(label)}</span>
+      <input id="{e(name)}" name="{e(name)}" type="{e(input_type)}" value="{e('' if value is None else value)}" {extra}>
+    </label>
+    """
+
+
+def review_select(name, label, value, options):
+    current = str(value or "")
+    choices = "".join(
+        f'<option value="{e(option)}" {"selected" if option == current else ""}>{e(profile_review_option_label(option))}</option>'
+        for option in options
+    )
+    return f'<label class="review-field" for="{e(name)}"><span>{e(label)}</span><select id="{e(name)}" name="{e(name)}">{choices}</select></label>'
+
+
+def review_checkbox(name, label, checked, *, required=False):
+    return f'<label class="review-checkbox"><input type="checkbox" name="{e(name)}" value="1" {"checked" if checked else ""} {"required" if required else ""}> <span>{e(label)}</span></label>'
+
+
+def review_csv(values):
+    if isinstance(values, str):
+        return values
+    return ", ".join(str(value) for value in (values or []) if str(value).strip())
+
+
+def profile_review_option_label(value):
+    labels = {
+        "not_specified": "Not specified",
+        "no_degree": "No university degree",
+        "professional_degree": "Professional degree",
+        "explicit": "I hold a credential or license",
+        "in_progress": "In progress",
+        "absent": "None",
+        "unknown": "Not specified",
+        "unspecified": "Not specified",
+    }
+    return labels.get(value, str(value).replace("_", " ").title())
+
+
 def render_preview_form(
     input_text,
     input_style,
     sample_id,
     demo_mode=False,
     edit_run_id="",
+    edit_review_token="",
 ):
     sample_controls = ""
     if demo_mode and not edit_run_id:
@@ -1705,6 +2323,7 @@ def render_preview_form(
         {input_style_control}
         <input type="hidden" name="sample" value="{e(sample_id)}">
         <input type="hidden" name="edit_run_id" value="{e(edit_run_id)}">
+        <input type="hidden" name="edit_review_token" value="{e(edit_review_token)}">
         <button type="submit" id="find-matches-button">{e(submit_label)}</button>
       </form>
       <script>
@@ -1802,22 +2421,12 @@ def render_ranked_preview_matches(context, tracked, match_run_id):
         for match in matches
     )
     if not cards:
-        if supported_candidates_need_refresh(context):
-            edit_url = "/find-matches?" + urlencode({"run": match_run_id, "edit": "1"})
-            cards = f"""
-            <div class="notice stale-data-state">
-              <p><strong>Current source verification is overdue.</strong></p>
-              <p class="muted">Your profile is ready, but the available job data is too old to recommend safely.</p>
-              <p><a class="open secondary-link" href="{e(edit_url)}">Review or retry your profile</a></p>
-            </div>
-            """
-        else:
-            cards = """
-            <div class="notice no-match-state">
-              <p><strong>No clear matches surfaced from this profile yet.</strong></p>
-              <p class="muted">Try adding your location, languages, credentials, or the kinds of work you want.</p>
-            </div>
-            """
+        cards = """
+        <div class="notice no-match-state">
+          <p><strong>No clear matches surfaced from this profile yet.</strong></p>
+          <p class="muted">Try adding your location, languages, credentials, or the kinds of work you want.</p>
+        </div>
+        """
     return f"""
     <section id="your-best-matches" class="ranked-matches">
       <div class="stack">{cards}</div>
@@ -1848,22 +2457,10 @@ def supported_candidates_withheld_for_refresh(context):
 def render_ranked_preview_card(match, tracked, match_run_id):
     record = demo.tracked_record_for_match(match, tracked)
     section = match["presentation_source_section"]
-    caution = profile_preview.user_caution_note(match)
+    caution = product_caution_note(match)
     fit_reason = profile_preview.user_fit_reason(match)
     url = safe_job_url(match.get("url")) or ""
-    cached = match.get("presentation_data_status") == "recently_cached"
-    card_classes = (
-        "card preview-card ranked-card cached-source-card"
-        if cached
-        else "card preview-card ranked-card"
-    )
-    freshness_badge = (
-        '<p class="freshness-badge" '
-        'aria-label="Source freshness: Recently cached; source verification needed">'
-        'Recently cached <span>Source verification needed</span></p>'
-        if cached
-        else ""
-    )
+    card_classes = "card preview-card ranked-card"
     card_id = f"ranked-{match_opportunity_key(match)}"
     status = (
         f'<p class="pill card-status js-card-status">{e(readable_status(record["status"]))}</p>'
@@ -1878,9 +2475,8 @@ def render_ranked_preview_card(match, tracked, match_run_id):
         <p class="source">{e(match['source'])}</p>
         <h3>{e(match['display_title'])}</h3>
         <p class="muted">{e(match.get('location') or 'Location not listed')}</p>
-        {freshness_badge}
         <p><strong>Why it fits:</strong> {e(fit_reason)}</p>
-        {f'<p class="caution"><strong>Check before applying:</strong> {e(caution)}</p>' if caution else ''}
+        {f'<p class="caution"><strong>Before applying:</strong> {e(caution)}</p>' if caution else ''}
         {status}
       </div>
       <div class="card-actions">
@@ -1889,6 +2485,18 @@ def render_ranked_preview_card(match, tracked, match_run_id):
       </div>
     </article>
     """
+
+
+def product_caution_note(match):
+    """Return qualification cautions without exposing internal freshness state."""
+    caution = profile_preview.user_caution_note(match)
+    freshness_messages = (
+        "This opportunity has not been verified by a recent source refresh.",
+        "Current source verification is unavailable for this opportunity.",
+    )
+    for message in freshness_messages:
+        caution = caution.replace(message, "").strip()
+    return caution
 
 
 def render_demo_persona_switcher(sample_id):
@@ -3028,7 +3636,7 @@ def render_inline_action_script():
             const count = document.querySelector(".results-summary strong");
             if (count) {
               const noun = payload.current_view_count === 1 ? "match" : "matches";
-              count.textContent = `${payload.current_view_count} verified ${noun}`;
+              count.textContent = `${payload.current_view_count} ${noun}`;
             }
             if (container && !container.querySelector("[data-action-card]")) {
               const empty = document.createElement("p");
@@ -3381,7 +3989,6 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
 .results-header h1 { margin-bottom: 8px; }
 .results-summary { color: var(--muted); margin-bottom: 0; }
 .results-summary strong { color: var(--ink); }
-.refresh-summary { color: var(--muted); margin: 2px 0 0; }
 .my-jobs-header { margin: 8px 0 22px; max-width: 720px; }
 .my-jobs-header h1 { margin-bottom: 8px; }
 .my-jobs-header .lead { margin-bottom: 14px; }
@@ -3548,10 +4155,6 @@ h3 { font-size: 1.02rem; margin-bottom: 8px; }
   grid-template-columns: 44px minmax(0, 1fr) 176px;
   padding: 16px;
 }
-.card.ranked-card.cached-source-card {
-  background: #FFFCF3;
-  border-color: #D7C58A;
-}
 .ranked-card .card-main { min-width: 0; }
 .ranked-card .card-main > p:last-child { margin-bottom: 0; }
 .card:target {
@@ -3716,22 +4319,6 @@ button:disabled { cursor: wait; opacity: .58; }
   color: #5f4b00;
   padding-left: 10px;
 }
-.freshness-badge {
-  align-items: center;
-  background: #F6EBC7;
-  border: 1px solid #D7C58A;
-  border-radius: 999px;
-  color: #5F4B00;
-  display: inline-flex;
-  flex-wrap: wrap;
-  font-size: .78rem;
-  font-weight: 800;
-  gap: 5px;
-  margin: 2px 0 8px;
-  max-width: 100%;
-  padding: 4px 8px;
-}
-.freshness-badge span { font-weight: 600; }
 .technical-details {
   color: var(--muted);
   max-width: 300px;
@@ -3745,6 +4332,65 @@ button:disabled { cursor: wait; opacity: .58; }
   font-weight: 700;
   margin: 0;
   padding: 6px 0;
+}
+.profile-review-form { display: grid; gap: 12px; margin: 0 auto; max-width: 920px; }
+.review-section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0;
+  padding: 20px;
+}
+.review-section-primary { border-color: #B8D4C9; }
+.review-section-heading {
+  align-items: start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.review-section-heading h2 { font-size: 1.15rem; margin-bottom: 3px; }
+.review-section-heading p { color: var(--muted); margin: 0; }
+.inference-label {
+  background: var(--surface-subtle);
+  border-radius: 999px;
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: .76rem;
+  font-weight: 700;
+  padding: 5px 8px;
+}
+.review-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.review-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.review-field { color: var(--ink); display: grid; font-weight: 700; gap: 5px; min-width: 0; }
+.review-field input, .review-field select {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  min-height: 42px;
+  padding: 8px 10px;
+  width: 100%;
+}
+.language-review-list { display: grid; gap: 9px; }
+.language-review-row { display: grid; gap: 10px; grid-template-columns: 1.1fr .9fr 1fr; }
+.review-checks { display: flex; flex-wrap: wrap; gap: 10px 20px; margin-top: 14px; }
+.review-checkbox { align-items: start; display: inline-flex; font-weight: 600; gap: 7px; }
+.review-checkbox input { flex: 0 0 auto; height: 18px; margin-top: 3px; width: 18px; }
+.review-more { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
+.review-more summary { cursor: pointer; font-weight: 700; margin-bottom: 12px; }
+.sensitive-review { background: #FCFDFC; }
+.review-actions {
+  align-items: center;
+  background: var(--bg);
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px 0;
+  position: sticky;
+  z-index: 10;
 }
 .muted, .empty { color: var(--muted); }
 .actions { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 18px 18px 38px; }
@@ -3806,6 +4452,11 @@ th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px; 
 th { color: var(--muted); font-size: .86rem; }
 tr:last-child td { border-bottom: 0; }
 @media (max-width: 820px) {
+  .review-grid, .review-grid-three, .language-review-row { grid-template-columns: 1fr; }
+  .review-section-heading { display: block; }
+  .inference-label { display: inline-flex; margin-top: 8px; }
+  .review-actions { justify-content: stretch; }
+  .review-actions > * { flex: 1; }
   .app-header-inner { height: 56px; padding: 0 16px; }
   .app-main { padding: 26px 16px 48px; }
   section, .card { scroll-margin-top: 72px; }

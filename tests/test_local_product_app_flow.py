@@ -6,7 +6,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from unittest import mock
@@ -72,6 +72,11 @@ class LocalProductAppFlowTests(unittest.TestCase):
             "build_cached_preview_context",
             side_effect=self.preview_context,
         )
+        self.structured_preview_patch = mock.patch.object(
+            app,
+            "build_cached_structured_preview_context",
+            side_effect=self.structured_preview_context,
+        )
         self.signature_patch = mock.patch.object(
             app,
             "preview_data_signature",
@@ -81,6 +86,7 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.product_connection_patch.start()
         self.demo_connection_patch.start()
         self.preview_patch.start()
+        self.structured_preview_patch.start()
         self.signature_patch.start()
         app.seed_local_product_profiles()
         self._seed_cross_profile_owner()
@@ -96,6 +102,7 @@ class LocalProductAppFlowTests(unittest.TestCase):
             self.thread.join(timeout=5)
         self.signature_patch.stop()
         self.preview_patch.stop()
+        self.structured_preview_patch.stop()
         self.product_connection_patch.stop()
         self.demo_connection_patch.stop()
         self.connection_patch.stop()
@@ -210,6 +217,16 @@ class LocalProductAppFlowTests(unittest.TestCase):
             "metadata_overlay": {"enabled": False, "records_loaded": 0, "rows_enriched": 0},
         }
 
+    def structured_preview_context(
+        self, canonical_json, raw_input, input_style, limit, signature
+    ):
+        canonical = json.loads(canonical_json)
+        matcher_text = canonical["matcher_compatible_profile"].get("summary") or raw_input
+        context = self.preview_context(matcher_text, input_style, limit, signature)
+        context["canonical_profile"] = canonical
+        context["matcher_profile"] = canonical["matcher_compatible_profile"]
+        return context
+
     def start_server(self, demo_mode=False):
         handler = app.make_handler(registry=self.registry, demo_mode=demo_mode)
         self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -257,7 +274,54 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertEqual(status, 303)
         location = headers["Location"]
         run_id = parse_qs(urlparse(location).query)["run"][0]
+        pending = self.registry.get(run_id)
+        self.assertFalse(pending.profile_confirmed)
+        review_fields = app.profile_review_form_fields(
+            pending.canonical_profile,
+            run_id,
+            pending.review_token,
+        )
+        status, headers, _ = self.request("POST", "/find-matches", review_fields)
+        self.assertEqual(status, 303)
+        self.assertEqual(parse_qs(urlparse(headers["Location"]).query)["run"][0], run_id)
         return run_id
+
+    def confirm_profile_with_updates(self, raw_input, updates=None):
+        status, headers, _ = self.request(
+            "POST",
+            "/find-matches",
+            {"input_text": raw_input, "input_style": "long_paragraph"},
+        )
+        self.assertEqual(status, 303)
+        run_id = parse_qs(urlparse(headers["Location"]).query)["run"][0]
+        pending = self.registry.get(run_id)
+        fields = app.profile_review_form_fields(
+            pending.canonical_profile,
+            run_id,
+            pending.review_token,
+        )
+        fields.update(updates or {})
+        status, _, body = self.request("POST", "/find-matches", fields)
+        self.assertEqual(status, 303, body)
+        return self.registry.get(run_id)
+
+    @staticmethod
+    def admitted_titles(run):
+        return {
+            match["display_title"]
+            for match in app.build_browser_presentation_matches(
+                run.recommendation_context,
+                limit=100,
+            )
+        }
+
+    @staticmethod
+    def match_for_title(run, title):
+        for section in app.profile_preview.SECTION_ORDER:
+            for match in run.recommendation_context["matches"].get(section, []):
+                if match.get("display_title") == title:
+                    return match
+        raise AssertionError(f"No matcher result found for {title!r}")
 
     def first_action(self, html, action):
         parser = FormParser()
@@ -266,6 +330,529 @@ class LocalProductAppFlowTests(unittest.TestCase):
             if form["attrs"].get("action") == "/action" and form["fields"].get("action") == action:
                 return dict(form["fields"])
         self.fail(f"No {action} action form found.")
+
+    def test_about_you_prefills_review_before_matching(self):
+        self.start_server(demo_mode=False)
+        status, headers, _ = self.request(
+            "POST",
+            "/find-matches",
+            {
+                "input_text": "I live in Brazil and speak Portuguese. Remote writing work.",
+                "input_style": "short_paragraph",
+            },
+        )
+        self.assertEqual(status, 303)
+        location = headers["Location"]
+        self.assertIn("review=1", location)
+        run_id = parse_qs(urlparse(location).query)["run"][0]
+        status, _, html = self.request("GET", location)
+        self.assertEqual(status, 200)
+        self.assertIn("Make sure we understood you", html)
+        for section in (
+            "Location",
+            "Languages",
+            "Experience",
+            "Education",
+            "Skills",
+            "Work preferences",
+        ):
+            self.assertIn(f"<h2>{section}</h2>", html)
+        self.assertIn('name="country"', html)
+        self.assertIn('name="language_0"', html)
+        self.assertIn('name="credentials_confirmed"', html)
+        self.assertIn("Inferred - please confirm", html)
+        self.assertNotIn('<article class="card ranked-card"', html)
+        run = self.registry.get(run_id)
+        self.assertFalse(run.profile_confirmed)
+        self.assertIsNone(run.recommendation_context)
+
+    def test_reviewed_corrections_are_authoritative_matching_input(self):
+        self.start_server(demo_mode=False)
+        raw = (
+            "I live in Brazil, speak Spanish, have a bachelor's degree in Biology, "
+            "and have used Python. "
+            "I want remote AI work."
+        )
+        status, headers, _ = self.request(
+            "POST",
+            "/find-matches",
+            {"input_text": raw, "input_style": "short_paragraph"},
+        )
+        self.assertEqual(status, 303)
+        run_id = parse_qs(urlparse(headers["Location"]).query)["run"][0]
+        pending = self.registry.get(run_id)
+        fields = app.profile_review_form_fields(
+            pending.canonical_profile,
+            run_id,
+            pending.review_token,
+        )
+        fields.update(
+            {
+                "country": "Portugal",
+                "language_0": "Portuguese",
+                "language_proficiency_0": "native",
+                "language_locale_0": "Portugal",
+                "skills": "writing, editing",
+                "technical_skills": "",
+                "domain_specific_skills": "writing, editing",
+                "education_level": "bachelor",
+                "degrees": "BA",
+                "education_fields": "English",
+                "job_titles": "writer",
+                "occupational_families": "writing and editing",
+                "professional_domains": "writing",
+                "target_opportunity_types": "writing evaluation",
+                "credential_status": "absent",
+                "excluded_domains": "Finance",
+            }
+        )
+        for key in list(fields):
+            if key.startswith("language_") and key not in {
+                "language_0",
+                "language_proficiency_0",
+                "language_locale_0",
+            }:
+                fields[key] = ""
+        status, headers, _ = self.request("POST", "/find-matches", fields)
+        self.assertEqual(status, 303)
+        run = self.registry.get(run_id)
+        self.assertTrue(run.profile_confirmed)
+        self.assertEqual(run.raw_input, raw)
+        canonical = run.canonical_profile
+        self.assertEqual(canonical["location"]["country"], "Portugal")
+        self.assertEqual(
+            [(row["language"], row["proficiency"]) for row in canonical["languages"]],
+            [("Portuguese", "native")],
+        )
+        self.assertEqual(canonical["skills"]["normalized"], ["writing", "editing"])
+        self.assertEqual(canonical["education"]["education_level"], "bachelor")
+        self.assertEqual(canonical["credentials"]["credential_status"], "absent")
+        matcher = run.recommendation_context["matcher_profile"]
+        self.assertEqual(matcher["languages"], ["Portuguese"])
+        self.assertEqual(matcher["country"], "Portugal")
+        self.assertNotIn("Spanish", matcher["summary"])
+        self.assertNotIn("Python", matcher["summary"])
+        self.assertNotIn("Biology", matcher["summary"])
+        self.assertNotIn("Finance", matcher["summary"])
+        self.assertIn("Finance", canonical["constraints"]["excluded_domains"])
+        self.assertIn("writing", matcher["summary"].lower())
+        self.assertEqual(
+            canonical["provenance"]["field_sources"]["skills.normalized[0]"],
+            {"source": "user_correction", "explicit": True},
+        )
+        self.assertEqual(canonical["provenance"]["original_text"], raw)
+
+    def test_reviewed_corrections_control_production_matcher_qualification(self):
+        self.start_server(demo_mode=False)
+        rows = [
+            matcher_route_row(
+                9101,
+                "Spanish Language Data Contributor",
+                expertise="Language",
+                required_languages="Spanish",
+            ),
+            matcher_route_row(
+                9102,
+                "Biology Research Specialist English",
+                expertise="Biology",
+                required_languages="English",
+            ),
+            matcher_route_row(
+                9103,
+                "Finance Accounting AI Evaluation English",
+                expertise="Finance",
+                required_languages="English",
+            ),
+            matcher_route_row(
+                9104,
+                "English Language Data Contributor Brazil",
+                expertise="Language",
+                location="Brazil",
+                applicant_location_requirements="Brazil only",
+                required_languages="English",
+            ),
+            matcher_route_row(
+                9105,
+                "English Language Data Contributor Canada",
+                expertise="Language",
+                location="Canada",
+                applicant_location_requirements="Canada only",
+                required_languages="English",
+            ),
+            matcher_route_row(
+                9106,
+                "Licensed Medical AI Evaluation English",
+                expertise="Medicine",
+                required_languages="English",
+            ),
+        ]
+        overlay_status = {
+            "enabled": False,
+            "path": "",
+            "records_loaded": 0,
+            "rows_enriched": 0,
+        }
+        self.structured_preview_patch.stop()
+        inventory_patch = mock.patch.object(
+            app.profile_preview,
+            "load_preview_rows",
+            return_value=(rows, overlay_status),
+        )
+        inventory_patch.start()
+        app.build_cached_structured_preview_context.cache_clear()
+        try:
+            spanish_raw = (
+                "I live in Brazil. I am fluent in Spanish and work in language review. "
+                "I want remote language-data work."
+            )
+            spanish_default = self.confirm_profile_with_updates(spanish_raw)
+            self.assertIn(
+                "Spanish Language Data Contributor",
+                self.admitted_titles(spanish_default),
+            )
+            spanish_default_match = self.match_for_title(
+                spanish_default,
+                "Spanish Language Data Contributor",
+            )
+            self.assertTrue(spanish_default_match["eligible_for_personalized"])
+            self.assertTrue(spanish_default_match["primary_recommendation_eligible"])
+            self.assertTrue(spanish_default_match["profile_explanation_evidence"])
+            spanish_fields = {
+                "language_0": "English",
+                "language_proficiency_0": "fluent",
+                "language_locale_0": "",
+            }
+            for index in range(1, 4):
+                spanish_fields[f"language_{index}"] = ""
+                spanish_fields[f"language_proficiency_{index}"] = "unspecified"
+                spanish_fields[f"language_locale_{index}"] = ""
+            spanish_corrected = self.confirm_profile_with_updates(
+                spanish_raw,
+                spanish_fields,
+            )
+            self.assertEqual(
+                spanish_corrected.recommendation_context["matcher_profile"]["languages"],
+                ["English"],
+            )
+            self.assertNotIn(
+                "Spanish Language Data Contributor",
+                self.admitted_titles(spanish_corrected),
+            )
+            spanish_corrected_match = self.match_for_title(
+                spanish_corrected,
+                "Spanish Language Data Contributor",
+            )
+            self.assertFalse(spanish_corrected_match["eligible_for_personalized"])
+            self.assertEqual(spanish_corrected_match["preview_section"], "excluded")
+            self.assertIn(
+                "personalized_eligibility_failed",
+                spanish_corrected_match["actionability_cap_reasons"],
+            )
+
+            biology_raw = (
+                "I live in Canada and speak English. I have a bachelor's degree in "
+                "biology and biology research experience. I want remote biology AI work."
+            )
+            biology_default = self.confirm_profile_with_updates(biology_raw)
+            self.assertIn(
+                "Biology Research Specialist English",
+                self.admitted_titles(biology_default),
+            )
+            biology_default_match = self.match_for_title(
+                biology_default,
+                "Biology Research Specialist English",
+            )
+            self.assertTrue(biology_default_match["primary_recommendation_eligible"])
+            self.assertTrue(biology_default_match["profile_explanation_evidence"])
+            biology_corrected = self.confirm_profile_with_updates(
+                biology_raw,
+                {
+                    "education_level": "no_degree",
+                    "degrees": "",
+                    "education_fields": "",
+                    "job_titles": "",
+                    "occupational_families": "",
+                    "professional_domains": "generalist",
+                    "skills": "content review",
+                    "technical_skills": "",
+                    "domain_specific_skills": "",
+                    "target_opportunity_types": "content evaluation",
+                    "excluded_domains": "Biology",
+                    "no_degree": "1",
+                },
+            )
+            self.assertNotIn(
+                "Biology Research Specialist English",
+                self.admitted_titles(biology_corrected),
+            )
+            self.assertNotIn(
+                "biology",
+                biology_corrected.recommendation_context["matcher_profile"]["summary"].casefold(),
+            )
+            biology_corrected_match = self.match_for_title(
+                biology_corrected,
+                "Biology Research Specialist English",
+            )
+            self.assertFalse(biology_corrected_match["primary_recommendation_eligible"])
+            self.assertTrue(
+                biology_corrected_match["professional_domain_hard_gate_applied"]
+                or "professional_domain_hard_gate"
+                in biology_corrected_match["actionability_cap_reasons"]
+            )
+
+            finance_raw = (
+                "I live in Canada and speak English. I am a finance analyst with "
+                "accounting and audit experience seeking finance AI review work."
+            )
+            finance_default = self.confirm_profile_with_updates(finance_raw)
+            self.assertIn(
+                "Finance Accounting AI Evaluation English",
+                self.admitted_titles(finance_default),
+            )
+            finance_default_match = self.match_for_title(
+                finance_default,
+                "Finance Accounting AI Evaluation English",
+            )
+            self.assertTrue(finance_default_match["primary_recommendation_eligible"])
+            self.assertTrue(finance_default_match["profile_explanation_evidence"])
+            finance_corrected = self.confirm_profile_with_updates(
+                finance_raw,
+                {
+                    "degrees": "",
+                    "education_fields": "",
+                    "job_titles": "content reviewer",
+                    "occupational_families": "general evaluation",
+                    "professional_domains": "generalist",
+                    "skills": "content review",
+                    "domain_specific_skills": "",
+                    "target_opportunity_types": "content evaluation",
+                    "excluded_domains": "Finance",
+                },
+            )
+            self.assertNotIn(
+                "Finance Accounting AI Evaluation English",
+                self.admitted_titles(finance_corrected),
+            )
+            finance_corrected_match = self.match_for_title(
+                finance_corrected,
+                "Finance Accounting AI Evaluation English",
+            )
+            self.assertFalse(finance_corrected_match["primary_recommendation_eligible"])
+            self.assertTrue(
+                finance_corrected_match["professional_domain_hard_gate_applied"]
+                or "professional_domain_hard_gate"
+                in finance_corrected_match["actionability_cap_reasons"]
+            )
+
+            country_raw = (
+                "I live in Brazil, speak English, and want remote language-data work."
+            )
+            brazil = self.confirm_profile_with_updates(country_raw)
+            self.assertIn(
+                "English Language Data Contributor Brazil",
+                self.admitted_titles(brazil),
+            )
+            self.assertNotIn(
+                "English Language Data Contributor Canada",
+                self.admitted_titles(brazil),
+            )
+            canada_for_brazil = self.match_for_title(
+                brazil,
+                "English Language Data Contributor Canada",
+            )
+            self.assertEqual(canada_for_brazil["location_eligibility_status"], "incompatible")
+            self.assertFalse(canada_for_brazil["primary_recommendation_eligible"])
+            canada = self.confirm_profile_with_updates(
+                country_raw,
+                {"country": "Canada", "eligible_countries": "Canada"},
+            )
+            self.assertEqual(canada.canonical_profile["location"]["country"], "Canada")
+            self.assertIn(
+                "English Language Data Contributor Canada",
+                self.admitted_titles(canada),
+            )
+            self.assertNotIn(
+                "English Language Data Contributor Brazil",
+                self.admitted_titles(canada),
+            )
+            brazil_for_canada = self.match_for_title(
+                canada,
+                "English Language Data Contributor Brazil",
+            )
+            canada_for_canada = self.match_for_title(
+                canada,
+                "English Language Data Contributor Canada",
+            )
+            self.assertEqual(brazil_for_canada["location_eligibility_status"], "incompatible")
+            self.assertTrue(canada_for_canada["primary_recommendation_eligible"])
+
+            credential_raw = (
+                "I live in Canada and speak English. I hold a medical license and "
+                "I am a medical researcher with medical review experience."
+            )
+            credential_default = self.confirm_profile_with_updates(credential_raw)
+            self.assertIn(
+                "Licensed Medical AI Evaluation English",
+                self.admitted_titles(credential_default),
+            )
+            credential_default_match = self.match_for_title(
+                credential_default,
+                "Licensed Medical AI Evaluation English",
+            )
+            self.assertTrue(credential_default_match["primary_recommendation_eligible"])
+            self.assertTrue(credential_default_match["profile_explanation_evidence"])
+            credential_removed = self.confirm_profile_with_updates(
+                credential_raw,
+                {
+                    "credential_status": "absent",
+                    "licenses": "",
+                    "certifications": "",
+                    "jurisdictions": "",
+                    "no_specialized_credentials": "1",
+                },
+            )
+            self.assertNotIn(
+                "Licensed Medical AI Evaluation English",
+                self.admitted_titles(credential_removed),
+            )
+            credential_removed_match = self.match_for_title(
+                credential_removed,
+                "Licensed Medical AI Evaluation English",
+            )
+            self.assertFalse(credential_removed_match["primary_recommendation_eligible"])
+            self.assertIn(
+                "explicit_credential_incompatibility",
+                credential_removed_match["actionability_cap_reasons"],
+            )
+            credential_confirmed = self.confirm_profile_with_updates(
+                credential_raw,
+                {
+                    "credential_status": "explicit",
+                    "licenses": "medical license",
+                    "professional_domains": "medicine",
+                    "credentials_confirmed": "1",
+                },
+            )
+            self.assertIn(
+                "Licensed Medical AI Evaluation English",
+                self.admitted_titles(credential_confirmed),
+            )
+            credential_confirmed_match = self.match_for_title(
+                credential_confirmed,
+                "Licensed Medical AI Evaluation English",
+            )
+            self.assertTrue(credential_confirmed_match["primary_recommendation_eligible"])
+            self.assertTrue(credential_confirmed_match["profile_explanation_evidence"])
+        finally:
+            app.build_cached_structured_preview_context.cache_clear()
+            inventory_patch.stop()
+            self.structured_preview_patch.start()
+
+    def test_profile_review_requires_sensitive_credential_confirmation(self):
+        self.start_server(demo_mode=False)
+        status, headers, _ = self.request(
+            "POST",
+            "/find-matches",
+            {"input_text": "Remote generalist reviewer.", "input_style": "short_paragraph"},
+        )
+        self.assertEqual(status, 303)
+        run_id = parse_qs(urlparse(headers["Location"]).query)["run"][0]
+        pending = self.registry.get(run_id)
+        fields = app.profile_review_form_fields(
+            pending.canonical_profile,
+            run_id,
+            pending.review_token,
+        )
+        fields.pop("credentials_confirmed")
+        status, _, html = self.request("POST", "/find-matches", fields)
+        self.assertEqual(status, 400)
+        self.assertIn("Confirm that the licenses and certifications", html)
+        run = self.registry.get(run_id)
+        self.assertFalse(run.profile_confirmed)
+        self.assertIsNone(run.recommendation_context)
+
+        fields["credentials_confirmed"] = "1"
+        fields["credential_status"] = "explicit"
+        fields["licenses"] = "attorney license"
+        status, _, body = self.request("POST", "/find-matches", fields)
+        self.assertEqual(status, 303, body)
+        confirmed = self.registry.get(run_id)
+        self.assertTrue(confirmed.profile_confirmed)
+        self.assertEqual(
+            confirmed.recommendation_context["matcher_profile"]["licenses"],
+            ["attorney license"],
+        )
+
+    def create_pending_review(self, raw_input="Remote generalist reviewer."):
+        status, headers, _ = self.request(
+            "POST",
+            "/find-matches",
+            {"input_text": raw_input, "input_style": "short_paragraph"},
+        )
+        self.assertEqual(status, 303)
+        run_id = parse_qs(urlparse(headers["Location"]).query)["run"][0]
+        run = self.registry.get(run_id)
+        return run, app.profile_review_form_fields(
+            run.canonical_profile, run_id, run.review_token
+        )
+
+    def test_profile_review_rejects_duplicates_and_unsupported_fields(self):
+        self.start_server(demo_mode=False)
+        cases = (
+            ([("country", "Brazil")], "country"),
+            ([("language_proficiency_0", "fluent")], "language proficiency"),
+            ([("unsupported_profile_field", "value")], "unsupported field"),
+            ([("hidden_credential", "medical license")], "hidden credential"),
+            ([("provenance", "external_import")], "provenance"),
+            ([("input_text", "different original text")], "original text"),
+        )
+        for extra_pairs, label in cases:
+            with self.subTest(label=label):
+                run, fields = self.create_pending_review()
+                pairs = list(fields.items()) + extra_pairs
+                status, _, body = self.request_pairs(
+                    "/find-matches", pairs, wants_json=False
+                )
+                self.assertEqual(status, 400, body)
+                unchanged = self.registry.get(run.match_run_id)
+                self.assertFalse(unchanged.profile_confirmed)
+                self.assertIsNone(unchanged.recommendation_context)
+
+    def test_profile_review_rejects_schema_token_and_cross_run_tampering(self):
+        self.start_server(demo_mode=False)
+        first, first_fields = self.create_pending_review("Writer and editor.")
+        second, second_fields = self.create_pending_review("Software engineer.")
+
+        cases = []
+        unsupported_schema = dict(first_fields)
+        unsupported_schema["schema_version"] = "canonical_profile_v999"
+        cases.append((unsupported_schema, 400, "unsupported schema"))
+        wrong_token = dict(first_fields)
+        wrong_token["review_token"] = "wrong-token"
+        cases.append((wrong_token, 403, "wrong token"))
+        other_token = dict(first_fields)
+        other_token["review_token"] = second.review_token
+        cases.append((other_token, 403, "another token"))
+        copied_run = dict(first_fields)
+        copied_run["edit_run_id"] = second.match_run_id
+        cases.append((copied_run, 403, "another run"))
+
+        for fields, expected_status, label in cases:
+            with self.subTest(label=label):
+                status, _, body = self.request(
+                    "POST", "/find-matches", fields
+                )
+                self.assertEqual(status, expected_status, body)
+        self.assertFalse(self.registry.get(first.match_run_id).profile_confirmed)
+        self.assertFalse(self.registry.get(second.match_run_id).profile_confirmed)
+
+        expired_fields = dict(second_fields)
+        for index in range(self.registry.max_size + 1):
+            self.registry.create(
+                "local_user", f"replacement {index}", "short_paragraph"
+            )
+        status, _, body = self.request("POST", "/find-matches", expired_fields)
+        self.assertEqual(status, 410, body)
 
     def pipeline_rows(self, profile_id):
         with self.connect() as conn:
@@ -474,7 +1061,6 @@ class LocalProductAppFlowTests(unittest.TestCase):
             {
                 "input_text": "General reviewer seeking remote AI evaluation work.",
                 "input_style": "short_paragraph",
-                "profile": "portuguese_english_reviewer",
             }
         )
         self.assertEqual(self.registry.get(run_id).owner_profile_id, "local_user")
@@ -888,7 +1474,7 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertIn("not available in this match run", json.loads(payload)["error"])
         self.assertEqual(len(self.pipeline_rows("local_user")), 0)
 
-    def test_edit_profile_creates_new_immutable_run_for_same_owner(self):
+    def test_edit_profile_updates_confirmed_structure_for_same_run_owner(self):
         self.start_server(demo_mode=False)
         original_text = "General reviewer seeking remote AI work."
         original_run_id = self.create_run(
@@ -900,27 +1486,45 @@ class LocalProductAppFlowTests(unittest.TestCase):
             f"/find-matches?run={original_run_id}&edit=1",
         )
         self.assertEqual(status, 200)
-        self.assertIn(original_text, edit_page)
+        self.assertIn("Make sure we understood you", edit_page)
+        self.assertIn('name="professional_domains"', edit_page)
         self.assertIn(f'name="edit_run_id" value="{original_run_id}"', edit_page)
-        self.assertIn("Submitting these edits creates a new match run.", edit_page)
+        self.assertIn("Your corrections become authoritative", edit_page)
 
-        edited_text = "Software engineer with Python experience seeking remote AI coding work."
-        edited_run_id = self.create_run(
+        current = self.registry.get(original_run_id)
+        fields = app.profile_review_form_fields(
+            current.canonical_profile,
+            original_run_id,
+            current.review_token,
+        )
+        fields.update(
             {
-                "edit_run_id": original_run_id,
-                "input_text": edited_text,
-                "input_style": "resume_or_linkedin_style",
-                "profile": "portuguese_english_reviewer",
+                "professional_domains": "software engineering",
+                "occupational_families": "software engineering",
+                "job_titles": "software engineer",
+                "skills": "Python",
+                "technical_skills": "Python",
+                "target_opportunity_types": "AI coding evaluation",
             }
         )
+        status, headers, _ = self.request("POST", "/find-matches", fields)
+        self.assertEqual(status, 303)
+        edited_run_id = parse_qs(urlparse(headers["Location"]).query)["run"][0]
 
-        self.assertNotEqual(edited_run_id, original_run_id)
-        original_run = self.registry.get(original_run_id)
+        self.assertEqual(edited_run_id, original_run_id)
         edited_run = self.registry.get(edited_run_id)
-        self.assertEqual(original_run.owner_profile_id, "local_user")
-        self.assertEqual(edited_run.owner_profile_id, original_run.owner_profile_id)
-        self.assertEqual(original_run.raw_input, original_text)
-        self.assertEqual(edited_run.raw_input, edited_text)
+        self.assertEqual(edited_run.owner_profile_id, "local_user")
+        self.assertEqual(edited_run.raw_input, original_text)
+        self.assertEqual(
+            edited_run.canonical_profile["experience"]["professional_domains"],
+            ["software engineering"],
+        )
+        self.assertEqual(
+            edited_run.canonical_profile["provenance"]["field_sources"][
+                "experience.professional_domains[0]"
+            ]["source"],
+            "user_correction",
+        )
         self.assertEqual(
             edited_run.recommendation_context["matches"]["do_these_first"][0]["display_title"],
             "Python Coding Evaluator",
@@ -1777,6 +2381,50 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertIn("Inline action expected JSON", script)
         self.assertIn("genericFailure", script)
         self.assertIn("js-action-feedback", script)
+
+
+def matcher_route_row(
+    job_id,
+    title,
+    *,
+    expertise,
+    required_languages,
+    location="Remote",
+    applicant_location_requirements="Worldwide",
+):
+    observed = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return {
+        "job_id": job_id,
+        "title": title,
+        "canonical_title": title,
+        "source": "Matcher Route Fixture",
+        "source_slug": "matcher-route-fixture",
+        "source_tier": "core",
+        "location": location,
+        "applicant_location_requirements": applicant_location_requirements,
+        "url": f"https://example.test/matcher-route/{job_id}",
+        "department": expertise,
+        "expertise": expertise,
+        "source_category": expertise,
+        "commitment": "Freelance",
+        "opportunity_kind": "live_posting",
+        "availability_basis": "api_feed",
+        "inventory_model": "live_feed",
+        "market_count_policy": "count_live",
+        "include_in_live_market_estimate": 1,
+        "canonical_opportunity_id": job_id,
+        "canonical_is_active": True,
+        "job_is_active": True,
+        "job_last_seen_at": observed,
+        "latest_successful_source_run_at": observed,
+        "source_run_started_at": observed,
+        "source_run_id": job_id,
+        "source_run_qualifies": True,
+        "language": None,
+        "language_locale": None,
+        "required_languages": required_languages,
+        "description": "",
+    }
 
 
 if __name__ == "__main__":

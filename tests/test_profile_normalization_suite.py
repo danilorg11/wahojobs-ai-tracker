@@ -17,6 +17,7 @@ import profile_match_digest as matcher
 from wahojobs.profiles.canonical import (
     SCHEMA_VERSION,
     canonical_to_matcher_profile,
+    complete_trusted_fixture_provenance,
     validate_canonical_profile,
 )
 
@@ -51,7 +52,12 @@ MATCHER_REQUIRED_FIELDS = {
 
 
 def load_suite():
-    return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    suite = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    for case in suite["cases"]:
+        case["expected_canonical_profile"] = complete_trusted_fixture_provenance(
+            case["expected_canonical_profile"]
+        )
+    return suite
 
 
 class ProfileNormalizationSuiteTests(unittest.TestCase):

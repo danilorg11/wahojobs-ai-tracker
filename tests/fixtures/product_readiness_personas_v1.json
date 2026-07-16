@@ -1,0 +1,202 @@
+{
+  "suite_version": "product_readiness_personas_v1",
+  "description": "Reviewed structured personas for broad deterministic matching principles and read-only inventory coverage.",
+  "personas": [
+    {
+      "persona_id": "beginner_bilingual_generalist",
+      "launch_scope": "core",
+      "raw_input": "I live in Brazil. Portuguese is my native language and I am fluent in English. I want flexible entry-level non-phone AI training and data annotation work. I have no degree, prior experience, or specialized credentials.",
+      "review": {"country": "Brazil", "languages": [{"language": "Portuguese", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "no_degree", "credential_status": "absent", "professional_domains": ["generalist"], "skills": ["data annotation", "content evaluation", "web research"], "target_opportunity_types": ["data annotation", "search evaluation", "AI training generalist"], "employment_types": ["freelance", "flexible"], "remote": true, "flexible": true, "phone_preference": "non-phone preferred", "no_degree": true, "no_experience": true, "no_specialized_credentials": true},
+      "expected_strong_families": ["generalist", "data annotation", "language data"], "acceptable_fallback_families": ["content evaluation", "search evaluation"], "excluded_specialist_families": ["software engineering", "licensed healthcare", "legal", "advanced science"], "language_requirements": ["Portuguese", "English"], "location_constraints": ["Brazil", "Worldwide"], "credential_requirements": ["no degree required", "no professional license required"], "explanation_expectations": ["language", "entry level", "remote"]
+    },
+    {
+      "persona_id": "monolingual_entry_level",
+      "launch_scope": "core",
+      "raw_input": "I live in the United States and speak English. I am looking for entry-level remote data labeling and content review work with no prior experience required.",
+      "review": {"country": "United States", "languages": [{"language": "English", "proficiency": "native"}], "education_level": "high_school", "credential_status": "absent", "professional_domains": ["generalist"], "skills": ["data entry", "content review"], "target_opportunity_types": ["data annotation", "content review"], "employment_types": ["part-time"], "remote": true, "no_experience": true},
+      "expected_strong_families": ["generalist", "data annotation"], "acceptable_fallback_families": ["content review"], "excluded_specialist_families": ["non-English language", "licensed healthcare", "coding"], "language_requirements": ["English"], "location_constraints": ["United States", "Worldwide"], "credential_requirements": ["no specialist credential"], "explanation_expectations": ["entry level", "English"]
+    },
+    {
+      "persona_id": "multilingual_language_specialist",
+      "launch_scope": "core",
+      "raw_input": "Portugal-based translator with Portuguese, English, and Spanish localization experience.",
+      "review": {"country": "Portugal", "languages": [{"language": "Portuguese", "proficiency": "native", "locale": "Portugal"}, {"language": "English", "proficiency": "fluent"}, {"language": "Spanish", "proficiency": "professional"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["translator"], "occupational_families": ["translation and localization"], "professional_domains": ["language"], "skills": ["translation", "localization", "editing", "MTPE"], "target_opportunity_types": ["translation", "language evaluation", "localization"], "employment_types": ["freelance"], "remote": true},
+      "expected_strong_families": ["translation", "localization", "language evaluation"], "acceptable_fallback_families": ["writing evaluation"], "excluded_specialist_families": ["unsupported language", "coding", "licensed healthcare"], "language_requirements": ["Portuguese", "English", "Spanish"], "location_constraints": ["Portugal", "Europe", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["matched language", "translation"]
+    },
+    {
+      "persona_id": "virtual_assistant_admin",
+      "launch_scope": "adjacent",
+      "raw_input": "Virtual assistant in the Philippines with calendar, email, spreadsheet, and research experience.",
+      "review": {"country": "Philippines", "languages": [{"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["virtual assistant"], "occupational_families": ["administrative support"], "professional_domains": ["administration"], "skills": ["calendar management", "email", "spreadsheets", "web research"], "administrative_support_skills": ["calendar management", "email", "data entry"], "target_opportunity_types": ["virtual assistance", "administrative support"], "employment_types": ["part-time", "contract"], "remote": true},
+      "expected_strong_families": ["administrative support", "virtual assistance"], "acceptable_fallback_families": ["data entry", "web research"], "excluded_specialist_families": ["coding", "licensed healthcare", "advanced science"], "language_requirements": ["English"], "location_constraints": ["Philippines", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["administrative", "research"]
+    },
+    {
+      "persona_id": "customer_support_worker",
+      "launch_scope": "adjacent",
+      "raw_input": "Bilingual customer support specialist in Mexico with chat and email support experience.",
+      "review": {"country": "Mexico", "languages": [{"language": "Spanish", "proficiency": "native", "locale": "Mexico"}, {"language": "English", "proficiency": "professional"}], "education_level": "associate", "credential_status": "absent", "job_titles": ["customer support specialist"], "occupational_families": ["customer support"], "professional_domains": ["customer service"], "skills": ["chat support", "email support", "case review"], "administrative_support_skills": ["customer support", "ticketing"], "target_opportunity_types": ["customer support", "conversation evaluation"], "employment_types": ["full-time", "contract"], "remote": true},
+      "expected_strong_families": ["customer support", "conversation evaluation"], "acceptable_fallback_families": ["content evaluation"], "excluded_specialist_families": ["coding", "legal", "medical"], "language_requirements": ["Spanish", "English"], "location_constraints": ["Mexico", "Latin America", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["support", "language"]
+    },
+    {
+      "persona_id": "non_phone_preference",
+      "launch_scope": "core",
+      "raw_input": "India-based remote worker fluent in English and Hindi. I need non-phone asynchronous work.",
+      "review": {"country": "India", "languages": [{"language": "Hindi", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "credential_status": "absent", "professional_domains": ["generalist"], "skills": ["data review", "writing", "research"], "target_opportunity_types": ["data annotation", "content evaluation"], "employment_types": ["freelance"], "remote": true, "flexible": true, "phone_preference": "non-phone required", "accessibility_constraints": ["no phone calls"]},
+      "expected_strong_families": ["data annotation", "content evaluation"], "acceptable_fallback_families": ["language data"], "excluded_specialist_families": ["phone support", "licensed work"], "language_requirements": ["Hindi", "English"], "location_constraints": ["India", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["non-phone", "flexible"]
+    },
+    {
+      "persona_id": "transcription_data_entry",
+      "launch_scope": "core",
+      "raw_input": "Kenya-based transcriptionist and data-entry worker fluent in English and Kiswahili.",
+      "review": {"country": "Kenya", "languages": [{"language": "Kiswahili", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "high_school", "credential_status": "absent", "job_titles": ["transcriptionist", "data-entry clerk"], "occupational_families": ["transcription", "data entry"], "professional_domains": ["language", "generalist"], "skills": ["transcription", "audio review", "data entry"], "target_opportunity_types": ["transcription", "audio annotation", "data entry"], "employment_types": ["freelance"], "remote": true},
+      "expected_strong_families": ["transcription", "audio annotation", "data entry"], "acceptable_fallback_families": ["language evaluation"], "excluded_specialist_families": ["unsupported language", "coding", "medical"], "language_requirements": ["Kiswahili", "English"], "location_constraints": ["Kenya", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["audio", "language"]
+    },
+    {
+      "persona_id": "writer_editor",
+      "launch_scope": "core",
+      "raw_input": "UK-based writer and editor with six years of fact-checking and content-quality experience.",
+      "review": {"country": "United Kingdom", "languages": [{"language": "English", "proficiency": "native", "locale": "United Kingdom"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["writer", "editor"], "occupational_families": ["writing and editing"], "professional_domains": ["writing"], "total_years": 6, "skills": ["writing", "editing", "fact checking", "content review"], "writing_research_skills": ["writing", "editing", "fact checking"], "target_opportunity_types": ["writing evaluation", "content review"], "employment_types": ["freelance", "contract"], "remote": true},
+      "expected_strong_families": ["writing", "editing", "content evaluation"], "acceptable_fallback_families": ["general AI evaluation"], "excluded_specialist_families": ["coding", "licensed healthcare", "finance"], "language_requirements": ["English"], "location_constraints": ["United Kingdom", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["writing", "editing"]
+    },
+    {
+      "persona_id": "teacher_tutor",
+      "launch_scope": "core",
+      "raw_input": "Canadian English and French teacher with tutoring, grading, and curriculum experience.",
+      "review": {"country": "Canada", "languages": [{"language": "English", "proficiency": "native", "locale": "Canada"}, {"language": "French", "proficiency": "fluent", "locale": "Canada"}], "education_level": "master", "credential_status": "explicit", "certifications": ["teaching certificate"], "job_titles": ["teacher", "tutor"], "occupational_families": ["education"], "professional_domains": ["education"], "skills": ["teaching", "grading", "curriculum", "writing feedback"], "target_opportunity_types": ["education AI training", "language evaluation", "rubric grading"], "employment_types": ["part-time"], "remote": true},
+      "expected_strong_families": ["education", "teaching", "rubric evaluation"], "acceptable_fallback_families": ["writing evaluation", "language evaluation"], "excluded_specialist_families": ["coding", "licensed medical"], "language_requirements": ["English", "French"], "location_constraints": ["Canada", "Worldwide"], "credential_requirements": ["teaching certificate where required"], "explanation_expectations": ["teaching", "grading"]
+    },
+    {
+      "persona_id": "software_engineer",
+      "launch_scope": "core",
+      "raw_input": "Germany-based senior software engineer who speaks German, English, and professional Dutch, with Python, TypeScript, APIs, and backend systems experience.",
+      "review": {"country": "Germany", "languages": [{"language": "German", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}, {"language": "Dutch", "proficiency": "professional"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["software engineer"], "occupational_families": ["software engineering"], "professional_domains": ["software engineering"], "total_years": 9, "seniority": "senior", "skills": ["Python", "TypeScript", "APIs", "backend systems"], "technical_skills": ["Python", "TypeScript", "backend"], "target_opportunity_types": ["AI coding evaluation", "software review"], "employment_types": ["contract", "freelance"], "remote": true},
+      "expected_strong_families": ["software engineering", "coding evaluation"], "acceptable_fallback_families": ["technical QA"], "excluded_specialist_families": ["finance", "licensed healthcare", "non-software science"], "language_requirements": ["German", "English", "Dutch"], "location_constraints": ["Germany", "Europe", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["software", "Python"]
+    },
+    {
+      "persona_id": "qa_software_tester",
+      "launch_scope": "core",
+      "raw_input": "Poland-based QA engineer with test automation, Playwright, API testing, and defect triage.",
+      "review": {"country": "Poland", "languages": [{"language": "Polish", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["QA engineer", "software tester"], "occupational_families": ["software quality assurance"], "professional_domains": ["software engineering"], "total_years": 5, "skills": ["test automation", "Playwright", "API testing", "defect triage"], "technical_skills": ["test automation", "API testing"], "software_tools": ["Playwright"], "target_opportunity_types": ["software QA", "AI coding evaluation"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["software QA", "testing"], "acceptable_fallback_families": ["coding evaluation"], "excluded_specialist_families": ["finance", "licensed healthcare"], "language_requirements": ["Polish", "English"], "location_constraints": ["Poland", "Europe", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["testing", "automation"]
+    },
+    {
+      "persona_id": "data_analyst",
+      "launch_scope": "core",
+      "raw_input": "Nigeria-based data analyst with SQL, Excel, dashboards, statistics, and data-quality experience.",
+      "review": {"country": "Nigeria", "languages": [{"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["data analyst"], "occupational_families": ["data analysis"], "professional_domains": ["data analytics"], "total_years": 4, "skills": ["SQL", "Excel", "dashboards", "statistics", "data quality"], "technical_skills": ["SQL", "statistics"], "software_tools": ["Excel"], "target_opportunity_types": ["data analysis", "data quality evaluation"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["data analysis", "data quality"], "acceptable_fallback_families": ["general evaluation"], "excluded_specialist_families": ["software engineering", "licensed healthcare", "legal"], "language_requirements": ["English"], "location_constraints": ["Nigeria", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["data", "analysis"]
+    },
+    {
+      "persona_id": "finance_accounting",
+      "launch_scope": "core",
+      "raw_input": "US accountant and financial analyst with audit, financial statements, and valuation experience.",
+      "review": {"country": "United States", "languages": [{"language": "English", "proficiency": "native"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["accountant", "financial analyst"], "occupational_families": ["finance and accounting"], "professional_domains": ["finance", "accounting"], "total_years": 7, "skills": ["audit", "financial statements", "valuation", "accounting review"], "domain_specific_skills": ["audit", "valuation"], "target_opportunity_types": ["finance AI training", "accounting evaluation"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["finance", "accounting"], "acceptable_fallback_families": ["business evaluation"], "excluded_specialist_families": ["software engineering", "licensed healthcare", "legal practice"], "language_requirements": ["English"], "location_constraints": ["United States", "Worldwide"], "credential_requirements": ["no CPA unless explicitly required"], "explanation_expectations": ["finance", "accounting"]
+    },
+    {
+      "persona_id": "legal_professional",
+      "launch_scope": "core",
+      "raw_input": "California attorney with contracts, employment law, and legal-research experience.",
+      "review": {"country": "United States", "region": "California", "languages": [{"language": "English", "proficiency": "native"}], "education_level": "professional_degree", "degrees": ["JD"], "credential_status": "explicit", "licenses": ["attorney license"], "jurisdictions": ["California"], "job_titles": ["attorney"], "occupational_families": ["legal"], "professional_domains": ["legal"], "total_years": 8, "skills": ["contracts", "legal research", "employment law"], "target_opportunity_types": ["legal AI training", "contract review"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["legal", "contract review"], "acceptable_fallback_families": ["professional writing evaluation"], "excluded_specialist_families": ["medicine", "software engineering", "finance"], "language_requirements": ["English"], "location_constraints": ["United States", "Worldwide"], "credential_requirements": ["attorney license"], "explanation_expectations": ["legal", "license"]
+    },
+    {
+      "persona_id": "healthcare_credentialed",
+      "launch_scope": "core",
+      "raw_input": "US registered nurse with active license and clinical documentation experience.",
+      "review": {"country": "United States", "languages": [{"language": "English", "proficiency": "native"}], "education_level": "bachelor", "credential_status": "explicit", "licenses": ["registered nurse license"], "job_titles": ["registered nurse"], "occupational_families": ["healthcare"], "professional_domains": ["medicine", "healthcare"], "total_years": 6, "skills": ["clinical documentation", "patient education", "medical review"], "target_opportunity_types": ["clinical AI evaluation", "medical review"], "employment_types": ["part-time"], "remote": true},
+      "expected_strong_families": ["healthcare", "clinical evaluation"], "acceptable_fallback_families": ["medical writing"], "excluded_specialist_families": ["software engineering", "legal", "finance"], "language_requirements": ["English"], "location_constraints": ["United States"], "credential_requirements": ["registered nurse license"], "explanation_expectations": ["clinical", "license"]
+    },
+    {
+      "persona_id": "healthcare_interested_uncredentialed",
+      "launch_scope": "adjacent",
+      "raw_input": "Brazil-based English and Portuguese speaker interested in healthcare data work but without medical training or licenses.",
+      "review": {"country": "Brazil", "languages": [{"language": "Portuguese", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "no_degree", "credential_status": "absent", "professional_domains": ["generalist"], "skills": ["data annotation", "content review"], "target_opportunity_types": ["general healthcare data annotation", "content evaluation"], "employment_types": ["freelance"], "remote": true, "no_degree": true, "no_specialized_credentials": true, "excluded_domains": ["licensed clinical work"]},
+      "expected_strong_families": ["generalist", "data annotation"], "acceptable_fallback_families": ["non-clinical healthcare data"], "excluded_specialist_families": ["licensed healthcare", "medical expert", "clinical diagnosis"], "language_requirements": ["Portuguese", "English"], "location_constraints": ["Brazil", "Worldwide"], "credential_requirements": ["no medical credential required"], "explanation_expectations": ["generalist", "no license required"]
+    },
+    {
+      "persona_id": "biology_researcher",
+      "launch_scope": "core",
+      "raw_input": "Canadian PhD biology researcher with genomics, computational biology, and microbiology experience.",
+      "review": {"country": "Canada", "languages": [{"language": "English", "proficiency": "native"}, {"language": "French", "proficiency": "professional"}], "education_level": "doctorate", "degrees": ["PhD"], "education_fields": ["biology"], "credential_status": "absent", "job_titles": ["biology researcher"], "occupational_families": ["scientific research"], "professional_domains": ["biology", "microbiology"], "total_years": 7, "skills": ["genomics", "computational biology", "microbiology", "scientific writing"], "target_opportunity_types": ["biology AI training", "scientific evaluation"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["biology", "microbiology", "computational biology"], "acceptable_fallback_families": ["scientific writing"], "excluded_specialist_families": ["licensed clinical medicine", "physics", "software engineering"], "language_requirements": ["English", "French"], "location_constraints": ["Canada", "Worldwide"], "credential_requirements": ["PhD for advanced research where required"], "explanation_expectations": ["biology", "research"]
+    },
+    {
+      "persona_id": "chemistry_scientist",
+      "launch_scope": "core",
+      "raw_input": "India-based PhD chemist with analytical chemistry, materials characterization, and scientific writing.",
+      "review": {"country": "India", "languages": [{"language": "Hindi", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "doctorate", "degrees": ["PhD"], "education_fields": ["chemistry"], "credential_status": "absent", "job_titles": ["research chemist"], "occupational_families": ["scientific research"], "professional_domains": ["chemistry"], "total_years": 6, "skills": ["analytical chemistry", "materials characterization", "scientific writing"], "target_opportunity_types": ["chemistry AI training", "scientific evaluation"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["chemistry", "scientific research"], "acceptable_fallback_families": ["scientific writing"], "excluded_specialist_families": ["biology specialist", "licensed medicine", "legal"], "language_requirements": ["Hindi", "English"], "location_constraints": ["India", "Worldwide"], "credential_requirements": ["advanced science degree where required"], "explanation_expectations": ["chemistry", "research"]
+    },
+    {
+      "persona_id": "marketing_social_media",
+      "launch_scope": "adjacent",
+      "raw_input": "Brazil-based marketing and social-media professional fluent in Portuguese and English.",
+      "review": {"country": "Brazil", "languages": [{"language": "Portuguese", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["social media manager"], "occupational_families": ["marketing"], "professional_domains": ["marketing", "social media"], "total_years": 5, "skills": ["social media", "content strategy", "ad review", "brand writing"], "target_opportunity_types": ["social media evaluation", "marketing content review"], "employment_types": ["freelance"], "remote": true},
+      "expected_strong_families": ["marketing", "social media evaluation"], "acceptable_fallback_families": ["content evaluation", "writing"], "excluded_specialist_families": ["coding", "licensed healthcare", "advanced science"], "language_requirements": ["Portuguese", "English"], "location_constraints": ["Brazil", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["social media", "content"]
+    },
+    {
+      "persona_id": "graphic_ux_designer",
+      "launch_scope": "adjacent",
+      "raw_input": "Spain-based UX and graphic designer fluent in Spanish and English with Figma and design-research experience.",
+      "review": {"country": "Spain", "languages": [{"language": "Spanish", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["UX designer", "graphic designer"], "occupational_families": ["design"], "professional_domains": ["UX design", "graphic design"], "total_years": 5, "skills": ["Figma", "visual design", "design research", "usability review"], "software_tools": ["Figma"], "target_opportunity_types": ["design evaluation", "visual annotation"], "employment_types": ["freelance"], "remote": true},
+      "expected_strong_families": ["UX design", "graphic design", "visual evaluation"], "acceptable_fallback_families": ["visual annotation"], "excluded_specialist_families": ["coding", "licensed healthcare", "finance"], "language_requirements": ["Spanish", "English"], "location_constraints": ["Spain", "Europe", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["design", "visual"]
+    },
+    {
+      "persona_id": "project_operations_manager",
+      "launch_scope": "adjacent",
+      "raw_input": "Singapore-based project and operations manager with process improvement and stakeholder coordination experience.",
+      "review": {"country": "Singapore", "languages": [{"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["operations manager", "project manager"], "occupational_families": ["project management", "operations"], "professional_domains": ["operations"], "total_years": 10, "seniority": "senior", "contribution_type": "manager", "skills": ["process improvement", "project planning", "stakeholder coordination"], "target_opportunity_types": ["operations evaluation", "project coordination"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["operations", "project management"], "acceptable_fallback_families": ["business evaluation", "administrative support"], "excluded_specialist_families": ["coding", "licensed healthcare", "advanced science"], "language_requirements": ["English"], "location_constraints": ["Singapore", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["operations", "management"]
+    },
+    {
+      "persona_id": "student_no_experience",
+      "launch_scope": "core",
+      "raw_input": "Colombia-based university student fluent in Spanish and intermediate English with no work experience.",
+      "review": {"country": "Colombia", "languages": [{"language": "Spanish", "proficiency": "native"}, {"language": "English", "proficiency": "intermediate"}], "education_level": "bachelor", "education_status": "in_progress", "credential_status": "absent", "professional_domains": ["generalist"], "skills": ["writing", "web research", "spreadsheets"], "target_opportunity_types": ["data annotation", "language data"], "employment_types": ["part-time", "flexible"], "remote": true, "flexible": true, "no_experience": true},
+      "expected_strong_families": ["entry-level generalist", "language data"], "acceptable_fallback_families": ["data annotation", "research"], "excluded_specialist_families": ["senior roles", "licensed work", "advanced science"], "language_requirements": ["Spanish", "English"], "location_constraints": ["Colombia", "Latin America", "Worldwide"], "credential_requirements": ["no completed degree required"], "explanation_expectations": ["entry level", "student"]
+    },
+    {
+      "persona_id": "experienced_career_changer",
+      "launch_scope": "adjacent",
+      "raw_input": "Australia-based hospitality manager changing careers after twelve years, seeking general AI evaluation work.",
+      "review": {"country": "Australia", "languages": [{"language": "English", "proficiency": "native", "locale": "Australia"}], "education_level": "associate", "credential_status": "absent", "job_titles": ["hospitality manager"], "occupational_families": ["hospitality", "operations"], "professional_domains": ["hospitality"], "total_years": 12, "seniority": "senior", "contribution_type": "manager", "skills": ["quality review", "team coordination", "customer service"], "target_opportunity_types": ["general AI evaluation", "content review"], "employment_types": ["part-time", "contract"], "remote": true},
+      "expected_strong_families": ["general evaluation", "operations"], "acceptable_fallback_families": ["customer support evaluation", "content review"], "excluded_specialist_families": ["coding", "licensed healthcare", "legal"], "language_requirements": ["English"], "location_constraints": ["Australia", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["transferable", "quality review"]
+    },
+    {
+      "persona_id": "degree_without_relevant_experience",
+      "launch_scope": "core",
+      "raw_input": "France-based recent history graduate fluent in French and English with no professional experience.",
+      "review": {"country": "France", "languages": [{"language": "French", "proficiency": "native"}, {"language": "English", "proficiency": "fluent"}], "education_level": "bachelor", "degrees": ["BA"], "education_fields": ["history"], "education_status": "completed", "credential_status": "absent", "professional_domains": ["history"], "skills": ["research", "writing", "source evaluation"], "target_opportunity_types": ["research evaluation", "writing review"], "employment_types": ["entry-level", "freelance"], "remote": true, "no_experience": true},
+      "expected_strong_families": ["research evaluation", "writing"], "acceptable_fallback_families": ["general evaluation", "language data"], "excluded_specialist_families": ["senior historian", "coding", "licensed work"], "language_requirements": ["French", "English"], "location_constraints": ["France", "Europe", "Worldwide"], "credential_requirements": ["degree is not work experience"], "explanation_expectations": ["education", "no experience"]
+    },
+    {
+      "persona_id": "restrictive_location_non_us",
+      "launch_scope": "core",
+      "raw_input": "Argentina-based Spanish and English speaker authorized to work only from Argentina.",
+      "review": {"country": "Argentina", "eligible_countries": ["Argentina"], "geographic_restrictions": ["Argentina only"], "languages": [{"language": "Spanish", "proficiency": "native"}, {"language": "English", "proficiency": "professional"}], "education_level": "bachelor", "credential_status": "absent", "professional_domains": ["generalist"], "skills": ["content review", "research"], "target_opportunity_types": ["content evaluation", "language data"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["generalist", "Spanish language data"], "acceptable_fallback_families": ["content evaluation"], "excluded_specialist_families": ["US-only", "Europe-only", "licensed work"], "language_requirements": ["Spanish", "English"], "location_constraints": ["Argentina only"], "credential_requirements": [], "explanation_expectations": ["Argentina eligibility", "language"]
+    },
+    {
+      "persona_id": "uneven_multilingual_proficiency",
+      "launch_scope": "core",
+      "raw_input": "Morocco-based Arabic native speaker, professional French speaker, and basic English speaker seeking language-data work.",
+      "review": {"country": "Morocco", "languages": [{"language": "Arabic", "proficiency": "native"}, {"language": "French", "proficiency": "professional"}, {"language": "English", "proficiency": "basic"}], "education_level": "bachelor", "credential_status": "absent", "job_titles": ["language data reviewer"], "occupational_families": ["language evaluation"], "professional_domains": ["language"], "skills": ["language review", "translation quality", "annotation"], "target_opportunity_types": ["Arabic language evaluation", "French language evaluation"], "employment_types": ["freelance"], "remote": true},
+      "expected_strong_families": ["Arabic language", "French language"], "acceptable_fallback_families": ["multilingual annotation"], "excluded_specialist_families": ["English-native specialist", "unsupported language", "coding"], "language_requirements": ["Arabic", "French"], "location_constraints": ["Morocco", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["proficiency", "matched language"]
+    },
+    {
+      "persona_id": "security_cleared_analyst",
+      "launch_scope": "outside_initial_launch_scope",
+      "raw_input": "US analyst with an active security clearance, research, and policy-analysis experience.",
+      "review": {"country": "United States", "languages": [{"language": "English", "proficiency": "native"}], "education_level": "master", "credential_status": "explicit", "security_clearances": ["active security clearance"], "job_titles": ["policy analyst"], "occupational_families": ["research and analysis"], "professional_domains": ["policy research"], "total_years": 6, "skills": ["policy analysis", "research", "report writing"], "target_opportunity_types": ["research evaluation", "policy analysis"], "employment_types": ["contract"], "remote": true},
+      "expected_strong_families": ["research", "analysis"], "acceptable_fallback_families": ["writing evaluation"], "excluded_specialist_families": ["coding", "licensed healthcare"], "language_requirements": ["English"], "location_constraints": ["United States"], "credential_requirements": ["security clearance only where required"], "explanation_expectations": ["research", "clearance"]
+    },
+    {
+      "persona_id": "accessibility_constrained_worker",
+      "launch_scope": "adjacent",
+      "raw_input": "US-based English speaker with writing and research experience who needs asynchronous text-only work and cannot do audio tasks.",
+      "review": {"country": "United States", "languages": [{"language": "English", "proficiency": "native"}], "education_level": "bachelor", "credential_status": "absent", "professional_domains": ["writing"], "skills": ["writing", "research", "content review"], "target_opportunity_types": ["writing evaluation", "text annotation"], "employment_types": ["part-time"], "remote": true, "flexible": true, "phone_preference": "non-phone required", "accessibility_constraints": ["text-only", "no audio tasks", "asynchronous work"]},
+      "expected_strong_families": ["writing", "text annotation"], "acceptable_fallback_families": ["content evaluation"], "excluded_specialist_families": ["audio annotation", "phone support", "licensed work"], "language_requirements": ["English"], "location_constraints": ["United States", "Worldwide"], "credential_requirements": [], "explanation_expectations": ["text-only", "asynchronous"]
+    }
+  ]
+}

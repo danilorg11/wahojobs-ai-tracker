@@ -310,7 +310,7 @@ class OpportunityTrustCanonicalSelectionTests(unittest.TestCase):
         self.assertNotIn("source verification", preview.user_fit_reason(stale).lower())
         self.assertIn("source refresh", preview.user_caution_note(stale).lower())
 
-    def test_stale_empty_state_differs_from_genuine_no_match(self):
+    def test_stale_empty_state_does_not_expose_internal_freshness(self):
         stale = variant(1, "Worldwide", STALE_SOURCE)
         stale["opportunity_trust"]["source_age_hours"] = 200
         context = {"matches": {section: [] for section in preview.SECTION_ORDER}}
@@ -322,9 +322,9 @@ class OpportunityTrustCanonicalSelectionTests(unittest.TestCase):
             "run-empty",
         )
 
-        self.assertIn("Current source verification is overdue", stale_page)
-        self.assertNotIn("being refreshed", stale_page)
-        self.assertNotIn("No clear matches surfaced", stale_page)
+        self.assertNotIn("source verification", stale_page.lower())
+        self.assertNotIn("source refresh", stale_page.lower())
+        self.assertIn("No clear matches surfaced", stale_page)
         self.assertIn("No clear matches surfaced", empty_page)
 
 

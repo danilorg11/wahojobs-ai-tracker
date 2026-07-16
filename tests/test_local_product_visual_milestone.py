@@ -56,13 +56,13 @@ class LocalProductVisualMilestoneTests(unittest.TestCase):
         page = self.render_results(context)
 
         self.assertIn("Your matches", page)
-        self.assertIn("1 verified match", page)
-        self.assertIn("1 additional match needs source verification", page)
-        self.assertNotIn("being refreshed", page)
+        self.assertIn("1 match", page)
+        self.assertNotIn("source verification", page.lower())
+        self.assertNotIn("recently cached", page.lower())
         self.assertNotIn("Find AI work that fits you", page)
         self.assertEqual(page.count('class="match-rank"'), 1)
 
-    def test_results_header_pluralizes_verified_and_refresh_counts(self):
+    def test_results_header_shows_only_total_usable_count(self):
         context = make_context({"best_matches": 2})
         for title in ("Verification overdue one", "Verification overdue two"):
             match = make_match(title)
@@ -73,9 +73,10 @@ class LocalProductVisualMilestoneTests(unittest.TestCase):
 
         page = self.render_results(context)
 
-        self.assertIn("2 verified matches", page)
-        self.assertIn("2 recently cached matches", page)
-        self.assertNotIn("being refreshed", page)
+        self.assertIn("4 matches", page)
+        self.assertNotIn("verified match", page.lower())
+        self.assertNotIn("recently cached", page.lower())
+        self.assertNotIn("source verification", page.lower())
 
     def test_profile_summary_omits_unavailable_values(self):
         context = make_context({"best_matches": 1})
