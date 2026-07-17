@@ -120,6 +120,10 @@ def snapshot_metrics(
     )
     future_roles = sum(1 for record in records if is_future_role(record.title))
     completed = [snapshot_is_complete(item) for item in snapshots]
+    prior_accepted_count = entry.last_accepted_complete_count
+    for snapshot in snapshots[:-1]:
+        if snapshot_is_complete(snapshot):
+            prior_accepted_count = snapshot.normalized_record_count
     count_anomaly_safe = latest.outcome != ProviderOutcome.ANOMALOUS
     closure_authorized = evaluate_removal_authorization(latest).authorized
     lifecycle_safe = bool(lifecycle and lifecycle.get("closure_safe"))
@@ -158,6 +162,7 @@ def snapshot_metrics(
             "fetch_attempts_this_invocation": len(snapshots),
             "accepted_attempts_this_invocation": sum(completed),
             "readiness_observations_recorded_this_invocation": 0,
+            "prior_accepted_count_used_for_latest_anomaly_check": prior_accepted_count,
         },
         "raw_record_count": raw_count,
         "accepted_source_record_count": latest.normalized_record_count,
@@ -195,6 +200,7 @@ def snapshot_metrics(
         "canonicalization_output_fingerprint": (canonical_metrics or {}).get(
             "canonicalization_output_fingerprint"
         ),
+        "safe_url_count": safe_urls,
         "safe_url_rate": rate(safe_urls, raw_count),
         "metadata_completeness": {
             "source_record_rate": rate(len(records), len(jobs)),

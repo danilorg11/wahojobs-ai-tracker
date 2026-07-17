@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import html
 import json
 from pathlib import Path
@@ -38,6 +38,13 @@ from wahojobs.crawler.greenhouse_pilot import (  # noqa: E402
     run_temporary_lifecycle_probe,
     snapshot_is_complete,
     snapshot_metrics,
+)
+from wahojobs.crawler.greenhouse_observations import (  # noqa: E402
+    ObservationLedgerError,
+    evaluate_operational_readiness,
+    record_observation_bundle,
+    safe_failure_diagnostic,
+    verify_observation_history,
 )
 from wahojobs.crawler.source_registry import (  # noqa: E402
     REGISTRY_PATH,
@@ -114,17 +121,67 @@ def parse_args():
         dest="output_format",
         help="Print the same dry-run report as JSON or a compact human summary.",
     )
+    parser.add_argument(
+        "--record-observation-dir",
+        type=Path,
+        help="Create one immutable observation bundle after this dry-run invocation.",
+    )
+    parser.add_argument(
+        "--history-dir",
+        type=Path,
+        help="Local observation-ledger directory to verify or evaluate.",
+    )
+    history_mode = parser.add_mutually_exclusive_group()
+    history_mode.add_argument(
+        "--verify-history",
+        action="store_true",
+        help="Verify durable local observation history without network or database access.",
+    )
+    history_mode.add_argument(
+        "--evaluate-readiness",
+        action="store_true",
+        help="Evaluate per-board readiness from verified durable history only.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    output_format = getattr(args, "output_format", "json")
+    invocation_started_at = datetime.now(timezone.utc)
     try:
-        entries = select_entries(load_source_registry(args.registry), args.boards)
+        validate_ledger_cli_args(args, argv=sys.argv[1:])
+        all_entries = tuple(load_source_registry(args.registry))
+        if getattr(args, "verify_history", False):
+            report = verify_observation_history(
+                args.history_dir,
+                registry_entries=all_entries,
+            )
+            emit_report(report, output_format)
+            return 0 if report["valid"] else 1
+        if getattr(args, "evaluate_readiness", False):
+            report = evaluate_operational_readiness(
+                args.history_dir,
+                registry_entries=all_entries,
+                requested_registry_ids=getattr(args, "boards", None),
+            )
+            emit_report(report, output_format)
+            if not report["history_verification"]["valid"]:
+                return 1
+            if getattr(args, "require_production_ready", False) and not report[
+                "production_ready"
+            ]:
+                return 1
+            return 0
+        entries = select_entries(all_entries, getattr(args, "boards", None))
     except (OSError, ValueError, json.JSONDecodeError, SystemExit) as exc:
+        diagnostic = safe_failure_diagnostic(
+            exc,
+            default_code="registry_or_configuration_invalid",
+        )
         emit_report(
-            {"error": "registry_or_configuration_invalid", "detail": str(exc)},
-            getattr(args, "output_format", "json"),
+            {"error": diagnostic["failure_code"], **diagnostic},
+            output_format,
         )
         return 2
     evaluated_at = parse_evaluated_at(args.evaluated_at)
@@ -134,39 +191,38 @@ def main():
         try:
             sequences[entry.registry_id] = fetch_snapshot_sequence(entry, args.snapshots)
         except Exception as exc:
+            diagnostic = safe_failure_diagnostic(exc)
             board_failures[entry.registry_id] = {
-                "technically_valid": False,
-                "error_type": type(exc).__name__,
-                "detail": str(exc),
+                "registry_id": entry.registry_id,
+                "board_identifier": entry.board_identifier,
+                "attempted": True,
+                "success": False,
+                **diagnostic,
             }
-    if board_failures:
-        report = {
-            "report_version": "greenhouse_registry_pilot_v2",
-            "evaluated_at": evaluated_at.isoformat(),
-            "technical_dry_run_passed": False,
-            "board_failures": board_failures,
-            "boards_evaluated": [entry.registry_id for entry in entries],
-            "production_enablement_changed": False,
-        }
-        emit_report(report, getattr(args, "output_format", "json"))
-        return 1
+    successful_entries = tuple(
+        entry for entry in entries if entry.registry_id in sequences
+    )
     latest = {registry_id: values[-1] for registry_id, values in sequences.items()}
     lifecycle = (
-        run_temporary_lifecycle_probe(entries, latest)
-        if args.lifecycle_probe
+        run_temporary_lifecycle_probe(successful_entries, latest)
+        if args.lifecycle_probe and successful_entries
         else {}
     )
     coverage_report = (
         None
-        if args.skip_coverage
+        if args.skip_coverage or not successful_entries
         else compare_persona_coverage(
-            entries,
+            successful_entries,
             latest,
             evaluated_at=evaluated_at,
             baseline_rows=load_full_baseline_rows(args.baseline_db),
         )
     )
-    canonical = run_temporary_canonicalization_probe(entries, latest)
+    canonical = (
+        run_temporary_canonicalization_probe(successful_entries, latest)
+        if successful_entries
+        else {}
+    )
     relevant = (
         coverage_report.get("relevant_external_ids_by_registry", {})
         if coverage_report
@@ -178,7 +234,7 @@ def main():
         else None
     )
     sources = []
-    for entry in entries:
+    for entry in successful_entries:
         metrics = snapshot_metrics(
             entry,
             sequences[entry.registry_id],
@@ -226,18 +282,159 @@ def main():
             for entry in pilot_entries
         },
         "sources": sources,
+        "board_failures": board_failures,
         "persona_coverage": coverage_report,
-        "technical_dry_run_passed": all(snapshot_is_complete(result) for result in latest.values()),
+        "technical_dry_run_passed": bool(successful_entries)
+        and len(successful_entries) == len(entries)
+        and all(snapshot_is_complete(result) for result in latest.values()),
         "production_enablement_changed": False,
     }
-    emit_report(report, getattr(args, "output_format", "json"))
     technical_failed = not report["technical_dry_run_passed"]
     readiness_failed = any(
         not source["enablement"]["production_ready"] for source in sources
     )
-    if technical_failed or (args.require_production_ready and readiness_failed):
-        return 1
-    return 0
+    exit_code = int(
+        technical_failed
+        or (getattr(args, "require_production_ready", False) and readiness_failed)
+    )
+    return finalize_operational_invocation(
+        args,
+        report,
+        selected_entries=entries,
+        registry_entries=all_entries,
+        invocation_started_at=invocation_started_at,
+        technical_exit_code=exit_code,
+    )
+
+
+def validate_ledger_cli_args(args, *, argv=None):
+    record_dir = getattr(args, "record_observation_dir", None)
+    history_dir = getattr(args, "history_dir", None)
+    verify = getattr(args, "verify_history", False)
+    evaluate = getattr(args, "evaluate_readiness", False)
+    explicit_options = {
+        token.split("=", 1)[0]
+        for token in (argv if argv is not None else sys.argv[1:])
+        if token.startswith("--")
+    }
+    if verify:
+        allowed = {"--history-dir", "--verify-history", "--format"}
+        disallowed = sorted(explicit_options - allowed)
+        if disallowed:
+            raise ValueError(
+                "--verify-history does not accept: " + ", ".join(disallowed)
+            )
+    if evaluate:
+        allowed = {
+            "--history-dir",
+            "--evaluate-readiness",
+            "--format",
+            "--require-production-ready",
+        }
+        disallowed = sorted(explicit_options - allowed)
+        if disallowed:
+            raise ValueError(
+                "--evaluate-readiness does not accept: " + ", ".join(disallowed)
+            )
+    if (verify or evaluate) and history_dir is None:
+        raise ValueError("--history-dir is required for history verification or readiness.")
+    if history_dir is not None and not (verify or evaluate):
+        raise ValueError("--history-dir requires --verify-history or --evaluate-readiness.")
+    if record_dir is not None and (verify or evaluate):
+        raise ValueError("Recording cannot be combined with a read-only history mode.")
+    if record_dir is not None and getattr(args, "evaluated_at", None):
+        raise ValueError("Recorded observations cannot use a caller-supplied timestamp.")
+
+
+def finalize_operational_invocation(
+    args,
+    report,
+    *,
+    selected_entries,
+    registry_entries,
+    invocation_started_at,
+    technical_exit_code,
+):
+    record_dir = getattr(args, "record_observation_dir", None)
+    if record_dir is not None:
+        try:
+            completed_at = max(
+                datetime.now(timezone.utc),
+                invocation_started_at + timedelta(microseconds=1),
+            )
+            recorded = record_observation_bundle(
+                record_dir,
+                report=report,
+                entries=selected_entries,
+                registry_entries=registry_entries,
+                started_at=invocation_started_at,
+                completed_at=completed_at,
+                registry_path=args.registry,
+            )
+        except (OSError, ObservationLedgerError) as exc:
+            diagnostic = safe_failure_diagnostic(
+                exc,
+                default_code="observation_recording_failed",
+            )
+            report["observation_ledger"] = {
+                "recorded": False,
+                "error": diagnostic["failure_code"],
+                **diagnostic,
+            }
+            emit_report(report, getattr(args, "output_format", "json"))
+            return 2
+        report["observation_ledger"] = {
+            "recorded": True,
+            "path": str(recorded.path),
+            "receipt_path": str(recorded.receipt_path),
+            "ledger_id": recorded.ledger_id,
+            "ledger_sequence": recorded.ledger_sequence,
+            "bundle_id": recorded.bundle_id,
+            "receipt_id": recorded.receipt_id,
+            "run_id": recorded.run_id,
+            "bundle_content_sha256": recorded.bundle_content_sha256,
+            "receipt_content_sha256": recorded.receipt_content_sha256,
+            "invocation_status": recorded.invocation_status,
+            "observation_ids": list(recorded.observation_ids),
+            "boards": _observation_board_summary(report, selected_entries),
+        }
+    emit_report(report, getattr(args, "output_format", "json"))
+    return technical_exit_code
+
+
+def _observation_board_summary(report, selected_entries):
+    sources = {item["registry_id"]: item for item in report.get("sources") or []}
+    failures = report.get("board_failures") or {}
+    result = {}
+    for entry in selected_entries:
+        failure = failures.get(entry.registry_id)
+        value = {
+            "registry_id": entry.registry_id,
+            "board_identifier": entry.board_identifier,
+            "attempted": True,
+            "technical_success": bool(
+                entry.registry_id in sources
+                and sources[entry.registry_id]["technical_status"][
+                    "connector_technically_valid"
+                ]
+                and sources[entry.registry_id]["technical_status"][
+                    "snapshot_structurally_complete"
+                ]
+                and sources[entry.registry_id]["technical_status"][
+                    "snapshot_count_anomaly_safe"
+                ]
+                and sources[entry.registry_id]["technical_status"]["outcome"]
+                == "success"
+                and sources[entry.registry_id]["technical_status"][
+                    "closure_authorized"
+                ]
+            ),
+            "status": "failed" if entry.registry_id in failures else "measured",
+        }
+        if failure:
+            value.update(safe_failure_diagnostic(failure))
+        result[entry.registry_id] = value
+    return result
 
 
 def emit_report(report, output_format):
@@ -251,13 +448,73 @@ def emit_report(report, output_format):
 
 def render_human_report(report):
     if report.get("error"):
-        return "Greenhouse pilot configuration error\n" + str(report.get("detail") or "")
+        return (
+            "Greenhouse pilot configuration error\n"
+            + str(report.get("safe_message") or "The request could not be completed.")
+        )
+    if report.get("report_version") == "greenhouse_pilot_observation_verification_v1":
+        lines = [
+            "Greenhouse observation history verification",
+            "History valid: " + yes_no(report["valid"]),
+            f"Ledger ID: {report.get('ledger_id') or '-'}",
+            f"Bundles verified: {report['bundle_count']}",
+            f"Receipts verified: {report.get('receipt_count', 0)}",
+            f"History fingerprint: {report.get('history_fingerprint') or '-'}",
+            f"Working residue count: {report.get('working_residue_count', 0)}",
+        ]
+        lines.extend(f"- warning: {value}" for value in report.get("warnings") or [])
+        diagnostics = report.get("failure_diagnostics") or []
+        if diagnostics:
+            lines.extend(
+                f"- error: {value['failure_code']} - {value['safe_message']}"
+                for value in diagnostics
+            )
+        else:
+            lines.extend(f"- error: {value}" for value in report.get("errors") or [])
+        return "\n".join(lines)
+    if report.get("report_version") == "greenhouse_pilot_operational_readiness_v1":
+        verification = report["history_verification"]
+        lines = [
+            "Greenhouse operational readiness",
+            "History valid: " + yes_no(verification["valid"]),
+            f"Working residue count: {verification.get('working_residue_count', 0)}",
+            "Overall production ready: " + yes_no(report["production_ready"]),
+            "",
+            "Boards",
+        ]
+        lines.extend(
+            f"- warning: {value}" for value in verification.get("warnings") or []
+        )
+        for registry_id, board in sorted(report.get("boards", {}).items()):
+            lines.extend(
+                [
+                    f"- {registry_id}",
+                    f"  technical snapshot streak: {board['technical_snapshot_streak']}",
+                    f"  observation span hours: {board['observation_span_hours']}",
+                    "  operational snapshot ready: "
+                    + yes_no(board["operational_snapshot_ready"]),
+                    "  terms approved: " + yes_no(board["terms_approved"]),
+                    "  coverage approved: " + yes_no(board["coverage_approved"]),
+                    "  independent acceptance approved: "
+                    + yes_no(board["independent_acceptance_approved"]),
+                    "  closure approved: " + yes_no(board["closure_approved"]),
+                    "  product enabled: " + yes_no(board["product_enabled"]),
+                    "  production crawl enabled: "
+                    + yes_no(board["production_crawl_enabled"]),
+                    "  production ready: " + yes_no(board["production_ready"]),
+                ]
+            )
+        return "\n".join(lines)
     if report.get("board_failures"):
         lines = ["Greenhouse pilot technical dry run", "Technical dry run passed: no"]
+        for source in report.get("sources") or []:
+            lines.append(f"- {source['registry_id']}: measured successfully")
         for registry_id, failure in sorted(report["board_failures"].items()):
             lines.append(
-                f"- {registry_id}: failed ({failure.get('error_type') or 'unknown error'})"
+                f"- {registry_id}: failed ({failure['failure_code']}) - "
+                + failure["safe_message"]
             )
+        _append_ledger_human(lines, report.get("observation_ledger"))
         return "\n".join(lines)
 
     lines = [
@@ -318,7 +575,45 @@ def render_human_report(report):
                 f"- {registry_id}: rows={board['pilot_row_count']}, "
                 f"new_leaks={board['new_eligibility_leakage_count']}"
             )
+    _append_ledger_human(lines, report.get("observation_ledger"))
     return "\n".join(lines)
+
+
+def _append_ledger_human(lines, ledger):
+    if not ledger:
+        return
+    lines.extend(
+        [
+            "",
+            "Durable observation",
+            "- recorded: " + yes_no(ledger["recorded"]),
+        ]
+    )
+    if not ledger["recorded"]:
+        lines.append(
+            f"- error: {ledger.get('failure_code') or 'observation_recording_failed'}"
+            f" - {ledger.get('safe_message') or 'The observation could not be recorded.'}"
+        )
+        return
+    lines.extend(
+        [
+            f"- evidence path: {ledger['path']}",
+            f"- receipt path: {ledger['receipt_path']}",
+            f"- ledger ID: {ledger['ledger_id']}",
+            f"- ledger sequence: {ledger['ledger_sequence']}",
+            f"- run ID: {ledger['run_id']}",
+            f"- bundle ID: {ledger['bundle_id']}",
+            f"- receipt ID: {ledger['receipt_id']}",
+            f"- bundle fingerprint: {ledger['bundle_content_sha256']}",
+            f"- receipt fingerprint: {ledger['receipt_content_sha256']}",
+            f"- invocation status: {ledger['invocation_status']}",
+        ]
+    )
+    for registry_id, value in sorted((ledger.get("boards") or {}).items()):
+        lines.append(
+            f"- {registry_id}: "
+            + ("success" if value["technical_success"] else "failed")
+        )
 
 
 def yes_no(value):
@@ -791,7 +1086,7 @@ def is_testlio_local_field_role(entry, title, record):
 
 def parse_evaluated_at(value):
     if not value:
-        return datetime.now(timezone.utc).replace(microsecond=0)
+        return datetime.now(timezone.utc)
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)

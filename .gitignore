@@ -10,3 +10,6 @@ data/*.sqlite-*
 
 # Generated from live local inventory; use an explicit output path when needed.
 exports/product_readiness_profile_coverage.json
+
+# Local create-only Greenhouse operational evidence; never commit run bundles.
+exports/greenhouse_pilot_observations/

@@ -66,6 +66,145 @@ Exit codes are:
 terms, historical readiness, closure, acceptance, coverage, or enablement gates are
 not satisfied.
 
+## Local operational-observation ledger
+
+Operational evidence is stored outside SQLite and outside Git as one immutable JSON
+bundle and one immutable commit receipt per command invocation. Nothing is written unless
+`--record-observation-dir` is supplied explicitly. The default ignored location is
+`exports/greenhouse_pilot_observations/`; the command does not modify the source
+registry, create crawl runs, import jobs, or use the ordinary production crawler.
+
+Record the next durable observation with:
+
+```powershell
+python -B scripts/greenhouse_pilot.py --snapshots 1 --lifecycle-probe --format json --record-observation-dir exports/greenhouse_pilot_observations
+```
+
+Do not use `--evaluated-at` while recording. Observation times and IDs are generated
+inside the actual invocation. Multiple fetch attempts requested with `--snapshots`
+still produce at most one observation per requested board.
+
+Verify the entire local history without network or database access:
+
+```powershell
+python -B scripts/greenhouse_pilot.py --history-dir exports/greenhouse_pilot_observations --verify-history --format json
+```
+
+Evaluate per-board readiness from verified durable history only:
+
+```powershell
+python -B scripts/greenhouse_pilot.py --history-dir exports/greenhouse_pilot_observations --evaluate-readiness --format json
+```
+
+Offline option handling is an allowlist, not an ignore list. Verification accepts
+only `--history-dir`, `--verify-history`, and `--format`. Readiness accepts only
+`--history-dir`, `--evaluate-readiness`, `--format`, and the optional strict
+`--require-production-ready` check. Board selection, registry overrides, snapshot
+counts, lifecycle and coverage flags, recording flags, and every other fetch option
+are usage errors in offline modes and exit `2` before network, SQLite, history
+evaluation, or filesystem writes.
+
+Use repeated commands on separate operating days. A valid operational snapshot
+streak requires three distinct successful runs, observations, and non-overlapping
+invocation intervals,
+an unchanged parser and compatible registry contract, closure safety, no intervening
+failure or anomaly, and at least 24 hours from the earliest to latest observation.
+The earlier unpersisted Operational Readiness Observation 1 had no durable run ID,
+observation ID, or evidence bundle. It is a technical rehearsal only and never
+counts. After this ledger is accepted, the first recorded command above becomes the
+new durable Observation 1.
+
+### Bundle, receipt, and recovery contract
+
+Each ledger has this fixed layout:
+
+```text
+<ledger>/
+  bundles/<sequence>--<bundle-id>.json
+  receipts/<sequence>--<receipt-id>.json
+  working/
+  .ledger-lock
+```
+
+The first publication creates a random `ledger_id`; every later bundle and receipt
+must retain it. Bundle schema `greenhouse_pilot_observation_bundle_v2` contains bounded identities,
+timestamps, registry/parser hashes, technical metrics, closure results, measured or
+explicitly unmeasured canonical/coverage summaries, and authorization statuses. It
+does not contain credentials, cookies, raw HTML pages, or complete job descriptions.
+Final readiness and streak fields are deliberately absent: they are derived only
+from the complete verified history.
+
+Receipt schema `greenhouse_pilot_observation_receipt_v1` is the local publication
+witness. It binds the ledger sequence, ledger/run/bundle identities, bundle hash,
+previous bundle and receipt hashes, and UTC publication time. Canonical JSON and
+SHA-256 protect both linear chains. Verification requires a one-to-one bundle and
+receipt pair at every contiguous sequence, matching hashes and identities, one root,
+one ledger ID, and strictly increasing, non-overlapping invocation intervals.
+Readiness walks that verified chain in publication order; it never sorts timestamps
+to repair invalid evidence.
+
+Recording uses an OS-backed process lock on Windows and POSIX. It writes and fsyncs
+private temporary files only in `working/`, publishes the bundle create-only, then
+publishes its receipt create-only, and fsyncs directory entries where supported.
+Existing artifacts are never replaced. Readers take the same process-safe lock and
+cannot accept a half-published pair. Before staging begins, the writer verifies the
+existing chain and validates the complete candidate append, including invocation and
+receipt chronology, head fingerprints, sequence, and ledger identity. A clock rollback
+is rejected without fabricating a future timestamp or publishing an artifact.
+
+A crash before bundle publication may leave a recognized, non-authoritative staging
+file in `working/`. It is reported as residue but never counts as evidence, never
+blocks otherwise valid published history, and is ignored by readiness evaluation.
+Verification and evaluation are read-only and never clean residue. A later recording
+invocation, while holding the exclusive process lock, may remove only recognized
+regular staging files before recording its new pair. Unknown files, symlinks, hard
+links, and malformed staging names remain blocking. A crash after bundle publication
+but before receipt publication leaves an orphan published bundle; verification fails
+closed and requires reviewed quarantine or recovery. A failure after receipt
+publication leaves a complete pair even if the command cannot report success. Always
+verify before retrying an uncertain publication; never delete or auto-repair an orphan.
+
+One board failure does not rewrite the other boards' facts. A mixed invocation is
+stored as `partial_success`: failed board evidence breaks only that board's streak,
+while successful board evidence may extend its own. The command still exits `1`.
+
+Evidence limits are shared code constants: at most 64 boards per invocation, 64
+reason/diagnostic codes per board, 96 characters per code, 512 characters per safe
+diagnostic label, and 128 retained entries per bounded metric. Bundles are limited to
+256 KiB and receipts to 16 KiB. Coverage title/company truncation records an omitted
+count and canonical digest. Oversized or structurally unbounded evidence is rejected;
+5,000 diagnostic reasons are never stored.
+
+Ordinary JSON and human output use the same allowlisted failure diagnostics as the
+stored observation. They contain a bounded stable code and generic safe message only;
+raw exception strings, arguments, chained causes, URLs, paths, credentials, cookies,
+HTML, and source payloads are never included. Local traceback debugging, if added in
+the future, must be explicitly enabled, written to standard error only, and must never
+be recorded in an observation bundle.
+
+Verification uses `lstat`-style checks and rejects symlinked ledger/artifact paths,
+nonregular or hard-linked JSON evidence, unsafe generated identities, unexpected
+nested directories, stale temporary files, filename mismatches, two roots, forks,
+cycles, missing predecessors, duplicate/skipped sequences, mixed ledger IDs, copied
+splices, and orphan bundles or receipts. Deleting only the newest bundle or only its
+receipt is therefore detected and can never increase readiness.
+
+If local evidence is invalid, stop scheduling observations and preserve the
+directory for review. Do not edit evidence to repair it and do not import the old
+ephemeral rehearsal. This remains a local tamper-evident ledger, not remote
+attestation. A machine owner can delete both the newest bundle and matching receipt,
+or replace the complete directory with an older valid copy; without an external
+witness, that deliberate tail rollback is not always detectable. Future high-stakes
+automation would require an external hash anchor, signed release, or remote witness.
+Production activation therefore always remains a human-reviewed decision.
+
+Technical history never grants legal or product authorization. Terms review,
+`independent_acceptance_approved`, persona-coverage approval, closure approval,
+`product_enabled`, and `production_crawl_enabled` remain separate gates. Repeated
+technical observations cannot change any of them. GitLab, Customer.io, and Testlio
+therefore remain non-production sources while their terms and acceptance reviews are
+pending.
+
 ## Metric definitions
 
 The report separates raw records, accepted source records, stable identities, exact
