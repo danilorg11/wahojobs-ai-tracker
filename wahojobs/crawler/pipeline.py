@@ -28,6 +28,7 @@ from wahojobs.crawler.types import (
     crawl_run_status_for_result,
     evaluate_removal_authorization,
 )
+from wahojobs.crawler.source_registry import assert_production_dispatch_allowed
 from wahojobs.tracking.service import (
     summarize_crawl_result_without_lifecycle,
     track_crawl_result,
@@ -59,6 +60,7 @@ CRAWLERS = {
 
 
 def run_crawl(company_slug="appen"):
+    registry_entry = assert_production_dispatch_allowed(company_slug)
     with get_connection() as conn:
         company = get_company_by_slug(conn, company_slug)
         if company is None:
@@ -78,6 +80,16 @@ def run_crawl(company_slug="appen"):
                 raise ValueError(f"No crawler is implemented for '{company_slug}'.")
 
             crawl_result = crawler(company["careers_url"])
+            if registry_entry is not None and registry_entry.ats_provider == "greenhouse":
+                from wahojobs.crawler.greenhouse_pilot import apply_count_drop_policy
+
+                crawl_result = apply_count_drop_policy(
+                    registry_entry,
+                    crawl_result,
+                    previous_accepted_count=last_accepted_snapshot_count(
+                        conn, company["id"]
+                    ),
+                )
             removal_authorization = evaluate_removal_authorization(crawl_result)
 
             if crawl_result.outcome == ProviderOutcome.CONTRACT_DRIFT:
@@ -138,3 +150,20 @@ def non_success_diagnostic(crawl_run_status, summary):
     ]
     details = [detail for detail in details if detail]
     return f"{crawl_run_status}: {'; '.join(details)}"
+
+
+def last_accepted_snapshot_count(conn, company_id):
+    row = conn.execute(
+        """
+        SELECT jobs_found_count
+        FROM crawl_runs
+        WHERE company_id = ?
+          AND status = 'success'
+          AND used_sample_data = 0
+          AND error_message IS NULL
+        ORDER BY COALESCE(finished_at, started_at) DESC, id DESC
+        LIMIT 1
+        """,
+        (company_id,),
+    ).fetchone()
+    return int(row[0]) if row is not None else None

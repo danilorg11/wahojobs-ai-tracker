@@ -11,7 +11,6 @@ from unittest.mock import patch
 import scripts.profile_match_digest as matcher
 import wahojobs.crawler.pipeline as pipeline
 from wahojobs.canonical.service import sync_meridial_canonical_opportunities
-from wahojobs.crawler.companies.invisible import crawl_invisible
 from wahojobs.crawler.companies.meridial import crawl_meridial
 from wahojobs.crawler.providers import greenhouse
 from wahojobs.crawler.types import JobCandidate, ProviderOutcome
@@ -390,7 +389,7 @@ class MeridialReliabilityIntegrationTests(unittest.TestCase):
             0,
         )
 
-    def test_other_greenhouse_wrapper_remains_non_authoritative(self):
+    def test_disabled_registry_source_cannot_use_ordinary_dispatch(self):
         self.conn.execute(
             """
             INSERT INTO companies (
@@ -414,25 +413,14 @@ class MeridialReliabilityIntegrationTests(unittest.TestCase):
         )
         old_id = insert_job(self.conn, 2, invisible_item, SEED_TIME)
         self.conn.commit()
-        observed = JobCandidate(
-            external_id="legacy-new",
-            title="Observed Invisible Role",
-            location="Remote",
-            url="https://boards.greenhouse.io/invisibletech/jobs/legacy-new",
-        )
         with patch(
-            "wahojobs.crawler.companies.invisible.fetch_greenhouse_jobs",
-            return_value=[observed],
-        ):
-            legacy_result = crawl_invisible(
-                "https://boards-api.greenhouse.io/v1/boards/invisibletech/jobs"
-            )
+            "wahojobs.crawler.companies.invisible.fetch_greenhouse_jobs"
+        ) as fetch_jobs:
+            with self.assertRaisesRegex(PermissionError, "not enabled"):
+                pipeline.run_crawl("invisible")
 
-        with self.pipeline_context("invisible", lambda _url: legacy_result):
-            _, summary = pipeline.run_crawl("invisible")
-
-        self.assertEqual(self.latest_run(2)["status"], "partial")
-        self.assertFalse(summary.removals_authorized)
+        fetch_jobs.assert_not_called()
+        self.assertIsNone(self.latest_run(2))
         self.assertEqual(
             self.conn.execute(
                 "SELECT is_active FROM jobs WHERE id = ?", (old_id,)

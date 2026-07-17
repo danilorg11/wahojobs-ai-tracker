@@ -1,0 +1,232 @@
+{
+  "registry_version": 2,
+  "sources": [
+    {
+      "registry_id": "greenhouse_meridial",
+      "company_id": "meridial",
+      "company_name": "Meridial",
+      "source_family": "public_ats",
+      "ats_provider": "greenhouse",
+      "board_identifier": "agency",
+      "careers_url": "https://job-boards.greenhouse.io/agency",
+      "allowed_job_hosts": [
+        "job-boards.greenhouse.io",
+        "job-boards.eu.greenhouse.io"
+      ],
+      "connector_enabled_for_dry_run": true,
+      "product_enabled": true,
+      "production_crawl_enabled": true,
+      "priority_tier": "control",
+      "target_families": [
+        "ai_training",
+        "expert_review",
+        "language_data"
+      ],
+      "target_countries": [
+        "global"
+      ],
+      "target_languages": [
+        "multilingual"
+      ],
+      "crawl_cadence_hours": 6,
+      "freshness_sla_hours": 24,
+      "parser_version": "greenhouse-job-board-v1",
+      "terms_review_status": "approved",
+      "acceptance_review_status": "approved",
+      "readiness_observations": [
+        {
+          "run_id": "legacy-reviewed-control-1",
+          "observed_at": "2026-07-13T12:00:00+00:00",
+          "outcome": "complete",
+          "parser_version": "greenhouse-job-board-v1",
+          "accepted_record_count": 821
+        },
+        {
+          "run_id": "legacy-reviewed-control-2",
+          "observed_at": "2026-07-14T12:00:00+00:00",
+          "outcome": "complete",
+          "parser_version": "greenhouse-job-board-v1",
+          "accepted_record_count": 821
+        },
+        {
+          "run_id": "legacy-reviewed-control-3",
+          "observed_at": "2026-07-15T12:00:00+00:00",
+          "outcome": "complete",
+          "parser_version": "greenhouse-job-board-v1",
+          "accepted_record_count": 821
+        }
+      ],
+      "count_drop_policy": {
+        "minimum_previous_count": 10,
+        "minimum_retained_fraction": 0.5
+      },
+      "temporary_closure_status": "passed",
+      "persona_coverage_status": "passed",
+      "root_department_id": 4012485101,
+      "notes": "Regression control. Preserve root department 4012485101 and all existing behavior. Readiness observations carry forward the previously reviewed control streak."
+    },
+    {
+      "registry_id": "greenhouse_gitlab",
+      "company_id": "gitlab",
+      "company_name": "GitLab",
+      "source_family": "public_ats",
+      "ats_provider": "greenhouse",
+      "board_identifier": "gitlab",
+      "careers_url": "https://job-boards.greenhouse.io/gitlab",
+      "allowed_job_hosts": [
+        "job-boards.greenhouse.io"
+      ],
+      "connector_enabled_for_dry_run": true,
+      "product_enabled": false,
+      "production_crawl_enabled": false,
+      "priority_tier": "pilot",
+      "target_families": [
+        "software_engineering",
+        "administrative_support",
+        "customer_support",
+        "data_analysis",
+        "operations"
+      ],
+      "target_countries": [
+        "country_specific_remote",
+        "Americas",
+        "EMEA",
+        "APAC"
+      ],
+      "target_languages": [
+        "unspecified"
+      ],
+      "crawl_cadence_hours": 6,
+      "freshness_sla_hours": 24,
+      "parser_version": "greenhouse-job-board-v1",
+      "terms_review_status": "greenhouse_public_surface_verified_company_terms_pending",
+      "acceptance_review_status": "pending",
+      "readiness_observations": [],
+      "count_drop_policy": {
+        "minimum_previous_count": 10,
+        "minimum_retained_fraction": 0.5
+      },
+      "temporary_closure_status": "pending",
+      "persona_coverage_status": "pending",
+      "notes": "High-volume connector test. Never convert country-specific remote locations into worldwide eligibility."
+    },
+    {
+      "registry_id": "greenhouse_customerio",
+      "company_id": "customerio",
+      "company_name": "Customer.io",
+      "source_family": "public_ats",
+      "ats_provider": "greenhouse",
+      "board_identifier": "customerio",
+      "careers_url": "https://job-boards.greenhouse.io/customerio",
+      "allowed_job_hosts": [
+        "job-boards.greenhouse.io"
+      ],
+      "connector_enabled_for_dry_run": true,
+      "product_enabled": false,
+      "production_crawl_enabled": false,
+      "priority_tier": "pilot",
+      "target_families": [
+        "administrative_support",
+        "customer_support",
+        "data_analysis",
+        "digital_operations"
+      ],
+      "target_countries": [
+        "Americas",
+        "EMEA"
+      ],
+      "target_languages": [
+        "unspecified"
+      ],
+      "crawl_cadence_hours": 6,
+      "freshness_sla_hours": 24,
+      "parser_version": "greenhouse-job-board-v1",
+      "terms_review_status": "greenhouse_public_surface_verified_company_terms_pending",
+      "acceptance_review_status": "pending",
+      "readiness_observations": [],
+      "count_drop_policy": {
+        "minimum_previous_count": 10,
+        "minimum_retained_fraction": 0.5
+      },
+      "temporary_closure_status": "pending",
+      "persona_coverage_status": "pending",
+      "notes": "Preserve Americas and EMEA as regional eligibility constraints and retain seniority requirements."
+    },
+    {
+      "registry_id": "greenhouse_testlio",
+      "company_id": "testlio",
+      "company_name": "Testlio",
+      "source_family": "public_ats",
+      "ats_provider": "greenhouse",
+      "board_identifier": "testlio",
+      "careers_url": "https://job-boards.greenhouse.io/testlio",
+      "allowed_job_hosts": [
+        "job-boards.greenhouse.io"
+      ],
+      "connector_enabled_for_dry_run": true,
+      "product_enabled": false,
+      "production_crawl_enabled": false,
+      "priority_tier": "pilot",
+      "target_families": [
+        "software_testing",
+        "quality_assurance"
+      ],
+      "target_countries": [
+        "global",
+        "AMER",
+        "United_States"
+      ],
+      "target_languages": [
+        "unspecified"
+      ],
+      "crawl_cadence_hours": 6,
+      "freshness_sla_hours": 24,
+      "parser_version": "greenhouse-job-board-v1",
+      "terms_review_status": "greenhouse_public_surface_verified_company_terms_pending",
+      "acceptance_review_status": "pending",
+      "readiness_observations": [],
+      "count_drop_policy": {
+        "minimum_previous_count": 10,
+        "minimum_retained_fraction": 0.5
+      },
+      "temporary_closure_status": "pending",
+      "persona_coverage_status": "pending",
+      "notes": "Future Roles are always-open public leads; United States airport projects are local field work."
+    },
+    {
+      "registry_id": "greenhouse_invisible",
+      "company_id": "invisible",
+      "company_name": "Invisible Technologies",
+      "source_family": "public_ats",
+      "ats_provider": "greenhouse",
+      "board_identifier": "invisibletech",
+      "careers_url": "https://job-boards.greenhouse.io/invisibletech",
+      "allowed_job_hosts": [
+        "job-boards.greenhouse.io"
+      ],
+      "connector_enabled_for_dry_run": false,
+      "product_enabled": false,
+      "production_crawl_enabled": false,
+      "priority_tier": "experimental",
+      "target_families": [
+        "operations",
+        "technical"
+      ],
+      "target_countries": [],
+      "target_languages": [],
+      "crawl_cadence_hours": 24,
+      "freshness_sla_hours": 72,
+      "parser_version": "greenhouse-legacy",
+      "terms_review_status": "further_review_required",
+      "acceptance_review_status": "pending",
+      "readiness_observations": [],
+      "count_drop_policy": {
+        "minimum_previous_count": 10,
+        "minimum_retained_fraction": 0.5
+      },
+      "temporary_closure_status": "pending",
+      "persona_coverage_status": "pending",
+      "notes": "Excluded from ordinary inventory. Migration to the strict connector requires separate approval."
+    }
+  ]
+}

@@ -91,6 +91,124 @@ class GreenhouseProviderContractTests(unittest.TestCase):
             first.schema_fingerprint.startswith("greenhouse-job-board-v1:sha256:")
         )
 
+    def test_rich_metadata_is_preserved_in_source_records(self):
+        jobs = copy.deepcopy(self.fixtures["valid_jobs_inventory"])
+        jobs["jobs"][0].update(
+            {
+                "content": "<p>Python role description</p>",
+                "internal_job_id": 9001,
+                "requisition_id": "REQ-1001",
+                "first_published": "2026-06-01T12:00:00-04:00",
+                "application_deadline": "2026-08-01T12:00:00-04:00",
+                "language": "en",
+                "company_name": "Meridial",
+                "metadata": [{"name": "Priority", "value": "High"}],
+                "education": "education_required",
+                "data_compliance": [{"type": "gdpr", "requires_consent": False}],
+                "application_url": "https://apply.example.com/forms/1001",
+                "compensation_usd": {"minimum": 20, "maximum": 40},
+                "unknown_public_field": {"nested": [1, True, None]},
+            }
+        )
+        fetcher = fixture_fetcher([jobs, self.fixtures["valid_department_hierarchy"]])
+        with patch.object(greenhouse, "request_json", side_effect=fetcher):
+            result = crawl_meridial(CONFIGURED_URL)
+
+        records = {record.external_id: record for record in result.source_records}
+        record = records["1001"]
+        self.assertEqual(record.source_name, "Meridial")
+        self.assertEqual(record.company_id, "meridial")
+        self.assertEqual(record.board_token, "agency")
+        self.assertEqual(record.greenhouse_job_id, 1001)
+        self.assertEqual(record.description_html, "<p>Python role description</p>")
+        self.assertEqual(record.updated_at, "2026-07-01T12:00:00-04:00")
+        self.assertEqual(record.internal_job_id, 9001)
+        self.assertEqual(record.requisition_id, "REQ-1001")
+        self.assertEqual(record.first_published, "2026-06-01T12:00:00-04:00")
+        self.assertEqual(record.application_deadline, "2026-08-01T12:00:00-04:00")
+        self.assertEqual(record.language, "en")
+        self.assertEqual(record.company_name, "Meridial")
+        self.assertEqual(record.application_url, "https://apply.example.com/forms/1001")
+        self.assertIn("Worldwide - Remote", record.additional_locations)
+        self.assertEqual(json.loads(record.metadata_json)[0]["value"], "High")
+        self.assertEqual(json.loads(record.education_json), "education_required")
+        self.assertFalse(json.loads(record.compliance_json)[0]["requires_consent"])
+        self.assertEqual(json.loads(record.compensation_json)["compensation_usd"]["minimum"], 20)
+        self.assertEqual(
+            json.loads(record.raw_public_payload_json)["unknown_public_field"]["nested"],
+            [1, True, None],
+        )
+        self.assertEqual(record.departments[0].name, "Engineering & Technology")
+        self.assertEqual(record.offices[0].name, "Worldwide - Remote")
+
+        second, _ = self.fetch()
+        jobs_again = copy.deepcopy(jobs)
+        fetcher = fixture_fetcher([jobs_again, self.fixtures["valid_department_hierarchy"]])
+        with patch.object(greenhouse, "request_json", side_effect=fetcher):
+            deterministic = crawl_meridial(CONFIGURED_URL)
+        self.assertEqual(
+            record.raw_public_payload_json,
+            deterministic.source_records[0].raw_public_payload_json,
+        )
+        self.assertEqual(second.outcome, ProviderOutcome.SUCCESS)
+
+    def test_optional_public_metadata_wrong_types_make_snapshot_partial(self):
+        cases = {
+            "internal_job_id": True,
+            "metadata": {},
+            "data_compliance": {},
+            "education": 123,
+            "company_name": ["Meridial"],
+        }
+        for field, value in cases.items():
+            with self.subTest(field=field):
+                jobs = copy.deepcopy(self.fixtures["valid_jobs_inventory"])
+                jobs["jobs"][0][field] = value
+                fetcher = fixture_fetcher([jobs, self.fixtures["valid_department_hierarchy"]])
+                with patch.object(greenhouse, "request_json", side_effect=fetcher):
+                    result = crawl_meridial(CONFIGURED_URL)
+                self.assertEqual(result.outcome, ProviderOutcome.PARTIAL)
+                self.assertFalse(evaluate_removal_authorization(result).authorized)
+
+    def test_job_urls_are_bound_to_registry_board_host_and_id(self):
+        config = MERIDIAL_GREENHOUSE_CONFIG
+        valid = "https://job-boards.eu.greenhouse.io/agency/jobs/7001"
+        self.assertIsNone(greenhouse.validate_job_url(valid, 7001, config))
+        invalid = (
+            "https://job-boards.greenhouse.io/customerio/jobs/7001",
+            "https://evil.example/jobs/7001",
+            "https://job-boards.greenhouse.io/agency",
+            "https://job-boards.greenhouse.io/agency/jobs/another-id",
+            "//job-boards.greenhouse.io/agency/jobs/7001",
+            "http://job-boards.greenhouse.io/agency/jobs/7001",
+            "https://agency@job-boards.greenhouse.io/agency/jobs/7001",
+        )
+        for url in invalid:
+            with self.subTest(url=url):
+                self.assertIsNotNone(greenhouse.validate_job_url(url, 7001, config))
+        custom = greenhouse.GreenhouseBoardConfig(
+            source_name="Example",
+            company_id="example",
+            board_token="example",
+            allowed_job_hosts=("job-boards.greenhouse.io", "careers.example.com"),
+        )
+        self.assertIsNone(
+            greenhouse.validate_job_url(
+                "https://careers.example.com/example/jobs/7001", 7001, custom
+            )
+        )
+
+    def test_cross_board_url_invalidates_the_snapshot(self):
+        jobs = copy.deepcopy(self.fixtures["valid_jobs_inventory"])
+        jobs["jobs"][0]["absolute_url"] = (
+            "https://job-boards.greenhouse.io/customerio/jobs/1001"
+        )
+        fetcher = fixture_fetcher([jobs, self.fixtures["valid_department_hierarchy"]])
+        with patch.object(greenhouse, "request_json", side_effect=fetcher):
+            result = crawl_meridial(CONFIGURED_URL)
+        self.assertEqual(result.outcome, ProviderOutcome.PARTIAL)
+        self.assertFalse(evaluate_removal_authorization(result).authorized)
+
     def test_unknown_jobs_contracts_are_contract_drift(self):
         for name in (
             "invalid_root_envelope",

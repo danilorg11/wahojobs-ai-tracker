@@ -17,6 +17,7 @@ REQUEST_HEADERS = {
 }
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RECORDS = 20_000
+MAX_RAW_RECORD_BYTES = 2_000_000
 GREENHOUSE_V1_PAYLOAD_SHAPE = "greenhouse-job-board-v1:jobs+department-tree"
 APPLICATION_ERROR_FIELDS = {"error", "errors", "status", "success"}
 
@@ -33,6 +34,20 @@ JOB_RECORD_SCHEMA = {
     "offices": "list[office]",
     "title": "string",
     "updated_at": "string",
+}
+JOB_OPTIONAL_PUBLIC_SCHEMA = {
+    "application_deadline": "string|null",
+    "application_url": "string|null",
+    "company_name": "string|null",
+    "content": "string|null",
+    "data_compliance": "list|null",
+    "education": "string|list|object|null",
+    "first_published": "string|null",
+    "internal_job_id": "integer|null",
+    "language": "string|null",
+    "metadata": "list|null",
+    "requisition_id": "string|null",
+    "unknown_optional_fields": "bounded deterministic JSON",
 }
 JOB_DEPARTMENT_SCHEMA = {
     "child_ids": "list[integer]",
@@ -65,6 +80,11 @@ DEPARTMENT_JOB_SCHEMA = {
 class GreenhouseBoardConfig:
     source_name: str
     board_token: str
+    company_id: str = ""
+    allowed_job_hosts: tuple[str, ...] = (
+        "job-boards.greenhouse.io",
+        "job-boards.eu.greenhouse.io",
+    )
     api_host: str = "https://boards-api.greenhouse.io"
     root_department_id: int | None = None
     include_content: bool = True
@@ -72,8 +92,55 @@ class GreenhouseBoardConfig:
 
 
 @dataclass(frozen=True)
+class GreenhouseDepartmentMetadata:
+    department_id: int
+    name: str
+    parent_id: int | None
+    child_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class GreenhouseOfficeMetadata:
+    office_id: int
+    name: str
+    location: str | None
+    parent_id: int | None
+    child_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class GreenhouseSourceRecord:
+    source_name: str
+    company_id: str
+    board_token: str
+    greenhouse_job_id: int
+    external_id: str
+    title: str
+    url: str
+    application_url: str | None
+    location: str
+    additional_locations: tuple[str, ...]
+    description_html: str | None
+    updated_at: str
+    internal_job_id: int | None
+    requisition_id: str | None
+    first_published: str | None
+    application_deadline: str | None
+    language: str | None
+    company_name: str | None
+    metadata_json: str
+    education_json: str
+    compliance_json: str
+    compensation_json: str
+    raw_public_payload_json: str
+    departments: tuple[GreenhouseDepartmentMetadata, ...]
+    offices: tuple[GreenhouseOfficeMetadata, ...]
+
+
+@dataclass(frozen=True)
 class ParsedInventoryJob:
     candidate: JobCandidate
+    source_record: GreenhouseSourceRecord
     department_ids: tuple[int, ...]
     department_names: tuple[str, ...]
     title: str
@@ -134,7 +201,7 @@ def fetch_greenhouse_snapshot(config: GreenhouseBoardConfig, configured_url=None
     rejected_record_count = 0
     duplicate_ids = set()
     for index, record in enumerate(raw_records):
-        parsed, error = parse_inventory_record(record)
+        parsed, error = parse_inventory_record(record, config)
         if error:
             rejected_record_count += 1
             warnings.append(f"Rejected inventory record at index {index}: {error}")
@@ -163,6 +230,7 @@ def fetch_greenhouse_snapshot(config: GreenhouseBoardConfig, configured_url=None
         tree, tree_errors = parse_department_tree(
             tree_payload,
             expected_root_id=config.root_department_id,
+            config=config,
         )
         if tree_errors:
             warnings.extend(tree_errors)
@@ -173,6 +241,7 @@ def fetch_greenhouse_snapshot(config: GreenhouseBoardConfig, configured_url=None
                 rejected_record_count,
                 warnings,
                 configured_url,
+                source_records=source_records_from(parsed_by_id),
             )
 
         consistency_errors, consistency_warnings = validate_cross_endpoint_consistency(
@@ -189,6 +258,7 @@ def fetch_greenhouse_snapshot(config: GreenhouseBoardConfig, configured_url=None
                 rejected_record_count,
                 warnings,
                 configured_url,
+                source_records=source_records_from(parsed_by_id),
             )
 
     jobs = enrich_candidates(parsed_by_id, tree)
@@ -200,6 +270,7 @@ def fetch_greenhouse_snapshot(config: GreenhouseBoardConfig, configured_url=None
             rejected_record_count,
             warnings,
             configured_url,
+            source_records=source_records_from(parsed_by_id),
         )
     if not jobs:
         warnings.append(
@@ -213,6 +284,7 @@ def fetch_greenhouse_snapshot(config: GreenhouseBoardConfig, configured_url=None
             rejected_record_count,
             warnings,
             configured_url,
+            source_records=source_records_from(parsed_by_id),
         )
 
     return CompanyCrawlResult(
@@ -230,6 +302,7 @@ def fetch_greenhouse_snapshot(config: GreenhouseBoardConfig, configured_url=None
         rejected_record_count=0,
         warnings=tuple(warnings),
         schema_fingerprint=greenhouse_schema_fingerprint(),
+        source_records=source_records_from(parsed_by_id),
     )
 
 
@@ -284,7 +357,7 @@ def validate_department_tree_root(payload):
     return None
 
 
-def parse_inventory_record(record):
+def parse_inventory_record(record, config):
     if not isinstance(record, dict):
         return None, f"record is {type_name(record)}, expected object."
 
@@ -300,23 +373,27 @@ def parse_inventory_record(record):
     if not title:
         return None, "title must be a non-empty string."
     url = strict_text(record["absolute_url"])
-    url_error = validate_job_url(url, job_id)
+    url_error = validate_job_url(url, job_id, config)
     if url_error:
         return None, url_error
     location, location_error = parse_location(record["location"])
     if location_error:
         return None, location_error
-    if not isinstance(record["updated_at"], str) or not record["updated_at"].strip():
+    updated_at = strict_text(record["updated_at"])
+    if not updated_at:
         return None, "updated_at must be a non-empty string."
 
     departments, department_error = parse_job_departments(record["departments"])
     if department_error:
         return None, department_error
-    office_error = validate_job_offices(record["offices"])
+    offices, office_error = parse_job_offices(record["offices"])
     if office_error:
         return None, office_error
+    optional, optional_error = parse_optional_public_metadata(record)
+    if optional_error:
+        return None, optional_error
 
-    department_names = tuple(item[1] for item in departments)
+    department_names = tuple(item.name for item in departments)
     department = ", ".join(department_names) or None
     candidate = JobCandidate(
         external_id=str(job_id),
@@ -330,13 +407,147 @@ def parse_inventory_record(record):
     return (
         ParsedInventoryJob(
             candidate=candidate,
-            department_ids=tuple(item[0] for item in departments),
+            source_record=GreenhouseSourceRecord(
+                source_name=config.source_name,
+                company_id=config.company_id,
+                board_token=config.board_token,
+                greenhouse_job_id=job_id,
+                external_id=str(job_id),
+                title=title,
+                url=url,
+                application_url=optional["application_url"],
+                location=location,
+                additional_locations=additional_locations(location, offices),
+                description_html=strict_text(record.get("content")),
+                updated_at=updated_at,
+                internal_job_id=optional["internal_job_id"],
+                requisition_id=optional["requisition_id"],
+                first_published=optional["first_published"],
+                application_deadline=optional["application_deadline"],
+                language=optional["language"],
+                company_name=optional["company_name"],
+                metadata_json=optional["metadata_json"],
+                education_json=optional["education_json"],
+                compliance_json=optional["compliance_json"],
+                compensation_json=optional["compensation_json"],
+                raw_public_payload_json=optional["raw_public_payload_json"],
+                departments=tuple(departments),
+                offices=tuple(offices),
+            ),
+            department_ids=tuple(item.department_id for item in departments),
             department_names=department_names,
             title=title,
             location=location,
             url=url,
         ),
         None,
+    )
+
+
+def parse_optional_public_metadata(record):
+    validators = {
+        "company_name": (str, type(None)),
+        "content": (str, type(None)),
+        "internal_job_id": (int, type(None)),
+        "requisition_id": (str, type(None)),
+        "first_published": (str, type(None)),
+        "application_deadline": (str, type(None)),
+        "language": (str, type(None)),
+        "metadata": (list, type(None)),
+        "education": (str, list, dict, type(None)),
+        "data_compliance": (list, type(None)),
+        "application_url": (str, type(None)),
+        "include_ai_disclaimer": (bool, type(None)),
+        "ai_disclaimer": (str, type(None)),
+        "ai_opt_out_request_url": (str, type(None)),
+    }
+    for field, allowed_types in validators.items():
+        if field not in record:
+            continue
+        value = record[field]
+        if not isinstance(value, allowed_types) or (
+            field == "internal_job_id" and isinstance(value, bool)
+        ):
+            return None, f"{field} has unsupported type {type_name(value)}."
+
+    application_url = strict_text(record.get("application_url"))
+    if application_url and application_url != record.get("absolute_url"):
+        application_error = validate_public_https_url(application_url)
+        if application_error:
+            return None, f"application_url {application_error}"
+    else:
+        application_url = None
+
+    compensation = {
+        key: value
+        for key, value in record.items()
+        if any(marker in key.casefold() for marker in ("pay", "compensation", "salary"))
+    }
+    try:
+        raw_payload = deterministic_json(record)
+        metadata_json = deterministic_json(record.get("metadata"))
+        education_json = deterministic_json(record.get("education"))
+        compliance_json = deterministic_json(record.get("data_compliance"))
+        compensation_json = deterministic_json(compensation)
+    except (TypeError, ValueError) as exc:
+        return None, f"public metadata is not JSON serializable: {exc}."
+    if len(raw_payload.encode("utf-8")) > MAX_RAW_RECORD_BYTES:
+        return None, "public metadata exceeds the bounded raw-record size."
+
+    internal_job_id = record.get("internal_job_id")
+    if internal_job_id is not None and internal_job_id < 1:
+        return None, "internal_job_id must be a positive integer or null."
+    return {
+        "application_url": application_url,
+        "internal_job_id": internal_job_id,
+        "requisition_id": strict_text(record.get("requisition_id")),
+        "first_published": strict_text(record.get("first_published")),
+        "application_deadline": strict_text(record.get("application_deadline")),
+        "language": strict_text(record.get("language")),
+        "company_name": strict_text(record.get("company_name")),
+        "metadata_json": metadata_json,
+        "education_json": education_json,
+        "compliance_json": compliance_json,
+        "compensation_json": compensation_json,
+        "raw_public_payload_json": raw_payload,
+    }, None
+
+
+def additional_locations(primary_location, offices):
+    values = []
+    for office in offices:
+        for value in (office.name, office.location):
+            cleaned = clean_value(value)
+            if cleaned and cleaned != primary_location and cleaned not in values:
+                values.append(cleaned)
+    return tuple(values)
+
+
+def validate_public_https_url(value):
+    if not isinstance(value, str) or any(ord(char) < 32 for char in value):
+        return "must be a valid HTTPS URL."
+    try:
+        parsed = urlparse(value)
+        port = parsed.port
+    except ValueError:
+        return "must be a valid HTTPS URL."
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+    ):
+        return "must be a valid HTTPS URL."
+    return None
+
+
+def deterministic_json(value):
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
     )
 
 
@@ -375,35 +586,64 @@ def parse_job_departments(value):
         if department_id in seen:
             return None, f"departments contains duplicate id {department_id}."
         seen.add(department_id)
-        parsed.append((department_id, name))
+        parsed.append(
+            GreenhouseDepartmentMetadata(
+                department_id=department_id,
+                name=name,
+                parent_id=parent_id,
+                child_ids=tuple(child_ids),
+            )
+        )
+    return parsed, None
+
+
+def parse_job_offices(value):
+    if not isinstance(value, list):
+        return None, "offices must be a list."
+    parsed = []
+    seen = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            return None, f"offices[{index}] must be an object."
+        missing = [field for field in JOB_OFFICE_SCHEMA if field not in item]
+        if missing:
+            return None, f"offices[{index}] is missing fields {missing}."
+        office_id = item["id"]
+        name = strict_text(item["name"])
+        parent_id = item["parent_id"]
+        location = item["location"]
+        child_ids = item["child_ids"]
+        if not is_integer(office_id) or office_id < 0:
+            return None, f"offices[{index}].id must be a non-negative integer."
+        if office_id in seen:
+            return None, f"offices contains duplicate id {office_id}."
+        if not name:
+            return None, f"offices[{index}].name must be a non-empty string."
+        if parent_id is not None and not is_integer(parent_id):
+            return None, f"offices[{index}].parent_id must be an integer or null."
+        if location is not None and not isinstance(location, str):
+            return None, f"offices[{index}].location must be a string or null."
+        if not isinstance(child_ids, list) or not all(is_integer(value) for value in child_ids):
+            return None, f"offices[{index}].child_ids must be a list of integers."
+        seen.add(office_id)
+        parsed.append(
+            GreenhouseOfficeMetadata(
+                office_id=office_id,
+                name=name,
+                location=clean_value(location),
+                parent_id=parent_id,
+                child_ids=tuple(child_ids),
+            )
+        )
     return parsed, None
 
 
 def validate_job_offices(value):
-    if not isinstance(value, list):
-        return "offices must be a list."
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            return f"offices[{index}] must be an object."
-        missing = [field for field in JOB_OFFICE_SCHEMA if field not in item]
-        if missing:
-            return f"offices[{index}] is missing fields {missing}."
-        if not is_integer(item["id"]) or item["id"] < 0:
-            return f"offices[{index}].id must be a non-negative integer."
-        if not strict_text(item["name"]):
-            return f"offices[{index}].name must be a non-empty string."
-        if item["parent_id"] is not None and not is_integer(item["parent_id"]):
-            return f"offices[{index}].parent_id must be an integer or null."
-        if item["location"] is not None and not isinstance(item["location"], str):
-            return f"offices[{index}].location must be a string or null."
-        if not isinstance(item["child_ids"], list) or not all(
-            is_integer(value) for value in item["child_ids"]
-        ):
-            return f"offices[{index}].child_ids must be a list of integers."
-    return None
+    _parsed, error = parse_job_offices(value)
+    return error
 
 
-def parse_department_tree(root, expected_root_id):
+def parse_department_tree(root, expected_root_id, config):
     department_paths = {}
     job_paths = {}
     job_references = {}
@@ -458,7 +698,7 @@ def parse_department_tree(root, expected_root_id):
             return
         seen_here = set()
         for index, reference in enumerate(jobs):
-            parsed, error = parse_department_job_reference(reference)
+            parsed, error = parse_department_job_reference(reference, config)
             if error:
                 errors.append(
                     f"Department {department_id} job reference {index}: {error}"
@@ -488,7 +728,7 @@ def parse_department_tree(root, expected_root_id):
     )
 
 
-def parse_department_job_reference(record):
+def parse_department_job_reference(record, config):
     if not isinstance(record, dict):
         return None, "record must be an object."
     missing = [field for field in DEPARTMENT_JOB_SCHEMA if field not in record]
@@ -501,7 +741,7 @@ def parse_department_job_reference(record):
     if not title:
         return None, "title must be a non-empty string."
     url = strict_text(record["absolute_url"])
-    url_error = validate_job_url(url, job_id)
+    url_error = validate_job_url(url, job_id, config)
     if url_error:
         return None, url_error
     location, location_error = parse_location(record["location"])
@@ -577,18 +817,38 @@ def enrich_candidates(parsed_by_id, tree):
     return jobs
 
 
-def validate_job_url(url, job_id):
+def source_records_from(parsed_by_id):
+    return tuple(item.source_record for item in parsed_by_id.values())
+
+
+def validate_job_url(url, job_id, config):
     if not url:
         return "absolute_url must be a non-empty string."
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.netloc:
+    if not isinstance(url, str) or any(ord(char) < 32 for char in url):
+        return "absolute_url contains invalid characters."
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return "absolute_url is malformed."
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.query
+        or parsed.fragment
+    ):
         return "absolute_url must be an absolute HTTPS URL."
+    if (parsed.hostname or "").casefold() not in set(config.allowed_job_hosts):
+        return "absolute_url host is not approved for this registry board."
     normalized_path = parsed.path.rstrip("/")
-    expected_suffix = f"/jobs/{job_id}"
-    if not normalized_path.endswith(expected_suffix):
+    expected_path = f"/{config.board_token}/jobs/{job_id}"
+    if normalized_path != expected_path:
         return (
-            "absolute_url must be job-specific and end with the stable Greenhouse "
-            f"job id ({expected_suffix})."
+            "absolute_url must be scoped to the configured board and exact stable "
+            f"Greenhouse job id ({expected_path})."
         )
     return None
 
@@ -600,6 +860,8 @@ def partial_result(
     rejected_record_count,
     warnings,
     configured_url,
+    *,
+    source_records=(),
 ):
     return CompanyCrawlResult(
         jobs=jobs,
@@ -616,6 +878,7 @@ def partial_result(
         rejected_record_count=rejected_record_count,
         warnings=tuple(warnings),
         schema_fingerprint=greenhouse_schema_fingerprint(),
+        source_records=tuple(source_records),
     )
 
 
@@ -665,6 +928,7 @@ def greenhouse_schema_fingerprint():
         },
         "records": {
             "job": JOB_RECORD_SCHEMA,
+            "job_optional_public": JOB_OPTIONAL_PUBLIC_SCHEMA,
             "job_department": JOB_DEPARTMENT_SCHEMA,
             "job_office": JOB_OFFICE_SCHEMA,
             "department_job": DEPARTMENT_JOB_SCHEMA,

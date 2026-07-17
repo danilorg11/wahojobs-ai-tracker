@@ -5,6 +5,7 @@ from enum import Enum
 class ProviderOutcome(str, Enum):
     SUCCESS = "success"
     PARTIAL = "partial"
+    ANOMALOUS = "anomalous"
     CONTRACT_DRIFT = "contract_drift"
 
 
@@ -50,10 +51,12 @@ class CompanyCrawlResult:
     rejected_record_count: int = 0
     warnings: tuple[str, ...] = ()
     schema_fingerprint: str = ""
+    source_records: tuple[object, ...] = ()
 
     def __post_init__(self):
         object.__setattr__(self, "outcome", ProviderOutcome(self.outcome))
         object.__setattr__(self, "warnings", tuple(self.warnings))
+        object.__setattr__(self, "source_records", tuple(self.source_records))
         for field_name in (
             "raw_record_count",
             "normalized_record_count",

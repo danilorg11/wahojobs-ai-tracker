@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from wahojobs.crawler.pipeline import run_crawl
+from wahojobs.crawler.source_registry import production_dispatch_allowed
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import (
     get_company_by_slug,
@@ -14,7 +15,6 @@ from wahojobs.db.repository import (
     initialize_database,
 )
 from wahojobs.reporting.market import (
-    experimental_sources_status,
     get_classification_summary,
     get_market_size_summary,
 )
@@ -46,9 +46,10 @@ MINDRIFT_COOLDOWN_HOURS = 12
 
 def main():
     args = parse_args()
-    sources = list(CORE_SOURCES)
-    if args.include_experimental:
-        sources.extend(EXPERIMENTAL_SOURCES)
+    sources, registry_blocked = select_daily_sources(args.include_experimental)
+    enabled_experimental = [
+        source for source in EXPERIMENTAL_SOURCES if source in sources
+    ]
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
@@ -59,11 +60,13 @@ def main():
     print("Simulation: excluded")
     print(f"Core sources: {', '.join(CORE_SOURCES)}")
     if args.include_experimental:
-        print(
-            "Experimental sources: "
-            f"{experimental_sources_status(args.include_experimental)} "
-            f"({', '.join(EXPERIMENTAL_SOURCES)})"
-        )
+        if enabled_experimental:
+            print("Experimental sources included: " + ", ".join(enabled_experimental))
+        if registry_blocked:
+            print(
+                "Registry-disabled experimental sources skipped: "
+                + ", ".join(registry_blocked)
+            )
     else:
         print(
             "Experimental sources skipped: invisible "
@@ -109,7 +112,21 @@ def main():
     run_script("scripts/export_jobs.py", "Export Jobs")
     run_script("scripts/export_events.py", "Export Events")
 
-    print_final_summary(succeeded, failed, skipped, args.include_experimental)
+    print_final_summary(
+        succeeded,
+        failed,
+        skipped,
+        include_experimental=bool(enabled_experimental),
+    )
+
+
+def select_daily_sources(include_experimental=False):
+    requested = list(CORE_SOURCES)
+    if include_experimental:
+        requested.extend(EXPERIMENTAL_SOURCES)
+    allowed = [source for source in requested if production_dispatch_allowed(source)]
+    blocked = [source for source in requested if source not in allowed]
+    return allowed, blocked
 
 
 def parse_args():
@@ -119,7 +136,10 @@ def parse_args():
     parser.add_argument(
         "--include-experimental",
         action="store_true",
-        help="Also run non-core/experimental sources such as Invisible.",
+        help=(
+            "Request non-core sources; registry-disabled experimental sources "
+            "remain excluded from crawling and reports."
+        ),
     )
     return parser.parse_args()
 
