@@ -19,6 +19,9 @@ MIGRATION_PATH = (
     / "migrations"
     / f"{MIGRATION_VERSION}.sql"
 )
+FORWARD_COMPATIBLE_OWNERSHIP_OBJECTS = {
+    ("index", "uq_product_principals_profile_environment"): "004_persistent_product_profiles",
+}
 
 
 @lru_cache(maxsize=1)
@@ -143,6 +146,7 @@ def _capture_manifest(conn) -> dict:
             "WHERE type IN ('table', 'index', 'trigger', 'view')"
         )
         if _is_ownership_object(row[0], row[1], row[2])
+        and not _is_installed_forward_compatible_object(conn, row[0], row[1])
     }
     objects = tuple(sorted(raw_objects))
     definitions = {
@@ -170,6 +174,8 @@ def _capture_manifest(conn) -> dict:
         indexes = []
         for row in conn.execute(f"PRAGMA index_list({quote_identifier(table)})"):
             index_name = row[1]
+            if _is_installed_forward_compatible_object(conn, "index", index_name):
+                continue
             detail = {
                 "table": table,
                 "unique": row[2],
@@ -213,6 +219,19 @@ def _is_ownership_object(kind: str, name: str, table_name: str) -> bool:
         "trg_ownership_binding_events_",
     )
     return kind in {"index", "trigger"} and name.startswith(prefixes)
+
+
+def _is_installed_forward_compatible_object(conn, kind: str, name: str) -> bool:
+    required_marker = FORWARD_COMPATIBLE_OWNERSHIP_OBJECTS.get((kind, name))
+    if required_marker is None or not _table_exists(conn, "wahojobs_schema_migrations"):
+        return False
+    return (
+        conn.execute(
+            "SELECT 1 FROM wahojobs_schema_migrations WHERE version = ?",
+            (required_marker,),
+        ).fetchone()
+        is not None
+    )
 
 
 def _normalize_sql(value: str | None) -> str | None:
