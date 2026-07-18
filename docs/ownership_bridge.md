@@ -1,6 +1,6 @@
 # Dormant Product Principal Ownership Bridge
 
-Accounts Milestone B1 defines a durable ownership namespace without changing any current product owner. Migration 003 is not installed in the workspace database, no principal or alias has been registered, and browser authentication remains disconnected.
+Accounts Milestone B1 defines a durable ownership namespace without changing any current product owner. Migration 003 is installed in the workspace database as dormant infrastructure, no principal or alias has been registered, and browser authentication and product authorization remain disconnected.
 
 ## Identity boundaries
 
@@ -21,16 +21,41 @@ The planned direction is `authenticated account -> product principal -> immutabl
 - `principal_account_bindings`
 - `ownership_binding_events`
 
-It creates no claims, persistent profiles, MatchRuns, browser sessions, or product rows. It inserts no principal automatically. Migration 003 requires complete, reconciled Migrations 001 and 002 and is installed only by the guarded command:
+It creates no claims, persistent profiles, MatchRuns, browser sessions, or product rows. It inserts no principal automatically. Migration 003 requires complete, reconciled Migrations 001 and 002. Inspection remains read-only by default; applying requires `--yes`, and accessing the configured workspace path additionally requires `--allow-workspace-db` after separate authorization. DDL, the marker, integrity checks, foreign-key checks, and ownership reconciliation are one migration-owned transaction. A failed statement leaves no Migration-003 object or marker.
+
+Migration 003 was installed on `2026-07-18` from source commit `76991be` as version `003_product_principals` with:
 
 ```text
-python -B scripts/ownership_migration.py --db <temporary-or-reviewed-database>
-python -B scripts/ownership_migration.py --db <temporary-or-reviewed-database> --yes
+python -B scripts/ownership_migration.py --db data/wahojobs.sqlite --yes --allow-workspace-db --json
 ```
 
-Inspection is read-only by default. Applying requires `--yes`; accessing the configured workspace path additionally requires `--allow-workspace-db` after separate authorization. DDL, the marker, integrity checks, foreign-key checks, and ownership reconciliation are one migration-owned transaction. A failed statement leaves no Migration-003 object or marker.
+The migration completed successfully with `database_state = migrated` and `changed = true`. Marker state after installation was `001 / 002 / 003 = 1 / 1 / 1`.
 
-Migration 003 remains unapplied to `data/wahojobs.sqlite` in B1.
+The installed schema added exactly 4 tables, 7 named indexes, 8 SQLite automatic indexes, 13 triggers, and 32 Migration-003 schema objects. The raw `sqlite_master` object count changed from 103 to 135. The four installed tables are:
+
+- `product_principals`
+- `legacy_owner_aliases`
+- `principal_account_bindings`
+- `ownership_binding_events`
+
+Immediately after installation, all four ownership tables and all eight account tables contained zero rows. No principal, legacy alias, account binding, or ownership event was created; `local_user` remained unregistered. No historical product owner or profile identifier was rewritten. Browser authentication and product authorization remained disconnected, so the ownership bridge remains dormant infrastructure.
+
+Existing data remained intact:
+
+- jobs: `9446`
+- canonical opportunities: `2347`
+- crawl runs: `268`
+- user profiles: `10`
+- pipeline items: `73`
+- pipeline state/projections: `73`
+- transitions: `86`
+- applicant updates: `77`
+
+Post-installation validation reported canonical schema attestation correctly installed with zero findings, clean ownership reconciliation, `integrity_check = ok`, zero foreign-key violations, and no SQLite sidecars. Discovery found 34 distinct raw values, 88 distinct alias kind/value pairs, and 483 observations. Validation completed with 46 ownership tests passed, 52 Accounts tests passed, and 711 repository tests passed with 2 documented skips. Matching benchmark results remained unchanged at labels `26/30`, sections `29/30`, and full agreement `26/30`.
+
+A verified, timestamped recovery backup was created outside the repository immediately before Migration 003. It matched the approved pre-migration database state, passed its integrity check, had no foreign-key violations, contained 103 schema objects and only Migration 001 and 002 markers, had no ownership schema, kept all account tables empty, and had no sidecars. Exact paths and cryptographic fingerprints are retained only in local operational evidence.
+
+The post-installation workspace database was independently verified. Journal mode remained `delete`, `integrity_check = ok`, foreign-key violations remained zero, sidecars were absent, the schema object count was 135, and marker state was `1 / 1 / 1`. Ownership and account tables remained empty. Exact cryptographic fingerprints are retained only in local operational evidence.
 
 ## Principals and immutable aliases
 
