@@ -13,6 +13,8 @@ python -B scripts/accounts_migration.py --db <temporary-or-reviewed-database> --
 
 Without `--yes`, inspection is read-only. The configured workspace database is refused unless `--allow-workspace-db` is also supplied after a separate review. Migration 001 must already be complete. The command never creates the base schema and normal runtime initialization never installs migration 002.
 
+Migration 002 was applied to the workspace database on 2026-07-18. The migrated workspace SHA-256 was `8fe98a859c67298c5ea075fee645146c8501d1a046c4910815bcaa790dbf1c6e`; all eight account tables remained empty immediately after installation. The verified pre-migration recovery backup is `wahojobs_immediate_pre_accounts_migration_002_retry_20260718T120808Z.sqlite`.
+
 DDL, the migration marker, integrity checks, foreign-key checks, and account reconciliation are one migration-owned transaction. The implementation executes complete SQL statements individually instead of using `executescript()`. A failed boundary leaves no migration-002 marker or object.
 
 The migration creates:
@@ -123,7 +125,7 @@ A later adapter must use a vetted OAuth/OIDC library and authorization-code flow
 
 Milestone A performs no OAuth HTTP request, token parsing, redirect, callback, or browser session handling.
 
-Migration 002 remains unapplied to the workspace database. No account service is connected to the local browser application in this milestone.
+Migration 002 is installed but dormant in the workspace database. No account service is connected to the local browser application in this milestone, and all account tables were empty at the verified installation boundary.
 
 ## Deferred milestones
 
