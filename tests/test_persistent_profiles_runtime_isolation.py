@@ -1,10 +1,13 @@
 import tempfile
 import unittest
+import subprocess
+import sys
 from pathlib import Path
 
 from tests.ownership_test_support import database_snapshot, install_ownership
 
 import scripts.persistent_profiles_migration as migration
+import scripts.persistent_profile_canonical_v2_migration as migration_005
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +24,10 @@ class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
         self.assertNotIn("persistent_profile_schema", local_app)
         self.assertNotIn("principal_id", local_app)
         self.assertNotIn("persistent_profile_id", local_app)
+        self.assertNotIn("persistent_profile_canonical_v2_migration", local_app)
+        self.assertNotIn("persistent_profile_canonical_v2_schema", local_app)
+        self.assertNotIn("confirmed_lifecycle_action", local_app)
+        self.assertNotIn("005_persistent_profile_canonical_v2", schema)
 
     def test_migration_changes_only_empty_dormant_objects_in_temporary_database(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -63,6 +70,53 @@ class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
         ):
             with self.subTest(statement=statement):
                 self.assertIn(statement, documentation)
+
+    def test_migration_005_import_and_temporary_apply_remain_runtime_isolated(self):
+        self.assertFalse(hasattr(migration_005, "DB_CONNECTION"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "m005-isolation.sqlite"
+            conn = install_ownership(path)
+            migration.apply_persistent_profiles_migration(conn)
+            migration_005.apply_persistent_profile_canonical_v2_migration(conn)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM user_profiles").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM user_pipeline_items").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM applicant_status_updates").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM product_profiles").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM product_principals").fetchone()[0], 0)
+            conn.close()
+
+    def test_migration_005_import_opens_no_database_network_or_writer(self):
+        script = r'''
+import builtins
+import socket
+import sqlite3
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+original_open = builtins.open
+def guarded_open(file, mode="r", *args, **kwargs):
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        raise RuntimeError("file write")
+    return original_open(file, mode, *args, **kwargs)
+builtins.open = guarded_open
+import wahojobs.persistent_profile_canonical_v2_schema as schema
+import scripts.persistent_profile_canonical_v2_migration as migration
+print(schema.MIGRATION_VERSION, migration.MIGRATION_VERSION)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "005_persistent_profile_canonical_v2 005_persistent_profile_canonical_v2",
+        )
 
 
 if __name__ == "__main__":

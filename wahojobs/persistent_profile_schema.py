@@ -131,6 +131,40 @@ def expected_persistent_profile_manifest() -> dict:
 
 def attest_persistent_profile_schema(conn) -> dict:
     """Compare installed Migration-004 objects with the canonical manifest."""
+    if _forward_migration_marker_present(conn):
+        from wahojobs.persistent_profile_canonical_v2_schema import (
+            attest_persistent_profile_canonical_v2_schema,
+        )
+
+        forward = attest_persistent_profile_canonical_v2_schema(conn)
+        if forward["state"] == "correctly_installed":
+            return {
+                "state": "correctly_installed",
+                "migration_version": MIGRATION_VERSION,
+                "migration_marker_present": _migration_marker_present(conn),
+                "findings": [],
+                "blocking": False,
+                "superseded_by_migration": forward["migration_version"],
+                "forward_schema_attestation": forward,
+                "expected_object_count": forward["expected_object_count"],
+                "present_expected_object_count": forward["present_expected_object_count"],
+                "expected_objects": forward["expected_objects"],
+                "present_objects": forward["present_objects"],
+                "expected_statement_count": migration_statement_count(),
+            }
+        return {
+            "state": "forward_schema_invalid",
+            "migration_version": MIGRATION_VERSION,
+            "migration_marker_present": _migration_marker_present(conn),
+            "findings": forward["findings"],
+            "blocking": True,
+            "forward_schema_attestation": forward,
+            "expected_object_count": forward["expected_object_count"],
+            "present_expected_object_count": forward["present_expected_object_count"],
+            "expected_objects": forward["expected_objects"],
+            "present_objects": forward["present_objects"],
+            "expected_statement_count": migration_statement_count(),
+        }
     expected = expected_persistent_profile_manifest()
     actual = _capture_manifest(conn)
     findings: list[dict] = []
@@ -377,6 +411,18 @@ def _migration_marker_present(conn) -> bool:
         conn.execute(
             "SELECT 1 FROM wahojobs_schema_migrations WHERE version = ?",
             (MIGRATION_VERSION,),
+        ).fetchone()
+        is not None
+    )
+
+
+def _forward_migration_marker_present(conn) -> bool:
+    if not _table_exists(conn, "wahojobs_schema_migrations"):
+        return False
+    return (
+        conn.execute(
+            "SELECT 1 FROM wahojobs_schema_migrations WHERE version = ?",
+            ("005_persistent_profile_canonical_v2",),
         ).fetchone()
         is not None
     )

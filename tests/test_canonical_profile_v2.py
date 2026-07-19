@@ -1303,7 +1303,7 @@ print(canonical_v2.SCHEMA_VERSION)
         )
         self.assertEqual(result.stdout.strip(), SCHEMA_VERSION)
 
-    def test_no_normal_runtime_module_imports_v2(self):
+    def test_only_dormant_migration_modules_import_or_name_v2(self):
         references = []
         for root in (ROOT / "wahojobs", ROOT / "scripts"):
             for path in root.rglob("*.py"):
@@ -1312,7 +1312,14 @@ print(canonical_v2.SCHEMA_VERSION)
                 text = path.read_text(encoding="utf-8")
                 if "canonical_v2" in text:
                     references.append(path.relative_to(ROOT).as_posix())
-        self.assertEqual(references, [])
+        self.assertEqual(
+            references,
+            [
+                "wahojobs/persistent_profile_canonical_v2_schema.py",
+                "wahojobs/persistent_profile_schema.py",
+                "scripts/persistent_profile_canonical_v2_migration.py",
+            ],
+        )
 
     def test_workspace_database_is_not_accessed_or_changed(self):
         before = (
