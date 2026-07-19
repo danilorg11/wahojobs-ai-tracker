@@ -47,7 +47,10 @@ class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
             ROOT / "docs" / "persistent_product_profiles.md"
         ).read_text(encoding="utf-8")
         for statement in (
-            "Migration 004 is committed infrastructure only. It is not installed",
+            "Migration 004 was installed in the workspace database",
+            "but it remains dormant infrastructure",
+            "all three persistent-profile tables contained zero rows",
+            "browser profile persistence is not active",
             "No source can be inserted, updated, or deleted after its revision exists.",
             "lowercase ASCII `snake_case` object keys",
             "Normal Unicode remains valid in profile values.",
