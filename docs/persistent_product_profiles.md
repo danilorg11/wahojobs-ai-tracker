@@ -1,6 +1,6 @@
 # Dormant Persistent Product Profiles
 
-Accounts Milestone B2A defines durable profile storage without activating it in the product. Migration 004 is committed infrastructure only. It is not installed by normal runtime startup, does not persist MatchRuns, and is not applied to the workspace database as part of B2A.
+Accounts Milestone B2A defines durable profile storage without activating it in the product. Migration 004 was installed in the workspace database on 2026-07-18 from source commit `e254df4`, but it remains dormant infrastructure. Normal runtime startup does not install or execute the migration, MatchRuns are not persisted through these tables, and browser profile persistence is not active.
 
 ## Identity boundaries
 
@@ -71,15 +71,41 @@ Temporary-database installation requires explicit mutation:
 python -B scripts/persistent_profiles_migration.py --db <temporary-database> --yes --json
 ```
 
-Any access to the configured workspace database additionally requires `--allow-workspace-db` after separate authorization. B2A does not authorize that operation.
+Any access to the configured workspace database additionally requires `--allow-workspace-db` after separate authorization. The one-time workspace installation was separately authorized and completed; future workspace inspection or mutation remains subject to the same guard.
 
 Migration 004 requires complete, canonically attested Migrations 001, 002, and 003. Its DDL, marker, schema attestation, empty-state validation, integrity check, foreign-key check, and preservation check use one migration-owned transaction. Partial or conflicting installations are refused. A second apply is a documented no-op.
 
 The canonical manifest attests normalized table, view, and trigger SQL; complete column definitions; CHECK and UNIQUE constraints; foreign keys; named and automatic indexes; index order and origin; and unexpected replacement objects. Migration fault testing currently has 54 logical hook labels covering 22 distinct transaction-visible database states; adjacent hooks that share one durable checkpoint are not counted as independent states. Normal product startup does not import or execute this migration.
 
+## Workspace installation record
+
+Migration `004_persistent_product_profiles` was installed on 2026-07-18 from source commit `e254df4` with the separately authorized command:
+
+```text
+python -B scripts/persistent_profiles_migration.py --db data/wahojobs.sqlite --yes --allow-workspace-db --json
+```
+
+The command completed successfully with `database_state = migrated` and `changed = true`. Migration marker state became `001 / 002 / 003 / 004 = 1 / 1 / 1 / 1`.
+
+The installation added exactly 32 schema objects: three tables, one view, seven named indexes, twelve SQLite automatic indexes, and nine triggers. The raw `sqlite_master` object count changed from 135 to 167. The installed tables are `product_profiles`, `product_profile_revisions`, and `product_profile_sources`; the installed view is `current_product_profiles`.
+
+Immediately after installation, all three persistent-profile tables contained zero rows and `current_product_profiles` returned zero rows. All Accounts and Ownership tables remained empty. No persistent profile, revision, source, principal, account, alias, binding, or ownership event was created. `local_user` and all real legacy aliases remained unregistered. No legacy profile was copied, bridged, claimed, or rewritten, and no migration seed or purge-receipt table was created.
+
+Existing product state remained intact: ten legacy `user_profiles`, 73 pipeline items, 73 pipeline projections, 86 transitions, and 77 applicant updates. All preexisting non-migration data tables were compared with the verified immediate pre-migration recovery backup, with no content mismatch.
+
+Canonical schema attestation reported `correctly_installed` with zero findings. Database integrity was `ok`, foreign-key violations were zero, journal mode remained `delete`, and no SQLite sidecars remained. Focused B2A validation passed 26 tests with two documented Windows platform skips; Accounts and Ownership validation passed 98 tests; complete repository discovery passed 737 tests with four documented platform skips. Fixture normalization remained 25/25, snapshot prediction changes remained zero, and the matching benchmark remained labels 26/30, sections 29/30, and full agreement 26/30.
+
+A verified UTC-timestamped immediate recovery backup was created outside the repository before installation. It matched the approved pre-migration workspace state, passed integrity and foreign-key checks, contained 135 schema objects and only Migration markers 001, 002, and 003, had no Migration-004 objects or SQLite sidecars, preserved the legacy and pipeline counts, and had empty Accounts and Ownership tables. Exact local backup details, database fingerprints, file sizes, and timestamps remain only in local operational evidence.
+
+Post-installation inspection independently confirmed 167 schema objects, marker state `1 / 1 / 1 / 1`, empty persistent-profile, Accounts, and Ownership tables, clean integrity and foreign keys, journal mode `delete`, and no SQLite sidecars. Exact workspace fingerprints and machine-specific evidence remain only in local operational records.
+
+B2A is therefore schema installed but operationally dormant. It still provides no profile creation or revision service, browser persistence, account ownership, principal authorization, active login, legacy-profile migration, resume ingestion, row-level profile reconciliation, active hash recomputation, or multiuser profile isolation.
+
 ## Compatibility and rollout
 
 Migration 004 performs no backfill, principal creation, alias registration, account binding, ownership rewrite, MatchRun persistence, browser cutover, or pipeline change. The ten legacy `user_profiles` rows and all current matching, preview, My Jobs, transition, applicant-update, review, metadata overlay, benchmark, and Greenhouse behavior remain unchanged.
+
+Greenhouse Observation 3 was completed separately before the Migration-004 installation. Its ledger contains three valid bundles and three receipts. Migration 004 did not modify or regenerate that evidence, and Greenhouse source approval and enablement remain outside Accounts Milestone B2.
 
 Principal, account, and owner-binding eligibility is enforced when a profile container is inserted. Later lifecycle changes can make an existing owner ineligible without rewriting the immutable profile. Preventing unauthorized B2B mutations and detecting that later drift remain explicit B2B service and reconciliation responsibilities. B2A has no profile row service or row-level profile reconciliation and creates no profile rows.
 
