@@ -239,10 +239,167 @@ to bounded domain errors. Unexpected durable or SQLite failures become a
 detached `internal_consistency_failure`. Test-only failure hooks exercise every
 write boundary without becoming product API behavior.
 
+## Dormant B2B3 Reconciliation
+
+`wahojobs.persistent_profiles_reconciliation` provides database-wide,
+read-only reconciliation for the dormant Migration-005 profile rows. The
+library accepts a caller-owned `sqlite3.Connection`; it never opens or closes
+that connection, installs or repairs schema, writes a receipt, creates a
+temporary table, changes journal or foreign-key modes, or accesses network or
+secrets. It requires foreign keys and the exact committed M005 schema
+attestation and capability descriptor.
+
+When no transaction is active, reconciliation owns one deferred read
+transaction for the complete scan and ends only that transaction from a
+guaranteed cleanup boundary. This includes interruption immediately after the
+transaction begins and interruption during attestation, scanning, or report
+construction. Cleanup verifies that the owned transaction ended. If an initial
+rollback is interrupted or fails, cleanup makes a bounded second rollback
+attempt and may use one fixed internal `ROLLBACK` operation before checking the
+postcondition again. Failures and interruptions become detached, bounded
+unavailable reports without retaining caller exception text. When a caller
+transaction already exists, reconciliation uses the caller's snapshot without
+committing it, rolling it back, or creating a savepoint. Cleanup never touches
+that caller-owned transaction. Caller reads, writes, and the decision to commit
+or roll back remain untouched. The scan checks every durable profile, revision,
+source, and current-view row rather than only rows selected by a current or
+paginated history read.
+
+The scan covers profile/principal relationships, environment coherence,
+revision numbering and lifecycle chains, correction targets, canonical
+timestamps, Canonical Profile V2 parsing and deterministic bytes, constant-time
+digest comparison, source order and bundles, idempotency format and scope,
+foreign-key violations, orphans, and independently derived current-view
+agreement. Account or binding lifecycle drift that B2B2 deliberately permits
+does not become corruption. Request fingerprints are checked for lowercase
+digest format, principal scope, revision binding, and internal durable
+coherence. No semantic fingerprint-mismatch finding is advertised because all
+original command inputs are not retained durably and the reconciler never
+invents them.
+
+Findings are immutable and use only stable codes, the closed entity-kind set
+`database`, `profile`, `revision`, `source`, and `current_view`, plus bounded
+one-based profile, revision, source, or orphan ordinals. Severity is derived
+from the authoritative code specification rather than supplied by a caller.
+Every current finding has severity `error`, meaning a durable corruption or
+contradiction that requires operator attention. No unused warning severity is
+advertised. Findings never contain durable IDs, hashes, profile/source content,
+SQL, paths, constraint names, free-form messages, or exception text. The stable
+taxonomy is grouped as follows:
+
+- database: `foreign_key_violation`, `row_read_failure`;
+- profile: `invalid_profile_id`, `missing_principal_relationship`,
+  `profile_environment_mismatch`, `duplicate_principal_profile`,
+  `missing_current_revision`, `foreign_current_revision`,
+  `stale_current_revision`, `profile_lifecycle_mismatch`, and
+  `invalid_profile_timestamp`;
+- revision: `missing_revision_history`, `orphan_revision`,
+  `revision_relationship_mismatch`, `invalid_revision_id`,
+  `revision_number_gap`, `duplicate_revision_number`,
+  `invalid_revision_chain`, `invalid_initial_revision`,
+  `unexpected_initial_revision`, `unsupported_revision_kind`,
+  `invalid_lifecycle_transition`, `revision_after_deletion_request`,
+  `invalid_correction_target`, and `invalid_revision_timestamp`;
+- Canonical V2: `malformed_structured_profile`,
+  `invalid_canonical_profile_v2`, `structured_profile_identity_mismatch`,
+  `noncanonical_structured_profile`, `malformed_structured_hash`,
+  `structured_hash_mismatch`, and `canonical_schema_version_mismatch`;
+- sources: `invalid_source_id`, `orphan_source`,
+  `source_relationship_mismatch`, `source_ordinal_gap`,
+  `duplicate_source_ordinal`, `unsupported_source_type`,
+  `invalid_source_for_revision_kind`, `malformed_source_payload`,
+  `invalid_source_timestamp`, `malformed_source_hash`,
+  `source_hash_mismatch`, `source_bundle_hash_mismatch`, and
+  `source_count_mismatch`;
+- idempotency: `malformed_idempotency_key`,
+  `malformed_request_fingerprint`, and `idempotency_scope_conflict`;
+- current view: `missing_current_view_row`, `unexpected_current_view_row`,
+  `duplicate_current_view_row`, and `current_view_mismatch`.
+
+The authoritative immutable taxonomy contains 52 codes. Forty-two are
+row-reachable and have direct durable-corruption scanner regressions under the
+exact M005 schema. `row_read_failure` is among them: a durable SQLite value
+whose storage class cannot be decoded by the expected row contract produces a
+bounded, privacy-safe per-row finding through the public reconciler while
+unrelated rows continue to be checked. Ten are
+`schema_unreachable_under_exact_m005`: `duplicate_principal_profile`,
+`duplicate_revision_number`, `duplicate_source_ordinal`,
+`idempotency_scope_conflict`, `foreign_current_revision`,
+`stale_current_revision`, `profile_lifecycle_mismatch`,
+`unexpected_current_view_row`, `duplicate_current_view_row`, and
+`current_view_mismatch`. The first four require violating exact M005 uniqueness;
+the remaining six require changing the attested current-view derivation.
+Attestation rejects that schema drift before row reconciliation begins.
+In particular, exact M005 cannot produce duplicate current-view rows without
+changing the view or its uniqueness prerequisites. No finding is
+prerequisite-only. Complete request fingerprint reconstruction remains
+unavailable because all original command inputs are not durably retained. The
+scanner validates only the persisted properties it can prove.
+
+Cascade handling favors the most specific independently provable condition. A
+malformed Canonical document does not produce downstream identity,
+canonical-byte, or digest comparisons that require a successfully parsed
+document. Source bundle comparison proceeds only when the observed source
+material needed by that comparison is valid; missing source rows still permit
+comparison against the observed empty bundle.
+
+`PersistentProfileReconciliationReport` serializes as deterministic compact
+UTF-8 JSON under report version
+`persistent_profile_reconciliation_v1`. It reports `clean`, `findings`, or
+`unavailable`, exact inventory and finding counts, truncation state, and a
+bounded finding list. The default display limit is 1,000 findings, the safe
+maximum is 10,000, and serialized output never exceeds 1 MiB. Summary-only
+mode displays no individual findings but still scans all rows and calculates
+exact totals.
+
+The operator CLI is read-only:
+
+```text
+python -B scripts/persistent_profiles_reconcile.py --db <DB>
+```
+
+It supports `--json`, `--summary-only`, `--max-findings`, and the explicit
+`--allow-workspace-db` safety acknowledgement. Invalid arguments are handled by
+a sanitized parser that never echoes rejected options, values, or paths. An
+invalid JSON-mode invocation emits exactly one compact unavailable object;
+human mode emits only a bounded generic message. Serialization, human
+rendering, and output writes are also inside detached failure boundaries. If a
+normal output write fails before successful emission, the CLI makes one bounded
+second write containing only a fixed JSON or generic human fallback and exits
+2. If that fallback also fails, it still exits 2 without a traceback. Recovery
+is not claimed for an output stream that may already have emitted partial
+content.
+
+The CLI treats `--db` only as a filesystem path. It resolves an existing file,
+encodes the resolved path internally as a URI, and appends only controlled
+SQLite options. Literal `%`, `%23`, `#`, `?`, spaces, non-ASCII characters,
+`&`, `=`, and URI-looking names are therefore either opened as the exact
+filesystem name or rejected safely by the platform; they are never interpreted
+as caller-supplied SQLite options. Before and after opening and scanning, the
+CLI compares resolved-path, same-file, device/inode, size, and modification-time
+identity and confirms SQLite's opened main database. Workspace aliases remain
+guarded.
+
+With no sidecars present, the CLI opens the database in static immutable
+read-only mode, enables foreign keys and `query_only`, and creates no WAL, SHM,
+or rollback-journal files. A clean checkpointed database whose persistent mode
+is WAL is detected from its SQLite header and scanned through that static
+snapshot. Rollback-journal databases receive a separate read-only lock probe.
+Any existing `-wal`, `-shm`, or `-journal` file is treated as temporary
+contention and is neither ignored, opened, deleted, nor modified. A database
+identity or timestamp change during the immutable scan discards the result as
+unavailable. Exit code 0 means clean, 1 means a complete scan found findings,
+and 2 means invalid input or an unavailable scan.
+
+B2B3 performs no automatic or interactive repair, deletion, rewrite,
+migration, receipt creation, legacy conversion, or backfill. It is not imported
+by browser, MatchRun, matching, pipeline, Accounts, Ownership, crawler,
+Greenhouse, or package startup paths.
+
 ## Future Boundary
 
-B2B2 remains dormant infrastructure. No browser route, form, login/session,
+B2B2 and B2B3 remain dormant infrastructure. No browser route, form, login/session,
 OAuth, About You flow, MatchRun, account claiming, matching, pipeline, or
-normal-runtime path imports or invokes it. B2B3 row reconciliation and any
-future browser persistence or authorization cutover remain separately designed
-and reviewed milestones.
+normal-runtime path imports or invokes them. Any repair tool, browser
+persistence, or authorization cutover remains a separately designed and
+reviewed milestone.

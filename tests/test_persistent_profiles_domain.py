@@ -943,7 +943,14 @@ print(domain.MIGRATION_VERSION)
                 text = path.read_text(encoding="utf-8")
                 if "wahojobs.persistent_profiles" in text:
                     references.append(path.relative_to(ROOT).as_posix())
-        self.assertEqual(references, ["wahojobs/persistent_profiles_repository.py"])
+        self.assertEqual(
+            references,
+            [
+                "wahojobs/persistent_profiles_reconciliation.py",
+                "wahojobs/persistent_profiles_repository.py",
+                "scripts/persistent_profiles_reconcile.py",
+            ],
+        )
 
     def test_domain_module_contains_no_repository_or_database_implementation(self):
         text = (ROOT / "wahojobs" / "persistent_profiles.py").read_text(encoding="utf-8")

@@ -1316,6 +1316,7 @@ print(canonical_v2.SCHEMA_VERSION)
             references,
             [
                 "wahojobs/persistent_profiles.py",
+                "wahojobs/persistent_profiles_reconciliation.py",
                 "wahojobs/persistent_profiles_repository.py",
                 "wahojobs/persistent_profile_canonical_v2_schema.py",
                 "wahojobs/persistent_profile_schema.py",
