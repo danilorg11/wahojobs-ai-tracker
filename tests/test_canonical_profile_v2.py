@@ -1315,6 +1315,7 @@ print(canonical_v2.SCHEMA_VERSION)
         self.assertEqual(
             references,
             [
+                "wahojobs/persistent_profiles.py",
                 "wahojobs/persistent_profile_canonical_v2_schema.py",
                 "wahojobs/persistent_profile_schema.py",
                 "scripts/persistent_profile_canonical_v2_migration.py",
