@@ -1154,7 +1154,7 @@ class CurrentProfileSummary:
     revision_id: str = field(repr=False)
     revision_number: int
     lifecycle_status: str
-    _structured_profile_json: bytes = field(repr=False)
+    _structured_profile_json: bytes | None = field(repr=False)
     updated_at: str
 
     @classmethod
@@ -1165,16 +1165,17 @@ class CurrentProfileSummary:
         revision_id: str,
         revision_number: int,
         lifecycle_status: str,
-        structured_profile_json: bytes,
+        structured_profile_json: bytes | None,
         updated_at: str,
     ):
         validate_profile_id(profile_id)
         validate_revision_id(revision_id)
         _validate_result_common(revision_number, lifecycle_status, updated_at)
-        content = bytes(structured_profile_json)
-        profile = _profile_from_bytes(content)
-        if profile["identity"]["profile_id"] != profile_id:
-            _fail("internal_consistency_failure")
+        content = None if structured_profile_json is None else bytes(structured_profile_json)
+        if content is not None:
+            profile = _profile_from_bytes(content)
+            if profile["identity"]["profile_id"] != profile_id:
+                _fail("internal_consistency_failure")
         instance = object.__new__(cls)
         object.__setattr__(instance, "profile_id", profile_id)
         object.__setattr__(instance, "revision_id", revision_id)
@@ -1195,7 +1196,7 @@ class CurrentProfileSummary:
 
     def trusted_dict(self, *, include_structured_profile=False) -> dict:
         result = {**self.public_dict(), "profile_id": self.profile_id, "revision_id": self.revision_id}
-        if include_structured_profile:
+        if include_structured_profile and self._structured_profile_json is not None:
             result["structured_profile"] = _profile_from_bytes(self._structured_profile_json)
             result["structured_profile_included"] = True
         return result

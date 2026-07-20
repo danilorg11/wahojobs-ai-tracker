@@ -829,6 +829,17 @@ class PersistentProfilesDomainTests(unittest.TestCase):
             self.profile,
         )
         self.assertFalse(hasattr(current, "structured_profile_json"))
+        omitted = CurrentProfileSummary.from_trusted(
+            profile_id=PROFILE_ID,
+            revision_id=REVISION_ID,
+            revision_number=1,
+            lifecycle_status="active",
+            structured_profile_json=None,
+            updated_at="2026-07-19T12:30:45+00:00",
+        )
+        omitted_trusted = omitted.trusted_dict(include_structured_profile=True)
+        self.assertFalse(omitted_trusted["structured_profile_included"])
+        self.assertNotIn("structured_profile", omitted_trusted)
 
     def test_purge_result_has_only_nonconfirming_outcome(self):
         result = PurgeResult()
@@ -932,7 +943,7 @@ print(domain.MIGRATION_VERSION)
                 text = path.read_text(encoding="utf-8")
                 if "wahojobs.persistent_profiles" in text:
                     references.append(path.relative_to(ROOT).as_posix())
-        self.assertEqual(references, [])
+        self.assertEqual(references, ["wahojobs/persistent_profiles_repository.py"])
 
     def test_domain_module_contains_no_repository_or_database_implementation(self):
         text = (ROOT / "wahojobs" / "persistent_profiles.py").read_text(encoding="utf-8")
