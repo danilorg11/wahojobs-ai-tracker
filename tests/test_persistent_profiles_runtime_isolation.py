@@ -118,6 +118,36 @@ print(schema.MIGRATION_VERSION, migration.MIGRATION_VERSION)
             "005_persistent_profile_canonical_v2 005_persistent_profile_canonical_v2",
         )
 
+    def test_b2c1_module_imports_open_no_database_network_or_writer(self):
+        script = r'''
+import builtins
+import socket
+import sqlite3
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+original_open = builtins.open
+def guarded_open(file, mode="r", *args, **kwargs):
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        raise RuntimeError("file write")
+    return original_open(file, mode, *args, **kwargs)
+builtins.open = guarded_open
+import wahojobs.persistent_profiles_application as application
+import wahojobs.persistent_profiles_browser as browser
+print(application.PROFILE_HISTORY_PAGE_SIZE, browser.PERSISTENT_PROFILE_ROUTE)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "20 /account/profile")
+
 
 if __name__ == "__main__":
     unittest.main()

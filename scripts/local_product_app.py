@@ -350,8 +350,18 @@ def parse_args():
     return parser.parse_args()
 
 
-def make_handler(registry=None, demo_mode=False):
+def make_handler(
+    registry=None,
+    demo_mode=False,
+    persistent_profile_browser_integration=None,
+):
     registry = registry if registry is not None else MatchRunRegistry()
+    profile_browser_integration = persistent_profile_browser_integration
+    if profile_browser_integration is not None and not all(
+        callable(getattr(profile_browser_integration, name, None))
+        for name in ("matches_route", "handle")
+    ):
+        raise ValueError("invalid_profile_browser_integration")
 
     class ProductAppHandler(BaseHTTPRequestHandler):
         match_run_registry = registry
@@ -359,6 +369,8 @@ def make_handler(registry=None, demo_mode=False):
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            if self.dispatch_profile_browser_integration("GET", parsed.path):
+                return
             if parsed.path == "/health":
                 self.write_text("ok\n")
                 return
@@ -441,8 +453,16 @@ def make_handler(registry=None, demo_mode=False):
                     status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
 
+        def do_HEAD(self):
+            parsed = urlparse(self.path)
+            if self.dispatch_profile_browser_integration("HEAD", parsed.path):
+                return
+            self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('HEAD')")
+
         def do_POST(self):
             parsed = urlparse(self.path)
+            if self.dispatch_profile_browser_integration("POST", parsed.path):
+                return
             if parsed.path in FIND_MATCHES_PATHS:
                 form = self.read_form(keep_blank_values=True)
                 try:
@@ -501,6 +521,92 @@ def make_handler(registry=None, demo_mode=False):
                     run_id,
                     return_to,
                 )
+
+        def do_PUT(self):
+            if self.dispatch_profile_browser_integration("PUT", urlparse(self.path).path):
+                return
+            self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('PUT')")
+
+        def do_PATCH(self):
+            if self.dispatch_profile_browser_integration("PATCH", urlparse(self.path).path):
+                return
+            self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('PATCH')")
+
+        def do_DELETE(self):
+            if self.dispatch_profile_browser_integration("DELETE", urlparse(self.path).path):
+                return
+            self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('DELETE')")
+
+        def dispatch_profile_browser_integration(self, method, path):
+            if profile_browser_integration is None:
+                return False
+            try:
+                matches = profile_browser_integration.matches_route(path)
+            except Exception:
+                self.write_html(
+                    render_error("The profile page could not be loaded safely."),
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return True
+            if matches is not True:
+                return False
+            try:
+                response = profile_browser_integration.handle(
+                    method,
+                    self.path,
+                    self.headers,
+                )
+            except Exception:
+                self.write_html(
+                    render_error("The profile page could not be loaded safely."),
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return True
+            try:
+                self.validate_profile_browser_response(response)
+            except Exception:
+                self.write_html(
+                    render_error("The profile page could not be loaded safely."),
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return True
+            self.write_profile_browser_response(response, head=method == "HEAD")
+            return True
+
+        @staticmethod
+        def validate_profile_browser_response(response):
+            status = getattr(response, "status", None)
+            body = getattr(response, "body", None)
+            headers = getattr(response, "headers", None)
+            if (
+                type(status) is not int
+                or not 100 <= status <= 599
+                or type(body) is not bytes
+                or len(body) > 1_048_576
+                or type(headers) is not tuple
+            ):
+                raise ValueError("invalid_profile_browser_response")
+            for header in headers:
+                if (
+                    type(header) is not tuple
+                    or len(header) != 2
+                    or any(
+                        type(value) is not str or "\r" in value or "\n" in value
+                        for value in header
+                    )
+                ):
+                    raise ValueError("invalid_profile_browser_response")
+
+        def write_profile_browser_response(self, response, *, head=False):
+            self.send_response(response.status)
+            for name, value in response.headers:
+                self.send_header(name, value)
+            self.end_headers()
+            if not head:
+                try:
+                    self.wfile.write(response.body)
+                except OSError:
+                    return
 
         def read_form(self, *, keep_blank_values=False):
             length = int(self.headers.get("Content-Length", "0"))

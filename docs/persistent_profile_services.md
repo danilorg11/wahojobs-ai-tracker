@@ -398,8 +398,61 @@ Greenhouse, or package startup paths.
 
 ## Future Boundary
 
-B2B2 and B2B3 remain dormant infrastructure. No browser route, form, login/session,
-OAuth, About You flow, MatchRun, account claiming, matching, pipeline, or
-normal-runtime path imports or invokes them. Any repair tool, browser
+## B2C1 Read-Only Application and Browser Boundary
+
+`wahojobs.persistent_profiles_application` orchestrates the accepted B2B2 read
+contracts behind separate trusted authentication and profile-read authorization
+callbacks. `wahojobs.persistent_profiles_browser` renders the resulting bounded,
+browser-safe view model at `GET /account/profile`; `HEAD` is also supported.
+The history page contains at most 20 revisions in deterministic newest-first
+order and accepts only a strictly validated `before` revision-number cursor.
+History never includes structured profile documents or source content.
+
+This integration is disabled by default. The ordinary local-product startup
+does not import or construct the application service, authentication gateway,
+authorization gateway, read-only connection provider, or browser integration.
+Consequently, `/account/profile` is not an active normal-runtime route. Trusted
+composition code must explicitly inject a complete browser integration into the
+existing handler factory. The browser and application modules know no database
+path, provide no fallback actor, and do not derive identity, environment, or
+authorization scope from HTTP input. Query parameters cannot select an account,
+principal, or profile. A request-lifetime, redacted authentication input is
+available only to the injected authentication gateway so it can validate an
+external credential; it is nonserializable, is never retained by the result
+model, and cannot itself select the authorized durable principal. Only the
+separate authorization grant supplies that trusted principal context.
+
+The injected connection provider owns a fresh bounded read-only connection for
+each request. It must enable foreign keys and SQLite `query_only`; B2B2 continues
+to enforce exact Migration-005 capability and durable profile/principal
+relationships. A request is read within one transaction snapshot and rolls that
+snapshot back before the provider closes the connection. No request runs
+reconciliation, migration, repair, or a writable fallback.
+
+Authorized active and archived profiles display selected Canonical Profile V2
+fields, lifecycle state, current revision number, last accepted update time, and
+safe revision metadata. Archived profiles are clearly read-only. For the more
+restrictive deletion-requested policy, structured profile content and the
+display name are hidden; only lifecycle and revision metadata remain visible.
+Rendering is bounded to eight field groups and 32 values per group, and the
+complete HTML response may not exceed 1 MiB; an oversized result is replaced by
+a generic unavailable response rather than partially exposed.
+An authorized principal without a persistent profile receives a stable empty
+state that makes clear creation is not enabled and does not copy existing About
+You data. Authorization denial uses a generic not-found response so the route
+cannot enumerate another principal's profile.
+
+B2C1 adds no profile creation or editing form and no POST, archive, reactivate,
+deletion, correction, or purge action. It adds no login, session, OAuth,
+password, account signup, ownership claiming, automatic About You or resume
+persistence, MatchRun persistence, or mutation API. Authentication,
+authorization, explicit mutations, and normal-runtime enablement remain separate
+future milestones.
+
+## Future Boundary
+
+B2B2, B2B3, and B2C1 remain explicitly controlled infrastructure. No login/session,
+OAuth, About You flow, MatchRun, account claiming, matching, pipeline, or default
+normal-runtime path invokes persistent-profile reads. Any mutation, repair,
 persistence, or authorization cutover remains a separately designed and
 reviewed milestone.
