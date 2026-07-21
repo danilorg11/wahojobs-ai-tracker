@@ -148,6 +148,51 @@ print(application.PROFILE_HISTORY_PAGE_SIZE, browser.PERSISTENT_PROFILE_ROUTE)
         )
         self.assertEqual(result.stdout.strip(), "20 /account/profile")
 
+    def test_b2c2_authorization_import_opens_no_database_network_or_writer(self):
+        script = r'''
+import builtins
+import socket
+import sqlite3
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+original_open = builtins.open
+def guarded_open(file, mode="r", *args, **kwargs):
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        raise RuntimeError("file write")
+    return original_open(file, mode, *args, **kwargs)
+builtins.open = guarded_open
+import wahojobs.persistent_profile_read_authorization as authorization
+gateway = authorization.DurablePersistentProfileReadAuthorizationGateway()
+print(gateway.scope)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "persistent_profile_read")
+
+    def test_normal_local_runtime_does_not_import_b2c2_authorization(self):
+        script = r'''
+import sys
+import scripts.local_product_app
+print("wahojobs.persistent_profile_read_authorization" in sys.modules)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "False")
+
 
 if __name__ == "__main__":
     unittest.main()

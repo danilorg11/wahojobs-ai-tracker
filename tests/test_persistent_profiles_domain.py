@@ -950,6 +950,7 @@ print(domain.MIGRATION_VERSION)
                 "wahojobs/persistent_profiles_browser.py",
                 "wahojobs/persistent_profiles_reconciliation.py",
                 "wahojobs/persistent_profiles_repository.py",
+                "wahojobs/persistent_profile_read_authorization.py",
                 "scripts/persistent_profiles_reconcile.py",
             ],
         )

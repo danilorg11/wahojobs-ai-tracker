@@ -16,15 +16,17 @@ from wahojobs.ownership import (
     OWNERSHIP_TRIGGERS,
     PRINCIPAL_STATUSES,
     PRINCIPAL_TYPES,
+    OwnershipEventFingerprintMismatch,
     OwnershipValidationError,
     alias_family,
     discover_legacy_owners,
-    event_request_fingerprint,
+    ownership_timestamp_not_before,
     report_local_references,
     validate_alias_id,
     validate_binding_event_id,
     validate_binding_id,
     validate_environment_namespace,
+    validate_event_request_fingerprint,
     validate_legacy_alias,
     validate_metadata_document,
     validate_principal_id,
@@ -599,7 +601,8 @@ def _check_bindings_and_events(conn, checks):
             )
         if metadata is not None:
             try:
-                durable = event_request_fingerprint(
+                validate_event_request_fingerprint(
+                    row[13],
                     principal_id=principal_id,
                     binding_id=binding_id,
                     user_id=user_id,
@@ -613,15 +616,14 @@ def _check_bindings_and_events(conn, checks):
                     occurred_at=row[14],
                     metadata=metadata,
                 )
+            except OwnershipEventFingerprintMismatch:
+                checks["ownership_event_request_fingerprint_mismatch"].append(
+                    {"event_id": event_id, "binding_id": binding_id}
+                )
             except (OwnershipValidationError, TypeError, ValueError, RecursionError):
                 checks["malformed_events"].append(
                     {"event_id": event_id, "reasons": ["fingerprint_recomputation_unavailable"]}
                 )
-            else:
-                if row[13] != durable:
-                    checks["ownership_event_request_fingerprint_mismatch"].append(
-                        {"event_id": event_id, "binding_id": binding_id}
-                    )
         events_by_binding[binding_id].append(event)
         idempotency[(principal_id, row[12])].append((event_id, row[13]))
 
@@ -826,9 +828,7 @@ def _ordered_timestamps(created, updated):
 
 
 def _timestamp_not_before(value, boundary):
-    if not _canonical_timestamp(value) or not _canonical_timestamp(boundary):
-        return False
-    return datetime.fromisoformat(value) >= datetime.fromisoformat(boundary)
+    return ownership_timestamp_not_before(value, boundary)
 
 
 def _count_if_present(conn, objects, table):

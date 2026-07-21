@@ -3,8 +3,14 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
+from types import MappingProxyType
 
-from wahojobs.accounts import InvalidAccountInput, validate_account_metadata
+from wahojobs.accounts import (
+    PROVIDERS,
+    InvalidAccountInput,
+    normalize_email,
+    validate_account_metadata,
+)
 
 
 MIGRATION_VERSION = "002_accounts_sessions"
@@ -44,6 +50,49 @@ EXPECTED_ACCOUNT_OBJECTS = {
     ("trigger", "trg_account_lifecycle_events_no_update"),
     ("trigger", "trg_account_lifecycle_events_no_delete"),
 }
+ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS = MappingProxyType(
+    {
+        ("index", "idx_account_deletion_requests_one_open"): "f6b4200b3dddd17042a92aaf4b055c1d452756143cb8d14eb5534dd9157e56fe",
+        ("index", "idx_account_deletion_requests_user"): "90aaf688b607c8ca37e850eebb8a4da0d31f55e1f7ee937b824e76ffdf514383",
+        ("index", "idx_account_invitations_status"): "7887b2c4a171206d0936adec3a9d091f8dc0d9c1ce40fac5a8c68f69cd5031cd",
+        ("index", "idx_account_lifecycle_events_user_version"): "5530e2fcc6b52ebca9ad7108d8782a62329c0060c9ae1b06b3f58fc3743e0590",
+        ("index", "idx_account_session_rotations_user_time"): "8d923b9da3ca0c52fdfda469195bf8e7d3a5846e82a379987c71108e6fa1c161",
+        ("index", "idx_account_sessions_user_active"): "985b2af3e9ea6eb0595b7af7f3e0e6c5e4069c8b1627d4dbb9da7900a08a29d1",
+        ("index", "idx_auth_identities_user"): "23e442e734a88711de29574cff2537a034006ea6e3b6dfbe6077a05e4f41be6f",
+        ("index", "idx_consent_events_user_purpose"): "25ed85e8483ca3a25fc4592872e7a1bc03909113e6d8e918a1050351df5fdf9c",
+        ("table", "account_deletion_requests"): "f06293c951b6b15bb4f8474734158ea76c6c9897ecae60ceca2f12c3a1b6d168",
+        ("table", "account_invitations"): "ba3adbe05c539a16b8caf23815fc029e73fbde5b9de6d2790d74725ae446ddad",
+        ("table", "account_lifecycle_events"): "e72dad9b91772d384f1980387f585157a4b4f794d88316d3a1fc385f46229078",
+        ("table", "account_session_rotations"): "2baf69f46e9881cc93adc832327585505a372f5688df49b5db54296981489590",
+        ("table", "account_sessions"): "ca311df4aaeab32f70175e568e64cc7041e8be3b1579974e762fc7e774c7b5ff",
+        ("table", "auth_identities"): "9a911e76dd24a04018e6bb502ea63e4e284e219650eb13d631488df6b216e7c1",
+        ("table", "consent_events"): "19f08ba24e053ca21bc92ef03e337c83870c66ebda8441e8e092192958b16ee6",
+        ("table", "users"): "d4a3b728de53816c32a71499a9f3318a2dc32a5affc0cfb7196537ea40884352",
+        ("trigger", "trg_account_deletion_requests_user_time_guard"): "e15dbcde8085f007f5c8e2316f6c756b64e2cd866f8b2b521d923750802c1f07",
+        ("trigger", "trg_account_invitations_consumption_time_guard"): "925532d5ddd4b9da6bc6ea7cf08ea7f70eb5f464b94245f2b69ff2f9dde5a3cf",
+        ("trigger", "trg_account_lifecycle_events_contiguous"): "bd18c8f945852eef948d974ad58c928af23b112432a66ae87c173e376f58d4d0",
+        ("trigger", "trg_account_lifecycle_events_no_delete"): "96b736b1cffc21ac68900eb4b8a40092b0fc5eb8cfd6afae4be1329d11538b3d",
+        ("trigger", "trg_account_lifecycle_events_no_update"): "b9f2f08e5565930d1588a9ef08277b445c595a600bc5d70e5e20976d9c4c5d13",
+        ("trigger", "trg_account_lifecycle_events_user_time_guard"): "1f770e6bf441a1d21c0607839b7d09ab64700dfa0977898f217200c3e5ecf9b7",
+        ("trigger", "trg_account_session_rotations_insert_guard"): "b085931099c519aa25526139b9b57f5f287f6149458cf659c5cf4bdd7b9b0f3e",
+        ("trigger", "trg_account_session_rotations_no_delete"): "9b09646130a11ff30270037f720d4a8d70ae3b4cfc5737cf8df4307af69bd296",
+        ("trigger", "trg_account_session_rotations_no_update"): "35423d024678c50d8d283560e235eec19d00ed26c6c7fa6ad5e2c7419a75bbe8",
+        ("trigger", "trg_account_sessions_core_immutable"): "7595685c75973989285855ee512c50d2a7b6b4bb4769f2cb72cb702c84bcdeff",
+        ("trigger", "trg_account_sessions_rotation_state_guard"): "2d461d4f2fb33880d4f7f6ac12437538a30f04f9684caa4e43a0026b89391334",
+        ("trigger", "trg_account_sessions_user_time_guard"): "041e4cdc8fec1b2c7e38176e2603ce043c2d8c3000df5eec17a6c98d95a22cda",
+        ("trigger", "trg_auth_identities_immutable_identity"): "c40b22d128f82a72e5d96dfdfeb6ee0f4fa300106cdb6b00c1a101f294279e5e",
+        ("trigger", "trg_consent_events_contiguous"): "86389491a8f47c1fd13f4e8f967a1f058a46d926cc8f3342887869707d676d0f",
+        ("trigger", "trg_consent_events_no_delete"): "a13379106e2ab0e2aef6d3f414ec3020a4dc80269f1cbf69f54c9d0dd2302779",
+        ("trigger", "trg_consent_events_no_update"): "0a80414ca438422b015c4494105745395c4587c9333309c68cc51f329e8b6434",
+        ("trigger", "trg_consent_events_user_time_guard"): "2df5f3f11a23328bfd02f84320add1a5c30088d10e4fe8ecabf5587ceef9c68e",
+        ("trigger", "trg_users_created_at_immutable"): "f5dcd1b04b48a02352a755086624e9fb109c1b7afc1f7dadaa02e3bab482a91e",
+    }
+)
+
+
+def expected_account_schema_fingerprints():
+    """Return the immutable committed Migration-002 object fingerprints."""
+    return ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS
 APPEND_ONLY_TRIGGERS = {
     "trg_consent_events_no_update",
     "trg_consent_events_no_delete",
@@ -53,6 +102,8 @@ APPEND_ONLY_TRIGGERS = {
     "trg_account_session_rotations_no_delete",
 }
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+AUTH_IDENTITY_ID = re.compile(r"^auth_[0-9a-f]{32}$")
+ACCOUNT_ID = re.compile(r"^usr_[0-9a-f]{32}$")
 TIMESTAMP_FIELDS = {
     "users": (
         "created_at",
@@ -145,6 +196,7 @@ def reconcile_accounts(conn, *, now: datetime | None = None) -> dict:
 
     _check_orphans(conn, checks)
     _check_duplicate_identities(conn, checks)
+    _check_auth_identity_rows(conn, checks)
     _check_invitation_hashes(conn, checks)
     _check_session_hashes(conn, checks)
     _check_session_state(conn, checks, now)
@@ -173,6 +225,7 @@ def _empty_checks() -> dict[str, list[dict]]:
         "migration_marker_missing",
         "required_objects_missing",
         "orphan_auth_identities",
+        "malformed_auth_identities",
         "orphan_sessions",
         "orphan_invitations",
         "duplicate_provider_subjects",
@@ -275,6 +328,96 @@ def _check_duplicate_identities(conn, checks):
     checks["duplicate_provider_subjects"].extend(
         {"provider": row["provider"], "count": row["count"]} for row in rows
     )
+
+
+def authoritative_auth_identity_row_valid(
+    row,
+    *,
+    expected_user_id=None,
+    account_created_at=None,
+) -> bool:
+    """Validate one durable identity row using the Migration-002 contract."""
+    try:
+        identity_id = row["auth_identity_id"]
+        user_id = row["user_id"]
+        provider = row["provider"]
+        provider_subject = row["provider_subject"]
+        verified_email = row["verified_email"]
+        email_verified = row["email_verified"]
+        created_at = _parse_timestamp(row["created_at"])
+        last_authenticated_at = _parse_timestamp(row["last_authenticated_at"])
+        disabled_at = (
+            _parse_timestamp(row["disabled_at"])
+            if row["disabled_at"] is not None
+            else None
+        )
+        link_idempotency_key = row["link_idempotency_key"]
+        request_fingerprint = row["request_fingerprint"]
+    except (KeyError, IndexError, TypeError):
+        return False
+
+    if (
+        type(identity_id) is not str
+        or AUTH_IDENTITY_ID.fullmatch(identity_id) is None
+        or type(user_id) is not str
+        or ACCOUNT_ID.fullmatch(user_id) is None
+        or (expected_user_id is not None and user_id != expected_user_id)
+        or type(provider) is not str
+        or provider not in PROVIDERS
+        or type(provider_subject) is not str
+        or provider_subject != provider_subject.strip()
+        or not (1 <= len(provider_subject) <= 1024)
+        or any(ord(char) < 32 for char in provider_subject)
+        or type(email_verified) is not int
+        or email_verified not in {0, 1}
+        or created_at is None
+        or last_authenticated_at is None
+        or (row["disabled_at"] is not None and disabled_at is None)
+        or (disabled_at is not None and disabled_at < created_at)
+        or type(link_idempotency_key) is not str
+        or link_idempotency_key != link_idempotency_key.strip()
+        or not (8 <= len(link_idempotency_key) <= 256)
+        or any(ord(char) < 32 for char in link_idempotency_key)
+        or type(request_fingerprint) is not str
+        or HEX_64.fullmatch(request_fingerprint) is None
+    ):
+        return False
+    if account_created_at is not None:
+        account_created = _parse_timestamp(account_created_at)
+        if account_created is None or created_at < account_created:
+            return False
+    if email_verified and verified_email is None:
+        return False
+    if verified_email is not None:
+        if type(verified_email) is not str:
+            return False
+        try:
+            if normalize_email(verified_email) != verified_email:
+                return False
+        except InvalidAccountInput:
+            return False
+    return True
+
+
+def _check_auth_identity_rows(conn, checks):
+    users = {
+        row["user_id"]: row["created_at"]
+        for row in conn.execute("SELECT user_id, created_at FROM users ORDER BY user_id")
+    }
+    for row in conn.execute(
+        "SELECT rowid AS _rowid, auth_identity_id, user_id, provider, "
+        "provider_subject, verified_email, email_verified, created_at, "
+        "last_authenticated_at, disabled_at, link_idempotency_key, "
+        "request_fingerprint FROM auth_identities ORDER BY rowid"
+    ):
+        if not authoritative_auth_identity_row_valid(
+            row,
+            expected_user_id=row["user_id"],
+            account_created_at=users.get(row["user_id"]),
+        ):
+            checks["malformed_auth_identities"].append(
+                {"rowid": row["_rowid"], "reason": "invalid_identity_row"}
+            )
 
 
 def _check_invitation_hashes(conn, checks):

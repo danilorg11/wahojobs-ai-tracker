@@ -153,6 +153,10 @@ class OwnershipValidationError(ValueError):
     pass
 
 
+class OwnershipEventFingerprintMismatch(OwnershipValidationError):
+    pass
+
+
 class OwnershipStateConflict(RuntimeError):
     def __init__(self):
         super().__init__("Ownership state could not be changed.")
@@ -596,6 +600,55 @@ def event_request_fingerprint(
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def validate_event_request_fingerprint(
+    stored_fingerprint: str,
+    *,
+    principal_id: str,
+    binding_id: str,
+    user_id: str,
+    expected_event_version: int,
+    event_type: str,
+    prior_status: str | None,
+    resulting_status: str,
+    actor_type: str,
+    reason_code: str,
+    approval_reference: str | None,
+    occurred_at: str,
+    metadata: dict,
+) -> str:
+    """Verify one stored event digest with the authoritative M003 contract."""
+    validate_sha256(stored_fingerprint, field_name="request_fingerprint")
+    expected = event_request_fingerprint(
+        principal_id=principal_id,
+        binding_id=binding_id,
+        user_id=user_id,
+        expected_event_version=expected_event_version,
+        event_type=event_type,
+        prior_status=prior_status,
+        resulting_status=resulting_status,
+        actor_type=actor_type,
+        reason_code=reason_code,
+        approval_reference=approval_reference,
+        occurred_at=occurred_at,
+        metadata=metadata,
+    )
+    if not secrets.compare_digest(stored_fingerprint, expected):
+        raise OwnershipEventFingerprintMismatch(
+            "Ownership event fingerprint is invalid."
+        )
+    return stored_fingerprint
+
+
+def ownership_timestamp_not_before(value, boundary) -> bool:
+    """Apply M003's inclusive canonical UTC timestamp boundary."""
+    try:
+        _validate_timestamp(value)
+        _validate_timestamp(boundary)
+    except OwnershipValidationError:
+        return False
+    return datetime.fromisoformat(value) >= datetime.fromisoformat(boundary)
 
 
 def append_binding_event(conn, command: BindingEventCommand, *, failure_injector=None):

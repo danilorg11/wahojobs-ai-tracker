@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import re
 import sqlite3
 
+from wahojobs.ownership import ACCOUNT_ID_PATTERN, ENVIRONMENT_NAMESPACE_PATTERN
 from wahojobs.persistent_profiles import (
     PersistentProfileDomainError,
     TrustedPrincipalContext,
@@ -78,19 +79,50 @@ class BrowserRequestContext:
 class TrustedAuthenticatedBrowserActor:
     """Opaque authentication outcome supplied by trusted composition code."""
 
-    __slots__ = ("_actor_key", "_sealed")
+    __slots__ = ("_actor_key", "_account_id", "_environment_namespace", "_sealed")
 
-    def __init__(self, actor_key: str):
+    def __new__(cls, *_args, **_kwargs):
+        raise _configuration_error()
+
+    @classmethod
+    def _issue(
+        cls,
+        capability,
+        actor_key: str,
+        *,
+        account_id: str | None = None,
+        environment_namespace: str | None = None,
+    ):
+        if cls is not TrustedAuthenticatedBrowserActor or capability is not _ACTOR_ISSUANCE_KEY:
+            raise _configuration_error()
         if type(actor_key) is not str or _ACTOR_KEY.fullmatch(actor_key) is None:
             raise _configuration_error()
-        object.__setattr__(self, "_actor_key", actor_key)
-        object.__setattr__(self, "_sealed", True)
+        if (account_id is None) != (environment_namespace is None):
+            raise _configuration_error()
+        if account_id is not None and (
+            type(account_id) is not str
+            or ACCOUNT_ID_PATTERN.fullmatch(account_id) is None
+            or type(environment_namespace) is not str
+            or ENVIRONMENT_NAMESPACE_PATTERN.fullmatch(environment_namespace) is None
+        ):
+            raise _configuration_error()
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_actor_key", actor_key)
+        object.__setattr__(instance, "_account_id", account_id)
+        object.__setattr__(instance, "_environment_namespace", environment_namespace)
+        object.__setattr__(instance, "_sealed", True)
+        return instance
 
     def __setattr__(self, _name, _value):
         raise AttributeError("trusted_context_is_immutable")
 
     def __repr__(self) -> str:
         return "TrustedAuthenticatedBrowserActor(<redacted>)"
+
+    def account_reference_for_authorization(self) -> tuple[str, str] | None:
+        if self._account_id is None:
+            return None
+        return self._account_id, self._environment_namespace
 
     def __reduce_ex__(self, _protocol):
         raise TypeError("trusted_context_not_serializable")
@@ -107,17 +139,33 @@ class TrustedProfileReadGrant:
 
     __slots__ = ("_principal", "_sealed")
 
-    def __init__(self, principal: TrustedPrincipalContext):
+    def __new__(cls, *_args, **_kwargs):
+        raise _configuration_error()
+
+    @classmethod
+    def _issue(cls, capability, principal: TrustedPrincipalContext):
+        if cls is not TrustedProfileReadGrant or capability is not _DURABLE_GRANT_ISSUANCE_KEY:
+            raise _configuration_error()
         if type(principal) is not TrustedPrincipalContext:
             raise _configuration_error()
-        object.__setattr__(self, "_principal", principal)
-        object.__setattr__(self, "_sealed", True)
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_principal", principal)
+        object.__setattr__(instance, "_sealed", True)
+        return instance
 
     def __setattr__(self, _name, _value):
         raise AttributeError("trusted_context_is_immutable")
 
     def principal_for_repository(self) -> TrustedPrincipalContext:
         return self._principal
+
+    @property
+    def scope(self) -> str:
+        return "persistent_profile_read"
+
+    @property
+    def allows_mutation(self) -> bool:
+        return False
 
     def __repr__(self) -> str:
         return "TrustedProfileReadGrant(<redacted>)"
@@ -130,6 +178,78 @@ class TrustedProfileReadGrant:
 
     def __deepcopy__(self, _memo):
         raise TypeError("trusted_context_not_copyable")
+
+
+class _TrustedLegacyProfileReadGrant:
+    """Sealed grant used only by explicit dormant legacy test composition."""
+
+    __slots__ = ("_principal", "_sealed")
+
+    def __new__(cls, *_args, **_kwargs):
+        raise _configuration_error()
+
+    @classmethod
+    def _issue(cls, capability, principal: TrustedPrincipalContext):
+        if cls is not _TrustedLegacyProfileReadGrant or capability is not _LEGACY_GRANT_ISSUANCE_KEY:
+            raise _configuration_error()
+        if type(principal) is not TrustedPrincipalContext:
+            raise _configuration_error()
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_principal", principal)
+        object.__setattr__(instance, "_sealed", True)
+        return instance
+
+    def __setattr__(self, _name, _value):
+        raise AttributeError("trusted_context_is_immutable")
+
+    def principal_for_repository(self) -> TrustedPrincipalContext:
+        return self._principal
+
+    def __repr__(self) -> str:
+        return "TrustedLegacyProfileReadGrant(<redacted>)"
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("trusted_context_not_serializable")
+
+    def __copy__(self):
+        raise TypeError("trusted_context_not_copyable")
+
+    def __deepcopy__(self, _memo):
+        raise TypeError("trusted_context_not_copyable")
+
+
+class _TrustedActorIssuer:
+    __slots__ = ()
+
+    def issue(self, actor_key, *, account_id=None, environment_namespace=None):
+        return TrustedAuthenticatedBrowserActor._issue(
+            _ACTOR_ISSUANCE_KEY,
+            actor_key,
+            account_id=account_id,
+            environment_namespace=environment_namespace,
+        )
+
+
+class _DurableGrantIssuer:
+    __slots__ = ()
+
+    def issue(self, principal):
+        return TrustedProfileReadGrant._issue(_DURABLE_GRANT_ISSUANCE_KEY, principal)
+
+
+class _LegacyGrantIssuer:
+    __slots__ = ()
+
+    def issue(self, principal):
+        return _TrustedLegacyProfileReadGrant._issue(_LEGACY_GRANT_ISSUANCE_KEY, principal)
+
+
+_ACTOR_ISSUANCE_KEY = object()
+_DURABLE_GRANT_ISSUANCE_KEY = object()
+_LEGACY_GRANT_ISSUANCE_KEY = object()
+_TRUSTED_AUTHENTICATION_ACTOR_ISSUER = _TrustedActorIssuer()
+_DURABLE_PROFILE_READ_GRANT_ISSUER = _DurableGrantIssuer()
+_LEGACY_PROFILE_READ_GRANT_ISSUER = _LegacyGrantIssuer()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -241,13 +361,41 @@ class PersistentProfilePageResult:
 class PersistentProfileApplicationService:
     """Authenticate, authorize, and orchestrate B2B2 read contracts only."""
 
-    __slots__ = ("_authenticate", "_authorize", "_connection_provider")
+    __slots__ = (
+        "_authenticate",
+        "_authorize",
+        "_durable_authorization_gateway",
+        "_connection_provider",
+    )
 
-    def __init__(self, *, authenticate, authorize, connection_provider):
-        if not callable(authenticate) or not callable(authorize) or not callable(connection_provider):
+    def __init__(
+        self,
+        *,
+        authenticate,
+        authorize=None,
+        durable_authorization_gateway=None,
+        connection_provider,
+    ):
+        if (
+            not callable(authenticate)
+            or not callable(connection_provider)
+            or (authorize is None) == (durable_authorization_gateway is None)
+            or (authorize is not None and not callable(authorize))
+        ):
             raise _configuration_error()
+        if durable_authorization_gateway is not None:
+            from wahojobs.persistent_profile_read_authorization import (
+                DurablePersistentProfileReadAuthorizationGateway,
+            )
+
+            if (
+                type(durable_authorization_gateway)
+                is not DurablePersistentProfileReadAuthorizationGateway
+            ):
+                raise _configuration_error()
         self._authenticate = authenticate
         self._authorize = authorize
+        self._durable_authorization_gateway = durable_authorization_gateway
         self._connection_provider = connection_provider
 
     def read_my_profile(
@@ -277,20 +425,22 @@ class PersistentProfileApplicationService:
         if type(actor) is not TrustedAuthenticatedBrowserActor:
             return _unavailable()
 
-        grant_failed = False
         grant = None
-        try:
-            grant = self._authorize(actor)
-        except Exception:
-            grant_failed = True
-        if grant_failed:
-            return _unavailable()
-        if grant is None:
-            return PersistentProfilePageResult("authorization_denied")
-        if type(grant) is not TrustedProfileReadGrant:
-            return _unavailable()
+        principal = None
+        if self._authorize is not None:
+            grant_failed = False
+            try:
+                grant = self._authorize(actor)
+            except Exception:
+                grant_failed = True
+            if grant_failed:
+                return _unavailable()
+            if grant is None:
+                return PersistentProfilePageResult("authorization_denied")
+            if type(grant) is not _TrustedLegacyProfileReadGrant:
+                return _unavailable()
+            principal = grant.principal_for_repository()
 
-        principal = grant.principal_for_repository()
         result = None
         connection = None
         owned_transaction = False
@@ -308,11 +458,33 @@ class PersistentProfileApplicationService:
                 connection.execute("BEGIN")
                 owned_transaction = connection.in_transaction
                 try:
-                    result = self._read_authorized_profile(
-                        connection,
-                        principal,
-                        before_revision_number=before_revision_number,
-                    )
+                    if self._durable_authorization_gateway is not None:
+                        decision = (
+                            self._durable_authorization_gateway
+                            .authorize_persistent_profile_read(connection, actor)
+                        )
+                        from wahojobs.persistent_profile_read_authorization import (
+                            PersistentProfileReadAuthorizationDecision,
+                        )
+
+                        if type(decision) is not PersistentProfileReadAuthorizationDecision:
+                            result = _unavailable()
+                        elif decision.state == "denied":
+                            result = PersistentProfilePageResult("authorization_denied")
+                        elif decision.state == "unavailable":
+                            result = _unavailable()
+                        else:
+                            grant = decision.grant_for_application()
+                            if type(grant) is not TrustedProfileReadGrant:
+                                result = _unavailable()
+                            else:
+                                principal = grant.principal_for_repository()
+                    if result is None:
+                        result = self._read_authorized_profile(
+                            connection,
+                            principal,
+                            before_revision_number=before_revision_number,
+                        )
                 except PersistentProfileDomainError as exc:
                     reason = exc.reason_code
                     exc = None

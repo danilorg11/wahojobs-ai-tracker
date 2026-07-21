@@ -396,8 +396,6 @@ migration, receipt creation, legacy conversion, or backfill. It is not imported
 by browser, MatchRun, matching, pipeline, Accounts, Ownership, crawler,
 Greenhouse, or package startup paths.
 
-## Future Boundary
-
 ## B2C1 Read-Only Application and Browser Boundary
 
 `wahojobs.persistent_profiles_application` orchestrates the accepted B2B2 read
@@ -449,10 +447,112 @@ persistence, MatchRun persistence, or mutation API. Authentication,
 authorization, explicit mutations, and normal-runtime enablement remain separate
 future milestones.
 
+## B2C2 Durable Read Authorization Boundary
+
+`wahojobs.persistent_profile_read_authorization` provides a dormant durable
+authorization gateway for the B2C1 read path. It consumes only an exact trusted
+browser actor produced by a future authentication gateway. That actor carries a
+stable account reference and trusted environment namespace; B2C2 does not parse,
+verify, or create credentials and does not implement authentication.
+
+Authenticated actors and durable read grants have sealed internal issuance
+boundaries. Their public value constructors reject direct values, copied request
+dictionaries, subclasses, and deserialization. Only trusted authentication-side
+composition may issue an actor, and only a successful B2C2 durable authorization
+decision may issue a `persistent_profile_read` grant. The grant has no mutation
+capability. Explicit dormant legacy B2C1 tests use a separate sealed legacy grant;
+durable composition cannot fall back to it.
+
+Authorization requires an active durable account and exactly one active owner
+binding in the actor's trusted environment. The bound principal must be active,
+account-native, account-claimable, and exclusively account-bound, with a coherent
+current binding-event lineage. The binding and principal environments must agree
+exactly with the trusted actor environment. Suspended, deletion-requested, or
+deactivated accounts; suspended or released bindings; non-active principals; and
+development, sample, system, or legacy principals receive no browser read grant.
+The Accounts schema stores accounts globally, so environment authorization is
+durably scoped by the account's binding and principal rather than by a separate
+account environment column.
+
+Authorization validates the complete bounded account-identity inventory before
+reading bindings. It reuses the pure Migration-002 identity-row contract for the
+durable identity identifier, account relationship, provider data, email state,
+canonical timestamps, disablement chronology, idempotency key, fingerprint, and
+SQLite storage classes. The current identity schema has no separate identity
+lifecycle, row version, updated timestamp, or metadata field. At most 16 identity
+rows may be evaluated; a 17th row is an overflow sentinel and fails unavailable
+without authorizing from a prefix. An active account without a supporting durable
+identity also fails unavailable.
+
+Authorization then validates complete binding, principal, and binding-event
+records before evaluating eligibility. The relevant binding inventory is every
+binding associated with the account, including non-owner, suspended, released,
+and historical rows. Every referenced principal is resolved and fully validated.
+Binding, principal, and event environments must agree, and every active binding
+must satisfy M003 principal-availability rules unless the selected owner is being
+classified as a structurally valid but operationally ineligible denial. Every
+event lineage must be complete and current before an active owner can be selected.
+M002/M003-invalid nonwinning or historical state therefore makes authorization
+unavailable rather than being ignored.
+
+Binding-event integrity uses the same pure authoritative M003 contracts as
+Ownership reconciliation. Stored event fingerprints are recomputed from the
+canonical event fields and metadata and compared without ordinary string
+equality. Event times must satisfy M003's inclusive account-identity, principal,
+binding, and prior-event creation boundaries. Principal, binding, and event
+provenance is validated with the complete M003 structural and privacy policy,
+not only as generic JSON. A lineage that M003 rejects for structural,
+cryptographic, temporal, or provenance integrity cannot receive a durable read
+grant.
+
+At most 64 relevant account bindings may be evaluated. The query reads a 65th
+row only as an overflow sentinel: 65 or more bindings fail closed as unavailable,
+without truncating the inventory or authorizing from the first 64 rows. The B2C2
+authorization-safety policy `MAX_AUTHORIZATION_EVENTS_PER_BINDING = 128` applies
+independently to every binding. Event queries read at most 129 rows; a 129th event
+fails unavailable without prefix authorization. This operational cap does not
+claim that M003 considers an otherwise valid longer history corrupt. Within the
+cap, missing, additional, or noncontiguous history fails closed against the
+durable current event version.
+
+Before making a decision, the gateway checks the accepted Accounts and Ownership
+schema capabilities and migration markers without installing or repairing them.
+Attestation uses immutable committed object fingerprints with the caller-supplied
+connection. Import, gateway construction, cold authorization, and later
+authorization create no auxiliary, temporary, or `:memory:` SQLite connection.
+Missing, partial, weakened, or contradictory durable state produces a sanitized
+unavailable outcome. Ordinary lack of authorization produces a generic denial.
+The browser continues to render denial as not found and unavailable state as a
+bounded temporary failure, without revealing account, principal, binding, profile,
+lifecycle, or ownership details.
+
+In explicit B2C2 composition, authentication still occurs before any database is
+opened. The injected read-only connection provider then supplies one connection,
+and the application begins one request-owned read snapshot. Durable authorization
+and all B2B2 current/history profile reads use that same connection and snapshot.
+The application rolls back only its request-owned transaction, and the provider
+closes only its own connection. Direct gateway calls neither begin nor end a
+caller-owned transaction.
+
+The resulting grant has the fixed `persistent_profile_read` scope and cannot
+authorize mutation. HTTP query, form, JSON, header, cookie, and path values cannot
+select an account, principal, profile, environment, role, or scope. B2C2 queries
+only Accounts and Ownership authorization state; B2B2 remains the sole owner of
+persistent-profile SQL, Canonical Profile V2 validation, lifecycle presentation,
+and history pagination.
+
+B2C2 is disabled by default. Normal startup does not instantiate the gateway,
+connection provider, authentication gateway, or browser integration, and the
+`/account/profile` route remains absent. It performs no writes, migrations,
+reconciliation, repair, receipt creation, login, session or cookie handling,
+signup, ownership claiming or transfer, profile mutation, MatchRun persistence,
+or automatic About You persistence. Session authentication and controlled runtime
+composition remain separate future milestones.
+
 ## Future Boundary
 
-B2B2, B2B3, and B2C1 remain explicitly controlled infrastructure. No login/session,
-OAuth, About You flow, MatchRun, account claiming, matching, pipeline, or default
-normal-runtime path invokes persistent-profile reads. Any mutation, repair,
-persistence, or authorization cutover remains a separately designed and
-reviewed milestone.
+B2B2, B2B3, B2C1, and B2C2 remain explicitly controlled infrastructure. No
+login/session, OAuth, About You flow, MatchRun, account claiming, matching,
+pipeline, or default normal-runtime path invokes persistent-profile reads. Any
+mutation, repair, persistence, session integration, or authorization cutover
+remains a separately designed and reviewed milestone.

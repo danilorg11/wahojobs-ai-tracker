@@ -26,8 +26,8 @@ from wahojobs.persistent_profiles_application import (
     PersistentProfileHistoryView,
     PersistentProfilePageResult,
     PersistentProfileView,
-    TrustedAuthenticatedBrowserActor,
-    TrustedProfileReadGrant,
+    _LEGACY_PROFILE_READ_GRANT_ISSUER,
+    _TRUSTED_AUTHENTICATION_ACTOR_ISSUER,
 )
 from wahojobs.persistent_profiles_browser import (
     MAX_PROFILE_BROWSER_RESPONSE_BYTES,
@@ -82,8 +82,8 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         self.writer = install_repository_database(self.path)
         self.principal = account_context(self.writer)
         self.writer.commit()
-        self.actor = TrustedAuthenticatedBrowserActor("browser-test-actor")
-        self.grant = TrustedProfileReadGrant(self.principal)
+        self.actor = _TRUSTED_AUTHENTICATION_ACTOR_ISSUER.issue("browser-test-actor")
+        self.grant = _LEGACY_PROFILE_READ_GRANT_ISSUER.issue(self.principal)
         self.provider = BrowserReadOnlyProvider(self.path)
         self.auth_calls = 0
         self.authorization_calls = 0
@@ -371,7 +371,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         created = self.create_profile()
         other = account_context(self.writer, suffix="77")
         self.writer.commit()
-        other_grant = TrustedProfileReadGrant(other)
+        other_grant = _LEGACY_PROFILE_READ_GRANT_ISSUER.issue(other)
         integration = self.integration(authorize=lambda _actor: other_grant)
         status, _headers, body = self.request(
             "GET", "/account/profile", integration=integration

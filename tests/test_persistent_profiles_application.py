@@ -23,8 +23,8 @@ from wahojobs.persistent_profiles_application import (
     BrowserRequestContext,
     PersistentProfileApplicationService,
     PersistentProfilePageResult,
-    TrustedAuthenticatedBrowserActor,
-    TrustedProfileReadGrant,
+    _LEGACY_PROFILE_READ_GRANT_ISSUER,
+    _TRUSTED_AUTHENTICATION_ACTOR_ISSUER,
 )
 from wahojobs.persistent_profiles_repository import (
     append_profile_revision,
@@ -71,8 +71,10 @@ class PersistentProfileApplicationTests(unittest.TestCase):
         self.writer = install_repository_database(self.path)
         self.principal = account_context(self.writer)
         self.writer.commit()
-        self.actor = TrustedAuthenticatedBrowserActor("test-authenticated-actor")
-        self.grant = TrustedProfileReadGrant(self.principal)
+        self.actor = _TRUSTED_AUTHENTICATION_ACTOR_ISSUER.issue(
+            "test-authenticated-actor"
+        )
+        self.grant = _LEGACY_PROFILE_READ_GRANT_ISSUER.issue(self.principal)
         self.provider = TrackingReadOnlyProvider(self.path)
 
     def tearDown(self):

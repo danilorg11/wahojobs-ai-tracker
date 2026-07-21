@@ -1,9 +1,7 @@
 from __future__ import annotations
 
+import hashlib
 import re
-import sqlite3
-from functools import lru_cache
-from pathlib import Path
 
 from wahojobs.ownership import (
     MIGRATION_VERSION,
@@ -13,31 +11,38 @@ from wahojobs.ownership import (
 )
 
 
-MIGRATION_PATH = (
-    Path(__file__).resolve().parent
-    / "db"
-    / "migrations"
-    / f"{MIGRATION_VERSION}.sql"
-)
 FORWARD_COMPATIBLE_OWNERSHIP_OBJECTS = {
     ("index", "uq_product_principals_profile_environment"): "004_persistent_product_profiles",
 }
+_OWNERSHIP_AUTO_INDEXES = (
+    "sqlite_autoindex_legacy_owner_aliases_1",
+    "sqlite_autoindex_legacy_owner_aliases_2",
+    "sqlite_autoindex_ownership_binding_events_1",
+    "sqlite_autoindex_ownership_binding_events_2",
+    "sqlite_autoindex_ownership_binding_events_3",
+    "sqlite_autoindex_principal_account_bindings_1",
+    "sqlite_autoindex_principal_account_bindings_2",
+    "sqlite_autoindex_product_principals_1",
+)
+_EXPECTED_OWNERSHIP_OBJECTS = tuple(
+    sorted(
+        {("table", name) for name in OWNERSHIP_TABLES}
+        | {("index", name) for name in OWNERSHIP_INDEXES}
+        | {("index", name) for name in _OWNERSHIP_AUTO_INDEXES}
+        | {("trigger", name) for name in OWNERSHIP_TRIGGERS}
+    )
+)
+_EXPECTED_OWNERSHIP_MANIFEST_FINGERPRINT = (
+    "4ce6a0509f0114e5e0021099996117cb0beea69a40e145985d71c4517a6dda69"
+)
 
 
-@lru_cache(maxsize=1)
 def expected_ownership_manifest() -> dict:
-    """Build the canonical Migration-003 manifest in a disposable database."""
-    conn = sqlite3.connect(":memory:")
-    try:
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute(
-            "CREATE TABLE users (user_id TEXT PRIMARY KEY, lifecycle_status TEXT, "
-            "created_at TEXT)"
-        )
-        conn.executescript(MIGRATION_PATH.read_text(encoding="utf-8"))
-        return _capture_manifest(conn)
-    finally:
-        conn.close()
+    """Return the immutable committed Migration-003 manifest contract."""
+    return {
+        "objects": _EXPECTED_OWNERSHIP_OBJECTS,
+        "fingerprint": _EXPECTED_OWNERSHIP_MANIFEST_FINGERPRINT,
+    }
 
 
 def attest_ownership_schema(conn) -> dict:
@@ -73,34 +78,14 @@ def attest_ownership_schema(conn) -> dict:
                 {"reason": "unexpected_ownership_object", "object": name, "actual_type": kind}
             )
 
-    for key in sorted(set(expected["definitions"]) & set(actual["definitions"])):
-        if expected["definitions"][key] != actual["definitions"][key]:
-            findings.append(
-                {
-                    "reason": "schema_definition_mismatch",
-                    "object": key[1],
-                    "object_type": key[0],
-                }
-            )
-
-    for table in OWNERSHIP_TABLES:
-        if table not in expected["tables"] or table not in actual["tables"]:
-            continue
-        for field, reason in (
-            ("columns", "table_column_definition_mismatch"),
-            ("foreign_keys", "foreign_key_definition_mismatch"),
-            ("indexes", "table_index_inventory_mismatch"),
-        ):
-            if expected["tables"][table][field] != actual["tables"][table][field]:
-                findings.append({"reason": reason, "table": table})
-
-    expected_indexes = expected["index_details"]
-    actual_indexes = actual["index_details"]
-    for index_name in sorted(set(expected_indexes) & set(actual_indexes)):
-        if expected_indexes[index_name] != actual_indexes[index_name]:
-            findings.append(
-                {"reason": "index_definition_mismatch", "index": index_name}
-            )
+    if _manifest_fingerprint(actual) != expected["fingerprint"]:
+        findings.append(
+            {
+                "reason": "schema_definition_mismatch",
+                "object": "ownership_manifest",
+                "object_type": "capability",
+            }
+        )
 
     marker_present = _migration_marker_present(conn)
     has_objects = bool(actual_objects)
@@ -238,6 +223,28 @@ def _normalize_sql(value: str | None) -> str | None:
     if value is None:
         return None
     return re.sub(r"\s+", " ", value.strip().rstrip(";"))
+
+
+def _manifest_fingerprint(value) -> str:
+    canonical = (
+        tuple(sorted(value["objects"])),
+        tuple(sorted(value["definitions"].items())),
+        tuple(
+            (
+                name,
+                tuple((field, details[field]) for field in sorted(details)),
+            )
+            for name, details in sorted(value["tables"].items())
+        ),
+        tuple(
+            (
+                name,
+                tuple((field, details[field]) for field in sorted(details)),
+            )
+            for name, details in sorted(value["index_details"].items())
+        ),
+    )
+    return hashlib.sha256(repr(canonical).encode("utf-8")).hexdigest()
 
 
 def _migration_marker_present(conn) -> bool:
