@@ -431,6 +431,57 @@ def invited_email_hmac(
     return hmac.new(key, normalized.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def session_creation_request_fingerprint(
+    *,
+    user_id: str,
+    idle_ttl: timedelta,
+    absolute_ttl: timedelta,
+) -> str:
+    """Return the authoritative Migration-002 creation fingerprint."""
+    user_id = _strict_id(user_id, "user_id", "usr_")
+    idle_ttl = _positive_timedelta(idle_ttl, "idle_ttl")
+    absolute_ttl = _positive_timedelta(absolute_ttl, "absolute_ttl")
+    if idle_ttl > absolute_ttl:
+        raise InvalidAccountInput("Idle expiry cannot exceed absolute expiry.")
+    return _fingerprint(
+        {
+            "user_id": user_id,
+            "idle_seconds": int(idle_ttl.total_seconds()),
+            "absolute_seconds": int(absolute_ttl.total_seconds()),
+        }
+    )
+
+
+def session_rotation_request_fingerprint(
+    *,
+    old_token_digest: str,
+    expected_session_version: int,
+    idle_ttl: timedelta,
+) -> str:
+    """Return the authoritative Migration-002 replacement fingerprint."""
+    if (
+        type(old_token_digest) is not str
+        or re.fullmatch(r"[0-9a-f]{64}", old_token_digest) is None
+    ):
+        raise InvalidAccountInput("Session digest is not valid.")
+    _expected_version(expected_session_version, session=True)
+    idle_ttl = _positive_timedelta(idle_ttl, "idle_ttl")
+    return _fingerprint(
+        {
+            "old_token_digest": old_token_digest,
+            "expected_session_version": expected_session_version,
+            "idle_seconds": int(idle_ttl.total_seconds()),
+        }
+    )
+
+
+def session_secret_digest(secret: str) -> str:
+    """Hash one validated opaque session or CSRF credential using M002."""
+    return _secret_hash(
+        _strict_text(secret, "session_secret", minimum=32, maximum=1024)
+    )
+
+
 def create_invitation(
     conn,
     *,
@@ -772,12 +823,10 @@ def create_session(
         raise InvalidAccountInput("Idle expiry cannot exceed absolute expiry.")
     idempotency_key = _idempotency_key(idempotency_key)
     now = _now(now)
-    fingerprint = _fingerprint(
-        {
-            "user_id": user_id,
-            "idle_seconds": int(idle_ttl.total_seconds()),
-            "absolute_seconds": int(absolute_ttl.total_seconds()),
-        }
+    fingerprint = session_creation_request_fingerprint(
+        user_id=user_id,
+        idle_ttl=idle_ttl,
+        absolute_ttl=absolute_ttl,
     )
     session_id = _random_id("ses")
     raw_token = secrets.token_urlsafe(32)
@@ -870,12 +919,10 @@ def rotate_session(
     new_token = secrets.token_urlsafe(32)
     new_csrf = secrets.token_urlsafe(32)
     replacement_id = _random_id("ses")
-    fingerprint = _fingerprint(
-        {
-            "old_token_digest": _secret_hash(raw_token),
-            "expected_session_version": expected_session_version,
-            "idle_seconds": int(idle_ttl.total_seconds()),
-        }
+    fingerprint = session_rotation_request_fingerprint(
+        old_token_digest=session_secret_digest(raw_token),
+        expected_session_version=expected_session_version,
+        idle_ttl=idle_ttl,
     )
     try:
         with atomic(conn):
@@ -1620,9 +1667,9 @@ def _insert_session(
         (
             session_id,
             user_id,
-            _secret_hash(raw_token),
+            session_secret_digest(raw_token),
             TOKEN_HASH_VERSION,
-            _secret_hash(raw_csrf),
+            session_secret_digest(raw_csrf),
             TOKEN_HASH_VERSION,
             _timestamp(now),
             _timestamp(now),

@@ -615,6 +615,168 @@ signup, ownership claiming or transfer, profile mutation, MatchRun persistence,
 or automatic About You persistence. Session authentication and controlled runtime
 composition remain separate future milestones.
 
+## B2C4 Dormant Durable Browser Session Lifecycle Services
+
+`wahojobs.browser_session_lifecycle` provides the dormant Migration-002
+mutation boundary for creating a browser session after a future trusted
+authentication decision, rotating one eligible current session, and revoking
+one current session. Each operation requires sealed trusted commands; the three
+command types are separate. Test issuers exist only in test support; normal
+runtime has no command issuer. No browser request can invoke these mutations,
+and no request field, cookie, email address, username, or provider subject can
+select durable account authority.
+
+The service accepts only an existing caller-owned SQLite connection with exact
+Accounts schema attestation, foreign keys enabled, and write capability. It
+opens no connection, applies no migration, runs no reconciliation or repair,
+and creates no temporary or parallel state. A top-level call owns one
+`BEGIN IMMEDIATE` transaction and its commit or rollback. Inside a caller
+transaction it uses one collision-safe internal savepoint, releases only that
+savepoint on success, and rolls back only to that savepoint on failure.
+Cleanup retries a one-time rollback or savepoint failure through bounded fixed
+paths and verifies the resulting transaction state. A failed top-level mutation
+must leave no active transaction. A failed nested mutation must remove all
+lifecycle writes while preserving the active caller transaction and unrelated
+caller work. No failed lifecycle operation may leave partial state that the
+caller can commit.
+
+Creation revalidates the complete active account and eligible supporting
+identity inside the mutation transaction. Rotation and revocation revalidate
+the complete active account, supporting identity inventory, session structure,
+lineage, ownership, current state, expiry, and optimistic session version.
+Structurally malformed state fails with a sanitized unavailable result;
+well-formed but ineligible account or identity state is not promoted into a
+session mutation.
+
+Creation and rotation independently generate a 32-byte opaque session secret
+and a 32-byte opaque CSRF secret. Both use unpadded URL-safe Base64 and are
+exactly 43 ASCII base64url characters. Only the authoritative SHA-256 hashes
+are persisted. Raw issued credentials are never stored in
+`IssuedBrowserSession`. That sealed result contains only an independently
+generated opaque nonsecret issuance handle, nonsecret status, and safe expiry
+metadata. It does not retain or reference the vault, a callback, closure, bound
+method, holder, finalizer, or context manager that can reach credentials.
+Ordinary recursive inspection of result fields, slots, methods, function
+attributes, defaults, and closure cells cannot reach either credential.
+
+Credentials are held only in an independently supplied, sealed,
+request-scoped secret vault. No module-global registry, process-global cache,
+thread-local store, filesystem, SQLite table, network service, or normal
+runtime singleton holds them. The vault has bounded entries and secret bytes,
+one-shot atomic removal, redacted display, no public entry API, and explicit
+request cleanup that clears every unconsumed mutable buffer. Trusted response
+consumption requires the exact result, the independent exact vault, the trusted
+composition capability, and a canonical response time. Successful consumption
+atomically removes and clears the vault entry before returning one final cookie
+header and one CSRF credential. Failed or expired terminal consumption clears
+the entry and cannot be retried. Results and vaults cannot be copied, pickled,
+serialized, or subclassed. Secret-bearing exceptions are contained before they
+cross the public lifecycle boundary, so public traceback-facing state does not
+retain generated credentials. Python cannot guarantee physical memory zeroization,
+so bounded lifetime and best-effort buffer clearing remain the
+documented protections.
+
+For an `issued` result, a trusted consumption attempt becomes terminal after
+the exact result type, exact request-scoped vault type, exact composition
+capability, and canonical response time have been validated. The sealed
+response-consumption state moves from `issued` to `consumed` on success or to
+`terminal_failed` on any failure after that boundary; neither terminal state
+can return to `issued`. Within response consumption, `already_completed` is
+reserved for a result previously consumed successfully. A terminal failure
+returns only a generic failure and permanently prevents retry.
+
+Each issued result and vault entry also share an independent opaque nonsecret per-issuance binding nonce.
+It can verify that a valid handle still identifies
+the result's own entry, but it cannot locate, access, or reconstruct a vault or
+credential. A handle that identifies another entry therefore fails terminally
+rather than consuming that entry's credentials.
+
+A handle that is absent, unmatched, inconsistent, or incompatible with the
+expected effective expiry causes immediate fail-closed cleanup. With the
+correct vault, the complete request-scoped vault is cleared and closed
+immediately, all mutable credential buffers are overwritten where practical,
+and its entry count becomes zero before the failure returns. With an
+independently supplied wrong vault, the issued result is still permanently
+invalidated and that supplied vault is cleared and closed; the independently
+managed original vault cannot be located through the result and is cleared by
+mandatory request cleanup. No result-to-vault reference, weak reference,
+callback, closure, global registry, or thread-local registry exists.
+Vault close is mandatory at request completion, idempotent, and uses bounded
+fail-closed cleanup if an initial cleanup attempt fails.
+
+For a service-owned top-level create or rotation, vault deposit occurs only
+after the database transaction commits. If that request-local deposit fails,
+the operation returns a sanitized internal failure, no partial vault entry or
+credential escapes, and the already committed but unreachable durable session
+is not presented as issued or recoverable by replay. A future trusted caller
+must begin a new issuance request. For a caller-owned outer transaction, the
+savepoint-complete operation deposits a non-consumable pending vault entry and
+returns a noncredential `pending_commit` result. After the caller commits, an
+explicit trusted finalization step on the same connection verifies the exact
+durable session and rotation lineage before marking the entry consumable. A
+pre-commit consume or finalize fails closed; rollback followed by finalization
+clears the pending entry. Request cleanup clears any abandoned pending entry.
+This explicit coordination preserves nested savepoint rollback behavior without
+issuing credentials for rows the caller can still roll back.
+
+Trusted one-shot response consumption emits one `wahojobs_session` assignment with
+`Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, coherent `Max-Age`, and
+`Expires` attributes. It has no `Domain` attribute and rejects any CR or LF.
+Effective session expiry is the earlier of idle expiry and absolute expiry.
+`Expires` equals that effective expiry, while `Max-Age` is computed from the
+canonical trusted response-composition time. A delayed response therefore
+reduces `Max-Age`, and the cookie never outlives either durable deadline. If
+response composition occurs at or after effective expiry, consumption returns
+no cookie or CSRF credential and cannot be retried.
+CSRF delivery remains an internal future-composition concern. B2C4 does not
+emit a `Set-Cookie` header from any normal route.
+
+An active/current session row uses version `1`.
+A rotated or revoked historical row uses version `2`.
+Rotation atomically inserts one version-`1` replacement,
+marks the predecessor as version `2` with `session_rotated`, and appends the
+authoritative edge. The absolute expiry is inherited. The requested idle expiry
+is the earlier of the accepted rotation time plus the bounded idle TTL or the
+inherited absolute expiry. Equality at the absolute boundary is therefore an
+intentional clamp, while an already elapsed result is rejected. Rotation allows
+at most 32 edges; a requested 33rd edge fails closed. The edge sequence remains
+separate from the session row version, and validation does not invent the
+non-durable requested idle TTL for a clamped historical replacement.
+
+Trusted accepted times and injected trusted-clock values must be canonical
+whole-second UTC timestamps. Future accepted times are rejected. Creation is
+also rejected before credential generation when its derived idle, absolute, or
+effective expiry is at or before the trusted current time. Rotation similarly
+rejects an elapsed predecessor or replacement deadline before generating new
+credentials. Idle TTL is
+bounded from one minute through 30 days; absolute TTL is bounded from one
+minute through 90 days; creation idle expiry cannot exceed absolute expiry.
+Revocation changes only the selected current session to historical version `2`
+and leaves unrelated sessions unchanged.
+
+Creation and rotation reuse the authoritative Migration-002 request, session,
+secret-digest, rotation-fingerprint, and lineage contracts. Durable global
+creation idempotency keys make an exact repeated creation or rotation return a
+sealed `already_completed` result with no issuance handle and no vault entry.
+That durable mutation-replay status is a noncredential result and is distinct
+from the successful-consumption completion of one issued response result.
+Because raw session and CSRF credentials are never durable, replay cannot reproduce either prior raw credential,
+recover a previous request vault entry,
+or return replacement credentials. A changed request under the same durable key fails
+as an idempotency conflict. Migration 002 has no separate revocation
+idempotency-key column; revocation replay is recognized only by the exact
+persisted session, accepted timestamp, reason, and expected current version.
+All comparisons of reconstructible fingerprints and secret verification use
+constant-time comparison.
+
+B2C4 remains disabled and unexported from package startup. Ordinary local
+startup does not import it, create sealed commands, open a database, mutate a
+session, emit a cookie, or activate `/account/profile`.
+It adds no login or logout UI. It adds no password or OAuth flow, signup,
+automatic renewal, background rotation, revoke-all action, ownership mutation,
+profile mutation, MatchRun persistence, About You persistence, migration,
+repair, or runtime activation.
+
 ## Future Boundary
 
 B2B2, B2B3, B2C1, and B2C2 remain explicitly controlled infrastructure. No

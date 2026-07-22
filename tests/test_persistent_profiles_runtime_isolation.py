@@ -14,6 +14,33 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
+    def test_b2c4_documentation_records_dormant_lifecycle_boundaries(self):
+        documentation = (
+            ROOT / "docs" / "persistent_profile_services.md"
+        ).read_text(encoding="utf-8")
+        for statement in (
+            "## B2C4 Dormant Durable Browser Session Lifecycle Services",
+            "sealed trusted commands",
+            "No browser request can invoke these mutations",
+            "request-scoped secret vault",
+            "does not retain or reference the vault",
+            "pending_commit",
+            "a trusted consumption attempt becomes terminal",
+            "`terminal_failed`",
+            "nonsecret per-issuance binding nonce",
+            "the complete request-scoped vault is cleared and closed",
+            "No result-to-vault reference",
+            "Vault close is mandatory at request completion, idempotent",
+            "cannot reproduce either prior raw credential",
+            "active/current session row uses version `1`",
+            "rotated or revoked historical row uses version `2`",
+            "32 edges",
+            "Python cannot guarantee physical memory zeroization",
+            "no login or logout UI",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, documentation)
+
     def test_b2c3_documentation_records_exact_browser_authentication_boundaries(self):
         documentation = (
             ROOT / "docs" / "persistent_profile_services.md"
@@ -234,6 +261,35 @@ print(authentication.SESSION_COOKIE_NAME, repr(gateway))
             "wahojobs_session DurableBrowserSessionAuthenticationGateway(<configured>)",
         )
 
+    def test_b2c4_lifecycle_import_opens_no_database_network_or_writer(self):
+        script = r'''
+import builtins
+import socket
+import sqlite3
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+original_open = builtins.open
+def guarded_open(file, mode="r", *args, **kwargs):
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        raise RuntimeError("file write")
+    return original_open(file, mode, *args, **kwargs)
+builtins.open = guarded_open
+import wahojobs.browser_session_lifecycle as lifecycle
+print(hasattr(lifecycle, "_TRUSTED_BROWSER_SESSION_COMMAND_ISSUER"))
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "False")
+
     def test_normal_local_runtime_does_not_import_b2c2_authorization(self):
         script = r'''
 import sys
@@ -254,6 +310,21 @@ print("wahojobs.persistent_profile_read_authorization" in sys.modules)
 import sys
 import scripts.local_product_app
 print("wahojobs.browser_session_authentication" in sys.modules)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "False")
+
+    def test_normal_local_runtime_does_not_import_b2c4_lifecycle(self):
+        script = r'''
+import sys
+import scripts.local_product_app
+print("wahojobs.browser_session_lifecycle" in sys.modules)
 '''
         result = subprocess.run(
             [sys.executable, "-B", "-c", script],
