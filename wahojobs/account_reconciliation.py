@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
 from types import MappingProxyType
 
 from wahojobs.accounts import (
+    LIFECYCLE_STATUSES,
     PROVIDERS,
+    SAFE_REVOKE_REASONS,
+    TOKEN_HASH_VERSION,
     InvalidAccountInput,
     normalize_email,
     validate_account_metadata,
@@ -93,6 +97,79 @@ ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS = MappingProxyType(
 def expected_account_schema_fingerprints():
     """Return the immutable committed Migration-002 object fingerprints."""
     return ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS
+
+
+def attest_account_schema(conn) -> bool:
+    """Attest the installed Migration-002 capability without modifying it."""
+    marker = conn.execute(
+        "SELECT COUNT(*) FROM wahojobs_schema_migrations WHERE version = ?",
+        (MIGRATION_VERSION,),
+    ).fetchone()
+    if marker is None or marker[0] != 1:
+        return False
+    expected = expected_account_schema_fingerprints()
+    main_objects = tuple(
+        conn.execute(
+            "SELECT type, name, sql FROM sqlite_master "
+            "WHERE type IN ('table', 'index', 'trigger', 'view')"
+        )
+    )
+    actual = {
+        (row[0], row[1]): hashlib.sha256(
+            re.sub(r"\s+", " ", row[2].strip().rstrip(";")).encode("utf-8")
+        ).hexdigest()
+        for row in main_objects
+        if (row[0], row[1]) in expected and type(row[2]) is str
+    }
+    if actual != dict(expected):
+        return False
+    temporary_objects = tuple(
+        conn.execute(
+            "SELECT type, name, sql FROM sqlite_temp_master "
+            "WHERE type IN ('table', 'index', 'trigger', 'view')"
+        )
+    )
+    return not _has_unexpected_session_schema_object(
+        main_objects,
+        temporary_objects,
+        expected,
+    )
+
+
+def _has_unexpected_session_schema_object(main_objects, temporary_objects, expected):
+    session_tables = tuple(
+        name
+        for object_type, name in expected
+        if object_type == "table" and "session" in name.casefold()
+    )
+    for schema, objects in (("main", main_objects), ("temp", temporary_objects)):
+        for object_type, name, definition in objects:
+            key = (object_type, name)
+            if schema == "main" and key in expected:
+                continue
+            if (
+                object_type == "index"
+                and definition is None
+                and name.startswith("sqlite_autoindex_")
+            ):
+                continue
+            folded_name = name.casefold() if type(name) is str else ""
+            folded_definition = (
+                definition.casefold() if type(definition) is str else ""
+            )
+            if any(
+                table.casefold() in folded_name
+                or re.search(
+                    rf"(?<![a-z0-9_]){re.escape(table.casefold())}(?![a-z0-9_])",
+                    folded_definition,
+                )
+                is not None
+                for table in session_tables
+            ):
+                return True
+    return False
+
+
 APPEND_ONLY_TRIGGERS = {
     "trg_consent_events_no_update",
     "trg_consent_events_no_delete",
@@ -104,6 +181,7 @@ APPEND_ONLY_TRIGGERS = {
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 AUTH_IDENTITY_ID = re.compile(r"^auth_[0-9a-f]{32}$")
 ACCOUNT_ID = re.compile(r"^usr_[0-9a-f]{32}$")
+SESSION_ID = re.compile(r"^ses_[0-9a-f]{32}$")
 TIMESTAMP_FIELDS = {
     "users": (
         "created_at",
@@ -328,6 +406,142 @@ def _check_duplicate_identities(conn, checks):
     checks["duplicate_provider_subjects"].extend(
         {"provider": row["provider"], "count": row["count"]} for row in rows
     )
+
+
+def authoritative_account_row_valid(row, *, expected_user_id=None) -> bool:
+    """Validate one account projection using the Migration-002 contract."""
+    try:
+        user_id = row["user_id"]
+        lifecycle = row["lifecycle_status"]
+        row_version = row["row_version"]
+        created = _parse_timestamp(row["created_at"])
+        updated = _parse_timestamp(row["updated_at"])
+        deletion = (
+            _parse_timestamp(row["deletion_requested_at"])
+            if row["deletion_requested_at"] is not None
+            else None
+        )
+        deactivated = (
+            _parse_timestamp(row["deactivated_at"])
+            if row["deactivated_at"] is not None
+            else None
+        )
+    except (KeyError, IndexError, TypeError):
+        return False
+    if (
+        type(user_id) is not str
+        or ACCOUNT_ID.fullmatch(user_id) is None
+        or (expected_user_id is not None and user_id != expected_user_id)
+        or lifecycle not in LIFECYCLE_STATUSES
+        or type(row_version) is not int
+        or row_version < 1
+        or created is None
+        or updated is None
+        or updated < created
+        or (row["deletion_requested_at"] is not None and deletion is None)
+        or (row["deactivated_at"] is not None and deactivated is None)
+        or (deletion is not None and deletion < created)
+        or (deactivated is not None and (deletion is None or deactivated < deletion))
+    ):
+        return False
+    if lifecycle in {"active", "suspended"}:
+        return deletion is None and deactivated is None
+    if lifecycle == "deletion_requested":
+        return deletion is not None and deactivated is None
+    return deletion is not None and deactivated is not None
+
+
+def authoritative_session_row_valid(
+    row,
+    *,
+    expected_user_id=None,
+    account_created_at=None,
+) -> bool:
+    """Validate every installed Migration-002 session field."""
+    try:
+        session_id = row["session_id"]
+        user_id = row["user_id"]
+        token_hash = row["token_hash"]
+        token_hash_version = row["token_hash_version"]
+        csrf_hash = row["csrf_secret_hash"]
+        csrf_hash_version = row["csrf_hash_version"]
+        created = _parse_timestamp(row["created_at"])
+        last_seen = _parse_timestamp(row["last_seen_at"])
+        idle_expires = _parse_timestamp(row["idle_expires_at"])
+        absolute_expires = _parse_timestamp(row["absolute_expires_at"])
+        rotated = (
+            _parse_timestamp(row["rotated_at"])
+            if row["rotated_at"] is not None
+            else None
+        )
+        revoked = (
+            _parse_timestamp(row["revoked_at"])
+            if row["revoked_at"] is not None
+            else None
+        )
+        revoke_reason = row["revoke_reason"]
+        session_version = row["session_version"]
+        idempotency_key = row["creation_idempotency_key"]
+        request_fingerprint = row["request_fingerprint"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    if (
+        type(session_id) is not str
+        or SESSION_ID.fullmatch(session_id) is None
+        or type(user_id) is not str
+        or ACCOUNT_ID.fullmatch(user_id) is None
+        or (expected_user_id is not None and user_id != expected_user_id)
+        or type(token_hash) is not str
+        or HEX_64.fullmatch(token_hash) is None
+        or token_hash_version != TOKEN_HASH_VERSION
+        or type(csrf_hash) is not str
+        or HEX_64.fullmatch(csrf_hash) is None
+        or csrf_hash_version != TOKEN_HASH_VERSION
+        or created is None
+        or last_seen is None
+        or idle_expires is None
+        or absolute_expires is None
+        or last_seen < created
+        or idle_expires <= created
+        or absolute_expires <= created
+        or idle_expires > absolute_expires
+        or last_seen >= idle_expires
+        or last_seen >= absolute_expires
+        or (row["rotated_at"] is not None and rotated is None)
+        or (row["revoked_at"] is not None and revoked is None)
+        or (rotated is not None and (rotated < created or rotated >= absolute_expires))
+        or (revoked is not None and revoked < created)
+        or not authoritative_session_version_valid(
+            session_version=session_version,
+            revoked_at=row["revoked_at"],
+        )
+        or type(idempotency_key) is not str
+        or idempotency_key != idempotency_key.strip()
+        or not (8 <= len(idempotency_key) <= 256)
+        or any(ord(char) < 32 for char in idempotency_key)
+        or type(request_fingerprint) is not str
+        or HEX_64.fullmatch(request_fingerprint) is None
+    ):
+        return False
+    if account_created_at is not None:
+        account_created = _parse_timestamp(account_created_at)
+        if account_created is None or created < account_created:
+            return False
+    if rotated is not None:
+        return (
+            revoked == rotated
+            and revoke_reason == "session_rotated"
+        )
+    if revoked is None:
+        return revoke_reason is None
+    return revoke_reason in SAFE_REVOKE_REASONS - {"session_rotated"}
+
+
+def authoritative_session_version_valid(*, session_version, revoked_at) -> bool:
+    """Validate the exact row-version states reachable through M002 services."""
+    if type(session_version) is not int:
+        return False
+    return session_version == (1 if revoked_at is None else 2)
 
 
 def authoritative_auth_identity_row_valid(

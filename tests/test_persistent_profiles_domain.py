@@ -946,6 +946,7 @@ print(domain.MIGRATION_VERSION)
         self.assertEqual(
             references,
             [
+                "wahojobs/browser_session_authentication.py",
                 "wahojobs/persistent_profiles_application.py",
                 "wahojobs/persistent_profiles_browser.py",
                 "wahojobs/persistent_profiles_reconciliation.py",

@@ -14,6 +14,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
+    def test_b2c3_documentation_records_exact_browser_authentication_boundaries(self):
+        documentation = (
+            ROOT / "docs" / "persistent_profile_services.md"
+        ).read_text(encoding="utf-8")
+        for statement in (
+            "`wahojobs_session`",
+            "exactly 43 ASCII base64url characters",
+            "4,096 bytes",
+            "64 headers",
+            "Multiple Cookie headers",
+            "duplicate `wahojobs_session` occurrences",
+            "inside or around the target",
+            "never logged, rendered, serialized, persisted",
+            "unexpected user-defined",
+            "Rotation edges have no interchangeable row-version field",
+            "no login UI",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, documentation)
+
     def test_base_schema_and_browser_runtime_do_not_install_or_import_migration_004(self):
         schema = (ROOT / "wahojobs" / "db" / "schema.sql").read_text(encoding="utf-8")
         local_app = (ROOT / "scripts" / "local_product_app.py").read_text(encoding="utf-8")
@@ -178,11 +198,62 @@ print(gateway.scope)
         )
         self.assertEqual(result.stdout.strip(), "persistent_profile_read")
 
+    def test_b2c3_authentication_import_opens_no_database_network_or_writer(self):
+        script = r'''
+import builtins
+import socket
+import sqlite3
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+original_open = builtins.open
+def guarded_open(file, mode="r", *args, **kwargs):
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        raise RuntimeError("file write")
+    return original_open(file, mode, *args, **kwargs)
+builtins.open = guarded_open
+import wahojobs.browser_session_authentication as authentication
+gateway = authentication.DurableBrowserSessionAuthenticationGateway(
+    trusted_environment_namespace="private_beta",
+    clock=lambda: None,
+)
+print(authentication.SESSION_COOKIE_NAME, repr(gateway))
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "wahojobs_session DurableBrowserSessionAuthenticationGateway(<configured>)",
+        )
+
     def test_normal_local_runtime_does_not_import_b2c2_authorization(self):
         script = r'''
 import sys
 import scripts.local_product_app
 print("wahojobs.persistent_profile_read_authorization" in sys.modules)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "False")
+
+    def test_normal_local_runtime_does_not_import_b2c3_authentication(self):
+        script = r'''
+import sys
+import scripts.local_product_app
+print("wahojobs.browser_session_authentication" in sys.modules)
 '''
         result = subprocess.run(
             [sys.executable, "-B", "-c", script],

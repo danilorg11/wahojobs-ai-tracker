@@ -447,6 +447,72 @@ persistence, MatchRun persistence, or mutation API. Authentication,
 authorization, explicit mutations, and normal-runtime enablement remain separate
 future milestones.
 
+## B2C3 Dormant Durable Browser Session Authentication
+
+`wahojobs.browser_session_authentication` provides the dormant authentication
+gateway for an explicitly composed B2C1+B2C2 read path. It is disabled by
+default and is not imported, constructed, or routed by normal local-product
+startup. The fixed cookie name is `wahojobs_session`. The browser supplies only
+one opaque token containing exactly 43 ASCII base64url characters. The complete
+Cookie header is limited to 4,096 bytes, and the complete request to 64 headers.
+Multiple Cookie headers, duplicate `wahojobs_session` occurrences, and whitespace
+inside or around the target `wahojobs_session=<token>` assignment are rejected.
+Account, identity, principal, profile, and environment identifiers are never
+accepted from browser input.
+
+The gateway derives the indexed SHA-256 lookup digest required by Migration 002,
+checks the stored digest with a constant-time comparison, and validates the full
+session row, rotation ancestry capped at 32 edges, active account, and complete
+bounded identity inventory before issuing the sealed B2C2 actor. Root-session request
+fingerprints are recomputed. Rotation fingerprints are also recomputed when the
+stored idle expiry proves the requested idle lifetime was not clamped. Migration
+002 does not retain the requested idle lifetime after an absolute-expiry clamp,
+so that narrow replacement case can validate only the canonical fingerprint
+shape and the complete rotation relationship. No alternate algorithm or
+downgrade is accepted.
+
+Exact Migration 002 schema attestation also rejects unexpected user-defined
+objects that target or reference the session and rotation tables while allowing
+SQLite-managed internal indexes. An active/current `account_sessions` row must
+use session row version `1`. This includes an active root session and an active
+replacement/current session after rotation. A revoked or rotated historical
+predecessor `account_sessions` row must use session row version `2`. Any other
+session row version is structurally invalid and produces sanitized authentication
+unavailable.
+
+The session row version is distinct from the rotation edge sequence/version,
+token digest version, CSRF digest version, and request-fingerprint version.
+Rotation edge sequence follows its own authoritative contiguous-lineage contract
+and must not be interpreted as the `account_sessions` row version.
+Rotation edges have no interchangeable row-version field: their structural
+continuity and ancestry sequence are validated separately from session-row,
+fingerprint, and digest versions.
+
+Only sessions created at or before the injected trusted time and strictly before
+both idle and absolute expiry authenticate. Equality with either expiry is
+expired. Revoked and rotated sessions, inactive accounts, and sessions without
+an active supporting identity are ordinary authentication failures. Malformed
+durable state, schema drift, contention, and infrastructure failures produce a
+generic unavailable result. Raw credentials, session identifiers, identity
+details, lifecycle details, and timestamps never enter browser models or public
+errors. The raw session token is never logged, rendered, serialized, persisted,
+retained in actor or view models, or attached to errors.
+
+Migration 002 sessions are globally account-scoped and contain no product
+environment column. Explicit trusted composition therefore supplies the bounded
+product environment used by B2C2; browser headers, cookies, queries, environment
+variables, and profile state cannot select it. In durable mode, B2C3
+authentication, B2C2 authorization, and B2B2 current/history reads use one
+provider-owned read-only connection and one request transaction snapshot. There
+is no auxiliary connection, session-table scan, last-used update, or other write.
+
+B2C3 adds no login UI, credential collection, password support, OAuth, signup,
+session creation, renewal, rotation, logout, revocation action, ownership
+mutation, profile mutation, automatic About You persistence, MatchRun
+persistence, migration, repair, or runtime activation. Legacy callback-based
+B2C1 tests and injected-actor B2C2 tests remain separate explicit modes; durable
+authentication cannot fall back to either.
+
 ## B2C2 Durable Read Authorization Boundary
 
 `wahojobs.persistent_profile_read_authorization` provides a dormant durable

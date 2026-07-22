@@ -364,6 +364,7 @@ class PersistentProfileApplicationService:
     __slots__ = (
         "_authenticate",
         "_authorize",
+        "_durable_authentication_gateway",
         "_durable_authorization_gateway",
         "_connection_provider",
     )
@@ -371,18 +372,44 @@ class PersistentProfileApplicationService:
     def __init__(
         self,
         *,
-        authenticate,
+        authenticate=None,
         authorize=None,
+        durable_authentication_gateway=None,
         durable_authorization_gateway=None,
         connection_provider,
     ):
-        if (
-            not callable(authenticate)
-            or not callable(connection_provider)
-            or (authorize is None) == (durable_authorization_gateway is None)
-            or (authorize is not None and not callable(authorize))
-        ):
+        legacy_mode = (
+            callable(authenticate)
+            and callable(authorize)
+            and durable_authentication_gateway is None
+            and durable_authorization_gateway is None
+        )
+        injected_actor_durable_mode = (
+            callable(authenticate)
+            and authorize is None
+            and durable_authentication_gateway is None
+            and durable_authorization_gateway is not None
+        )
+        durable_session_mode = (
+            authenticate is None
+            and authorize is None
+            and durable_authentication_gateway is not None
+            and durable_authorization_gateway is not None
+        )
+        if not callable(connection_provider) or sum(
+            (legacy_mode, injected_actor_durable_mode, durable_session_mode)
+        ) != 1:
             raise _configuration_error()
+        if durable_authentication_gateway is not None:
+            from wahojobs.browser_session_authentication import (
+                DurableBrowserSessionAuthenticationGateway,
+            )
+
+            if (
+                type(durable_authentication_gateway)
+                is not DurableBrowserSessionAuthenticationGateway
+            ):
+                raise _configuration_error()
         if durable_authorization_gateway is not None:
             from wahojobs.persistent_profile_read_authorization import (
                 DurablePersistentProfileReadAuthorizationGateway,
@@ -395,6 +422,7 @@ class PersistentProfileApplicationService:
                 raise _configuration_error()
         self._authenticate = authenticate
         self._authorize = authorize
+        self._durable_authentication_gateway = durable_authentication_gateway
         self._durable_authorization_gateway = durable_authorization_gateway
         self._connection_provider = connection_provider
 
@@ -412,18 +440,19 @@ class PersistentProfileApplicationService:
         ):
             return _unavailable()
 
-        actor_failed = False
         actor = None
-        try:
-            actor = self._authenticate(request_context)
-        except Exception:
-            actor_failed = True
-        if actor_failed:
-            return _unavailable()
-        if actor is None:
-            return PersistentProfilePageResult("authentication_required")
-        if type(actor) is not TrustedAuthenticatedBrowserActor:
-            return _unavailable()
+        if self._durable_authentication_gateway is None:
+            actor_failed = False
+            try:
+                actor = self._authenticate(request_context)
+            except Exception:
+                actor_failed = True
+            if actor_failed:
+                return _unavailable()
+            if actor is None:
+                return PersistentProfilePageResult("authentication_required")
+            if type(actor) is not TrustedAuthenticatedBrowserActor:
+                return _unavailable()
 
         grant = None
         principal = None
@@ -458,7 +487,21 @@ class PersistentProfileApplicationService:
                 connection.execute("BEGIN")
                 owned_transaction = connection.in_transaction
                 try:
-                    if self._durable_authorization_gateway is not None:
+                    if self._durable_authentication_gateway is not None:
+                        actor = (
+                            self._durable_authentication_gateway
+                            .authenticate_browser_request(connection, request_context)
+                        )
+                        if actor is None:
+                            result = PersistentProfilePageResult(
+                                "authentication_required"
+                            )
+                        elif type(actor) is not TrustedAuthenticatedBrowserActor:
+                            result = _unavailable()
+                    if (
+                        result is None
+                        and self._durable_authorization_gateway is not None
+                    ):
                         decision = (
                             self._durable_authorization_gateway
                             .authorize_persistent_profile_read(connection, actor)
