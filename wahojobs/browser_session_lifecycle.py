@@ -42,6 +42,7 @@ MAX_ABSOLUTE_TTL = timedelta(days=90)
 MAX_GENERATION_ATTEMPTS = 4
 MAX_REQUEST_VAULT_ENTRIES = 16
 MAX_REQUEST_VAULT_SECRET_BYTES = MAX_REQUEST_VAULT_ENTRIES * 64
+_UNDELIVERED_IDEMPOTENCY_SUFFIX = ".undelivered"
 
 _ACCOUNT_ID = re.compile(r"^usr_[0-9a-f]{32}$")
 _IDENTITY_ID = re.compile(r"^auth_[0-9a-f]{32}$")
@@ -227,6 +228,7 @@ class _RequestVaultEntry:
         "token_digest",
         "csrf_digest",
         "request_fingerprint",
+        "creation_idempotency_key",
         "predecessor_session_id",
         "binding_nonce",
     )
@@ -245,6 +247,7 @@ class _RequestVaultEntry:
         token_digest,
         csrf_digest,
         request_fingerprint,
+        creation_idempotency_key,
         predecessor_session_id,
         binding_nonce,
     ):
@@ -259,6 +262,7 @@ class _RequestVaultEntry:
         self.token_digest = token_digest
         self.csrf_digest = csrf_digest
         self.request_fingerprint = request_fingerprint
+        self.creation_idempotency_key = creation_idempotency_key
         self.predecessor_session_id = predecessor_session_id
         self.binding_nonce = binding_nonce
 
@@ -327,6 +331,7 @@ class RequestScopedSessionSecretVault:
         token_digest,
         csrf_digest,
         request_fingerprint,
+        creation_idempotency_key,
         predecessor_session_id,
         failure_injector=None,
     ):
@@ -340,6 +345,9 @@ class RequestScopedSessionSecretVault:
             or operation not in {"create", "rotate"}
         ):
             raise BrowserSessionLifecycleError("internal_consistency_failure")
+        creation_idempotency_key = _validated_idempotency_key(
+            creation_idempotency_key
+        )
         effective_expires_at = _trusted_time(effective_expires_at)
         with self._lock:
             if (
@@ -362,6 +370,7 @@ class RequestScopedSessionSecretVault:
                 token_digest=token_digest,
                 csrf_digest=csrf_digest,
                 request_fingerprint=request_fingerprint,
+                creation_idempotency_key=creation_idempotency_key,
                 predecessor_session_id=predecessor_session_id,
                 binding_nonce=binding_nonce,
             )
@@ -402,6 +411,28 @@ class RequestScopedSessionSecretVault:
                 "token_digest": entry.token_digest,
                 "csrf_digest": entry.csrf_digest,
                 "request_fingerprint": entry.request_fingerprint,
+                "creation_idempotency_key": entry.creation_idempotency_key,
+                "predecessor_session_id": entry.predecessor_session_id,
+                "effective_expires_at": entry.effective_expires_at,
+                "binding_nonce": entry.binding_nonce,
+            }
+
+    def _undelivered_metadata(self, capability, handle):
+        self._require_service_access(capability)
+        with self._lock:
+            entry = self._entries.get(handle)
+            if entry is None:
+                return None
+            return {
+                "ready": entry.ready,
+                "connection_marker": entry.connection_marker,
+                "operation": entry.operation,
+                "session_id": entry.session_id,
+                "account_id": entry.account_id,
+                "token_digest": entry.token_digest,
+                "csrf_digest": entry.csrf_digest,
+                "request_fingerprint": entry.request_fingerprint,
+                "creation_idempotency_key": entry.creation_idempotency_key,
                 "predecessor_session_id": entry.predecessor_session_id,
                 "effective_expires_at": entry.effective_expires_at,
                 "binding_nonce": entry.binding_nonce,
@@ -518,6 +549,28 @@ class RequestScopedSessionSecretVault:
                 if not _clear_vault_entry(entry):
                     cleanup_failed = True
         if injected_failure or cleanup_failed:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+    def _emergency_terminalize(self, capability):
+        """Unconditionally detach and clear this exact request vault."""
+
+        self._require_service_access(capability)
+        with self._lock:
+            entries = list(self._entries.values())
+            self._entries.clear()
+            object.__setattr__(self, "_secret_bytes", 0)
+            object.__setattr__(self, "_closed", True)
+        cleanup_failed = False
+        for entry in entries:
+            if not _clear_vault_entry(entry):
+                cleanup_failed = True
+        with self._lock:
+            terminal = (
+                self._closed
+                and not self._entries
+                and self._secret_bytes == 0
+            )
+        if cleanup_failed or not terminal:
             raise BrowserSessionLifecycleError("internal_consistency_failure")
 
     def _entry_count(self, capability):
@@ -894,6 +947,127 @@ def finalize_pending_issued_session(
     )
 
 
+def compensate_undelivered_issued_session(
+    connection: sqlite3.Connection,
+    result: IssuedBrowserSession,
+    secret_vault: RequestScopedSessionSecretVault,
+    capability,
+    *,
+    trusted_now,
+    _failure_injector=None,
+) -> BrowserSessionMutationResult:
+    """Invalidate one exact committed issuance whose credentials were not delivered."""
+
+    return _sanitized_call(
+        lambda: _compensate_undelivered_issued_session(
+            connection,
+            result,
+            secret_vault,
+            capability,
+            trusted_now,
+            _failure_injector,
+        )
+    )
+
+
+def force_compensate_undelivered_issued_session(
+    connection: sqlite3.Connection,
+    result: IssuedBrowserSession,
+    secret_vault: RequestScopedSessionSecretVault,
+    capability,
+    *,
+    trusted_now,
+) -> BrowserSessionMutationResult:
+    """Independently invalidate one exact issuance after ordinary recovery fails."""
+
+    return _sanitized_call(
+        lambda: _force_compensate_undelivered_issued_session(
+            connection,
+            result,
+            secret_vault,
+            capability,
+            trusted_now,
+        )
+    )
+
+
+def verify_compensated_undelivered_issued_session(
+    connection: sqlite3.Connection,
+    result: IssuedBrowserSession,
+    secret_vault: RequestScopedSessionSecretVault,
+    capability,
+    *,
+    trusted_now,
+) -> BrowserSessionMutationResult:
+    """Independently attest that one exact undelivered issuance is inactive."""
+
+    return _sanitized_call(
+        lambda: _verify_compensated_undelivered_issued_session(
+            connection,
+            result,
+            secret_vault,
+            capability,
+            trusted_now,
+        )
+    )
+
+
+def terminalize_undelivered_issued_result(
+    result: IssuedBrowserSession,
+    capability,
+):
+    """Make an unreturned issuance result permanently non-consumable."""
+
+    return _sanitized_call(
+        lambda: _terminalize_undelivered_issued_result(result, capability)
+    )
+
+
+def abort_request_scoped_secret_vault(
+    secret_vault: RequestScopedSessionSecretVault,
+    capability,
+    *,
+    _failure_injector=None,
+):
+    """Close one failed request vault with bounded retry and exact verification."""
+
+    return _sanitized_call(
+        lambda: _abort_request_scoped_secret_vault(
+            secret_vault,
+            capability,
+            _failure_injector,
+        )
+    )
+
+
+def emergency_terminalize_request_scoped_secret_vault(
+    secret_vault: RequestScopedSessionSecretVault,
+    capability,
+):
+    """Injection-free terminalization for an exact failed request vault."""
+
+    return _sanitized_call(
+        lambda: _emergency_terminalize_request_scoped_secret_vault(
+            secret_vault,
+            capability,
+        )
+    )
+
+
+def verify_request_scoped_secret_vault_terminal(
+    secret_vault: RequestScopedSessionSecretVault,
+    capability,
+):
+    """Attest that one exact request vault is closed and empty."""
+
+    return _sanitized_call(
+        lambda: _verify_request_scoped_secret_vault_terminal(
+            secret_vault,
+            capability,
+        )
+    )
+
+
 def close_request_scoped_secret_vault(
     secret_vault: RequestScopedSessionSecretVault,
     capability,
@@ -958,7 +1132,7 @@ def _create_browser_session(
                     existing=existing,
                     account=account,
                     expected_fingerprint=fingerprint,
-                    accepted_at=accepted_at,
+                    current_time=current_time,
                 )
             if (
                 idle_expires_at <= current_time
@@ -1009,6 +1183,7 @@ def _create_browser_session(
                     operation="create",
                     account_id=values["account_id"],
                     request_fingerprint=fingerprint,
+                    creation_idempotency_key=values["idempotency_key"],
                     predecessor_session_id=None,
                     failure_injector=failure_injector,
                 )
@@ -1025,6 +1200,7 @@ def _create_browser_session(
                 operation="create",
                 account_id=values["account_id"],
                 request_fingerprint=fingerprint,
+                creation_idempotency_key=values["idempotency_key"],
                 predecessor_session_id=None,
                 failure_injector=failure_injector,
             )
@@ -1197,6 +1373,7 @@ def _rotate_browser_session(
                     operation="rotate",
                     account_id=values["account_id"],
                     request_fingerprint=fingerprint,
+                    creation_idempotency_key=values["idempotency_key"],
                     predecessor_session_id=predecessor["session_id"],
                     failure_injector=failure_injector,
                 )
@@ -1213,6 +1390,7 @@ def _rotate_browser_session(
                 operation="rotate",
                 account_id=values["account_id"],
                 request_fingerprint=fingerprint,
+                creation_idempotency_key=values["idempotency_key"],
                 predecessor_session_id=predecessor["session_id"],
                 failure_injector=failure_injector,
             )
@@ -1321,6 +1499,7 @@ def _deposit_issued_material(
     operation,
     account_id,
     request_fingerprint,
+    creation_idempotency_key,
     predecessor_session_id,
     failure_injector,
 ):
@@ -1342,6 +1521,7 @@ def _deposit_issued_material(
             token_digest=material.token_digest,
             csrf_digest=material.csrf_digest,
             request_fingerprint=request_fingerprint,
+            creation_idempotency_key=creation_idempotency_key,
             predecessor_session_id=predecessor_session_id,
             failure_injector=failure_injector,
         )
@@ -1522,6 +1702,424 @@ def _finalize_pending_issued_session(connection, result, secret_vault, capabilit
     return result
 
 
+def _compensate_undelivered_issued_session(
+    connection,
+    result,
+    secret_vault,
+    capability,
+    trusted_now,
+    failure_injector,
+):
+    if (
+        capability is not _RESPONSE_COMPOSITION_CAPABILITY
+        or type(result) is not IssuedBrowserSession
+        or result not in _ISSUED_RESULTS
+        or result.status not in {"pending_commit", "issued"}
+        or type(connection) is not sqlite3.Connection
+        or connection.in_transaction
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    _require_secret_vault(secret_vault)
+    current_time = _trusted_time(trusted_now)
+    handle = result._handle_for_service(_SERVICE_ACCESS_CAPABILITY)
+    binding_nonce = result._binding_for_service(_SERVICE_ACCESS_CAPABILITY)
+    metadata = secret_vault._undelivered_metadata(
+        _REQUEST_SECRET_VAULT_CAPABILITY,
+        handle,
+    )
+    if (
+        metadata is None
+        or metadata["operation"] != "create"
+        or metadata["ready"] != (result.status == "issued")
+        or (
+            result.status == "pending_commit"
+            and metadata["connection_marker"] != id(connection)
+        )
+        or (
+            result.status == "issued"
+            and metadata["connection_marker"] is not None
+        )
+        or not hmac.compare_digest(metadata["binding_nonce"], binding_nonce)
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    original_key = _validated_idempotency_key(
+        metadata["creation_idempotency_key"]
+    )
+    compensated_key = _validated_idempotency_key(
+        original_key + _UNDELIVERED_IDEMPOTENCY_SUFFIX
+    )
+    status = "revoked"
+    with _mutation_scope(connection):
+        _attest_mutation_connection(connection)
+        stored = _session_by_id(connection, metadata["session_id"])
+        if stored is None:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        _verify_session(
+            connection,
+            stored,
+            expected_account_id=metadata["account_id"],
+            current_time=current_time,
+        )
+        exact_issuance = (
+            hmac.compare_digest(stored["token_hash"], metadata["token_digest"])
+            and hmac.compare_digest(
+                stored["csrf_secret_hash"],
+                metadata["csrf_digest"],
+            )
+            and hmac.compare_digest(
+                stored["request_fingerprint"],
+                metadata["request_fingerprint"],
+            )
+            and not _incoming_edges(connection, stored["session_id"])
+            and not _outgoing_edges(connection, stored["session_id"])
+        )
+        if not exact_issuance:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        already_compensated = (
+            stored["session_version"] == 2
+            and stored["rotated_at"] is None
+            and stored["revoked_at"] is not None
+            and stored["revoke_reason"] == "security_reset"
+            and hmac.compare_digest(
+                stored["creation_idempotency_key"],
+                compensated_key,
+            )
+            and _parse_time(stored["revoked_at"]) <= current_time
+        )
+        if already_compensated:
+            status = "already_completed"
+        else:
+            if (
+                stored["session_version"] != 1
+                or stored["rotated_at"] is not None
+                or stored["revoked_at"] is not None
+                or stored["revoke_reason"] is not None
+                or not hmac.compare_digest(
+                    stored["creation_idempotency_key"],
+                    original_key,
+                )
+            ):
+                raise BrowserSessionLifecycleError("internal_consistency_failure")
+            revoked_at = _canonical_time(current_time)
+            cursor = connection.execute(
+                "UPDATE account_sessions SET revoked_at = ?, "
+                "revoke_reason = 'security_reset', session_version = 2, "
+                "creation_idempotency_key = ? WHERE session_id = ? AND user_id = ? "
+                "AND token_hash = ? AND csrf_secret_hash = ? "
+                "AND request_fingerprint = ? AND creation_idempotency_key = ? "
+                "AND session_version = 1 AND rotated_at IS NULL "
+                "AND revoked_at IS NULL AND revoke_reason IS NULL",
+                (
+                    revoked_at,
+                    compensated_key,
+                    stored["session_id"],
+                    metadata["account_id"],
+                    metadata["token_digest"],
+                    metadata["csrf_digest"],
+                    metadata["request_fingerprint"],
+                    original_key,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise BrowserSessionLifecycleError("internal_consistency_failure")
+            _inject(failure_injector, "after_undelivered_session_compensation")
+            stored = _session_by_id(connection, metadata["session_id"])
+            _verify_session(
+                connection,
+                stored,
+                expected_account_id=metadata["account_id"],
+                current_time=current_time,
+            )
+            if (
+                stored["session_version"] != 2
+                or stored["rotated_at"] is not None
+                or stored["revoked_at"] != revoked_at
+                or stored["revoke_reason"] != "security_reset"
+                or not hmac.compare_digest(
+                    stored["creation_idempotency_key"],
+                    compensated_key,
+                )
+            ):
+                raise BrowserSessionLifecycleError("internal_consistency_failure")
+        _inject(failure_injector, "before_undelivered_compensation_commit")
+    return BrowserSessionMutationResult._issue(
+        _RESULT_ISSUANCE_CAPABILITY,
+        status,
+    )
+
+
+def _force_compensate_undelivered_issued_session(
+    connection,
+    result,
+    secret_vault,
+    capability,
+    trusted_now,
+):
+    """Canonical terminal invalidation independent of ordinary compensation."""
+
+    if (
+        capability is not _RESPONSE_COMPOSITION_CAPABILITY
+        or type(result) is not IssuedBrowserSession
+        or result not in _ISSUED_RESULTS
+        or result.status not in {"pending_commit", "issued"}
+        or type(connection) is not sqlite3.Connection
+        or connection.in_transaction
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    _require_secret_vault(secret_vault)
+    current_time = _trusted_time(trusted_now)
+    handle = result._handle_for_service(_SERVICE_ACCESS_CAPABILITY)
+    binding_nonce = result._binding_for_service(_SERVICE_ACCESS_CAPABILITY)
+    metadata = secret_vault._undelivered_metadata(
+        _REQUEST_SECRET_VAULT_CAPABILITY,
+        handle,
+    )
+    if (
+        metadata is None
+        or metadata["operation"] != "create"
+        or metadata["ready"] != (result.status == "issued")
+        or (
+            result.status == "pending_commit"
+            and metadata["connection_marker"] != id(connection)
+        )
+        or (
+            result.status == "issued"
+            and metadata["connection_marker"] is not None
+        )
+        or not hmac.compare_digest(metadata["binding_nonce"], binding_nonce)
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    original_key = _validated_idempotency_key(
+        metadata["creation_idempotency_key"]
+    )
+    compensated_key = _validated_idempotency_key(
+        original_key + _UNDELIVERED_IDEMPOTENCY_SUFFIX
+    )
+    status = "revoked"
+    with _mutation_scope(connection):
+        _attest_mutation_connection(connection)
+        stored = _session_by_id(connection, metadata["session_id"])
+        if stored is None:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        _verify_session(
+            connection,
+            stored,
+            expected_account_id=metadata["account_id"],
+            current_time=current_time,
+        )
+        exact_issuance = (
+            hmac.compare_digest(stored["token_hash"], metadata["token_digest"])
+            and hmac.compare_digest(
+                stored["csrf_secret_hash"],
+                metadata["csrf_digest"],
+            )
+            and hmac.compare_digest(
+                stored["request_fingerprint"],
+                metadata["request_fingerprint"],
+            )
+            and not _incoming_edges(connection, stored["session_id"])
+            and not _outgoing_edges(connection, stored["session_id"])
+        )
+        if not exact_issuance:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        already_compensated = (
+            stored["session_version"] == 2
+            and stored["rotated_at"] is None
+            and stored["revoked_at"] is not None
+            and stored["revoke_reason"] == "security_reset"
+            and hmac.compare_digest(
+                stored["creation_idempotency_key"],
+                compensated_key,
+            )
+            and _parse_time(stored["revoked_at"]) <= current_time
+        )
+        if already_compensated:
+            status = "already_completed"
+        else:
+            if (
+                stored["session_version"] != 1
+                or stored["rotated_at"] is not None
+                or stored["revoked_at"] is not None
+                or stored["revoke_reason"] is not None
+                or not hmac.compare_digest(
+                    stored["creation_idempotency_key"],
+                    original_key,
+                )
+            ):
+                raise BrowserSessionLifecycleError("internal_consistency_failure")
+            revoked_at = _canonical_time(current_time)
+            cursor = connection.execute(
+                "UPDATE account_sessions SET revoked_at = ?, "
+                "revoke_reason = 'security_reset', session_version = 2, "
+                "creation_idempotency_key = ? WHERE session_id = ? AND user_id = ? "
+                "AND token_hash = ? AND csrf_secret_hash = ? "
+                "AND request_fingerprint = ? AND creation_idempotency_key = ? "
+                "AND session_version = 1 AND rotated_at IS NULL "
+                "AND revoked_at IS NULL AND revoke_reason IS NULL",
+                (
+                    revoked_at,
+                    compensated_key,
+                    stored["session_id"],
+                    metadata["account_id"],
+                    metadata["token_digest"],
+                    metadata["csrf_digest"],
+                    metadata["request_fingerprint"],
+                    original_key,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise BrowserSessionLifecycleError("internal_consistency_failure")
+            stored = _session_by_id(connection, metadata["session_id"])
+            _verify_session(
+                connection,
+                stored,
+                expected_account_id=metadata["account_id"],
+                current_time=current_time,
+            )
+            if (
+                stored["session_version"] != 2
+                or stored["rotated_at"] is not None
+                or stored["revoked_at"] != revoked_at
+                or stored["revoke_reason"] != "security_reset"
+                or not hmac.compare_digest(
+                    stored["creation_idempotency_key"],
+                    compensated_key,
+                )
+            ):
+                raise BrowserSessionLifecycleError("internal_consistency_failure")
+    return BrowserSessionMutationResult._issue(
+        _RESULT_ISSUANCE_CAPABILITY,
+        status,
+    )
+
+
+def _verify_compensated_undelivered_issued_session(
+    connection,
+    result,
+    secret_vault,
+    capability,
+    trusted_now,
+):
+    if (
+        capability is not _RESPONSE_COMPOSITION_CAPABILITY
+        or type(result) is not IssuedBrowserSession
+        or result not in _ISSUED_RESULTS
+        or result.status not in {"pending_commit", "issued"}
+        or type(connection) is not sqlite3.Connection
+        or connection.in_transaction
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    _require_secret_vault(secret_vault)
+    current_time = _trusted_time(trusted_now)
+    handle = result._handle_for_service(_SERVICE_ACCESS_CAPABILITY)
+    binding_nonce = result._binding_for_service(_SERVICE_ACCESS_CAPABILITY)
+    metadata = secret_vault._undelivered_metadata(
+        _REQUEST_SECRET_VAULT_CAPABILITY,
+        handle,
+    )
+    if (
+        metadata is None
+        or metadata["operation"] != "create"
+        or metadata["ready"] != (result.status == "issued")
+        or (
+            result.status == "pending_commit"
+            and metadata["connection_marker"] != id(connection)
+        )
+        or (
+            result.status == "issued"
+            and metadata["connection_marker"] is not None
+        )
+        or not hmac.compare_digest(metadata["binding_nonce"], binding_nonce)
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    original_key = _validated_idempotency_key(
+        metadata["creation_idempotency_key"]
+    )
+    compensated_key = _validated_idempotency_key(
+        original_key + _UNDELIVERED_IDEMPOTENCY_SUFFIX
+    )
+    with _mutation_scope(connection):
+        _attest_mutation_connection(connection)
+        stored = _session_by_id(connection, metadata["session_id"])
+        if stored is None:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        _verify_session(
+            connection,
+            stored,
+            expected_account_id=metadata["account_id"],
+            current_time=current_time,
+        )
+        exact_inactive_issuance = (
+            stored["session_version"] == 2
+            and stored["rotated_at"] is None
+            and stored["revoked_at"] is not None
+            and stored["revoke_reason"] == "security_reset"
+            and hmac.compare_digest(
+                stored["creation_idempotency_key"],
+                compensated_key,
+            )
+            and hmac.compare_digest(
+                stored["token_hash"],
+                metadata["token_digest"],
+            )
+            and hmac.compare_digest(
+                stored["csrf_secret_hash"],
+                metadata["csrf_digest"],
+            )
+            and hmac.compare_digest(
+                stored["request_fingerprint"],
+                metadata["request_fingerprint"],
+            )
+            and not _incoming_edges(connection, stored["session_id"])
+            and not _outgoing_edges(connection, stored["session_id"])
+            and _parse_time(stored["revoked_at"]) <= current_time
+        )
+        if not exact_inactive_issuance:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+    return BrowserSessionMutationResult._issue(
+        _RESULT_ISSUANCE_CAPABILITY,
+        "already_completed",
+    )
+
+
+def _terminalize_undelivered_issued_result(result, capability):
+    if (
+        capability is not _RESPONSE_COMPOSITION_CAPABILITY
+        or type(result) is not IssuedBrowserSession
+        or result not in _ISSUED_RESULTS
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    if result.status in {"pending_commit", "issued"}:
+        result._mark_terminal_failed(_SERVICE_ACCESS_CAPABILITY)
+    elif result.status != "terminal_failed":
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+
+def _abort_request_scoped_secret_vault(secret_vault, capability, failure_injector):
+    if capability is not _RESPONSE_COMPOSITION_CAPABILITY:
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    _require_secret_vault(secret_vault)
+    _abort_vault_consumption(secret_vault, failure_injector)
+
+
+def _emergency_terminalize_request_scoped_secret_vault(secret_vault, capability):
+    if capability is not _RESPONSE_COMPOSITION_CAPABILITY:
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    _require_secret_vault(secret_vault)
+    secret_vault._emergency_terminalize(_REQUEST_SECRET_VAULT_CAPABILITY)
+    _verify_request_scoped_secret_vault_terminal(secret_vault, capability)
+
+
+def _verify_request_scoped_secret_vault_terminal(secret_vault, capability):
+    if capability is not _RESPONSE_COMPOSITION_CAPABILITY:
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    _require_secret_vault(secret_vault)
+    if not secret_vault._is_closed_and_empty(
+        _REQUEST_SECRET_VAULT_CAPABILITY
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+
 def _close_request_scoped_secret_vault(secret_vault, capability, failure_injector):
     if capability is not _RESPONSE_COMPOSITION_CAPABILITY:
         raise BrowserSessionLifecycleError("internal_consistency_failure")
@@ -1564,7 +2162,7 @@ def _creation_replay(
     existing,
     account,
     expected_fingerprint,
-    accepted_at,
+    current_time,
 ):
     if (
         existing["user_id"] != account["user_id"]
@@ -1576,7 +2174,7 @@ def _creation_replay(
         existing,
         expected_account_id=account["user_id"],
         account_created_at=account["created_at"],
-        current_time=accepted_at,
+        current_time=current_time,
     )
     return IssuedBrowserSession._issue(
         _RESULT_ISSUANCE_CAPABILITY,
@@ -2266,7 +2864,11 @@ def _sanitized_call(callback):
             if code in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
             else "internal_consistency_failure"
         )
-    except BaseException:
+    except (SystemExit, GeneratorExit):
+        raise
+    except KeyboardInterrupt:
+        failure_code = "internal_consistency_failure"
+    except Exception:
         failure_code = "internal_consistency_failure"
     callback = None
     raise BrowserSessionLifecycleError(failure_code) from None

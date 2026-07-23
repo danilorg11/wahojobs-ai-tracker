@@ -777,6 +777,101 @@ automatic renewal, background rotation, revoke-all action, ownership mutation,
 profile mutation, MatchRun persistence, About You persistence, migration,
 repair, or runtime activation.
 
+## B2D1 Dormant Trusted Login Completion
+
+B2D1 provides a dormant, default-disabled completion boundary for a future
+authentication-provider gateway. It consumes one sealed proof only after that
+gateway has already authenticated an external identity. The proof contains
+only bounded durable references, provider kind, canonical authentication and
+expiry times, assurance-policy version, and the trusted product environment.
+It cannot be constructed, copied, serialized, subclassed, or produced from a
+browser request. Test-only issuance remains outside normal runtime. B2D1 does
+not perform OAuth calls or callbacks, authorization-code exchange, password or
+magic-link verification, email verification, or provider network access.
+
+Completion accepts only an existing caller-owned database connection, an exact
+sealed proof, a sealed trusted completion policy supplied independently from
+that proof, an independent request-scoped secret vault, a canonical trusted
+current time, and a bounded idempotency key. The policy fixes the
+exact expected provider and assurance-policy version, a member of the closed trusted login
+environment domain, its own bounded policy version, and the accepted session
+lifetime policy. Normal runtime has no policy issuer or default instance. These
+facts are never selected from a browser request, provider-controlled text, or
+process environment. Completion opens no connection and performs no migration,
+reconciliation, repair, account creation, identity creation, ownership change,
+or profile change. The trusted environment appears independently in the proof
+and sealed policy and must agree. The assertion provider and assurance-policy
+version must exactly match the trusted expectations before B2C4 command
+issuance; browser queries, headers, cookies, forms, JSON, environment variables,
+and profile state cannot select or override those expectations.
+
+Inside one shared immediate mutation transaction or caller-owned savepoint,
+B2D1 attests the schema and validates the complete account and identity rows,
+active lifecycle, exact relationship, installed provider kind, temporal
+boundaries, identity eligibility, and unambiguous durable relationship. A
+structurally valid but ineligible state produces only generic authentication
+denial. Malformed durable state, schema failure, contention, or unexpected
+failure produces only generic unavailability. Neither result discloses the
+underlying reason or durable authority.
+
+Only after every prerequisite succeeds does B2D1 create a one-use internal
+validation proof and issue the sealed B2C4 creation command. B2C4 remains the
+sole owner of lifetime bounds, request comparison, secret generation, durable
+session mutation, and vault deposit. The accepted authentication time is the
+session command time. The completion idempotency namespace binds the complete
+trusted proof, expected provider and assurance policy, trusted environment,
+completion-policy version, and accepted session policy while preserving B2C4's
+authoritative creation comparison. An exact replay returns `already_completed`
+with no new secret and no vault entry. A changed proof, policy, environment, or
+account under the same caller key returns only `idempotency_conflict`.
+
+For a top-level call, validation and B2C4 creation share one transaction; after
+commit, exact B2C4 finalization makes the pending request-vault entry consumable
+and the completion returns `issued`. A failed finalization receives one
+bounded independent retry using the same issuance and vault entry, so a transient failure
+does not create another session or credential pair. Lower B2C4 lifecycle
+sanitizers do not convert `SystemExit` or `GeneratorExit` into ordinary
+failures. Control-flow exceptions are not retried or converted into login
+outcomes; the boundary first establishes the required safe session and vault
+state and then propagates the exact exception.
+
+If both ordinary finalization attempts fail, the exact committed session is
+revoked as undelivered through B2C4 and independently verified as ineligible for
+authentication. If bounded ordinary compensation fails, a separate canonical
+B2C4 terminal compensation primitive selects the exact issuance from sealed
+metadata, establishes durable ineligibility without invoking the ordinary
+compensation implementation, and authoritatively rereads the terminal state.
+No status or exception leaves an active undelivered session. No ordinary result returns
+before durable session eligibility is safe and the request vault is verified
+closed and has zero entries. Ordinary cleanup is bounded. If its
+attempts fail, a fail-closed, idempotent emergency terminalization clears all
+request-vault entries and mutable secret buffers before verifying terminal
+state. Failed delivery therefore cannot leave both an active undelivered session
+and reachable credentials.
+
+For a caller-owned transaction, B2D1 returns `pending_commit` without consumable
+browser material. The caller retains control of unrelated work and makes the
+outer commit or rollback decision. Only a successful outer commit followed by
+exact finalization enables consumption; rollback followed by finalization clears
+the pending vault entry. Explicit post-commit finalization uses the same retry,
+compensation, and cleanup policy without committing or rolling back caller work.
+Nested transaction ownership remains with the caller. Exact replay after
+rotation or revocation remains credential-free.
+
+`already_completed` applies only to a prior successfully finalized and delivered
+issuance. Credentials for a compensated or otherwise failed delivery cannot be
+recovered or replayed, the original request returns no usable success, and a
+new trusted login request with a new idempotency key is required.
+
+The immutable completion result contains only a safe status and, for successful
+or replay outcomes, the accepted nonsecret B2C4 issued-session result. It does
+not retain the proof, durable authority, provider data, caller key, database
+connection, vault, callback, exception, session token, or CSRF value. B2D1 does
+not compose a browser response, emit `Set-Cookie`, register a login or logout
+route, activate `/account/profile`, implement signup, or enable account and
+session runtime. The future provider gateway, browser response composition, and
+login routes remain separate reviewable milestones.
+
 ## Future Boundary
 
 B2B2, B2B3, B2C1, and B2C2 remain explicitly controlled infrastructure. No

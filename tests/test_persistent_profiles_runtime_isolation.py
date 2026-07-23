@@ -14,6 +14,46 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
+    def test_b2d1_documentation_records_dormant_login_completion_boundaries(self):
+        documentation = (
+            ROOT / "docs" / "persistent_profile_services.md"
+        ).read_text(encoding="utf-8")
+        for statement in (
+            "## B2D1 Dormant Trusted Login Completion",
+            "dormant, default-disabled completion boundary",
+            "authentication-provider gateway",
+            "sealed trusted completion policy",
+            "exact expected provider and assurance-policy version",
+            "bounded independent retry",
+            "revoked as undelivered",
+            "closed and has zero entries",
+            "Control-flow exceptions are",
+            "idempotent emergency",
+            "No ordinary result returns",
+            "new trusted login request",
+            "complete account and identity rows",
+            "trusted environment appears independently",
+            "sole owner of lifetime bounds",
+            "one transaction",
+            "request-scoped secret vault",
+            "`pending_commit`",
+            "An exact replay returns `already_completed`",
+            "ineligible state produces only generic authentication",
+            "generic unavailability",
+            "compose a browser response",
+            "emit `Set-Cookie`",
+            "implement signup",
+            "future provider gateway",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, documentation)
+
+    def test_b2d1_recovery_contains_no_broad_base_exception_catch(self):
+        source = (
+            ROOT / "wahojobs" / "trusted_login_completion.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("except BaseException", source)
+
     def test_b2c4_documentation_records_dormant_lifecycle_boundaries(self):
         documentation = (
             ROOT / "docs" / "persistent_profile_services.md"
@@ -290,6 +330,46 @@ print(hasattr(lifecycle, "_TRUSTED_BROWSER_SESSION_COMMAND_ISSUER"))
         )
         self.assertEqual(result.stdout.strip(), "False")
 
+    def test_b2d1_import_opens_no_database_network_writer_or_environment_identity(self):
+        script = r'''
+import builtins
+import os
+import socket
+import sqlite3
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+os.getenv = blocked
+original_open = builtins.open
+def guarded_open(file, mode="r", *args, **kwargs):
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        raise RuntimeError("file write")
+    return original_open(file, mode, *args, **kwargs)
+builtins.open = guarded_open
+import wahojobs.trusted_login_completion as completion
+print(
+    hasattr(completion, "_TRUSTED_EXTERNAL_AUTHENTICATION_ISSUER"),
+    hasattr(completion, "_TRUSTED_LOGIN_COMPLETION_POLICY_ISSUER"),
+    hasattr(completion, "DEFAULT_TRUSTED_LOGIN_COMPLETION_POLICY"),
+    hasattr(completion, "LOGIN_ROUTE"),
+    completion.TrustedLoginCompletionResult.__name__,
+)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "False False False False TrustedLoginCompletionResult",
+        )
+
     def test_normal_local_runtime_does_not_import_b2c2_authorization(self):
         script = r'''
 import sys
@@ -334,6 +414,25 @@ print("wahojobs.browser_session_lifecycle" in sys.modules)
             text=True,
         )
         self.assertEqual(result.stdout.strip(), "False")
+
+    def test_normal_local_runtime_does_not_import_or_expose_b2d1(self):
+        script = r'''
+import sys
+import wahojobs
+import scripts.local_product_app
+print(
+    "wahojobs.trusted_login_completion" in sys.modules,
+    hasattr(wahojobs, "complete_trusted_login"),
+)
+'''
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "False False")
 
 
 if __name__ == "__main__":

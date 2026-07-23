@@ -40,6 +40,7 @@ from tests.browser_session_lifecycle_test_support import (
 from wahojobs.browser_session_authentication import (
     DurableBrowserSessionAuthenticationGateway,
 )
+import wahojobs.browser_session_lifecycle as lifecycle
 from wahojobs.browser_session_lifecycle import (
     BrowserSessionLifecycleError,
     CreateBrowserSessionCommand,
@@ -67,6 +68,135 @@ def traceback_values(error):
 
 
 class BrowserSessionLifecycleTests(unittest.TestCase):
+    def test_independent_terminal_compensation_is_exact_and_idempotent(self):
+        token_one = base64.urlsafe_b64encode(b"O" * 32).rstrip(b"=").decode("ascii")
+        csrf_one = base64.urlsafe_b64encode(b"P" * 32).rstrip(b"=").decode("ascii")
+        token_two = base64.urlsafe_b64encode(b"Q" * 32).rstrip(b"=").decode("ascii")
+        csrf_two = base64.urlsafe_b64encode(b"R" * 32).rstrip(b"=").decode("ascii")
+        with lifecycle_database(suffix="independent-terminal-exact") as (
+            path,
+            connection,
+            created,
+        ):
+            first_vault = request_secret_vault()
+            second_vault = request_secret_vault()
+            with mock.patch(
+                "wahojobs.browser_session_lifecycle._generate_credential",
+                side_effect=(token_one, csrf_one, token_two, csrf_two),
+            ):
+                first = create_browser_session(
+                    connection,
+                    create_command(created, key="browser-terminal-first"),
+                    secret_vault=first_vault,
+                )
+                second = create_browser_session(
+                    connection,
+                    create_command(created, key="browser-terminal-second"),
+                    secret_vault=second_vault,
+                )
+            first_before = dict(
+                connection.execute(
+                    "SELECT * FROM account_sessions WHERE creation_idempotency_key = ?",
+                    ("browser-terminal-first",),
+                ).fetchone()
+            )
+            second_before = dict(
+                connection.execute(
+                    "SELECT * FROM account_sessions WHERE creation_idempotency_key = ?",
+                    ("browser-terminal-second",),
+                ).fetchone()
+            )
+
+            with self.assertRaises(BrowserSessionLifecycleError):
+                lifecycle.force_compensate_undelivered_issued_session(
+                    connection,
+                    first,
+                    second_vault,
+                    lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                    trusted_now=NOW,
+                )
+            self.assertEqual(
+                dict(
+                    connection.execute(
+                        "SELECT * FROM account_sessions WHERE session_id = ?",
+                        (first_before["session_id"],),
+                    ).fetchone()
+                ),
+                first_before,
+            )
+            self.assertEqual(
+                dict(
+                    connection.execute(
+                        "SELECT * FROM account_sessions WHERE session_id = ?",
+                        (second_before["session_id"],),
+                    ).fetchone()
+                ),
+                second_before,
+            )
+
+            first_outcome = lifecycle.force_compensate_undelivered_issued_session(
+                connection,
+                first,
+                first_vault,
+                lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                trusted_now=NOW,
+            )
+            repeated_outcome = lifecycle.force_compensate_undelivered_issued_session(
+                connection,
+                first,
+                first_vault,
+                lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                trusted_now=NOW,
+            )
+            verified = lifecycle.verify_compensated_undelivered_issued_session(
+                connection,
+                first,
+                first_vault,
+                lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                trusted_now=NOW,
+            )
+            self.assertEqual(first_outcome.status, "revoked")
+            self.assertEqual(repeated_outcome.status, "already_completed")
+            self.assertEqual(verified.status, "already_completed")
+            first_after = connection.execute(
+                "SELECT * FROM account_sessions WHERE session_id = ?",
+                (first_before["session_id"],),
+            ).fetchone()
+            second_after = dict(
+                connection.execute(
+                    "SELECT * FROM account_sessions WHERE session_id = ?",
+                    (second_before["session_id"],),
+                ).fetchone()
+            )
+            self.assertEqual(first_after["session_version"], 2)
+            self.assertIsNotNone(first_after["revoked_at"])
+            self.assertEqual(first_after["revoke_reason"], "security_reset")
+            self.assertEqual(second_after, second_before)
+
+            gateway = DurableBrowserSessionAuthenticationGateway(
+                trusted_environment_namespace="test",
+                clock=lambda: NOW,
+            )
+            with read_only_connection(path) as reader:
+                reader.execute("BEGIN")
+                try:
+                    first_actor = gateway.authenticate_browser_request(
+                        reader,
+                        browser_request(token_one),
+                        now=NOW,
+                    )
+                    second_actor = gateway.authenticate_browser_request(
+                        reader,
+                        browser_request(token_two),
+                        now=NOW,
+                    )
+                finally:
+                    reader.rollback()
+            self.assertIsNone(first_actor)
+            self.assertIsNotNone(second_actor)
+            close_secret_vault(first_vault)
+            close_secret_vault(second_vault)
+
     def test_trusted_commands_reject_direct_dictionary_copy_pickle_and_subclass(self):
         for command_type in (
             CreateBrowserSessionCommand,
@@ -1209,6 +1339,40 @@ class BrowserSessionLifecycleTests(unittest.TestCase):
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM account_sessions").fetchone()[0],
                 1,
+            )
+
+    def test_exact_creation_replay_validates_later_rotation_at_current_time(self):
+        with lifecycle_database(suffix="create-replay-after-rotation") as (
+            _path,
+            connection,
+            created,
+        ):
+            command = create_command(created)
+            first = create_browser_session(connection, command)
+            consume_issued(first)
+            predecessor = session_row(connection, key="browser-session-create-001")
+            replacement = rotate_browser_session(
+                connection,
+                rotate_command(
+                    created.user.user_id,
+                    predecessor["session_id"],
+                    accepted_at=NOW + timedelta(minutes=5),
+                ),
+                _clock=lambda: NOW + timedelta(minutes=5),
+            )
+            consume_issued(replacement, now=NOW + timedelta(minutes=5))
+
+            replay = create_browser_session(
+                connection,
+                command,
+                _clock=lambda: NOW + timedelta(minutes=6),
+            )
+            self.assertEqual(replay.status, "already_completed")
+            self.assertEqual(vault_entry_count(vault_for_result(replay)), 0)
+            close_secret_vault(vault_for_result(replay))
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM account_sessions").fetchone()[0],
+                2,
             )
 
     def test_changed_creation_request_and_cross_account_key_conflict(self):
