@@ -1,3 +1,5 @@
+import ast
+import hashlib
 import tempfile
 import unittest
 import subprocess
@@ -11,9 +13,395 @@ import scripts.persistent_profile_canonical_v2_migration as migration_005
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GOOGLE_OIDC_MODULE = ROOT / "wahojobs" / "google_oidc_gateway.py"
+LOCAL_PRODUCT_APP = ROOT / "scripts" / "local_product_app.py"
+APPROVED_GOOGLE_OIDC_DEPENDENCY_ROOTS = ("authlib", "joserfc", "requests")
+LOCAL_PRODUCT_APP_BASE_TEXT_SHA256 = (
+    "d937022e1b2835bd249f9dc47c7ddde9a76b296213e6fc3f544b76cc026f1642"
+)
 
 
 class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
+    def run_python(self, script, *, cwd=ROOT):
+        return subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_google_oidc_import_creates_no_runtime_side_effects(self):
+        script = rf'''
+import asyncio
+import atexit
+import builtins
+import getpass
+import http.client
+import io
+import os
+from pathlib import Path
+import secrets
+import socket
+import sqlite3
+import subprocess
+import sys
+import _thread
+import threading
+import urllib.request
+
+sys.path.insert(0, {str(ROOT)!r})
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("forbidden google oidc import side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+socket.create_connection = blocked
+socket.getaddrinfo = blocked
+http.client.HTTPConnection.connect = blocked
+http.client.HTTPSConnection.connect = blocked
+urllib.request.urlopen = blocked
+urllib.request.OpenerDirector.open = blocked
+subprocess.Popen = blocked
+_thread.start_new_thread = blocked
+threading.Thread.__init__ = blocked
+threading.Thread.start = blocked
+asyncio.create_task = blocked
+atexit.register = blocked
+builtins.open = blocked
+io.open = blocked
+Path.open = blocked
+Path.write_text = blocked
+Path.write_bytes = blocked
+os.getenv = blocked
+os.open = blocked
+os.putenv = blocked
+os.unsetenv = blocked
+os.urandom = blocked
+getpass.getpass = blocked
+secrets.token_bytes = blocked
+secrets.token_hex = blocked
+secrets.token_urlsafe = blocked
+
+class GuardedEnvironment(dict):
+    def _blocked(self, *args, **kwargs):
+        raise RuntimeError("forbidden google oidc environment or secret read")
+
+    __contains__ = _blocked
+    __getitem__ = _blocked
+    __iter__ = _blocked
+    __len__ = _blocked
+    __repr__ = _blocked
+    copy = _blocked
+    get = _blocked
+    items = _blocked
+    keys = _blocked
+    values = _blocked
+
+os.environ = GuardedEnvironment()
+
+original_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name.split(".", 1)[0] in {{
+        "authlib",
+        "joserfc",
+        "requests",
+        "keyring",
+        "flask",
+        "django",
+        "starlette",
+        "fastapi",
+    }}:
+        raise RuntimeError("forbidden eager dependency, secret, or route import")
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = guarded_import
+import wahojobs.google_oidc_gateway as gateway
+dependency_roots = ("authlib", "joserfc", "requests")
+print(
+    gateway.GoogleOidcGateway.__name__,
+    all(root not in sys.modules for root in dependency_roots),
+)
+'''
+        result = self.run_python(script)
+        self.assertEqual(result.stdout.strip(), "GoogleOidcGateway True")
+
+    def test_google_oidc_import_creates_no_file_in_empty_working_directory(self):
+        script = rf'''
+import sys
+from pathlib import Path
+sys.path.insert(0, {str(ROOT)!r})
+before = tuple(Path.cwd().iterdir())
+import wahojobs.google_oidc_gateway
+after = tuple(Path.cwd().iterdir())
+print(before == after == ())
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_python(script, cwd=directory)
+        self.assertEqual(result.stdout.strip(), "True")
+
+    def test_google_oidc_cold_configuration_and_gateway_open_no_network_or_database(
+        self,
+    ):
+        script = rf'''
+import http.client
+import socket
+import sqlite3
+import sys
+import urllib.request
+
+sys.path.insert(0, {str(ROOT)!r})
+
+def blocked(*args, **kwargs):
+    raise RuntimeError("forbidden google oidc cold-construction side effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+socket.create_connection = blocked
+socket.getaddrinfo = blocked
+http.client.HTTPConnection.connect = blocked
+http.client.HTTPSConnection.connect = blocked
+urllib.request.urlopen = blocked
+urllib.request.OpenerDirector.open = blocked
+
+import tests.google_oidc_gateway_test_support as support
+import requests
+
+requests.Session.request = blocked
+requests.Session.send = blocked
+
+fake_harness = support.make_fake_gateway()
+real_harness = support.make_real_gateway()
+try:
+    print(
+        type(fake_harness.configuration).__name__,
+        type(fake_harness.gateway).__name__,
+        type(real_harness.gateway).__name__,
+    )
+finally:
+    real_harness.close()
+    fake_harness.close()
+'''
+        result = self.run_python(script)
+        self.assertEqual(
+            result.stdout.strip(),
+            "TrustedGoogleOidcConfiguration GoogleOidcGateway GoogleOidcGateway",
+        )
+
+    def test_package_root_does_not_export_or_import_google_oidc_gateway(self):
+        script = r'''
+import sys
+import wahojobs
+oidc_exports = tuple(
+    sorted(
+        name
+        for name in vars(wahojobs)
+        if "google" in name.lower() or "oidc" in name.lower()
+    )
+)
+print(
+    oidc_exports,
+    "wahojobs.google_oidc_gateway" in sys.modules,
+    all(root not in sys.modules for root in ("authlib", "joserfc", "requests")),
+)
+'''
+        result = self.run_python(script)
+        self.assertEqual(result.stdout.strip(), "() False True")
+        package_root = (ROOT / "wahojobs" / "__init__.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("google_oidc_gateway", package_root)
+        self.assertNotIn("GoogleOidc", package_root)
+
+    def test_normal_local_startup_does_not_import_google_oidc_or_dependencies(self):
+        script = r'''
+import sys
+import scripts.local_product_app
+print(
+    "wahojobs.google_oidc_gateway" in sys.modules,
+    tuple(
+        root
+        for root in ("authlib", "joserfc", "requests")
+        if root in sys.modules
+    ),
+)
+'''
+        result = self.run_python(script)
+        self.assertEqual(result.stdout.strip(), "False ()")
+
+    def test_accepted_accounts_b2c_and_b2d1_do_not_reverse_import_google_oidc(self):
+        script = r'''
+import sys
+import wahojobs.accounts
+import wahojobs.account_reconciliation
+import wahojobs.browser_session_authentication
+import wahojobs.browser_session_lifecycle
+import wahojobs.trusted_login_completion
+print(
+    "wahojobs.google_oidc_gateway" in sys.modules,
+    tuple(
+        root
+        for root in ("authlib", "joserfc", "requests")
+        if root in sys.modules
+    ),
+)
+'''
+        result = self.run_python(script)
+        self.assertEqual(result.stdout.strip(), "False ()")
+
+    def test_google_oidc_dependencies_exist_only_in_the_lazy_loader(self):
+        tree = ast.parse(GOOGLE_OIDC_MODULE.read_text(encoding="utf-8"))
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        dependency_imports = []
+        dynamic_imports = []
+        for node in ast.walk(tree):
+            modules = []
+            if isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+                self.assertNotIn("*", (alias.name for alias in node.names))
+            elif isinstance(node, ast.Call):
+                if (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id == "__import__"
+                ) or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "import_module"
+                ):
+                    dynamic_imports.append(node)
+
+            for module in modules:
+                root = module.split(".", 1)[0]
+                if root not in APPROVED_GOOGLE_OIDC_DEPENDENCY_ROOTS:
+                    continue
+                parent = parents.get(node)
+                while parent is not None and not isinstance(
+                    parent, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    parent = parents.get(parent)
+                dependency_imports.append(
+                    (module, None if parent is None else parent.name)
+                )
+
+        self.assertFalse(dynamic_imports)
+        self.assertEqual(
+            {module for module, _function in dependency_imports},
+            {
+                "authlib.common.errors",
+                "authlib.integrations.base_client.errors",
+                "authlib.integrations.requests_client",
+                "authlib.oidc.core",
+                "authlib.oauth2.rfc6749.errors",
+                "joserfc",
+                "joserfc.errors",
+                "joserfc.jwk",
+                "requests",
+                "requests.adapters",
+                "requests.exceptions",
+            },
+        )
+        self.assertEqual(
+            {function for _module, function in dependency_imports},
+            {"_load_dependencies"},
+        )
+        source = GOOGLE_OIDC_MODULE.read_text(encoding="utf-8")
+        self.assertNotIn("authlib.jose", source)
+
+    def test_local_product_app_remains_exact_base_and_has_no_oidc_wiring(self):
+        source = LOCAL_PRODUCT_APP.read_text(encoding="utf-8")
+        self.assertEqual(
+            hashlib.sha256(source.encode("utf-8")).hexdigest(),
+            LOCAL_PRODUCT_APP_BASE_TEXT_SHA256,
+        )
+        lowered = source.lower()
+        for forbidden in (
+            "google_oidc_gateway",
+            "googleoidc",
+            "accounts.google.com",
+            "oauth2.googleapis.com",
+            "www.googleapis.com/oauth2",
+            "import authlib",
+            "from authlib",
+            "import joserfc",
+            "from joserfc",
+            "set-cookie",
+            "/login",
+            "/logout",
+            "/callback",
+            "/oidc",
+            "/oauth",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, lowered)
+
+    def test_google_oidc_adds_no_route_migration_startup_cookie_or_activation(self):
+        source = GOOGLE_OIDC_MODULE.read_text(encoding="utf-8")
+        lowered = source.lower()
+        for forbidden in (
+            "basehttprequesthandler",
+            "send_header",
+            "send_response",
+            "set-cookie",
+            "add_route",
+            "@app.route",
+            "@router.",
+            "local_product_app",
+            "create table",
+            "alter table",
+            "drop table",
+            "insert into",
+            "update auth_",
+            "delete from",
+            "argparse",
+            "atexit.register",
+            'if __name__ == "__main__"',
+            "/account/profile",
+            "csrf",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, lowered)
+
+        tree = ast.parse(source)
+        imported_roots = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_roots.update(
+                    alias.name.split(".", 1)[0] for alias in node.names
+                )
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_roots.add(node.module.split(".", 1)[0])
+        self.assertFalse(
+            imported_roots
+            & {
+                "scripts",
+                "http",
+                "flask",
+                "django",
+                "starlette",
+                "fastapi",
+            }
+        )
+
+        migrations = sorted(
+            (ROOT / "wahojobs" / "db" / "migrations").glob("*.sql")
+        )
+        self.assertEqual(
+            [path.name for path in migrations],
+            [
+                "001_pipeline_state.sql",
+                "002_accounts_sessions.sql",
+                "003_product_principals.sql",
+                "004_persistent_product_profiles.sql",
+                "005_persistent_profile_canonical_v2.sql",
+            ],
+        )
+
     def test_b2d1_documentation_records_dormant_login_completion_boundaries(self):
         documentation = (
             ROOT / "docs" / "persistent_profile_services.md"

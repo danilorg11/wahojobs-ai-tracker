@@ -872,6 +872,105 @@ route, activate `/account/profile`, implement signup, or enable account and
 session runtime. The future provider gateway, browser response composition, and
 login routes remain separate reviewable milestones.
 
+## Dormant Google OIDC Gateway
+
+The Google OIDC gateway is a dormant, default-disabled bridge into the accepted
+B2D1 completion boundary. Its initial application platform is CPython 3.12 on
+Windows x86-64, and Google is the only supported provider. The reviewed runtime
+dependency boundary is the exact hash-locked Authlib 1.7.2, joserfc 1.7.4, and
+Requests 2.34.2 stack. Those libraries own the standard OAuth, OpenID Connect,
+JOSE, and HTTPS protocol work; Wahojobs owns only the narrow transaction,
+freshness, bounded-transport, verified-identity projection, durable-resolution,
+and failure policies around that work.
+
+Authorization requires one-use state and nonce values, PKCE S256, an accepted
+Google issuer, one exact audience, an exact `azp` value when present, an RS256
+signature, and valid expiry and `iat` values. A signed `auth_time` value is
+mandatory, may be at most 86,400 seconds old, and is subject to the approved
+60-second clock-skew policy. Deployment therefore requires Google session-age
+support that supplies `auth_time`, in addition to production credentials and
+redirect registration.
+
+Callback parameter names and values are structurally percent-decoded and
+strictly UTF-8 validated before provider exchange. Invalid escapes, invalid or
+replacement text, and decoded control characters fail closed. Only a canonical
+callback rebuilt from the exact validated, unique, allowed fields reaches
+Authlib; the original raw query is never reparsed downstream.
+
+Token and JWKS responses accept only identity content, including the documented
+absent-encoding form, or the reviewed gzip and deflate encodings. Encoding names
+are case-insensitive, but unknown, malformed, duplicated, multiple, or
+conflicting declarations fail closed before response content reaches Authlib or
+joserfc. The 64 KiB token and 256 KiB JWKS limits count actual decoded bytes.
+Response resources close on every accepted and rejected path, including
+decoding, read, and size failures.
+
+Gateway construction accepts only deployment client values and always installs
+the fixed real Google adapter; it accepts no provider, claims, projection,
+decoder, key set, transport, or clock authority. The resulting configuration is
+gateway-owned rather than caller-supplied. Each authorization transaction
+belongs to the exact gateway and configuration that created it. After provider
+verification and durable lookup, one synchronized boundary rechecks the exact
+invocation owner and expiry, atomically consumes the transaction, clears its
+state, nonce, PKCE, callback, and request buffers, and extracts one internal
+delegation value before proof issuance or B2D1 begins. A close or expiry before
+that boundary prevents delegation; after it succeeds, close or clock movement
+cannot revoke the one committed winner. B2D1 denial or failure never makes the
+transaction reusable.
+
+Provider-key freshness state also remains instance-local. Concurrent callbacks
+record the cache generation they decoded. When one callback installs a newer
+valid JWKS generation, other callbacks reuse that generation without another
+fetch or a refresh-rate denial. A per-instance refresh flight admits only one
+required network refresh, wakes waiters on failure, preserves the prior valid
+cache when refresh fails, and never permits stale keys. There is no persistent
+or process-global transaction registry, key cache, background refresh, or
+startup fetch.
+
+After provider verification, the gateway performs an exact read-only lookup of
+one existing Google identity and its active owning account. The provider's
+opaque, case-sensitive subject is the identity authority; an email address is
+never an identity key or a source of authority. Missing or ineligible durable
+state produces generic authentication denial, while duplicate, malformed,
+ambiguous, schema-invalid, or infrastructurally inconsistent state produces
+generic unavailability. The gateway creates, links, and updates nothing.
+
+Successful verification and durable resolution delegate directly to B2D1 using
+the transaction-owned request identity and the caller-supplied accepted
+completion boundaries. The exact B2D1 result is returned unchanged. Failures
+before delegation are limited to bounded, non-enumerating outcomes for
+authentication denial, provider unavailability, an invalid or expired
+transaction, or general unavailability; they do not disclose provider or
+durable-account details.
+
+Acceptance tests are network-free and run with sockets blocked. Deterministic
+local HTTP responses supply signed tokens and JWKS documents, but every
+successful outcome still traverses the real Authlib and joserfc exchange,
+signature, and claim-validation path. No test provider or asserted verified
+projection is accepted by production code. If `KeyboardInterrupt`,
+`SystemExit`, or `GeneratorExit` interrupts exchange, validation, durable
+resolution, proof issuance, or B2D1, the active transaction is consumed and the
+gateway fail-closes: credentials, provider adapter, and cached key authority are
+cleared before the exact exception propagates. Ordinary mapped application
+failures leave the gateway reusable.
+
+The gateway remains isolated from ordinary startup and package activation:
+importing normal runtime modules does not prepare authorization, contact Google,
+open a database, or register a handler. Login and callback routes, transaction
+persistence, browser-response composition, cookies, CSRF delivery, production
+credentials, and runtime activation all remain deferred deployment work.
+
+Any dependency refresh requires a new review of the complete pinned and hashed
+closure for the target platform, a wheel-only installation check, protocol
+probes, and a fresh security-advisory query. The accepted review established
+publishing provenance for the direct Authlib, joserfc, and Requests artifacts,
+but did not establish equivalent retained provenance evidence for the selected
+transitive cffi and pycparser artifacts. That accepted provenance gap remains a
+required review item on every dependency refresh. Review the lock at least
+quarterly and immediately after a relevant security advisory, upstream
+security or repository-ownership change, required interpreter or platform
+change, or proposed package-version change.
+
 ## Future Boundary
 
 B2B2, B2B3, B2C1, and B2C2 remain explicitly controlled infrastructure. No
