@@ -399,6 +399,7 @@ print(
                 "003_product_principals.sql",
                 "004_persistent_product_profiles.sql",
                 "005_persistent_profile_canonical_v2.sql",
+                "006_google_oidc_authorization_transactions.sql",
             ],
         )
 

@@ -878,10 +878,12 @@ The Google OIDC gateway is a dormant, default-disabled bridge into the accepted
 B2D1 completion boundary. Its initial application platform is CPython 3.12 on
 Windows x86-64, and Google is the only supported provider. The reviewed runtime
 dependency boundary is the exact hash-locked Authlib 1.7.2, joserfc 1.7.4, and
-Requests 2.34.2 stack. Those libraries own the standard OAuth, OpenID Connect,
-JOSE, and HTTPS protocol work; Wahojobs owns only the narrow transaction,
-freshness, bounded-transport, verified-identity projection, durable-resolution,
-and failure policies around that work.
+Requests 2.34.2 stack, with cryptography 49.0.0 promoted from that unchanged
+closure as the direct storage-protection dependency. Those libraries own the
+standard OAuth, OpenID Connect, JOSE, HTTPS, and AES-GCM primitive work;
+Wahojobs owns only the narrow transaction, freshness, bounded-transport,
+verified-identity projection, durable-resolution, and failure policies around
+that work.
 
 Authorization requires one-use state and nonce values, PKCE S256, an accepted
 Google issuer, one exact audience, an exact `azp` value when present, an RS256
@@ -957,8 +959,9 @@ failures leave the gateway reusable.
 The gateway remains isolated from ordinary startup and package activation:
 importing normal runtime modules does not prepare authorization, contact Google,
 open a database, or register a handler. Login and callback routes, transaction
-persistence, browser-response composition, cookies, CSRF delivery, production
-credentials, and runtime activation all remain deferred deployment work.
+composition, browser-response composition, cookies, CSRF delivery, production
+credentials and keys, and runtime activation all remain deferred deployment
+work.
 
 Any dependency refresh requires a new review of the complete pinned and hashed
 closure for the target platform, a wheel-only installation check, protocol
@@ -970,6 +973,207 @@ required review item on every dependency refresh. Review the lock at least
 quarterly and immediately after a relevant security advisory, upstream
 security or repository-ownership change, required interpreter or platform
 change, or proposed package-version change.
+
+## Dormant Durable Google OIDC Authorization Transactions
+
+Migration 006 defines an optional restart-safe authorization-transaction
+boundary without changing the existing in-memory gateway API. The migration is
+not installed by ordinary startup and remains uninstalled in the workspace
+database. Durable use is a separate composition path that requires an already
+migrated caller-owned connection and an externally established key authority.
+Importing or constructing the components opens no database, reads no deployment
+secret, starts no worker, and performs no provider request.
+
+Preparation generates fresh state, nonce, PKCE verifier, and B2D1 request key
+material once. It derives privacy-preserving state lookup values with
+domain-separated HMAC-SHA-256 and protects the canonical secret material with
+AES-256-GCM. Associated data binds the immutable transaction, configuration,
+key-version, and chronology facts. A short SQLite immediate transaction
+reattests the exact schema, inserts and rereads one prepared row, and commits
+before the authorization URL becomes available. A failed encryption, collision,
+insert, verification, or commit exposes no usable URL; a retry starts with
+entirely fresh material.
+
+The repository connection contract requires an idle concrete SQLite connection
+with foreign-key and recursive-trigger enforcement enabled. Every mutating
+operation establishes and verifies those settings before work and reattests them
+after acquiring its own immediate write boundary, so caller setting changes
+cannot silently weaken a later operation. The schema admits only an initial
+prepared row at row version `1`; its insert, update, and delete guards reject
+direct terminal insertion, replacement of an existing prepared or terminal row,
+immutable-field changes, and deletion of a prepared row. Only the exact
+prepared-to-terminal update and bounded deletion of an already-terminal row are
+accepted.
+
+Callback handling validates and extracts the exact state before provider work.
+A short one-winner SQLite claim locates the row through accepted keyed-digest
+versions and irreversibly changes it from prepared to consumed, expired, or
+invalidated. The claim is authoritatively reread and committed before protected
+material is decrypted. Replay therefore stops before token exchange, and a
+provider or downstream completion failure cannot make the transaction reusable.
+Expiry equality and wall-clock rollback fail closed.
+
+After that terminal commit, the process-reconstructed gateway decrypts the
+claimed one-use capsule, traverses the same real Authlib and joserfc verification
+path, performs the same exact durable Google-subject lookup, and delegates the
+stored request key to the unchanged B2D1 and B2C4 boundaries. No SQLite write
+transaction or authorization-transaction lock spans provider exchange, durable
+identity resolution, or trusted login completion.
+
+The externally supplied key authority accepts small versioned lookup and
+protection key rings, designates one active version of each kind, supports
+bounded rotation while retained versions can read older transactions, consumes
+caller-owned mutable key buffers, and clears its copies on explicit close. It
+contains no environment loader, production key, registry, or fallback key.
+Rejected supported container shapes are inspected only through bounded built-in
+container access so reachable caller-owned mutable key buffers are also cleared
+without invoking caller iteration or property code. Ordinary protection and
+repository failures cross a sanitized boundary only after sensitive inner
+frames, aliases, and exception links have been detached.
+
+Cleanup is explicit and bounded, and it has no implicit deployment retention
+default. Every call must supply `terminal_retention_seconds` as an exact
+built-in integer from 1 through 31,536,000 seconds (one second through 365
+days). This is the supported timestamp-arithmetic and operational envelope, not
+a selected product policy; each deployment must deliberately select its value.
+Authorization expiry and terminal retention are distinct. Prepared expiry is
+the transition at or after the transaction's ten-minute authorization expiry.
+Terminal retention starts at the lifecycle-appropriate terminal timestamp.
+Terminal deletion is permitted only when that timestamp is no later than the
+trusted cleanup time minus the supplied retention duration.
+
+One short immediate transaction establishes an action-start snapshot before
+mutation. It validates at most 4,000 transaction rows, fetching only one
+additional row to prove the inspection boundary was exceeded. A truncated
+snapshot is reported incomplete and performs no expiry or deletion. A complete
+snapshot may first expire structurally valid prepared rows and then delete only
+rows that were already terminal at action start; it never expires and deletes
+the same row in one pass. Expiry and deletion continue to share the caller's
+exact mutation limit of 1 through 1,000.
+
+Terminal deletion additionally requires the complete reconciliation structural
+row contract, lifecycle-specific chronology, a nonfuture terminal timestamp,
+accepted lookup and protection versions from one immutable authority snapshot,
+and no contradictory protected-material reuse in the bounded complete
+snapshot. Malformed, future-dated, too-recent, contradictory, unknown-version,
+or retired-version rows remain stored for reconciliation and investigation.
+Cleanup never loads or trials their keys and never repairs or normalizes them.
+Its sealed result exposes only bounded counts for prepared expiry, terminal
+deletion, terminal candidates inspected, each sanitized skip category, known
+remaining work, exactness, completeness, truncation, and commit outcome. It
+contains no transaction identifier, timestamp, digest, nonce, or protected
+value.
+
+Reconciliation remains strictly read-only, does not decrypt protected
+material, and reports bounded sanitized ordinals rather than transaction
+identifiers, digests, ciphertext, or row-associated key metadata. Cleanup
+retention and deletion policy is separate from reconciliation execution.
+
+One repository-owned reconciliation budget is shared by the domain result,
+implementation, renderers, CLI, and tests. It permits at most 1,000 transaction
+rows, fetches only one additional row to prove that rows remain, retains at
+most 1,000 findings, and permits at most 524,288 UTF-8 output bytes including
+the final newline. When that additional row exists, reconciliation reports the
+known overflow and does not semantically inspect an arbitrary bounded subset.
+The same operation object also caps all SQL result and
+finding work at 64,000 items, coherent snapshot copying at 8,192 aggregate
+SQLite pages and 16,400 backup callbacks, and private authorizer and progress
+work at 100,000 calls each. These counters span the whole operation rather than
+resetting per table, finding kind, renderer, or nested schema-analysis
+connection. Existing narrower prerequisite attestation bounds remain nested
+underneath this aggregate boundary and propagate exhaustion to the same
+blocking incomplete result. Exact
+limits are complete; observing the additional transaction row or exhausting
+any scan, schema, foreign-key, duplicate, finding-retention, snapshot, or output
+budget produces a blocking `incomplete` result and can never produce `clean`.
+
+Reports distinguish rows observed and inspected, structurally valid and invalid
+rows, exact omitted rows or an explicitly unknown total with one row known to
+remain, retained and omitted findings, and row-scan, finding-retention, and
+output-rendering truncation. Human and JSON output project the same counters and
+flags. Both are assembled only from bounded fields, include their final newline
+in the shared byte check, and fall back as a whole to a valid minimal blocking
+summary instead of cutting a finding or emitting oversized output. The CLI
+opens its already sidecar-free target with SQLite immutable read-only semantics
+and writes the checked UTF-8 bytes through the binary standard-output boundary.
+It
+returns success only for a complete, nonblocking scoped-clean report and returns
+its unavailable exit for every incomplete result.
+
+The public reconciler executes no SQL on the supplied connection. An idle exact
+standard-library SQLite connection is accepted only when the caller explicitly
+establishes that reading it cannot create filesystem sidecars. In-memory,
+immutable read-only, and verified non-WAL sources can satisfy that precondition;
+an undeclared arbitrary connection returns generic unavailable before backup.
+This is required because Python exposes no callback-free journal-mode or
+database-path query on an existing connection. An accepted source is copied
+with bounded one-page backup steps
+into fresh private in-memory connections; main is copied between two TEMP
+copies, and unequal TEMP images fail closed. Any source TEMP schema object is
+conservatively unavailable because Python cannot import a TEMP database image
+into another connection without reconstruction. Active caller transactions
+also return generic unavailable before copying. Inspection runs only on the
+fresh callback-free main snapshot with query-only mode, a default-deny
+read-only authorizer, and a bounded private progress handler. Caller trace,
+progress, authorizer, factory, collation, function, adapter, converter,
+transaction, and lifetime state is neither invoked nor changed.
+
+Within the bounded canonical row set, findings use a fixed category, severity,
+and code order plus private canonical row metadata, never rowid, insertion
+order, query-plan order, Python hashes, or a public identifier. Reconciliation
+detects exact reuse of contract-valid protected material, contract-valid raw
+nonces, and exact
+nonce/material reuse across distinct rows, and compares every stored
+associated-data input plus lifecycle, row-version, storage-class, nonce-length,
+and protected-length metadata. Contradictory copies are blocking and remain
+sanitized. The declared integrity scope is
+`structural_and_exact_reuse_without_cryptographic_authentication`;
+`cryptographic_authenticity_verified` and `runtime_safety_established` are
+always false. A scoped `clean` diagnostic therefore supplies neither AEAD
+authentication evidence nor authority for a runtime login or safety decision.
+
+The guarded migration and reconciliation commands canonicalize the requested
+filesystem target, use correctly escaped read-only SQLite URIs, and verify
+SQLite's authoritative main-database identity after every open. The exact
+Migration-001 through Migration-005 attestations are supplemented by one
+Migration-006 prerequisite-closure boundary: it enumerates both main and temp,
+derives the reserved Migration-001 and Migration-003 ownership namespaces from
+their authoritative SQL and committed manifests, compares every identifier
+with SQLite's ASCII-only case equivalence, and resolves unexpected view
+dependencies through actual isolated SQLite read-authorizer events, including
+columnless row-set reads, rather than SQL-text matching. One aggregate budget
+is shared by main and temp object, view, column, SQL-byte, authorizer-call, and
+EXPLAIN-row inspection. Exact limits are accepted; any excess or uninspectable
+dependency fails closed.
+
+For an explicitly authorized workspace migration, backup evidence is checked
+once as an early refusal and then checked authoritatively again after the
+migration owns an immediate write lock, together with sidecars, prerequisite
+schemas, markers, integrity, foreign keys, preserved counts, and preserved
+objects. After every possible pre-migration connection mutation, the
+migration-owned connection serializes its live main image and requires its
+length and SHA-256 to equal the reverified exact-copy backup. Before that final
+serialization, the connection is reduced to exact standard-library factories,
+its trace and progress callbacks are disabled, its authorizer is replaced by a
+bounded phase-aware migration authorizer, and its executable binary collation
+is reset to SQLite's built-in implementation. The sealed path uses no adapted
+bound values or converter-eligible results. That live-image comparison is
+immediately followed by the first Migration-006 statement; the same seal
+permits only the eight pinned DDL operations, the fixed marker insert, bounded
+verification, and commit or rollback. A failure before commit reports no
+change; a failure to reopen or verify after a successful commit reports that
+the durable change occurred while verification failed and never claims
+rollback.
+
+The deterministic configuration binding covers the same complete canonical
+durable-context document accepted by the gateway, bounded to 8192 bytes. This
+includes an otherwise valid redirect URI at the gateway's existing 2048
+character maximum without widening that in-memory limit.
+
+No route, redirect handler, cookie or CSRF delivery, signup, account or profile
+provisioning, production key integration, scheduler, cleanup worker, or runtime
+activation is included. Those deployment responsibilities remain separate
+reviewable work.
 
 ## Future Boundary
 

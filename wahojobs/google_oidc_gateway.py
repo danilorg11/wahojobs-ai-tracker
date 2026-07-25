@@ -27,6 +27,9 @@ from wahojobs.account_reconciliation import (
     authoritative_auth_identity_row_valid,
 )
 from wahojobs.accounts import TrustedIdentityVerifier
+from wahojobs.google_oidc_authorization_transactions import (
+    MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES,
+)
 import wahojobs.trusted_login_completion as _trusted_login
 from wahojobs.trusted_login_completion import (
     TrustedExternalIdentityAuthentication,
@@ -98,6 +101,7 @@ _OAUTH_INFRASTRUCTURE_ERRORS = frozenset(
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 _INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9a-fA-F]{2})")
 _HTTP_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_DURABLE_STATE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
 _PREPARATION_ISSUANCE_CAPABILITY = object()
 _FAILURE_ISSUANCE_CAPABILITY = object()
@@ -1212,6 +1216,15 @@ class _ResolvedDurableIdentity:
         self.identity_id = identity_id
 
 
+class _DurableProviderTransaction:
+    __slots__ = ("state", "nonce", "pkce_verifier")
+
+    def __init__(self, *, state, nonce, pkce_verifier):
+        self.state = state
+        self.nonce = nonce
+        self.pkce_verifier = pkce_verifier
+
+
 class _CommittedDelegationCapsule:
     __slots__ = (
         "_lock",
@@ -1817,6 +1830,104 @@ def _gateway_record(gateway):
     return record
 
 
+def _durable_google_oidc_context(gateway):
+    """Return the fixed, process-reconstructible durable configuration context."""
+
+    gateway_record = _gateway_record(gateway)
+    configuration = gateway_record.configuration_record
+    credential = object.__getattribute__(
+        configuration.credential,
+        "_record",
+    )
+    binding_document = {
+        "algorithms": configuration.algorithms,
+        "assurance_policy_version": configuration.assurance_policy_version,
+        "authorization_endpoint": configuration.authorization_endpoint,
+        "client_credential_digest": credential.digest.hex(),
+        "client_id": configuration.client_id,
+        "clock_skew_seconds": configuration.clock_skew_seconds,
+        "connect_timeout_seconds": configuration.connect_timeout_seconds,
+        "environment_namespace": configuration.environment,
+        "issuers": configuration.issuers,
+        "jwks_endpoint": configuration.jwks_endpoint,
+        "jwks_fallback_ttl_seconds": (
+            configuration.jwks_fallback_ttl_seconds
+        ),
+        "jwks_max_keys": configuration.jwks_max_keys,
+        "jwks_max_ttl_seconds": configuration.jwks_max_ttl_seconds,
+        "jwks_response_limit": configuration.jwks_response_limit,
+        "jwks_unknown_kid_refresh_seconds": (
+            configuration.jwks_unknown_kid_refresh_seconds
+        ),
+        "maximum_authentication_age_seconds": (
+            configuration.maximum_authentication_age_seconds
+        ),
+        "pkce_method": configuration.pkce_method,
+        "provider": configuration.provider,
+        "read_timeout_seconds": configuration.read_timeout_seconds,
+        "redirect_uri": configuration.redirect_uri,
+        "scopes": configuration.scopes,
+        "token_endpoint": configuration.token_endpoint,
+        "token_response_limit": configuration.token_response_limit,
+        "transaction_ttl_seconds": int(
+            configuration.transaction_ttl.total_seconds()
+        ),
+        "version": 1,
+    }
+    encoded = json.dumps(
+        binding_document,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    if not (
+        1
+        <= len(encoded)
+        <= MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES
+    ):
+        raise TypeError("google_oidc_gateway_unavailable")
+    return configuration.provider, configuration.environment, encoded
+
+
+def _durable_google_oidc_now(gateway):
+    gateway_record = _gateway_record(gateway)
+    return _canonical_time(
+        _clock_now(gateway_record.configuration_record)
+    )
+
+
+def _durable_google_oidc_authorization_url(
+    gateway,
+    *,
+    state,
+    nonce,
+    pkce_verifier,
+):
+    gateway_record = _gateway_record(gateway)
+    if (
+        type(state) is not bytearray
+        or type(nonce) is not bytearray
+        or type(pkce_verifier) is not bytearray
+    ):
+        raise TypeError("google_oidc_durable_material_invalid")
+    transaction = _DurableProviderTransaction(
+        state=state,
+        nonce=nonce,
+        pkce_verifier=pkce_verifier,
+    )
+    try:
+        url = _prepare_authorization_url(
+            gateway_record.configuration_record,
+            transaction,
+        )
+        return bytearray(url.encode("ascii", "strict"))
+    finally:
+        transaction.state = None
+        transaction.nonce = None
+        transaction.pkce_verifier = None
+        transaction = None
+
+
 def _new_transaction(gateway, gateway_record, now):
     config = gateway_record.configuration_record
     state = None
@@ -2181,6 +2292,171 @@ def _verify_provider(gateway, callback_url, transaction):
     return projection
 
 
+def _complete_durable_google_oidc_claimed(
+    gateway,
+    connection,
+    callback_url,
+    completion_policy,
+    request_secret_vault,
+    *,
+    state,
+    nonce,
+    pkce_verifier,
+    b2d1_request_key,
+    created_at,
+    expires_at,
+    claimed_at,
+):
+    """Complete one already-terminal durable claim through the real gateway."""
+
+    gateway_record = None
+    transaction = None
+    projection = None
+    verified_identity = None
+    resolved = None
+    proof = None
+    try:
+        gateway_record = _gateway_record(gateway)
+        configuration = gateway_record.configuration_record
+        if (
+            type(connection) is not sqlite3.Connection
+            or connection.in_transaction
+            or type(state) is not bytearray
+            or type(nonce) is not bytearray
+            or type(pkce_verifier) is not bytearray
+            or type(b2d1_request_key) is not bytearray
+        ):
+            raise _Unavailable()
+        state_text = _buffer_text(state)
+        nonce_text = _buffer_text(nonce)
+        verifier_text = _buffer_text(pkce_verifier)
+        request_key = _buffer_text(b2d1_request_key)
+        if (
+            _DURABLE_STATE.fullmatch(state_text) is None
+            or _DURABLE_STATE.fullmatch(nonce_text) is None
+            or len(verifier_text) != 86
+            or re.fullmatch(r"[A-Za-z0-9_-]{86}", verifier_text) is None
+            or len(request_key) != 55
+            or not request_key.startswith("google-oidc-")
+            or _DURABLE_STATE.fullmatch(request_key[12:]) is None
+        ):
+            raise _InvalidTransaction()
+        created_at = _canonical_time(created_at)
+        expires_at = _canonical_time(expires_at)
+        claimed_at = _canonical_time(claimed_at)
+        if (
+            expires_at - created_at != _TRANSACTION_TTL
+            or claimed_at < created_at
+            or claimed_at >= expires_at
+        ):
+            raise _InvalidTransaction()
+        now = _canonical_time(_clock_now(configuration))
+        if now < claimed_at or now >= expires_at:
+            raise _InvalidTransaction()
+        transaction = _DurableProviderTransaction(
+            state=state,
+            nonce=nonce,
+            pkce_verifier=pkce_verifier,
+        )
+        projection = _verify_provider(
+            gateway_record,
+            callback_url,
+            transaction,
+        )
+        now = _canonical_time(_clock_now(configuration))
+        if (
+            connection.in_transaction
+            or now < claimed_at
+            or now >= expires_at
+        ):
+            raise _InvalidTransaction()
+        verified_identity = (
+            gateway_record.identity_verifier.from_validated_google_claims(
+                provider_subject=projection[0],
+                verified_email=None,
+                email_verified=False,
+                authenticated_at=projection[1],
+                metadata_version=_METADATA_VERSION,
+            )
+        )
+        if not gateway_record.identity_verifier._accepts(verified_identity):
+            raise _Unavailable()
+        resolved = _resolve_durable_identity(
+            connection,
+            verified_identity,
+            now,
+        )
+        if connection.in_transaction:
+            raise _Unavailable()
+        authenticated_at = projection[1]
+        proof_expiry = min(
+            projection[2],
+            authenticated_at
+            + timedelta(seconds=_MAX_AUTHENTICATION_AGE_SECONDS),
+            expires_at,
+        )
+        if proof_expiry <= now:
+            raise _AuthenticationDenied()
+        proof = TrustedExternalIdentityAuthentication._issue(
+            _trusted_login._ASSERTION_ISSUANCE_CAPABILITY,
+            account_id=resolved.account_id,
+            identity_id=resolved.identity_id,
+            provider=_PROVIDER,
+            authenticated_at=authenticated_at,
+            expires_at=proof_expiry,
+            assurance_policy_version=_ASSURANCE_POLICY_VERSION,
+            environment_namespace=configuration.environment,
+        )
+        return complete_trusted_login(
+            connection,
+            proof,
+            completion_policy,
+            request_secret_vault,
+            trusted_now=now,
+            idempotency_key=request_key,
+        )
+    except _InvalidTransaction as exc:
+        _detach_exception(exc)
+        return _failure("invalid_or_expired_transaction")
+    except _AuthenticationDenied as exc:
+        _detach_exception(exc)
+        return _failure("authentication_denied")
+    except _ProviderUnavailable as exc:
+        _detach_exception(exc)
+        if gateway_record is not None and gateway_record.closed:
+            return _failure("invalid_or_expired_transaction")
+        return _failure("provider_unavailable")
+    except (KeyboardInterrupt, SystemExit, GeneratorExit) as control:
+        _poison_gateway_for_control(gateway, control)
+        _detach_exception(control)
+        raise control from None
+    except Exception as exc:
+        _detach_exception(exc)
+        if gateway_record is not None and gateway_record.closed:
+            return _failure("invalid_or_expired_transaction")
+        return _failure("unavailable")
+    finally:
+        if transaction is not None:
+            transaction.state = None
+            transaction.nonce = None
+            transaction.pkce_verifier = None
+        _clear_buffer(state)
+        _clear_buffer(nonce)
+        _clear_buffer(pkce_verifier)
+        _clear_buffer(b2d1_request_key)
+        gateway = None
+        connection = None
+        callback_url = None
+        completion_policy = None
+        request_secret_vault = None
+        gateway_record = None
+        transaction = None
+        projection = None
+        verified_identity = None
+        resolved = None
+        proof = None
+
+
 def _validated_callback_url(callback_url, redirect_uri):
     if (
         type(callback_url) is not str
@@ -2251,6 +2527,69 @@ def _validated_callback_url(callback_url, redirect_uri):
     except (TypeError, UnicodeError, ValueError):
         raise _AuthenticationDenied() from None
     return canonical_callback
+
+
+def _durable_google_oidc_callback_state(gateway, callback_url):
+    """Strictly recover correlation state before any durable claim or I/O."""
+
+    gateway_record = _gateway_record(gateway)
+    redirect_uri = gateway_record.configuration_record.redirect_uri
+    if (
+        type(callback_url) is not str
+        or not callback_url
+        or _CONTROL_CHARACTERS.search(callback_url) is not None
+    ):
+        raise _InvalidTransaction()
+    try:
+        encoded = callback_url.encode("ascii", "strict")
+        parts = urlsplit(callback_url)
+    except (UnicodeError, ValueError):
+        raise _InvalidTransaction() from None
+    if (
+        len(encoded) > _CALLBACK_URL_LIMIT
+        or parts.fragment
+        or parts.username is not None
+        or parts.password is not None
+        or "?" not in callback_url
+        or callback_url.split("?", 1)[0] != redirect_uri
+    ):
+        raise _InvalidTransaction()
+    try:
+        pairs = _strict_callback_query(parts.query)
+    except (TypeError, ValueError, _AuthenticationDenied):
+        raise _InvalidTransaction() from None
+    if not pairs or len(pairs) > _CALLBACK_PARAMETER_LIMIT:
+        raise _InvalidTransaction()
+    values = {}
+    for name, value in pairs:
+        if (
+            not name
+            or name not in _ALLOWED_CALLBACK_NAMES
+            or name in values
+            or len(name.encode("utf-8")) > _CALLBACK_PARAMETER_NAME_LIMIT
+            or len(value.encode("utf-8")) > _CALLBACK_PARAMETER_VALUE_LIMIT
+            or _CONTROL_CHARACTERS.search(name) is not None
+            or _CONTROL_CHARACTERS.search(value) is not None
+        ):
+            raise _InvalidTransaction()
+        values[name] = value
+    state = values.get("state")
+    has_code = bool(values.get("code"))
+    has_error = bool(values.get("error"))
+    if (
+        type(state) is not str
+        or _DURABLE_STATE.fullmatch(state) is None
+        or has_code == has_error
+        or (
+            has_code
+            and (
+                "error_description" in values
+                or "error_uri" in values
+            )
+        )
+    ):
+        raise _InvalidTransaction()
+    return state
 
 
 def _strict_callback_query(raw_query):

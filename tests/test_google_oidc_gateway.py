@@ -61,13 +61,14 @@ from wahojobs.google_oidc_gateway import (
 ROOT = Path(__file__).resolve().parents[1]
 GATEWAY_PATH = ROOT / "wahojobs" / "google_oidc_gateway.py"
 APPROVED_INPUT_HASH = (
-    "a04c681e28d4d8f91d86d3ee2077623d88eb89c57d515c69b9ffdf54b31c0a26"
+    "c1b545ecfc06a07278760010b409927ff4c4572fc0828b94c75deb665f79932f"
 )
 APPROVED_LOCK_HASH = (
-    "f9059cc32a5ea76b376ae85c03a226da77f527e59d57c146c7b7dd8f7ef96a5a"
+    "f602b884da32d2f02f120b4b7bb4b594ba928338df0937550b5fa82f0974d95b"
 )
 APPROVED_DIRECT = {
     "authlib": "1.7.2",
+    "cryptography": "49.0.0",
     "joserfc": "1.7.4",
     "requests": "2.34.2",
 }
@@ -253,6 +254,7 @@ class DependencyAndLockContractTests(unittest.TestCase):
             requirements_in.read_text(encoding="utf-8").splitlines(),
             [
                 "Authlib==1.7.2",
+                "cryptography==49.0.0",
                 "joserfc==1.7.4",
                 "requests==2.34.2",
             ],
