@@ -230,13 +230,22 @@ print(operations._is_trusted_approval(approval))
         self.assertNotIn("__main__", source)
         self.assertNotIn("add_route", source)
         migrations = sorted((ROOT / "wahojobs" / "db" / "migrations").glob("*.sql"))
-        self.assertEqual([path.name for path in migrations], [
+        accepted_migrations = [
             "001_pipeline_state.sql",
             "002_accounts_sessions.sql",
             "003_product_principals.sql",
             "004_persistent_product_profiles.sql",
             "005_persistent_profile_canonical_v2.sql",
-        ])
+            "006_google_oidc_authorization_transactions.sql",
+        ]
+        self.assertEqual([path.name for path in migrations], accepted_migrations)
+        self.assertNotEqual(
+            [
+                *accepted_migrations,
+                "007_unexpected_dormant_migration.sql",
+            ],
+            accepted_migrations,
+        )
 
     def test_documentation_records_dormant_safety_and_future_boundaries(self):
         documentation = (ROOT / "docs" / "agent_operations.md").read_text(encoding="utf-8")

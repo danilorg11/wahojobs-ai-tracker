@@ -13,6 +13,7 @@ import pickle
 import re
 import socket
 import sqlite3
+import tempfile
 import threading
 import types
 import unittest
@@ -66,6 +67,12 @@ APPROVED_INPUT_HASH = (
 APPROVED_LOCK_HASH = (
     "f602b884da32d2f02f120b4b7bb4b594ba928338df0937550b5fa82f0974d95b"
 )
+APPROVED_LOCK_CANONICAL_LF_HASH = (
+    "d6df028523ff16c94430683157c63620512600c17f5f86f43405c2505befe40a"
+)
+APPROVED_INPUT_BYTES = 68
+APPROVED_LOCK_CANONICAL_LF_BYTES = 22166
+APPROVED_LOCK_BYTES = 22450
 APPROVED_DIRECT = {
     "authlib": "1.7.2",
     "cryptography": "49.0.0",
@@ -86,8 +93,42 @@ APPROVED_CLOSURE = {
 }
 
 
-def _sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _validated_reviewed_git_text(
+    path,
+    *,
+    expected_canonical_sha256,
+    canonical_byte_length,
+    reviewed_line_ending,
+    expected_reviewed_sha256,
+    reviewed_byte_length,
+):
+    source = path.read_bytes()
+    if source.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("reviewed_text_bom")
+    if not source.endswith(b"\n"):
+        raise ValueError("reviewed_text_final_newline")
+    if b"\r" in source:
+        newline_residue = source.replace(b"\r\n", b"")
+        if b"\r" in newline_residue or b"\n" in newline_residue:
+            raise ValueError("reviewed_text_line_endings")
+        canonical = source.replace(b"\r\n", b"\n")
+    else:
+        canonical = source
+    if len(canonical) != canonical_byte_length:
+        raise ValueError("reviewed_text_length")
+    if hashlib.sha256(canonical).hexdigest() != expected_canonical_sha256:
+        raise ValueError("reviewed_text_hash")
+    if reviewed_line_ending == b"\n":
+        reviewed = canonical
+    elif reviewed_line_ending == b"\r\n":
+        reviewed = canonical.replace(b"\n", b"\r\n")
+    else:
+        raise ValueError("reviewed_text_policy")
+    if len(reviewed) != reviewed_byte_length:
+        raise ValueError("reviewed_artifact_length")
+    if hashlib.sha256(reviewed).hexdigest() != expected_reviewed_sha256:
+        raise ValueError("reviewed_artifact_hash")
+    return canonical
 
 
 def _lock_entries(source):
@@ -250,17 +291,75 @@ class DependencyAndLockContractTests(unittest.TestCase):
     def test_direct_input_is_exact_and_both_artifacts_keep_reviewed_hashes(self):
         requirements_in = ROOT / "requirements.in"
         requirements_lock = ROOT / "requirements.lock"
+        canonical_input = _validated_reviewed_git_text(
+            requirements_in,
+            expected_canonical_sha256=APPROVED_INPUT_HASH,
+            canonical_byte_length=APPROVED_INPUT_BYTES,
+            reviewed_line_ending=b"\n",
+            expected_reviewed_sha256=APPROVED_INPUT_HASH,
+            reviewed_byte_length=APPROVED_INPUT_BYTES,
+        )
+        _validated_reviewed_git_text(
+            requirements_lock,
+            expected_canonical_sha256=APPROVED_LOCK_CANONICAL_LF_HASH,
+            canonical_byte_length=APPROVED_LOCK_CANONICAL_LF_BYTES,
+            reviewed_line_ending=b"\r\n",
+            expected_reviewed_sha256=APPROVED_LOCK_HASH,
+            reviewed_byte_length=APPROVED_LOCK_BYTES,
+        )
         self.assertEqual(
-            requirements_in.read_text(encoding="utf-8").splitlines(),
+            canonical_input.split(b"\n"),
             [
-                "Authlib==1.7.2",
-                "cryptography==49.0.0",
-                "joserfc==1.7.4",
-                "requests==2.34.2",
+                b"Authlib==1.7.2",
+                b"cryptography==49.0.0",
+                b"joserfc==1.7.4",
+                b"requests==2.34.2",
+                b"",
             ],
         )
-        self.assertEqual(_sha256(requirements_in), APPROVED_INPUT_HASH)
-        self.assertEqual(_sha256(requirements_lock), APPROVED_LOCK_HASH)
+
+    def test_reviewed_git_text_accepts_only_lf_or_consistent_crlf(self):
+        canonical = b"alpha \t\n\nbeta\n"
+        expected_hash = hashlib.sha256(canonical).hexdigest()
+        invalid = {
+            "changed_content": b"alpha \t\n\nzeta\n",
+            "missing_final_newline": canonical[:-1],
+            "lone_cr": b"alpha \t\rbeta\n",
+            "mixed_endings": b"alpha \t\r\n\nbeta\r\n",
+            "bom": b"\xef\xbb\xbf" + canonical,
+            "unexpected_byte": b"alpha \t\n\nbet\xff\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "reviewed.txt"
+            for label, source in (
+                ("lf", canonical),
+                ("crlf", canonical.replace(b"\n", b"\r\n")),
+            ):
+                with self.subTest(accepted=label):
+                    path.write_bytes(source)
+                    self.assertEqual(
+                        _validated_reviewed_git_text(
+                            path,
+                            expected_canonical_sha256=expected_hash,
+                            canonical_byte_length=len(canonical),
+                            reviewed_line_ending=b"\n",
+                            expected_reviewed_sha256=expected_hash,
+                            reviewed_byte_length=len(canonical),
+                        ),
+                        canonical,
+                    )
+            for label, source in invalid.items():
+                with self.subTest(rejected=label):
+                    path.write_bytes(source)
+                    with self.assertRaises(ValueError):
+                        _validated_reviewed_git_text(
+                            path,
+                            expected_canonical_sha256=expected_hash,
+                            canonical_byte_length=len(canonical),
+                            reviewed_line_ending=b"\n",
+                            expected_reviewed_sha256=expected_hash,
+                            reviewed_byte_length=len(canonical),
+                        )
 
     def test_lock_is_exact_hash_only_approved_closure(self):
         source = (ROOT / "requirements.lock").read_text(encoding="utf-8")

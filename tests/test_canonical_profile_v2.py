@@ -1312,9 +1312,11 @@ print(canonical_v2.SCHEMA_VERSION)
                 text = path.read_text(encoding="utf-8")
                 if "canonical_v2" in text:
                     references.append(path.relative_to(ROOT).as_posix())
+        self.assertEqual(len(references), len(set(references)))
         self.assertEqual(
             references,
             [
+                "wahojobs/google_oidc_authorization_transaction_schema.py",
                 "wahojobs/persistent_profiles.py",
                 "wahojobs/persistent_profiles_reconciliation.py",
                 "wahojobs/persistent_profiles_repository.py",
