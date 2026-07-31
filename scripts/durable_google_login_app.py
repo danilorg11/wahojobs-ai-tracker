@@ -36,6 +36,7 @@ _SERVE_STARTUP_SECONDS = 1.0
 _SERVE_POLL_SECONDS = 0.05
 _TLS_HANDSHAKE_SECONDS = 1.0
 _MAX_TRACKED_ACCEPTED_SOCKETS = 64
+_MISSING_PROFILE_CREATION_CAPABILITY = object()
 _SIGNAL_EXIT_STATUS = {
     "sigint": 130,
     "sigterm": 143,
@@ -2711,6 +2712,67 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def _confirmed_profile_artifact_sink(
+    browser_integration,
+    *,
+    required,
+):
+    if type(required) is not bool:
+        raise RuntimeError("profile_creation_capability_invalid")
+    candidate = getattr(
+        browser_integration,
+        "issue_confirmed_profile_artifact",
+        _MISSING_PROFILE_CREATION_CAPABILITY,
+    )
+    if candidate is _MISSING_PROFILE_CREATION_CAPABILITY:
+        if required:
+            raise RuntimeError("profile_creation_capability_unavailable")
+        return None
+    if not callable(candidate):
+        raise RuntimeError("profile_creation_capability_invalid")
+    return candidate
+
+
+def _completed_profile_confirmation_authenticator(browser_integration):
+    candidate = getattr(
+        browser_integration,
+        "authenticate_completed_profile_replay",
+        _MISSING_PROFILE_CREATION_CAPABILITY,
+    )
+    if candidate is _MISSING_PROFILE_CREATION_CAPABILITY or not callable(candidate):
+        raise RuntimeError("profile_creation_capability_invalid")
+    return candidate
+
+
+def _construct_production_handler(
+    browser_integration,
+    public_origin,
+    *,
+    require_profile_creation,
+):
+    from scripts.local_product_app import MatchRunRegistry, make_handler
+
+    artifact_sink = _confirmed_profile_artifact_sink(
+        browser_integration,
+        required=require_profile_creation,
+    )
+    registry = MatchRunRegistry()
+    handler_arguments = {
+        "registry": registry,
+        "durable_google_login_browser_integration": browser_integration,
+        "exclusive_browser_integration": True,
+    }
+    if artifact_sink is not None:
+        handler_arguments.update(
+            confirmed_profile_artifact_sink=artifact_sink,
+            completed_profile_confirmation_authenticator=(
+                _completed_profile_confirmation_authenticator(browser_integration)
+            ),
+            profile_confirmation_public_origin=public_origin,
+        )
+    return make_handler(**handler_arguments)
+
+
 def main(
     argv=None,
     *,
@@ -2889,13 +2951,10 @@ def main(
             prepare_tls_workspace()
         _emit_checkpoint(_checkpoint_observer, "runtime_prepared")
 
-        from scripts.local_product_app import make_handler
-
-        handler = make_handler(
-            durable_google_login_browser_integration=(
-                browser_integration
-            ),
-            exclusive_browser_integration=True,
+        handler = _construct_production_handler(
+            browser_integration,
+            configuration.public_origin,
+            require_profile_creation=_runtime_builder is None,
         )
         if _server_factory is None:
             server_factory = _DrainingThreadingHTTPServer

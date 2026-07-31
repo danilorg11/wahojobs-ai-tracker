@@ -1,4 +1,5 @@
 import argparse
+from copy import deepcopy
 import hashlib
 import html
 import json
@@ -7,15 +8,16 @@ import secrets
 import sqlite3
 import sys
 import threading
+import time
 import types
 from collections import OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
+from urllib.parse import parse_qs, unquote_to_bytes, urlencode, urlparse, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -25,24 +27,33 @@ import profile_to_matches_preview as profile_preview
 import product_state
 import user_pipeline_digest as pipeline_digest
 from wahojobs import (
+    browser_session_authentication as browser_session_security,
     pipeline_actions,
     pipeline_reconciliation,
     pipeline_records,
     pipeline_state,
+    persistent_profiles_browser as persistent_profile_browser_security,
 )
 from wahojobs.db.connection import get_connection
 from wahojobs.profiles.canonical import (
+    PROFILE_SOURCE_PARSED_TEXT,
+    PROFILE_SOURCE_USER_CONFIRMATION,
+    PROFILE_SOURCE_USER_CORRECTION,
     SCHEMA_VERSION,
-    canonical_profile_fingerprint,
+    UNKNOWN,
+    field_sources_for_profile,
+    unique_strings,
     validate_canonical_profile,
 )
-from wahojobs.profiles.normalizer import normalize_profile_input
+from wahojobs.profiles import normalizer as profile_normalizer
+from wahojobs.profiles import review as canonical_review
+from wahojobs.profiles.countries import normalize_country
 from wahojobs.profiles.review import (
     CREDENTIAL_STATUSES,
     EDUCATION_LEVELS,
     LANGUAGE_PROFICIENCIES,
-    apply_reviewed_profile,
 )
+from wahojobs.persistent_profiles import IdentityFreeCanonicalProfileV1
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -62,12 +73,18 @@ LOCAL_PRODUCT_PROFILE_SEED_PATH = (
     Path(__file__).resolve().parent.parent / "profiles" / "local_product_profiles.json"
 )
 FIND_MATCHES_PATHS = {"/find-matches", "/preview"}
+PROFILE_CONFIRMATION_PATH = "/find-matches"
+MAX_PROFILE_CONFIRMATION_BODY_BYTES = 65_536
+MAX_PROFILE_CONFIRMATION_FIELDS = 128
+PROFILE_CONFIRMATION_OWNER_WAIT_SECONDS = 1.0
+PROFILE_CONFIRMATION_RETENTION_SECONDS = 600.0
 TRACKER_PATHS = {"/", "/tracker"}
 HEAVY_DASHBOARD_PATHS = {"/dashboard", "/market-dashboard"}
 _HTTP_METHOD_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _BROWSER_HEADER_VALUE_FORBIDDEN = re.compile(
     r"[\x00-\x08\x0a-\x1f\x7f]"
 )
+_INVALID_FORM_PERCENT_ESCAPE = re.compile(rb"%(?![0-9A-Fa-f]{2})")
 
 PREVIEW_SAMPLES = {
     "beginner_bilingual": {
@@ -112,20 +129,157 @@ class MatchRun:
     recommendation_context: dict | None
     created_at: datetime
     last_accessed_at: datetime
-    canonical_profile: dict | None = None
+    canonical_profile: IdentityFreeCanonicalProfileV1 | None = None
     profile_confirmed: bool = False
     review_token: str = ""
+
+
+@dataclass(frozen=True, repr=False)
+class ConfirmedProfileCreation:
+    match_run: MatchRun
+    artifact_offer: object
+    _authority_binding: tuple = field(repr=False)
+
+    def __post_init__(self):
+        if (
+            type(self.match_run) is not MatchRun
+            or not _is_confirmed_profile_artifact_offer(self.artifact_offer)
+            or type(self._authority_binding) is not tuple
+            or len(self._authority_binding) != 10
+        ):
+            raise ValueError("invalid_confirmed_profile_creation")
+
+    def __repr__(self):
+        return "ConfirmedProfileCreation(<redacted>)"
+
+
+@dataclass(frozen=True, repr=False)
+class _ProfileConfirmationLease:
+    registry: object
+    match_run_id: str
+    owner: object
+    confirmation_identity: str
+    reviewed_run: MatchRun
+    recovery_only: bool
+
+    def __repr__(self):
+        return "_ProfileConfirmationLease(<redacted>)"
+
+
+@dataclass(frozen=True, repr=False)
+class _CompletedProfileConfirmationReplay:
+    registry: object
+    match_run_id: str
+    completed_result: ConfirmedProfileCreation
+    authority_binding: tuple = field(repr=False)
+
+    def __repr__(self):
+        return "_CompletedProfileConfirmationReplay(<redacted>)"
+
+
+@dataclass(repr=False)
+class _ProfileConfirmationState:
+    original_run: MatchRun
+    reviewed_run: MatchRun
+    original_draft_digest: str
+    reviewed_request_digest: str
+    confirmation_identity: str
+    state: str
+    owner: object | None
+    retention_deadline: float | None = None
+    recovery_only: bool = False
+    completed_result: ConfirmedProfileCreation | None = None
+
+    def __repr__(self):
+        return f"_ProfileConfirmationState(state={self.state!r})"
+
+
+class _ConfirmationIssuanceWitness:
+    """Monotone, process-private evidence shared with the trusted artifact sink."""
+
+    __slots__ = ("_authority_binding", "_lease", "_lock", "_may_exist", "_offer")
+
+    def __init__(self, lease):
+        if type(lease) is not _ProfileConfirmationLease:
+            raise ValueError("invalid_profile_confirmation_lease")
+        self._lease = lease
+        self._lock = threading.Lock()
+        self._may_exist = lease.recovery_only
+        self._offer = None
+        self._authority_binding = None
+
+    def record_authority_binding(self, binding):
+        if type(binding) is not tuple or len(binding) != 10:
+            raise ValueError("invalid_profile_confirmation_authority_binding")
+        with self._lock:
+            if self._authority_binding is None:
+                self._authority_binding = binding
+            elif self._authority_binding != binding:
+                raise ValueError("conflicting_profile_confirmation_authority_binding")
+            return self._authority_binding
+
+    def mark_artifact_may_exist(self):
+        with self._lock:
+            if self._authority_binding is None:
+                raise ValueError("missing_profile_confirmation_authority_binding")
+            self._may_exist = True
+
+    def mark_artifact_definitely_absent(self):
+        with self._lock:
+            if self._offer is not None:
+                raise ValueError("confirmed_profile_artifact_already_exists")
+            self._may_exist = False
+
+    def record_valid_offer(self, offer):
+        if not _is_confirmed_profile_artifact_offer(offer):
+            raise ValueError("invalid_confirmed_profile_creation")
+        with self._lock:
+            self._may_exist = True
+            if self._offer is None:
+                self._offer = offer
+            elif self._offer != offer:
+                raise ValueError("conflicting_confirmed_profile_artifact_offer")
+            recorded = self._offer
+            binding = self._authority_binding
+        return self._lease.registry.complete_profile_confirmation(
+            self._lease,
+            recorded,
+            binding,
+        )
+
+    @property
+    def artifact_may_exist(self):
+        with self._lock:
+            return self._may_exist
+
+    @property
+    def valid_offer(self):
+        with self._lock:
+            return self._offer
+
+    def __repr__(self):
+        return "_ConfirmationIssuanceWitness(<redacted>)"
 
 
 class MatchRunRegistry:
     """Bounded process-local run storage for the local prototype."""
 
-    def __init__(self, max_size=MATCH_RUN_REGISTRY_LIMIT):
+    def __init__(
+        self,
+        max_size=MATCH_RUN_REGISTRY_LIMIT,
+        *,
+        _retention_clock=time.monotonic,
+    ):
         if max_size < 1:
             raise ValueError("MatchRun registry max_size must be positive.")
+        if not callable(_retention_clock):
+            raise ValueError("MatchRun registry retention clock must be callable.")
         self.max_size = max_size
+        self._retention_clock = _retention_clock
         self._runs = OrderedDict()
         self._lock = threading.RLock()
+        self._condition = threading.Condition(self._lock)
+        self._confirmations = {}
 
     def create(
         self,
@@ -137,6 +291,8 @@ class MatchRunRegistry:
         canonical_profile=None,
         profile_confirmed=False,
     ):
+        if canonical_profile is not None and type(canonical_profile) is not IdentityFreeCanonicalProfileV1:
+            raise ValueError("invalid_identity_free_profile_draft")
         now = datetime.now(timezone.utc)
         run = MatchRun(
             match_run_id=secrets.token_urlsafe(18),
@@ -151,16 +307,34 @@ class MatchRunRegistry:
             profile_confirmed=profile_confirmed,
             review_token=secrets.token_urlsafe(32),
         )
-        with self._lock:
+        with self._condition:
+            self._purge_expired_confirmation_results_locked()
             self._runs[run.match_run_id] = run
             self._runs.move_to_end(run.match_run_id)
             while len(self._runs) > self.max_size:
-                self._runs.popitem(last=False)
+                candidate = next(
+                    (
+                        run_id
+                        for run_id in self._runs
+                        if run_id != run.match_run_id
+                        and not self._confirmation_pinned_locked(run_id)
+                    ),
+                    None,
+                )
+                if candidate is None:
+                    del self._runs[run.match_run_id]
+                    raise ActionError(
+                        "Profile review is temporarily unavailable.",
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                del self._runs[candidate]
+                self._confirmations.pop(candidate, None)
         return run
 
     def confirm_profile(self, match_run_id, canonical_profile, recommendation_context):
-        validate_canonical_profile(canonical_profile)
-        with self._lock:
+        if type(canonical_profile) is not IdentityFreeCanonicalProfileV1:
+            raise ValueError("invalid_identity_free_profile_draft")
+        with self._condition:
             run = self._runs.get(match_run_id)
             if run is None:
                 return None
@@ -175,8 +349,282 @@ class MatchRunRegistry:
             self._runs.move_to_end(match_run_id)
             return run
 
+    def confirmation_draft(self, match_run_id):
+        with self._condition:
+            self._purge_expired_confirmation_results_locked()
+            run = self._runs.get(match_run_id)
+            if run is None:
+                return None
+            state = self._confirmations.get(match_run_id)
+            draft = state.original_run if state is not None else run
+            self._runs.move_to_end(match_run_id)
+            return draft
+
+    def acquire_profile_confirmation(
+        self,
+        *,
+        original_run,
+        original_draft_digest,
+        reviewed_request_digest,
+        confirmation_identity,
+        reviewed_profile,
+        acquisition,
+    ):
+        if (
+            type(original_run) is not MatchRun
+            or type(reviewed_profile) is not IdentityFreeCanonicalProfileV1
+            or not _is_sha256_digest(original_draft_digest)
+            or not _is_sha256_digest(reviewed_request_digest)
+            or not _is_sha256_digest(confirmation_identity)
+            or type(acquisition) is not list
+            or acquisition
+        ):
+            raise ValueError("invalid_profile_confirmation_claim")
+        deadline = time.monotonic() + PROFILE_CONFIRMATION_OWNER_WAIT_SECONDS
+        with self._condition:
+            while True:
+                self._purge_expired_confirmation_results_locked()
+                state = self._confirmations.get(original_run.match_run_id)
+                if state is not None:
+                    if not self._confirmation_matches_locked(
+                        state,
+                        original_run,
+                        original_draft_digest,
+                        reviewed_request_digest,
+                        confirmation_identity,
+                    ):
+                        raise ActionError(
+                            "This profile draft is no longer current.",
+                            HTTPStatus.FORBIDDEN,
+                        )
+                    if state.state == "completed":
+                        completed = state.completed_result
+                        if type(completed) is not ConfirmedProfileCreation:
+                            raise RuntimeError("invalid_profile_confirmation_state")
+                        binding = completed._authority_binding
+                        if type(binding) is not tuple or len(binding) != 10:
+                            raise RuntimeError("invalid_profile_confirmation_state")
+                        return _CompletedProfileConfirmationReplay(
+                            self,
+                            original_run.match_run_id,
+                            completed,
+                            binding,
+                        )
+                    if state.state == "maybe_issued":
+                        owner = object()
+                        lease = _ProfileConfirmationLease(
+                            self,
+                            original_run.match_run_id,
+                            owner,
+                            confirmation_identity,
+                            state.reviewed_run,
+                            True,
+                        )
+                        acquisition.append(lease)
+                        state.owner = owner
+                        state.recovery_only = True
+                        state.state = "issuing"
+                        return lease
+                    if state.state != "issuing":
+                        raise RuntimeError("invalid_profile_confirmation_state")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ActionError(
+                            "Profile confirmation is temporarily unavailable.",
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                        )
+                    self._condition.wait(timeout=remaining)
+                    continue
+
+                current = self._runs.get(original_run.match_run_id)
+                if (
+                    current is None
+                    or current.profile_confirmed
+                    or current.review_token != original_run.review_token
+                    or not secrets.compare_digest(
+                        profile_draft_fingerprint(current.canonical_profile),
+                        original_draft_digest,
+                    )
+                ):
+                    raise ActionError(
+                        "This profile draft is no longer current.",
+                        HTTPStatus.FORBIDDEN,
+                    )
+                reviewed_run = replace(
+                    current,
+                    canonical_profile=reviewed_profile,
+                    profile_confirmed=True,
+                    recommendation_context=None,
+                    last_accessed_at=datetime.now(timezone.utc),
+                )
+                owner = object()
+                state = _ProfileConfirmationState(
+                    original_run=current,
+                    reviewed_run=reviewed_run,
+                    original_draft_digest=original_draft_digest,
+                    reviewed_request_digest=reviewed_request_digest,
+                    confirmation_identity=confirmation_identity,
+                    state="issuing",
+                    owner=owner,
+                )
+                lease = _ProfileConfirmationLease(
+                    self,
+                    current.match_run_id,
+                    owner,
+                    confirmation_identity,
+                    reviewed_run,
+                    False,
+                )
+                acquisition.append(lease)
+                self._confirmations[current.match_run_id] = state
+                return lease
+
+    def complete_profile_confirmation(self, lease, offer, authority_binding):
+        if (
+            type(lease) is not _ProfileConfirmationLease
+            or lease.registry is not self
+            or not _is_confirmed_profile_artifact_offer(offer)
+            or type(authority_binding) is not tuple
+            or len(authority_binding) != 10
+        ):
+            raise ValueError("invalid_profile_confirmation_completion")
+        with self._condition:
+            state = self._confirmations.get(lease.match_run_id)
+            if state is None or state.confirmation_identity != lease.confirmation_identity:
+                raise RuntimeError("profile_confirmation_owner_lost")
+            if state.state == "completed":
+                if (
+                    state.completed_result.artifact_offer != offer
+                    or state.completed_result._authority_binding != authority_binding
+                ):
+                    raise RuntimeError("profile_confirmation_offer_conflict")
+                return state.completed_result
+            if state.state != "issuing" or state.owner is not lease.owner:
+                raise RuntimeError("profile_confirmation_owner_lost")
+            result = ConfirmedProfileCreation(
+                state.reviewed_run,
+                offer,
+                authority_binding,
+            )
+            state.completed_result = result
+            if state.retention_deadline is None:
+                state.retention_deadline = (
+                    self._retention_clock()
+                    + PROFILE_CONFIRMATION_RETENTION_SECONDS
+                )
+            self._runs[lease.match_run_id] = state.reviewed_run
+            self._runs.move_to_end(lease.match_run_id)
+            state.recovery_only = False
+            state.state = "completed"
+            state.owner = None
+            self._condition.notify_all()
+            return result
+
+    def replay_completed_profile_confirmation(self, replay):
+        if (
+            type(replay) is not _CompletedProfileConfirmationReplay
+            or replay.registry is not self
+            or type(replay.authority_binding) is not tuple
+            or len(replay.authority_binding) != 10
+        ):
+            raise ValueError("invalid_completed_profile_confirmation_replay")
+        with self._condition:
+            self._purge_expired_confirmation_results_locked()
+            state = self._confirmations.get(replay.match_run_id)
+            if (
+                state is None
+                or state.state != "completed"
+                or state.completed_result is not replay.completed_result
+                or state.completed_result._authority_binding
+                is not replay.authority_binding
+            ):
+                return None
+            return state.completed_result
+
+    def fail_profile_confirmation(self, lease, *, definite_absence):
+        if (
+            type(lease) is not _ProfileConfirmationLease
+            or lease.registry is not self
+            or type(definite_absence) is not bool
+        ):
+            raise ValueError("invalid_profile_confirmation_failure")
+        with self._condition:
+            state = self._confirmations.get(lease.match_run_id)
+            if state is None:
+                return None
+            if state.state == "completed":
+                return state.completed_result
+            if state.state != "issuing" or state.owner is not lease.owner:
+                return None
+            state.owner = None
+            state.recovery_only = False
+            state.completed_result = None
+            self._runs[lease.match_run_id] = state.original_run
+            self._runs.move_to_end(lease.match_run_id)
+            if definite_absence:
+                del self._confirmations[lease.match_run_id]
+            else:
+                if state.retention_deadline is None:
+                    state.retention_deadline = (
+                        self._retention_clock()
+                        + PROFILE_CONFIRMATION_RETENTION_SECONDS
+                    )
+                state.state = "maybe_issued"
+            self._condition.notify_all()
+            return None
+
+    @staticmethod
+    def _confirmation_matches_locked(
+        state,
+        original_run,
+        original_draft_digest,
+        reviewed_request_digest,
+        confirmation_identity,
+    ):
+        return (
+            state.original_run.match_run_id == original_run.match_run_id
+            and secrets.compare_digest(
+                state.original_run.review_token,
+                original_run.review_token,
+            )
+            and secrets.compare_digest(
+                state.original_draft_digest,
+                original_draft_digest,
+            )
+            and secrets.compare_digest(
+                state.reviewed_request_digest,
+                reviewed_request_digest,
+            )
+            and secrets.compare_digest(
+                state.confirmation_identity,
+                confirmation_identity,
+            )
+        )
+
+    def _confirmation_pinned_locked(self, match_run_id):
+        state = self._confirmations.get(match_run_id)
+        return state is not None and state.state in {
+            "issuing",
+            "maybe_issued",
+            "completed",
+        }
+
+    def _purge_expired_confirmation_results_locked(self):
+        now = self._retention_clock()
+        if type(now) not in (float, int):
+            raise RuntimeError("invalid_profile_confirmation_retention_clock")
+        for match_run_id, state in tuple(self._confirmations.items()):
+            if (
+                state.state in {"maybe_issued", "completed"}
+                and state.retention_deadline is not None
+                and now >= state.retention_deadline
+            ):
+                self._confirmations.pop(match_run_id, None)
+                self._runs.pop(match_run_id, None)
+
     def get(self, match_run_id):
-        with self._lock:
+        with self._condition:
+            self._purge_expired_confirmation_results_locked()
             run = self._runs.get(match_run_id)
             if run is None:
                 return None
@@ -186,7 +634,8 @@ class MatchRunRegistry:
             return run
 
     def __len__(self):
-        with self._lock:
+        with self._condition:
+            self._purge_expired_confirmation_results_locked()
             return len(self._runs)
 
 
@@ -597,12 +1046,47 @@ def _validate_durable_browser_response_worker(validate, response):
     return outcome
 
 
+def _strict_urlencoded_multimap(body):
+    if (
+        type(body) is not bytes
+        or not body
+        or len(body) > MAX_PROFILE_CONFIRMATION_BODY_BYTES
+        or _INVALID_FORM_PERCENT_ESCAPE.search(body) is not None
+    ):
+        return None
+    fields = body.split(b"&")
+    if (
+        len(fields) > MAX_PROFILE_CONFIRMATION_FIELDS
+        or any(not field or b"=" not in field for field in fields)
+    ):
+        return None
+    parsed = {}
+    try:
+        for encoded_field in fields:
+            encoded_name, encoded_value = encoded_field.split(b"=", 1)
+            name = unquote_to_bytes(encoded_name.replace(b"+", b" ")).decode(
+                "utf-8",
+                "strict",
+            )
+            value = unquote_to_bytes(encoded_value.replace(b"+", b" ")).decode(
+                "utf-8",
+                "strict",
+            )
+            parsed.setdefault(name, []).append(value)
+    except (UnicodeError, ValueError):
+        return None
+    return parsed
+
+
 def make_handler(
     registry=None,
     demo_mode=False,
     persistent_profile_browser_integration=None,
     durable_google_login_browser_integration=None,
     exclusive_browser_integration=False,
+    confirmed_profile_artifact_sink=None,
+    completed_profile_confirmation_authenticator=None,
+    profile_confirmation_public_origin=None,
 ):
     registry = registry if registry is not None else MatchRunRegistry()
     profile_browser_integration = persistent_profile_browser_integration
@@ -621,11 +1105,45 @@ def make_handler(
         exclusive_browser_integration and login_browser_integration is None
     ):
         raise ValueError("invalid_exclusive_browser_integration")
+    if confirmed_profile_artifact_sink is not None and not callable(
+        confirmed_profile_artifact_sink
+    ):
+        raise ValueError("invalid_confirmed_profile_artifact_sink")
+    if completed_profile_confirmation_authenticator is not None and (
+        confirmed_profile_artifact_sink is None
+        or not callable(completed_profile_confirmation_authenticator)
+    ):
+        raise ValueError("invalid_completed_profile_confirmation_authenticator")
+    confirmation_origin = profile_confirmation_public_origin
+    if confirmed_profile_artifact_sink is None:
+        if confirmation_origin is not None:
+            raise ValueError("unexpected_profile_confirmation_public_origin")
+        confirmation_authority = None
+    else:
+        if type(confirmation_origin) is not str:
+            raise ValueError("invalid_profile_confirmation_public_origin")
+        parsed_confirmation_origin = urlparse(confirmation_origin)
+        if (
+            parsed_confirmation_origin.scheme != "https"
+            or not parsed_confirmation_origin.netloc
+            or parsed_confirmation_origin.path
+            or parsed_confirmation_origin.params
+            or parsed_confirmation_origin.query
+            or parsed_confirmation_origin.fragment
+            or parsed_confirmation_origin.username is not None
+            or parsed_confirmation_origin.password is not None
+        ):
+            raise ValueError("invalid_profile_confirmation_public_origin")
+        confirmation_authority = parsed_confirmation_origin.netloc
 
     class ProductAppHandler(BaseHTTPRequestHandler):
         match_run_registry = registry
         is_demo_mode = demo_mode
         _durable_google_login_browser_integration = login_browser_integration
+        _confirmed_profile_artifact_sink = confirmed_profile_artifact_sink
+        _completed_profile_confirmation_authenticator = (
+            completed_profile_confirmation_authenticator
+        )
 
         def __getattr__(self, name):
             if type(name) is str and name.startswith("do_"):
@@ -651,7 +1169,7 @@ def make_handler(
             parsed = urlparse(self.path)
             if self.dispatch_durable_google_login_browser_integration("GET", parsed.path):
                 return
-            if self.reject_exclusive_browser_fallthrough("GET"):
+            if self.reject_exclusive_browser_fallthrough("GET", parsed.path):
                 return
             if self.dispatch_profile_browser_integration("GET", parsed.path):
                 return
@@ -659,6 +1177,16 @@ def make_handler(
                 self.write_text("ok\n")
                 return
             if parsed.path in FIND_MATCHES_PATHS:
+                if (
+                    parsed.path == PROFILE_CONFIRMATION_PATH
+                    and type(self)._confirmed_profile_artifact_sink is not None
+                    and self.profile_confirmation_request_headers() is None
+                ):
+                    self.write_safe_browser_error(
+                        "This profile request is not valid.",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
                 params = parse_qs(parsed.query)
                 run_id = first_value(params, "run")
                 if run_id and registry.get(run_id) is None:
@@ -751,14 +1279,51 @@ def make_handler(
             parsed = urlparse(self.path)
             if self.dispatch_durable_google_login_browser_integration("POST", parsed.path):
                 return
-            if self.reject_exclusive_browser_fallthrough("POST"):
+            form = None
+            if (
+                exclusive_browser_integration
+                and type(self)._confirmed_profile_artifact_sink is not None
+                and parsed.path == PROFILE_CONFIRMATION_PATH
+            ):
+                form = self.read_profile_confirmation_form()
+                if form is None:
+                    self.write_safe_browser_error(
+                        "This profile request is not valid.",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                if form.get("form_action") == ["confirm_profile"]:
+                    if self.path != PROFILE_CONFIRMATION_PATH:
+                        self.write_safe_browser_error(
+                            "This page is not available.",
+                            status=HTTPStatus.NOT_FOUND,
+                        )
+                        return
+                    self.dispatch_profile_confirmation(form)
+                    return
+            if self.reject_exclusive_browser_fallthrough("POST", parsed.path):
                 return
             if self.dispatch_profile_browser_integration("POST", parsed.path):
                 return
             if parsed.path in FIND_MATCHES_PATHS:
-                form = self.read_form(keep_blank_values=True)
+                if form is None:
+                    form = self.read_form(keep_blank_values=True)
                 try:
-                    run = create_match_run(form, registry, demo_mode)
+                    run = create_match_run(
+                        form,
+                        registry,
+                        demo_mode,
+                        confirmed_profile_artifact_sink=(
+                            type(self)._confirmed_profile_artifact_sink
+                        ),
+                        completed_profile_confirmation_authenticator=(
+                            type(self)._completed_profile_confirmation_authenticator
+                        ),
+                        authentication_input=tuple(self.headers.raw_items()),
+                    )
+                    if type(run) is ConfirmedProfileCreation:
+                        self.write_confirmed_profile_creation(run.artifact_offer)
+                        return
                     self.redirect(
                         "/find-matches",
                         run=run.match_run_id,
@@ -813,6 +1378,104 @@ def make_handler(
                     run_id,
                     return_to,
                 )
+
+        def dispatch_profile_confirmation(self, form):
+            if (
+                not exclusive_browser_integration
+                or type(self)._confirmed_profile_artifact_sink is None
+                or self.path != PROFILE_CONFIRMATION_PATH
+                or type(form) is not dict
+            ):
+                return False
+            if form.get("form_action") != ["confirm_profile"]:
+                return False
+            try:
+                result = confirm_profile_review(
+                    form,
+                    registry,
+                    confirmed_profile_artifact_sink=(
+                        type(self)._confirmed_profile_artifact_sink
+                    ),
+                    completed_profile_confirmation_authenticator=(
+                        type(self)._completed_profile_confirmation_authenticator
+                    ),
+                    authentication_input=tuple(self.headers.raw_items()),
+                    _allow_matching=False,
+                )
+                if type(result) is not ConfirmedProfileCreation:
+                    raise RuntimeError("profile_confirmation_unavailable")
+                self.write_confirmed_profile_creation(result.artifact_offer)
+            except (KeyboardInterrupt, SystemExit, GeneratorExit):
+                raise
+            except ActionError as exc:
+                status = exc.status
+                exc = None
+                self.write_safe_browser_error(
+                    "This profile confirmation could not be completed safely.",
+                    status=status,
+                )
+            except Exception as exc:
+                exc = None
+                self.write_safe_browser_error(
+                    "This profile confirmation could not be completed safely.",
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            return True
+
+        def read_profile_confirmation_form(self):
+            items = self.profile_confirmation_request_headers(
+                require_same_origin=True
+            )
+            if items is None:
+                return None
+            values = lambda name: tuple(
+                value for candidate, value in items if candidate.lower() == name
+            )
+            content_types = values("content-type")
+            lengths = values("content-length")
+            if (
+                len(content_types) != 1
+                or content_types[0].lower()
+                != "application/x-www-form-urlencoded"
+                or len(lengths) != 1
+                or re.fullmatch(r"(?:0|[1-9][0-9]{0,5})", lengths[0]) is None
+                or values("transfer-encoding")
+            ):
+                return None
+            length = int(lengths[0])
+            if length < 1 or length > MAX_PROFILE_CONFIRMATION_BODY_BYTES:
+                return None
+            try:
+                body = self.rfile.read(length)
+                if type(body) is not bytes or len(body) != length:
+                    return None
+                return _strict_urlencoded_multimap(body)
+            except Exception:
+                return None
+
+        def profile_confirmation_request_headers(self, *, require_same_origin=False):
+            if (
+                type(require_same_origin) is not bool
+                or type(self)._confirmed_profile_artifact_sink is None
+                or confirmation_authority is None
+            ):
+                return None
+            try:
+                items = tuple(self.headers.raw_items())
+            except Exception:
+                return None
+            items = persistent_profile_browser_security._validated_header_items(items)
+            if items is None or not persistent_profile_browser_security._trusted_host_headers(
+                items,
+                confirmation_authority,
+            ):
+                return None
+            if require_same_origin and not persistent_profile_browser_security._trusted_same_origin(
+                items,
+                confirmation_origin,
+            ):
+                return None
+            return items
 
         def do_PUT(self):
             if self.dispatch_durable_google_login_browser_integration(
@@ -977,12 +1640,21 @@ def make_handler(
                 raise propagated from None
             return True
 
-        def reject_exclusive_browser_fallthrough(self, method):
+        def reject_exclusive_browser_fallthrough(self, method, path=None):
             if not exclusive_browser_integration:
                 return False
+            path = urlparse(self.path).path if path is None else path
+            if path == PROFILE_CONFIRMATION_PATH and method in {"GET", "POST"}:
+                if type(self)._confirmed_profile_artifact_sink is not None:
+                    return False
+                self.write_safe_browser_error(
+                    "Profile creation is temporarily unavailable.",
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+                return True
             return self.dispatch_durable_google_login_browser_integration(
                 method,
-                urlparse(self.path).path,
+                path,
                 force=True,
             )
 
@@ -1311,6 +1983,25 @@ def make_handler(
             self.end_headers()
             self.wfile.write(payload)
 
+        def write_confirmed_profile_creation(self, offer):
+            if not _is_confirmed_profile_artifact_offer(offer):
+                raise ValueError("invalid_confirmed_profile_creation")
+            content = render_confirmed_profile_creation(offer)
+            payload = content.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            )
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+
         def write_text(self, content, status=HTTPStatus.OK):
             payload = content.encode("utf-8")
             self.send_response(status)
@@ -1338,32 +2029,643 @@ def require_owner_profile(profile_id):
         product_state.require_profile(conn, profile_id)
 
 
-def create_match_run(form, registry, demo_mode=False):
-    if "form_action" in form:
-        run, updates = validate_profile_review_submission(form, registry)
-        if run.canonical_profile is None:
-            raise ActionError("This profile review has expired. Start again.")
-        try:
-            canonical = apply_reviewed_profile(
-                run.canonical_profile,
-                updates,
+def profile_draft_fingerprint(profile):
+    """Digest the documented identity-free canonical bytes for browser review."""
+
+    if type(profile) is not IdentityFreeCanonicalProfileV1:
+        raise ValueError("invalid_identity_free_profile_draft")
+    return hashlib.sha256(profile.canonical_bytes).hexdigest()
+
+
+def _is_sha256_digest(value):
+    return type(value) is str and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _identity_free_display_name(
+    raw_input,
+    *,
+    experience,
+    skills,
+    domains,
+    languages,
+):
+    supplied = re.sub(r"\s+", " ", str(raw_input).strip())
+    if not supplied:
+        raise ValueError("Profile input is empty.")
+    semantic_labels = unique_strings(
+        list(experience.get("job_titles") or [])
+        + list(experience.get("recent_roles") or [])
+        + list(skills or [])
+        + list(domains or [])
+        + [
+            language.get("language")
+            for language in languages
+            if type(language) is dict
+        ]
+    )
+    if semantic_labels:
+        return " / ".join(semantic_labels[:3])[:160].rstrip()
+    words = re.findall(r"[^\W_]+", supplied, flags=re.UNICODE)[:6]
+    summary = " ".join(words).strip()
+    if not summary:
+        raise ValueError("Profile input is empty.")
+    return (summary + " profile")[:160].rstrip()
+
+
+def _identity_free_matcher_text(canonical):
+    blocks = [
+        canonical["identity"].get("display_name"),
+        canonical["location"].get("country"),
+        canonical["location"].get("region"),
+        canonical["location"].get("city"),
+        canonical["education"].get("education_level"),
+        *(canonical["education"].get("degrees") or []),
+        *(canonical["education"].get("fields_or_domains") or []),
+        *(canonical["experience"].get("recent_roles") or []),
+        *(canonical["experience"].get("occupational_families") or []),
+        *(canonical["experience"].get("job_titles") or []),
+        *(canonical["experience"].get("professional_domains") or []),
+        *(canonical["experience"].get("industries") or []),
+        *(canonical["experience"].get("specialties") or []),
+        *(canonical["skills"].get("normalized") or []),
+        *(canonical["preferences"].get("target_opportunity_types") or []),
+        *(canonical["preferences"].get("preferred_task_types") or []),
+        *(canonical["preferences"].get("work_preferences") or []),
+    ]
+    for language in canonical["languages"]:
+        blocks.extend(
+            (
+                language.get("language"),
+                language.get("locale"),
+                language.get("proficiency"),
             )
-        except ValueError as exc:
-            raise ActionError(str(exc)) from exc
-        context = build_current_structured_preview_context(
-            canonical,
-            run.raw_input,
-            run.input_style,
-            PREVIEW_MATCH_LIMIT,
-            preview_data_signature(),
         )
-        confirmed = registry.confirm_profile(run.match_run_id, canonical, context)
-        if confirmed is None:
-            raise ActionError(
-                "That match run is unknown or has expired. Start a new search.",
-                HTTPStatus.GONE,
+    if canonical["preferences"].get("remote") is True:
+        blocks.append("remote")
+    if canonical["preferences"].get("flexible") is True:
+        blocks.append("flexible")
+    years = canonical["experience"].get("total_years")
+    if years not in (None, ""):
+        blocks.append(f"{years} years experience")
+    return ". ".join(unique_strings(blocks))
+
+
+def _identity_free_matcher_projection(canonical):
+    identity = canonical["identity"]
+    location = canonical["location"]
+    education = canonical["education"]
+    experience = canonical["experience"]
+    skills = canonical["skills"]
+    preferences = canonical["preferences"]
+    constraints = canonical["constraints"]
+    domains = unique_strings(
+        list(education.get("fields_or_domains") or [])
+        + list(experience.get("professional_domains") or [])
+    )
+    work_preferences = unique_strings(
+        list(preferences.get("work_preferences") or [])
+        + list(preferences.get("employment_types") or [])
+        + (["remote"] if preferences.get("remote") is True else [])
+        + (["flexible"] if preferences.get("flexible") is True else [])
+    )
+    hard_constraints = list(constraints.get("hard_constraints") or [])
+    soft_preferences = list(constraints.get("soft_preferences") or [])
+    return {
+        "display_name": identity["display_name"],
+        "summary": _identity_free_matcher_text(canonical),
+        "education_level": str(education.get("education_level") or "not_specified"),
+        "degrees_or_domains": domains,
+        "languages": [
+            str(language.get("language") or "").strip()
+            for language in canonical["languages"]
+            if str(language.get("language") or "").strip()
+        ],
+        "language_proficiency": {
+            str(language.get("language") or "").strip(): str(
+                language.get("proficiency") or UNKNOWN
             )
-        return confirmed
+            for language in canonical["languages"]
+            if str(language.get("language") or "").strip()
+        },
+        "skills": unique_strings(skills.get("normalized") or []),
+        "work_preferences": work_preferences,
+        "constraints": unique_strings(hard_constraints + soft_preferences),
+        "target_opportunity_types": unique_strings(
+            preferences.get("target_opportunity_types") or []
+        ),
+        "notes": "",
+        "avoid_keywords": unique_strings(constraints.get("avoid_keywords") or []),
+        "signals": [
+            [signal["reason"], signal["keywords"], signal["points"]]
+            for signal in canonical["derived_matcher_signals"]["signals"]
+        ],
+        "location": str(location.get("country") or location.get("residence") or ""),
+        "country": str(location.get("country") or ""),
+        "residence": str(location.get("residence") or ""),
+        "city": str(location.get("city") or ""),
+        "region": str(location.get("region") or ""),
+        "recent_roles": unique_strings(experience.get("recent_roles") or []),
+        "specialties": unique_strings(experience.get("specialties") or []),
+        "total_years": experience.get("total_years"),
+        "seniority": str(experience.get("seniority") or UNKNOWN),
+        "certifications": unique_strings(
+            canonical["credentials"].get("certifications") or []
+        ),
+        "licenses": unique_strings(canonical["credentials"].get("licenses") or []),
+        "credential_status": str(
+            canonical["credentials"].get("credential_status") or UNKNOWN
+        ),
+        "phone_preference": str(preferences.get("phone_preference") or UNKNOWN),
+        "availability": str(preferences.get("availability") or UNKNOWN),
+        "schedule": unique_strings(preferences.get("schedule") or []),
+        "negative_constraints": unique_strings(
+            constraints.get("negative_constraints") or []
+        ),
+    }
+
+
+def normalize_identity_free_profile_input(raw_input, input_style):
+    """Build review material directly, without ever selecting a profile identity."""
+
+    raw_input = str(raw_input or "")
+    text = profile_normalizer.normalize_profile_text(raw_input)
+    languages = profile_normalizer.detect_profile_languages(raw_input)
+    location = profile_normalizer.detect_location(text)
+    education = profile_normalizer.detect_education(text)
+    credentials = profile_normalizer.detect_credentials(text)
+    experience = profile_normalizer.detect_experience(text)
+    domains = profile_normalizer.detect_domains(text)
+    skills = profile_normalizer.detect_skills(text, domains, input_style=input_style)
+    preferences = profile_normalizer.detect_preferences(text, domains)
+    constraints = profile_normalizer.detect_constraints(text)
+    signals = profile_normalizer.signals_for_domains(domains, skills, languages)
+    missing_fields = profile_normalizer.missing_fields_for_baseline(
+        languages,
+        location,
+        credentials,
+        experience,
+    )
+    ambiguous_fields = profile_normalizer.ambiguous_fields_for_baseline(
+        text,
+        input_style,
+        languages,
+    )
+    canonical = {
+        "schema_version": SCHEMA_VERSION,
+        "identity": {
+            "display_name": _identity_free_display_name(
+                raw_input,
+                experience=experience,
+                skills=skills,
+                domains=domains,
+                languages=languages,
+            ),
+            "source_inputs": [{"type": input_style}],
+        },
+        "languages": languages,
+        "location": location,
+        "education": education,
+        "credentials": credentials,
+        "experience": experience,
+        "skills": profile_normalizer.skills_block(skills),
+        "preferences": preferences,
+        "constraints": constraints,
+        "derived_matcher_signals": {
+            "signals": signals,
+            "derived_domains": domains,
+            "derived_target_work_types": preferences["target_opportunity_types"],
+            "avoid_keywords": constraints["avoid_keywords"],
+        },
+        "matcher_compatible_profile": {},
+        "provenance": {
+            "extracted_from": input_style,
+            "evidence_snippets": [raw_input.strip()],
+            "original_text": raw_input.strip(),
+            "confidence": "low" if input_style == "messy_sparse_input" else "medium",
+            "missing_fields": missing_fields,
+            "ambiguous_fields": ambiguous_fields,
+        },
+    }
+    canonical["matcher_compatible_profile"] = _identity_free_matcher_projection(
+        canonical
+    )
+    canonical["provenance"]["field_sources"] = field_sources_for_profile(
+        canonical,
+        PROFILE_SOURCE_PARSED_TEXT,
+        explicit=False,
+    )
+    return IdentityFreeCanonicalProfileV1.from_mapping(canonical)
+
+
+def apply_identity_free_profile_review(profile, updates):
+    """Apply authoritative review updates while identity remains absent."""
+
+    if type(profile) is not IdentityFreeCanonicalProfileV1:
+        raise ValueError("invalid_identity_free_profile_draft")
+    original = profile.to_mapping()
+    canonical = deepcopy(original)
+
+    location = canonical["location"]
+    country = normalize_country(canonical_review.text(updates.get("country")), allow_missing=True)
+    eligible_countries = [
+        normalize_country(value)
+        for value in canonical_review.string_list(updates.get("eligible_countries"))
+    ]
+    location.update(
+        {
+            "country": country,
+            "region": canonical_review.text(updates.get("region")),
+            "city": canonical_review.text(updates.get("city")),
+            "residence": country,
+            "work_authorization": canonical_review.text(
+                updates.get("work_authorization")
+            )
+            or UNKNOWN,
+            "eligible_countries": eligible_countries,
+            "remote_eligibility": "explicit" if updates.get("remote") else "unknown",
+            "restrictions": canonical_review.string_list(
+                updates.get("geographic_restrictions")
+            ),
+            "geographic_work_restrictions": canonical_review.string_list(
+                updates.get("geographic_restrictions")
+            ),
+        }
+    )
+    canonical["languages"] = canonical_review.reviewed_languages(
+        updates.get("languages") or []
+    )
+
+    education = canonical["education"]
+    level = canonical_review.text(updates.get("education_level")) or "not_specified"
+    if level not in EDUCATION_LEVELS:
+        raise ValueError("Choose a supported education level.")
+    education.update(
+        {
+            "education_level": level,
+            "degrees": canonical_review.string_list(updates.get("degrees")),
+            "fields_or_domains": canonical_review.string_list(
+                updates.get("education_fields")
+            ),
+            "institutions": canonical_review.string_list(updates.get("institutions")),
+            "completion_status": canonical_review.text(updates.get("education_status"))
+            or UNKNOWN,
+        }
+    )
+
+    credentials = canonical["credentials"]
+    credential_status = canonical_review.text(updates.get("credential_status")) or UNKNOWN
+    if credential_status not in CREDENTIAL_STATUSES:
+        raise ValueError("Choose a supported credential status.")
+    credentials.update(
+        {
+            "certifications": canonical_review.string_list(updates.get("certifications")),
+            "licenses": canonical_review.string_list(updates.get("licenses")),
+            "jurisdictions": canonical_review.string_list(updates.get("jurisdictions")),
+            "security_clearances": canonical_review.string_list(
+                updates.get("security_clearances")
+            ),
+            "credential_status": credential_status,
+        }
+    )
+
+    experience = canonical["experience"]
+    experience.update(
+        {
+            "total_years": canonical_review.optional_years(updates.get("total_years")),
+            "seniority": canonical_review.text(updates.get("seniority")) or UNKNOWN,
+            "recent_roles": canonical_review.string_list(updates.get("job_titles")),
+            "job_titles": canonical_review.string_list(updates.get("job_titles")),
+            "occupational_families": canonical_review.string_list(
+                updates.get("occupational_families")
+            ),
+            "professional_domains": canonical_review.string_list(
+                updates.get("professional_domains")
+            ),
+            "industries": canonical_review.string_list(updates.get("industries")),
+            "contribution_type": canonical_review.text(updates.get("contribution_type"))
+            or UNKNOWN,
+            "specialties": canonical_review.string_list(updates.get("specialties")),
+        }
+    )
+
+    skills = canonical_review.string_list(updates.get("skills"))
+    canonical["skills"] = {
+        "normalized": skills,
+        "free_text_labels": skills,
+        "entries": [
+            {
+                "skill": skill,
+                "evidence": [],
+                "confidence": "high",
+                "provenance": PROFILE_SOURCE_USER_CORRECTION,
+            }
+            for skill in skills
+        ],
+        "technical": canonical_review.string_list(updates.get("technical_skills")),
+        "software_tools": canonical_review.string_list(updates.get("software_tools")),
+        "writing_research": canonical_review.string_list(
+            updates.get("writing_research_skills")
+        ),
+        "administrative_support": canonical_review.string_list(
+            updates.get("administrative_support_skills")
+        ),
+        "domain_specific": canonical_review.string_list(
+            updates.get("domain_specific_skills")
+        ),
+    }
+
+    preferences = canonical["preferences"]
+    employment_types = canonical_review.reviewed_enum_list(
+        updates.get("employment_types"),
+        canonical_review.EMPLOYMENT_TYPES,
+        "employment type",
+    )
+    target_types = canonical_review.string_list(updates.get("target_opportunity_types"))
+    remote = bool(updates.get("remote"))
+    flexible = bool(updates.get("flexible"))
+    preferences.update(
+        {
+            "remote": remote,
+            "flexible": flexible,
+            "employment_types": employment_types,
+            "synchronous_preference": canonical_review.reviewed_enum(
+                updates.get("synchronous_preference"),
+                canonical_review.SYNCHRONOUS_PREFERENCES,
+                "synchronous preference",
+            ),
+            "phone_preference": canonical_review.reviewed_enum(
+                updates.get("phone_preference"),
+                canonical_review.PHONE_PREFERENCES,
+                "phone preference",
+            ),
+            "schedule": canonical_review.reviewed_enum_list(
+                updates.get("schedule"),
+                canonical_review.SCHEDULE_PREFERENCES,
+                "schedule preference",
+            ),
+            "availability": canonical_review.reviewed_enum(
+                updates.get("availability"),
+                canonical_review.AVAILABILITY_STATUSES,
+                "availability",
+            ),
+            "target_opportunity_types": target_types,
+            "preferred_task_types": target_types,
+            "work_preferences": unique_strings(
+                employment_types
+                + (["remote"] if remote else [])
+                + (["flexible"] if flexible else [])
+            ),
+        }
+    )
+
+    constraints = canonical["constraints"]
+    hard = canonical_review.string_list(updates.get("hard_constraints"))
+    if updates.get("no_degree"):
+        hard.append("no college degree")
+    if updates.get("no_experience"):
+        hard.append("no prior experience")
+    if updates.get("no_specialized_credentials"):
+        hard.append("no specialized credentials")
+    excluded_domains = canonical_review.string_list(updates.get("excluded_domains"))
+    accessibility = canonical_review.string_list(updates.get("accessibility_constraints"))
+    constraints.update(
+        {
+            "hard_constraints": unique_strings(hard),
+            "soft_preferences": canonical_review.string_list(
+                updates.get("soft_preferences")
+            ),
+            "avoid_keywords": unique_strings(
+                canonical_review.string_list(updates.get("avoid_keywords"))
+                + excluded_domains
+            ),
+            "negative_constraints": unique_strings(excluded_domains + accessibility),
+            "excluded_domains": excluded_domains,
+            "accessibility_constraints": accessibility,
+        }
+    )
+
+    domains = unique_strings(
+        education["fields_or_domains"] + experience["professional_domains"]
+    )
+    signals = profile_normalizer.signals_for_domains(
+        domains,
+        skills,
+        canonical["languages"],
+    )
+    canonical["derived_matcher_signals"] = {
+        "signals": signals,
+        "derived_domains": domains,
+        "derived_target_work_types": target_types,
+        "avoid_keywords": constraints["avoid_keywords"],
+    }
+    provenance = canonical["provenance"]
+    canonical["identity"]["display_name"] = _identity_free_display_name(
+        provenance.get("original_text"),
+        experience=experience,
+        skills=skills,
+        domains=domains,
+        languages=canonical["languages"],
+    )
+    display_name_changed = (
+        canonical["identity"]["display_name"]
+        != original["identity"]["display_name"]
+    )
+    provenance["reviewed"] = True
+    provenance["missing_fields"] = canonical_review.reviewed_missing_fields(canonical)
+    provenance["ambiguous_fields"] = []
+    existing_sources = {
+        path: detail
+        for path, detail in (provenance.get("field_sources") or {}).items()
+        if path.startswith("identity.")
+    }
+    confirmed_sources = field_sources_for_profile(
+        canonical,
+        PROFILE_SOURCE_USER_CONFIRMATION,
+        explicit=True,
+    )
+    changed_roots = {
+        root
+        for root in (
+            "languages",
+            "location",
+            "education",
+            "credentials",
+            "experience",
+            "skills",
+            "preferences",
+            "constraints",
+        )
+        if canonical.get(root) != original.get(root)
+    }
+    existing_sources.update(
+        {
+            path: (
+                {"source": PROFILE_SOURCE_USER_CORRECTION, "explicit": True}
+                if path.split(".", 1)[0].split("[", 1)[0] in changed_roots
+                else detail
+            )
+            for path, detail in confirmed_sources.items()
+            if not path.startswith("identity.")
+        }
+    )
+    if display_name_changed:
+        existing_sources["identity.display_name"] = {
+            "source": PROFILE_SOURCE_USER_CORRECTION,
+            "explicit": True,
+        }
+    provenance["field_sources"] = existing_sources
+    canonical["matcher_compatible_profile"] = _identity_free_matcher_projection(
+        canonical
+    )
+    return IdentityFreeCanonicalProfileV1.from_mapping(canonical)
+
+
+def _reviewed_confirmation_digest(run, reviewed_profile, updates):
+    if type(run) is not MatchRun or type(reviewed_profile) is not IdentityFreeCanonicalProfileV1:
+        raise ValueError("invalid_profile_confirmation_digest")
+    reviewed_inputs = json.dumps(
+        {
+            "input_style": run.input_style,
+            "normalized_updates": updates,
+            "raw_input": run.raw_input,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    preimage = (
+        len(reviewed_profile.canonical_bytes).to_bytes(8, "big")
+        + reviewed_profile.canonical_bytes
+        + len(reviewed_inputs).to_bytes(8, "big")
+        + reviewed_inputs
+    )
+    return hashlib.sha256(preimage).hexdigest()
+
+
+def _confirmation_authentication_digest(authentication_input):
+    if type(authentication_input) is not tuple:
+        raise ValueError("invalid_profile_confirmation_authentication")
+    header_items = persistent_profile_browser_security._validated_header_items(
+        authentication_input
+    )
+    if header_items is None:
+        raise ValueError("invalid_profile_confirmation_authentication")
+    if any(
+        ord(character) < 32 or ord(character) == 127
+        for name, value in header_items
+        for character in name + value
+    ):
+        raise ValueError("invalid_profile_confirmation_authentication")
+    hosts = persistent_profile_browser_security._header_values(header_items, "host")
+    if len(hosts) != 1 or not persistent_profile_browser_security._trusted_host_headers(
+        header_items,
+        hosts[0],
+    ):
+        raise ValueError("invalid_profile_confirmation_authentication")
+    session_token, session_valid = persistent_profile_browser_security._security_cookie(
+        header_items,
+        persistent_profile_browser_security.SESSION_COOKIE_NAME,
+        persistent_profile_browser_security._OPAQUE_CREDENTIAL,
+    )
+    csrf_secret, csrf_valid = persistent_profile_browser_security._security_cookie(
+        header_items,
+        persistent_profile_browser_security.SESSION_CSRF_COOKIE_NAME,
+        persistent_profile_browser_security._OPAQUE_CREDENTIAL,
+    )
+    if not session_valid or not csrf_valid:
+        raise ValueError("invalid_profile_confirmation_authentication")
+    session_credential = browser_session_security._extract_session_credential(
+        header_items
+    )
+    if session_credential is None:
+        raise ValueError("invalid_profile_confirmation_authentication")
+    try:
+        gateway_session_token = session_credential.consume()
+    except Exception as exc:
+        exc = None
+        raise ValueError("invalid_profile_confirmation_authentication") from None
+    if type(gateway_session_token) is not str or not secrets.compare_digest(
+        gateway_session_token,
+        session_token,
+    ):
+        raise ValueError("invalid_profile_confirmation_authentication")
+    material = json.dumps(
+        {
+            "host": hosts[0],
+            "session_token": session_token,
+            "csrf_secret": csrf_secret,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def _confirmation_identity(
+    run,
+    original_digest,
+    reviewed_digest,
+    authentication_input,
+):
+    material = json.dumps(
+        {
+            "match_run_id": run.match_run_id,
+            "original_draft_digest": original_digest,
+            "request_authentication_digest": _confirmation_authentication_digest(
+                authentication_input
+            ),
+            "review_token": run.review_token,
+            "reviewed_request_digest": reviewed_digest,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def _bind_identity_free_profile_for_legacy_matching(profile, owner_profile_id):
+    if (
+        type(profile) is not IdentityFreeCanonicalProfileV1
+        or type(owner_profile_id) is not str
+        or not owner_profile_id
+        or owner_profile_id != owner_profile_id.strip()
+    ):
+        raise ValueError("invalid_legacy_matching_profile_identity")
+    canonical = profile.to_mapping()
+    canonical["identity"]["profile_id"] = owner_profile_id
+    canonical["matcher_compatible_profile"]["profile_id"] = owner_profile_id
+    field_sources = canonical["provenance"]["field_sources"]
+    identity_source = field_sources.get("identity.display_name")
+    if type(identity_source) is not dict:
+        raise ValueError("invalid_legacy_matching_profile_provenance")
+    field_sources["identity.profile_id"] = deepcopy(identity_source)
+    validate_canonical_profile(canonical)
+    return canonical
+
+
+def create_match_run(
+    form,
+    registry,
+    demo_mode=False,
+    *,
+    confirmed_profile_artifact_sink=None,
+    completed_profile_confirmation_authenticator=None,
+    authentication_input=None,
+):
+    if "form_action" in form:
+        return confirm_profile_review(
+            form,
+            registry,
+            confirmed_profile_artifact_sink=confirmed_profile_artifact_sink,
+            completed_profile_confirmation_authenticator=(
+                completed_profile_confirmation_authenticator
+            ),
+            authentication_input=authentication_input,
+            _allow_matching=True,
+        )
 
     validate_profile_input_form(form)
     edit_run_id = strict_optional_form_value(form, "edit_run_id")
@@ -1396,14 +2698,11 @@ def create_match_run(form, registry, demo_mode=False):
         raise ActionError("Add a short background before finding matches.")
     if input_style not in profile_preview.INPUT_STYLES:
         input_style = "short_paragraph"
-    require_owner_profile(owner_profile_id)
-    normalization = normalize_profile_input(
+    if confirmed_profile_artifact_sink is None:
+        require_owner_profile(owner_profile_id)
+    identity_free_profile = normalize_identity_free_profile_input(
         raw_input,
         input_style,
-        metadata={
-            "profile_id": "preview_profile",
-            "display_name": "Preview Profile",
-        },
     )
     return registry.create(
         owner_profile_id=owner_profile_id,
@@ -1411,9 +2710,191 @@ def create_match_run(form, registry, demo_mode=False):
         input_style=input_style,
         demo_persona=demo_persona or None,
         recommendation_context=None,
-        canonical_profile=normalization.canonical_profile,
+        canonical_profile=identity_free_profile,
         profile_confirmed=False,
     )
+
+
+def confirm_profile_review(
+    form,
+    registry,
+    *,
+    confirmed_profile_artifact_sink,
+    completed_profile_confirmation_authenticator=None,
+    authentication_input,
+    _allow_matching=False,
+):
+    """Validate and confirm one existing reviewed draft at a bounded boundary."""
+
+    run, updates = validate_profile_review_submission(form, registry)
+    if run.canonical_profile is None:
+        raise ActionError("This profile review has expired. Start again.")
+    try:
+        canonical = apply_identity_free_profile_review(run.canonical_profile, updates)
+    except ValueError as exc:
+        raise ActionError(str(exc)) from exc
+    if confirmed_profile_artifact_sink is None and _allow_matching is True:
+        context = build_current_structured_preview_context(
+            canonical,
+            run.owner_profile_id,
+            run.raw_input,
+            run.input_style,
+            PREVIEW_MATCH_LIMIT,
+            preview_data_signature(),
+        )
+        confirmed = registry.confirm_profile(run.match_run_id, canonical, context)
+        if confirmed is None:
+            raise ActionError(
+                "That match run is unknown or has expired. Start again.",
+                HTTPStatus.GONE,
+            )
+        return confirmed
+    if not callable(confirmed_profile_artifact_sink):
+        raise ActionError(
+            "Profile confirmation is temporarily unavailable.",
+            HTTPStatus.SERVICE_UNAVAILABLE,
+        )
+
+    original_digest = profile_draft_fingerprint(run.canonical_profile)
+    reviewed_digest = _reviewed_confirmation_digest(run, canonical, updates)
+    confirmation_identity = _confirmation_identity(
+        run,
+        original_digest,
+        reviewed_digest,
+        authentication_input,
+    )
+    acquisition = []
+    claimed = None
+    witness = None
+    settled = False
+    try:
+        claimed = registry.acquire_profile_confirmation(
+            original_run=run,
+            original_draft_digest=original_digest,
+            reviewed_request_digest=reviewed_digest,
+            confirmation_identity=confirmation_identity,
+            reviewed_profile=canonical,
+            acquisition=acquisition,
+        )
+        if type(claimed) is _CompletedProfileConfirmationReplay:
+            if not callable(completed_profile_confirmation_authenticator):
+                raise ActionError(
+                    "Profile confirmation is temporarily unavailable.",
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            try:
+                authorized = completed_profile_confirmation_authenticator(
+                    authentication_input=authentication_input,
+                    authority_binding=claimed.authority_binding,
+                )
+            except (KeyboardInterrupt, SystemExit, GeneratorExit):
+                raise
+            except Exception as exc:
+                exc = None
+                raise ActionError(
+                    "Profile confirmation is temporarily unavailable.",
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                ) from None
+            if authorized is not True:
+                raise ActionError(
+                    "This profile confirmation is not authorized.",
+                    HTTPStatus.FORBIDDEN,
+                )
+            completed = registry.replay_completed_profile_confirmation(claimed)
+            if completed is None:
+                raise ActionError(
+                    "This profile draft is no longer current.",
+                    HTTPStatus.FORBIDDEN,
+                )
+            return completed
+        if type(claimed) is not _ProfileConfirmationLease:
+            raise RuntimeError("invalid_profile_confirmation_claim")
+        witness = _ConfirmationIssuanceWitness(claimed)
+        offer = confirmed_profile_artifact_sink(
+            reviewed_profile=claimed.reviewed_run.canonical_profile,
+            raw_about_you=claimed.reviewed_run.raw_input,
+            normalized_updates=updates,
+            profile_confirmed=claimed.reviewed_run.profile_confirmed,
+            authentication_input=authentication_input,
+            _confirmation_identity=claimed.confirmation_identity,
+            _confirmation_witness=witness,
+            _confirmation_recovery_only=claimed.recovery_only,
+        )
+        if not _is_confirmed_profile_artifact_offer(offer):
+            witness.mark_artifact_may_exist()
+            raise ActionError(
+                "Profile confirmation is temporarily unavailable.",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+        result = witness.record_valid_offer(offer)
+        settled = True
+        return result
+    except (KeyboardInterrupt, SystemExit, GeneratorExit):
+        raise
+    except ActionError:
+        raise
+    except Exception as exc:
+        exc = None
+        raise ActionError(
+            "Profile confirmation is temporarily unavailable.",
+            HTTPStatus.SERVICE_UNAVAILABLE,
+        ) from None
+    finally:
+        lease = claimed if type(claimed) is _ProfileConfirmationLease else None
+        if lease is None and acquisition:
+            candidate = acquisition[0]
+            if type(candidate) is _ProfileConfirmationLease:
+                lease = candidate
+        if lease is not None and not settled:
+            if witness is not None:
+                recorded = witness.valid_offer
+                if recorded is not None:
+                    try:
+                        witness.record_valid_offer(recorded)
+                    except BaseException:
+                        pass
+                artifact_may_exist = witness.artifact_may_exist
+            else:
+                artifact_may_exist = lease.recovery_only
+            try:
+                registry.fail_profile_confirmation(
+                    lease,
+                    definite_absence=not artifact_may_exist,
+                )
+            except BaseException:
+                pass
+
+
+def render_confirmed_profile_creation(offer):
+    if not _is_confirmed_profile_artifact_offer(offer):
+        raise ValueError("invalid_confirmed_profile_creation")
+    artifact = html.escape(offer.artifact_reference, quote=True)
+    csrf = html.escape(offer.csrf_proof, quote=True)
+    return f"""<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Create my persistent profile | Wahojobs</title>
+</head>
+<body><main>
+  <section>
+    <h1>Your reviewed profile is ready</h1>
+    <p>Create the first persistent profile for this account using the details you confirmed.</p>
+    <form method='post' action='/account/profile'>
+      <input type='hidden' name='artifact' value='{artifact}'>
+      <input type='hidden' name='csrf' value='{csrf}'>
+      <button type='submit'>Create my profile</button>
+    </form>
+  </section>
+</main></body>
+</html>"""
+
+
+def _is_confirmed_profile_artifact_offer(value):
+    from wahojobs.persistent_profile_creation import ConfirmedProfileArtifactOffer
+
+    return type(value) is ConfirmedProfileArtifactOffer
 
 
 def profile_review_updates_from_form(form, language_slots):
@@ -1506,7 +2987,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
         "edit_run_id": match_run_id,
         "review_token": review_token,
         "schema_version": SCHEMA_VERSION,
-        "profile_draft_fingerprint": canonical_profile_fingerprint(canonical),
+        "profile_draft_fingerprint": profile_draft_fingerprint(canonical),
         "credentials_confirmed": "1",
         "country": location.get("country") or "",
         "region": location.get("region") or "",
@@ -1606,7 +3087,14 @@ def validate_profile_review_submission(form, registry):
     if strict_review_value(form, "form_action") != "confirm_profile":
         raise MalformedProfileReview()
     run_id = strict_review_value(form, "edit_run_id")
-    run = require_match_run(registry, run_id)
+    if not run_id:
+        raise ActionError("Missing match run. Return to Matches and try again.")
+    run = registry.confirmation_draft(run_id)
+    if run is None:
+        raise ActionError(
+            "That match run is unknown or has expired. Start a new search.",
+            HTTPStatus.GONE,
+        )
     if run.canonical_profile is None:
         raise ActionError("This profile review has expired. Start again.", HTTPStatus.GONE)
     language_slots = profile_review_language_slots(run.canonical_profile)
@@ -1635,8 +3123,10 @@ def validate_profile_review_submission(form, registry):
     if not secrets.compare_digest(review_token, run.review_token):
         raise ActionError("This profile review is not authorized.", HTTPStatus.FORBIDDEN)
     fingerprint = strict_review_value(form, "profile_draft_fingerprint")
+    if not _is_sha256_digest(fingerprint):
+        raise MalformedProfileReview()
     if not secrets.compare_digest(
-        fingerprint, canonical_profile_fingerprint(run.canonical_profile)
+        fingerprint, profile_draft_fingerprint(run.canonical_profile)
     ):
         raise ActionError("This profile draft is no longer current.", HTTPStatus.FORBIDDEN)
     if not strict_review_checkbox(form, "credentials_confirmed"):
@@ -2478,6 +3968,7 @@ def build_current_preview_context(
 
 def build_current_structured_preview_context(
     canonical,
+    owner_profile_id,
     raw_input,
     input_style,
     limit,
@@ -2485,8 +3976,19 @@ def build_current_structured_preview_context(
     *,
     evaluated_at=None,
 ):
+    bound = _bind_identity_free_profile_for_legacy_matching(
+        canonical,
+        owner_profile_id,
+    )
+    bound_bytes = json.dumps(
+        bound,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
     cached = build_cached_structured_preview_context(
-        canonical_profile_fingerprint(canonical),
+        bound_bytes,
         raw_input,
         input_style,
         limit,
@@ -2849,7 +4351,7 @@ def render_structured_profile_review(canonical, match_run_id, review_token):
       <input type="hidden" name="edit_run_id" value="{e(match_run_id)}">
       <input type="hidden" name="review_token" value="{e(review_token)}">
       <input type="hidden" name="schema_version" value="{e(SCHEMA_VERSION)}">
-      <input type="hidden" name="profile_draft_fingerprint" value="{e(canonical_profile_fingerprint(canonical))}">
+      <input type="hidden" name="profile_draft_fingerprint" value="{e(profile_draft_fingerprint(canonical))}">
 
       <section class="review-section review-section-primary">
         <div class="review-section-heading"><div><h2>Location</h2><p>Used only to avoid showing work you cannot access.</p></div>{source_notes['location']}</div>

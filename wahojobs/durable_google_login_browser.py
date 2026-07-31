@@ -2021,6 +2021,34 @@ class DurableGoogleLoginBrowserIntegration:
         with self._lifecycle_condition:
             return self._accepting_requests and path in _AUTH_ROUTES
 
+    def issue_confirmed_profile_artifact(self, **kwargs):
+        """Private server composition hook; it is not an HTTP route."""
+        self._require_current_process()
+        with self._lifecycle_condition:
+            if not self._accepting_requests or self._profile_integration is None:
+                raise RuntimeError("profile_confirmation_unavailable")
+            profile_integration = self._profile_integration
+        issue = getattr(profile_integration, "issue_confirmed_artifact", None)
+        if not callable(issue):
+            raise RuntimeError("profile_confirmation_unavailable")
+        return issue(**kwargs)
+
+    def authenticate_completed_profile_replay(self, **kwargs):
+        """Private lookup-only composition hook for a cached confirmation."""
+        self._require_current_process()
+        with self._lifecycle_condition:
+            if not self._accepting_requests or self._profile_integration is None:
+                return False
+            profile_integration = self._profile_integration
+        authenticate = getattr(
+            profile_integration,
+            "authenticate_completed_profile_replay",
+            None,
+        )
+        if not callable(authenticate):
+            return False
+        return authenticate(**kwargs) is True
+
     def handle(self, method, target, headers, body_stream=None):
         self._require_current_process()
         request_owner = _BrowserRequestDeliveryOwner(self)
@@ -2204,7 +2232,15 @@ class DurableGoogleLoginBrowserIntegration:
             )
         path, raw_query = parsed_target
         header_items = _validated_header_items(headers)
-        if header_items is None or not self._trusted_request_headers(header_items):
+        trusted_headers = (
+            header_items is not None
+            and (
+                self._trusted_profile_post_headers(header_items)
+                if path == PERSISTENT_PROFILE_ROUTE and method == "POST"
+                else self._trusted_request_headers(header_items)
+            )
+        )
+        if not trusted_headers:
             return _failure_response(
                 HTTPStatus.BAD_REQUEST,
                 "Request unavailable",
@@ -2217,7 +2253,12 @@ class DurableGoogleLoginBrowserIntegration:
                 "This page is not available.",
             )
         if path == PERSISTENT_PROFILE_ROUTE:
-            return self._profile_integration.handle(method, target, headers)
+            return self._profile_integration.handle(
+                method,
+                target,
+                header_items,
+                body_stream,
+            )
         allowed = _ALLOWED_METHODS[path]
         if method not in allowed:
             return _failure_response(
@@ -2272,6 +2313,18 @@ class DurableGoogleLoginBrowserIntegration:
         if origins and not _constant_ascii_equal(origins[0], self._public_origin):
             return False
         return True
+
+    def _trusted_profile_post_headers(self, items):
+        hosts = _header_values(items, "host")
+        return (
+            len(hosts) == 1
+            and _constant_ascii_equal(hosts[0], self._public_authority)
+            and not any(
+                name.lower() in _PROXY_HEADERS
+                or name.lower().startswith("x-forwarded-")
+                for name, _value in items
+            )
+        )
 
     def _trusted_same_origin_post(self, items):
         origins = _header_values(items, "origin")

@@ -232,9 +232,45 @@ class PersistentProfilesRepositoryTests(unittest.TestCase):
 
     def test_create_exact_replay_changed_replay_and_different_key(self):
         command, created = self.create()
+        stored_revision = self.connection.execute(
+            "SELECT revision_id, profile_id, structured_profile_sha256, "
+            "source_bundle_sha256, request_fingerprint FROM product_profile_revisions"
+        ).fetchone()
+        stored_sources = self.connection.execute(
+            "SELECT source_id, source_content_sha256 FROM product_profile_sources "
+            "ORDER BY source_ordinal"
+        ).fetchall()
+        self.assertEqual(created.profile_id, command.profile_id)
+        self.assertEqual(created.revision_id, command.revision_id)
+        self.assertEqual(
+            tuple(stored_revision),
+            (
+                command.revision_id,
+                command.profile_id,
+                command.structured_profile_sha256,
+                command.source_bundle_sha256,
+                command.request_fingerprint,
+            ),
+        )
+        self.assertEqual(
+            tuple(tuple(row) for row in stored_sources),
+            tuple(zip(command.source_ids, command.source_content_sha256s)),
+        )
         replay = create_persistent_profile(self.connection, command)
         self.assertTrue(replay.replayed)
         self.assertEqual(replay.trusted_dict()["profile_id"], created.profile_id)
+        regenerated = create_command(
+            self.principal,
+            idempotency_key="profile-create-0001",
+        )
+        self.assertNotEqual(regenerated.profile_id, command.profile_id)
+        self.assertNotEqual(regenerated.revision_id, command.revision_id)
+        self.assertNotEqual(regenerated.source_ids, command.source_ids)
+        self.assertEqual(regenerated.request_fingerprint, command.request_fingerprint)
+        regenerated_replay = create_persistent_profile(self.connection, regenerated)
+        self.assertTrue(regenerated_replay.replayed)
+        self.assertEqual(regenerated_replay.profile_id, command.profile_id)
+        self.assertEqual(regenerated_replay.revision_id, command.revision_id)
         changed = create_command(
             self.principal,
             idempotency_key="profile-create-0001",

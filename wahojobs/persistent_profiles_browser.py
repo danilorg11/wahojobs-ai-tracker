@@ -1,8 +1,9 @@
-"""Dormant protected browser surface for read-only persistent profiles."""
+"""Protected browser reads and explicit create-once persistent profiles."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hmac
 import html
 from http import HTTPStatus
 import re
@@ -14,13 +15,48 @@ from wahojobs.persistent_profiles_application import (
     PersistentProfileApplicationService,
     PersistentProfilePageResult,
 )
+from wahojobs.persistent_profile_creation import (
+    ConfirmedProfileArtifactUnavailable,
+    PersistentProfileCreationService,
+    ProfileCreateOutcome,
+)
 
 
 PERSISTENT_PROFILE_ROUTE = "/account/profile"
 MAX_PROFILE_BROWSER_RESPONSE_BYTES = 1_048_576
 MAX_PROFILE_QUERY_BYTES = 256
+MAX_PROFILE_CREATE_BODY_BYTES = 1_024
+MAX_PROFILE_CREATE_HEADERS = 64
+MAX_PROFILE_CREATE_COOKIE_BYTES = 4_096
+MAX_PROFILE_CREATE_COOKIES = 16
+
+SESSION_COOKIE_NAME = "wahojobs_session"
+SESSION_CSRF_COOKIE_NAME = "__Host-wahojobs_session_csrf"
 
 _CURSOR = re.compile(r"^[1-9][0-9]{0,9}$")
+_OPAQUE_CREDENTIAL = re.compile(r"^[A-Za-z0-9_-]{43}$")
+_CONTENT_LENGTH = re.compile(r"^(?:0|[1-9][0-9]{0,3})$")
+_HTTP_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_COOKIE_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
+_HEADER_VALUE_FORBIDDEN = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+_PROFILE_CREATE_FORM = re.compile(
+    r"^(?:artifact=([A-Za-z0-9_-]{43})&csrf=([A-Za-z0-9_-]{43})"
+    r"|csrf=([A-Za-z0-9_-]{43})&artifact=([A-Za-z0-9_-]{43}))$"
+)
+_PROXY_HEADERS = frozenset(
+    {
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-port",
+        "x-forwarded-prefix",
+        "x-forwarded-proto",
+        "via",
+        "x-original-host",
+        "x-real-ip",
+    }
+)
 _BIDI_CONTROLS = dict.fromkeys(
     (
         0x061C,
@@ -78,14 +114,63 @@ class PersistentProfileBrowserResponse:
 
 
 class PersistentProfileBrowserIntegration:
-    """Render one GET/HEAD route from an explicitly injected application service."""
+    """Render the profile route and its explicit create-once POST boundary."""
 
-    __slots__ = ("_service",)
+    __slots__ = (
+        "_closed",
+        "_creation_service",
+        "_public_authority",
+        "_public_origin",
+        "_service",
+    )
 
-    def __init__(self, service: PersistentProfileApplicationService):
-        if type(service) is not PersistentProfileApplicationService:
+    def __init__(
+        self,
+        service: PersistentProfileApplicationService,
+        *,
+        creation_service=None,
+        public_origin=None,
+    ):
+        if (
+            type(service) is not PersistentProfileApplicationService
+            or (
+                creation_service is not None
+                and type(creation_service) is not PersistentProfileCreationService
+            )
+            or ((creation_service is None) != (public_origin is None))
+        ):
             raise ValueError("invalid_persistent_profile_browser_configuration")
+        authority = None
+        if public_origin is not None:
+            try:
+                parsed = urlsplit(public_origin)
+                authority = parsed.netloc
+            except ValueError:
+                raise ValueError(
+                    "invalid_persistent_profile_browser_configuration"
+                ) from None
+            if (
+                type(public_origin) is not str
+                or parsed.scheme != "https"
+                or not authority
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+                or parsed.username is not None
+                or parsed.password is not None
+                or authority != authority.lower()
+            ):
+                raise ValueError("invalid_persistent_profile_browser_configuration")
         self._service = service
+        self._creation_service = creation_service
+        self._public_origin = public_origin
+        self._public_authority = authority
+        self._closed = False
+
+    def activate(self):
+        if self._closed or self._creation_service is None:
+            raise ConfirmedProfileArtifactUnavailable()
+        return self._creation_service.activate()
 
     def matches_route(self, path: str) -> bool:
         return path == PERSISTENT_PROFILE_ROUTE
@@ -95,13 +180,30 @@ class PersistentProfileBrowserIntegration:
         method: str,
         target: str,
         authentication_input=None,
+        body_stream=None,
     ) -> PersistentProfileBrowserResponse:
-        if method not in {"GET", "HEAD"}:
+        if self._closed:
+            return _create_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        allowed_methods = (
+            ("GET", "HEAD", "POST")
+            if self._creation_service is not None
+            else ("GET", "HEAD")
+        )
+        if method not in allowed_methods:
             return _response(
                 HTTPStatus.METHOD_NOT_ALLOWED,
-                _generic_page("Method not allowed", "This profile page is read-only."),
-                extra_headers=(("Allow", "GET, HEAD"),),
+                _generic_page(
+                    "Method not allowed",
+                    (
+                        "This profile route does not accept that method."
+                        if self._creation_service is not None
+                        else "This profile page is read-only."
+                    ),
+                ),
+                extra_headers=(("Allow", ", ".join(allowed_methods)),),
             )
+        if method == "POST":
+            return self._handle_create(target, authentication_input, body_stream)
         cursor, request_valid = _parse_request_target(target)
         if not request_valid:
             return _response(
@@ -134,6 +236,150 @@ class PersistentProfileBrowserIntegration:
                 ),
             )
         return _response(status, content)
+
+    def issue_confirmed_artifact(
+        self,
+        *,
+        reviewed_profile,
+        raw_about_you,
+        normalized_updates,
+        profile_confirmed,
+        authentication_input,
+        _confirmation_identity=None,
+        _confirmation_witness=None,
+        _confirmation_recovery_only=False,
+    ):
+        if self._closed or self._creation_service is None:
+            raise ConfirmedProfileArtifactUnavailable()
+        header_items = _validated_header_items(authentication_input)
+        if header_items is None or not _trusted_host_headers(
+            header_items,
+            self._public_authority,
+        ):
+            raise ConfirmedProfileArtifactUnavailable()
+        session_token, session_valid = _security_cookie(
+            header_items,
+            SESSION_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        csrf_secret, csrf_valid = _security_cookie(
+            header_items,
+            SESSION_CSRF_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        if not session_valid or not csrf_valid:
+            raise ConfirmedProfileArtifactUnavailable()
+        return self._creation_service.issue_confirmed_artifact(
+            reviewed_profile=reviewed_profile,
+            raw_about_you=raw_about_you,
+            normalized_updates=normalized_updates,
+            profile_confirmed=profile_confirmed,
+            authentication_input=header_items,
+            session_token=session_token,
+            csrf_secret=csrf_secret,
+            _confirmation_identity=_confirmation_identity,
+            _confirmation_witness=_confirmation_witness,
+            _confirmation_recovery_only=(
+                _confirmation_recovery_only
+            ),
+        )
+
+    def authenticate_completed_profile_replay(
+        self,
+        *,
+        authentication_input,
+        authority_binding,
+    ):
+        if self._closed or self._creation_service is None:
+            return False
+        header_items = _validated_header_items(authentication_input)
+        if header_items is None or not _trusted_host_headers(
+            header_items,
+            self._public_authority,
+        ):
+            return False
+        session_token, session_valid = _security_cookie(
+            header_items,
+            SESSION_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        csrf_secret, csrf_valid = _security_cookie(
+            header_items,
+            SESSION_CSRF_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        if not session_valid or not csrf_valid:
+            return False
+        return self._creation_service.authenticate_completed_replay(
+            authentication_input=header_items,
+            session_token=session_token,
+            csrf_secret=csrf_secret,
+            authority_binding=authority_binding,
+        )
+
+    def _handle_create(self, target, headers, body_stream):
+        if not _profile_create_target_valid(target):
+            return _create_failure_response(HTTPStatus.BAD_REQUEST)
+        header_items = _validated_header_items(headers)
+        if header_items is None or not _trusted_host_headers(
+            header_items,
+            self._public_authority,
+        ):
+            return _create_failure_response(HTTPStatus.BAD_REQUEST)
+        if not _trusted_same_origin(
+            header_items,
+            self._public_origin,
+        ):
+            return _create_failure_response(HTTPStatus.FORBIDDEN)
+        form = _strict_create_form(header_items, body_stream)
+        if form is None:
+            return _create_failure_response(HTTPStatus.BAD_REQUEST)
+        session_token, session_valid = _security_cookie(
+            header_items,
+            SESSION_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        if not session_valid:
+            return _create_failure_response(HTTPStatus.UNAUTHORIZED)
+        csrf_secret, csrf_valid = _security_cookie(
+            header_items,
+            SESSION_CSRF_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        if not csrf_valid:
+            return _create_failure_response(HTTPStatus.FORBIDDEN)
+        if self._creation_service is None:
+            return _create_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        try:
+            outcome = self._creation_service.consume(
+                authentication_input=header_items,
+                session_token=session_token,
+                csrf_secret=csrf_secret,
+                artifact_reference=form["artifact"],
+                csrf_proof=form["csrf"],
+            )
+        except (KeyboardInterrupt, SystemExit, GeneratorExit):
+            raise
+        except Exception:
+            return _create_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        if type(outcome) is not ProfileCreateOutcome:
+            return _create_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        return _create_response_for_outcome(outcome.state)
+
+    def close(self):
+        if self._closed:
+            return self.closed
+        if self._creation_service is not None:
+            if self._creation_service.close() is False:
+                return False
+        self._closed = True
+        return True
+
+    @property
+    def closed(self):
+        return self._closed and (
+            self._creation_service is None or self._creation_service.closed
+        )
 
 
 def _parse_request_target(target: str) -> tuple[int | None, bool]:
@@ -191,8 +437,8 @@ def render_persistent_profile_page(
                 "My persistent profile",
                 _authenticated_navigation()
                 + "<section class='empty'><h1>No persistent profile yet</h1>"
-                "<p>Persistent-profile creation is not enabled in this milestone.</p>"
-                "<p>Your existing About You information has not been copied or persisted.</p></section>",
+                "<p>Confirm your reviewed About You details to create this profile explicitly.</p>"
+                "<p>Reading this page does not create or change profile data.</p></section>",
             ),
             HTTPStatus.OK,
         )
@@ -289,6 +535,222 @@ def _response(status, content: str, *, extra_headers=()) -> PersistentProfileBro
         *extra_headers,
     )
     return PersistentProfileBrowserResponse(int(status), payload, tuple(headers))
+
+
+def _create_response_for_outcome(state):
+    if state == "created":
+        return _response(
+            HTTPStatus.SEE_OTHER,
+            _generic_page("Profile created", "Your persistent profile is ready."),
+            extra_headers=(("Location", PERSISTENT_PROFILE_ROUTE),),
+        )
+    status = {
+        "conflict": HTTPStatus.CONFLICT,
+        "gone": HTTPStatus.GONE,
+        "authentication_required": HTTPStatus.UNAUTHORIZED,
+        "csrf_denied": HTTPStatus.FORBIDDEN,
+        "authorization_denied": HTTPStatus.NOT_FOUND,
+        "temporary_contention": HTTPStatus.SERVICE_UNAVAILABLE,
+        "unavailable": HTTPStatus.SERVICE_UNAVAILABLE,
+    }.get(state, HTTPStatus.SERVICE_UNAVAILABLE)
+    return _create_failure_response(status)
+
+
+def _create_failure_response(status):
+    title, message = {
+        HTTPStatus.BAD_REQUEST: (
+            "Profile request unavailable",
+            "This profile request is not valid.",
+        ),
+        HTTPStatus.UNAUTHORIZED: (
+            "Authentication required",
+            "Sign in to continue.",
+        ),
+        HTTPStatus.FORBIDDEN: (
+            "Profile request rejected",
+            "This request could not be verified.",
+        ),
+        HTTPStatus.NOT_FOUND: (
+            "Profile not found",
+            "This profile page is not available.",
+        ),
+        HTTPStatus.GONE: (
+            "Profile confirmation expired",
+            "Confirm your profile again before creating it.",
+        ),
+        HTTPStatus.CONFLICT: (
+            "Profile already exists",
+            "This account already has a persistent profile.",
+        ),
+        HTTPStatus.SERVICE_UNAVAILABLE: (
+            "Profile temporarily unavailable",
+            "Your profile could not be created safely.",
+        ),
+    }[HTTPStatus(status)]
+    return _response(status, _generic_page(title, message))
+
+
+def _profile_create_target_valid(target):
+    if type(target) is not str:
+        return False
+    try:
+        parsed = urlsplit(target)
+    except ValueError:
+        return False
+    return (
+        target == PERSISTENT_PROFILE_ROUTE
+        and parsed.path == PERSISTENT_PROFILE_ROUTE
+        and not parsed.scheme
+        and not parsed.netloc
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def _validated_header_items(headers):
+    try:
+        if hasattr(headers, "raw_items"):
+            raw = tuple(headers.raw_items())
+        elif hasattr(headers, "items"):
+            raw = tuple(headers.items())
+        else:
+            raw = tuple(headers)
+    except Exception:
+        return None
+    if len(raw) > MAX_PROFILE_CREATE_HEADERS:
+        return None
+    result = []
+    for item in raw:
+        if type(item) is not tuple or len(item) != 2:
+            return None
+        name, value = item
+        if (
+            type(name) is not str
+            or _HTTP_TOKEN.fullmatch(name) is None
+            or type(value) is not str
+            or _HEADER_VALUE_FORBIDDEN.search(value) is not None
+        ):
+            return None
+        try:
+            if len(name.encode("ascii")) > 64 or len(value.encode("latin-1")) > 8_192:
+                return None
+        except UnicodeError:
+            return None
+        result.append((name, value))
+    return tuple(result)
+
+
+def _header_values(items, name):
+    lowered = name.lower()
+    return tuple(value for candidate, value in items if candidate.lower() == lowered)
+
+
+def _trusted_host_headers(items, authority):
+    if type(authority) is not str:
+        return False
+    hosts = _header_values(items, "host")
+    try:
+        host_matches = len(hosts) == 1 and hmac.compare_digest(
+            hosts[0].encode("ascii"),
+            authority.encode("ascii"),
+        )
+    except UnicodeError:
+        host_matches = False
+    return (
+        host_matches
+        and not any(
+            name.lower() in _PROXY_HEADERS or name.lower().startswith("x-forwarded-")
+            for name, _value in items
+        )
+    )
+
+
+def _trusted_same_origin(items, public_origin):
+    if type(public_origin) is not str:
+        return False
+    origins = _header_values(items, "origin")
+    fetch_sites = _header_values(items, "sec-fetch-site")
+    try:
+        origin_matches = len(origins) == 1 and hmac.compare_digest(
+            origins[0].encode("ascii"),
+            public_origin.encode("ascii"),
+        )
+    except UnicodeError:
+        origin_matches = False
+    return (
+        origin_matches
+        and (
+            not fetch_sites
+            or (len(fetch_sites) == 1 and fetch_sites[0].lower() == "same-origin")
+        )
+    )
+
+
+def _strict_create_form(header_items, body_stream):
+    content_types = _header_values(header_items, "content-type")
+    lengths = _header_values(header_items, "content-length")
+    if (
+        len(content_types) != 1
+        or content_types[0].lower() != "application/x-www-form-urlencoded"
+        or len(lengths) != 1
+        or _CONTENT_LENGTH.fullmatch(lengths[0]) is None
+        or _header_values(header_items, "transfer-encoding")
+        or body_stream is None
+        or not callable(getattr(body_stream, "read", None))
+    ):
+        return None
+    length = int(lengths[0])
+    if length < 1 or length > MAX_PROFILE_CREATE_BODY_BYTES:
+        return None
+    try:
+        body = body_stream.read(length)
+    except Exception:
+        return None
+    if type(body) is not bytes or len(body) != length:
+        return None
+    try:
+        text = body.decode("utf-8")
+    except UnicodeError:
+        return None
+    match = _PROFILE_CREATE_FORM.fullmatch(text)
+    if match is None:
+        return None
+    if match.group(1) is not None:
+        return {"artifact": match.group(1), "csrf": match.group(2)}
+    return {"artifact": match.group(4), "csrf": match.group(3)}
+
+
+def _security_cookie(header_items, name, value_pattern):
+    cookie_headers = _header_values(header_items, "cookie")
+    if len(cookie_headers) != 1:
+        return None, False
+    header = cookie_headers[0]
+    try:
+        encoded = header.encode("ascii")
+    except UnicodeError:
+        return None, False
+    if not encoded or len(encoded) > MAX_PROFILE_CREATE_COOKIE_BYTES:
+        return None, False
+    parts = header.split(";")
+    if len(parts) > MAX_PROFILE_CREATE_COOKIES:
+        return None, False
+    found = []
+    for raw_part in parts:
+        part = raw_part.strip(" \t")
+        if not part or "=" not in part or _CONTROL_CHARACTERS.search(part) is not None:
+            return None, False
+        cookie_name, value = part.split("=", 1)
+        if (
+            _COOKIE_NAME.fullmatch(cookie_name) is None
+            or value != value.strip()
+            or any(character in value for character in ('"', ",", ";", "\\"))
+        ):
+            return None, False
+        if cookie_name == name:
+            found.append(value)
+    if len(found) != 1 or value_pattern.fullmatch(found[0]) is None:
+        return None, False
+    return found[0], True
 
 
 def _safe_text(value) -> str:

@@ -26,6 +26,11 @@ from wahojobs.profiles.canonical_v2 import (
     parse_canonical_profile_v2_json,
     validate_canonical_profile_v2,
 )
+from wahojobs.profiles.canonical import (
+    SCHEMA_VERSION as CANONICAL_PROFILE_V1,
+    canonical_profile_errors,
+    validate_canonical_profile,
+)
 
 
 MIGRATION_VERSION = "005_persistent_profile_canonical_v2"
@@ -49,7 +54,8 @@ _VERSION_PATTERN = re.compile(r"^[a-z0-9_.-]{1,64}$")
 _REASON_CODE_PATTERN = re.compile(r"^[a-z0-9_.-]{1,128}$")
 _IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{16,256}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_SEMANTIC_PROFILE_ID = "prf_0123456789abcdef0123456789abcdef"
+_IDENTITY_FREE_V1_MISSING_ID_ERROR = "identity.profile_id must be a string"
+_IDENTITY_FREE_PROJECTION_ACCESS = object()
 
 PRINCIPAL_TYPES = frozenset({"account_native", "development"})
 PRINCIPAL_LIFECYCLE_STATUSES = frozenset({"active"})
@@ -123,6 +129,152 @@ class PersistentProfileDomainError(Exception):
 
     def __repr__(self) -> str:
         return f"PersistentProfileDomainError(reason_code={self.reason_code!r})"
+
+
+def _identity_key_present(value) -> bool:
+    if type(value) is dict:
+        return "profile_id" in value or any(
+            _identity_key_present(child) for child in value.values()
+        )
+    if type(value) is list:
+        return any(_identity_key_present(child) for child in value)
+    return False
+
+
+def _identity_free_json_bytes(value) -> bytes:
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        parsed = json.loads(encoded)
+    except (TypeError, ValueError, UnicodeError, json.JSONDecodeError):
+        _fail("content_rejected")
+    if type(parsed) is not dict or _identity_key_present(parsed):
+        _fail("content_rejected")
+    return encoded
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class IdentityFreeCanonicalProfileV1:
+    """Immutable pre-persistence review content with no profile identity field."""
+
+    _canonical_json: bytes = field(repr=False)
+
+    def __init__(self, access, canonical_json):
+        if (
+            access is not _IDENTITY_FREE_PROJECTION_ACCESS
+            or type(canonical_json) is not bytes
+        ):
+            _fail("content_rejected")
+        object.__setattr__(self, "_canonical_json", canonical_json)
+
+    @classmethod
+    def from_mapping(cls, value):
+        encoded = _identity_free_json_bytes(value)
+        parsed = json.loads(encoded)
+        errors = canonical_profile_errors(parsed)
+        if _IDENTITY_FREE_V1_MISSING_ID_ERROR not in errors:
+            _fail("content_rejected")
+        errors = [
+            error
+            for error in errors
+            if error != _IDENTITY_FREE_V1_MISSING_ID_ERROR
+        ]
+        if errors or parsed.get("schema_version") != CANONICAL_PROFILE_V1:
+            _fail("content_rejected")
+        return cls(_IDENTITY_FREE_PROJECTION_ACCESS, encoded)
+
+    @classmethod
+    def from_json_bytes(cls, value):
+        if type(value) is not bytes:
+            _fail("content_rejected")
+        try:
+            parsed = json.loads(value.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            _fail("content_rejected")
+        instance = cls.from_mapping(parsed)
+        if not hmac.compare_digest(instance._canonical_json, value):
+            _fail("content_rejected")
+        return instance
+
+    @property
+    def canonical_bytes(self) -> bytes:
+        return bytes(self._canonical_json)
+
+    def to_mapping(self) -> dict:
+        return json.loads(self._canonical_json)
+
+    def bind_durable_profile_id(self, profile_id: str) -> dict:
+        validate_profile_id(profile_id)
+        bound = self.to_mapping()
+        bound["identity"]["profile_id"] = profile_id
+        field_sources = bound["provenance"]["field_sources"]
+        identity_source = field_sources.get("identity.display_name")
+        if type(identity_source) is not dict:
+            _fail("content_rejected")
+        field_sources["identity.profile_id"] = deepcopy(
+            identity_source
+        )
+        try:
+            validate_canonical_profile(bound)
+        except (TypeError, ValueError):
+            _fail("content_rejected")
+        return bound
+
+    def get(self, key, default=None):
+        return self.to_mapping().get(key, default)
+
+    def __getitem__(self, key):
+        return self.to_mapping()[key]
+
+    def __repr__(self) -> str:
+        return "IdentityFreeCanonicalProfileV1(<redacted>)"
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class IdentityFreeCanonicalProfileV2:
+    """Typed semantic projection of validated durable V2 content."""
+
+    _canonical_json: bytes = field(repr=False)
+
+    def __init__(self, access, canonical_json):
+        if (
+            access is not _IDENTITY_FREE_PROJECTION_ACCESS
+            or type(canonical_json) is not bytes
+        ):
+            _fail("content_rejected")
+        object.__setattr__(self, "_canonical_json", canonical_json)
+
+    @classmethod
+    def from_canonical_bytes(cls, value):
+        if type(value) is not bytes:
+            _fail("content_rejected")
+        try:
+            profile = parse_canonical_profile_v2_json(value)
+            projection = deepcopy(profile)
+            del projection["identity"]["profile_id"]
+            projection["provenance"]["field_sources"] = [
+                source
+                for source in projection["provenance"][
+                    "field_sources"
+                ]
+                if source.get("field_path") != "identity.profile_id"
+            ]
+            encoded = _identity_free_json_bytes(projection)
+        except (CanonicalProfileV2Error, KeyError, TypeError, ValueError):
+            _fail("content_rejected")
+        return cls(_IDENTITY_FREE_PROJECTION_ACCESS, encoded)
+
+    @property
+    def canonical_bytes(self) -> bytes:
+        return bytes(self._canonical_json)
+
+    def __repr__(self) -> str:
+        return "IdentityFreeCanonicalProfileV2(<redacted>)"
 
 
 def _fail(reason_code: str):
@@ -618,15 +770,12 @@ def structured_profile_hash(profile_v2: dict) -> str:
 
 
 def _semantic_profile_hash_from_bytes(profile_bytes: bytes) -> str:
-    validation_failed = False
     try:
-        profile = parse_canonical_profile_v2_json(profile_bytes)
-        profile["identity"]["profile_id"] = _SEMANTIC_PROFILE_ID
-        semantic_bytes = canonical_profile_v2_json_bytes(profile)
-    except CanonicalProfileV2Error:
-        validation_failed = True
-        semantic_bytes = b""
-    if validation_failed:
+        projection = IdentityFreeCanonicalProfileV2.from_canonical_bytes(
+            profile_bytes
+        )
+        semantic_bytes = projection.canonical_bytes
+    except PersistentProfileDomainError:
         _fail("content_rejected")
     return hashlib.sha256(semantic_bytes).hexdigest()
 
@@ -725,10 +874,39 @@ def _request_digest(payload: dict) -> str:
     return hashlib.sha256(_canonical_json_bytes(envelope)).hexdigest()
 
 
+_CREATE_CANONICAL_PROFILE_V2_ACCESS = object()
+
+
+class _CreateCanonicalProfileV2Draft:
+    __slots__ = ("_builder",)
+
+    def __init__(self, access, builder: Callable[[str], dict]):
+        if access is not _CREATE_CANONICAL_PROFILE_V2_ACCESS or not callable(builder):
+            _fail("invalid_command")
+        self._builder = builder
+
+    def build(self, access, profile_id: str) -> dict:
+        if access is not _CREATE_CANONICAL_PROFILE_V2_ACCESS:
+            _fail("invalid_command")
+        return self._builder(profile_id)
+
+    def __repr__(self) -> str:
+        return "_CreateCanonicalProfileV2Draft(<redacted>)"
+
+
+def _create_canonical_profile_v2_draft(builder: Callable[[str], dict]):
+    return _CreateCanonicalProfileV2Draft(
+        _CREATE_CANONICAL_PROFILE_V2_ACCESS,
+        builder,
+    )
+
+
 @dataclass(frozen=True, repr=False, init=False)
 class CreatePersistentProfileCommand:
     principal: TrustedPrincipalContext
     _profile_id: str = field(repr=False)
+    _revision_id: str = field(repr=False)
+    _source_ids: tuple[str, ...] = field(repr=False)
     _structured_profile_json: bytes = field(repr=False)
     _sources: tuple[SourceDraft, ...] = field(repr=False)
     canonical_schema_version: str
@@ -739,6 +917,8 @@ class CreatePersistentProfileCommand:
     _idempotency_key: str = field(repr=False)
     accepted_at: str
     structured_profile_sha256: str
+    semantic_profile_sha256: str
+    source_content_sha256s: tuple[str, ...]
     source_bundle_sha256: str
     request_fingerprint: str = field(repr=False)
 
@@ -747,7 +927,7 @@ class CreatePersistentProfileCommand:
         cls,
         *,
         principal: TrustedPrincipalContext,
-        canonical_profile_v2: dict,
+        canonical_profile_v2,
         sources,
         normalizer_version: str | None,
         reviewer_version: str | None,
@@ -776,9 +956,24 @@ class CreatePersistentProfileCommand:
         reason = _validate_reason_code(reason_code)
         key = _validate_idempotency_key(idempotency_key)
         profile_id = generate_profile_id()
+        revision_id = generate_revision_id()
+        source_ids = tuple(generate_source_id() for _source in source_tuple)
+        if type(canonical_profile_v2) is _CreateCanonicalProfileV2Draft:
+            canonical_profile_v2 = canonical_profile_v2.build(
+                _CREATE_CANONICAL_PROFILE_V2_ACCESS,
+                profile_id,
+            )
+            if (
+                type(canonical_profile_v2) is not dict
+                or type(canonical_profile_v2.get("identity")) is not dict
+                or canonical_profile_v2["identity"].get("profile_id")
+                != profile_id
+            ):
+                _fail("content_rejected")
         profile_bytes = _validated_profile_for_create(canonical_profile_v2, profile_id)
         profile_hash = hashlib.sha256(profile_bytes).hexdigest()
         semantic_hash = _semantic_profile_hash_from_bytes(profile_bytes)
+        source_hashes = tuple(source_content_hash(source) for source in source_tuple)
         bundle_hash = source_bundle_hash(source_tuple)
         payload = {
             "operation": "create",
@@ -799,6 +994,8 @@ class CreatePersistentProfileCommand:
         for name, value in {
             "principal": principal,
             "_profile_id": profile_id,
+            "_revision_id": revision_id,
+            "_source_ids": source_ids,
             "_structured_profile_json": profile_bytes,
             "_sources": source_tuple,
             "canonical_schema_version": CANONICAL_PROFILE_V2,
@@ -809,6 +1006,8 @@ class CreatePersistentProfileCommand:
             "_idempotency_key": key,
             "accepted_at": timestamp,
             "structured_profile_sha256": profile_hash,
+            "semantic_profile_sha256": semantic_hash,
+            "source_content_sha256s": source_hashes,
             "source_bundle_sha256": bundle_hash,
             "request_fingerprint": _request_digest(payload),
         }.items():
@@ -818,6 +1017,14 @@ class CreatePersistentProfileCommand:
     @property
     def profile_id(self) -> str:
         return self._profile_id
+
+    @property
+    def revision_id(self) -> str:
+        return self._revision_id
+
+    @property
+    def source_ids(self) -> tuple[str, ...]:
+        return self._source_ids
 
     @property
     def sources(self) -> tuple[SourceDraft, ...]:

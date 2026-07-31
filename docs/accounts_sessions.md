@@ -180,13 +180,123 @@ refresh and runtime reconstruction preserve the result, while logout revokes
 access. Browser input cannot select an account, principal, profile, or ownership
 environment.
 
-This activation still does not create or edit a persistent profile, deliver an
-invitation, or provide an administration UI. Ordinary-runtime activation, live
-Google deployment, general identity linking, legacy claiming, and profile
-mutation remain deferred.
+The dedicated runtime now also composes one explicit create-once profile
+boundary. The launcher owns one bounded process-local `MatchRunRegistry` and
+passes that exact object to the initial About You draft, review rendering, and
+confirmation paths. A normal browser can open `GET /find-matches`, submit the
+initial About You form to `POST /find-matches`, receive and edit the review form,
+and submit an exact confirmation before receiving the account-native create
+form. Exclusive routing continues to own the authentication and account paths;
+on `/find-matches` it claims only a genuinely confirmation-shaped POST. The
+ordinary GET and initial POST reach the local product flow, while matching,
+recommendations, `/preview`, and unrelated product fall-through remain dormant
+or rejected. Before either reachable `/find-matches` method is rendered or
+handled, the local boundary requires the configured Host and rejects the
+configured no-proxy policy's `Forwarded` and `X-Forwarded-*` inputs. POST body
+classification and final handling share one bounded buffer and strict
+URL-encoded multimap: the stream is read once, malformed percent escapes and
+invalid UTF-8 are rejected, and duplicate or unsupported fields remain invalid.
+
+Review state is an immutable identity-free Canonical V1 projection. Every
+`profile_id` occurrence is omitted rather than replaced with a preview,
+sentinel, null, empty, or reserved identity. Its canonical bytes are UTF-8 JSON
+with `ensure_ascii=True`, sorted keys, compact separators, and no NaN values.
+The browser's `profile_draft_fingerprint` contains only the lowercase 64-hex
+SHA-256 digest of those bytes, never the JSON itself. Browser input still cannot
+select any account, principal, owner, profile identity, provenance, timestamp,
+version, actor, reason, or idempotency value.
+
+Confirmation is keyed by the exact original D0 confirmation identity and uses
+the bounded states `DRAFT`, `ISSUING`, `MAYBE_ISSUED`, and `COMPLETED`. One owner
+may call the artifact sink outside the registry lock; identical concurrent
+submissions wait only for the finite owner bound. A definite pre-artifact
+failure restores D0 exactly. An interruption or failure after an artifact may
+exist moves to `MAYBE_ISSUED`, where an exact retry first reauthenticates and may
+perform only a vault lookup for the same confirmation and binding, never a
+second issuance. A valid immutable offer is recorded as `COMPLETED` before
+response delivery. A replay snapshots that exact completed record and its
+durable authority binding under the registry lock, releases the lock, and uses
+the real lookup-only durable session/account/CSRF/ownership path. The registry
+returns the cached offer only after reacquiring the lock and confirming that the
+identical completed record and binding remain current. This replay never calls
+the issuance sink or mutates durable profile state, and failed replay
+authentication leaves a valid cached completion intact. The syntactic binding
+strictly validates the whole header and cookie presentation but hashes only the
+trusted Host and the two validated security-cookie values, so harmless cookie
+order or unrelated-cookie changes do not break an exact same-session recovery.
+`MAYBE_ISSUED` and
+`COMPLETED` retain the run for at most 600 non-sliding seconds from that outcome;
+expiry removes both the confirmation and its run, so an old D0 becomes gone
+rather than reopening issuance. Changed or stale drafts remain rejected.
+
+The confirmation callback and `POST /account/profile` share one process-local
+creation service and vault. `POST /account/profile` accepts only the opaque
+artifact reference and an artifact-bound proof derived from the already
+validated session-CSRF secret. `CreatePersistentProfileCommand.prepare()` is
+the sole durable profile-ID generator and binder; the V1-to-V2 conversion uses
+that same generated ID and neither generates nor selects another. The full
+durable V2 bytes define the structured hash, the V2 projection with
+`identity.profile_id` removed defines the semantic hash, exact source bytes
+define each source-content hash, the canonical ordered source manifest defines
+the bundle hash, the versioned canonical request envelope defines the request
+fingerprint, and the sealed binding/lineage/content/command envelope defines the
+artifact fingerprint. GET and HEAD remain strictly read-only and never issue
+artifacts or create profiles.
+
+The artifact vault has a non-sliding 600-second lifetime and a 64-record cap.
+Created and conflict results remain deterministic until the original deadline;
+an unexpired or actively owned in-flight record is not evicted. Under the
+trusted, finite callback contract, callback-owned immutable claim tokens protect
+acquisition, handoff, terminalization, and release from ordinary failures. The
+artifact seals one prepared command, including all durable
+profile, revision, and source identities, so definite-rollback and
+commit-uncertain retries do not regenerate authority or content. A repository
+invocation that commits but returns a malformed or locally unvalidated result
+also retains reconciliation authority; the next authenticated attempt reuses
+the already prepared command and converges through exact repository replay.
+Definite pre-invocation content and authority failures keep their existing
+retirement behavior. Pending
+references are deliberately lost on runtime reconstruction, while an already
+committed profile remains durable and readable. The browser cannot
+choose ownership, profile identity, provenance, timestamps, versions,
+idempotency, actor, or reason metadata. Profile editing, invitation delivery or
+administration, ordinary-runtime activation, live Google deployment, general
+identity linking, and legacy claiming remain deferred.
+
+The vault constructs its claim-cleanup coordinator dormant. Runtime activation
+constructs the service and profile integration, registers that outer integration
+with the cleanup authority, and only then starts the coordinator's non-daemon
+worker. An observed start failure or ordinary control-flow interruption retains
+a registered close authority. Close stops admission and gives the coordinator a finite two-second
+close/join bound; a still-live worker makes cleanup truthfully incomplete and a
+later close retries the unresolved resource. Startup and shutdown do not rely
+on daemon exit, finalizers, garbage collection, or process termination.
+Launcher composition explicitly negotiates the optional
+`issue_confirmed_profile_artifact` capability and requires it for real
+production activation, while an established routing-only integration remains a
+valid launcher test double. Without creation capability that compatibility
+composition returns a fixed unavailable response for `/find-matches` and cannot
+enter legacy matching; a present non-callable capability remains invalid.
+
+The writable account-native create boundary also receives the exact authorized
+account and ownership lineage. Before profile replay or insertion, its
+transaction revalidates the account and row version, principal and environment,
+active owner binding and version, sole-owner status, and complete ordered event
+history. Replacement by another account fails before profile mutation. Proved
+rollback releases only the exact claim; uncertain commit retains replay
+authority; fatal content or lineage inconsistency remains terminal.
 The database must already contain the exact Migration-001 through Migration-006
 schema; neither the launcher nor login requests initialize, seed, repair, or
 migrate it.
+
+This application milestone does not claim transparent in-process recovery from
+an internal sink or trusted callback that remains blocked forever, recovery from
+asynchronously injected exceptions at every Python instruction boundary, or
+formal shutdown when trusted internal code holds a lock forever. Trusted token,
+clock, witness, and coordinator callbacks are expected to be finite and
+non-reentrant in production. Process restart or a new browser flow is an
+accepted operational recovery when process-local progress cannot continue.
+B2.4e remains unstarted.
 
 Successful B2D1 completion produces an issued session and one request-scoped
 compensation authority. The browser adapter converts that authority into a

@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import sqlite3
 import stat
 import threading
@@ -2999,6 +3000,10 @@ class _RuntimeDatabaseConnections:
         self.require_current_process()
         return _managed_read_only_connection_scope(self)
 
+    def writable_connection_provider(self):
+        self.require_current_process()
+        return _managed_writable_connection_scope(self)
+
     def guarded_read_only_connection_provider(self):
         self.require_current_process()
         return _managed_read_only_lease_scope(self)
@@ -5679,6 +5684,11 @@ def _prepare_durable_google_login_activation_worker(
         from .persistent_profiles_application import (
             PersistentProfileApplicationService,
         )
+        from .persistent_profile_creation import (
+            ConfirmedProfileArtifactVault,
+            DurablePersistentProfileCreateAuthorizationGateway,
+            PersistentProfileCreationService,
+        )
         from .persistent_profiles_browser import (
             PersistentProfileBrowserIntegration,
         )
@@ -5703,6 +5713,11 @@ def _prepare_durable_google_login_activation_worker(
         authorization_gateway = (
             DurablePersistentProfileReadAuthorizationGateway()
         )
+        creation_authorization_gateway = (
+            DurablePersistentProfileCreateAuthorizationGateway(
+                authorization_gateway
+            )
+        )
 
         connections = _RuntimeDatabaseConnections(target)
         coordinator.own(
@@ -5710,7 +5725,7 @@ def _prepare_durable_google_login_activation_worker(
             connections,
             _close_cleanup_resource,
             probe=_cleanup_resource_is_closed,
-            dependencies=("browser_integration",),
+            dependencies=("browser_integration", "profile_integration"),
         )
         _emit_runtime_checkpoint(checkpoint, "connections_constructed")
         profile_service = PersistentProfileApplicationService(
@@ -5720,13 +5735,40 @@ def _prepare_durable_google_login_activation_worker(
                 connections.read_only_connection_provider
             ),
         )
+        profile_artifact_vault = ConfirmedProfileArtifactVault(
+            monotonic=time.monotonic,
+            token_factory=lambda: secrets.token_urlsafe(32),
+        )
+        profile_creation_service = PersistentProfileCreationService(
+            authentication_gateway=authentication_gateway,
+            authorization_gateway=creation_authorization_gateway,
+            read_connection_provider=(
+                connections.read_only_connection_provider
+            ),
+            write_connection_provider=(
+                connections.writable_connection_provider
+            ),
+            vault=profile_artifact_vault,
+            clock=clock,
+            token_factory=lambda: secrets.token_urlsafe(32),
+        )
         profile_integration = PersistentProfileBrowserIntegration(
-            profile_service
+            profile_service,
+            creation_service=profile_creation_service,
+            public_origin=configuration.public_configuration.public_origin,
         )
         coordinator.own(
             "profile_integration",
             profile_integration,
-            _release_cleanup_resource,
+            _close_cleanup_resource,
+            probe=_cleanup_resource_is_closed,
+            dependencies=("browser_integration",),
+        )
+        if profile_integration.activate() is not True:
+            raise DurableGoogleLoginConfigurationError()
+        _emit_runtime_checkpoint(
+            checkpoint,
+            "profile_integration_activated",
         )
 
         use_default_browser_integration = browser_integration_factory is None
@@ -7292,6 +7334,50 @@ def _managed_read_only_connection_scope(manager):
     connection = None
     try:
         lease = manager._open_read_only_connection()
+        connection = _borrow_internal_database_connection(lease)
+        yield connection
+    except BaseException:
+        if lease is not None:
+            for _attempt in range(3):
+                try:
+                    if lease.close():
+                        break
+                except BaseException as cleanup:
+                    _sanitize_exception_graph(cleanup)
+                    cleanup = None
+        raise
+    else:
+        first_failure = None
+        terminal = False
+        for _attempt in range(3):
+            try:
+                terminal = lease.close()
+                if terminal:
+                    break
+            except BaseException as cleanup:
+                if first_failure is None:
+                    first_failure = cleanup
+                _sanitize_exception_graph(cleanup)
+                cleanup = None
+        if first_failure is not None:
+            propagated = first_failure
+            first_failure = None
+            raise propagated from None
+        if not terminal:
+            raise _DatabaseCleanupFailure()
+    finally:
+        connection = None
+        lease = None
+
+
+@contextmanager
+def _managed_writable_connection_scope(manager):
+    if type(manager) is not _RuntimeDatabaseConnections:
+        raise DurableGoogleLoginConfigurationError()
+    lease = None
+    connection = None
+    try:
+        lease = manager.open_writable_connection()
         connection = _borrow_internal_database_connection(lease)
         yield connection
     except BaseException:

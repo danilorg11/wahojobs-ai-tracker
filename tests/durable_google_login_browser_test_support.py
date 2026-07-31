@@ -31,6 +31,7 @@ from scripts.durable_google_login_app import (
     _ServeOutcome,
     _SignalShutdownState,
     _UnpublishedRequestHandler,
+    _construct_production_handler,
     _ephemeral_tls_context,
     _serve_in_thread,
 )
@@ -135,6 +136,7 @@ def temporary_browser_login_state(
     mutate_configuration=None,
     install_migrations=True,
     seed_existing_identity=True,
+    seed_existing_profile=True,
     enable_invited_provisioning=False,
 ):
     with tempfile.TemporaryDirectory(
@@ -204,20 +206,21 @@ def temporary_browser_login_state(
                         eligibility_mode="account_native",
                         active_owner_binding=True,
                     )
-                    created_profile = create_persistent_profile(
-                        connection,
-                        create_command(
-                            principal,
-                            idempotency_key=(
-                                "profile-create-browser-login"
+                    if seed_existing_profile:
+                        created_profile = create_persistent_profile(
+                            connection,
+                            create_command(
+                                principal,
+                                idempotency_key=(
+                                    "profile-create-browser-login"
+                                ),
+                                source_text=(
+                                    "Existing profile for the durable browser "
+                                    "login fixture."
+                                ),
                             ),
-                            source_text=(
-                                "Existing profile for the durable browser "
-                                "login fixture."
-                            ),
-                        ),
-                    )
-                    profile_id = created_profile.profile_id
+                        )
+                        profile_id = created_profile.profile_id
             finally:
                 connection.close()
         else:
@@ -298,12 +301,38 @@ def temporary_browser_login_state(
 
 
 @contextmanager
-def running_https_browser_app(runtime):
+def running_https_browser_app(runtime, *, registry=None):
     configuration = runtime.configuration
     handler = make_handler(
+        registry=registry,
         durable_google_login_browser_integration=runtime.browser_integration,
         exclusive_browser_integration=True,
+        confirmed_profile_artifact_sink=(
+            runtime.browser_integration.issue_confirmed_profile_artifact
+        ),
+        completed_profile_confirmation_authenticator=(
+            runtime.browser_integration.authenticate_completed_profile_replay
+        ),
+        profile_confirmation_public_origin=configuration.public_origin,
     )
+    with _running_https_browser_handler(configuration, handler) as server:
+        yield server
+
+
+@contextmanager
+def running_https_production_launcher_app(runtime):
+    configuration = runtime.configuration
+    handler = _construct_production_handler(
+        runtime.browser_integration,
+        configuration.public_origin,
+        require_profile_creation=True,
+    )
+    with _running_https_browser_handler(configuration, handler) as server:
+        yield server
+
+
+@contextmanager
+def _running_https_browser_handler(configuration, handler):
     server = None
     thread = None
     try:

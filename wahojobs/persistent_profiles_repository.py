@@ -12,7 +12,7 @@ import json
 import re
 import secrets
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from wahojobs.persistent_profile_canonical_v2_schema import (
@@ -50,6 +50,11 @@ DEFAULT_HISTORY_PAGE_SIZE = 25
 MAX_HISTORY_PAGE_SIZE = 100
 MAX_HISTORY_RESPONSE_BYTES = 1_048_576
 _LOWERCASE_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_ACCOUNT_ID = re.compile(r"^usr_[0-9a-f]{32}$")
+_PRINCIPAL_ID = re.compile(r"^prn_[0-9a-f]{32}$")
+_BINDING_ID = re.compile(r"^pab_[0-9a-f]{32}$")
+_BINDING_EVENT_ID = re.compile(r"^obe_[0-9a-f]{32}$")
+_ENVIRONMENT = re.compile(r"^[a-z0-9_.-]{1,64}$")
 
 CREATE_FAILURE_BOUNDARIES = (
     "create.after_profile_insert",
@@ -80,10 +85,231 @@ def _error(reason_code: str) -> PersistentProfileDomainError:
     return PersistentProfileDomainError(reason_code)
 
 
+class PersistentProfileRepositoryDefiniteRollback(PersistentProfileDomainError):
+    """An operational repository failure with a proved no-commit outcome."""
+
+
+class PersistentProfileRepositoryOutcomeUncertain(PersistentProfileDomainError):
+    """A repository invocation whose commit outcome cannot be proved locally."""
+
+    def __init__(self):
+        super().__init__("internal_consistency_failure")
+
+
+_PROFILE_CREATE_LINEAGE_ISSUER = object()
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class TrustedProfileCreateLineage:
+    """Server-private identity of one exact account-native ownership lineage."""
+
+    account_id: str
+    account_row_version: int
+    principal_id: str
+    principal_version: int
+    environment_namespace: str
+    binding_id: str
+    binding_version: int
+    latest_event_version: int
+    latest_event_id: str
+    lineage_sha256: str
+    _issuer: object = field(repr=False, compare=False)
+
+    def _validate(self):
+        if (
+            self._issuer is not _PROFILE_CREATE_LINEAGE_ISSUER
+            or
+            type(self.account_id) is not str
+            or _ACCOUNT_ID.fullmatch(self.account_id) is None
+            or type(self.account_row_version) is not int
+            or self.account_row_version < 1
+            or type(self.principal_id) is not str
+            or _PRINCIPAL_ID.fullmatch(self.principal_id) is None
+            or type(self.principal_version) is not int
+            or self.principal_version < 1
+            or type(self.environment_namespace) is not str
+            or _ENVIRONMENT.fullmatch(self.environment_namespace) is None
+            or type(self.binding_id) is not str
+            or _BINDING_ID.fullmatch(self.binding_id) is None
+            or type(self.binding_version) is not int
+            or self.binding_version < 1
+            or type(self.latest_event_version) is not int
+            or self.latest_event_version != self.binding_version
+            or type(self.latest_event_id) is not str
+            or _BINDING_EVENT_ID.fullmatch(self.latest_event_id) is None
+            or type(self.lineage_sha256) is not str
+            or _LOWERCASE_SHA256.fullmatch(self.lineage_sha256) is None
+        ):
+            raise _error("ineligible_principal")
+
+    def artifact_binding(self, session_id, purpose):
+        return (
+            self.account_id,
+            session_id,
+            self.environment_namespace,
+            self.principal_id,
+            self.binding_id,
+            self.binding_version,
+            self.latest_event_version,
+            self.latest_event_id,
+            self.lineage_sha256,
+            purpose,
+        )
+
+    def __repr__(self):
+        return "TrustedProfileCreateLineage(<redacted>)"
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("trusted_profile_create_lineage_not_serializable")
+
+
+def _issue_profile_create_lineage(**values):
+    lineage = object.__new__(TrustedProfileCreateLineage)
+    for name, value in {
+        **values,
+        "_issuer": _PROFILE_CREATE_LINEAGE_ISSUER,
+    }.items():
+        object.__setattr__(lineage, name, value)
+    lineage._validate()
+    return lineage
+
+
 def _require_connection(connection) -> sqlite3.Connection:
     if not isinstance(connection, sqlite3.Connection):
         raise _error("invalid_command")
     return connection
+
+
+def _row_dicts(connection, sql, parameters):
+    cursor = connection.execute(sql, parameters)
+    names = tuple(item[0] for item in cursor.description)
+    return [dict(zip(names, row)) for row in cursor.fetchall()]
+
+
+def capture_profile_create_lineage(
+    connection,
+    *,
+    account_id,
+    environment_namespace,
+    principal_id,
+):
+    """Capture one already-authorized ownership lineage without mutating it."""
+
+    connection = _require_connection(connection)
+    if (
+        type(account_id) is not str
+        or _ACCOUNT_ID.fullmatch(account_id) is None
+        or type(environment_namespace) is not str
+        or _ENVIRONMENT.fullmatch(environment_namespace) is None
+        or type(principal_id) is not str
+        or _PRINCIPAL_ID.fullmatch(principal_id) is None
+    ):
+        raise _error("ineligible_principal")
+    accounts = _row_dicts(
+        connection,
+        "SELECT user_id, lifecycle_status, row_version, created_at, updated_at, "
+        "deletion_requested_at, deactivated_at FROM users WHERE user_id=? LIMIT 2",
+        (account_id,),
+    )
+    principals = _row_dicts(
+        connection,
+        "SELECT principal_id, environment_namespace, principal_type, lifecycle_status, "
+        "claim_policy, exclusive_account_binding, version, created_at, updated_at, "
+        "provenance_json FROM product_principals WHERE principal_id=? LIMIT 2",
+        (principal_id,),
+    )
+    bindings = _row_dicts(
+        connection,
+        "SELECT binding_id, principal_id, user_id, environment_namespace, binding_role, "
+        "binding_status, version, latest_event_version, created_at, updated_at, "
+        "suspended_at, provenance_json FROM principal_account_bindings "
+        "WHERE principal_id=? AND user_id=? AND environment_namespace=? "
+        "AND binding_role='owner' AND binding_status='active' ORDER BY binding_id LIMIT 2",
+        (principal_id, account_id, environment_namespace),
+    )
+    active_owners = _row_dicts(
+        connection,
+        "SELECT binding_id, user_id, environment_namespace FROM principal_account_bindings "
+        "WHERE principal_id=? AND binding_role='owner' AND binding_status='active' "
+        "ORDER BY binding_id LIMIT 2",
+        (principal_id,),
+    )
+    if len(accounts) != 1 or len(principals) != 1 or len(bindings) != 1:
+        raise _error("ineligible_principal")
+    account = accounts[0]
+    principal = principals[0]
+    binding = bindings[0]
+    if (
+        account["lifecycle_status"] != "active"
+        or account["deletion_requested_at"] is not None
+        or account["deactivated_at"] is not None
+        or principal["environment_namespace"] != environment_namespace
+        or principal["principal_type"] != "account_native"
+        or principal["lifecycle_status"] != "active"
+        or principal["claim_policy"] != "account_native"
+        or principal["exclusive_account_binding"] != 1
+        or binding["binding_id"] is None
+        or binding["version"] != binding["latest_event_version"]
+        or len(active_owners) != 1
+        or active_owners[0]
+        != {
+            "binding_id": binding["binding_id"],
+            "user_id": account_id,
+            "environment_namespace": environment_namespace,
+        }
+    ):
+        raise _error("ineligible_principal")
+    events = _row_dicts(
+        connection,
+        "SELECT event_id, principal_id, user_id, binding_id, environment_namespace, "
+        "event_version, event_type, prior_status, resulting_status, actor_type, "
+        "reason_code, approval_reference, idempotency_key, request_fingerprint, "
+        "occurred_at, metadata_json FROM ownership_binding_events WHERE binding_id=? "
+        "ORDER BY event_version LIMIT 129",
+        (binding["binding_id"],),
+    )
+    if (
+        not events
+        or len(events) > 128
+        or tuple(event["event_version"] for event in events)
+        != tuple(range(1, binding["latest_event_version"] + 1))
+        or any(
+            event["principal_id"] != principal_id
+            or event["user_id"] != account_id
+            or event["binding_id"] != binding["binding_id"]
+            or event["environment_namespace"] != environment_namespace
+            for event in events
+        )
+        or events[-1]["resulting_status"] != "active"
+    ):
+        raise _error("ineligible_principal")
+    lineage_sha256 = hashlib.sha256(
+        json.dumps(
+            {
+                "version": 1,
+                "account": account,
+                "principal": principal,
+                "binding": binding,
+                "events": events,
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return _issue_profile_create_lineage(
+        account_id=account_id,
+        account_row_version=account["row_version"],
+        principal_id=principal_id,
+        principal_version=principal["version"],
+        environment_namespace=environment_namespace,
+        binding_id=binding["binding_id"],
+        binding_version=binding["version"],
+        latest_event_version=binding["latest_event_version"],
+        latest_event_id=events[-1]["event_id"],
+        lineage_sha256=lineage_sha256,
+    )
 
 
 def _sqlite_reason(error_code: int | None) -> str:
@@ -168,6 +394,8 @@ class _MutationController:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
         self.state: _TransactionState | None = None
+        self.commit_started = False
+        self.commit_completed = False
 
     def begin(self) -> None:
         nested = self.connection.in_transaction
@@ -182,14 +410,18 @@ class _MutationController:
     def succeed(self) -> None:
         if self.state is None:
             raise RuntimeError("transaction controller not started")
+        self.commit_started = True
         if self.state.nested:
             self.connection.execute(f'RELEASE SAVEPOINT "{self.state.savepoint}"')
         else:
             self.connection.commit()
+        self.commit_completed = True
 
-    def fail(self) -> None:
+    def fail(self) -> bool:
         if self.state is None:
-            return
+            return not self.connection.in_transaction
+        if self.commit_completed:
+            return False
         try:
             if self.state.nested:
                 self.connection.execute(
@@ -199,11 +431,14 @@ class _MutationController:
                     f'RELEASE SAVEPOINT "{self.state.savepoint}"'
                 )
             else:
+                if not self.connection.in_transaction:
+                    return not self.commit_started
                 self.connection.rollback()
         except sqlite3.Error:
             # The public error remains generic; caller-owned outer work is never
             # intentionally committed or rolled back here.
-            pass
+            return False
+        return not self.connection.in_transaction if not self.state.nested else True
 
 
 class PersistentProfileRepository:
@@ -243,26 +478,31 @@ class PersistentProfileRepository:
     def _mutate(self, connection, operation):
         connection = _require_connection(connection)
         controller = _MutationController(connection)
-        failure: PersistentProfileDomainError | None = None
-        sqlite_reason: str | None = None
-        result = None
         try:
             controller.begin()
             result = operation(connection)
             controller.succeed()
         except PersistentProfileDomainError as exc:
-            failure = exc
-            controller.fail()
+            if controller.fail():
+                raise
+            exc = None
+            raise PersistentProfileRepositoryOutcomeUncertain() from None
         except sqlite3.Error as exc:
-            sqlite_reason = _sqlite_reason(getattr(exc, "sqlite_errorcode", None))
+            reason = _sqlite_reason(getattr(exc, "sqlite_errorcode", None))
+            exc = None
+            if controller.fail():
+                raise PersistentProfileRepositoryDefiniteRollback(reason) from None
+            raise PersistentProfileRepositoryOutcomeUncertain() from None
+        except Exception as exc:
+            exc = None
+            if controller.fail():
+                raise PersistentProfileRepositoryDefiniteRollback(
+                    "internal_consistency_failure"
+                ) from None
+            raise PersistentProfileRepositoryOutcomeUncertain() from None
+        except BaseException:
             controller.fail()
-        except Exception:
-            sqlite_reason = "internal_consistency_failure"
-            controller.fail()
-        if failure is not None:
-            raise failure
-        if sqlite_reason is not None:
-            raise _error(sqlite_reason)
+            raise
         return result
 
     @staticmethod
@@ -398,7 +638,17 @@ class PersistentProfileRepository:
     def _insert_sources(self, connection, command, revision_id, profile_id):
         source_ids = []
         for ordinal, source in enumerate(command.sources, start=1):
-            source_id = self._generate_source_id(connection)
+            if type(command) is CreatePersistentProfileCommand:
+                if (
+                    len(command.source_ids) != len(command.sources)
+                    or len(command.source_content_sha256s) != len(command.sources)
+                    or source_content_hash(source)
+                    != command.source_content_sha256s[ordinal - 1]
+                ):
+                    raise _error("internal_consistency_failure")
+                source_id = command.source_ids[ordinal - 1]
+            else:
+                source_id = self._generate_source_id(connection)
             connection.execute(
                 "INSERT INTO product_profile_sources "
                 "(source_id, revision_id, profile_id, principal_id, "
@@ -452,6 +702,53 @@ class PersistentProfileRepository:
             raise _error("internal_consistency_failure")
 
     @staticmethod
+    def _require_create_identities_available(connection, command):
+        if (
+            len(command.source_ids) != len(command.sources)
+            or len(set(command.source_ids)) != len(command.source_ids)
+            or connection.execute(
+                "SELECT 1 FROM product_profiles WHERE profile_id=?",
+                (command.profile_id,),
+            ).fetchone()
+            is not None
+            or connection.execute(
+                "SELECT 1 FROM product_profile_revisions WHERE revision_id=?",
+                (command.revision_id,),
+            ).fetchone()
+            is not None
+        ):
+            raise _error("internal_consistency_failure")
+        for source_id in command.source_ids:
+            if connection.execute(
+                "SELECT 1 FROM product_profile_sources WHERE source_id=?",
+                (source_id,),
+            ).fetchone() is not None:
+                raise _error("internal_consistency_failure")
+
+    @staticmethod
+    def _require_exact_create_lineage(connection, command, account_lineage):
+        if (
+            type(account_lineage) is not TrustedProfileCreateLineage
+            or getattr(account_lineage, "_issuer", None)
+            is not _PROFILE_CREATE_LINEAGE_ISSUER
+        ):
+            raise _error("ineligible_principal")
+        if (
+            account_lineage.principal_id != command.principal.principal_id
+            or account_lineage.environment_namespace
+            != command.principal.environment_namespace
+        ):
+            raise _error("ineligible_principal")
+        current = capture_profile_create_lineage(
+            connection,
+            account_id=account_lineage.account_id,
+            environment_namespace=account_lineage.environment_namespace,
+            principal_id=account_lineage.principal_id,
+        )
+        if current != account_lineage:
+            raise _error("ineligible_principal")
+
+    @staticmethod
     def _verify_current(connection, profile_id, expected):
         row = connection.execute(
             "SELECT current_revision_id, current_revision_number, current_revision_kind, "
@@ -463,11 +760,37 @@ class PersistentProfileRepository:
             raise _error("internal_consistency_failure")
 
     def create(self, connection, command):
+        return self._create(connection, command, account_lineage=None)
+
+    def create_account_native(self, connection, command, *, account_lineage):
+        if (
+            type(command) is not CreatePersistentProfileCommand
+            or command.principal.eligibility_mode != "account_native"
+        ):
+            raise _error("invalid_command")
+        self._require_exact_create_lineage_authority(command, account_lineage)
+        return self._create(connection, command, account_lineage=account_lineage)
+
+    @staticmethod
+    def _require_exact_create_lineage_authority(command, account_lineage):
+        if (
+            type(account_lineage) is not TrustedProfileCreateLineage
+            or getattr(account_lineage, "_issuer", None)
+            is not _PROFILE_CREATE_LINEAGE_ISSUER
+            or account_lineage.principal_id != command.principal.principal_id
+            or account_lineage.environment_namespace
+            != command.principal.environment_namespace
+        ):
+            raise _error("ineligible_principal")
+
+    def _create(self, connection, command, *, account_lineage):
         if type(command) is not CreatePersistentProfileCommand:
             raise _error("invalid_command")
 
         def operation(conn):
             self._attest(conn)
+            if account_lineage is not None:
+                self._require_exact_create_lineage(conn, command, account_lineage)
             self._require_durable_principal(conn, command.principal, full=True)
             principal_id, idempotency_key = command.idempotency_scope()
             replay = self._find_revision_replay(conn, principal_id, idempotency_key)
@@ -483,10 +806,11 @@ class PersistentProfileRepository:
                 "SELECT 1 FROM product_profiles WHERE principal_id=?", (principal_id,)
             ).fetchone() is not None:
                 raise _error("profile_already_exists")
+            self._require_create_identities_available(conn, command)
             structured = self._structured_bytes(command)
             if hashlib.sha256(structured).hexdigest() != command.structured_profile_sha256:
                 raise _error("internal_consistency_failure")
-            revision_id = self._generate_revision_id(conn)
+            revision_id = command.revision_id
             profile_created_at = min(
                 [command.accepted_at, *(source.confirmed_at for source in command.sources)]
             )
