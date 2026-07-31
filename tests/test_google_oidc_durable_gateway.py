@@ -60,7 +60,13 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.addCleanup(close_secret_vault, value)
         return value
 
-    def prepare(self, suffix, **gateway_options):
+    def prepare(
+        self,
+        suffix,
+        *,
+        invitation_credential=None,
+        **gateway_options,
+    ):
         database = self.database(suffix)
         authority = self.keep(key_authority())
         harness = self.keep(
@@ -73,6 +79,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             database.connection,
             harness.gateway,
             authority,
+            invitation_credential=invitation_credential,
         )
         self.assertIs(type(prepared), PreparedDurableGoogleOidcAuthorization)
         return database, authority, harness, prepared
@@ -84,7 +91,12 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                     prepare_durable_google_oidc_authorization
                 ).parameters
             ),
-            ("connection", "gateway", "key_authority"),
+            (
+                "connection",
+                "gateway",
+                "key_authority",
+                "invitation_credential",
+            ),
         )
         self.assertEqual(
             tuple(
@@ -401,6 +413,117 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(result.status, "issued")
         self.assertEqual(transaction_rows(database.connection)[0]["lifecycle"], "consumed")
         self.assertEqual(first_gateway.transport.token_request_count, 1)
+
+    def test_invitation_reconstructs_into_only_private_one_shot_completion(self):
+        invitation_text = "inv_" + ("e" * 32) + "." + ("F" * 43)
+        invitation_bytes = invitation_text.encode("ascii")
+        database = self.database("invitation-reconstruction")
+        first_authority = self.keep(
+            key_authority(
+                lookup_versions=(1,),
+                protection_versions=(11,),
+            )
+        )
+        first_gateway = self.keep(
+            make_real_gateway(subject=database.subject)
+        )
+        source = bytearray(invitation_bytes)
+        prepared = prepare_durable_google_oidc_authorization(
+            database.connection,
+            first_gateway.gateway,
+            first_authority,
+            invitation_credential=source,
+        )
+        self.assertEqual(source, bytearray())
+        row = transaction_rows(database.connection)[0]
+        self.assertNotIn(invitation_bytes, row["protected_material"])
+        self.assertNotIn(invitation_text, repr(row))
+        callback = first_gateway.transport.callback_for(prepared)
+        first_gateway.gateway.close()
+        first_authority.close()
+
+        rotated_authority = self.keep(
+            key_authority(
+                lookup_versions=(1, 2),
+                protection_versions=(11, 12),
+                active_lookup_version=2,
+                active_protection_version=12,
+            )
+        )
+        reconstructed = self.keep(
+            make_real_gateway(subject=database.subject)
+        )
+        observed = []
+        retained = []
+        original = durable_gateway_module._complete_claimed_authorization
+
+        def observe(*args, **kwargs):
+            invitation = kwargs["invitation_credential"]
+            observed.append(None if invitation is None else bytes(invitation))
+            retained.append(invitation)
+            return original(*args, **kwargs)
+
+        with mock.patch.object(
+            durable_gateway_module,
+            "_complete_claimed_authorization",
+            side_effect=observe,
+        ) as completion:
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                reconstructed.gateway,
+                rotated_authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+            replay = complete_durable_google_oidc_authorization(
+                database.connection,
+                reconstructed.gateway,
+                rotated_authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.status, "issued")
+        self.assertEqual(replay.status, "invalid_or_expired_transaction")
+        self.assertEqual(observed, [invitation_bytes])
+        self.assertEqual(completion.call_count, 1)
+        self.assertEqual(retained, [bytearray()])
+        self.assertEqual(
+            transaction_rows(database.connection)[0]["lifecycle"],
+            "consumed",
+        )
+        public_text = repr(result) + str(result) + repr(replay)
+        self.assertNotIn(invitation_text, public_text)
+
+    def test_callback_query_cannot_add_or_replace_bound_invitation(self):
+        invitation = bytearray(
+            ("inv_" + ("1" * 32) + "." + ("G" * 43)).encode("ascii")
+        )
+        database, authority, harness, prepared = self.prepare(
+            "invitation-callback-substitution",
+            invitation_credential=invitation,
+        )
+        callback = harness.transport.callback_for(prepared)
+        substituted = callback + "&invitation=attacker-controlled"
+        with mock.patch.object(
+            durable_gateway_module,
+            "_complete_claimed_authorization",
+        ) as downstream:
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                substituted,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.status, "invalid_or_expired_transaction")
+        downstream.assert_not_called()
+        self.assertEqual(
+            transaction_rows(database.connection)[0]["lifecycle"],
+            "prepared",
+        )
 
     def test_configuration_boundary_accepts_maximum_redirect_and_reconstructs(self):
         prefix = "https://maximum-redirect.test/"

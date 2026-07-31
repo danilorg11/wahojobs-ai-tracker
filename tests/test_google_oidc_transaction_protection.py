@@ -47,6 +47,7 @@ REQUEST_KEY = (
     .rstrip(b"=")
     .decode("ascii")
 )
+INVITATION = b"inv_" + (b"a" * 32) + b"." + (b"B" * 43)
 LOOKUP_1 = bytes(range(128, 160))
 LOOKUP_2 = bytes(range(160, 192))
 LOOKUP_3 = bytes(range(192, 224))
@@ -878,6 +879,77 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
                 else:
                     domain._canonical_time_text(invalid)
 
+    def test_versioned_invitation_material_preserves_legacy_and_rejects_ambiguity(self):
+        legacy_source = _material()
+        legacy = domain._serialize_protected_material_v1(**legacy_source)
+        self.addCleanup(domain._clear_buffer, legacy)
+        legacy_values = domain._parse_protected_material(bytearray(legacy))
+        try:
+            self.assertIsNone(legacy_values["invitation_credential"])
+            self.assertEqual(
+                bytes(legacy_values["b2d1_request_key"]),
+                REQUEST_KEY.encode("ascii"),
+            )
+        finally:
+            _clear_values(legacy_values)
+
+        invitation = bytearray(INVITATION)
+        source = _material()
+        encoded = domain._serialize_protected_material(
+            **source,
+            invitation_credential=invitation,
+        )
+        self.addCleanup(domain._clear_buffer, encoded)
+        self.assertEqual(invitation, INVITATION)
+        values = domain._parse_protected_material(bytearray(encoded))
+        try:
+            self.assertEqual(
+                bytes(values["invitation_credential"]),
+                INVITATION,
+            )
+            self.assertEqual(bytes(values["state"]), STATE.encode("ascii"))
+        finally:
+            _clear_values(values)
+
+        components = (
+            domain.PROTECTED_MATERIAL_VERSION.to_bytes(4, "big"),
+            STATE.encode("ascii"),
+            NONCE.encode("ascii"),
+            VERIFIER.encode("ascii"),
+            REQUEST_KEY.encode("ascii"),
+            INVITATION,
+        )
+        malformed = (
+            domain._length_prefixed_encoding(
+                domain._PROTECTED_MATERIAL_DOMAIN_V2,
+                ((domain.PROTECTED_MATERIAL_VERSION + 1).to_bytes(4, "big"), *components[1:]),
+            ),
+            domain._length_prefixed_encoding(
+                domain._PROTECTED_MATERIAL_DOMAIN_V2,
+                (*components, b"duplicate"),
+            ),
+            domain._length_prefixed_encoding(
+                b"wahojobs-google-oidc-protected-material-v3",
+                components,
+            ),
+        )
+        for candidate in malformed:
+            with self.subTest(candidate_length=len(candidate)):
+                with self.assertRaises(TypeError):
+                    domain._parse_protected_material(bytearray(candidate))
+        for invalid in (
+            b"not-mutable",
+            "not-bytes",
+            bytearray(),
+            bytearray(b"x" * (domain.MAX_INVITATION_CREDENTIAL_BYTES + 1)),
+        ):
+            with self.subTest(invalid_type=type(invalid).__name__):
+                with self.assertRaises(TypeError):
+                    domain._serialize_protected_material(
+                        **_material(),
+                        invitation_credential=invalid,
+                    )
+
     def test_associated_data_binds_every_row_and_configuration_dimension(self):
         authority = _authority(
             lookup=((1, LOOKUP_1), (2, LOOKUP_2)),
@@ -920,6 +992,7 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
         aad = _aad(authority)
         source = _material()
         expected = {name: bytes(value) for name, value in source.items()}
+        expected["invitation_credential"] = None
         with mock.patch.object(
             protection.secrets,
             "token_bytes",
@@ -948,11 +1021,47 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
         )
         try:
             self.assertEqual(
-                {name: bytes(value) for name, value in values.items()},
+                {
+                    name: None if value is None else bytes(value)
+                    for name, value in values.items()
+                },
                 expected,
             )
         finally:
             _clear_values(values)
+
+    def test_invitation_round_trip_is_exact_bounded_and_ciphertext_only(self):
+        authority = _authority()
+        self.addCleanup(authority.close)
+        aad = _aad(authority)
+        source = _material()
+        source["invitation_credential"] = bytearray(INVITATION)
+        retained = tuple(source.values())
+        with mock.patch.object(
+            protection.secrets,
+            "token_bytes",
+            return_value=FIXED_AES_NONCE,
+        ):
+            envelope = protection._protect_material(
+                authority,
+                associated_data=aad,
+                **source,
+            )
+        self.assertTrue(all(not value for value in retained))
+        self.assertNotIn(INVITATION, envelope.ciphertext)
+        values = protection._unprotect_material(
+            authority,
+            protection_key_version=envelope.key_version,
+            protection_nonce=envelope.nonce,
+            protected_material=envelope.ciphertext,
+            associated_data=aad,
+        )
+        invitation = values["invitation_credential"]
+        try:
+            self.assertEqual(bytes(invitation), INVITATION)
+        finally:
+            _clear_values(values)
+        self.assertEqual(invitation, bytearray())
 
     def test_corruption_wrong_key_nonce_aad_and_cross_row_swap_fail_generically(self):
         authority = _authority()
@@ -1112,7 +1221,7 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
                 failures["unprotect-parse"],
                 mock.patch.object(
                     protection,
-                    "_parse_protected_material_v1",
+                    "_parse_protected_material",
                     side_effect=failures["unprotect-parse"],
                 ),
                 lambda: protection._unprotect_material(
@@ -1416,6 +1525,7 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
 
     def test_claimed_material_capsule_is_sealed_one_use_and_clearable(self):
         source = _material()
+        source["invitation_credential"] = bytearray(INVITATION)
         fingerprint = b"f" * 32
         capsule = domain._issue_claimed_material(
             transaction_id=TRANSACTION_ID,
@@ -1438,13 +1548,14 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
             repr(capsule),
             "ClaimedGoogleOidcAuthorizationMaterial(<redacted>)",
         )
-        for secret in (STATE, NONCE, VERIFIER, REQUEST_KEY):
+        for secret in (STATE, NONCE, VERIFIER, REQUEST_KEY, INVITATION.decode("ascii")):
             self.assertNotIn(secret, repr(capsule))
         values = domain._take_claimed_material(capsule)
         self.assertFalse(capsule.available)
         self.assertEqual(values["transaction_id"], TRANSACTION_ID)
         self.assertEqual(values["claimed_at"], NOW + timedelta(seconds=1))
         self.assertEqual(bytes(values["state"]).decode("ascii"), STATE)
+        self.assertEqual(bytes(values["invitation_credential"]), INVITATION)
         with self.assertRaises(TypeError):
             domain._take_claimed_material(capsule)
         secret_buffers = tuple(
@@ -1454,6 +1565,7 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
                 "nonce",
                 "pkce_verifier",
                 "b2d1_request_key",
+                "invitation_credential",
             )
         )
         domain._clear_claimed_material_values(values)
@@ -1463,6 +1575,7 @@ class GoogleOidcTransactionProtectionTests(unittest.TestCase):
 
     def test_invalid_claimed_capsule_issuance_consumes_all_secret_buffers(self):
         source = _material()
+        source["invitation_credential"] = bytearray(INVITATION)
         retained = tuple(source.values())
         with self.assertRaises(TypeError):
             domain._issue_claimed_material(

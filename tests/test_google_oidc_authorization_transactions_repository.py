@@ -24,8 +24,10 @@ from tests.persistent_profile_canonical_v2_test_support import (
     install_canonical_v2_profiles,
 )
 import wahojobs.google_oidc_authorization_transaction_repository as repository
+import wahojobs.google_oidc_authorization_transactions as transaction_domain
 import wahojobs.google_oidc_authorization_transaction_reconciliation as reconciliation
 import wahojobs.google_oidc_authorization_transaction_schema as transaction_schema
+import wahojobs.google_oidc_transaction_protection as transaction_protection
 from wahojobs.google_oidc_authorization_transaction_schema import (
     attest_google_oidc_authorization_transaction_schema,
 )
@@ -461,6 +463,156 @@ class GoogleOidcAuthorizationTransactionRepositoryTests(unittest.TestCase):
                 )
                 claimed.close()
                 prepared.close()
+            finally:
+                if second is not None:
+                    second.close()
+                else:
+                    first.close()
+                authority.close()
+
+    def test_invitation_is_ciphertext_bound_reconstructed_and_one_use(self):
+        invitation_text = "inv_" + ("c" * 32) + "." + ("D" * 43)
+        invitation_bytes = invitation_text.encode("ascii")
+        with durable_transaction_database(suffix="repository-invitation") as database:
+            authority = key_authority()
+            first = reconstructed_gateway(
+                subject="google-subject-repository-invitation"
+            )
+            second = None
+            invitation = bytearray(invitation_bytes)
+            unchanged_tables = (
+                "users",
+                "auth_identities",
+                "account_invitations",
+                "account_sessions",
+                "product_principals",
+                "principal_account_bindings",
+                "product_profiles",
+            )
+            before = {
+                name: database.connection.execute(
+                    f'SELECT COUNT(*) FROM "{name}"'
+                ).fetchone()[0]
+                for name in unchanged_tables
+            }
+            try:
+                with sockets_blocked():
+                    prepared = prepare_google_oidc_authorization_transaction(
+                        database.connection,
+                        first.gateway,
+                        authority,
+                        invitation_credential=invitation,
+                    )
+                self.assertEqual(invitation, bytearray())
+                state = authorization_parameters(prepared)["state"]
+                row = transaction_rows(database.connection)[0]
+                self.assertNotIn(invitation_bytes, row["protected_material"])
+                self.assertNotIn(invitation_text, repr(row))
+                first.close()
+                second = reconstructed_gateway(
+                    subject="google-subject-repository-invitation"
+                )
+                with sockets_blocked():
+                    claimed = claim_google_oidc_authorization_transaction(
+                        database.connection,
+                        second.gateway,
+                        authority,
+                        state,
+                    )
+                values = transaction_domain._take_claimed_material(claimed)
+                retained = values["invitation_credential"]
+                try:
+                    self.assertEqual(bytes(retained), invitation_bytes)
+                finally:
+                    transaction_domain._clear_claimed_material_values(values)
+                self.assertEqual(retained, bytearray())
+                with sockets_blocked(), self.assertRaises(
+                    GoogleOidcAuthorizationTransactionRepositoryError
+                ):
+                    claim_google_oidc_authorization_transaction(
+                        database.connection,
+                        second.gateway,
+                        authority,
+                        state,
+                    )
+                self.assertEqual(
+                    {
+                        name: database.connection.execute(
+                            f'SELECT COUNT(*) FROM "{name}"'
+                        ).fetchone()[0]
+                        for name in unchanged_tables
+                    },
+                    before,
+                )
+                claimed.close()
+                prepared.close()
+            finally:
+                if second is not None:
+                    second.close()
+                else:
+                    first.close()
+                authority.close()
+
+    def test_legacy_material_reconstructs_and_invalid_invitation_never_commits(self):
+        with durable_transaction_database(suffix="repository-legacy-invitation") as database:
+            authority = key_authority()
+            first = reconstructed_gateway(
+                subject="google-subject-repository-legacy-invitation"
+            )
+            second = None
+            def legacy_serializer(**values):
+                values.pop("invitation_credential", None)
+                return transaction_domain._serialize_protected_material_v1(
+                    **values
+                )
+
+            try:
+                with sockets_blocked(), mock.patch.object(
+                    transaction_protection,
+                    "_serialize_protected_material",
+                    side_effect=legacy_serializer,
+                ):
+                    prepared = prepare_google_oidc_authorization_transaction(
+                        database.connection,
+                        first.gateway,
+                        authority,
+                    )
+                state = authorization_parameters(prepared)["state"]
+                first.close()
+                second = reconstructed_gateway(
+                    subject="google-subject-repository-legacy-invitation"
+                )
+                with sockets_blocked():
+                    claimed = claim_google_oidc_authorization_transaction(
+                        database.connection,
+                        second.gateway,
+                        authority,
+                        state,
+                    )
+                values = transaction_domain._take_claimed_material(claimed)
+                try:
+                    self.assertIsNone(values["invitation_credential"])
+                finally:
+                    transaction_domain._clear_claimed_material_values(values)
+                claimed.close()
+                prepared.close()
+
+                oversized = bytearray(
+                    b"x" * (
+                        transaction_domain.MAX_INVITATION_CREDENTIAL_BYTES + 1
+                    )
+                )
+                with sockets_blocked(), self.assertRaises(
+                    GoogleOidcAuthorizationTransactionRepositoryError
+                ):
+                    prepare_google_oidc_authorization_transaction(
+                        database.connection,
+                        second.gateway,
+                        authority,
+                        invitation_credential=oversized,
+                    )
+                self.assertEqual(oversized, bytearray())
+                self.assertEqual(len(transaction_rows(database.connection)), 1)
             finally:
                 if second is not None:
                     second.close()

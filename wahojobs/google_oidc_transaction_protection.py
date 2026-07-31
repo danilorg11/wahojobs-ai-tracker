@@ -21,8 +21,8 @@ from wahojobs.google_oidc_authorization_transactions import (
     _canonical_configuration_binding_input,
     _canonical_state_lookup_input,
     _clear_buffer,
-    _parse_protected_material_v1,
-    _serialize_protected_material_v1,
+    _parse_protected_material,
+    _serialize_protected_material,
 )
 
 
@@ -708,6 +708,7 @@ def _protect_material(
     pkce_verifier,
     b2d1_request_key,
     associated_data,
+    invitation_credential=None,
 ):
     result = _protect_material_sensitive(
         authority,
@@ -716,12 +717,14 @@ def _protect_material(
         pkce_verifier=pkce_verifier,
         b2d1_request_key=b2d1_request_key,
         associated_data=associated_data,
+        invitation_credential=invitation_credential,
     )
     authority = None
     state = None
     nonce = None
     pkce_verifier = None
     b2d1_request_key = None
+    invitation_credential = None
     associated_data = None
     return _publish_sensitive_result(result)
 
@@ -734,8 +737,15 @@ def _protect_material_sensitive(
     pkce_verifier,
     b2d1_request_key,
     associated_data,
+    invitation_credential=None,
 ):
-    source_buffers = (state, nonce, pkce_verifier, b2d1_request_key)
+    source_buffers = (
+        state,
+        nonce,
+        pkce_verifier,
+        b2d1_request_key,
+        invitation_credential,
+    )
     plaintext = None
     generated_nonce = None
     ciphertext = None
@@ -743,11 +753,12 @@ def _protect_material_sensitive(
     key_version = None
     try:
         associated_data = _validated_associated_data(associated_data)
-        plaintext = _serialize_protected_material_v1(
+        plaintext = _serialize_protected_material(
             state=state,
             nonce=nonce,
             pkce_verifier=pkce_verifier,
             b2d1_request_key=b2d1_request_key,
+            invitation_credential=invitation_credential,
         )
         if not (1 <= len(plaintext) <= MAX_PROTECTED_PLAINTEXT_BYTES):
             raise TypeError("google_oidc_protected_material_invalid")
@@ -798,6 +809,7 @@ def _protect_material_sensitive(
         nonce = None
         pkce_verifier = None
         b2d1_request_key = None
+        invitation_credential = None
         source_buffers = None
         record = None
         key_version = None
@@ -879,7 +891,7 @@ def _unprotect_material_sensitive(
             raise TypeError("google_oidc_protected_material_invalid")
         plaintext_buffer = bytearray(plaintext_bytes)
         plaintext_bytes = None
-        values = _parse_protected_material_v1(plaintext_buffer)
+        values = _parse_protected_material(plaintext_buffer)
         retained = True
         return values
     except (KeyboardInterrupt, SystemExit, GeneratorExit) as control:

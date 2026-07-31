@@ -31,12 +31,13 @@ __all__ = (
 TRANSACTION_RECORD_VERSION = 1
 STATE_DIGEST_VERSION = 1
 PROTECTION_ENVELOPE_VERSION = 1
-PROTECTED_MATERIAL_VERSION = 1
+PROTECTED_MATERIAL_VERSION = 2
 ASSOCIATED_DATA_VERSION = 1
 TRANSACTION_TTL_SECONDS = 600
 MAX_KEY_VERSION = 2_147_483_647
 MAX_PROTECTED_PLAINTEXT_BYTES = 512
 MAX_PROTECTED_CIPHERTEXT_BYTES = 528
+MAX_INVITATION_CREDENTIAL_BYTES = 128
 MAX_AUTHORIZATION_URL_BYTES = 8192
 MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES = 8192
 
@@ -86,8 +87,12 @@ _TRANSACTION_ID = re.compile(r"^oidctx_[0-9a-f]{32}$")
 _ENVIRONMENT_NAMESPACE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 _BASE64URL = re.compile(r"^[A-Za-z0-9_-]+$")
 _ISSUE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-_PROTECTED_MATERIAL_DOMAIN = (
+_LEGACY_PROTECTED_MATERIAL_VERSION = 1
+_PROTECTED_MATERIAL_DOMAIN_V1 = (
     b"wahojobs-google-oidc-protected-material-v1"
+)
+_PROTECTED_MATERIAL_DOMAIN_V2 = (
+    b"wahojobs-google-oidc-protected-material-v2"
 )
 _ASSOCIATED_DATA_DOMAIN = (
     b"wahojobs-google-oidc-authorization-transaction-aad-v1"
@@ -225,11 +230,13 @@ class ClaimedGoogleOidcAuthorizationMaterial:
 
     @classmethod
     def _issue(cls, capability, **values):
+        values.setdefault("invitation_credential", None)
         secret_names = (
             "state",
             "nonce",
             "pkce_verifier",
             "b2d1_request_key",
+            "invitation_credential",
         )
         secret_buffers = tuple(values.get(name) for name in secret_names)
         retained = False
@@ -283,11 +290,13 @@ class ClaimedGoogleOidcAuthorizationMaterial:
                 "nonce": record.nonce,
                 "pkce_verifier": record.pkce_verifier,
                 "b2d1_request_key": record.b2d1_request_key,
+                "invitation_credential": record.invitation_credential,
             }
             record.state = None
             record.nonce = None
             record.pkce_verifier = None
             record.b2d1_request_key = None
+            record.invitation_credential = None
             record.used = True
             return values
 
@@ -312,10 +321,12 @@ class ClaimedGoogleOidcAuthorizationMaterial:
             _clear_buffer(record.nonce)
             _clear_buffer(record.pkce_verifier)
             _clear_buffer(record.b2d1_request_key)
+            _clear_buffer(record.invitation_credential)
             record.state = None
             record.nonce = None
             record.pkce_verifier = None
             record.b2d1_request_key = None
+            record.invitation_credential = None
             record.used = True
 
     def __setattr__(self, _name, _value):
@@ -799,6 +810,7 @@ class _ClaimedMaterialRecord:
         "nonce",
         "pkce_verifier",
         "b2d1_request_key",
+        "invitation_credential",
         "lock",
         "used",
     )
@@ -842,7 +854,13 @@ def _take_claimed_material(capsule):
 def _clear_claimed_material_values(values):
     if type(values) is not dict:
         return
-    for name in ("state", "nonce", "pkce_verifier", "b2d1_request_key"):
+    for name in (
+        "state",
+        "nonce",
+        "pkce_verifier",
+        "b2d1_request_key",
+        "invitation_credential",
+    ):
         _clear_buffer(values.get(name))
         values[name] = None
     values.clear()
@@ -1050,9 +1068,9 @@ def _serialize_protected_material_v1(
             b2d1_request_key
         )
         encoded = _length_prefixed_encoding(
-            _PROTECTED_MATERIAL_DOMAIN,
+            _PROTECTED_MATERIAL_DOMAIN_V1,
             (
-                PROTECTED_MATERIAL_VERSION.to_bytes(4, "big"),
+                _LEGACY_PROTECTED_MATERIAL_VERSION.to_bytes(4, "big"),
                 bytes(state_buffer),
                 bytes(nonce_buffer),
                 bytes(verifier_buffer),
@@ -1078,13 +1096,13 @@ def _parse_protected_material_v1(serialized):
         raise TypeError("google_oidc_protected_material_invalid")
     components = _parse_length_prefixed_encoding(
         serialized,
-        expected_domain=_PROTECTED_MATERIAL_DOMAIN,
+        expected_domain=_PROTECTED_MATERIAL_DOMAIN_V1,
         expected_count=5,
     )
     retained = False
     try:
         if components[0] != bytearray(
-            PROTECTED_MATERIAL_VERSION.to_bytes(4, "big")
+            _LEGACY_PROTECTED_MATERIAL_VERSION.to_bytes(4, "big")
         ):
             raise TypeError("google_oidc_protected_material_invalid")
         state = _validated_base64url_buffer(
@@ -1125,6 +1143,168 @@ def _parse_protected_material_v1(serialized):
                 "request_key",
             ):
                 _clear_buffer(locals().get(name))
+
+
+def _serialize_protected_material(
+    *,
+    state,
+    nonce,
+    pkce_verifier,
+    b2d1_request_key,
+    invitation_credential=None,
+):
+    state_buffer = None
+    nonce_buffer = None
+    verifier_buffer = None
+    request_buffer = None
+    invitation_buffer = None
+    try:
+        state_buffer = _validated_base64url_buffer(
+            state,
+            encoded_length=43,
+            decoded_length=32,
+            field="state",
+        )
+        nonce_buffer = _validated_base64url_buffer(
+            nonce,
+            encoded_length=43,
+            decoded_length=32,
+            field="nonce",
+        )
+        verifier_buffer = _validated_base64url_buffer(
+            pkce_verifier,
+            encoded_length=86,
+            decoded_length=64,
+            field="pkce_verifier",
+        )
+        request_buffer = _validated_b2d1_request_key_buffer(
+            b2d1_request_key
+        )
+        invitation_buffer = _validated_invitation_credential_buffer(
+            invitation_credential,
+            allow_none=True,
+        )
+        encoded = _length_prefixed_encoding(
+            _PROTECTED_MATERIAL_DOMAIN_V2,
+            (
+                PROTECTED_MATERIAL_VERSION.to_bytes(4, "big"),
+                bytes(state_buffer),
+                bytes(nonce_buffer),
+                bytes(verifier_buffer),
+                bytes(request_buffer),
+                b"" if invitation_buffer is None else bytes(invitation_buffer),
+            ),
+        )
+        if len(encoded) > MAX_PROTECTED_PLAINTEXT_BYTES:
+            raise TypeError("google_oidc_protected_material_invalid")
+        return bytearray(encoded)
+    finally:
+        _clear_buffer(state_buffer)
+        _clear_buffer(nonce_buffer)
+        _clear_buffer(verifier_buffer)
+        _clear_buffer(request_buffer)
+        _clear_buffer(invitation_buffer)
+
+
+def _parse_protected_material(serialized):
+    domain = _protected_material_domain(serialized)
+    if domain == _PROTECTED_MATERIAL_DOMAIN_V1:
+        values = _parse_protected_material_v1(serialized)
+        values["invitation_credential"] = None
+        return values
+    if domain == _PROTECTED_MATERIAL_DOMAIN_V2:
+        return _parse_protected_material_v2(serialized)
+    raise TypeError("google_oidc_protected_material_invalid")
+
+
+def _parse_protected_material_v2(serialized):
+    if (
+        type(serialized) is not bytearray
+        or not serialized
+        or len(serialized) > MAX_PROTECTED_PLAINTEXT_BYTES
+    ):
+        raise TypeError("google_oidc_protected_material_invalid")
+    components = _parse_length_prefixed_encoding(
+        serialized,
+        expected_domain=_PROTECTED_MATERIAL_DOMAIN_V2,
+        expected_count=6,
+    )
+    retained = False
+    try:
+        if components[0] != bytearray(
+            PROTECTED_MATERIAL_VERSION.to_bytes(4, "big")
+        ):
+            raise TypeError("google_oidc_protected_material_invalid")
+        state = _validated_base64url_buffer(
+            components[1],
+            encoded_length=43,
+            decoded_length=32,
+            field="state",
+        )
+        nonce = _validated_base64url_buffer(
+            components[2],
+            encoded_length=43,
+            decoded_length=32,
+            field="nonce",
+        )
+        verifier = _validated_base64url_buffer(
+            components[3],
+            encoded_length=86,
+            decoded_length=64,
+            field="pkce_verifier",
+        )
+        request_key = _validated_b2d1_request_key_buffer(components[4])
+        invitation = (
+            None
+            if not components[5]
+            else _validated_invitation_credential_buffer(components[5])
+        )
+        values = {
+            "state": state,
+            "nonce": nonce,
+            "pkce_verifier": verifier,
+            "b2d1_request_key": request_key,
+            "invitation_credential": invitation,
+        }
+        retained = True
+        return values
+    finally:
+        for component in components:
+            _clear_buffer(component)
+        if not retained:
+            for name in (
+                "state",
+                "nonce",
+                "verifier",
+                "request_key",
+                "invitation",
+            ):
+                _clear_buffer(locals().get(name))
+
+
+def _protected_material_domain(serialized):
+    if (
+        type(serialized) is not bytearray
+        or len(serialized) < 3
+        or len(serialized) > MAX_PROTECTED_PLAINTEXT_BYTES
+    ):
+        raise TypeError("google_oidc_protected_material_invalid")
+    domain_length = int.from_bytes(serialized[:2], "big")
+    domain_end = 2 + domain_length
+    if domain_length < 1 or domain_end >= len(serialized):
+        raise TypeError("google_oidc_protected_material_invalid")
+    return bytes(serialized[2:domain_end])
+
+
+def _validated_invitation_credential_buffer(value, *, allow_none=False):
+    if allow_none and value is None:
+        return None
+    if (
+        type(value) is not bytearray
+        or not (1 <= len(value) <= MAX_INVITATION_CREDENTIAL_BYTES)
+    ):
+        raise TypeError("google_oidc_invitation_credential_invalid")
+    return bytearray(value)
 
 
 def _length_prefixed_encoding(domain, components):
@@ -1224,6 +1404,7 @@ def _validated_claimed_values(values):
         "nonce",
         "pkce_verifier",
         "b2d1_request_key",
+        "invitation_credential",
     }
     if set(values) != expected_names:
         raise TypeError("claimed_google_oidc_material_invalid")
@@ -1295,6 +1476,9 @@ def _validated_claimed_values(values):
             values["b2d1_request_key"],
             validator=_validated_b2d1_request_key_buffer,
         ),
+        "invitation_credential": _validated_owned_optional_secret_buffer(
+            values["invitation_credential"],
+        ),
     }
 
 
@@ -1308,6 +1492,15 @@ def _validated_owned_secret_buffer(value, *, validator):
     finally:
         _clear_buffer(validated)
     return value
+
+
+def _validated_owned_optional_secret_buffer(value):
+    if value is None:
+        return None
+    return _validated_owned_secret_buffer(
+        value,
+        validator=_validated_invitation_credential_buffer,
+    )
 
 
 def _validated_reconciliation_issue(issue):

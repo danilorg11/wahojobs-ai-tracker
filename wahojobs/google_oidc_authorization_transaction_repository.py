@@ -163,6 +163,8 @@ def prepare_google_oidc_authorization_transaction(
     connection,
     gateway,
     key_authority,
+    *,
+    invitation_credential=None,
 ):
     """Create and commit one fresh transaction through a sanitized boundary."""
 
@@ -171,11 +173,14 @@ def prepare_google_oidc_authorization_transaction(
             connection,
             gateway,
             key_authority,
+            invitation_credential=invitation_credential,
         )
     finally:
+        _clear_buffer(invitation_credential)
         connection = None
         gateway = None
         key_authority = None
+        invitation_credential = None
     return _resolve_repository_outcome(outcome)
 
 
@@ -183,6 +188,8 @@ def _prepare_google_oidc_authorization_transaction_sensitive(
     connection,
     gateway,
     key_authority,
+    *,
+    invitation_credential=None,
 ):
     """Create, seal, and commit one fresh transaction before returning its URL."""
 
@@ -249,12 +256,14 @@ def _prepare_google_oidc_authorization_transaction_sensitive(
                 pkce_verifier=pkce_verifier,
                 b2d1_request_key=b2d1_request_key,
                 associated_data=associated_data,
+                invitation_credential=invitation_credential,
             )
         finally:
             _clear_buffer(state)
             _clear_buffer(nonce)
             _clear_buffer(pkce_verifier)
             _clear_buffer(b2d1_request_key)
+            _clear_buffer(invitation_credential)
 
         expected = (
             transaction_id,
@@ -350,6 +359,7 @@ def _prepare_google_oidc_authorization_transaction_sensitive(
         nonce = None
         pkce_verifier = None
         b2d1_request_key = None
+        invitation_credential = None
         digests = ()
         envelope = None
         binding = None
@@ -596,6 +606,9 @@ def _claim_google_oidc_authorization_transaction_sensitive(
             nonce=material_values.pop("nonce"),
             pkce_verifier=material_values.pop("pkce_verifier"),
             b2d1_request_key=material_values.pop("b2d1_request_key"),
+            invitation_credential=material_values.pop(
+                "invitation_credential"
+            ),
         )
         material_values.clear()
         return capsule

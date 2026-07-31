@@ -16,6 +16,7 @@ from wahojobs.google_oidc_authorization_transaction_repository import (
     prepare_google_oidc_authorization_transaction,
 )
 from wahojobs.google_oidc_authorization_transactions import (
+    _clear_buffer,
     _clear_claimed_material_values,
     _take_claimed_material,
 )
@@ -39,6 +40,8 @@ def prepare_durable_google_oidc_authorization(
     connection,
     gateway,
     key_authority,
+    *,
+    invitation_credential=None,
 ):
     """Commit one protected transaction before exposing its authorization URL."""
 
@@ -48,6 +51,7 @@ def prepare_durable_google_oidc_authorization(
             connection,
             gateway,
             key_authority,
+            invitation_credential=invitation_credential,
         )
     except (KeyboardInterrupt, SystemExit, GeneratorExit) as control:
         _poison_gateway_for_control(gateway, control)
@@ -60,9 +64,11 @@ def prepare_durable_google_oidc_authorization(
         _detach_exception(exc)
         return _failure("unavailable")
     finally:
+        _clear_buffer(invitation_credential)
         connection = None
         gateway = None
         key_authority = None
+        invitation_credential = None
 
 
 def complete_durable_google_oidc_authorization(
@@ -106,7 +112,7 @@ def complete_durable_google_oidc_authorization(
         values = _take_claimed_material(capsule)
         capsule.close()
         capsule = None
-        return _complete_durable_google_oidc_claimed(
+        return _complete_claimed_authorization(
             gateway,
             connection,
             callback_url,
@@ -116,6 +122,7 @@ def complete_durable_google_oidc_authorization(
             nonce=values["nonce"],
             pkce_verifier=values["pkce_verifier"],
             b2d1_request_key=values["b2d1_request_key"],
+            invitation_credential=values["invitation_credential"],
             created_at=values["created_at"],
             expires_at=values["expires_at"],
             claimed_at=values["claimed_at"],
@@ -192,7 +199,7 @@ def complete_browser_bound_durable_google_oidc_authorization(
             browser_transaction_id,
         ):
             return _failure("invalid_or_expired_transaction")
-        return _complete_durable_google_oidc_claimed(
+        return _complete_claimed_authorization(
             gateway,
             connection,
             callback_url,
@@ -202,6 +209,7 @@ def complete_browser_bound_durable_google_oidc_authorization(
             nonce=values["nonce"],
             pkce_verifier=values["pkce_verifier"],
             b2d1_request_key=values["b2d1_request_key"],
+            invitation_credential=values["invitation_credential"],
             created_at=values["created_at"],
             expires_at=values["expires_at"],
             claimed_at=values["claimed_at"],
@@ -230,6 +238,44 @@ def complete_browser_bound_durable_google_oidc_authorization(
         callback_state = None
         capsule = None
         values = None
+
+
+def _complete_claimed_authorization(
+    gateway,
+    connection,
+    callback_url,
+    completion_policy,
+    request_secret_vault,
+    *,
+    state,
+    nonce,
+    pkce_verifier,
+    b2d1_request_key,
+    invitation_credential,
+    created_at,
+    expires_at,
+    claimed_at,
+):
+    """Complete through the fixed server-private claimed-material boundary."""
+
+    try:
+        return _complete_durable_google_oidc_claimed(
+            gateway,
+            connection,
+            callback_url,
+            completion_policy,
+            request_secret_vault,
+            state=state,
+            nonce=nonce,
+            pkce_verifier=pkce_verifier,
+            b2d1_request_key=b2d1_request_key,
+            created_at=created_at,
+            expires_at=expires_at,
+            claimed_at=claimed_at,
+        )
+    finally:
+        _clear_buffer(invitation_credential)
+        invitation_credential = None
 
 
 def _browser_transaction_binding_matches(
