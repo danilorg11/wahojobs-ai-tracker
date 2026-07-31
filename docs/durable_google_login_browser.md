@@ -271,9 +271,10 @@ descriptors, and connections from explicit files and completes the callback
 with the network-disabled synthetic provider. Separate abrupt-exit schedules
 prove rollback before the start commit and recovery of one prepared row after
 the commit. No runtime object, connection, descriptor, socket, lock, thread, or
-in-memory authority crosses the process boundary. This contract adds no
-migration, automatic migration, retained-key rotation, or multiprocess
-callback competition.
+in-memory authority crosses the process boundary. The B2.1 database/restart
+contract itself adds no migration or automatic migration and makes no
+multiprocess callback-competition guarantee. Additive retained-key rollover is
+the separate clean-reconstruction contract below.
 
 ## Activation, readiness, and shutdown
 
@@ -362,6 +363,24 @@ sorted positive integer versions and names one retained version as active.
 Retaining prior versions permits a transaction prepared before an approved
 rotation to complete after runtime reconstruction. Equal key material is
 rejected across both authorities.
+
+### Additive retained-key rollover
+
+B2.2 supports an operator-prepared additive rollover only across a clean
+runtime stop and reconstruction. The replacement configuration may add one new
+lookup-key version and one new protection-key version, select the new versions
+as active, and must retain every older version still needed by a prepared
+authorization transaction. A callback prepared before the stop is recovered
+with the exact versions recorded in its Migration-006 row; a start prepared
+after reconstruction uses only the newly active versions. Missing required
+retained material fails closed and issues no browser session; the runtime never
+substitutes a different key version.
+
+This contract does not hot-reload or rewrite configuration or key files,
+generate or distribute keys, delete or retire retained versions, or decide
+when retirement is safe. Automated rotation, concurrent rollout, retained-key
+retirement, KMS/HSM or other managed custody, and live-runtime replacement
+remain separate authorized work.
 
 File contents are read through identity-bound regular-file handles with
 before-open, opened-handle, during-read, after-read, and post-close pathname
