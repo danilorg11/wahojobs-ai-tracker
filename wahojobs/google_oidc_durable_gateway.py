@@ -7,6 +7,7 @@ configured gateway, key authority, and accepted B2D1/B2C4 boundaries.
 
 from __future__ import annotations
 
+from hmac import compare_digest as _constant_time_equal
 import sqlite3
 
 from wahojobs.google_oidc_authorization_transaction_repository import (
@@ -28,6 +29,10 @@ from wahojobs.google_oidc_gateway import (
 from wahojobs.google_oidc_transaction_protection import (
     GoogleOidcTransactionKeyAuthority,
 )
+
+_TRANSACTION_ID_PREFIX = b"oidctx_"
+_TRANSACTION_ID_BYTES = 39
+_LOWER_HEXADECIMAL = frozenset(b"0123456789abcdef")
 
 
 def prepare_durable_google_oidc_authorization(
@@ -140,6 +145,127 @@ def complete_durable_google_oidc_authorization(
         values = None
 
 
+def complete_browser_bound_durable_google_oidc_authorization(
+    connection,
+    gateway,
+    key_authority,
+    callback_url,
+    browser_transaction_id,
+    completion_policy,
+    request_secret_vault,
+):
+    """Terminally claim before accepting one browser transaction binding."""
+
+    callback_state = None
+    capsule = None
+    values = None
+    try:
+        _require_concrete_boundary(connection, gateway, key_authority)
+        try:
+            callback_state = _durable_google_oidc_callback_state(
+                gateway,
+                callback_url,
+            )
+        except (KeyboardInterrupt, SystemExit, GeneratorExit):
+            raise
+        except Exception as exc:
+            _detach_exception(exc)
+            return _failure("invalid_or_expired_transaction")
+        try:
+            capsule = claim_google_oidc_authorization_transaction(
+                connection,
+                gateway,
+                key_authority,
+                callback_state,
+            )
+        except GoogleOidcAuthorizationTransactionRepositoryError as exc:
+            reason = exc.reason_code
+            _detach_exception(exc)
+            if reason == "invalid_or_expired_transaction":
+                return _failure("invalid_or_expired_transaction")
+            return _failure("unavailable")
+        values = _take_claimed_material(capsule)
+        capsule.close()
+        capsule = None
+        if not _browser_transaction_binding_matches(
+            values["transaction_id"],
+            browser_transaction_id,
+        ):
+            return _failure("invalid_or_expired_transaction")
+        return _complete_durable_google_oidc_claimed(
+            gateway,
+            connection,
+            callback_url,
+            completion_policy,
+            request_secret_vault,
+            state=values["state"],
+            nonce=values["nonce"],
+            pkce_verifier=values["pkce_verifier"],
+            b2d1_request_key=values["b2d1_request_key"],
+            created_at=values["created_at"],
+            expires_at=values["expires_at"],
+            claimed_at=values["claimed_at"],
+        )
+    except (KeyboardInterrupt, SystemExit, GeneratorExit) as control:
+        _poison_gateway_for_control(gateway, control)
+        _detach_exception(control)
+        raise control from None
+    except Exception as exc:
+        _detach_exception(exc)
+        return _failure("unavailable")
+    finally:
+        if capsule is not None:
+            try:
+                capsule.close()
+            except Exception as exc:
+                _detach_exception(exc)
+        _clear_claimed_material_values(values)
+        connection = None
+        gateway = None
+        key_authority = None
+        callback_url = None
+        browser_transaction_id = None
+        completion_policy = None
+        request_secret_vault = None
+        callback_state = None
+        capsule = None
+        values = None
+
+
+def _browser_transaction_binding_matches(
+    claimed_transaction_id,
+    browser_transaction_id,
+):
+    claimed, claimed_valid = _fixed_transaction_id_candidate(
+        claimed_transaction_id
+    )
+    supplied, supplied_valid = _fixed_transaction_id_candidate(
+        browser_transaction_id
+    )
+    matched = _constant_time_equal(claimed, supplied)
+    return bool(matched and claimed_valid and supplied_valid)
+
+
+def _fixed_transaction_id_candidate(value):
+    candidate = b"\x00" * _TRANSACTION_ID_BYTES
+    valid = False
+    if type(value) is str:
+        try:
+            encoded = value.encode("ascii", "strict")
+        except UnicodeError:
+            encoded = b""
+        if len(encoded) == _TRANSACTION_ID_BYTES:
+            candidate = encoded
+            valid = (
+                encoded.startswith(_TRANSACTION_ID_PREFIX)
+                and all(
+                    byte in _LOWER_HEXADECIMAL
+                    for byte in encoded[len(_TRANSACTION_ID_PREFIX) :]
+                )
+            )
+    return candidate, valid
+
+
 def _require_concrete_boundary(connection, gateway, key_authority):
     if (
         type(connection) is not sqlite3.Connection
@@ -159,6 +285,7 @@ def _detach_exception(exc):
 
 
 __all__ = (
+    "complete_browser_bound_durable_google_oidc_authorization",
     "complete_durable_google_oidc_authorization",
     "prepare_durable_google_oidc_authorization",
 )

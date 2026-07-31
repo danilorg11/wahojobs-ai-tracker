@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import base64
 import hashlib
+import inspect
 import io
 import json
 import os
@@ -20,7 +21,7 @@ import scripts.google_oidc_authorization_transactions_migration as migration
 from tests.google_oidc_authorization_transactions_test_support import (
     ManualClock,
     NOW,
-    durable_transaction_database,
+    durable_transaction_database as _durable_transaction_database,
     key_authority,
     reconstructed_gateway,
     sockets_blocked,
@@ -43,6 +44,71 @@ from wahojobs.google_oidc_authorization_transaction_repository import (
 def reconcile_google_oidc_authorization_transactions(*args, **kwargs):
     kwargs.setdefault("source_guarantees_no_sidecar_creation", True)
     return _reconcile(*args, **kwargs)
+
+
+def _apply_test_migration(connection, path):
+    path = Path(path).resolve(strict=True)
+    return migration.apply_google_oidc_authorization_transactions_migration(
+        connection,
+        requested_path=path,
+        expected_identity=migration.database_file_identity(path),
+    )
+
+
+@contextlib.contextmanager
+def durable_transaction_database(*, suffix="durable-oidc"):
+    original_apply = (
+        migration.apply_google_oidc_authorization_transactions_migration
+    )
+
+    def apply_with_explicit_test_target(
+        connection,
+        *arguments,
+        **keywords,
+    ):
+        if keywords.get("requested_path") is None:
+            rows = sqlite3.Connection.execute(
+                connection,
+                "PRAGMA database_list",
+            ).fetchall()
+            main_paths = [
+                Path(row[2]).resolve(strict=True)
+                for row in rows
+                if (
+                    type(row) in {tuple, sqlite3.Row}
+                    and len(row) >= 3
+                    and row[1] == "main"
+                    and type(row[2]) is str
+                )
+            ]
+            if len(main_paths) != 1:
+                raise AssertionError(
+                    "test_database_target_identity_unavailable"
+                )
+            keywords["requested_path"] = main_paths[0]
+            keywords["expected_identity"] = (
+                migration.database_file_identity(main_paths[0])
+            )
+        return original_apply(
+            connection,
+            *arguments,
+            **keywords,
+        )
+
+    manager = _durable_transaction_database(suffix=suffix)
+    with mock.patch.object(
+        migration,
+        "apply_google_oidc_authorization_transactions_migration",
+        side_effect=apply_with_explicit_test_target,
+    ):
+        database = manager.__enter__()
+    try:
+        yield database
+    except BaseException:
+        manager.__exit__(*sys.exc_info())
+        raise
+    else:
+        manager.__exit__(None, None, None)
 
 
 class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
@@ -1040,10 +1106,19 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
 
                         class IntegrityConnection:
                             def execute(self, sql, parameters=()):
-                                if "pragma_integrity_check" in sql:
+                                if (
+                                    "PRAGMA main.integrity_check(101)"
+                                    in sql
+                                ):
                                     self_sql.append(sql)
                                     return IntegrityCursor(count, budget)
                                 return bounded.execute(sql, parameters)
+
+                            def setconfig(self, operation, value):
+                                return bounded.setconfig(
+                                    operation,
+                                    value,
+                                )
 
                         self_sql = []
                         report = reconciliation._scan_snapshot(
@@ -1056,7 +1131,10 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
                     finally:
                         reconciliation._close_owned_connection(owned)
                     self.assertEqual(len(self_sql), 1)
-                    self.assertIn("pragma_integrity_check(101)", self_sql[0])
+                    self.assertIn(
+                        "PRAGMA main.integrity_check(101)",
+                        self_sql[0],
+                    )
                     self.assertEqual(report.status, expected_status)
                     self.assertEqual(
                         report.finding_total_exact,
@@ -1167,8 +1245,13 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
                     b"copied-protected-material-value",
                 )
             with tempfile.TemporaryDirectory() as directory:
-                connection = install_canonical_v2_profiles(Path(directory) / "state.sqlite")
-                migration.apply_google_oidc_authorization_transactions_migration(connection)
+                path = Path(directory) / "state.sqlite"
+                connection = install_canonical_v2_profiles(path)
+                migration.apply_google_oidc_authorization_transactions_migration(
+                    connection,
+                    requested_path=path,
+                    expected_identity=migration.database_file_identity(path),
+                )
                 connection.executemany(sql, (row(2, "development"), row(1, "test")))
                 connection.commit()
                 reconciliation._clock_now = lambda: reconciliation.datetime(2026, 7, 24, 3, 0, tzinfo=reconciliation.timezone.utc)
@@ -1306,6 +1389,731 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
             connection.set_trace_callback(None)
             connection.set_progress_handler(None, 0)
             connection.set_authorizer(None)
+
+    def test_owned_authorizer_uses_exact_direct_pragma_scope(self):
+        with durable_transaction_database(
+            suffix="reconciliation-direct-pragma-authorizer"
+        ) as database:
+            owned = reconciliation._new_private_connection()
+            captured = []
+            original_set_authorizer = (
+                reconciliation._SQLITE_SET_AUTHORIZER
+            )
+
+            def capture_authorizer(connection, callback):
+                if callback is not None:
+                    captured.append(callback)
+                return original_set_authorizer(connection, callback)
+
+            try:
+                database.connection.backup(owned)
+                owned.execute(
+                    "CREATE TABLE authorizer_scope_probe(value INTEGER)"
+                ).close()
+                self.assertFalse(owned.in_transaction)
+                budget = reconciliation._OperationBudget()
+                with mock.patch.object(
+                    reconciliation,
+                    "_SQLITE_SET_AUTHORIZER",
+                    side_effect=capture_authorizer,
+                ):
+                    reconciliation._configure_owned_connection(
+                        owned,
+                        budget,
+                    )
+                self.assertEqual(len(captured), 1)
+                authorize = captured[0]
+                self.assertEqual(
+                    authorize(
+                        sqlite3.SQLITE_PRAGMA,
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        "main",
+                        None,
+                    ),
+                    sqlite3.SQLITE_OK,
+                )
+                for table_name, database_name in (
+                    ("product_profiles", "main"),
+                    ("product_profiles", None),
+                    ("user_pipeline_items", "main"),
+                ):
+                    with self.subTest(
+                        captured_table=table_name,
+                        captured_database=database_name,
+                    ):
+                        self.assertEqual(
+                            authorize(
+                                sqlite3.SQLITE_PRAGMA,
+                                "table_xinfo",
+                                table_name,
+                                database_name,
+                                None,
+                            ),
+                            sqlite3.SQLITE_OK,
+                        )
+                for rejected in (
+                    (
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        None,
+                        None,
+                    ),
+                    (
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        "attached",
+                        None,
+                    ),
+                    (
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        "main",
+                        "trigger_name",
+                    ),
+                    (
+                        "table_xinfo",
+                        "user_pipeline_items",
+                        None,
+                        None,
+                    ),
+                ):
+                    with self.subTest(dynamic_scope_rejected=rejected):
+                        self.assertEqual(
+                            authorize(
+                                sqlite3.SQLITE_PRAGMA,
+                                *rejected,
+                            ),
+                            sqlite3.SQLITE_DENY,
+                        )
+                self.assertTrue(
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA main.table_xinfo("
+                        "'authorizer_scope_probe')",
+                    ).fetchall()
+                )
+                self.assertEqual(
+                    len(reconciliation._RECONCILIATION_EXACT_PRAGMA_TUPLES),
+                    63,
+                )
+                for name, argument, schema, source in sorted(
+                    reconciliation._RECONCILIATION_EXACT_PRAGMA_TUPLES,
+                    key=repr,
+                ):
+                    with self.subTest(
+                        allowed_name=name,
+                        allowed_argument=argument,
+                        allowed_schema=schema,
+                        allowed_source=source,
+                    ):
+                        self.assertEqual(
+                            authorize(
+                                sqlite3.SQLITE_PRAGMA,
+                                name,
+                                argument,
+                                schema,
+                                source,
+                            ),
+                            sqlite3.SQLITE_OK,
+                        )
+                    rejected_variants = [
+                        (
+                            name,
+                            "__unexpected_argument__",
+                            schema,
+                            source,
+                        ),
+                        (name, "", schema, source),
+                        (name, argument, "attached", source),
+                        (name, argument, schema, "trigger_name"),
+                        (name.upper(), argument, schema, source),
+                        (name.encode("ascii"), argument, schema, source),
+                        (name, [], schema, source),
+                        (name, argument, b"main", source),
+                    ]
+                    alternate_schema = (
+                        name,
+                        argument,
+                        None if schema == "main" else "main",
+                        source,
+                    )
+                    if (
+                        alternate_schema
+                        not in reconciliation._RECONCILIATION_EXACT_PRAGMA_TUPLES
+                    ):
+                        rejected_variants.append(alternate_schema)
+                    for rejected in rejected_variants:
+                        with self.subTest(
+                            allowed=(name, argument, schema, source),
+                            rejected=rejected,
+                        ):
+                            self.assertEqual(
+                                authorize(
+                                    sqlite3.SQLITE_PRAGMA,
+                                    *rejected,
+                                ),
+                                sqlite3.SQLITE_DENY,
+                            )
+                for table in sorted(
+                    transaction_schema.M006_VERIFICATION_INDEX_LIST_TABLES
+                ):
+                    for schema in (None, "main"):
+                        with self.subTest(
+                            index_list_table=table,
+                            index_list_schema=schema,
+                        ):
+                            self.assertEqual(
+                                authorize(
+                                    sqlite3.SQLITE_PRAGMA,
+                                    "index_list",
+                                    table,
+                                    schema,
+                                    None,
+                                ),
+                                sqlite3.SQLITE_OK,
+                            )
+                denied = (
+                    ("different_pragma", "user_pipeline_items", "main", None),
+                    ("index_list", "unrelated_table", "main", None),
+                    ("index_list", "user_pipeline_items", "attached", None),
+                    ("index_list", "user_pipeline_items", "main", "trigger"),
+                    ("index_list", None, "main", None),
+                    ("index_list", b"user_pipeline_items", "main", None),
+                    ("index_list", "user_pipeline_items", b"main", None),
+                    ("INDEX_LIST", "user_pipeline_items", "main", None),
+                    (
+                        "table_xinfo",
+                        "unrelated_table",
+                        "attached",
+                        "trigger_name",
+                    ),
+                    (
+                        "foreign_key_list",
+                        "unrelated_table",
+                        "attached",
+                        "trigger_name",
+                    ),
+                    (
+                        "integrity_check",
+                        "unexpected_argument",
+                        "attached",
+                        "trigger_name",
+                    ),
+                )
+                for name, argument, schema, source in denied:
+                    with self.subTest(
+                        name=name,
+                        argument=argument,
+                        schema=schema,
+                        source=source,
+                    ):
+                        self.assertEqual(
+                            authorize(
+                                sqlite3.SQLITE_PRAGMA,
+                                name,
+                                argument,
+                                schema,
+                                source,
+                            ),
+                            sqlite3.SQLITE_DENY,
+                        )
+                for action, first, second in (
+                    (
+                        sqlite3.SQLITE_UPDATE,
+                        "sqlite_master",
+                        "type",
+                    ),
+                    (sqlite3.SQLITE_ATTACH, "attached.sqlite", None),
+                    (sqlite3.SQLITE_TRANSACTION, "BEGIN", None),
+                ):
+                    self.assertEqual(
+                        authorize(
+                            action,
+                            first,
+                            second,
+                            "main",
+                            None,
+                        ),
+                        sqlite3.SQLITE_DENY,
+                    )
+                for malformed_action in (
+                    True,
+                    float(sqlite3.SQLITE_PRAGMA),
+                    str(sqlite3.SQLITE_PRAGMA),
+                    None,
+                ):
+                    with self.subTest(malformed_action=malformed_action):
+                        self.assertEqual(
+                            authorize(
+                                malformed_action,
+                                "index_list",
+                                "user_pipeline_items",
+                                "main",
+                                None,
+                            ),
+                            sqlite3.SQLITE_DENY,
+                        )
+
+                maximum_rows = [
+                    (f"inventory_table_{index}".encode("ascii"),)
+                    for index in range(
+                        reconciliation
+                        ._MAX_AUTHORIZER_TABLE_XINFO_SCOPE
+                    )
+                ]
+                self.assertEqual(
+                    len(
+                        reconciliation
+                        ._validated_main_table_xinfo_scope_rows(
+                            maximum_rows
+                        )
+                    ),
+                    reconciliation
+                    ._MAX_AUTHORIZER_TABLE_XINFO_SCOPE,
+                )
+                invalid_scopes = (
+                    tuple(maximum_rows),
+                    maximum_rows + [(b"one_too_many",)],
+                    [(b"duplicate",), (b"duplicate",)],
+                    [(b"",)],
+                    [(b"\xff",)],
+                    [("not-bytes",)],
+                    [(b"two", b"columns")],
+                )
+                for invalid_scope in invalid_scopes:
+                    with self.subTest(
+                        invalid_scope_type=type(
+                            invalid_scope
+                        ).__name__,
+                        invalid_scope_size=len(invalid_scope),
+                    ):
+                        with self.assertRaises(sqlite3.DatabaseError):
+                            reconciliation._validated_main_table_xinfo_scope_rows(
+                                invalid_scope
+                            )
+
+                for table_count in (
+                    reconciliation
+                    ._MAX_AUTHORIZER_TABLE_XINFO_SCOPE,
+                    reconciliation
+                    ._MAX_AUTHORIZER_TABLE_XINFO_SCOPE
+                    + 1,
+                ):
+                    bounded_connection = (
+                        reconciliation._new_private_connection()
+                    )
+                    try:
+                        bounded_connection.executescript(
+                            "BEGIN;"
+                            + "".join(
+                                f"CREATE TABLE inventory_{index}("
+                                "value INTEGER);"
+                                for index in range(table_count)
+                            )
+                            + "COMMIT;"
+                        )
+                        if (
+                            table_count
+                            == reconciliation
+                            ._MAX_AUTHORIZER_TABLE_XINFO_SCOPE
+                        ):
+                            self.assertEqual(
+                                len(
+                                    reconciliation
+                                    ._bounded_main_table_xinfo_scope(
+                                        bounded_connection,
+                                        reconciliation
+                                        ._OperationBudget(),
+                                    )
+                                ),
+                                reconciliation
+                                ._MAX_AUTHORIZER_TABLE_XINFO_SCOPE,
+                            )
+                        else:
+                            with self.assertRaises(
+                                sqlite3.DatabaseError
+                            ):
+                                reconciliation._bounded_main_table_xinfo_scope(
+                                    bounded_connection,
+                                    reconciliation
+                                    ._OperationBudget(),
+                                )
+                    finally:
+                        reconciliation._close_owned_connection(
+                            bounded_connection
+                        )
+
+                rows = reconciliation._SQLITE_EXECUTE(
+                    owned,
+                    "PRAGMA main.index_list('user_pipeline_items')",
+                ).fetchall()
+                self.assertIn(
+                    "idx_user_pipeline_items_pipeline_profile",
+                    {tuple(row)[1] for row in rows},
+                )
+                self.assertEqual(
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA main.integrity_check(101)",
+                    ).fetchall(),
+                    [("ok",)],
+                )
+                self.assertEqual(
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA main.foreign_key_check",
+                    ).fetchall(),
+                    [],
+                )
+                self.assertEqual(
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA trusted_schema",
+                    ).fetchone(),
+                    (1,),
+                )
+                reconciliation._harden_owned_connection_for_data_scan(
+                    owned
+                )
+                self.assertEqual(
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA trusted_schema",
+                    ).fetchone(),
+                    (0,),
+                )
+                with self.assertRaises(sqlite3.DatabaseError):
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA main.index_list('unrelated_table')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA main.table_xinfo('unrelated_table')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA main.foreign_key_list('unrelated_table')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA main.integrity_check('unexpected_argument')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "PRAGMA writable_schema = ON",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    reconciliation._SQLITE_EXECUTE(
+                        owned,
+                        "ATTACH DATABASE ':memory:' AS attached",
+                    )
+
+                interrupted = reconciliation._new_private_connection()
+                try:
+                    interrupted.execute(
+                        "CREATE TABLE inventory_progress_probe("
+                        "value INTEGER)"
+                    ).close()
+                    with (
+                        mock.patch.object(
+                            reconciliation,
+                            "_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS",
+                            0,
+                        ),
+                        mock.patch.object(
+                            reconciliation,
+                            "_TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY",
+                            1,
+                        ),
+                        self.assertRaises(sqlite3.OperationalError),
+                    ):
+                        reconciliation._bounded_main_table_xinfo_scope(
+                            interrupted,
+                            reconciliation._OperationBudget(),
+                        )
+                    self.assertEqual(
+                        interrupted.execute("SELECT 1").fetchone(),
+                        (1,),
+                    )
+                finally:
+                    reconciliation._close_owned_connection(interrupted)
+
+                cleanup_interrupted = (
+                    reconciliation._new_private_connection()
+                )
+                injected_cleanup_interruptions = []
+                helper_source, helper_start = inspect.getsourcelines(
+                    reconciliation._bounded_main_table_xinfo_scope
+                )
+                progress_clear_line = helper_start + next(
+                    index
+                    for index, line in enumerate(helper_source)
+                    if (
+                        "progress_clear_operation("
+                        "*progress_clear_arguments)"
+                        in line.replace(" ", "")
+                    )
+                )
+
+                def interrupt_first_progress_clear(frame, event, _arg):
+                    if (
+                        frame.f_code
+                        is reconciliation
+                        ._bounded_main_table_xinfo_scope.__code__
+                        and event == "line"
+                        and frame.f_lineno == progress_clear_line
+                        and not injected_cleanup_interruptions
+                    ):
+                        self.assertIs(
+                            frame.f_locals.get(
+                                "progress_clear_operation"
+                            ),
+                            reconciliation
+                            ._SQLITE_SET_PROGRESS_HANDLER,
+                        )
+                        self.assertEqual(
+                            frame.f_locals.get(
+                                "progress_clear_arguments"
+                            )[1:],
+                            (None, 0),
+                        )
+                        injected_cleanup_interruptions.append(True)
+                        raise GeneratorExit(
+                            "progress handler removal interrupted"
+                        )
+                    return interrupt_first_progress_clear
+
+                try:
+                    sys.settrace(interrupt_first_progress_clear)
+                    cleanup_scope = (
+                        reconciliation._bounded_main_table_xinfo_scope(
+                            cleanup_interrupted,
+                            reconciliation._OperationBudget(),
+                        )
+                    )
+                finally:
+                    sys.settrace(None)
+                self.assertEqual(cleanup_scope, frozenset())
+                self.assertEqual(injected_cleanup_interruptions, [True])
+                with mock.patch.object(
+                    reconciliation,
+                    "_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS",
+                    0,
+                ):
+                    self.assertEqual(
+                        cleanup_interrupted.execute(
+                            "WITH RECURSIVE x(n) AS ("
+                            "VALUES(1) UNION ALL "
+                            "SELECT n+1 FROM x WHERE n<10000"
+                            ") SELECT max(n) FROM x"
+                        ).fetchone(),
+                        (10000,),
+                    )
+                reconciliation._close_owned_connection(
+                    cleanup_interrupted
+                )
+                for cleanup_failure_type in (
+                    RuntimeError,
+                    KeyboardInterrupt,
+                    SystemExit,
+                    GeneratorExit,
+                ):
+                    with self.subTest(
+                        progress_cleanup_exhaustion=(
+                            cleanup_failure_type.__name__
+                        )
+                    ):
+                        exhausted_connection = (
+                            reconciliation._new_private_connection()
+                        )
+                        cleanup_failure = cleanup_failure_type(
+                            "progress handler removal exhausted"
+                        )
+                        clear_attempts = []
+                        original_progress_operation = (
+                            reconciliation._SQLITE_SET_PROGRESS_HANDLER
+                        )
+
+                        def exhaust_progress_clear(
+                            connection,
+                            callback,
+                            instruction_count,
+                        ):
+                            if callback is not None:
+                                return original_progress_operation(
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            clear_attempts.append(
+                                (
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            )
+                            raise cleanup_failure
+
+                        with mock.patch.object(
+                            reconciliation,
+                            "_SQLITE_SET_PROGRESS_HANDLER",
+                            side_effect=exhaust_progress_clear,
+                        ), self.assertRaises(
+                            cleanup_failure_type
+                        ) as caught:
+                            reconciliation._bounded_main_table_xinfo_scope(
+                                exhausted_connection,
+                                reconciliation._OperationBudget(),
+                            )
+                        self.assertIs(caught.exception, cleanup_failure)
+                        self.assertEqual(
+                            clear_attempts,
+                            [
+                                (
+                                    exhausted_connection,
+                                    None,
+                                    0,
+                                )
+                            ]
+                            * reconciliation._PROGRESS_HANDLER_CLEAR_PASSES,
+                        )
+                        with self.assertRaises(sqlite3.ProgrammingError):
+                            sqlite3.Connection.execute(
+                                exhausted_connection,
+                                "SELECT 1",
+                            )
+                        sqlite3.Connection.close(exhausted_connection)
+                        primary_connection = (
+                            reconciliation._new_private_connection()
+                        )
+                        primary_clear_attempts = []
+
+                        def exhaust_after_query_failure(
+                            connection,
+                            callback,
+                            instruction_count,
+                        ):
+                            if callback is not None:
+                                return original_progress_operation(
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            primary_clear_attempts.append(
+                                (
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            )
+                            raise cleanup_failure
+
+                        with (
+                            mock.patch.object(
+                                reconciliation,
+                                "_SQLITE_SET_PROGRESS_HANDLER",
+                                side_effect=exhaust_after_query_failure,
+                            ),
+                            mock.patch.object(
+                                reconciliation,
+                                "_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS",
+                                0,
+                            ),
+                            mock.patch.object(
+                                reconciliation,
+                                "_TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY",
+                                1,
+                            ),
+                            self.assertRaises(
+                                sqlite3.OperationalError
+                            ) as primary_caught,
+                        ):
+                            reconciliation._bounded_main_table_xinfo_scope(
+                                primary_connection,
+                                reconciliation._OperationBudget(),
+                            )
+                        self.assertEqual(
+                            getattr(
+                                primary_caught.exception,
+                                "sqlite_errorcode",
+                                None,
+                            ),
+                            sqlite3.SQLITE_INTERRUPT,
+                        )
+                        self.assertIn(
+                            "Private table-scope cleanup did not complete.",
+                            getattr(
+                                primary_caught.exception,
+                                "__notes__",
+                                (),
+                            ),
+                        )
+                        self.assertEqual(
+                            primary_clear_attempts,
+                            [
+                                (
+                                    primary_connection,
+                                    None,
+                                    0,
+                                )
+                            ]
+                            * reconciliation._PROGRESS_HANDLER_CLEAR_PASSES,
+                        )
+                        with self.assertRaises(sqlite3.ProgrammingError):
+                            sqlite3.Connection.execute(
+                                primary_connection,
+                                "SELECT 1",
+                            )
+                        sqlite3.Connection.close(primary_connection)
+
+                empty_owned = reconciliation._new_private_connection()
+                empty_captured = []
+
+                def capture_empty_authorizer(connection, callback):
+                    if callback is not None:
+                        empty_captured.append(callback)
+                    return original_set_authorizer(connection, callback)
+
+                try:
+                    with mock.patch.object(
+                        reconciliation,
+                        "_SQLITE_SET_AUTHORIZER",
+                        side_effect=capture_empty_authorizer,
+                    ):
+                        reconciliation._configure_owned_connection(
+                            empty_owned,
+                            reconciliation._OperationBudget(),
+                        )
+                    self.assertEqual(len(empty_captured), 1)
+                    empty_authorize = empty_captured[0]
+                    for table_name, database_name in (
+                        ("user_pipeline_items", "main"),
+                        ("product_profiles", None),
+                    ):
+                        with self.subTest(
+                            empty_inventory_table=table_name,
+                            empty_inventory_database=database_name,
+                        ):
+                            self.assertEqual(
+                                empty_authorize(
+                                    sqlite3.SQLITE_PRAGMA,
+                                    "table_xinfo",
+                                    table_name,
+                                    database_name,
+                                    None,
+                                ),
+                                sqlite3.SQLITE_DENY,
+                            )
+                finally:
+                    reconciliation._close_owned_connection(empty_owned)
+            finally:
+                reconciliation._close_owned_connection(owned)
 
     def test_active_transaction_and_control_flow_fail_closed_without_sql(self):
         with durable_transaction_database(
@@ -1878,9 +2686,7 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
             path = directory / "checkpointed-wal.sqlite"
             connection = install_canonical_v2_profiles(path)
             try:
-                migration.apply_google_oidc_authorization_transactions_migration(
-                    connection
-                )
+                _apply_test_migration(connection, path)
                 cursor = connection.execute("PRAGMA journal_mode = WAL")
                 try:
                     self.assertEqual(cursor.fetchone()[0], "wal")
@@ -1946,9 +2752,7 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
                 with self.subTest(name=name):
                     path = directory / name
                     connection = install_canonical_v2_profiles(path)
-                    migration.apply_google_oidc_authorization_transactions_migration(
-                        connection
-                    )
+                    _apply_test_migration(connection, path)
                     connection.close()
                     opened_uris = []
 
@@ -1984,15 +2788,11 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
 
             target = directory / "identity-target.sqlite"
             target_connection = install_canonical_v2_profiles(target)
-            migration.apply_google_oidc_authorization_transactions_migration(
-                target_connection
-            )
+            _apply_test_migration(target_connection, target)
             target_connection.close()
             decoy = directory / "identity-decoy.sqlite"
             decoy_connection = install_canonical_v2_profiles(decoy)
-            migration.apply_google_oidc_authorization_transactions_migration(
-                decoy_connection
-            )
+            _apply_test_migration(decoy_connection, decoy)
             decoy_connection.close()
 
             def wrong_main(_uri, **kwargs):
@@ -2067,16 +2867,15 @@ class GoogleOidcAuthorizationTransactionReconciliationTests(unittest.TestCase):
             directory = Path(tmp)
             target = directory / "identity-race-target.sqlite"
             target_connection = install_canonical_v2_profiles(target)
-            migration.apply_google_oidc_authorization_transactions_migration(
-                target_connection
-            )
+            _apply_test_migration(target_connection, target)
             target_connection.close()
             replacement = directory / "identity-race-replacement.sqlite"
             replacement_connection = install_canonical_v2_profiles(
                 replacement
             )
-            migration.apply_google_oidc_authorization_transactions_migration(
-                replacement_connection
+            _apply_test_migration(
+                replacement_connection,
+                replacement,
             )
             replacement_connection.close()
             identity_before = cli._file_identity(target)

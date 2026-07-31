@@ -1182,3 +1182,54 @@ login/session, OAuth, About You flow, MatchRun, account claiming, matching,
 pipeline, or default normal-runtime path invokes persistent-profile reads. Any
 mutation, repair, persistence, session integration, or authorization cutover
 remains a separately designed and reviewed milestone.
+
+## Later dedicated browser activation
+
+The dormant and future-boundary language above continues to describe the
+default normal-runtime path. A later reviewed milestone activates a narrow
+composition only through the dedicated local HTTPS command
+`scripts/durable_google_login_app.py --config <ABSOLUTE_CONFIG_PATH>`.
+Ordinary `scripts/local_product_app.py` invocation remains
+authentication-dormant; its generic injection seam does not construct a
+runtime, inspect configuration or environment variables, open the account
+database, load secrets, contact a provider, or activate protected routes.
+
+The dedicated composition owns `/login`, `/auth/google/start`,
+`/auth/google/callback`, `/logout`, and `/account/profile` without falling
+through to ordinary product routes. It reuses B2C1 only for an authenticated
+owner's existing persistent profile. Authentication uses a fresh read-only
+connection or snapshot, the accepted strict `wahojobs_session` parser, and
+ownership authorization. Authenticated rendering includes fixed safe profile
+and logout navigation; unauthenticated rendering offers `/login`. Refresh with
+an active session remains authenticated, while refresh after a successful
+logout again requires authentication. Existing CSP and escaping remain in
+force.
+
+This activation does not add a profile mutation or provisioning path. Login
+cannot create, link, seed, repair, or claim a user, Google identity,
+account-native principal, persistent profile, or ownership relationship.
+Every required row must already exist and be eligible. No Migration 007,
+automatic migration, signup flow, default database fallback, production
+activation, cleanup scheduler, or automatic key rotation is included.
+
+Callback handling first parses the accepted callback state and terminally
+claims the durable authorization transaction. Only after that transaction is
+terminal does it compare the claimed transaction identity with the
+`__Host-wahojobs_google_tx` browser cookie in constant time. A missing,
+malformed, or swapped binding therefore consumes the transaction and stops
+before provider traffic, identity lookup, proof issuance, B2D1, or session
+creation. No authorization-transaction write lock spans browser binding,
+provider verification, identity lookup, B2D1, response construction, or
+delivery.
+
+An exact `issued` B2D1 result is delivered through the sealed one-shot session
+delivery lease. Header validation, `send_response()`, `send_header()`, or any
+ordinary or control-flow failure before successful
+`BaseHTTPRequestHandler.end_headers()` compensates the newly created session.
+After `end_headers()` succeeds, the response acknowledges the lease and erases
+its retained compensation metadata; later body or socket ambiguity does not
+compensate. This is only a server-side delivery boundary and is not evidence
+that the browser received or persisted a cookie.
+
+See `docs/durable_google_login_browser.md` for the exact route, cookie,
+configuration, controlled-fixture, and deployment contracts.

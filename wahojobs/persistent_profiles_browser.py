@@ -41,7 +41,7 @@ _SECURITY_HEADERS = (
     (
         "Content-Security-Policy",
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
-        "form-action 'none'; frame-ancestors 'none'",
+        "form-action 'self'; frame-ancestors 'none'",
     ),
     ("Referrer-Policy", "no-referrer"),
     ("X-Content-Type-Options", "nosniff"),
@@ -171,9 +171,12 @@ def render_persistent_profile_page(
         raise ValueError("invalid_persistent_profile_page_result")
     if result.state == "authentication_required":
         return (
-            _generic_page(
+            _page(
                 "Authentication required",
-                "Sign-in integration is not available in this milestone.",
+                "<section class='empty'><h1>Authentication required</h1>"
+                "<p>Sign in to open your persistent profile.</p>"
+                "<p><a class='primary-link' href='/login'>Continue to sign in</a></p>"
+                "</section>",
             ),
             HTTPStatus.UNAUTHORIZED,
         )
@@ -186,7 +189,8 @@ def render_persistent_profile_page(
         return (
             _page(
                 "My persistent profile",
-                "<section class='empty'><h1>No persistent profile yet</h1>"
+                _authenticated_navigation()
+                + "<section class='empty'><h1>No persistent profile yet</h1>"
                 "<p>Persistent-profile creation is not enabled in this milestone.</p>"
                 "<p>Your existing About You information has not been copied or persisted.</p></section>",
             ),
@@ -273,7 +277,7 @@ def _render_available(result: PersistentProfilePageResult) -> str:
       {next_link}
     </section>
     """
-    return _page("My persistent profile", body)
+    return _page("My persistent profile", _authenticated_navigation() + body)
 
 
 def _response(status, content: str, *, extra_headers=()) -> PersistentProfileBrowserResponse:
@@ -305,6 +309,15 @@ def _generic_page(title: str, message: str) -> str:
     )
 
 
+def _authenticated_navigation() -> str:
+    return (
+        "<nav class='account-nav' aria-label='Account'>"
+        f"<a href='{PERSISTENT_PROFILE_ROUTE}'>My profile</a>"
+        "<a href='/logout'>Sign out</a>"
+        "</nav>"
+    )
+
+
 def _page(title: str, body: str) -> str:
     return f"""<!doctype html>
 <html lang='en'>
@@ -317,6 +330,8 @@ def _page(title: str, body: str) -> str:
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; }}
     main {{ width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 64px; }}
+    .account-nav {{ display: flex; justify-content: flex-end; gap: 16px; margin-bottom: 16px; }}
+    .account-nav a, .primary-link {{ color: #174d3b; font-weight: 700; }}
     .profile-header, .history, .empty {{ background: white; border: 1px solid #dce2df; border-radius: 8px; padding: 24px; }}
     .profile-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }}
     .profile-group {{ background: white; border: 1px solid #dce2df; border-radius: 8px; padding: 18px; }}

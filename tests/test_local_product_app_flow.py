@@ -1,11 +1,14 @@
 import http.client
+import io
 import json
+import logging
 import re
 import sqlite3
 import sys
 import tempfile
 import threading
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -2381,6 +2384,987 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertIn("Inline action expected JSON", script)
         self.assertIn("genericFailure", script)
         self.assertIn("js-action-feedback", script)
+
+    def test_durable_browser_routes_remain_absent_from_default_local_handler(self):
+        self.start_server()
+        status, _headers, _body = self.request("GET", "/login")
+        self.assertEqual(status, 404)
+        status, _headers, body = self.request("GET", "/health")
+        self.assertEqual((status, body), (200, "ok\n"))
+
+    def test_exclusive_browser_integration_never_falls_through_to_product_routes(self):
+        class SafeResponse:
+            def __init__(self, status, body, *, extra_headers=()):
+                self.status = status
+                self.body = body
+                self.headers = (
+                    ("Content-Type", "text/plain; charset=utf-8"),
+                    ("Content-Length", str(len(body))),
+                    ("Cache-Control", "no-store"),
+                    *extra_headers,
+                )
+
+        class DedicatedIntegration:
+            @staticmethod
+            def matches_route(path):
+                return path == "/login"
+
+            @staticmethod
+            def handle(method, target, _headers, _body_stream):
+                if urlparse(target).path != "/login":
+                    return SafeResponse(404, b"not found")
+                if method != "GET":
+                    return SafeResponse(
+                        405,
+                        b"method not allowed",
+                        extra_headers=(("Allow", "GET"),),
+                    )
+                return SafeResponse(200, b"dedicated login")
+
+        handler = app.make_handler(
+            durable_google_login_browser_integration=DedicatedIntegration(),
+            exclusive_browser_integration=True,
+        )
+        self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        with mock.patch.object(
+            app,
+            "load_lightweight_tracker_context",
+            side_effect=AssertionError("legacy_product_route_reached"),
+        ):
+            status, headers, body = self.request("GET", "/")
+            self.assertEqual(status, 404)
+            self.assertEqual(headers["Cache-Control"], "no-store")
+            self.assertNotIn("legacy_product_route_reached", body)
+            status, _headers, body = self.request("GET", "/login")
+            self.assertEqual((status, body), (200, "dedicated login"))
+            status, headers, _body = self.request("POST", "/action", {})
+            self.assertEqual(status, 404)
+            self.assertEqual(headers["Cache-Control"], "no-store")
+            status, headers, _body = self.request("BREW", "/login")
+            self.assertEqual(status, 405)
+            self.assertEqual(headers["Allow"], "GET")
+
+    def test_exclusive_browser_integration_requires_dedicated_integration(self):
+        with self.assertRaisesRegex(ValueError, "invalid_exclusive_browser_integration"):
+            app.make_handler(exclusive_browser_integration=True)
+        with self.assertRaisesRegex(
+            ValueError,
+            "invalid_durable_google_login_browser_integration",
+        ):
+            app.make_handler(durable_google_login_browser_integration=object())
+
+    def test_delivery_aware_response_acknowledges_at_end_headers_boundary(self):
+        events = []
+
+        class DeliveryResponse:
+            status = 303
+            body = b"redirect"
+            headers = (
+                ("Content-Type", "text/plain; charset=utf-8"),
+                ("Content-Length", "8"),
+                ("Location", "/account/profile"),
+            )
+
+            @staticmethod
+            def acknowledge_delivery():
+                events.append("ack")
+
+            @staticmethod
+            def fail_delivery():
+                events.append("fail")
+
+        class Writer:
+            @staticmethod
+            def write(_body):
+                events.append("body")
+
+        handler_type = app.make_handler()
+        handler = object.__new__(handler_type)
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock(side_effect=lambda: events.append("end_headers"))
+        handler.wfile = Writer()
+        handler.write_profile_browser_response(DeliveryResponse())
+        self.assertEqual(events, ["end_headers", "ack", "body"])
+
+    def test_delivery_aware_response_fails_before_ack_when_headers_fail(self):
+        events = []
+
+        class DeliveryResponse:
+            status = 303
+            body = b"redirect"
+            headers = (
+                ("Content-Type", "text/plain; charset=utf-8"),
+                ("Content-Length", "8"),
+            )
+
+            @staticmethod
+            def acknowledge_delivery():
+                events.append("ack")
+
+            @staticmethod
+            def fail_delivery():
+                events.append("fail")
+
+        class Writer:
+            @staticmethod
+            def write(_body):
+                events.append("body")
+
+        handler_type = app.make_handler()
+        handler = object.__new__(handler_type)
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock(side_effect=OSError("transport unavailable"))
+        handler.wfile = Writer()
+        handler.write_profile_browser_response(DeliveryResponse())
+        self.assertEqual(events, ["fail"])
+
+    def test_delivery_aware_response_compensates_at_every_header_boundary(self):
+        exception_types = (
+            OSError,
+            RuntimeError,
+            KeyboardInterrupt,
+            SystemExit,
+            GeneratorExit,
+        )
+        boundaries = ("send_response", "send_header", "end_headers")
+
+        for boundary in boundaries:
+            for exception_type in exception_types:
+                with self.subTest(
+                    boundary=boundary,
+                    exception=exception_type.__name__,
+                ):
+                    events = []
+
+                    class DeliveryResponse:
+                        status = 303
+                        body = b"redirect"
+                        headers = (
+                            ("Content-Type", "text/plain; charset=utf-8"),
+                            ("Content-Length", "8"),
+                            ("Location", "/account/profile"),
+                        )
+
+                        @staticmethod
+                        def acknowledge_delivery():
+                            events.append("ack")
+
+                        @staticmethod
+                        def fail_delivery():
+                            events.append("fail")
+
+                    class Writer:
+                        @staticmethod
+                        def write(_body):
+                            events.append("body")
+
+                    failure = exception_type("delivery-boundary")
+                    handler_type = app.make_handler()
+                    handler = object.__new__(handler_type)
+                    handler.send_response = mock.Mock()
+                    handler.send_header = mock.Mock()
+                    handler.end_headers = mock.Mock()
+                    setattr(handler, boundary, mock.Mock(side_effect=failure))
+                    handler.wfile = Writer()
+
+                    if exception_type in (
+                        KeyboardInterrupt,
+                        SystemExit,
+                        GeneratorExit,
+                    ):
+                        with self.assertRaises(exception_type):
+                            handler.write_profile_browser_response(
+                                DeliveryResponse()
+                            )
+                    else:
+                        handler.write_profile_browser_response(
+                            DeliveryResponse()
+                        )
+                    self.assertEqual(events, ["fail"])
+
+    def test_delivery_aware_response_never_compensates_after_end_headers(self):
+        for failure_point, exception_type in (
+            ("acknowledge", RuntimeError),
+            ("acknowledge", KeyboardInterrupt),
+            ("body", OSError),
+            ("body", RuntimeError),
+            ("body", KeyboardInterrupt),
+        ):
+            with self.subTest(
+                failure_point=failure_point,
+                exception=exception_type.__name__,
+            ):
+                events = []
+
+                class DeliveryResponse:
+                    status = 303
+                    body = b"redirect"
+                    headers = (
+                        ("Content-Type", "text/plain; charset=utf-8"),
+                        ("Content-Length", "8"),
+                        ("Location", "/account/profile"),
+                    )
+
+                    @staticmethod
+                    def acknowledge_delivery():
+                        events.append("ack")
+                        if failure_point == "acknowledge":
+                            raise exception_type("post-boundary")
+
+                    @staticmethod
+                    def fail_delivery():
+                        events.append("fail")
+
+                class Writer:
+                    @staticmethod
+                    def write(_body):
+                        events.append("body")
+                        if failure_point == "body":
+                            raise exception_type("post-boundary")
+
+                handler_type = app.make_handler()
+                handler = object.__new__(handler_type)
+                handler.send_response = mock.Mock()
+                handler.send_header = mock.Mock()
+                handler.end_headers = mock.Mock(
+                    side_effect=lambda: events.append("end_headers")
+                )
+                handler.wfile = Writer()
+
+                propagates = exception_type in (
+                    KeyboardInterrupt,
+                    SystemExit,
+                    GeneratorExit,
+                )
+                if propagates:
+                    with self.assertRaises(exception_type):
+                        handler.write_profile_browser_response(
+                            DeliveryResponse()
+                        )
+                elif failure_point == "body" and exception_type is RuntimeError:
+                    with self.assertRaises(RuntimeError):
+                        handler.write_profile_browser_response(
+                            DeliveryResponse()
+                        )
+                else:
+                    handler.write_profile_browser_response(DeliveryResponse())
+                self.assertNotIn("fail", events)
+                self.assertEqual(events[:2], ["end_headers", "ack"])
+
+    def test_delivery_control_flow_tracebacks_scrub_response_credentials(self):
+        marker = "wahojobs_session=" + "S" * 43
+
+        for failure_point in ("send_header", "acknowledge", "body"):
+            with self.subTest(failure_point=failure_point):
+                class DeliveryResponse:
+                    status = 303
+                    body = b"redirect"
+                    headers = (
+                        ("Content-Length", "8"),
+                        ("Set-Cookie", marker),
+                    )
+
+                    @staticmethod
+                    def acknowledge_delivery():
+                        if failure_point == "acknowledge":
+                            raise SystemExit("delivery-boundary")
+
+                    @staticmethod
+                    def fail_delivery():
+                        return None
+
+                class Writer:
+                    @staticmethod
+                    def write(_body):
+                        if failure_point == "body":
+                            raise SystemExit("delivery-boundary")
+
+                class Integration:
+                    @staticmethod
+                    def matches_route(path):
+                        return path == "/auth/google/callback"
+
+                    @staticmethod
+                    def handle(_method, _target, _headers, _body_stream):
+                        return DeliveryResponse()
+
+                handler_type = app.make_handler(
+                    durable_google_login_browser_integration=Integration(),
+                    exclusive_browser_integration=True,
+                )
+                handler = object.__new__(handler_type)
+                handler.path = "/auth/google/callback?code=private"
+                handler.command = "GET"
+                handler.requestline = "GET /auth/google/callback?code=private HTTP/1.1"
+                handler.raw_requestline = handler.requestline.encode("ascii")
+                handler.headers = {"Cookie": marker}
+                handler._headers_buffer = [marker.encode("ascii")]
+                handler.send_response = mock.Mock()
+                handler.send_header = mock.Mock()
+                if failure_point == "send_header":
+                    handler.send_header.side_effect = SystemExit(
+                        "delivery-boundary"
+                    )
+                handler.end_headers = mock.Mock()
+                handler.wfile = Writer()
+                handler.rfile = object()
+
+                try:
+                    handler.dispatch_durable_google_login_browser_integration(
+                        "GET",
+                        "/auth/google/callback",
+                    )
+                except SystemExit as exc:
+                    traceback = exc.__traceback__
+                    observed_frame = False
+                    while traceback is not None:
+                        frame = traceback.tb_frame
+                        if frame.f_code.co_filename == app.__file__:
+                            observed_frame = True
+                            local_values = frame.f_locals
+                            for name in ("response", "name", "value", "payload"):
+                                self.assertIsNone(local_values.get(name))
+                            request_handler = local_values.get("self")
+                            self.assertNotIn(
+                                marker,
+                                repr(getattr(request_handler, "headers", ())),
+                            )
+                            self.assertNotIn(
+                                marker,
+                                repr(
+                                    getattr(
+                                        request_handler,
+                                        "_headers_buffer",
+                                        (),
+                                    )
+                                ),
+                            )
+                        traceback = traceback.tb_next
+                    self.assertTrue(observed_frame)
+                else:
+                    self.fail("control flow did not propagate")
+
+    def test_durable_browser_dispatch_scrubs_dependency_exception_matrix(self):
+        class RetainingError(Exception):
+            __slots__ = ("retained",)
+
+            def __init__(self, *values):
+                super().__init__(*values)
+                self.retained = values
+
+        class SensitiveStream:
+            def __init__(self, value):
+                self.value = value
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        def build_failure(case_name, protected):
+            linked = ()
+            if case_name == "ordinary":
+                failure = Exception(*protected)
+            elif case_name == "custom":
+                failure = RetainingError(*protected)
+            elif case_name == "explicit_cause":
+                cause = RetainingError(*protected)
+                failure = RuntimeError(*protected)
+                failure.__cause__ = cause
+                linked = (cause,)
+            elif case_name == "implicit_context":
+                context = RetainingError(*protected)
+                failure = RuntimeError(*protected)
+                failure.__context__ = context
+                linked = (context,)
+            elif case_name == "notes":
+                failure = RuntimeError(*protected)
+                failure.add_note(protected[0])
+            elif case_name == "keyboard_interrupt":
+                failure = KeyboardInterrupt(*protected)
+            elif case_name == "system_exit":
+                failure = SystemExit(*protected)
+            elif case_name == "generator_exit":
+                failure = GeneratorExit(*protected)
+            else:
+                raise AssertionError(case_name)
+            return failure, linked
+
+        control_cases = {
+            "keyboard_interrupt": KeyboardInterrupt,
+            "system_exit": SystemExit,
+            "generator_exit": GeneratorExit,
+        }
+        for case_name in (
+            "ordinary",
+            "custom",
+            "explicit_cause",
+            "implicit_context",
+            "notes",
+            "keyboard_interrupt",
+            "system_exit",
+            "generator_exit",
+        ):
+            with self.subTest(case=case_name):
+                protected = (
+                    f"private-target-{case_name}",
+                    f"private-header-{case_name}",
+                    f"private-cookie-{case_name}",
+                    f"private-query-{case_name}",
+                    f"private-session-{case_name}",
+                    f"private-csrf-{case_name}",
+                    f"private-binding-{case_name}",
+                    f"private-provider-{case_name}",
+                    f"private-vault-lease-{case_name}",
+                )
+                failure, linked = build_failure(case_name, protected)
+
+                class Integration:
+                    @staticmethod
+                    def matches_route(_path):
+                        return True
+
+                    @staticmethod
+                    def handle(_method, _target, _headers, _body_stream):
+                        raise failure
+
+                handler_type = app.make_handler(
+                    durable_google_login_browser_integration=Integration(),
+                    exclusive_browser_integration=True,
+                )
+                handler = object.__new__(handler_type)
+                stream = SensitiveStream(protected[3])
+                handler.path = "/auth/google/callback?" + protected[0]
+                handler.command = "POST"
+                handler.requestline = handler.path + " HTTP/1.1"
+                handler.raw_requestline = handler.requestline.encode("ascii")
+                handler.headers = {
+                    "Cookie": protected[2],
+                    "X-Private": protected[1],
+                }
+                handler._headers_buffer = [protected[4].encode("ascii")]
+                handler.rfile = stream
+                handler.write_safe_browser_error = mock.Mock()
+
+                propagated = None
+                log_output = io.StringIO()
+                log_handler = logging.StreamHandler(log_output)
+                root_logger = logging.getLogger()
+                root_logger.addHandler(log_handler)
+                try:
+                    with warnings.catch_warnings(record=True) as warning_records:
+                        warnings.simplefilter("always")
+                        try:
+                            handled = (
+                                handler.dispatch_durable_google_login_browser_integration(
+                                    "POST",
+                                    "/auth/google/callback",
+                                )
+                            )
+                        except tuple(control_cases.values()) as exc:
+                            handled = None
+                            propagated = exc
+                finally:
+                    root_logger.removeHandler(log_handler)
+
+                if case_name in control_cases:
+                    self.assertIs(propagated, failure)
+                    self.assertIsNone(handled)
+                    self.assertEqual(handler.headers, ())
+                    self.assertEqual(handler.path, "")
+                    self.assertEqual(handler._headers_buffer, [])
+                    self.assertIsNone(handler.rfile)
+                    self.assertTrue(stream.closed)
+                    traceback = propagated.__traceback__
+                    while traceback is not None:
+                        frame = traceback.tb_frame
+                        if frame.f_code.co_filename == app.__file__:
+                            rendered_locals = repr(
+                                {
+                                    name: value
+                                    for name, value in frame.f_locals.items()
+                                    if name != "self"
+                                }
+                            )
+                            for value in protected:
+                                self.assertNotIn(value, rendered_locals)
+                        traceback = traceback.tb_next
+                else:
+                    self.assertIsNone(propagated)
+                    self.assertTrue(handled)
+                    handler.write_safe_browser_error.assert_called_once_with(
+                        "The account page could not be loaded safely.",
+                        status=app.HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+
+                self.assertIsNone(failure.__cause__)
+                self.assertIsNone(failure.__context__)
+                self.assertEqual(failure.args, ())
+                self.assertFalse(getattr(failure, "__notes__", ()))
+                self.assertEqual(getattr(failure, "__dict__", {}), {})
+                if isinstance(failure, RetainingError):
+                    self.assertIsNone(failure.retained)
+                if isinstance(failure, SystemExit):
+                    self.assertIsNone(failure.code)
+                for linked_failure in linked:
+                    self.assertIsNone(linked_failure.__traceback__)
+                    self.assertIsNone(linked_failure.__cause__)
+                    self.assertIsNone(linked_failure.__context__)
+                    self.assertEqual(linked_failure.args, ())
+                    self.assertEqual(
+                        getattr(linked_failure, "__dict__", {}),
+                        {},
+                    )
+                    self.assertIsNone(linked_failure.retained)
+                rendered_output = repr(
+                    (
+                        handler.write_safe_browser_error.call_args_list,
+                        getattr(handler, "_headers_buffer", ()),
+                        warning_records,
+                        log_output.getvalue(),
+                    )
+                )
+                for value in protected:
+                    self.assertNotIn(value, rendered_output)
+
+    def test_durable_browser_dispatch_scrubs_all_ordinary_failure_boundaries(self):
+        class RetainingError(Exception):
+            __slots__ = ("retained",)
+
+            def __init__(self, value):
+                super().__init__(value)
+                self.retained = value
+                self.add_note(value)
+
+        def assert_scrubbed(failure):
+            self.assertIsNone(failure.__traceback__)
+            self.assertIsNone(failure.__cause__)
+            self.assertIsNone(failure.__context__)
+            self.assertEqual(failure.args, ())
+            self.assertFalse(getattr(failure, "__notes__", ()))
+            self.assertEqual(getattr(failure, "__dict__", {}), {})
+            self.assertIsNone(failure.retained)
+
+        match_marker = "private-route-match"
+        match_failure = RetainingError(match_marker)
+
+        class MatchFailureIntegration:
+            @staticmethod
+            def matches_route(_path):
+                raise match_failure
+
+            @staticmethod
+            def handle(_method, _target, _headers, _body_stream):
+                raise AssertionError("unreachable")
+
+        handler_type = app.make_handler(
+            durable_google_login_browser_integration=(
+                MatchFailureIntegration()
+            ),
+        )
+        handler = object.__new__(handler_type)
+        handler.write_safe_browser_error = mock.Mock()
+        self.assertTrue(
+            handler.dispatch_durable_google_login_browser_integration(
+                "GET",
+                "/login",
+            )
+        )
+        assert_scrubbed(match_failure)
+        self.assertNotIn(
+            match_marker,
+            repr(handler.write_safe_browser_error.call_args_list),
+        )
+
+        events = []
+        response_marker = "private-delivery-response"
+        validation_failure = RetainingError("private-validation")
+        compensation_failure = RetainingError("private-compensation")
+
+        class InvalidDeliveryResponse:
+            status = 303
+            body = response_marker.encode("ascii")
+            headers = (("Set-Cookie", response_marker),)
+
+            @staticmethod
+            def acknowledge_delivery():
+                events.append("ack")
+
+            @staticmethod
+            def fail_delivery():
+                events.append("fail")
+                raise compensation_failure
+
+        class ValidationFailureIntegration:
+            @staticmethod
+            def matches_route(_path):
+                return True
+
+            @staticmethod
+            def handle(_method, _target, _headers, _body_stream):
+                return InvalidDeliveryResponse()
+
+        handler_type = app.make_handler(
+            durable_google_login_browser_integration=(
+                ValidationFailureIntegration()
+            ),
+        )
+        handler = object.__new__(handler_type)
+        handler.path = "/login"
+        handler.headers = ()
+        handler.rfile = object()
+        handler._headers_buffer = []
+        handler.validate_profile_browser_response = mock.Mock(
+            side_effect=validation_failure
+        )
+        handler.write_safe_browser_error = mock.Mock()
+        self.assertTrue(
+            handler.dispatch_durable_google_login_browser_integration(
+                "GET",
+                "/login",
+            )
+        )
+        self.assertEqual(events, ["fail"])
+        assert_scrubbed(validation_failure)
+        assert_scrubbed(compensation_failure)
+        self.assertNotIn(
+            response_marker,
+            repr(handler.write_safe_browser_error.call_args_list),
+        )
+
+        header_failure = RetainingError("private-header-delivery")
+        events.clear()
+        handler_type = app.make_handler()
+        handler = object.__new__(handler_type)
+        handler.send_response = mock.Mock(side_effect=header_failure)
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        handler._headers_buffer = []
+        handler.wfile = mock.Mock()
+        handler.write_profile_browser_response(InvalidDeliveryResponse())
+        self.assertEqual(events, ["fail"])
+        assert_scrubbed(header_failure)
+
+        publication_failure = RetainingError("private-error-publication")
+        handler.send_response = mock.Mock(side_effect=publication_failure)
+        handler.path = "/auth/google/callback?private"
+        handler.headers = {"Cookie": "private-cookie"}
+        handler.rfile = object()
+        handler.write_safe_browser_error(
+            "The account page could not be loaded safely.",
+            status=app.HTTPStatus.SERVICE_UNAVAILABLE,
+        )
+        assert_scrubbed(publication_failure)
+
+    def test_durable_dispatch_stateful_edges_are_scrubbed_and_boundary_safe(self):
+        class RetainingError(Exception):
+            __slots__ = ("retained",)
+
+            def __init__(self, marker):
+                super().__init__(marker)
+                self.retained = marker
+                self.add_note(marker)
+
+        class CloseableReader:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        class FixedIntegration:
+            def __init__(self, response=None, failure=None):
+                self.response = response
+                self.failure = failure
+
+            @staticmethod
+            def matches_route(_path):
+                return True
+
+            def handle(self, _method, _target, _headers, _body_stream):
+                if self.failure is not None:
+                    raise self.failure
+                return self.response
+
+        def make_handler(integration):
+            handler_type = app.make_handler(
+                durable_google_login_browser_integration=integration,
+                exclusive_browser_integration=True,
+            )
+            handler = object.__new__(handler_type)
+            handler.path = "/auth/google/callback?private-query"
+            handler.command = "GET"
+            handler.requestline = handler.path + " HTTP/1.1"
+            handler.raw_requestline = handler.requestline.encode("ascii")
+            handler.headers = {"Cookie": "private-cookie"}
+            handler.rfile = CloseableReader()
+            handler._headers_buffer = []
+            handler.send_response = mock.Mock()
+            handler.send_header = mock.Mock()
+            handler.end_headers = mock.Mock()
+            handler.wfile = mock.Mock()
+            return handler
+
+        def assert_scrubbed(failure):
+            self.assertIsNone(failure.__traceback__)
+            self.assertIsNone(failure.__cause__)
+            self.assertIsNone(failure.__context__)
+            self.assertEqual(failure.args, ())
+            self.assertFalse(getattr(failure, "__notes__", ()))
+            self.assertEqual(getattr(failure, "__dict__", {}), {})
+            self.assertIsNone(failure.retained)
+
+        getter_failure = RetainingError("private-acknowledge-getter")
+        getter_events = []
+
+        class StatefulAcknowledgementResponse:
+            status = 303
+            body = b""
+            headers = (("Content-Length", "0"),)
+
+            def __init__(self):
+                self.acknowledgement_reads = 0
+
+            @property
+            def acknowledge_delivery(self):
+                self.acknowledgement_reads += 1
+                if self.acknowledgement_reads == 2:
+                    raise getter_failure
+                return self.acknowledge
+
+            @staticmethod
+            def acknowledge():
+                getter_events.append("ack")
+
+            @staticmethod
+            def fail_delivery():
+                getter_events.append("fail")
+
+        getter_response = StatefulAcknowledgementResponse()
+        getter_handler = make_handler(FixedIntegration(getter_response))
+        self.assertTrue(
+            getter_handler.dispatch_durable_google_login_browser_integration(
+                "GET",
+                "/auth/google/callback",
+            )
+        )
+        self.assertEqual(getter_events, ["fail"])
+        getter_handler.end_headers.assert_not_called()
+        assert_scrubbed(getter_failure)
+
+        body_failure = RetainingError("private-body-getter")
+        body_events = []
+
+        class StatefulBodyResponse:
+            status = 303
+            headers = (("Content-Length", "2"),)
+
+            def __init__(self):
+                self.body_reads = 0
+
+            @property
+            def body(self):
+                self.body_reads += 1
+                if self.body_reads == 2:
+                    raise body_failure
+                return b"ok"
+
+            @staticmethod
+            def acknowledge_delivery():
+                body_events.append("ack")
+
+            @staticmethod
+            def fail_delivery():
+                body_events.append("fail")
+
+        body_response = StatefulBodyResponse()
+        body_handler = make_handler(FixedIntegration(body_response))
+        body_handler.end_headers.side_effect = lambda: body_events.append(
+            "end_headers"
+        )
+        self.assertTrue(
+            body_handler.dispatch_durable_google_login_browser_integration(
+                "GET",
+                "/auth/google/callback",
+            )
+        )
+        self.assertEqual(body_events, ["end_headers", "ack"])
+        body_handler.wfile.write.assert_not_called()
+        assert_scrubbed(body_failure)
+
+        control = SystemExit("private-control-integration")
+        control_integration = FixedIntegration(failure=control)
+        control_handler = make_handler(control_integration)
+        try:
+            control_handler.dispatch_durable_google_login_browser_integration(
+                "GET",
+                "/auth/google/callback",
+            )
+        except SystemExit as propagated:
+            self.assertIs(propagated, control)
+            traceback = propagated.__traceback__
+            while traceback is not None:
+                frame = traceback.tb_frame
+                if frame.f_code.co_filename == app.__file__:
+                    self.assertNotIn(
+                        "login_browser_integration",
+                        frame.f_locals,
+                    )
+                    if (
+                        frame.f_code.co_name
+                        == "dispatch_durable_google_login_browser_integration"
+                    ):
+                        self.assertIsNone(frame.f_locals.get("self"))
+                    self.assertTrue(
+                        all(
+                            value is not control_integration
+                            for value in frame.f_locals.values()
+                        )
+                    )
+                traceback = traceback.tb_next
+        else:
+            self.fail("control-flow exception did not propagate")
+
+        match_marker = b"private-pending-match-header"
+        match_failure = RetainingError(match_marker.decode("ascii"))
+
+        class MatchFailureIntegration:
+            @staticmethod
+            def matches_route(_path):
+                raise match_failure
+
+            @staticmethod
+            def handle(_method, _target, _headers, _body_stream):
+                raise AssertionError("unreachable")
+
+        match_handler = make_handler(MatchFailureIntegration())
+        match_handler._headers_buffer = [match_marker]
+        match_handler.write_safe_browser_error = mock.Mock()
+        self.assertTrue(
+            match_handler.dispatch_durable_google_login_browser_integration(
+                "GET",
+                "/login",
+            )
+        )
+        self.assertEqual(match_handler._headers_buffer, [])
+        assert_scrubbed(match_failure)
+
+        publication_failure = RetainingError("private-error-publication")
+        publication_handler = make_handler(FixedIntegration())
+        publication_handler._headers_buffer = [
+            b"private-pending-publication-header"
+        ]
+        publication_handler.send_response.side_effect = publication_failure
+        publication_handler.write_safe_browser_error(
+            "The account page could not be loaded safely.",
+            status=app.HTTPStatus.SERVICE_UNAVAILABLE,
+        )
+        self.assertEqual(publication_handler._headers_buffer, [])
+        assert_scrubbed(publication_failure)
+
+        validation_failure = RetainingError("private-validation-fail-closed")
+        cleanup_events = []
+
+        class InvalidDeliveryResponse:
+            status = 303
+            body = b"private"
+            headers = (("Set-Cookie", "private"),)
+
+            @staticmethod
+            def acknowledge_delivery():
+                cleanup_events.append("ack")
+
+            @staticmethod
+            def fail_delivery():
+                cleanup_events.append("fail")
+
+        fail_closed_handler = make_handler(
+            FixedIntegration(InvalidDeliveryResponse())
+        )
+        fail_closed_handler.validate_profile_browser_response = mock.Mock(
+            side_effect=validation_failure
+        )
+        fail_closed_handler.write_safe_browser_error = mock.Mock()
+
+        def fail_and_report_unsanitized(response):
+            response.fail_delivery()
+            return False
+
+        fail_closed_handler.fail_browser_response_delivery = mock.Mock(
+            side_effect=fail_and_report_unsanitized
+        )
+        self.assertTrue(
+            fail_closed_handler.dispatch_durable_google_login_browser_integration(
+                "GET",
+                "/auth/google/callback",
+            )
+        )
+        self.assertEqual(cleanup_events, ["fail"])
+        fail_closed_handler.write_safe_browser_error.assert_not_called()
+        self.assertEqual(fail_closed_handler.headers, ())
+        self.assertEqual(fail_closed_handler.path, "")
+        self.assertIsNone(fail_closed_handler.rfile)
+        assert_scrubbed(validation_failure)
+
+    def test_invalid_delivery_response_is_failed_before_any_header(self):
+        cases = (
+            (("Bad\rName", "value"),),
+            (("Bad Name", "value"),),
+            (("X-Test", "bad\x00value"),),
+            (("X-Test", "\N{SNOWMAN}"),),
+            (("X-Test", "v" * 16_385),),
+        )
+        for invalid_headers in cases:
+            with self.subTest(invalid_headers=invalid_headers):
+                events = []
+
+                class InvalidDeliveryResponse:
+                    status = 303
+                    body = b"redirect"
+                    headers = invalid_headers
+
+                    @staticmethod
+                    def acknowledge_delivery():
+                        events.append("ack")
+
+                    @staticmethod
+                    def fail_delivery():
+                        events.append("fail")
+
+                class InvalidIntegration:
+                    @staticmethod
+                    def matches_route(path):
+                        return path == "/login"
+
+                    @staticmethod
+                    def handle(
+                        _method,
+                        _target,
+                        _headers,
+                        _body_stream,
+                    ):
+                        return InvalidDeliveryResponse()
+
+                handler_type = app.make_handler(
+                    durable_google_login_browser_integration=(
+                        InvalidIntegration()
+                    ),
+                    exclusive_browser_integration=True,
+                )
+                handler = object.__new__(handler_type)
+                handler.path = "/login"
+                handler.headers = ()
+                handler.rfile = object()
+                handler.write_safe_browser_error = mock.Mock()
+                handler.dispatch_durable_google_login_browser_integration(
+                    "GET",
+                    "/login",
+                )
+                self.assertEqual(events, ["fail"])
+                handler.write_safe_browser_error.assert_called_once()
 
 
 def matcher_route_row(

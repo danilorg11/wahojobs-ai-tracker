@@ -134,3 +134,47 @@ Migration 002 is installed but dormant in the workspace database. No account ser
 - Milestone D: Google OAuth/OIDC adapter, login routes, cookies, CSRF middleware, and session-touch policy
 - Milestone E: reviewed anonymous/local-user upgrade and merge behavior
 - Milestone F: subscriptions, resume upload, LinkedIn integration, retention/purge workers, and end-to-end deletion operations
+
+## Later reviewed durable browser activation
+
+The preceding Milestone A statements remain the historical foundation and
+remain true of the ordinary `scripts/local_product_app.py` startup. A later,
+narrowly reviewed milestone composes the accepted account-session,
+browser-session, trusted-login, Google OIDC, authorization-transaction, and
+persistent-profile services only when
+`scripts/durable_google_login_app.py --config <ABSOLUTE_CONFIG_PATH>` is
+invoked. The ordinary startup does not load a configuration, open an account
+database, read login secrets, contact an identity provider, or activate the
+login, callback, logout, or protected-profile routes.
+
+The dedicated activation authenticates only an already existing active Google
+identity and its complete existing account, account-native principal,
+persistent profile, and ownership relationship. It does not consume an
+invitation or provision, link, repair, or create an account, authentication
+identity, principal, profile, or ownership row. Its database must already
+contain the exact Migration-001 through Migration-006 schema; neither the
+launcher nor login requests initialize, seed, repair, or migrate it.
+
+Successful B2D1 completion produces an issued session and one request-scoped
+compensation authority. The browser adapter converts that authority into a
+sealed, noncopyable, nonserializable, one-shot session-delivery lease. The
+response layer compensates the new session for any ordinary or control-flow
+failure before `BaseHTTPRequestHandler.end_headers()` returns successfully.
+Successful `end_headers()` is the accepted server-side delivery boundary: the
+lease is then acknowledged once and its compensation and credential metadata
+are erased. A later body or socket failure does not revoke the session. This
+boundary does not prove that a browser received or persisted either cookie.
+There is no client acknowledgement protocol and no Migration 007.
+
+The session cookie remains `wahojobs_session`, using the accepted 43-character
+credential encoding with `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no
+`Domain`, and a lifetime bounded by the session's effective expiry. The
+companion `__Host-wahojobs_session_csrf` cookie is `Secure`, `HttpOnly`,
+`SameSite=Strict`, `Path=/`, has no `Domain`, and is bounded by the same
+session. Logout validates that credential through `validate_session_csrf()`,
+revokes the current session in a short writable transaction, clears both
+cookies, and redirects only to `/login`.
+
+The full activation contract, including its local-only runtime policy and
+deferred production work, is documented in
+`docs/durable_google_login_browser.md`.

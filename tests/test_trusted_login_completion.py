@@ -1,12 +1,18 @@
 import base64
+import ast
+from concurrent.futures import ThreadPoolExecutor
 import copy
 from dataclasses import replace
 from datetime import timedelta
+import gc
+import inspect
 import json
 import pickle
 import sqlite3
+import threading
 import unittest
 from unittest import mock
+import weakref
 
 from tests.accounts_test_support import create_user
 from tests.browser_session_lifecycle_test_support import (
@@ -30,6 +36,7 @@ from tests.trusted_login_completion_test_support import (
     TRUSTED_NOW,
     close_secret_vault,
     completion_policy,
+    connect,
     complete_login,
     consume_login,
     finalize_login,
@@ -1019,10 +1026,20 @@ class TrustedLoginCompletionTests(unittest.TestCase):
         ):
             original = TrustedLoginCompletionResult._issue
 
-            def fail_issued(capability, status, issued_session=None):
+            def fail_issued(
+                capability,
+                status,
+                issued_session=None,
+                request_secret_vault=None,
+            ):
                 if status == "issued":
                     raise RuntimeError("private-result-construction-marker")
-                return original(capability, status, issued_session)
+                return original(
+                    capability,
+                    status,
+                    issued_session,
+                    request_secret_vault,
+                )
 
             with mock.patch.object(
                 TrustedLoginCompletionResult,
@@ -1169,7 +1186,7 @@ class TrustedLoginCompletionTests(unittest.TestCase):
             self.assertEqual(result.issued_session.status, "consumed")
             close_secret_vault(vault)
 
-    def test_result_is_sealed_sanitized_and_does_not_retain_authority_or_vault(self):
+    def test_result_is_sealed_and_its_public_surface_is_sanitized(self):
         token = base64.urlsafe_b64encode(b"L" * 32).rstrip(b"=").decode("ascii")
         csrf = base64.urlsafe_b64encode(b"C" * 32).rstrip(b"=").decode("ascii")
         with login_database(suffix="completion-result") as (_path, connection, created):
@@ -1182,15 +1199,10 @@ class TrustedLoginCompletionTests(unittest.TestCase):
             self.assertEqual(repr(result), "TrustedLoginCompletionResult(status='issued')")
             self.assertNotIn(token, repr(result))
             self.assertNotIn(csrf, repr(result))
-            reached = recursively_reachable_objects(result)
-            self.assertNotIn(assertion, reached)
-            self.assertNotIn(connection, reached)
-            self.assertNotIn(vault, reached)
-            self.assertNotIn(created.user.user_id, reached)
-            self.assertNotIn(created.identity.auth_identity_id, reached)
-            self.assertNotIn("trusted-login-completion-001", reached)
-            self.assertNotIn(token, reached)
-            self.assertNotIn(csrf, reached)
+            self.assertFalse(hasattr(result, "__dict__"))
+            self.assertNotIn("authority", repr(result).lower())
+            self.assertNotIn("vault", repr(result).lower())
+            self.assertNotIn("session", repr(result).lower())
             for operation in (
                 lambda: TrustedLoginCompletionResult(),
                 lambda: copy.copy(result),
@@ -1874,6 +1886,860 @@ class TrustedLoginCompletionTests(unittest.TestCase):
             for suffix in ("-wal", "-shm", "-journal"):
                 self.assertFalse(path.with_name(path.name + suffix).exists())
             close_secret_vault(vault)
+
+
+class TrustedLoginRuntimeDeliveryTests(unittest.TestCase):
+    def _complete_with_runtime_composition(
+        self,
+        connection,
+        created,
+        *,
+        key,
+    ):
+        policy = completion.create_trusted_login_completion_policy(
+            environment_namespace="test",
+            idle_ttl=timedelta(hours=1),
+            absolute_ttl=timedelta(days=7),
+        )
+        vault = lifecycle.create_request_scoped_session_secret_vault()
+        result = completion.complete_trusted_login(
+            connection,
+            trusted_assertion(created),
+            policy,
+            vault,
+            trusted_now=TRUSTED_NOW,
+            idempotency_key=key,
+        )
+        self.assertEqual(result.status, "issued")
+        return policy, vault, result
+
+    def test_runtime_policy_factory_fixes_google_authority_and_validates_lifetime(self):
+        policy = completion.create_trusted_login_completion_policy(
+            environment_namespace="test",
+            idle_ttl=timedelta(hours=1),
+            absolute_ttl=timedelta(days=7),
+        )
+        values = policy._values_for_service(
+            completion._COMPLETION_POLICY_SERVICE_CAPABILITY
+        )
+        self.assertEqual(values["expected_provider"], "google")
+        self.assertEqual(
+            values["expected_assurance_policy_version"],
+            "google_oidc_v1",
+        )
+        self.assertEqual(
+            values["completion_policy_version"],
+            "trusted_login_completion_v1",
+        )
+        self.assertEqual(values["environment_namespace"], "test")
+        self.assertEqual(values["idle_ttl"], timedelta(hours=1))
+        self.assertEqual(values["absolute_ttl"], timedelta(days=7))
+        self.assertEqual(
+            repr(policy),
+            "TrustedLoginCompletionPolicy(<configured>)",
+        )
+
+        for arguments in (
+            {
+                "environment_namespace": "production",
+                "idle_ttl": timedelta(hours=1),
+                "absolute_ttl": timedelta(days=7),
+            },
+            {
+                "environment_namespace": "test",
+                "idle_ttl": timedelta(days=2),
+                "absolute_ttl": timedelta(days=1),
+            },
+        ):
+            with self.subTest(arguments=arguments):
+                with self.assertRaises(TypeError) as caught:
+                    completion.create_trusted_login_completion_policy(
+                        **arguments
+                    )
+                self.assertEqual(
+                    str(caught.exception),
+                    "trusted_login_completion_configuration_invalid",
+                )
+
+    def test_runtime_completion_prepares_and_acknowledges_one_delivery(self):
+        with login_database(suffix="runtime-delivery-ack") as (
+            _path,
+            connection,
+            created,
+        ):
+            _policy, vault, result = (
+                self._complete_with_runtime_composition(
+                    connection,
+                    created,
+                    key="runtime-delivery-ack-001",
+                )
+            )
+            lease = completion.prepare_session_delivery(
+                connection,
+                result,
+                vault,
+                now=TRUSTED_NOW,
+            )
+            self.assertEqual(lease.status, "prepared")
+            self.assertEqual(
+                result.issued_session.status,
+                "delivery_pending",
+            )
+            self.assertRegex(
+                lease.set_cookie_header,
+                r"^wahojobs_session=[A-Za-z0-9_-]{43}; ",
+            )
+            self.assertRegex(
+                lease.csrf_credential,
+                r"^[A-Za-z0-9_-]{43}$",
+            )
+
+            lease.acknowledge_delivery()
+
+            self.assertEqual(lease.status, "acknowledged")
+            self.assertEqual(result.issued_session.status, "consumed")
+            self.assertTrue(vault_is_closed_and_empty(vault))
+            stored = connection.execute(
+                "SELECT * FROM account_sessions"
+            ).fetchone()
+            self.assertEqual(stored["session_version"], 1)
+            self.assertIsNone(stored["revoked_at"])
+            with self.assertRaises(
+                BrowserSessionLifecycleError
+            ) as repeated:
+                completion.prepare_session_delivery(
+                    connection,
+                    result,
+                    vault,
+                    now=TRUSTED_NOW,
+                )
+            self.assertEqual(
+                repeated.exception.code,
+                "already_completed",
+            )
+
+    def test_baseexception_before_header_acceptance_fails_exact_delivery(self):
+        with login_database(suffix="runtime-delivery-control-flow") as (
+            _path,
+            connection,
+            created,
+        ):
+            _policy, vault, result = (
+                self._complete_with_runtime_composition(
+                    connection,
+                    created,
+                    key="runtime-delivery-control-flow-001",
+                )
+            )
+            lease = completion.prepare_session_delivery(
+                connection,
+                result,
+                vault,
+                now=TRUSTED_NOW,
+            )
+            stored_before = dict(
+                connection.execute(
+                    "SELECT * FROM account_sessions"
+                ).fetchone()
+            )
+
+            def interrupted_delivery():
+                try:
+                    raise GeneratorExit(
+                        "simulated end_headers interruption"
+                    )
+                except BaseException:
+                    lease.fail_delivery()
+                    raise
+
+            with self.assertRaises(GeneratorExit) as caught:
+                interrupted_delivery()
+
+            self.assertEqual(
+                str(caught.exception),
+                "simulated end_headers interruption",
+            )
+            self.assertEqual(lease.status, "failed")
+            self.assertEqual(
+                result.issued_session.status,
+                "terminal_failed",
+            )
+            self.assertTrue(vault_is_closed_and_empty(vault))
+            stored_after = connection.execute(
+                "SELECT * FROM account_sessions WHERE session_id = ?",
+                (stored_before["session_id"],),
+            ).fetchone()
+            self.assertEqual(stored_after["session_version"], 2)
+            self.assertEqual(
+                stored_after["revoke_reason"],
+                "security_reset",
+            )
+
+
+class TrustedLoginCompletionResultAuthorityTests(unittest.TestCase):
+    @staticmethod
+    def _copy_slots(value, expected_type):
+        copied = object.__new__(expected_type)
+        for slot in expected_type.__slots__:
+            if slot == "__weakref__":
+                continue
+            try:
+                item = getattr(value, slot)
+            except AttributeError:
+                continue
+            object.__setattr__(copied, slot, item)
+        return copied
+
+    def _complete(self, connection, created, key):
+        result, vault = complete_login(
+            connection,
+            trusted_assertion(created),
+            key=key,
+        )
+        self.assertEqual(result.status, "issued")
+        self.assertEqual(result.issued_session.status, "issued")
+        self.assertEqual(vault_entry_count(vault), 1)
+        return result, vault
+
+    def _abandon(self, connection, result, vault):
+        lease = completion.prepare_session_delivery(
+            connection,
+            result,
+            vault,
+            now=TRUSTED_NOW,
+        )
+        self.assertEqual(lease.status, "prepared")
+        lease.fail_delivery()
+        self.assertEqual(lease.status, "failed")
+        self.assertEqual(result.issued_session.status, "terminal_failed")
+        self.assertTrue(vault_is_closed_and_empty(vault))
+
+    def test_no_post_completion_result_registry_or_public_identity_api_exists(self):
+        source = inspect.getsource(completion)
+        self.assertNotIn("_ISSUED_RESULTS", source)
+        self.assertFalse(hasattr(completion, "_ISSUED_RESULTS"))
+        mutable_registry_types = (
+            dict,
+            list,
+            set,
+            weakref.WeakKeyDictionary,
+            weakref.WeakSet,
+        )
+        result_registries = [
+            name
+            for name, value in vars(completion).items()
+            if "result" in name.casefold()
+            and isinstance(value, mutable_registry_types)
+        ]
+        self.assertEqual(result_registries, [])
+        public_identity_apis = [
+            name
+            for name, value in vars(completion).items()
+            if not name.startswith("_")
+            and callable(value)
+            and "result" in name.casefold()
+            and any(
+                term in name.casefold()
+                for term in ("enumerate", "lookup", "registry", "search")
+            )
+        ]
+        self.assertEqual(public_identity_apis, [])
+        self.assertNotIn("__del__", TrustedLoginCompletionResult.__dict__)
+        self.assertNotIn(
+            "__del__",
+            completion._TrustedLoginCompletionAuthority.__dict__,
+        )
+        self.assertNotIn(
+            "__del__",
+            completion._TrustedLoginCompletionAuthoritySeal.__dict__,
+        )
+        self.assertNotIn("weakref.finalize", source)
+
+        self.assertIsInstance(
+            completion._ISSUED_ASSERTIONS,
+            weakref.WeakKeyDictionary,
+        )
+        self.assertIsInstance(
+            completion._ISSUED_COMPLETION_POLICIES,
+            weakref.WeakKeyDictionary,
+        )
+        self.assertIsInstance(completion._VALIDATED_LOGINS, weakref.WeakSet)
+        self.assertIsInstance(lifecycle._ISSUED_COMMANDS, weakref.WeakSet)
+        post_completion_source = (
+            inspect.getsource(completion.prepare_session_delivery)
+            + inspect.getsource(completion.finalize_pending_trusted_login)
+            + inspect.getsource(TrustedLoginCompletionResult)
+        )
+        for accepted_registry in (
+            "_ISSUED_ASSERTIONS",
+            "_ISSUED_COMPLETION_POLICIES",
+            "_VALIDATED_LOGINS",
+            "_ISSUED_COMMANDS",
+        ):
+            self.assertNotIn(accepted_registry, post_completion_source)
+
+    def test_source_has_no_prohibited_broad_exception_handlers(self):
+        from scripts import durable_google_login_app
+
+        violations = []
+        for module in (completion, durable_google_login_app):
+            tree = ast.parse(inspect.getsource(module))
+            aliases = {"BaseException"}
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, (ast.Assign, ast.AnnAssign))
+                    and isinstance(
+                        getattr(node, "value", None),
+                        ast.Name,
+                    )
+                    and node.value.id in aliases
+                ):
+                    targets = (
+                        node.targets
+                        if isinstance(node, ast.Assign)
+                        else (node.target,)
+                    )
+                    aliases.update(
+                        target.id
+                        for target in targets
+                        if isinstance(target, ast.Name)
+                    )
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ExceptHandler):
+                    continue
+                if node.type is None:
+                    violations.append((module.__name__, node.lineno))
+                    continue
+                candidates = (
+                    node.type.elts
+                    if isinstance(node.type, ast.Tuple)
+                    else (node.type,)
+                )
+                if any(
+                    isinstance(candidate, ast.Name)
+                    and candidate.id in aliases
+                    for candidate in candidates
+                ):
+                    violations.append((module.__name__, node.lineno))
+        self.assertEqual(violations, [])
+
+    def test_result_repr_preserves_named_control_flow_identity(self):
+        result = object.__new__(TrustedLoginCompletionResult)
+
+        def ordinary_status(_self):
+            raise RuntimeError("ordinary_status_failure")
+
+        with mock.patch.object(
+            TrustedLoginCompletionResult,
+            "status",
+            new=property(ordinary_status),
+        ):
+            self.assertEqual(
+                repr(result),
+                "TrustedLoginCompletionResult(status='invalid')",
+            )
+
+        for exception_type in (
+            KeyboardInterrupt,
+            SystemExit,
+            GeneratorExit,
+        ):
+            with self.subTest(exception_type=exception_type.__name__):
+                injected = exception_type(
+                    "PRIVATE_RESULT_REPR_CONTROL_CANARY"
+                )
+
+                def control_status(_self, injected=injected):
+                    raise injected
+
+                with mock.patch.object(
+                    TrustedLoginCompletionResult,
+                    "status",
+                    new=property(control_status),
+                ):
+                    with self.assertRaises(exception_type) as caught:
+                        repr(result)
+                self.assertIs(caught.exception, injected)
+
+    def test_prepare_delivery_preserves_named_control_flow_identity(self):
+        result = object.__new__(TrustedLoginCompletionResult)
+        ordinary = RuntimeError("PRIVATE_PREPARE_DELIVERY_FAILURE")
+        with mock.patch.object(
+            TrustedLoginCompletionResult,
+            "_prepare_delivery",
+            side_effect=ordinary,
+        ):
+            with self.assertRaises(
+                BrowserSessionLifecycleError
+            ) as caught:
+                completion.prepare_session_delivery(
+                    None,
+                    result,
+                    None,
+                    now=TRUSTED_NOW,
+                )
+        self.assertEqual(
+            caught.exception.code,
+            "internal_consistency_failure",
+        )
+
+        for exception_type in (
+            KeyboardInterrupt,
+            SystemExit,
+            GeneratorExit,
+        ):
+            with self.subTest(exception_type=exception_type.__name__):
+                injected = exception_type(
+                    "PRIVATE_PREPARE_DELIVERY_CONTROL_CANARY"
+                )
+                with mock.patch.object(
+                    TrustedLoginCompletionResult,
+                    "_prepare_delivery",
+                    side_effect=injected,
+                ):
+                    with self.assertRaises(exception_type) as caught:
+                        completion.prepare_session_delivery(
+                            None,
+                            result,
+                            None,
+                            now=TRUSTED_NOW,
+                        )
+                self.assertIs(caught.exception, injected)
+
+    def test_copied_slots_and_transferred_authorities_cannot_mutate_real_owners(self):
+        with login_database(suffix="result-authority-forgery") as (
+            _path,
+            connection,
+            created,
+        ):
+            first, first_vault = self._complete(
+                connection,
+                created,
+                "result-authority-forgery-001",
+            )
+            second, second_vault = self._complete(
+                connection,
+                created,
+                "result-authority-forgery-002",
+            )
+            stored_before = [
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT * FROM account_sessions ORDER BY session_id"
+                ).fetchall()
+            ]
+
+            copied_result = self._copy_slots(
+                first,
+                TrustedLoginCompletionResult,
+            )
+            copied_session = self._copy_slots(
+                first.issued_session,
+                lifecycle.IssuedBrowserSession,
+            )
+            session_forgery = self._copy_slots(
+                first,
+                TrustedLoginCompletionResult,
+            )
+            object.__setattr__(
+                session_forgery,
+                "_issued_session",
+                copied_session,
+            )
+            result_authority_transfer = self._copy_slots(
+                first,
+                TrustedLoginCompletionResult,
+            )
+            object.__setattr__(
+                result_authority_transfer,
+                "_authority",
+                second._authority,
+            )
+            session_authority_transfer = self._copy_slots(
+                first,
+                TrustedLoginCompletionResult,
+            )
+            object.__setattr__(
+                session_authority_transfer,
+                "_issued_session",
+                second.issued_session,
+            )
+            authority_type = type(first._authority)
+            copied_authority = self._copy_slots(
+                first._authority,
+                authority_type,
+            )
+            copied_authority_forgery = self._copy_slots(
+                first,
+                TrustedLoginCompletionResult,
+            )
+            object.__setattr__(
+                copied_authority_forgery,
+                "_authority",
+                copied_authority,
+            )
+
+            for label, forged, vault in (
+                ("copied_result", copied_result, first_vault),
+                ("copied_session", session_forgery, first_vault),
+                (
+                    "result_authority_transfer",
+                    result_authority_transfer,
+                    first_vault,
+                ),
+                (
+                    "session_authority_transfer",
+                    session_authority_transfer,
+                    first_vault,
+                ),
+                (
+                    "copied_authority",
+                    copied_authority_forgery,
+                    first_vault,
+                ),
+            ):
+                with self.subTest(label=label):
+                    with self.assertRaises(
+                        BrowserSessionLifecycleError
+                    ) as rejected:
+                        completion.prepare_session_delivery(
+                            connection,
+                            forged,
+                            vault,
+                            now=TRUSTED_NOW,
+                        )
+                    self.assertEqual(
+                        rejected.exception.code,
+                        "session_state_conflict",
+                    )
+                    self.assertIsNone(rejected.exception.__cause__)
+                    self.assertIsNone(rejected.exception.__context__)
+
+            with self.assertRaises(
+                BrowserSessionLifecycleError
+            ) as wrong_vault:
+                completion.prepare_session_delivery(
+                    connection,
+                    first,
+                    second_vault,
+                    now=TRUSTED_NOW,
+                )
+            self.assertEqual(
+                wrong_vault.exception.code,
+                "session_state_conflict",
+            )
+            self.assertEqual(first.status, "issued")
+            self.assertEqual(first.issued_session.status, "issued")
+            self.assertEqual(second.status, "issued")
+            self.assertEqual(second.issued_session.status, "issued")
+            self.assertEqual(vault_entry_count(first_vault), 1)
+            self.assertEqual(vault_entry_count(second_vault), 1)
+            self.assertEqual(
+                [
+                    tuple(row)
+                    for row in connection.execute(
+                        "SELECT * FROM account_sessions ORDER BY session_id"
+                    ).fetchall()
+                ],
+                stored_before,
+            )
+
+            self._abandon(connection, second, second_vault)
+            self.assertEqual(first.issued_session.status, "issued")
+            self.assertEqual(vault_entry_count(first_vault), 1)
+            self._abandon(connection, first, first_vault)
+
+    def test_multiple_results_remain_independent_under_arbitrary_terminal_order(self):
+        with login_database(suffix="result-authority-order") as (
+            _path,
+            connection,
+            created,
+        ):
+            issued = [
+                self._complete(
+                    connection,
+                    created,
+                    f"result-authority-order-00{index}",
+                )
+                for index in range(1, 4)
+            ]
+            leases = [
+                completion.prepare_session_delivery(
+                    connection,
+                    result,
+                    vault,
+                    now=TRUSTED_NOW,
+                )
+                for result, vault in issued
+            ]
+            for (result, _vault), lease in zip(issued, leases):
+                self.assertEqual(lease.status, "prepared")
+                self.assertEqual(
+                    result.issued_session.status,
+                    "delivery_pending",
+                )
+
+            leases[1].fail_delivery()
+            self.assertEqual(leases[1].status, "failed")
+            self.assertEqual(leases[0].status, "prepared")
+            self.assertEqual(leases[2].status, "prepared")
+            leases[0].acknowledge_delivery()
+            self.assertEqual(leases[0].status, "acknowledged")
+            self.assertEqual(leases[2].status, "prepared")
+
+            with self.assertRaises(
+                BrowserSessionLifecycleError
+            ) as acknowledge_then_compensate:
+                leases[0].fail_delivery()
+            self.assertEqual(
+                acknowledge_then_compensate.exception.code,
+                "already_completed",
+            )
+            with self.assertRaises(
+                BrowserSessionLifecycleError
+            ) as compensate_then_acknowledge:
+                leases[1].acknowledge_delivery()
+            self.assertEqual(
+                compensate_then_acknowledge.exception.code,
+                "already_completed",
+            )
+
+            with self.assertRaises(
+                BrowserSessionLifecycleError
+            ) as repeated_acquisition:
+                completion.prepare_session_delivery(
+                    connection,
+                    issued[0][0],
+                    issued[0][1],
+                    now=TRUSTED_NOW,
+                )
+            self.assertEqual(
+                repeated_acquisition.exception.code,
+                "already_completed",
+            )
+            self.assertEqual(leases[2].status, "prepared")
+            self.assertEqual(
+                issued[2][0].issued_session.status,
+                "delivery_pending",
+            )
+            leases[2].fail_delivery()
+
+            stored = connection.execute(
+                "SELECT session_version, revoked_at FROM account_sessions"
+            ).fetchall()
+            self.assertEqual(len(stored), 3)
+            self.assertEqual(
+                sum(
+                    row["session_version"] == 1
+                    and row["revoked_at"] is None
+                    for row in stored
+                ),
+                1,
+            )
+            self.assertEqual(
+                sum(
+                    row["session_version"] == 2
+                    and row["revoked_at"] is not None
+                    for row in stored
+                ),
+                2,
+            )
+
+    def test_deletion_and_forced_gc_have_no_authority_or_cleanup_side_effect(self):
+        with login_database(suffix="result-authority-gc") as (
+            _path,
+            connection,
+            created,
+        ):
+            deleted, deleted_vault = self._complete(
+                connection,
+                created,
+                "result-authority-gc-001",
+            )
+            deleted_session = deleted.issued_session
+            deleted_reference = weakref.ref(deleted)
+            del deleted
+            for _attempt in range(3):
+                gc.collect()
+            self.assertIsNone(deleted_reference())
+            self.assertEqual(deleted_session.status, "issued")
+            self.assertEqual(vault_entry_count(deleted_vault), 1)
+            stored = connection.execute(
+                "SELECT session_version, revoked_at FROM account_sessions"
+            ).fetchone()
+            self.assertEqual(stored["session_version"], 1)
+            self.assertIsNone(stored["revoked_at"])
+
+            other, other_vault = self._complete(
+                connection,
+                created,
+                "result-authority-gc-002",
+            )
+            self._abandon(connection, other, other_vault)
+            self.assertEqual(deleted_session.status, "issued")
+            self.assertEqual(vault_entry_count(deleted_vault), 1)
+
+            deleted_lease = lifecycle.prepare_issued_session_delivery(
+                connection,
+                deleted_session,
+                deleted_vault,
+                lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                now=TRUSTED_NOW,
+            )
+            deleted_lease.fail_delivery()
+            self.assertEqual(deleted_session.status, "terminal_failed")
+            self.assertTrue(vault_is_closed_and_empty(deleted_vault))
+
+    def test_reconstructed_composition_uses_an_independent_connection_without_state(self):
+        with login_database(suffix="result-authority-reconstruction") as (
+            path,
+            connection,
+            created,
+        ):
+            result, vault = self._complete(
+                connection,
+                created,
+                "result-authority-reconstruction-001",
+            )
+            reconstructed_prepare = getattr(
+                __import__(
+                    "wahojobs.trusted_login_completion",
+                    fromlist=("prepare_session_delivery",),
+                ),
+                "prepare_session_delivery",
+            )
+            independent = connect(path)
+            try:
+                lease = reconstructed_prepare(
+                    independent,
+                    result,
+                    vault,
+                    now=TRUSTED_NOW,
+                )
+                lease.acknowledge_delivery()
+                self.assertEqual(result.issued_session.status, "consumed")
+                stored = independent.execute(
+                    "SELECT session_version, revoked_at FROM account_sessions"
+                ).fetchone()
+                self.assertEqual(stored["session_version"], 1)
+                self.assertIsNone(stored["revoked_at"])
+            finally:
+                independent.close()
+
+    def test_pending_result_finalization_is_owner_bound_and_one_shot(self):
+        with login_database(suffix="result-authority-pending") as (
+            _path,
+            connection,
+            created,
+        ):
+            connection.execute("BEGIN")
+            pending, vault = complete_login(
+                connection,
+                trusted_assertion(created),
+                key="result-authority-pending-001",
+            )
+            self.assertEqual(pending.status, "pending_commit")
+            self.assertEqual(
+                pending.issued_session.status,
+                "pending_commit",
+            )
+            connection.commit()
+
+            forged = self._copy_slots(
+                pending,
+                TrustedLoginCompletionResult,
+            )
+            rejected = finalize_login(connection, forged, vault)
+            self.assertEqual(rejected.status, "unavailable")
+            self.assertEqual(pending.status, "pending_commit")
+            self.assertEqual(
+                pending.issued_session.status,
+                "pending_commit",
+            )
+            self.assertEqual(vault_entry_count(vault), 1)
+
+            finalized = finalize_login(connection, pending, vault)
+            self.assertEqual(finalized.status, "issued")
+            self.assertIs(
+                finalized.issued_session,
+                pending.issued_session,
+            )
+            replay = finalize_login(connection, pending, vault)
+            self.assertEqual(replay.status, "unavailable")
+            self.assertEqual(finalized.issued_session.status, "issued")
+            self.assertEqual(vault_entry_count(vault), 1)
+
+            lease = completion.prepare_session_delivery(
+                connection,
+                finalized,
+                vault,
+                now=TRUSTED_NOW,
+            )
+            lease.acknowledge_delivery()
+            self.assertEqual(finalized.issued_session.status, "consumed")
+            self.assertTrue(vault_is_closed_and_empty(vault))
+
+    def test_delivery_authority_claim_is_thread_safe_and_one_shot(self):
+        with login_database(suffix="result-authority-thread") as (
+            path,
+            connection,
+            created,
+        ):
+            result, vault = self._complete(
+                connection,
+                created,
+                "result-authority-thread-001",
+            )
+            threaded_connection = sqlite3.connect(
+                path,
+                timeout=2.0,
+                check_same_thread=False,
+            )
+            threaded_connection.row_factory = sqlite3.Row
+            threaded_connection.execute("PRAGMA foreign_keys = ON")
+            barrier = threading.Barrier(3)
+
+            def acquire():
+                barrier.wait()
+                try:
+                    return (
+                        "prepared",
+                        completion.prepare_session_delivery(
+                            threaded_connection,
+                            result,
+                            vault,
+                            now=TRUSTED_NOW,
+                        ),
+                    )
+                except BrowserSessionLifecycleError as exc:
+                    return ("rejected", exc.code)
+
+            try:
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = [executor.submit(acquire) for _index in range(2)]
+                    barrier.wait()
+                    outcomes = [future.result(timeout=10.0) for future in futures]
+                prepared = [
+                    value
+                    for status, value in outcomes
+                    if status == "prepared"
+                ]
+                rejected = [
+                    value
+                    for status, value in outcomes
+                    if status == "rejected"
+                ]
+                self.assertEqual(len(prepared), 1)
+                self.assertEqual(rejected, ["already_completed"])
+                prepared[0].fail_delivery()
+                self.assertEqual(
+                    result.issued_session.status,
+                    "terminal_failed",
+                )
+                self.assertTrue(vault_is_closed_and_empty(vault))
+            finally:
+                threaded_connection.close()
 
 
 if __name__ == "__main__":

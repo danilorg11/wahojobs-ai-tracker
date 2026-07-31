@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import inspect
 import io
 import json
 import os
@@ -16,10 +17,11 @@ from unittest import mock
 
 import scripts.google_oidc_authorization_transactions_migration as migration
 from tests.persistent_profile_canonical_v2_test_support import (
-    install_canonical_v2_profiles,
+    install_canonical_v2_profiles as _install_canonical_v2_profiles,
 )
 from wahojobs.google_oidc_authorization_transaction_schema import (
     EXPECTED_SCHEMA_FINGERPRINT,
+    M006_VERIFICATION_INDEX_LIST_TABLES,
     MIGRATION_PATH,
     MIGRATION_VERSION,
     PREREQUISITE_MIGRATION_VERSIONS,
@@ -40,11 +42,57 @@ from wahojobs.persistent_profile_canonical_v2_schema import (
 ROOT = Path(__file__).resolve().parent.parent
 CREATED_AT = "2026-07-24T03:00:00+00:00"
 EXPIRES_AT = "2026-07-24T03:10:00+00:00"
+_TEST_CONNECTION_PATHS = {}
+_PRODUCTION_APPLY = (
+    migration.apply_google_oidc_authorization_transactions_migration
+)
+
+
+def install_canonical_v2_profiles(path):
+    connection = _install_canonical_v2_profiles(path)
+    _TEST_CONNECTION_PATHS[id(connection)] = (
+        connection,
+        Path(path).resolve(strict=True),
+    )
+    return connection
 
 
 class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
     def setUp(self):
         super().setUp()
+        self.addCleanup(_TEST_CONNECTION_PATHS.clear)
+
+        original_apply = _PRODUCTION_APPLY
+
+        def apply_with_explicit_test_target(
+            connection,
+            *arguments,
+            **keywords,
+        ):
+            if keywords.get("requested_path") is None:
+                registered = _TEST_CONNECTION_PATHS.get(id(connection))
+                if (
+                    registered is not None
+                    and registered[0] is connection
+                ):
+                    path = registered[1]
+                    keywords["requested_path"] = path
+                    keywords["expected_identity"] = (
+                        migration.database_file_identity(path)
+                    )
+            return original_apply(
+                connection,
+                *arguments,
+                **keywords,
+            )
+
+        apply_patcher = mock.patch.object(
+            migration,
+            "apply_google_oidc_authorization_transactions_migration",
+            side_effect=apply_with_explicit_test_target,
+        )
+        apply_patcher.start()
+        self.addCleanup(apply_patcher.stop)
 
         def deny_socket(*_args, **_kwargs):
             raise AssertionError("live_socket_access_forbidden")
@@ -568,6 +616,8 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 1,
             )
             conn.rollback()
+            with self.assertRaises(TypeError):
+                _PRODUCTION_APPLY(conn)
             conn.execute("PRAGMA foreign_keys = OFF")
             with self.assertRaises(
                 migration.GoogleOidcAuthorizationTransactionsMigrationError
@@ -582,6 +632,18 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
             conn = install_canonical_v2_profiles(path)
             conn.execute("PRAGMA recursive_triggers = OFF")
             observed = []
+            worker_enforcement = []
+            original_enable = migration._enable_and_verify_recursive_triggers
+
+            def track_worker_enforcement(current):
+                self.assertIsNot(current, conn)
+                original_enable(current)
+                worker_enforcement.append(
+                    sqlite3.Connection.execute(
+                        current,
+                        "PRAGMA recursive_triggers",
+                    ).fetchone()[0]
+                )
 
             def weaken_after_lock(point):
                 if point == "after_locked_prerequisite_attestation":
@@ -590,26 +652,715 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                         conn.execute("PRAGMA recursive_triggers").fetchone()[0]
                     )
 
-            result = migration.apply_google_oidc_authorization_transactions_migration(
-                conn,
-                failure_injector=weaken_after_lock,
-            )
+            with mock.patch.object(
+                migration,
+                "_enable_and_verify_recursive_triggers",
+                side_effect=track_worker_enforcement,
+            ):
+                result = (
+                    migration
+                    .apply_google_oidc_authorization_transactions_migration(
+                        conn,
+                        failure_injector=weaken_after_lock,
+                    )
+                )
+                no_op = (
+                    migration
+                    .apply_google_oidc_authorization_transactions_migration(
+                        conn
+                    )
+                )
             self.assertTrue(result["changed"])
-            self.assertEqual(observed, [0])
-            self.assertEqual(
-                conn.execute("PRAGMA recursive_triggers").fetchone()[0],
-                1,
-            )
-            conn.execute("PRAGMA recursive_triggers = OFF")
-            no_op = migration.apply_google_oidc_authorization_transactions_migration(
-                conn
-            )
             self.assertFalse(no_op["changed"])
+            self.assertEqual(observed, [0])
+            self.assertTrue(worker_enforcement)
+            self.assertEqual(
+                worker_enforcement,
+                [1] * len(worker_enforcement),
+            )
             self.assertEqual(
                 conn.execute("PRAGMA recursive_triggers").fetchone()[0],
-                1,
+                0,
             )
             conn.close()
+
+    def test_m006_verification_authorizer_uses_exact_direct_pragma_scope(self):
+        authorizer = migration._MigrationAuthorizer((), ())
+        self.assertEqual(
+            len(migration._MIGRATION_EXACT_PRAGMA_TUPLES),
+            68,
+        )
+        for name, argument, database, source in sorted(
+            migration._MIGRATION_EXACT_PRAGMA_TUPLES,
+            key=repr,
+        ):
+            with self.subTest(
+                allowed_name=name,
+                allowed_argument=argument,
+                allowed_database=database,
+                allowed_source=source,
+            ):
+                self.assertEqual(
+                    authorizer(
+                        sqlite3.SQLITE_PRAGMA,
+                        name,
+                        argument,
+                        database,
+                        source,
+                    ),
+                    sqlite3.SQLITE_OK,
+                )
+            rejected_variants = [
+                (name, "__unexpected_argument__", database, source),
+                (name, "", database, source),
+                (name, argument, "attached", source),
+                (name, argument, database, "trigger_name"),
+                (name.upper(), argument, database, source),
+                (name.encode("ascii"), argument, database, source),
+                (name, [], database, source),
+                (name, argument, b"main", source),
+            ]
+            alternate_database = (
+                name,
+                argument,
+                None if database == "main" else "main",
+                source,
+            )
+            if (
+                alternate_database
+                not in migration._MIGRATION_EXACT_PRAGMA_TUPLES
+            ):
+                rejected_variants.append(alternate_database)
+            for rejected in rejected_variants:
+                with self.subTest(
+                    allowed=(name, argument, database, source),
+                    rejected=rejected,
+                ):
+                    self.assertEqual(
+                        authorizer(sqlite3.SQLITE_PRAGMA, *rejected),
+                        sqlite3.SQLITE_DENY,
+                    )
+        for table in sorted(M006_VERIFICATION_INDEX_LIST_TABLES):
+            for database in (None, "main"):
+                with self.subTest(
+                    index_list_table=table,
+                    index_list_database=database,
+                ):
+                    self.assertEqual(
+                        authorizer(
+                            sqlite3.SQLITE_PRAGMA,
+                            "index_list",
+                            table,
+                            database,
+                            None,
+                        ),
+                        sqlite3.SQLITE_OK,
+                    )
+        denied = (
+            ("other_pragma", "user_pipeline_items", "main", None),
+            ("index_list", "unrelated_table", "main", None),
+            ("index_list", "user_pipeline_items", "attached", None),
+            ("index_list", "user_pipeline_items", "main", "trigger"),
+            ("index_list", None, "main", None),
+            ("index_list", b"user_pipeline_items", "main", None),
+            ("index_list", "user_pipeline_items", b"main", None),
+            ("INDEX_LIST", "user_pipeline_items", "main", None),
+            (
+                "table_xinfo",
+                "unrelated_table",
+                "attached",
+                "trigger_name",
+            ),
+            (
+                "foreign_key_list",
+                "unrelated_table",
+                "attached",
+                "trigger_name",
+            ),
+            (
+                "integrity_check",
+                "unexpected_argument",
+                "attached",
+                "trigger_name",
+            ),
+        )
+        for name, argument, database, source in denied:
+            with self.subTest(
+                name=name,
+                argument=argument,
+                database=database,
+                source=source,
+            ):
+                self.assertEqual(
+                    authorizer(
+                        sqlite3.SQLITE_PRAGMA,
+                        name,
+                        argument,
+                        database,
+                        source,
+                    ),
+                    sqlite3.SQLITE_DENY,
+                )
+        self.assertEqual(
+            authorizer(
+                sqlite3.SQLITE_UPDATE,
+                "sqlite_master",
+                "type",
+                "main",
+                None,
+            ),
+            sqlite3.SQLITE_DENY,
+        )
+        for malformed_action in (
+            True,
+            float(sqlite3.SQLITE_PRAGMA),
+            str(sqlite3.SQLITE_PRAGMA),
+            None,
+        ):
+            with self.subTest(malformed_action=malformed_action):
+                self.assertEqual(
+                    authorizer(
+                        malformed_action,
+                        "index_list",
+                        "user_pipeline_items",
+                        "main",
+                        None,
+                    ),
+                    sqlite3.SQLITE_DENY,
+                )
+        for table_name, database in (
+            ("user_pipeline_items", "main"),
+            ("product_profiles", None),
+        ):
+            with self.subTest(
+                empty_inventory_table=table_name,
+                empty_inventory_database=database,
+            ):
+                self.assertEqual(
+                    authorizer(
+                        sqlite3.SQLITE_PRAGMA,
+                        "table_xinfo",
+                        table_name,
+                        database,
+                        None,
+                    ),
+                    sqlite3.SQLITE_DENY,
+                )
+
+        maximum_rows = [
+            (f"inventory_table_{index}".encode("ascii"),)
+            for index in range(
+                migration._MAX_SEALED_SCHEMA_OBJECTS
+            )
+        ]
+        self.assertEqual(
+            len(
+                migration._validated_main_table_xinfo_scope_rows(
+                    maximum_rows
+                )
+            ),
+            migration._MAX_SEALED_SCHEMA_OBJECTS,
+        )
+        invalid_scopes = (
+            tuple(maximum_rows),
+            maximum_rows + [(b"one_too_many",)],
+            [(b"duplicate",), (b"duplicate",)],
+            [(b"",)],
+            [(b"\xff",)],
+            [("not-bytes",)],
+            [(b"two", b"columns")],
+        )
+        for invalid_scope in invalid_scopes:
+            with self.subTest(
+                invalid_scope_type=type(invalid_scope).__name__,
+                invalid_scope_size=len(invalid_scope),
+            ):
+                with self.assertRaises(
+                    migration
+                    .GoogleOidcAuthorizationTransactionsMigrationError
+                ):
+                    migration._validated_main_table_xinfo_scope_rows(
+                        invalid_scope
+                    )
+        for table_count in (
+            migration._MAX_SEALED_SCHEMA_OBJECTS,
+            migration._MAX_SEALED_SCHEMA_OBJECTS + 1,
+        ):
+            bounded_connection = sqlite3.connect(":memory:")
+            try:
+                bounded_connection.executescript(
+                    "BEGIN;"
+                    + "".join(
+                        f"CREATE TABLE inventory_{index}("
+                        "value INTEGER);"
+                        for index in range(table_count)
+                    )
+                    + "COMMIT;"
+                )
+                bounded_authorizer = migration._MigrationAuthorizer(
+                    (),
+                    (),
+                )
+                if table_count == migration._MAX_SEALED_SCHEMA_OBJECTS:
+                    self.assertEqual(
+                        len(
+                            migration._bounded_main_table_xinfo_scope(
+                                bounded_connection,
+                                bounded_authorizer,
+                            )
+                        ),
+                        migration._MAX_SEALED_SCHEMA_OBJECTS,
+                    )
+                else:
+                    with self.assertRaises(
+                        migration
+                        .GoogleOidcAuthorizationTransactionsMigrationError
+                    ):
+                        migration._bounded_main_table_xinfo_scope(
+                            bounded_connection,
+                            bounded_authorizer,
+                        )
+            finally:
+                sqlite3.Connection.set_authorizer(
+                    bounded_connection,
+                    None,
+                )
+                bounded_connection.close()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "direct-pragma-authorizer.sqlite"
+            conn = install_canonical_v2_profiles(path)
+            conn.execute(
+                "CREATE TABLE authorizer_scope_probe(value INTEGER)"
+            )
+            conn.commit()
+            scoped_authorizer = migration._seal_migration_connection(
+                conn
+            )
+            try:
+                self.assertEqual(
+                    scoped_authorizer(
+                        sqlite3.SQLITE_PRAGMA,
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        "main",
+                        None,
+                    ),
+                    sqlite3.SQLITE_OK,
+                )
+                for table_name, database in (
+                    ("product_profiles", "main"),
+                    ("product_profiles", None),
+                    ("user_pipeline_items", "main"),
+                ):
+                    with self.subTest(
+                        captured_table=table_name,
+                        captured_database=database,
+                    ):
+                        self.assertEqual(
+                            scoped_authorizer(
+                                sqlite3.SQLITE_PRAGMA,
+                                "table_xinfo",
+                                table_name,
+                                database,
+                                None,
+                            ),
+                            sqlite3.SQLITE_OK,
+                        )
+                for rejected in (
+                    (
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        None,
+                        None,
+                    ),
+                    (
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        "attached",
+                        None,
+                    ),
+                    (
+                        "table_xinfo",
+                        "authorizer_scope_probe",
+                        "main",
+                        "trigger_name",
+                    ),
+                    (
+                        "table_xinfo",
+                        "user_pipeline_items",
+                        None,
+                        None,
+                    ),
+                ):
+                    with self.subTest(dynamic_scope_rejected=rejected):
+                        self.assertEqual(
+                            scoped_authorizer(
+                                sqlite3.SQLITE_PRAGMA,
+                                *rejected,
+                            ),
+                            sqlite3.SQLITE_DENY,
+                        )
+                self.assertTrue(
+                    sqlite3.Connection.execute(
+                        conn,
+                        "PRAGMA main.table_xinfo("
+                        "'authorizer_scope_probe')",
+                    ).fetchall()
+                )
+                index_rows = sqlite3.Connection.execute(
+                    conn,
+                    "PRAGMA main.index_list('user_pipeline_items')",
+                ).fetchall()
+                self.assertIn(
+                    "idx_user_pipeline_items_pipeline_profile",
+                    {tuple(row)[1] for row in index_rows},
+                )
+                self.assertTrue(
+                    sqlite3.Connection.execute(
+                        conn,
+                        "PRAGMA main.table_xinfo('user_pipeline_items')",
+                    ).fetchall()
+                )
+                self.assertEqual(
+                    [
+                        tuple(row)
+                        for row in sqlite3.Connection.execute(
+                            conn,
+                            "PRAGMA integrity_check",
+                        ).fetchall()
+                    ],
+                    [("ok",)],
+                )
+                self.assertEqual(
+                    [
+                        tuple(row)
+                        for row in sqlite3.Connection.execute(
+                            conn,
+                            "PRAGMA foreign_key_check",
+                        ).fetchall()
+                    ],
+                    [],
+                )
+                with self.assertRaises(sqlite3.DatabaseError):
+                    sqlite3.Connection.execute(
+                        conn,
+                        "PRAGMA main.index_list('unrelated_table')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    sqlite3.Connection.execute(
+                        conn,
+                        "PRAGMA main.table_xinfo('unrelated_table')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    sqlite3.Connection.execute(
+                        conn,
+                        "PRAGMA main.foreign_key_list('unrelated_table')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    sqlite3.Connection.execute(
+                        conn,
+                        "PRAGMA main.integrity_check('unexpected_argument')",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    sqlite3.Connection.execute(
+                        conn,
+                        "PRAGMA writable_schema = ON",
+                    ).fetchall()
+                with self.assertRaises(sqlite3.DatabaseError):
+                    sqlite3.Connection.execute(
+                        conn,
+                        "DELETE FROM main.user_pipeline_items",
+                    )
+                with (
+                    mock.patch.object(
+                        migration,
+                        "_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS",
+                        0,
+                    ),
+                    mock.patch.object(
+                        migration,
+                        "_TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY",
+                        1,
+                    ),
+                    self.assertRaises(sqlite3.OperationalError),
+                ):
+                    migration._bounded_main_table_xinfo_scope(
+                        conn,
+                        scoped_authorizer,
+                    )
+                self.assertEqual(
+                    sqlite3.Connection.execute(
+                        conn,
+                        "SELECT 1",
+                    ).fetchone(),
+                    (1,),
+                )
+                cleanup_connection = sqlite3.connect(":memory:")
+                injected_cleanup_interruptions = []
+                helper_source, helper_start = inspect.getsourcelines(
+                    migration._bounded_main_table_xinfo_scope
+                )
+                progress_clear_line = helper_start + next(
+                    index
+                    for index, line in enumerate(helper_source)
+                    if (
+                        "progress_clear_operation("
+                        "*progress_clear_arguments)"
+                        in line.replace(" ", "")
+                    )
+                )
+
+                def interrupt_first_progress_clear(frame, event, _arg):
+                    if (
+                        frame.f_code
+                        is migration._bounded_main_table_xinfo_scope.__code__
+                        and event == "line"
+                        and frame.f_lineno == progress_clear_line
+                        and not injected_cleanup_interruptions
+                    ):
+                        self.assertIs(
+                            frame.f_locals.get(
+                                "progress_clear_operation"
+                            ),
+                            sqlite3.Connection.set_progress_handler,
+                        )
+                        self.assertEqual(
+                            frame.f_locals.get(
+                                "progress_clear_arguments"
+                            )[1:],
+                            (None, 0),
+                        )
+                        injected_cleanup_interruptions.append(True)
+                        raise GeneratorExit(
+                            "progress handler removal interrupted"
+                        )
+                    return interrupt_first_progress_clear
+
+                try:
+                    sys.settrace(interrupt_first_progress_clear)
+                    cleanup_scope = (
+                        migration._bounded_main_table_xinfo_scope(
+                            cleanup_connection,
+                            migration._MigrationAuthorizer((), ()),
+                        )
+                    )
+                finally:
+                    sys.settrace(None)
+                self.assertEqual(cleanup_scope, frozenset())
+                self.assertEqual(injected_cleanup_interruptions, [True])
+                sqlite3.Connection.set_authorizer(
+                    cleanup_connection,
+                    None,
+                )
+                with mock.patch.object(
+                    migration,
+                    "_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS",
+                    0,
+                ):
+                    self.assertEqual(
+                        cleanup_connection.execute(
+                            "WITH RECURSIVE x(n) AS ("
+                            "VALUES(1) UNION ALL "
+                            "SELECT n+1 FROM x WHERE n<10000"
+                            ") SELECT max(n) FROM x"
+                        ).fetchone(),
+                        (10000,),
+                    )
+                cleanup_connection.close()
+                for cleanup_failure_type in (
+                    RuntimeError,
+                    KeyboardInterrupt,
+                    SystemExit,
+                    GeneratorExit,
+                ):
+                    with self.subTest(
+                        progress_cleanup_exhaustion=(
+                            cleanup_failure_type.__name__
+                        )
+                    ):
+                        exhausted_connection = sqlite3.connect(":memory:")
+                        cleanup_failure = cleanup_failure_type(
+                            "progress handler removal exhausted"
+                        )
+                        clear_attempts = []
+                        original_progress_operation = (
+                            migration._SQLITE_SET_PROGRESS_HANDLER
+                        )
+
+                        def exhaust_progress_clear(
+                            connection,
+                            callback,
+                            instruction_count,
+                        ):
+                            if callback is not None:
+                                return original_progress_operation(
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            clear_attempts.append(
+                                (
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            )
+                            raise cleanup_failure
+
+                        with mock.patch.object(
+                            migration,
+                            "_SQLITE_SET_PROGRESS_HANDLER",
+                            side_effect=exhaust_progress_clear,
+                        ), self.assertRaises(
+                            cleanup_failure_type
+                        ) as caught:
+                            migration._bounded_main_table_xinfo_scope(
+                                exhausted_connection,
+                                migration._MigrationAuthorizer((), ()),
+                            )
+                        self.assertIs(caught.exception, cleanup_failure)
+                        self.assertEqual(
+                            clear_attempts,
+                            [
+                                (
+                                    exhausted_connection,
+                                    None,
+                                    0,
+                                )
+                            ]
+                            * migration._CALLBACK_CLEAR_PASSES,
+                        )
+                        with self.assertRaises(sqlite3.ProgrammingError):
+                            sqlite3.Connection.execute(
+                                exhausted_connection,
+                                "SELECT 1",
+                            )
+                        sqlite3.Connection.close(exhausted_connection)
+                        primary_connection = sqlite3.connect(":memory:")
+                        primary_clear_attempts = []
+
+                        def exhaust_after_query_failure(
+                            connection,
+                            callback,
+                            instruction_count,
+                        ):
+                            if callback is not None:
+                                return original_progress_operation(
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            primary_clear_attempts.append(
+                                (
+                                    connection,
+                                    callback,
+                                    instruction_count,
+                                )
+                            )
+                            raise cleanup_failure
+
+                        with (
+                            mock.patch.object(
+                                migration,
+                                "_SQLITE_SET_PROGRESS_HANDLER",
+                                side_effect=exhaust_after_query_failure,
+                            ),
+                            mock.patch.object(
+                                migration,
+                                "_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS",
+                                0,
+                            ),
+                            mock.patch.object(
+                                migration,
+                                "_TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY",
+                                1,
+                            ),
+                            self.assertRaises(
+                                sqlite3.OperationalError
+                            ) as primary_caught,
+                        ):
+                            migration._bounded_main_table_xinfo_scope(
+                                primary_connection,
+                                migration._MigrationAuthorizer((), ()),
+                            )
+                        self.assertEqual(
+                            getattr(
+                                primary_caught.exception,
+                                "sqlite_errorcode",
+                                None,
+                            ),
+                            sqlite3.SQLITE_INTERRUPT,
+                        )
+                        self.assertIn(
+                            "Private table-scope cleanup did not complete.",
+                            getattr(
+                                primary_caught.exception,
+                                "__notes__",
+                                (),
+                            ),
+                        )
+                        self.assertEqual(
+                            primary_clear_attempts,
+                            [
+                                (
+                                    primary_connection,
+                                    None,
+                                    0,
+                                )
+                            ]
+                            * migration._CALLBACK_CLEAR_PASSES,
+                        )
+                        with self.assertRaises(sqlite3.ProgrammingError):
+                            sqlite3.Connection.execute(
+                                primary_connection,
+                                "SELECT 1",
+                            )
+                        sqlite3.Connection.close(primary_connection)
+                future_table = "locked_scope_generation_probe"
+                self.assertEqual(
+                    scoped_authorizer(
+                        sqlite3.SQLITE_PRAGMA,
+                        "table_xinfo",
+                        future_table,
+                        "main",
+                        None,
+                    ),
+                    sqlite3.SQLITE_DENY,
+                )
+                sqlite3.Connection.set_authorizer(conn, None)
+                sqlite3.Connection.execute(
+                    conn,
+                    "CREATE TABLE locked_scope_generation_probe("
+                    "value INTEGER)",
+                )
+                sqlite3.Connection.commit(conn)
+                successor_authorizer = (
+                    migration._seal_migration_connection(conn)
+                )
+                self.assertEqual(
+                    scoped_authorizer(
+                        sqlite3.SQLITE_PRAGMA,
+                        "table_xinfo",
+                        future_table,
+                        "main",
+                        None,
+                    ),
+                    sqlite3.SQLITE_DENY,
+                )
+                self.assertEqual(
+                    successor_authorizer(
+                        sqlite3.SQLITE_PRAGMA,
+                        "table_xinfo",
+                        future_table,
+                        "main",
+                        None,
+                    ),
+                    sqlite3.SQLITE_OK,
+                )
+            finally:
+                sqlite3.Connection.set_authorizer(conn, None)
+                conn.close()
+            self.assertEqual(migration.existing_sqlite_sidecars(path), ())
 
     def test_cli_inspection_is_read_only_and_missing_or_sidecar_paths_are_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -828,7 +1579,8 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 )
                 before_bytes = workspace.read_bytes()
                 before_logical = _live_backup_logical_snapshot(workspace)
-                owned = [None]
+                witness = [None]
+                worker = [None]
                 serialize_calls = 0
                 mutated = False
 
@@ -842,7 +1594,7 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                             ).fetchone()[0],
                             "memory",
                         )
-                        owned[0] = connection
+                        witness[0] = connection
                     return connection
 
                 original_fingerprint = (
@@ -852,14 +1604,18 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 def fingerprint_with_owned_mutation(connection):
                     nonlocal mutated, serialize_calls
                     serialize_calls += 1
+                    if worker[0] is None:
+                        worker[0] = connection
+                    else:
+                        self.assertIs(connection, worker[0])
+                    self.assertIsNot(connection, witness[0])
                     if serialize_calls == 2:
-                        self.assertIsNotNone(owned[0])
-                        self.assertTrue(owned[0].in_transaction)
+                        self.assertTrue(connection.in_transaction)
                         sqlite3.Connection.set_authorizer(
-                            owned[0],
+                            connection,
                             None,
                         )
-                        mutate(owned[0])
+                        mutate(connection)
                         mutated = True
                     return original_fingerprint(connection)
 
@@ -916,7 +1672,8 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
             )
             before_bytes = workspace.read_bytes()
             before_logical = _live_backup_logical_snapshot(workspace)
-            owned = [None]
+            witness = [None]
+            worker = [None]
             serialize_calls = 0
 
             def tracked_human_connect(*args, **kwargs):
@@ -924,7 +1681,7 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 connection = sqlite3.connect(*args, **kwargs)
                 if writable:
                     connection.execute("PRAGMA journal_mode=MEMORY")
-                    owned[0] = connection
+                    witness[0] = connection
                 return connection
 
             original_fingerprint = (
@@ -934,9 +1691,15 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
             def fingerprint_with_human_mutation(connection):
                 nonlocal serialize_calls
                 serialize_calls += 1
+                if worker[0] is None:
+                    worker[0] = connection
+                else:
+                    self.assertIs(connection, worker[0])
+                self.assertIsNot(connection, witness[0])
                 if serialize_calls == 2:
-                    sqlite3.Connection.set_authorizer(owned[0], None)
-                    owned[0].execute(
+                    self.assertTrue(connection.in_transaction)
+                    sqlite3.Connection.set_authorizer(connection, None)
+                    connection.execute(
                         "UPDATE companies SET name='Bravo' "
                         "WHERE slug='live-backup'"
                     )
@@ -994,12 +1757,12 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
             (
                 "after_open_before_begin_immediate",
                 "after_target_open",
-                "owned",
+                "witness",
             ),
             (
                 "after_begin_before_live_serialization",
                 "before_operation_1_",
-                "owned",
+                "worker",
             ),
         )
         for name, checkpoint, mutation_owner in cases:
@@ -1013,7 +1776,8 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 before_logical = _live_backup_logical_snapshot(workspace)
                 expected_external_bytes = [None]
                 expected_external_logical = [None]
-                owned = [None]
+                witness = [None]
+                worker = [None]
                 serialize_calls = 0
 
                 def tracked_connect(*args, **kwargs):
@@ -1021,7 +1785,12 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                     connection = sqlite3.connect(*args, **kwargs)
                     if writable:
                         connection.execute("PRAGMA journal_mode=MEMORY")
-                        owned[0] = connection
+                    if (
+                        witness[0] is None
+                        and migration.opened_database_path(connection)
+                        == workspace.resolve()
+                    ):
+                        witness[0] = connection
                     return connection
 
                 original_fingerprint = (
@@ -1031,6 +1800,11 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 def track_fingerprint(connection):
                     nonlocal serialize_calls
                     serialize_calls += 1
+                    if worker[0] is None:
+                        worker[0] = connection
+                    else:
+                        self.assertIs(connection, worker[0])
+                    self.assertIsNot(connection, witness[0])
                     return original_fingerprint(connection)
 
                 mutated = False
@@ -1058,17 +1832,36 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                         expected_external_logical[0] = (
                             _live_backup_logical_snapshot(workspace)
                         )
-                    else:
-                        self.assertIsNotNone(owned[0])
+                    elif mutation_owner == "witness":
+                        self.assertIsNotNone(witness[0])
                         sqlite3.Connection.set_authorizer(
-                            owned[0],
+                            witness[0],
                             None,
                         )
-                        owned[0].execute(
+                        try:
+                            witness[0].execute(
+                                "UPDATE companies SET name='Echo' "
+                                "WHERE slug='live-backup'"
+                            )
+                        except sqlite3.OperationalError:
+                            mutated = True
+                            raise RuntimeError(
+                                "read_only_witness_mutation_blocked"
+                            ) from None
+                        self.fail("read-only migration witness accepted a write")
+                    else:
+                        self.assertEqual(mutation_owner, "worker")
+                        self.assertIsNotNone(worker[0])
+                        self.assertIsNot(worker[0], witness[0])
+                        self.assertTrue(worker[0].in_transaction)
+                        sqlite3.Connection.set_authorizer(
+                            worker[0],
+                            None,
+                        )
+                        worker[0].execute(
                             "UPDATE companies SET name='Echo' "
                             "WHERE slug='live-backup'"
                         )
-                        self.assertTrue(owned[0].in_transaction)
                     mutated = True
 
                 with mock.patch.object(
@@ -1121,7 +1914,7 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         serialize_calls,
-                        2 if checkpoint.endswith("_") else 0,
+                        1 if mutation_owner == "worker" else 0,
                     )
                 inspection = sqlite3.connect(workspace)
                 try:
@@ -1494,6 +2287,29 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 self.assertEqual(callback_events, [])
                 self.assertEqual(mutation_attempts, [])
                 self.assertTrue(result["changed"])
+                # The caller connection is only an idle witness. Migration
+                # runs on a separately owned connection, so it neither
+                # invokes nor displaces caller-owned callbacks. Retire those
+                # callbacks explicitly under the caller's authority before
+                # observing the committed result.
+                sealed_interval = False
+                sqlite3.Connection.set_trace_callback(connection, None)
+                sqlite3.Connection.set_progress_handler(
+                    connection,
+                    None,
+                    0,
+                )
+                sqlite3.Connection.set_authorizer(connection, None)
+                sqlite3.Connection.row_factory.__set__(
+                    connection,
+                    None,
+                )
+                sqlite3.Connection.text_factory.__set__(
+                    connection,
+                    str,
+                )
+                self.assertEqual(callback_events, [])
+                self.assertEqual(mutation_attempts, [])
                 self.assertEqual(
                     connection.execute(
                         "SELECT name FROM companies "
@@ -1623,8 +2439,24 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                     )
                 )
                 self.assertTrue(result["changed"])
-                self.assertEqual(finalizer_events, [callback_kind])
+                self.assertEqual(finalizer_events, [])
                 self.assertEqual(reinstalled_trace_events, [])
+                if callback_kind == "trace":
+                    sqlite3.Connection.set_trace_callback(
+                        connection,
+                        None,
+                    )
+                else:
+                    sqlite3.Connection.create_collation(
+                        connection,
+                        "BINARY",
+                        None,
+                    )
+                self.assertEqual(finalizer_events, [callback_kind])
+                sqlite3.Connection.set_trace_callback(
+                    connection,
+                    None,
+                )
                 self.assertEqual(
                     connection.execute(
                         "SELECT name FROM companies "
@@ -1639,6 +2471,234 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 connection.close()
 
         with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "callback-control-flow-finalizers.sqlite"
+            connection = install_canonical_v2_profiles(path)
+            connection.execute(
+                "INSERT INTO companies(name, slug, careers_url) "
+                "VALUES ('Alpha', 'control-flow-finalizer', "
+                "'https://example.test/jobs')"
+            )
+            connection.execute(
+                "CREATE TABLE callback_blob_probe("
+                "payload BLOB NOT NULL)"
+            )
+            connection.execute(
+                "INSERT INTO callback_blob_probe(payload) "
+                "VALUES (zeroblob(4))"
+            )
+            connection.commit()
+            original_sql_length_limit = sqlite3.Connection.getlimit(
+                connection,
+                sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+            )
+            finalizer_results = []
+            unraisable_results = []
+            finalizers_armed = True
+            failure_types = (
+                RuntimeError,
+                KeyboardInterrupt,
+                SystemExit,
+                GeneratorExit,
+            )
+
+            class InterruptingFinalizer:
+                __slots__ = (
+                    "failure_type",
+                    "owned_connection",
+                    "write_mode",
+                )
+
+                def __init__(
+                    self,
+                    owned_connection,
+                    failure_type,
+                    *,
+                    write_mode="sql",
+                ):
+                    self.owned_connection = owned_connection
+                    self.failure_type = failure_type
+                    self.write_mode = write_mode
+
+                def __call__(self, *_arguments):
+                    return None
+
+                def __del__(self):
+                    if not finalizers_armed:
+                        finalizer_results.append(
+                            ("released", self.failure_type)
+                        )
+                        raise self.failure_type(
+                            "callback finalizer control flow"
+                        )
+                    try:
+                        sqlite3.Connection.setlimit(
+                            self.owned_connection,
+                            sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+                            original_sql_length_limit,
+                        )
+                        sqlite3.Connection.set_authorizer(
+                            self.owned_connection,
+                            None,
+                        )
+                        if self.write_mode == "blob":
+                            blob = sqlite3.Connection.blobopen(
+                                self.owned_connection,
+                                "callback_blob_probe",
+                                "payload",
+                                1,
+                                readonly=False,
+                                name="main",
+                            )
+                            try:
+                                blob.write(b"ZZZZ")
+                            finally:
+                                blob.close()
+                        else:
+                            sqlite3.Connection.execute(
+                                self.owned_connection,
+                                "UPDATE companies SET name='Bravo' "
+                                "WHERE slug='control-flow-finalizer'",
+                            )
+                        sqlite3.Connection.commit(
+                            self.owned_connection
+                        )
+                    except sqlite3.DatabaseError:
+                        finalizer_results.append(
+                            ("blocked", self.failure_type)
+                        )
+                    else:
+                        finalizer_results.append(
+                            ("committed", self.failure_type)
+                        )
+                    raise self.failure_type(
+                        "callback finalizer control flow"
+                    )
+
+            def capture_unraisable(unraisable):
+                unraisable_results.append(
+                    (
+                        type(unraisable.exc_value),
+                        str(unraisable.exc_value),
+                    )
+                )
+
+            with mock.patch.object(
+                sys,
+                "unraisablehook",
+                side_effect=capture_unraisable,
+            ):
+                sqlite3.Connection.set_authorizer(
+                    connection,
+                    InterruptingFinalizer(
+                        connection,
+                        failure_types[0],
+                    ),
+                )
+                connection.row_factory = InterruptingFinalizer(
+                    connection,
+                    failure_types[0],
+                    write_mode="blob",
+                )
+                connection.text_factory = InterruptingFinalizer(
+                    connection,
+                    failure_types[1],
+                )
+                sqlite3.Connection.set_trace_callback(
+                    connection,
+                    InterruptingFinalizer(
+                        connection,
+                        failure_types[2],
+                    ),
+                )
+                sqlite3.Connection.set_progress_handler(
+                    connection,
+                    InterruptingFinalizer(
+                        connection,
+                        failure_types[3],
+                    ),
+                    1,
+                )
+                result = (
+                    migration
+                    .apply_google_oidc_authorization_transactions_migration(
+                        connection,
+                        requested_path=path,
+                        expected_identity=(
+                            migration.database_file_identity(path)
+                        ),
+                    )
+                )
+                self.assertEqual(finalizer_results, [])
+                finalizers_armed = False
+                sqlite3.Connection.set_authorizer(connection, None)
+                sqlite3.Connection.row_factory.__set__(
+                    connection,
+                    None,
+                )
+                sqlite3.Connection.text_factory.__set__(
+                    connection,
+                    str,
+                )
+                sqlite3.Connection.set_trace_callback(
+                    connection,
+                    None,
+                )
+                sqlite3.Connection.set_progress_handler(
+                    connection,
+                    None,
+                    0,
+                )
+
+            self.assertTrue(result["changed"])
+            self.assertEqual(
+                sqlite3.Connection.getlimit(
+                    connection,
+                    sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+                ),
+                original_sql_length_limit,
+            )
+            self.assertEqual(
+                finalizer_results,
+                [
+                    ("released", failure_types[0]),
+                    *[
+                        ("released", failure_type)
+                        for failure_type in failure_types
+                    ],
+                ],
+            )
+            self.assertCountEqual(
+                unraisable_results,
+                [
+                    (
+                        failure_types[0],
+                        "callback finalizer control flow",
+                    ),
+                    *[
+                    (
+                        failure_type,
+                        "callback finalizer control flow",
+                    )
+                    for failure_type in failure_types
+                    ],
+                ],
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT name FROM companies "
+                    "WHERE slug='control-flow-finalizer'"
+                ).fetchone()[0],
+                "Alpha",
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT payload FROM callback_blob_probe"
+                ).fetchone()[0],
+                b"\x00\x00\x00\x00",
+            )
+            connection.close()
+
+        with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "binary-commit-finalizer.sqlite"
             connection = install_canonical_v2_profiles(path)
             connection.execute(
@@ -1650,6 +2710,7 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
             preserved_before = _preserved_snapshot(connection)
             installed = False
             finalizer_results = []
+            commit_finalizer_armed = True
 
             class CommitOnRelease:
                 __slots__ = ("owned_connection",)
@@ -1661,7 +2722,15 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                     return (left > right) - (left < right)
 
                 def __del__(self):
+                    if not commit_finalizer_armed:
+                        finalizer_results.append("released")
+                        return
                     try:
+                        sqlite3.Connection.execute(
+                            self.owned_connection,
+                            "UPDATE companies SET name='Bravo' "
+                            "WHERE slug='commit-finalizer'",
+                        )
                         sqlite3.Connection.commit(self.owned_connection)
                     except sqlite3.DatabaseError:
                         finalizer_results.append("blocked")
@@ -1689,7 +2758,14 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 )
             )
             self.assertTrue(installed)
-            self.assertEqual(finalizer_results, ["blocked"])
+            self.assertEqual(finalizer_results, [])
+            commit_finalizer_armed = False
+            sqlite3.Connection.create_collation(
+                connection,
+                "BINARY",
+                None,
+            )
+            self.assertEqual(finalizer_results, ["released"])
             self.assertTrue(result["changed"])
             self.assertEqual(
                 connection.execute(
@@ -1703,6 +2779,328 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 preserved_before,
             )
             connection.close()
+
+        failure_types = (
+            RuntimeError,
+            KeyboardInterrupt,
+            SystemExit,
+            GeneratorExit,
+        )
+        for callback_kind in ("row_factory", "binary_collation"):
+            for failure_type in failure_types:
+                with self.subTest(
+                    private_candidate_callback=callback_kind,
+                    failure=failure_type.__name__,
+                ), tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / (
+                        f"private-{callback_kind}-"
+                        f"{failure_type.__name__}.sqlite"
+                    )
+                    connection = install_canonical_v2_profiles(path)
+                    connection.execute(
+                        "INSERT INTO companies(name, slug, careers_url) "
+                        "VALUES ('Alpha', 'private-finalizer', "
+                        "'https://example.test/jobs')"
+                    )
+                    connection.commit()
+                    preserved_before = _preserved_snapshot(connection)
+                    candidate_connections = []
+                    worker_connections = []
+                    finalizer_results = []
+                    unraisable_results = []
+                    original_candidate_open = (
+                        migration._open_private_migration_candidate
+                    )
+                    original_worker_open = (
+                        migration._open_exact_private_migration_worker
+                    )
+                    original_sql_length_limit = [None]
+
+                    class ArmedPrivateCallback:
+                        __slots__ = ()
+
+                        def __call__(self, first, second):
+                            if type(second) is tuple:
+                                return tuple(second)
+                            return (first > second) - (first < second)
+
+                        def __del__(self):
+                            candidate = candidate_connections[0]
+                            try:
+                                sqlite3.Connection.setlimit(
+                                    candidate,
+                                    sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+                                    original_sql_length_limit[0],
+                                )
+                                sqlite3.Connection.set_authorizer(
+                                    candidate,
+                                    None,
+                                )
+                                sqlite3.Connection.execute(
+                                    candidate,
+                                    "UPDATE companies SET name='Bravo' "
+                                    "WHERE slug='private-finalizer'",
+                                )
+                                sqlite3.Connection.commit(candidate)
+                            except sqlite3.DatabaseError:
+                                finalizer_results.append(
+                                    ("blocked", failure_type)
+                                )
+                            else:
+                                finalizer_results.append(
+                                    ("committed", failure_type)
+                                )
+                            raise failure_type(
+                                "private callback finalizer control flow"
+                            )
+
+                    def open_adversarial_candidate(*args, **kwargs):
+                        candidate = original_candidate_open(
+                            *args,
+                            **kwargs,
+                        )
+                        candidate_connections.append(candidate)
+                        original_sql_length_limit[0] = (
+                            sqlite3.Connection.getlimit(
+                                candidate,
+                                sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+                            )
+                        )
+                        sqlite3.Connection.execute(
+                            candidate,
+                            "PRAGMA busy_timeout=0",
+                        )
+                        if callback_kind == "row_factory":
+                            sqlite3.Connection.row_factory.__set__(
+                                candidate,
+                                ArmedPrivateCallback(),
+                            )
+                        else:
+                            sqlite3.Connection.create_collation(
+                                candidate,
+                                "BINARY",
+                                ArmedPrivateCallback(),
+                            )
+                        return candidate
+
+                    def capture_worker(*args, **kwargs):
+                        worker = original_worker_open(*args, **kwargs)
+                        worker_connections.append(worker)
+                        return worker
+
+                    def capture_unraisable(unraisable):
+                        unraisable_results.append(
+                            (
+                                type(unraisable.exc_value),
+                                str(unraisable.exc_value),
+                            )
+                        )
+
+                    with mock.patch.object(
+                        migration,
+                        "_open_private_migration_candidate",
+                        side_effect=open_adversarial_candidate,
+                    ), mock.patch.object(
+                        migration,
+                        "_open_exact_private_migration_worker",
+                        side_effect=capture_worker,
+                    ), mock.patch.object(
+                        sys,
+                        "unraisablehook",
+                        side_effect=capture_unraisable,
+                    ):
+                        result = (
+                            migration
+                            .apply_google_oidc_authorization_transactions_migration(
+                                connection
+                            )
+                        )
+
+                    self.assertTrue(result["changed"])
+                    self.assertEqual(len(candidate_connections), 1)
+                    self.assertEqual(len(worker_connections), 1)
+                    candidate = candidate_connections[0]
+                    worker = worker_connections[0]
+                    self.assertIsNot(candidate, connection)
+                    self.assertIsNot(worker, connection)
+                    self.assertIsNot(worker, candidate)
+                    with self.assertRaises(sqlite3.ProgrammingError):
+                        sqlite3.Connection.execute(candidate, "SELECT 1")
+                    with self.assertRaises(sqlite3.ProgrammingError):
+                        sqlite3.Connection.execute(worker, "SELECT 1")
+                    self.assertEqual(
+                        finalizer_results,
+                        [("blocked", failure_type)],
+                    )
+                    self.assertEqual(
+                        unraisable_results,
+                        [
+                            (
+                                failure_type,
+                                "private callback finalizer control flow",
+                            )
+                        ],
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT name FROM companies "
+                            "WHERE slug='private-finalizer'"
+                        ).fetchone()[0],
+                        "Alpha",
+                    )
+                    self.assertEqual(
+                        _preserved_snapshot(connection),
+                        preserved_before,
+                    )
+                    self.assertEqual(
+                        migration.classify_database(connection)[
+                            "database_state"
+                        ],
+                        "exact_installed",
+                    )
+                    connection.close()
+
+        for failure_type in (
+            RuntimeError,
+            KeyboardInterrupt,
+            SystemExit,
+            GeneratorExit,
+        ):
+            with self.subTest(
+                private_close_boundary=failure_type.__name__,
+            ), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / (
+                    "private-close-"
+                    + failure_type.__name__
+                    + ".sqlite"
+                )
+                connection = install_canonical_v2_profiles(path)
+                connection.close()
+                candidate = sqlite3.connect(path)
+                close_error = failure_type(
+                    "private exact close boundary"
+                )
+                with mock.patch.object(
+                    migration,
+                    "_SQLITE_CLOSE",
+                    side_effect=close_error,
+                ):
+                    observed = (
+                        migration._close_exact_private_connection(
+                            candidate,
+                            stage="test private candidate",
+                        )
+                    )
+                self.assertIs(observed, close_error)
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    sqlite3.Connection.execute(candidate, "SELECT 1")
+
+                guard = sqlite3.connect(path)
+                sqlite3.Connection.execute(guard, "BEGIN IMMEDIATE")
+                guard_error = failure_type(
+                    "private guard close boundary"
+                )
+                with mock.patch.object(
+                    migration,
+                    "_SQLITE_CLOSE",
+                    side_effect=guard_error,
+                ):
+                    with self.assertRaises(failure_type) as caught:
+                        migration._release_private_callback_write_guard(
+                            guard
+                        )
+                self.assertIs(caught.exception, guard_error)
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    sqlite3.Connection.execute(guard, "SELECT 1")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "retirement-owner-precedence.sqlite"
+            connection = install_canonical_v2_profiles(path)
+            connection.close()
+            target_identity = migration.database_file_identity(path)
+            opened = []
+            primary = KeyboardInterrupt(
+                "private retirement primary"
+            )
+            original_guard_open = (
+                migration._open_private_callback_write_guard
+            )
+            original_candidate_open = (
+                migration._open_private_migration_candidate
+            )
+
+            def capture_guard(*args, **kwargs):
+                guard = original_guard_open(*args, **kwargs)
+                opened.append(("guard", guard))
+                return guard
+
+            def capture_candidate(*args, **kwargs):
+                candidate = original_candidate_open(*args, **kwargs)
+                opened.append(("candidate", candidate))
+                return candidate
+
+            def close_then_report_owner(current, *, stage):
+                sqlite3.Connection.close(current)
+                raise migration._PrivateConnectionCleanupError(
+                    stage,
+                    current,
+                )
+
+            with mock.patch.object(
+                migration,
+                "_open_private_callback_write_guard",
+                side_effect=capture_guard,
+            ), mock.patch.object(
+                migration,
+                "_open_private_migration_candidate",
+                side_effect=capture_candidate,
+            ), mock.patch.object(
+                migration,
+                "_stabilize_private_authorizer",
+                side_effect=primary,
+            ), mock.patch.object(
+                migration,
+                "_close_exact_private_connection",
+                side_effect=close_then_report_owner,
+            ):
+                with self.assertRaises(KeyboardInterrupt) as caught:
+                    migration._retire_private_migration_candidate(
+                        target_path=path,
+                        target_identity=target_identity,
+                    )
+            self.assertIs(caught.exception, primary)
+            self.assertEqual(
+                tuple(name for name, _current in opened),
+                ("guard", "candidate"),
+            )
+            retained = getattr(
+                primary,
+                "_private_cleanup_failures",
+            )
+            self.assertEqual(
+                tuple(stage for stage, _error in retained),
+                (
+                    "Migration candidate cleanup",
+                    "Migration callback guard cleanup",
+                ),
+            )
+            self.assertTrue(
+                all(
+                    type(error)
+                    is migration._PrivateConnectionCleanupError
+                    for _stage, error in retained
+                )
+            )
+            self.assertEqual(
+                {
+                    error._exact_connection_owner
+                    for _stage, error in retained
+                },
+                {current for _name, current in opened},
+            )
+            for _name, current in opened:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    sqlite3.Connection.execute(current, "SELECT 1")
 
     def test_sealed_migration_restores_binary_and_preserves_nocase(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1722,7 +3120,10 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
             )
             connection.commit()
             preserved_before = _preserved_snapshot(connection)
+            caller_row_factory = connection.row_factory
+            caller_text_factory = connection.text_factory
             binary_calls = []
+            nocase_calls = []
             nocase_calls_after_serialization = []
             final_serialization = False
             fingerprint_calls = 0
@@ -1742,6 +3143,7 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 return (left > right) - (left < right)
 
             def tracked_nocase(left, right):
+                nocase_calls.append((left, right))
                 if final_serialization:
                     nocase_calls_after_serialization.append((left, right))
                 folded_left = left.lower()
@@ -1779,21 +3181,33 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
             self.assertEqual(fingerprint_calls, 2)
             self.assertEqual(binary_calls, [])
             self.assertEqual(nocase_calls_after_serialization, [])
+            self.assertIs(connection.row_factory, caller_row_factory)
+            self.assertIs(connection.text_factory, caller_text_factory)
             final_serialization = False
+            sorted_rows = connection.execute(
+                "SELECT v FROM audit_names "
+                "ORDER BY (v || '') COLLATE NOCASE"
+            ).fetchall()
             self.assertEqual(
-                connection.execute(
-                    "SELECT v FROM audit_names ORDER BY v COLLATE NOCASE"
-                ).fetchall(),
+                [tuple(row) for row in sorted_rows],
                 [("alpha",), ("Zulu",)],
             )
+            self.assertTrue(nocase_calls)
+            self.assertEqual(binary_calls, [])
+            connection.create_collation("BINARY", None)
             self.assertEqual(
-                connection.execute("PRAGMA integrity_check").fetchone(),
+                tuple(
+                    connection.execute(
+                        "PRAGMA integrity_check"
+                    ).fetchone()
+                ),
                 ("ok",),
             )
             self.assertEqual(
                 _preserved_snapshot(connection),
                 preserved_before,
             )
+            connection.create_collation("NOCASE", None)
             connection.close()
 
     def test_sealed_migration_avoids_adapter_and_converter_callbacks(self):
@@ -1870,7 +3284,11 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                     result = (
                         migration
                         .apply_google_oidc_authorization_transactions_migration(
-                            connection
+                            connection,
+                            requested_path=path,
+                            expected_identity=(
+                                migration.database_file_identity(path)
+                            ),
                         )
                     )
 
@@ -1912,45 +3330,54 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "untrusted-function.sqlite"
             connection = install_canonical_v2_profiles(path)
-            before = sqlite3.Connection.serialize(connection, name="main")
+            preserved_before = _preserved_snapshot(connection)
             function_calls = []
             connection.create_function(
                 "untrusted_callback",
                 0,
                 lambda: function_calls.append("called") or 1,
             )
-            with self.assertRaises(
-                migration.GoogleOidcAuthorizationTransactionsMigrationError
-            ):
-                (
+            try:
+                result = (
                     migration
                     .apply_google_oidc_authorization_transactions_migration(
                         connection
                     )
                 )
-            self.assertEqual(function_calls, [])
-            self.assertFalse(connection.in_transaction)
-            self.assertEqual(
-                sqlite3.Connection.serialize(connection, name="main"),
-                before,
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT COUNT(*) FROM sqlite_schema "
-                    "WHERE name=? OR tbl_name=?",
-                    (TRANSACTION_TABLE, TRANSACTION_TABLE),
-                ).fetchone()[0],
-                0,
-            )
-            self.assertEqual(
-                connection.execute(
+                preserved_after = _preserved_snapshot(connection)
+                installed_attestation = (
+                    attest_google_oidc_authorization_transaction_schema(
+                        connection
+                    )
+                )
+                marker_count = connection.execute(
                     "SELECT COUNT(*) FROM wahojobs_schema_migrations "
                     "WHERE version=?",
                     (MIGRATION_VERSION,),
-                ).fetchone()[0],
-                0,
+                ).fetchone()[0]
+                function_calls_before_explicit_use = tuple(function_calls)
+                caller_in_transaction = connection.in_transaction
+                callback_result = connection.execute(
+                    "SELECT untrusted_callback()"
+                ).fetchone()[0]
+            finally:
+                connection.create_function(
+                    "untrusted_callback",
+                    0,
+                    None,
+                )
+                connection.close()
+            self.assertTrue(result["changed"])
+            self.assertEqual(preserved_after, preserved_before)
+            self.assertEqual(
+                installed_attestation["state"],
+                "correctly_installed",
             )
-            connection.close()
+            self.assertEqual(marker_count, 1)
+            self.assertEqual(function_calls_before_explicit_use, ())
+            self.assertFalse(caller_in_transaction)
+            self.assertEqual(callback_result, 1)
+            self.assertEqual(function_calls, ["called"])
 
         for output_mode in ("json", "human"):
             with self.subTest(
@@ -2200,20 +3627,40 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
 
             direct = sqlite3.connect(path)
             direct.execute("PRAGMA foreign_keys = ON")
+            expected_identity = migration.database_file_identity(path)
+            direct_commit_state = {}
+            direct_rollback_calls = []
+
+            def fail_direct_rollback(current):
+                self.assertIsNot(current, direct)
+                direct_rollback_calls.append(current)
+                return False
+
             with mock.patch.object(
                 migration,
                 "_rollback_owned_transaction",
-                return_value=False,
+                side_effect=fail_direct_rollback,
             ), self.assertRaises(
                 migration.GoogleOidcAuthorizationTransactionsMigrationError
             ) as raised:
-                migration.apply_google_oidc_authorization_transactions_migration(
+                _PRODUCTION_APPLY(
                     direct,
                     failure_injector=fail_before_write,
+                    requested_path=path,
+                    expected_identity=expected_identity,
+                    commit_state=direct_commit_state,
                 )
             self.assertIsNone(raised.exception.__cause__)
             self.assertIsNone(raised.exception.__context__)
             self.assertNotIn("raw-rollback", str(raised.exception))
+            self.assertEqual(len(direct_rollback_calls), 1)
+            self.assertEqual(
+                direct_commit_state,
+                {
+                    "committed": False,
+                    "rollback_failed": True,
+                },
+            )
             if direct.in_transaction:
                 direct.rollback()
             direct.close()
@@ -2222,7 +3669,7 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                 migration,
                 "_rollback_owned_transaction",
                 return_value=False,
-            ):
+            ) as cli_rollback:
                 code, payload = self._run_main(
                     "--db",
                     str(path),
@@ -2230,6 +3677,7 @@ class GoogleOidcAuthorizationTransactionsMigrationTests(unittest.TestCase):
                     "--json",
                     failure_injector=fail_before_write,
                 )
+            cli_rollback.assert_called_once()
             self.assertEqual(code, 1)
             self.assertFalse(payload["changed"])
             rendered = json.dumps(payload, sort_keys=True)

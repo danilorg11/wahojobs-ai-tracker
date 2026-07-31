@@ -1,14 +1,19 @@
 import copy
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
+import gc
 import hashlib
+import inspect
 import json
 import pickle
 import re
 import sqlite3
+import threading
 import unittest
 from unittest import mock
+import weakref
 
 from tests.accounts_test_support import create_user
 from tests.browser_session_authentication_test_support import (
@@ -315,6 +320,325 @@ class BrowserSessionLifecycleTests(unittest.TestCase):
             text = repr(result)
             self.assertIn("credentials=<redacted>", text)
             self.assertNotRegex(text, r"[A-Za-z0-9_-]{43}")
+
+    def test_issued_result_uses_local_seal_without_registry_or_gc_authority(self):
+        with lifecycle_database(suffix="result-local-seal") as (
+            _path,
+            connection,
+            created,
+        ):
+            vault = request_secret_vault()
+            result = lifecycle.create_browser_session(
+                connection,
+                create_command(created, key="result-local-seal-001"),
+                vault,
+                _clock=lambda: NOW,
+            )
+
+            self.assertFalse(hasattr(lifecycle, "_ISSUED_RESULTS"))
+            self.assertNotIn("_ISSUED_RESULTS", inspect.getsource(lifecycle))
+            self.assertNotIn("__del__", IssuedBrowserSession.__dict__)
+            self.assertTrue(result._is_sealed())
+
+            mutable_container_types = (
+                dict,
+                list,
+                set,
+                weakref.WeakKeyDictionary,
+                weakref.WeakSet,
+                weakref.WeakValueDictionary,
+            )
+            for name, value in vars(lifecycle).items():
+                if not isinstance(value, mutable_container_types):
+                    continue
+                if isinstance(value, dict):
+                    members = tuple(value.keys()) + tuple(value.values())
+                else:
+                    members = tuple(value)
+                self.assertNotIn(
+                    id(result),
+                    {id(member) for member in members},
+                    msg=f"issued result retained by module global {name}",
+                )
+
+            public_result_lookup_names = {
+                name
+                for name in vars(lifecycle)
+                if not name.startswith("_")
+                and "issued" in name
+                and any(verb in name for verb in ("enumerate", "find", "lookup"))
+            }
+            self.assertEqual(public_result_lookup_names, set())
+
+            forged = object.__new__(IssuedBrowserSession)
+            with self.assertRaises(BrowserSessionLifecycleError) as rejected:
+                _ = forged.status
+            self.assertEqual(
+                rejected.exception.code,
+                "internal_consistency_failure",
+            )
+            self.assertEqual(
+                repr(forged),
+                "IssuedBrowserSession(status='invalid', credentials=<redacted>)",
+            )
+
+            copied = object.__new__(IssuedBrowserSession)
+            for slot in IssuedBrowserSession.__slots__:
+                if slot != "__weakref__":
+                    object.__setattr__(copied, slot, getattr(result, slot))
+            self.assertFalse(copied._is_sealed())
+            with self.assertRaises(BrowserSessionLifecycleError):
+                lifecycle.consume_issued_session(
+                    copied,
+                    vault,
+                    lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                    response_now=NOW,
+                )
+            self.assertEqual(result.status, "issued")
+            self.assertEqual(vault_entry_count(vault), 1)
+
+            response = lifecycle.consume_issued_session(
+                result,
+                vault,
+                lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                response_now=NOW,
+            )
+            self.assertEqual(result.status, "consumed")
+            self.assertTrue(response.set_cookie_header.startswith("wahojobs_session="))
+            close_secret_vault(vault)
+
+            result_reference = weakref.ref(result)
+            response = None
+            del result
+            gc.collect()
+            self.assertIsNone(result_reference())
+
+    def test_three_sealed_results_acknowledge_compensate_and_wait_independently(self):
+        with lifecycle_database(suffix="result-three-way") as (
+            path,
+            connection,
+            created,
+        ):
+            keys = (
+                "result-three-way-ack-001",
+                "result-three-way-fail-001",
+                "result-three-way-wait-001",
+            )
+            vaults = [request_secret_vault() for _key in keys]
+            results = [
+                lifecycle.create_browser_session(
+                    connection,
+                    create_command(created, key=key),
+                    vault,
+                    _clock=lambda: NOW,
+                )
+                for key, vault in zip(keys, vaults, strict=True)
+            ]
+            leases = [
+                lifecycle.prepare_issued_session_delivery(
+                    connection,
+                    result,
+                    vault,
+                    lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                    now=NOW,
+                )
+                for result, vault in zip(results, vaults, strict=True)
+            ]
+            initial_rows = [
+                dict(session_row(connection, key=key))
+                for key in keys
+            ]
+
+            leases[0].acknowledge_delivery()
+            leases[1].fail_delivery()
+
+            self.assertEqual(
+                [result.status for result in results],
+                ["consumed", "terminal_failed", "delivery_pending"],
+            )
+            self.assertEqual(
+                [lease.status for lease in leases],
+                ["acknowledged", "failed", "prepared"],
+            )
+            self.assertTrue(vault_is_closed_and_empty(vaults[0]))
+            self.assertTrue(vault_is_closed_and_empty(vaults[1]))
+            self.assertEqual(vault_entry_count(vaults[2]), 1)
+
+            acknowledged_row = session_row(
+                connection,
+                session_id=initial_rows[0]["session_id"],
+            )
+            compensated_row = session_row(
+                connection,
+                session_id=initial_rows[1]["session_id"],
+            )
+            waiting_row = session_row(
+                connection,
+                session_id=initial_rows[2]["session_id"],
+            )
+            self.assertIsNone(acknowledged_row["revoked_at"])
+            self.assertEqual(compensated_row["session_version"], 2)
+            self.assertEqual(
+                compensated_row["revoke_reason"],
+                "security_reset",
+            )
+            self.assertEqual(waiting_row["session_version"], 1)
+            self.assertIsNone(waiting_row["revoked_at"])
+
+            for vault in (vaults[1], vaults[0]):
+                lifecycle.discard_request_scoped_session_secret_vault(vault)
+            self.assertEqual(results[2].status, "delivery_pending")
+            self.assertEqual(leases[2].status, "prepared")
+
+            reconstructed_connection = sqlite3.connect(path)
+            try:
+                reconstructed_connection.row_factory = sqlite3.Row
+                reconstructed_connection.execute("PRAGMA foreign_keys = ON")
+                reconstructed_vault = request_secret_vault()
+                reconstructed = lifecycle.create_browser_session(
+                    reconstructed_connection,
+                    create_command(
+                        created,
+                        key="result-reconstructed-runtime-001",
+                    ),
+                    reconstructed_vault,
+                    _clock=lambda: NOW,
+                )
+                reconstructed_response = lifecycle.consume_issued_session(
+                    reconstructed,
+                    reconstructed_vault,
+                    lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                    response_now=NOW,
+                )
+                self.assertTrue(
+                    reconstructed_response.set_cookie_header.startswith(
+                        "wahojobs_session="
+                    )
+                )
+                self.assertEqual(reconstructed.status, "consumed")
+                close_secret_vault(reconstructed_vault)
+            finally:
+                reconstructed_connection.close()
+
+            self.assertEqual(results[2].status, "delivery_pending")
+            self.assertEqual(
+                dict(session_row(connection, key=keys[2])),
+                dict(waiting_row),
+            )
+            leases[2].fail_delivery()
+            self.assertEqual(results[2].status, "terminal_failed")
+            self.assertTrue(vault_is_closed_and_empty(vaults[2]))
+
+    def test_registry_free_delivery_leases_are_independent_across_threads(self):
+        with lifecycle_database(suffix="result-thread-independence") as (
+            path,
+            connection,
+            created,
+        ):
+            modes = ("acknowledge", "compensate", "wait")
+            commands = {
+                mode: create_command(
+                    created,
+                    key=f"result-thread-{mode}-001",
+                )
+                for mode in modes
+            }
+            prepared_barrier = threading.Barrier(len(modes))
+            terminal_barrier = threading.Barrier(len(modes))
+
+            def exercise(mode):
+                worker_connection = sqlite3.connect(path, timeout=10.0)
+                worker_connection.row_factory = sqlite3.Row
+                worker_connection.execute("PRAGMA foreign_keys = ON")
+                vault = request_secret_vault()
+                lease = None
+                try:
+                    result = lifecycle.create_browser_session(
+                        worker_connection,
+                        commands[mode],
+                        vault,
+                        _clock=lambda: NOW,
+                    )
+                    lease = lifecycle.prepare_issued_session_delivery(
+                        worker_connection,
+                        result,
+                        vault,
+                        lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                        now=NOW,
+                    )
+                    session_id = worker_connection.execute(
+                        "SELECT session_id FROM account_sessions "
+                        "WHERE creation_idempotency_key = ?",
+                        (f"result-thread-{mode}-001",),
+                    ).fetchone()["session_id"]
+                    prepared_barrier.wait(timeout=10.0)
+                    if mode == "acknowledge":
+                        lease.acknowledge_delivery()
+                    elif mode == "compensate":
+                        lease.fail_delivery()
+                    status_after_operation = result.status
+                    terminal_barrier.wait(timeout=10.0)
+                    status_while_other_results_are_terminal = result.status
+                    if mode == "wait":
+                        lease.fail_delivery()
+                    return (
+                        status_after_operation,
+                        status_while_other_results_are_terminal,
+                        result.status,
+                        session_id,
+                    )
+                finally:
+                    if lease is not None and lease.status == "prepared":
+                        lease.fail_delivery()
+                    lifecycle.discard_request_scoped_session_secret_vault(vault)
+                    worker_connection.close()
+
+            with ThreadPoolExecutor(max_workers=len(modes)) as executor:
+                futures = {
+                    mode: executor.submit(exercise, mode)
+                    for mode in modes
+                }
+                raw_outcomes = {
+                    mode: future.result(timeout=20.0)
+                    for mode, future in futures.items()
+                }
+            outcomes = {
+                mode: outcome[:3]
+                for mode, outcome in raw_outcomes.items()
+            }
+
+            self.assertEqual(
+                outcomes,
+                {
+                    "acknowledge": ("consumed", "consumed", "consumed"),
+                    "compensate": (
+                        "terminal_failed",
+                        "terminal_failed",
+                        "terminal_failed",
+                    ),
+                    "wait": (
+                        "delivery_pending",
+                        "delivery_pending",
+                        "terminal_failed",
+                    ),
+                },
+            )
+            acknowledged_row = session_row(
+                connection,
+                session_id=raw_outcomes["acknowledge"][3],
+            )
+            compensated_row = session_row(
+                connection,
+                session_id=raw_outcomes["compensate"][3],
+            )
+            waited_row = session_row(
+                connection,
+                session_id=raw_outcomes["wait"][3],
+            )
+            self.assertIsNone(acknowledged_row["revoked_at"])
+            for row in (compensated_row, waited_row):
+                self.assertEqual(row["session_version"], 2)
+                self.assertEqual(row["revoke_reason"], "security_reset")
 
     def test_issued_result_has_no_direct_secret_fields_and_consumes_once(self):
         token = base64.urlsafe_b64encode(b"T" * 32).rstrip(b"=").decode("ascii")
@@ -2409,6 +2733,402 @@ class BrowserSessionLifecycleTests(unittest.TestCase):
             )
             self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+
+class SessionDeliveryLeaseTests(unittest.TestCase):
+    def _prepare(
+        self,
+        connection,
+        created,
+        *,
+        key,
+        token_byte,
+        csrf_byte,
+    ):
+        token = base64.urlsafe_b64encode(token_byte * 32).rstrip(b"=").decode(
+            "ascii"
+        )
+        csrf = base64.urlsafe_b64encode(csrf_byte * 32).rstrip(b"=").decode(
+            "ascii"
+        )
+        vault = lifecycle.create_request_scoped_session_secret_vault()
+        with mock.patch(
+            "wahojobs.browser_session_lifecycle._generate_credential",
+            side_effect=(token, csrf),
+        ):
+            result = create_browser_session(
+                connection,
+                create_command(created, key=key),
+                secret_vault=vault,
+            )
+        secret_buffers = [
+            value
+            for value in recursively_reachable_objects(vault)
+            if type(value) is bytearray
+        ]
+        lease = lifecycle.prepare_issued_session_delivery(
+            connection,
+            result,
+            vault,
+            lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+            now=NOW,
+        )
+        return result, vault, lease, token, csrf, secret_buffers
+
+    def test_production_vault_factory_is_fixed_and_discard_is_idempotent(self):
+        vault = lifecycle.create_request_scoped_session_secret_vault()
+        self.assertIs(type(vault), RequestScopedSessionSecretVault)
+        self.assertFalse(hasattr(vault, "__dict__"))
+        self.assertEqual(vault_entry_count(vault), 0)
+        with self.assertRaises(TypeError):
+            lifecycle.create_request_scoped_session_secret_vault(
+                max_entries=2
+            )
+
+        lifecycle.discard_request_scoped_session_secret_vault(vault)
+        lifecycle.discard_request_scoped_session_secret_vault(vault)
+        self.assertTrue(vault_is_closed_and_empty(vault))
+        with self.assertRaises(BrowserSessionLifecycleError) as caught:
+            lifecycle.discard_request_scoped_session_secret_vault(object())
+        self.assertEqual(
+            caught.exception.code,
+            "internal_consistency_failure",
+        )
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertIsNone(caught.exception.__context__)
+
+    def test_acknowledgement_is_one_shot_erases_secrets_and_keeps_session_active(self):
+        with lifecycle_database(suffix="delivery-lease-ack") as (
+            _path,
+            connection,
+            created,
+        ):
+            result, vault, lease, token, csrf, secret_buffers = self._prepare(
+                connection,
+                created,
+                key="delivery-lease-ack-001",
+                token_byte=b"A",
+                csrf_byte=b"B",
+            )
+            self.assertEqual(result.status, "delivery_pending")
+            self.assertEqual(lease.status, "prepared")
+            self.assertEqual(
+                token_from_cookie_header(lease.set_cookie_header),
+                token,
+            )
+            self.assertEqual(lease.csrf_credential, csrf)
+            self.assertIn("Secure", lease.set_cookie_header)
+            self.assertIn("HttpOnly", lease.set_cookie_header)
+            self.assertIn("SameSite=Lax", lease.set_cookie_header)
+            self.assertNotIn(token, repr(lease))
+            self.assertNotIn(csrf, str(lease))
+            self.assertEqual(vault_entry_count(vault), 1)
+            self.assertTrue(all(set(buffer) <= {0} for buffer in secret_buffers))
+
+            with self.assertRaises(TypeError):
+                lifecycle.SessionDeliveryLease()
+            with self.assertRaises(TypeError):
+                copy.copy(lease)
+            with self.assertRaises(TypeError):
+                copy.deepcopy(lease)
+            with self.assertRaises(TypeError):
+                pickle.dumps(lease)
+            with self.assertRaises(TypeError) as serialized:
+                json.dumps(lease)
+            self.assertNotIn(token, str(serialized.exception))
+            self.assertNotIn(csrf, str(serialized.exception))
+            with self.assertRaises(TypeError):
+                class DerivedLease(lifecycle.SessionDeliveryLease):
+                    pass
+            with self.assertRaises(AttributeError):
+                lease._status = "acknowledged"
+
+            lease.acknowledge_delivery()
+            self.assertEqual(lease.status, "acknowledged")
+            self.assertEqual(result.status, "consumed")
+            self.assertTrue(vault_is_closed_and_empty(vault))
+            self.assertIsNone(lease._connection)
+            self.assertIsNone(lease._issued_session)
+            self.assertIsNone(lease._secret_vault)
+            self.assertIsNone(lease._trusted_now)
+            self.assertIsNone(lease._set_cookie_header)
+            self.assertIsNone(lease._csrf_credential)
+            self.assertIsNone(result._issuance_handle)
+            self.assertIsNone(result._issuance_binding)
+            stored = session_row(
+                connection,
+                key="delivery-lease-ack-001",
+            )
+            self.assertEqual(stored["session_version"], 1)
+            self.assertIsNone(stored["revoked_at"])
+            self.assertIsNone(stored["revoke_reason"])
+            self.assertEqual(
+                marker_hits(
+                    recursively_reachable_objects(lease),
+                    token,
+                    csrf,
+                ),
+                [],
+            )
+
+            for operation in (
+                lambda: lease.acknowledge_delivery(),
+                lambda: lease.fail_delivery(),
+                lambda: lease.set_cookie_header,
+                lambda: lease.csrf_credential,
+            ):
+                with self.subTest(operation=operation):
+                    with self.assertRaises(
+                        BrowserSessionLifecycleError
+                    ) as repeated:
+                        operation()
+                    self.assertEqual(
+                        repeated.exception.code,
+                        "already_completed",
+                    )
+                    self.assertNotIn(token, str(repeated.exception))
+                    self.assertNotIn(csrf, repr(repeated.exception))
+            stored_after = session_row(
+                connection,
+                session_id=stored["session_id"],
+            )
+            self.assertEqual(dict(stored_after), dict(stored))
+
+    def test_failure_compensates_only_exact_session_and_cleans_vault(self):
+        with lifecycle_database(suffix="delivery-lease-fail") as (
+            _path,
+            connection,
+            created,
+        ):
+            result, vault, lease, token, csrf, _buffers = self._prepare(
+                connection,
+                created,
+                key="delivery-lease-fail-001",
+                token_byte=b"C",
+                csrf_byte=b"D",
+            )
+            other_vault = request_secret_vault()
+            other = create_browser_session(
+                connection,
+                create_command(
+                    created,
+                    key="delivery-lease-unrelated-001",
+                ),
+                secret_vault=other_vault,
+            )
+            failed_before = dict(
+                session_row(
+                    connection,
+                    key="delivery-lease-fail-001",
+                )
+            )
+            unrelated_before = dict(
+                session_row(
+                    connection,
+                    key="delivery-lease-unrelated-001",
+                )
+            )
+
+            lease.fail_delivery()
+
+            self.assertEqual(lease.status, "failed")
+            self.assertEqual(result.status, "terminal_failed")
+            self.assertTrue(vault_is_closed_and_empty(vault))
+            self.assertIsNone(lease._connection)
+            self.assertIsNone(lease._issued_session)
+            self.assertIsNone(lease._secret_vault)
+            self.assertIsNone(lease._trusted_now)
+            self.assertIsNone(lease._set_cookie_header)
+            self.assertIsNone(lease._csrf_credential)
+            failed_after = session_row(
+                connection,
+                session_id=failed_before["session_id"],
+            )
+            unrelated_after = session_row(
+                connection,
+                session_id=unrelated_before["session_id"],
+            )
+            self.assertEqual(failed_after["session_version"], 2)
+            self.assertEqual(
+                failed_after["revoke_reason"],
+                "security_reset",
+            )
+            self.assertIsNotNone(failed_after["revoked_at"])
+            self.assertEqual(
+                dict(unrelated_after),
+                unrelated_before,
+            )
+            self.assertEqual(
+                marker_hits(
+                    recursively_reachable_objects(lease),
+                    token,
+                    csrf,
+                ),
+                [],
+            )
+            consume_issued(other, vault=other_vault)
+            close_secret_vault(other_vault)
+
+    def test_prepare_failure_compensates_before_any_lease_escapes(self):
+        with lifecycle_database(suffix="delivery-lease-prepare-fail") as (
+            _path,
+            connection,
+            created,
+        ):
+            vault = lifecycle.create_request_scoped_session_secret_vault()
+            result = create_browser_session(
+                connection,
+                create_command(
+                    created,
+                    key="delivery-lease-prepare-fail-001",
+                ),
+                secret_vault=vault,
+            )
+            stored_before = dict(
+                session_row(
+                    connection,
+                    key="delivery-lease-prepare-fail-001",
+                )
+            )
+
+            def fail(point):
+                if point == "during_delivery_cookie_formatting":
+                    raise RuntimeError("private delivery formatting failure")
+
+            with self.assertRaises(BrowserSessionLifecycleError) as caught:
+                lifecycle.prepare_issued_session_delivery(
+                    connection,
+                    result,
+                    vault,
+                    lifecycle._RESPONSE_COMPOSITION_CAPABILITY,
+                    now=NOW,
+                    _failure_injector=fail,
+                )
+
+            self.assertEqual(
+                caught.exception.code,
+                "internal_consistency_failure",
+            )
+            self.assertNotIn("private delivery", str(caught.exception))
+            self.assertIsNone(caught.exception.__cause__)
+            self.assertIsNone(caught.exception.__context__)
+            self.assertEqual(result.status, "terminal_failed")
+            self.assertTrue(vault_is_closed_and_empty(vault))
+            stored_after = session_row(
+                connection,
+                session_id=stored_before["session_id"],
+            )
+            self.assertEqual(stored_after["session_version"], 2)
+            self.assertEqual(
+                stored_after["revoke_reason"],
+                "security_reset",
+            )
+
+    def test_control_flow_during_failure_still_compensates_before_propagation(self):
+        with lifecycle_database(suffix="delivery-lease-control-flow") as (
+            _path,
+            connection,
+            created,
+        ):
+            result, vault, lease, _token, _csrf, _buffers = self._prepare(
+                connection,
+                created,
+                key="delivery-lease-control-flow-001",
+                token_byte=b"E",
+                csrf_byte=b"F",
+            )
+            stored_before = dict(
+                session_row(
+                    connection,
+                    key="delivery-lease-control-flow-001",
+                )
+            )
+            with mock.patch(
+                "wahojobs.browser_session_lifecycle."
+                "_compensate_undelivered_issued_session",
+                side_effect=SystemExit("delivery-control-flow"),
+            ):
+                with self.assertRaises(SystemExit) as caught:
+                    lease.fail_delivery()
+            self.assertEqual(
+                str(caught.exception),
+                "delivery-control-flow",
+            )
+            self.assertEqual(lease.status, "failed")
+            self.assertEqual(result.status, "terminal_failed")
+            self.assertTrue(vault_is_closed_and_empty(vault))
+            stored_after = session_row(
+                connection,
+                session_id=stored_before["session_id"],
+            )
+            self.assertEqual(stored_after["session_version"], 2)
+            self.assertEqual(
+                stored_after["revoke_reason"],
+                "security_reset",
+            )
+
+    def test_ack_cleanup_failure_never_compensates_after_acceptance(self):
+        with lifecycle_database(suffix="delivery-lease-ack-failure") as (
+            _path,
+            connection,
+            created,
+        ):
+            result, vault, lease, _token, _csrf, _buffers = self._prepare(
+                connection,
+                created,
+                key="delivery-lease-ack-failure-001",
+                token_byte=b"G",
+                csrf_byte=b"H",
+            )
+            stored_before = dict(
+                session_row(
+                    connection,
+                    key="delivery-lease-ack-failure-001",
+                )
+            )
+            with mock.patch.object(
+                lifecycle.RequestScopedSessionSecretVault,
+                "_acknowledge_delivery",
+                side_effect=RuntimeError("private ack cleanup failure"),
+            ), mock.patch(
+                "wahojobs.browser_session_lifecycle."
+                "_compensate_undelivered_issued_session"
+            ) as compensate, mock.patch(
+                "wahojobs.browser_session_lifecycle."
+                "_force_compensate_undelivered_issued_session"
+            ) as force:
+                with self.assertRaises(
+                    BrowserSessionLifecycleError
+                ) as caught:
+                    lease.acknowledge_delivery()
+                compensate.assert_not_called()
+                force.assert_not_called()
+            self.assertEqual(
+                caught.exception.code,
+                "internal_consistency_failure",
+            )
+            self.assertEqual(lease.status, "acknowledged")
+            self.assertEqual(result.status, "consumed")
+            self.assertTrue(vault_is_closed_and_empty(vault))
+            stored_after = session_row(
+                connection,
+                session_id=stored_before["session_id"],
+            )
+            self.assertEqual(dict(stored_after), stored_before)
+
+            with mock.patch(
+                "wahojobs.browser_session_lifecycle."
+                "_compensate_undelivered_issued_session"
+            ) as compensate:
+                with self.assertRaises(
+                    BrowserSessionLifecycleError
+                ) as repeated:
+                    lease.fail_delivery()
+                compensate.assert_not_called()
+            self.assertEqual(
+                repeated.exception.code,
+                "already_completed",
+            )
 
 
 if __name__ == "__main__":

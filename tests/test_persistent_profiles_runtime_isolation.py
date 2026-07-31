@@ -1,5 +1,4 @@
 import ast
-import hashlib
 import tempfile
 import unittest
 import subprocess
@@ -16,9 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 GOOGLE_OIDC_MODULE = ROOT / "wahojobs" / "google_oidc_gateway.py"
 LOCAL_PRODUCT_APP = ROOT / "scripts" / "local_product_app.py"
 APPROVED_GOOGLE_OIDC_DEPENDENCY_ROOTS = ("authlib", "joserfc", "requests")
-LOCAL_PRODUCT_APP_BASE_TEXT_SHA256 = (
-    "d937022e1b2835bd249f9dc47c7ddde9a76b296213e6fc3f544b76cc026f1642"
-)
 
 
 class PersistentProfilesRuntimeIsolationTests(unittest.TestCase):
@@ -313,16 +309,15 @@ print(
         source = GOOGLE_OIDC_MODULE.read_text(encoding="utf-8")
         self.assertNotIn("authlib.jose", source)
 
-    def test_local_product_app_remains_exact_base_and_has_no_oidc_wiring(self):
+    def test_local_product_app_default_stays_dormant_with_explicit_injection_only(
+        self,
+    ):
         source = LOCAL_PRODUCT_APP.read_text(encoding="utf-8")
-        self.assertEqual(
-            hashlib.sha256(source.encode("utf-8")).hexdigest(),
-            LOCAL_PRODUCT_APP_BASE_TEXT_SHA256,
-        )
         lowered = source.lower()
         for forbidden in (
             "google_oidc_gateway",
-            "googleoidc",
+            "google_oidc_durable_gateway",
+            "durable_google_login_runtime",
             "accounts.google.com",
             "oauth2.googleapis.com",
             "www.googleapis.com/oauth2",
@@ -331,14 +326,67 @@ print(
             "import joserfc",
             "from joserfc",
             "set-cookie",
-            "/login",
-            "/logout",
-            "/callback",
             "/oidc",
             "/oauth",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, lowered)
+
+        tree = ast.parse(source)
+        make_handler = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "make_handler"
+        )
+        positional = make_handler.args.args
+        defaults = {
+            argument.arg: default
+            for argument, default in zip(
+                positional[-len(make_handler.args.defaults) :],
+                make_handler.args.defaults,
+                strict=True,
+            )
+        }
+        self.assertIsInstance(
+            defaults["durable_google_login_browser_integration"],
+            ast.Constant,
+        )
+        self.assertIsNone(
+            defaults["durable_google_login_browser_integration"].value
+        )
+        self.assertIsInstance(
+            defaults["exclusive_browser_integration"],
+            ast.Constant,
+        )
+        self.assertIs(
+            defaults["exclusive_browser_integration"].value,
+            False,
+        )
+
+        ordinary_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "make_handler"
+        ]
+        self.assertEqual(len(ordinary_calls), 1)
+        self.assertNotIn(
+            "durable_google_login_browser_integration",
+            {
+                keyword.arg
+                for keyword in ordinary_calls[0].keywords
+                if keyword.arg is not None
+            },
+        )
+        self.assertNotIn(
+            "exclusive_browser_integration",
+            {
+                keyword.arg
+                for keyword in ordinary_calls[0].keywords
+                if keyword.arg is not None
+            },
+        )
 
     def test_google_oidc_adds_no_route_migration_startup_cookie_or_activation(self):
         source = GOOGLE_OIDC_MODULE.read_text(encoding="utf-8")
@@ -437,11 +485,49 @@ print(
             with self.subTest(statement=statement):
                 self.assertIn(statement, documentation)
 
-    def test_b2d1_recovery_contains_no_broad_base_exception_catch(self):
+    def test_b2d1_recovery_has_only_the_accepted_phase_a_broad_boundaries(self):
         source = (
             ROOT / "wahojobs" / "trusted_login_completion.py"
         ).read_text(encoding="utf-8")
-        self.assertNotIn("except BaseException", source)
+        tree = ast.parse(source)
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        qualified = []
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.ExceptHandler)
+                and isinstance(node.type, ast.Name)
+                and node.type.id == "BaseException"
+            ):
+                continue
+            function = parents.get(node)
+            while function is not None and not isinstance(
+                function,
+                (ast.FunctionDef, ast.AsyncFunctionDef),
+            ):
+                function = parents.get(function)
+            self.assertIsNotNone(function)
+            owner = parents.get(function)
+            while owner is not None and not isinstance(owner, ast.ClassDef):
+                if isinstance(
+                    owner,
+                    (ast.FunctionDef, ast.AsyncFunctionDef),
+                ):
+                    break
+                owner = parents.get(owner)
+            qualified.append(
+                (
+                    f"{owner.name}." if isinstance(owner, ast.ClassDef) else ""
+                )
+                + function.name
+            )
+        self.assertEqual(
+            sorted(qualified),
+            [],
+        )
 
     def test_b2c4_documentation_records_dormant_lifecycle_boundaries(self):
         documentation = (

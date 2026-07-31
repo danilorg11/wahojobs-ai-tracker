@@ -133,8 +133,12 @@ import sys
 import wahojobs
 import scripts.local_product_app
 names = {MODULE_NAMES!r}
+activation_names = names + (
+    "wahojobs.durable_google_login_browser",
+    "wahojobs.durable_google_login_runtime",
+)
 print(
-    any(name in sys.modules for name in names),
+    any(name in sys.modules for name in activation_names),
     tuple(
         sorted(
             name for name in vars(wahojobs)
@@ -146,24 +150,63 @@ print(
         result = self.run_python(source)
         self.assertEqual(result.stdout.strip(), "False ()")
 
-    def test_base_runtime_has_no_schema_or_activation_wiring(self):
+    def test_base_schema_stays_dormant_and_local_app_only_exposes_injection(self):
         schema = (
             ROOT / "wahojobs" / "db" / "schema.sql"
         ).read_text(encoding="utf-8").lower()
-        local_app = (
+        local_app_source = (
             ROOT / "scripts" / "local_product_app.py"
-        ).read_text(encoding="utf-8").lower()
+        ).read_text(encoding="utf-8")
+        local_app = local_app_source.lower()
         self.assertNotIn("google_oidc_authorization_transactions", schema)
-        for source in (schema, local_app):
-            self.assertNotIn("google_oidc_durable_gateway", source)
-            self.assertNotIn(
-                "prepare_durable_google_oidc_authorization",
-                source,
+        self.assertNotIn("google_oidc_durable_gateway", schema)
+        self.assertNotIn("google_oidc_durable_gateway", local_app)
+        self.assertNotIn(
+            "prepare_durable_google_oidc_authorization",
+            local_app,
+        )
+        self.assertNotIn(
+            "complete_durable_google_oidc_authorization",
+            local_app,
+        )
+
+        tree = ast.parse(local_app_source)
+        imported_modules = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_modules.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_modules.add(node.module)
+        self.assertFalse(
+            imported_modules
+            & {
+                "wahojobs.durable_google_login_browser",
+                "wahojobs.durable_google_login_runtime",
+                "wahojobs.google_oidc_durable_gateway",
+            }
+        )
+
+        make_handler = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "make_handler"
+        )
+        arguments = make_handler.args.args
+        defaults = {
+            argument.arg: default
+            for argument, default in zip(
+                arguments[-len(make_handler.args.defaults) :],
+                make_handler.args.defaults,
+                strict=True,
             )
-            self.assertNotIn(
-                "complete_durable_google_oidc_authorization",
-                source,
-            )
+        }
+        self.assertIsNone(
+            defaults["durable_google_login_browser_integration"].value
+        )
+        self.assertIs(
+            defaults["exclusive_browser_integration"].value,
+            False,
+        )
 
     def test_exact_migration_inventory_ends_at_dormant_m006(self):
         migrations = sorted(
@@ -181,7 +224,7 @@ print(
             ],
         )
 
-    def test_durable_gateway_exports_only_the_two_composition_functions(self):
+    def test_durable_gateway_exports_only_the_three_composition_functions(self):
         path = ROOT / "wahojobs" / "google_oidc_durable_gateway.py"
         tree = ast.parse(path.read_text(encoding="utf-8"))
         exports = next(
@@ -200,6 +243,7 @@ print(
                 if isinstance(item, ast.Constant)
             ),
             (
+                "complete_browser_bound_durable_google_oidc_authorization",
                 "complete_durable_google_oidc_authorization",
                 "prepare_durable_google_oidc_authorization",
             ),

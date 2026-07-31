@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import sqlite3
+import tempfile
 from types import FrameType, TracebackType
 import unittest
 from unittest import mock
@@ -2663,26 +2665,35 @@ class GoogleOidcAuthorizationTransactionRepositoryTests(unittest.TestCase):
         finally:
             pending.close()
 
-        post_install = install_canonical_v2_profiles(":memory:")
-        try:
-            migration_006.apply_google_oidc_authorization_transactions_migration(
-                post_install
+        with tempfile.TemporaryDirectory() as directory:
+            post_install_path = (
+                Path(directory)
+                / "repository-same-dependency-post-install.sqlite"
             )
-            self.assertEqual(
-                attest_google_oidc_authorization_transaction_schema(
-                    post_install
-                )["state"],
-                "correctly_installed",
-            )
-            contaminate(post_install, "audit_post_install_dependency")
-            self.assertEqual(
-                attest_google_oidc_authorization_transaction_schema(
-                    post_install
-                )["state"],
-                "invalid_prerequisite",
-            )
-        finally:
-            post_install.close()
+            post_install = install_canonical_v2_profiles(post_install_path)
+            try:
+                migration_006.apply_google_oidc_authorization_transactions_migration(
+                    post_install,
+                    requested_path=post_install_path,
+                    expected_identity=(
+                        migration_006.database_file_identity(post_install_path)
+                    ),
+                )
+                self.assertEqual(
+                    attest_google_oidc_authorization_transaction_schema(
+                        post_install
+                    )["state"],
+                    "correctly_installed",
+                )
+                contaminate(post_install, "audit_post_install_dependency")
+                self.assertEqual(
+                    attest_google_oidc_authorization_transaction_schema(
+                        post_install
+                    )["state"],
+                    "invalid_prerequisite",
+                )
+            finally:
+                post_install.close()
 
         with durable_transaction_database(
             suffix="repository-closure-installed"
@@ -2756,23 +2767,32 @@ class GoogleOidcAuthorizationTransactionRepositoryTests(unittest.TestCase):
         finally:
             pending.close()
 
-        post_install = install_canonical_v2_profiles(":memory:")
-        try:
-            migration_006.apply_google_oidc_authorization_transactions_migration(
-                post_install
+        with tempfile.TemporaryDirectory() as directory:
+            post_install_path = (
+                Path(directory)
+                / "repository-same-reserved-family-post-install.sqlite"
             )
-            self.assertEqual(
-                attest_google_oidc_authorization_transaction_schema(
-                    post_install
-                )["state"],
-                "correctly_installed",
-            )
-            assert_rejected(
-                post_install,
-                contaminate(post_install, "post_install"),
-            )
-        finally:
-            post_install.close()
+            post_install = install_canonical_v2_profiles(post_install_path)
+            try:
+                migration_006.apply_google_oidc_authorization_transactions_migration(
+                    post_install,
+                    requested_path=post_install_path,
+                    expected_identity=(
+                        migration_006.database_file_identity(post_install_path)
+                    ),
+                )
+                self.assertEqual(
+                    attest_google_oidc_authorization_transaction_schema(
+                        post_install
+                    )["state"],
+                    "correctly_installed",
+                )
+                assert_rejected(
+                    post_install,
+                    contaminate(post_install, "post_install"),
+                )
+            finally:
+                post_install.close()
 
         with durable_transaction_database(
             suffix="repository-reserved-family-installed"

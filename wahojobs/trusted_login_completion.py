@@ -8,6 +8,7 @@ import hmac
 import json
 import re
 import sqlite3
+import threading
 import weakref
 
 from wahojobs.account_reconciliation import (
@@ -24,6 +25,7 @@ from wahojobs.browser_session_lifecycle import (
     CreateBrowserSessionCommand,
     IssuedBrowserSession,
     RequestScopedSessionSecretVault,
+    SessionDeliveryLease,
     _ACCOUNT_ID,
     _COMMAND_ISSUANCE_CAPABILITY,
     _IDENTITY_ID,
@@ -41,6 +43,7 @@ from wahojobs.browser_session_lifecycle import (
     emergency_terminalize_request_scoped_secret_vault,
     finalize_pending_issued_session,
     force_compensate_undelivered_issued_session,
+    prepare_issued_session_delivery,
     terminalize_undelivered_issued_result,
     verify_compensated_undelivered_issued_session,
     verify_request_scoped_secret_vault_terminal,
@@ -58,10 +61,14 @@ _COMPLETION_POLICY_ISSUANCE_CAPABILITY = object()
 _COMPLETION_POLICY_SERVICE_CAPABILITY = object()
 _VALIDATED_LOGIN_CAPABILITY = object()
 _RESULT_ISSUANCE_CAPABILITY = object()
+_RESULT_SERVICE_CAPABILITY = object()
+# These registries authenticate only the accepted pre-completion proof chain.
 _ISSUED_ASSERTIONS = weakref.WeakKeyDictionary()
 _ISSUED_COMPLETION_POLICIES = weakref.WeakKeyDictionary()
 _VALIDATED_LOGINS = weakref.WeakSet()
-_ISSUED_RESULTS = weakref.WeakSet()
+_RUNTIME_EXPECTED_PROVIDER = "google"
+_RUNTIME_ASSURANCE_POLICY_VERSION = "google_oidc_v1"
+_RUNTIME_COMPLETION_POLICY_VERSION = "trusted_login_completion_v1"
 
 _OUTCOMES = frozenset(
     {
@@ -361,44 +368,286 @@ class TrustedLoginCompletionPolicy:
         raise TypeError("trusted_login_completion_policy_not_subclassable")
 
 
+class _TrustedLoginCompletionAuthoritySeal:
+    """Owner-bound seal for one completion authority."""
+
+    __slots__ = ("_owner", "_capability")
+
+    def __new__(cls, *_args, **_kwargs):
+        raise TypeError("trusted_login_completion_authority_not_constructible")
+
+    @classmethod
+    def _issue(cls, capability, owner):
+        if (
+            cls is not _TrustedLoginCompletionAuthoritySeal
+            or capability is not _RESULT_ISSUANCE_CAPABILITY
+        ):
+            raise TypeError("trusted_login_completion_authority_not_constructible")
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_owner", weakref.ref(owner))
+        object.__setattr__(instance, "_capability", capability)
+        return instance
+
+    def _owns(self, owner):
+        return (
+            type(self) is _TrustedLoginCompletionAuthoritySeal
+            and self._capability is _RESULT_ISSUANCE_CAPABILITY
+            and self._owner() is owner
+        )
+
+    def __setattr__(self, _name, _value):
+        raise AttributeError("trusted_login_completion_authority_is_immutable")
+
+    def __repr__(self):
+        return "_TrustedLoginCompletionAuthoritySeal(<redacted>)"
+
+    __str__ = __repr__
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("trusted_login_completion_authority_not_serializable")
+
+    def __copy__(self):
+        raise TypeError("trusted_login_completion_authority_not_copyable")
+
+    def __deepcopy__(self, _memo):
+        raise TypeError("trusted_login_completion_authority_not_copyable")
+
+    def __init_subclass__(cls, **_kwargs):
+        raise TypeError("trusted_login_completion_authority_not_subclassable")
+
+
+class _TrustedLoginCompletionAuthority:
+    """Private one-shot authority bound to one result, session, and request vault."""
+
+    __slots__ = (
+        "_owner",
+        "_issued_session",
+        "_request_secret_vault",
+        "_state",
+        "_lock",
+        "_seal",
+        "__weakref__",
+    )
+
+    def __new__(cls, *_args, **_kwargs):
+        raise TypeError("trusted_login_completion_authority_not_constructible")
+
+    @classmethod
+    def _issue(
+        cls,
+        capability,
+        *,
+        owner,
+        issued_session,
+        request_secret_vault,
+    ):
+        has_delivery_owner = (
+            type(issued_session) is IssuedBrowserSession
+            and issued_session._is_sealed()
+            and type(request_secret_vault) is RequestScopedSessionSecretVault
+        )
+        if (
+            cls is not _TrustedLoginCompletionAuthority
+            or capability is not _RESULT_ISSUANCE_CAPABILITY
+            or type(owner) is not TrustedLoginCompletionResult
+            or (
+                (issued_session is None and request_secret_vault is None)
+                == has_delivery_owner
+            )
+        ):
+            raise TypeError("trusted_login_completion_authority_not_constructible")
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_owner", weakref.ref(owner))
+        object.__setattr__(instance, "_issued_session", issued_session)
+        object.__setattr__(
+            instance,
+            "_request_secret_vault",
+            request_secret_vault,
+        )
+        object.__setattr__(instance, "_state", "available")
+        object.__setattr__(instance, "_lock", threading.Lock())
+        object.__setattr__(
+            instance,
+            "_seal",
+            _TrustedLoginCompletionAuthoritySeal._issue(
+                _RESULT_ISSUANCE_CAPABILITY,
+                instance,
+            ),
+        )
+        return instance
+
+    def _owns(self, owner, issued_session):
+        seal = getattr(self, "_seal", None)
+        return (
+            type(self) is _TrustedLoginCompletionAuthority
+            and type(seal) is _TrustedLoginCompletionAuthoritySeal
+            and seal._owns(self)
+            and self._owner() is owner
+            and self._issued_session is issued_session
+        )
+
+    def _claim(self, capability, owner, request_secret_vault, operation):
+        expected_status = (
+            "issued"
+            if operation == "delivery"
+            else "pending_commit"
+            if operation == "finalize"
+            else None
+        )
+        issued_session = getattr(owner, "_issued_session", None)
+        if (
+            capability is not _RESULT_SERVICE_CAPABILITY
+            or expected_status is None
+            or not self._owns(owner, issued_session)
+            or type(issued_session) is not IssuedBrowserSession
+            or not issued_session._is_sealed()
+            or type(request_secret_vault) is not RequestScopedSessionSecretVault
+            or self._request_secret_vault is not request_secret_vault
+        ):
+            raise BrowserSessionLifecycleError("session_state_conflict")
+        with self._lock:
+            if not self._owns(owner, issued_session):
+                raise BrowserSessionLifecycleError("session_state_conflict")
+            if self._state != "available":
+                raise BrowserSessionLifecycleError("already_completed")
+            if (
+                self._request_secret_vault is not request_secret_vault
+                or getattr(owner, "_status", None) != expected_status
+                or issued_session.status != expected_status
+            ):
+                raise BrowserSessionLifecycleError("session_state_conflict")
+            object.__setattr__(self, "_state", operation)
+            return issued_session
+
+    def __setattr__(self, _name, _value):
+        raise AttributeError("trusted_login_completion_authority_is_immutable")
+
+    def __repr__(self):
+        return "_TrustedLoginCompletionAuthority(<redacted>)"
+
+    __str__ = __repr__
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("trusted_login_completion_authority_not_serializable")
+
+    def __copy__(self):
+        raise TypeError("trusted_login_completion_authority_not_copyable")
+
+    def __deepcopy__(self, _memo):
+        raise TypeError("trusted_login_completion_authority_not_copyable")
+
+    def __init_subclass__(cls, **_kwargs):
+        raise TypeError("trusted_login_completion_authority_not_subclassable")
+
+
 class TrustedLoginCompletionResult:
     """Immutable sanitized outcome with an optional accepted nonsecret result."""
 
-    __slots__ = ("_status", "_issued_session", "__weakref__")
+    __slots__ = ("_status", "_issued_session", "_authority", "__weakref__")
 
     def __new__(cls, *_args, **_kwargs):
         raise TypeError("trusted_login_completion_result_not_constructible")
 
     @classmethod
-    def _issue(cls, capability, status, issued_session=None):
+    def _issue(
+        cls,
+        capability,
+        status,
+        issued_session=None,
+        request_secret_vault=None,
+    ):
         success = status in {"issued", "pending_commit", "already_completed"}
         if (
             cls is not TrustedLoginCompletionResult
             or capability is not _RESULT_ISSUANCE_CAPABILITY
             or status not in _OUTCOMES
             or success != (type(issued_session) is IssuedBrowserSession)
+            or success
+            != (type(request_secret_vault) is RequestScopedSessionSecretVault)
             or (success and issued_session.status != status)
         ):
             raise TypeError("trusted_login_completion_result_not_constructible")
         instance = object.__new__(cls)
         object.__setattr__(instance, "_status", status)
         object.__setattr__(instance, "_issued_session", issued_session)
-        _ISSUED_RESULTS.add(instance)
+        object.__setattr__(
+            instance,
+            "_authority",
+            _TrustedLoginCompletionAuthority._issue(
+                _RESULT_ISSUANCE_CAPABILITY,
+                owner=instance,
+                issued_session=issued_session,
+                request_secret_vault=request_secret_vault,
+            ),
+        )
         return instance
 
     @property
     def status(self):
+        self._require_sealed()
         return self._status
 
     @property
     def issued_session(self):
+        self._require_sealed()
         return self._issued_session
+
+    def _claim_issued_session(self, capability, request_secret_vault, operation):
+        self._require_sealed()
+        return self._authority._claim(
+            capability,
+            self,
+            request_secret_vault,
+            operation,
+        )
+
+    def _prepare_delivery(
+        self,
+        capability,
+        connection,
+        request_secret_vault,
+        now,
+    ):
+        issued_session = self._claim_issued_session(
+            capability,
+            request_secret_vault,
+            "delivery",
+        )
+        try:
+            return prepare_issued_session_delivery(
+                connection,
+                issued_session,
+                request_secret_vault,
+                _RESPONSE_COMPOSITION_CAPABILITY,
+                now=now,
+            )
+        finally:
+            connection = None
+            issued_session = None
+            request_secret_vault = None
+
+    def _is_sealed(self):
+        authority = getattr(self, "_authority", None)
+        issued_session = getattr(self, "_issued_session", None)
+        return (
+            type(self) is TrustedLoginCompletionResult
+            and type(authority) is _TrustedLoginCompletionAuthority
+            and authority._owns(self, issued_session)
+        )
+
+    def _require_sealed(self):
+        if not self._is_sealed():
+            raise BrowserSessionLifecycleError("session_state_conflict")
 
     def __setattr__(self, _name, _value):
         raise AttributeError("trusted_login_completion_result_is_immutable")
 
     def __repr__(self):
-        return f"TrustedLoginCompletionResult(status={self._status!r})"
+        try:
+            status = self.status
+        except Exception:
+            status = "invalid"
+        return f"TrustedLoginCompletionResult(status={status!r})"
 
     __str__ = __repr__
 
@@ -455,6 +704,75 @@ class _Unavailable(Exception):
 
 class _IdempotencyConflict(Exception):
     pass
+
+
+def create_trusted_login_completion_policy(
+    *,
+    environment_namespace: str,
+    idle_ttl: timedelta,
+    absolute_ttl: timedelta,
+) -> TrustedLoginCompletionPolicy:
+    """Issue the fixed Google trusted-login policy for runtime composition."""
+
+    session_policy = TrustedLoginSessionPolicy(
+        environment_namespace=environment_namespace,
+        idle_ttl=idle_ttl,
+        absolute_ttl=absolute_ttl,
+    )
+    return TrustedLoginCompletionPolicy._issue(
+        _COMPLETION_POLICY_ISSUANCE_CAPABILITY,
+        expected_provider=_RUNTIME_EXPECTED_PROVIDER,
+        expected_assurance_policy_version=(
+            _RUNTIME_ASSURANCE_POLICY_VERSION
+        ),
+        environment_namespace=environment_namespace,
+        completion_policy_version=_RUNTIME_COMPLETION_POLICY_VERSION,
+        session_policy=session_policy,
+    )
+
+
+def prepare_session_delivery(
+    connection: sqlite3.Connection,
+    completion_result: TrustedLoginCompletionResult,
+    request_secret_vault: RequestScopedSessionSecretVault,
+    *,
+    now: datetime,
+) -> SessionDeliveryLease:
+    """Prepare one compensatable browser response from a completed login."""
+
+    lease = None
+    failure_code = None
+    control_flow = None
+    try:
+        if type(completion_result) is not TrustedLoginCompletionResult:
+            raise BrowserSessionLifecycleError("session_state_conflict")
+        lease = completion_result._prepare_delivery(
+            _RESULT_SERVICE_CAPABILITY,
+            connection,
+            request_secret_vault,
+            now,
+        )
+    except BrowserSessionLifecycleError as exc:
+        failure_code = exc.code
+        _detach_exception(exc)
+    except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
+        control_flow = exc
+        _detach_exception(exc)
+    except Exception as exc:
+        failure_code = "internal_consistency_failure"
+        _detach_exception(exc)
+    finally:
+        connection = None
+        completion_result = None
+        request_secret_vault = None
+        now = None
+    if control_flow is not None:
+        propagated = control_flow
+        control_flow = None
+        raise propagated from None
+    if failure_code is not None:
+        raise BrowserSessionLifecycleError(failure_code) from None
+    return lease
 
 
 def complete_trusted_login(
@@ -525,6 +843,7 @@ def complete_trusted_login(
             _RESULT_ISSUANCE_CAPABILITY,
             expected_status,
             issued_session,
+            request_secret_vault,
         )
         returned = True
         return result
@@ -578,14 +897,13 @@ def finalize_pending_trusted_login(
     returned = False
     may_compensate = False
     try:
-        if (
-            type(completion_result) is not TrustedLoginCompletionResult
-            or completion_result not in _ISSUED_RESULTS
-            or completion_result.status != "pending_commit"
-            or type(completion_result.issued_session) is not IssuedBrowserSession
-        ):
+        if type(completion_result) is not TrustedLoginCompletionResult:
             raise _Unavailable()
-        issued_session = completion_result.issued_session
+        issued_session = completion_result._claim_issued_session(
+            _RESULT_SERVICE_CAPABILITY,
+            request_secret_vault,
+            "finalize",
+        )
         trusted_now = _trusted_time(trusted_now)
         may_compensate = (
             type(connection) is sqlite3.Connection
@@ -600,13 +918,12 @@ def finalize_pending_trusted_login(
             _RESULT_ISSUANCE_CAPABILITY,
             "issued",
             issued_session,
+            request_secret_vault,
         )
         returned = True
         return result
     except Exception as exc:
         _detach_exception(exc)
-        if issued_session is None and type(completion_result) is TrustedLoginCompletionResult:
-            issued_session = completion_result.issued_session
         return _failure_result("unavailable")
     finally:
         if type(issued_session) is IssuedBrowserSession and not returned:

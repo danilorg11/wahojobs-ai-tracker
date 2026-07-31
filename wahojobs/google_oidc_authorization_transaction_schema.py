@@ -77,6 +77,22 @@ TRANSACTION_TRIGGERS = (
     "trg_google_oidc_authorization_transactions_update_guard",
     "trg_google_oidc_authorization_transactions_delete_guard",
 )
+M006_VERIFICATION_INDEX_LIST_TABLES = frozenset(
+    {
+        "google_oidc_authorization_transactions",
+        "legacy_owner_aliases",
+        "ownership_binding_events",
+        "principal_account_bindings",
+        "product_principals",
+        "product_profile_revisions",
+        "product_profile_sources",
+        "product_profiles",
+        "user_pipeline_items",
+        "user_pipeline_state",
+        "user_pipeline_transitions",
+        "wahojobs_schema_migrations",
+    }
+)
 PREREQUISITE_MIGRATION_VERSIONS = (
     "001_pipeline_state",
     "002_accounts_sessions",
@@ -110,6 +126,22 @@ FINDING_INVALID_PREREQUISITE = "invalid_prerequisite"
 
 class _PrerequisiteClosureBudgetExceeded(RuntimeError):
     __slots__ = ()
+
+
+def is_m006_verification_index_list_pragma(
+    name,
+    argument,
+    database,
+    source,
+) -> bool:
+    """Recognize only fixed M006 index-list introspection."""
+    return (
+        name == "index_list"
+        and type(argument) is str
+        and argument in M006_VERIFICATION_INDEX_LIST_TABLES
+        and database in {None, "main"}
+        and source is None
+    )
 
 
 def expected_google_oidc_authorization_transaction_manifest() -> dict:
@@ -903,10 +935,7 @@ def _bounded_prerequisite_schema_snapshot(conn, contract, budget) -> dict:
                 cursor.row_factory = None
                 try:
                     cursor.execute(
-                        "SELECT CAST(name AS BLOB) "
-                        "FROM pragma_table_xinfo("
-                        f"{_quote_sql_text(name)}, "
-                        f"{_quote_sql_text(schema)})"
+                        f"PRAGMA {schema}.table_xinfo({_quote(name)})"
                     )
                     column_rows = cursor.fetchmany(
                         remaining_columns + 1
@@ -917,18 +946,23 @@ def _bounded_prerequisite_schema_snapshot(conn, contract, budget) -> dict:
                     not column_rows
                     or any(
                         type(row) is not tuple
-                        or len(row) != 1
-                        or type(row[0]) is not bytes
+                        or len(row) < 2
+                        or type(row[1]) not in {str, bytes}
                         for row in column_rows
                     )
                 ):
                     raise RuntimeError(
                         "prerequisite_table_columns_invalid"
                     )
-                names = tuple(
-                    row[0].decode("utf-8", "strict")
-                    for row in column_rows
-                )
+                names = []
+                for row in column_rows:
+                    value = row[1]
+                    if type(value) is bytes:
+                        value = value.decode("utf-8", "strict")
+                    else:
+                        value.encode("utf-8", "strict")
+                    names.append(value)
+                names = tuple(names)
                 _consume_prerequisite_closure_budget(
                     budget,
                     "columns",
@@ -1281,12 +1315,39 @@ def _capture_pipeline_state_manifest(conn) -> dict:
         }
     base_index = "idx_user_pipeline_items_pipeline_profile"
     if any(name == base_index for _, name, _ in objects):
-        row = conn.execute(
-            "SELECT [unique], origin, partial "
-            "FROM pragma_index_list('user_pipeline_items') "
-            "WHERE name=?",
-            (base_index,),
-        ).fetchone()
+        row = None
+        cursor = conn.cursor()
+        cursor.row_factory = None
+        try:
+            cursor.execute(
+                "PRAGMA main.index_list('user_pipeline_items')"
+            )
+            for _index in range(
+                _MAX_PREREQUISITE_SCHEMA_OBJECTS + 1
+            ):
+                candidate = cursor.fetchone()
+                if candidate is None:
+                    break
+                if _index == _MAX_PREREQUISITE_SCHEMA_OBJECTS:
+                    raise RuntimeError(
+                        "prerequisite_index_metadata_invalid"
+                    )
+                if (
+                    type(candidate) is not tuple
+                    or len(candidate) < 5
+                ):
+                    raise RuntimeError(
+                        "prerequisite_index_metadata_invalid"
+                    )
+                if candidate[1] == base_index:
+                    row = (
+                        candidate[2],
+                        candidate[3],
+                        candidate[4],
+                    )
+                    break
+        finally:
+            cursor.close()
         if row is not None:
             index_details[base_index] = {
                 "table": "user_pipeline_items",

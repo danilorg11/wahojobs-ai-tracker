@@ -25,6 +25,7 @@ from wahojobs.google_oidc_authorization_transaction_schema import (  # noqa: E40
     TRANSACTION_TRIGGERS,
     attest_google_oidc_authorization_transaction_schema,
     expected_google_oidc_authorization_transaction_manifest,
+    is_m006_verification_index_list_pragma,
     iter_sql_statements,
 )
 from wahojobs.google_oidc_authorization_transaction_reconciliation import (  # noqa: E402
@@ -37,7 +38,13 @@ SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 _MAX_MIGRATION_AUTHORIZER_CALLS = 262_144
 _MAX_SQLITE_FUNCTION_INVENTORY = 4_096
 _MAX_SEALED_SCHEMA_OBJECTS = 8_192
+_TABLE_XINFO_SCOPE_ROW_LIMIT = 8_193
+_TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY = 100
+_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS = 4_096
 _CALLBACK_CLEAR_PASSES = 8
+_SQLITE_CONNECT = sqlite3.connect
+_SQLITE_SET_PROGRESS_HANDLER = sqlite3.Connection.set_progress_handler
+_SQLITE_CLOSE = sqlite3.Connection.close
 _MIGRATION_MARKER_INSERT_SQL = (
     "INSERT INTO wahojobs_schema_migrations(version) VALUES ('"
     + MIGRATION_VERSION.replace("'", "''")
@@ -48,10 +55,189 @@ _MIGRATION_006_TRIGGER_NAMES = frozenset(TRANSACTION_TRIGGERS)
 _MIGRATION_006_AUTOINDEX_PREFIX = (
     "sqlite_autoindex_" + TRANSACTION_TABLE + "_"
 )
+_M006_FOREIGN_KEY_LIST_PRAGMA_SCOPE = frozenset(
+    {
+        ("google_oidc_authorization_transactions", "main"),
+        ("legacy_owner_aliases", None),
+        ("ownership_binding_events", None),
+        ("principal_account_bindings", None),
+        ("product_principals", None),
+        ("product_profile_revisions", None),
+        ("product_profile_sources", None),
+        ("product_profiles", None),
+        ("user_pipeline_state", "main"),
+        ("user_pipeline_transitions", "main"),
+        ("wahojobs_schema_migrations", "main"),
+    }
+)
+_M006_INDEX_XINFO_PRAGMA_SCOPE = frozenset(
+    {
+        (
+            "idx_google_oidc_authorization_transactions_prepared_expiry",
+            "main",
+        ),
+        (
+            "idx_google_oidc_authorization_transactions_terminal_cleanup",
+            "main",
+        ),
+        ("idx_legacy_owner_aliases_family_coherence", None),
+        ("idx_legacy_owner_aliases_principal", None),
+        ("idx_ownership_binding_events_binding_time", None),
+        ("idx_ownership_binding_events_principal_version", None),
+        ("idx_principal_account_bindings_active_identity", None),
+        ("idx_principal_account_bindings_user_status", None),
+        ("idx_product_principals_environment_type", None),
+        ("idx_product_profile_revisions_lifecycle", None),
+        ("idx_product_profile_revisions_principal_history", None),
+        ("idx_product_profile_revisions_profile_history", None),
+        ("idx_product_profile_sources_profile", None),
+        ("idx_product_profile_sources_revision", None),
+        ("idx_product_profiles_environment", None),
+        ("idx_user_pipeline_items_pipeline_profile", "main"),
+        ("idx_user_pipeline_transitions_correction", "main"),
+        ("idx_user_pipeline_transitions_occurred", "main"),
+        ("idx_user_pipeline_transitions_pipeline_occurred", "main"),
+        ("idx_user_pipeline_transitions_profile_occurred", "main"),
+        ("idx_user_pipeline_transitions_undo", "main"),
+        (
+            "sqlite_autoindex_google_oidc_authorization_transactions_1",
+            "main",
+        ),
+        ("sqlite_autoindex_legacy_owner_aliases_1", None),
+        ("sqlite_autoindex_legacy_owner_aliases_2", None),
+        ("sqlite_autoindex_ownership_binding_events_1", None),
+        ("sqlite_autoindex_ownership_binding_events_2", None),
+        ("sqlite_autoindex_ownership_binding_events_3", None),
+        ("sqlite_autoindex_principal_account_bindings_1", None),
+        ("sqlite_autoindex_principal_account_bindings_2", None),
+        ("sqlite_autoindex_product_principals_1", None),
+        ("sqlite_autoindex_product_profile_revisions_1", None),
+        ("sqlite_autoindex_product_profile_revisions_2", None),
+        ("sqlite_autoindex_product_profile_revisions_3", None),
+        ("sqlite_autoindex_product_profile_revisions_4", None),
+        ("sqlite_autoindex_product_profile_revisions_5", None),
+        ("sqlite_autoindex_product_profile_sources_1", None),
+        ("sqlite_autoindex_product_profile_sources_2", None),
+        ("sqlite_autoindex_product_profile_sources_3", None),
+        ("sqlite_autoindex_product_profiles_1", None),
+        ("sqlite_autoindex_product_profiles_2", None),
+        ("sqlite_autoindex_product_profiles_3", None),
+        ("sqlite_autoindex_product_profiles_4", None),
+        ("sqlite_autoindex_user_pipeline_state_1", "main"),
+        ("sqlite_autoindex_user_pipeline_transitions_1", "main"),
+        ("sqlite_autoindex_user_pipeline_transitions_2", "main"),
+        ("sqlite_autoindex_wahojobs_schema_migrations_1", "main"),
+        (
+            "uq_google_oidc_authorization_transactions_protection_nonce",
+            "main",
+        ),
+        (
+            "uq_google_oidc_authorization_transactions_state_lookup",
+            "main",
+        ),
+    }
+)
+_M006_UNQUALIFIED_TABLE_XINFO_ARGUMENTS = frozenset(
+    {
+        "legacy_owner_aliases",
+        "ownership_binding_events",
+        "principal_account_bindings",
+        "product_principals",
+        "product_profile_revisions",
+        "product_profile_sources",
+        "product_profiles",
+    }
+)
+_MIGRATION_EXACT_PRAGMA_TUPLES = (
+    frozenset(
+        {
+            ("database_list", None, None, None),
+            ("foreign_key_check", None, None, None),
+            ("foreign_keys", None, None, None),
+            ("function_list", None, None, None),
+            ("integrity_check", None, None, None),
+            ("page_count", None, "main", None),
+            ("recursive_triggers", None, None, None),
+            ("recursive_triggers", "OFF", None, None),
+            ("recursive_triggers", "ON", None, None),
+        }
+    )
+    | frozenset(
+        ("foreign_key_list", argument, database, None)
+        for argument, database in _M006_FOREIGN_KEY_LIST_PRAGMA_SCOPE
+    )
+    | frozenset(
+        ("index_xinfo", argument, database, None)
+        for argument, database in _M006_INDEX_XINFO_PRAGMA_SCOPE
+    )
+)
 
 
 class GoogleOidcAuthorizationTransactionsMigrationError(RuntimeError):
     pass
+
+
+class _PrivateConnectionCleanupError(
+    GoogleOidcAuthorizationTransactionsMigrationError
+):
+    def __init__(self, message, connection):
+        super().__init__(message)
+        self._exact_connection_owner = connection
+
+    def retry_exact_close(self):
+        connection = self._exact_connection_owner
+        if connection is None:
+            return
+        sqlite3.Connection.close(connection)
+        self._exact_connection_owner = None
+
+
+def _close_exact_private_connection(connection, *, stage):
+    boundary_failure = None
+    try:
+        _SQLITE_CLOSE(connection)
+    except BaseException as caught:
+        boundary_failure = caught
+    try:
+        # This exact built-in operation is the independent terminal
+        # acknowledgement. It is idempotent if the boundary operation
+        # completed before an injected interruption was observed.
+        sqlite3.Connection.close(connection)
+    except BaseException as caught:
+        unresolved = _PrivateConnectionCleanupError(
+            stage + " did not reach terminal close.",
+            connection,
+        )
+        if boundary_failure is not None:
+            unresolved.add_note(
+                "Initial close boundary also failed: "
+                + type(boundary_failure).__name__
+            )
+        raise unresolved from caught
+    return boundary_failure
+
+
+def _retain_private_cleanup_failure(primary, *, stage, cleanup):
+    retained = getattr(primary, "_private_cleanup_failures", ())
+    try:
+        primary._private_cleanup_failures = (
+            *retained,
+            (stage, cleanup),
+        )
+    except BaseException:
+        # Exception chaining remains the fallback owner if an exotic
+        # BaseException implementation disallows supplemental attributes.
+        try:
+            if primary.__cause__ is None:
+                primary.__cause__ = cleanup
+        except BaseException:
+            pass
+    try:
+        primary.add_note(
+            stage + " also failed: " + type(cleanup).__name__
+        )
+    except BaseException:
+        pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,15 +261,32 @@ class LockedTargetComparison:
 
 
 class _MigrationAuthorizer:
-    __slots__ = ("_calls", "_phase", "_safe_functions")
+    __slots__ = (
+        "_calls",
+        "_main_table_xinfo_scope",
+        "_phase",
+        "_safe_functions",
+    )
 
-    def __init__(self, safe_functions):
+    def __init__(self, safe_functions, main_table_xinfo_scope):
         self._calls = 0
+        table_xinfo_scope = frozenset(main_table_xinfo_scope)
+        if any(
+            type(name) is not str or not name
+            for name in table_xinfo_scope
+        ):
+            raise GoogleOidcAuthorizationTransactionsMigrationError(
+                "Migration table-introspection scope is invalid."
+            )
+        self._main_table_xinfo_scope = table_xinfo_scope
         self._phase = "verification"
         self._safe_functions = frozenset(safe_functions)
 
     def permit_migration_statements(self) -> None:
         self._phase = "ddl"
+
+    def permit_connection_setup(self) -> None:
+        self._phase = "connection_setup"
 
     def permit_marker_insert(self) -> None:
         self._phase = "marker"
@@ -97,9 +300,11 @@ class _MigrationAuthorizer:
     def permit_rollback(self) -> None:
         self._phase = "rollback"
 
-    def __call__(self, action, first, second, database, _source):
+    def __call__(self, action, first, second, database, source):
         self._calls += 1
         if self._calls > _MAX_MIGRATION_AUTHORIZER_CALLS:
+            return sqlite3.SQLITE_DENY
+        if type(action) is not int:
             return sqlite3.SQLITE_DENY
 
         if action in {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_RECURSIVE}:
@@ -130,42 +335,73 @@ class _MigrationAuthorizer:
                 else sqlite3.SQLITE_DENY
             )
         if action == sqlite3.SQLITE_PRAGMA:
+            pragma = first.lower() if type(first) is str else ""
+            if (
+                self._phase == "connection_setup"
+                and (
+                    pragma,
+                    second,
+                    database,
+                    source,
+                )
+                == ("foreign_keys", "ON", None, None)
+            ):
+                return sqlite3.SQLITE_OK
+            if pragma == "table_xinfo":
+                return (
+                    sqlite3.SQLITE_OK
+                    if (
+                        type(first) is str
+                        and first == pragma
+                        and type(second) is str
+                        and (
+                            database is None
+                            or type(database) is str
+                        )
+                        and source is None
+                        and second in self._main_table_xinfo_scope
+                        and (
+                            database == "main"
+                            or (
+                                database is None
+                                and second
+                                in _M006_UNQUALIFIED_TABLE_XINFO_ARGUMENTS
+                            )
+                        )
+                    )
+                    else sqlite3.SQLITE_DENY
+                )
+            if pragma == "index_list":
+                return (
+                    sqlite3.SQLITE_OK
+                    if (
+                        type(first) is str
+                        and first == pragma
+                        and type(second) is str
+                        and (
+                            database is None
+                            or type(database) is str
+                        )
+                        and source is None
+                        and is_m006_verification_index_list_pragma(
+                            pragma,
+                            second,
+                            database,
+                            source,
+                        )
+                    )
+                    else sqlite3.SQLITE_DENY
+                )
             return (
                 sqlite3.SQLITE_OK
                 if (
                     type(first) is str
-                    and first.lower()
-                    in {
-                        "collation_list",
-                        "database_list",
-                        "foreign_key_check",
-                        "foreign_key_list",
-                        "foreign_keys",
-                        "function_list",
-                        "index_info",
-                        "index_list",
-                        "index_xinfo",
-                        "integrity_check",
-                        "page_count",
-                        "query_only",
-                        "recursive_triggers",
-                        "table_info",
-                        "table_xinfo",
-                    }
-                    and (
-                        second in {None, ""}
-                        or first.lower()
-                        in {
-                            "foreign_key_list",
-                            "index_info",
-                            "index_list",
-                            "index_xinfo",
-                            "integrity_check",
-                            "recursive_triggers",
-                            "table_info",
-                            "table_xinfo",
-                        }
-                    )
+                    and first == pragma
+                    and (second is None or type(second) is str)
+                    and (database is None or type(database) is str)
+                    and source is None
+                    and (pragma, second, database, source)
+                    in _MIGRATION_EXACT_PRAGMA_TUPLES
                 )
                 else sqlite3.SQLITE_DENY
             )
@@ -350,14 +586,15 @@ def main(*, failure_injector=None, _connect=sqlite3.connect):
         inject_failure(failure_injector, "before_target_open")
         conn = open_canonical_sqlite_database(
             db_path,
-            read_only=not args.yes,
+            # The command-line connection is an identity/classification
+            # witness only.  Applying M006 always uses separately issued,
+            # exact private connections below.
+            read_only=True,
             expected_identity=initial_identity,
             connect=_connect,
         )
         try:
             inject_failure(failure_injector, "after_target_open")
-            if args.yes:
-                _seal_migration_connection(conn)
             if (
                 not args.allow_workspace_db
                 and migration_004.is_workspace_database_file(
@@ -397,7 +634,6 @@ def main(*, failure_injector=None, _connect=sqlite3.connect):
                 }
         finally:
             if type(conn) is sqlite3.Connection:
-                _remove_private_migration_authorizer(conn)
                 sqlite3.Connection.close(conn)
             else:
                 conn.close()
@@ -605,7 +841,297 @@ def classify_database(conn) -> dict:
     return result
 
 
+def _open_private_migration_candidate(
+    target_path: Path,
+    target_identity: DatabaseFileIdentity,
+):
+    if (
+        not isinstance(target_path, Path)
+        or type(target_identity) is not DatabaseFileIdentity
+        or database_file_identity(target_path) != target_identity
+    ):
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration candidate identity is unavailable."
+        )
+    candidate = None
+    try:
+        candidate = _SQLITE_CONNECT(
+            sqlite_file_uri(target_path, read_only=False),
+            uri=True,
+            timeout=2.0,
+        )
+        if (
+            type(candidate) is not sqlite3.Connection
+            or candidate.in_transaction
+            or not opened_database_matches(
+                candidate,
+                target_path,
+                target_identity,
+            )
+        ):
+            raise GoogleOidcAuthorizationTransactionsMigrationError(
+                "Migration candidate identity is invalid."
+            )
+        return candidate
+    except BaseException as primary:
+        if candidate is not None:
+            try:
+                cleanup_failure = _close_exact_private_connection(
+                    candidate,
+                    stage="Migration candidate setup cleanup",
+                )
+            except BaseException as cleanup_error:
+                raise primary from cleanup_error
+            if cleanup_failure is not None:
+                primary.add_note(
+                    "Migration candidate setup close boundary failed: "
+                    + type(cleanup_failure).__name__
+                )
+        raise
+
+
+def _open_private_callback_write_guard(
+    target_path: Path,
+    target_identity: DatabaseFileIdentity,
+):
+    if (
+        not isinstance(target_path, Path)
+        or type(target_identity) is not DatabaseFileIdentity
+        or database_file_identity(target_path) != target_identity
+    ):
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration callback guard identity is unavailable."
+        )
+    guard = None
+    try:
+        guard = _SQLITE_CONNECT(
+            sqlite_file_uri(target_path, read_only=False),
+            uri=True,
+            timeout=0.0,
+        )
+        if (
+            type(guard) is not sqlite3.Connection
+            or guard.in_transaction
+            or not opened_database_matches(
+                guard,
+                target_path,
+                target_identity,
+            )
+        ):
+            raise GoogleOidcAuthorizationTransactionsMigrationError(
+                "Migration callback guard identity is invalid."
+            )
+        sqlite3.Connection.execute(guard, "BEGIN IMMEDIATE")
+        if (
+            not guard.in_transaction
+            or database_file_identity(target_path) != target_identity
+            or not opened_database_matches(
+                guard,
+                target_path,
+                target_identity,
+            )
+        ):
+            raise GoogleOidcAuthorizationTransactionsMigrationError(
+                "Migration callback guard could not be established."
+            )
+        return guard
+    except BaseException as primary:
+        if guard is not None:
+            try:
+                if guard.in_transaction:
+                    sqlite3.Connection.rollback(guard)
+            except BaseException as rollback_error:
+                primary.add_note(
+                    "Migration callback guard rollback failed: "
+                    + type(rollback_error).__name__
+                )
+            try:
+                cleanup_failure = _close_exact_private_connection(
+                    guard,
+                    stage="Migration callback guard setup cleanup",
+                )
+            except BaseException as cleanup_error:
+                raise primary from cleanup_error
+            if cleanup_failure is not None:
+                primary.add_note(
+                    "Migration callback guard setup close boundary failed: "
+                    + type(cleanup_failure).__name__
+                )
+        raise
+
+
+def _release_private_callback_write_guard(guard) -> None:
+    failure = None
+    try:
+        if type(guard) is not sqlite3.Connection or not guard.in_transaction:
+            raise sqlite3.DatabaseError("migration_callback_guard_inactive")
+        sqlite3.Connection.rollback(guard)
+    except BaseException as caught:
+        failure = caught
+    try:
+        cleanup_failure = _close_exact_private_connection(
+            guard,
+            stage="Migration callback guard release",
+        )
+    except BaseException as caught:
+        if failure is None:
+            raise
+        raise failure from caught
+    if cleanup_failure is not None:
+        if failure is None:
+            failure = cleanup_failure
+        else:
+            failure.add_note(
+                "Migration callback guard close boundary failed: "
+                + type(cleanup_failure).__name__
+            )
+    if failure is not None:
+        raise failure
+
+
+def _retire_private_migration_candidate(
+    *,
+    target_path: Path,
+    target_identity: DatabaseFileIdentity,
+) -> None:
+    guard = _open_private_callback_write_guard(
+        target_path,
+        target_identity,
+    )
+    candidate = None
+    failure = None
+    try:
+        # Candidate issuance occurs only after the independent write guard is
+        # authoritative.  Test instrumentation may attach hostile callbacks
+        # as the exact candidate is published; their eventual finalizers are
+        # therefore contained from the first reachable instant.
+        candidate = _open_private_migration_candidate(
+            target_path,
+            target_identity,
+        )
+        bootstrap_authorizer = _MigrationAuthorizer((), ())
+        _stabilize_private_authorizer(
+            candidate,
+            bootstrap_authorizer,
+            clear_binary=True,
+            terminal_close=True,
+        )
+    except BaseException as caught:
+        failure = caught
+    if candidate is not None:
+        try:
+            cleanup_failure = _close_exact_private_connection(
+                candidate,
+                stage="Migration candidate retirement",
+            )
+        except BaseException as caught:
+            if failure is None:
+                failure = caught
+            else:
+                _retain_private_cleanup_failure(
+                    failure,
+                    stage="Migration candidate cleanup",
+                    cleanup=caught,
+                )
+        else:
+            if cleanup_failure is not None:
+                if failure is None:
+                    failure = cleanup_failure
+                else:
+                    try:
+                        failure.add_note(
+                            "Migration candidate close boundary failed: "
+                            + type(cleanup_failure).__name__
+                        )
+                    except BaseException:
+                        pass
+    try:
+        _release_private_callback_write_guard(guard)
+    except BaseException as caught:
+        if failure is None:
+            failure = caught
+        else:
+            _retain_private_cleanup_failure(
+                failure,
+                stage="Migration callback guard cleanup",
+                cleanup=caught,
+            )
+    if failure is not None:
+        raise failure
+
+
+def _open_exact_private_migration_worker(
+    target_path: Path,
+    target_identity: DatabaseFileIdentity,
+):
+    return open_canonical_sqlite_database(
+        target_path,
+        read_only=False,
+        expected_identity=target_identity,
+        connect=_SQLITE_CONNECT,
+    )
+
+
 def apply_google_oidc_authorization_transactions_migration(
+    conn,
+    *,
+    classification=None,
+    failure_injector=None,
+    requested_path,
+    expected_identity,
+    backup_evidence=None,
+    commit_state=None,
+):
+    if (
+        type(conn) is not sqlite3.Connection
+        or conn.in_transaction
+        or not isinstance(requested_path, Path)
+        or type(expected_identity) is not DatabaseFileIdentity
+        or not sqlite3.Connection.getconfig(
+            conn,
+            sqlite3.SQLITE_DBCONFIG_ENABLE_FKEY,
+        )
+    ):
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration requires an idle witness and an explicit target."
+        )
+    target_path = canonical_database_path(requested_path)
+    target_identity = database_file_identity(target_path)
+    if (
+        target_identity is None
+        or target_identity != expected_identity
+    ):
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration explicit target identity does not match."
+        )
+    _retire_private_migration_candidate(
+        target_path=target_path,
+        target_identity=target_identity,
+    )
+    if database_file_identity(target_path) != target_identity:
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration target identity changed after candidate retirement."
+        )
+    owned = _open_exact_private_migration_worker(
+        target_path,
+        target_identity,
+    )
+    try:
+        return _apply_google_oidc_authorization_transactions_on_owned_connection(
+            owned,
+            classification=classification,
+            failure_injector=failure_injector,
+            requested_path=target_path,
+            expected_identity=target_identity,
+            backup_evidence=backup_evidence,
+            commit_state=commit_state,
+        )
+    finally:
+        _remove_private_migration_authorizer(owned)
+        sqlite3.Connection.close(owned)
+
+
+def _apply_google_oidc_authorization_transactions_on_owned_connection(
     conn,
     *,
     classification=None,
@@ -726,7 +1252,10 @@ def apply_google_oidc_authorization_transactions_migration(
                 conn,
                 _MIGRATION_MARKER_INSERT_SQL,
             )
-            private_authorizer.permit_verification_only()
+            private_authorizer = _seal_migration_connection(
+                conn,
+                final=True,
+            )
             attestation = _verify_sealed_migration_result(
                 conn,
                 locked_classification=locked_classification,
@@ -1112,8 +1641,14 @@ def open_canonical_sqlite_database(
             uri=True,
             timeout=timeout,
         )
+        bootstrap_authorizer = None
         if not read_only:
-            _clear_migration_connection_callbacks(connection)
+            bootstrap_authorizer = _MigrationAuthorizer((), ())
+            bootstrap_authorizer.permit_connection_setup()
+            _stabilize_private_authorizer(
+                connection,
+                bootstrap_authorizer,
+            )
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA recursive_triggers = ON")
         if read_only:
@@ -1129,6 +1664,8 @@ def open_canonical_sqlite_database(
             raise GoogleOidcAuthorizationTransactionsMigrationError(
                 "Opened SQLite main database does not match the requested file."
             )
+        if bootstrap_authorizer is not None:
+            _remove_private_migration_authorizer(connection)
         return connection
     except BaseException:
         if connection is not None:
@@ -1425,37 +1962,138 @@ def _require_exact_live_fingerprint(value) -> tuple[int, str]:
     return value
 
 
-def _clear_migration_connection_callbacks(connection) -> None:
-    if type(connection) is not sqlite3.Connection:
-        raise GoogleOidcAuthorizationTransactionsMigrationError(
-            "Migration requires an exact standard-library SQLite "
-            "connection."
-        )
-    try:
-        for _unused in range(_CALLBACK_CLEAR_PASSES):
-            sqlite3.Connection.row_factory.__set__(connection, None)
-            sqlite3.Connection.text_factory.__set__(connection, str)
-            sqlite3.Connection.set_trace_callback(connection, None)
-            sqlite3.Connection.set_progress_handler(connection, None, 0)
-            sqlite3.Connection.set_authorizer(connection, None)
-    except BaseException:
-        raise GoogleOidcAuthorizationTransactionsMigrationError(
-            "Migration connection callbacks could not be disabled."
-        ) from None
-
-
 def _stabilize_private_authorizer(
     connection,
     authorizer,
+    *,
+    clear_binary=False,
+    terminal_close=False,
 ) -> None:
+    if (
+        type(connection) is not sqlite3.Connection
+        or type(authorizer) is not _MigrationAuthorizer
+        or type(clear_binary) is not bool
+        or type(terminal_close) is not bool
+        or terminal_close is not clear_binary
+    ):
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration requires exact private callback authorities."
+        )
+    original_sql_length_limit = None
+    sql_execution_suspended = False
     try:
+        # Suspend SQL before the first callback reference is released. A
+        # displaced callback can remove the SQLite authorizer synchronously;
+        # the zero SQL-length limit keeps that interval non-executable until
+        # all caller callbacks are gone and the private authorizer is stable.
+        original_sql_length_limit = sqlite3.Connection.getlimit(
+            connection,
+            sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+        )
+        if (
+            type(original_sql_length_limit) is not int
+            or original_sql_length_limit < 1
+        ):
+            raise sqlite3.DatabaseError(
+                "migration_sql_limit_unavailable"
+            )
+        previous_sql_length_limit = sqlite3.Connection.setlimit(
+            connection,
+            sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+            0,
+        )
+        if (
+            type(previous_sql_length_limit) is not int
+            or previous_sql_length_limit != original_sql_length_limit
+            or sqlite3.Connection.getlimit(
+                connection,
+                sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+            )
+            != 0
+        ):
+            raise sqlite3.DatabaseError(
+                "migration_sql_quiescence_unavailable"
+            )
+        sql_execution_suspended = True
         for _unused in range(_CALLBACK_CLEAR_PASSES):
+            sqlite3.Connection.set_authorizer(connection, authorizer)
             sqlite3.Connection.row_factory.__set__(connection, None)
+            sqlite3.Connection.set_authorizer(connection, authorizer)
             sqlite3.Connection.text_factory.__set__(connection, str)
+            sqlite3.Connection.set_authorizer(connection, authorizer)
             sqlite3.Connection.set_trace_callback(connection, None)
+            sqlite3.Connection.set_authorizer(connection, authorizer)
             sqlite3.Connection.set_progress_handler(connection, None, 0)
             sqlite3.Connection.set_authorizer(connection, authorizer)
+            if clear_binary:
+                sqlite3.Connection.create_collation(
+                    connection,
+                    "BINARY",
+                    None,
+                )
+                sqlite3.Connection.set_authorizer(connection, authorizer)
+        sqlite3.Connection.setlimit(
+            connection,
+            sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+            0,
+        )
+        if (
+            sqlite3.Connection.getlimit(
+                connection,
+                sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+            )
+            != 0
+        ):
+            raise sqlite3.DatabaseError(
+                "migration_sql_quiescence_lost"
+            )
+        if terminal_close:
+            _SQLITE_CLOSE(connection)
+            try:
+                sqlite3.Connection.execute(
+                    connection,
+                    "SELECT 1",
+                )
+            except sqlite3.ProgrammingError:
+                pass
+            else:
+                raise sqlite3.DatabaseError(
+                    "migration_candidate_close_unacknowledged"
+                )
+            sql_execution_suspended = False
+            return
+        restored_previous_limit = sqlite3.Connection.setlimit(
+            connection,
+            sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+            original_sql_length_limit,
+        )
+        if (
+            type(restored_previous_limit) is not int
+            or restored_previous_limit != 0
+            or sqlite3.Connection.getlimit(
+                connection,
+                sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+            )
+            != original_sql_length_limit
+        ):
+            raise sqlite3.DatabaseError(
+                "migration_sql_limit_restore_failed"
+            )
+        sql_execution_suspended = False
     except BaseException:
+        if sql_execution_suspended:
+            try:
+                sqlite3.Connection.setlimit(
+                    connection,
+                    sqlite3.SQLITE_LIMIT_SQL_LENGTH,
+                    0,
+                )
+            except BaseException:
+                pass
+            try:
+                sqlite3.Connection.set_authorizer(connection, authorizer)
+            except BaseException:
+                pass
         raise GoogleOidcAuthorizationTransactionsMigrationError(
             "Migration connection callbacks could not be disabled."
         ) from None
@@ -1475,39 +2113,148 @@ def _require_pristine_function_inventory(connection) -> tuple:
     return target_functions
 
 
+def _validated_main_table_xinfo_scope_rows(rows) -> frozenset[str]:
+    if type(rows) is not list:
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration table-introspection scope is invalid."
+        )
+    if len(rows) > _MAX_SEALED_SCHEMA_OBJECTS:
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration table-introspection scope exceeded its bound."
+        )
+    names = set()
+    for row in rows:
+        if (
+            type(row) is not tuple
+            or len(row) != 1
+            or type(row[0]) is not bytes
+        ):
+            raise GoogleOidcAuthorizationTransactionsMigrationError(
+                "Migration table-introspection scope is invalid."
+            )
+        try:
+            name = row[0].decode("utf-8")
+        except UnicodeDecodeError:
+            raise GoogleOidcAuthorizationTransactionsMigrationError(
+                "Migration table-introspection scope is invalid."
+            ) from None
+        if not name or name.encode("utf-8") != row[0]:
+            raise GoogleOidcAuthorizationTransactionsMigrationError(
+                "Migration table-introspection scope is invalid."
+            )
+        names.add(name)
+    if len(names) != len(rows):
+        raise GoogleOidcAuthorizationTransactionsMigrationError(
+            "Migration table-introspection scope is invalid."
+        )
+    return frozenset(names)
+
+
+def _bounded_main_table_xinfo_scope(
+    connection,
+    authorizer,
+) -> frozenset[str]:
+    progress_calls = 0
+
+    def bounded_progress():
+        nonlocal progress_calls
+        progress_calls += 1
+        return int(
+            progress_calls
+            > _MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS
+        )
+
+    cursor = None
+    rows = None
+    failure = None
+    try:
+        sqlite3.Connection.set_authorizer(connection, authorizer)
+        _SQLITE_SET_PROGRESS_HANDLER(
+            connection,
+            bounded_progress,
+            _TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY,
+        )
+        sqlite3.Connection.set_authorizer(connection, authorizer)
+        cursor = sqlite3.Connection.execute(
+            connection,
+            "SELECT CAST(name AS BLOB) FROM main.sqlite_schema "
+            "WHERE type = CAST('table' AS TEXT) LIMIT 8193",
+        )
+        rows = cursor.fetchmany(_TABLE_XINFO_SCOPE_ROW_LIMIT)
+    except BaseException as caught:
+        failure = caught
+    finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except BaseException as caught:
+                if failure is None:
+                    failure = caught
+        progress_cleared = False
+        last_cleanup_failure = None
+        progress_clear_operation = _SQLITE_SET_PROGRESS_HANDLER
+        progress_clear_arguments = (connection, None, 0)
+        for _unused in range(_CALLBACK_CLEAR_PASSES):
+            try:
+                sqlite3.Connection.set_authorizer(
+                    connection,
+                    authorizer,
+                )
+                progress_clear_operation(*progress_clear_arguments)
+                progress_cleared = True
+                sqlite3.Connection.set_authorizer(
+                    connection,
+                    authorizer,
+                )
+            except BaseException as caught:
+                last_cleanup_failure = caught
+                continue
+            break
+        if not progress_cleared:
+            cleanup_failure = (
+                last_cleanup_failure
+                if last_cleanup_failure is not None
+                else sqlite3.DatabaseError(
+                    "private_table_scope_cleanup_failed"
+                )
+            )
+            if failure is None:
+                failure = cleanup_failure
+            else:
+                try:
+                    failure.add_note(
+                        "Private table-scope cleanup did not complete."
+                    )
+                except BaseException:
+                    pass
+            try:
+                _SQLITE_CLOSE(connection)
+            except BaseException:
+                try:
+                    failure.add_note(
+                        "Private table-scope connection close did not "
+                        "complete."
+                    )
+                except BaseException:
+                    pass
+    if failure is not None:
+        raise failure
+    return _validated_main_table_xinfo_scope_rows(rows)
+
+
 def _seal_migration_connection(
     connection,
     *,
     final=False,
 ) -> _MigrationAuthorizer:
-    _clear_migration_connection_callbacks(connection)
-
-    bootstrap_authorizer = _MigrationAuthorizer(())
+    bootstrap_authorizer = _MigrationAuthorizer((), ())
     try:
         _stabilize_private_authorizer(connection, bootstrap_authorizer)
-        try:
-            sqlite3.Connection.create_collation(
-                connection,
-                "BINARY",
-                None,
-            )
-        except BaseException:
-            raise GoogleOidcAuthorizationTransactionsMigrationError(
-                "Migration connection binary collation could not be "
-                "restored."
-            ) from None
-        # Releasing the caller's BINARY callback can execute arbitrary object
-        # finalizers. Clear everything those finalizers may have reinstalled
-        # before issuing any more SQL. This runs on every seal so a hostile
-        # BINARY callback cannot execute even during preliminary
-        # classification before BEGIN IMMEDIATE.
-        _clear_migration_connection_callbacks(connection)
-        _stabilize_private_authorizer(
+        target_functions = _require_pristine_function_inventory(connection)
+        main_table_xinfo_scope = _bounded_main_table_xinfo_scope(
             connection,
             bootstrap_authorizer,
         )
-
-        target_functions = _require_pristine_function_inventory(connection)
     except BaseException:
         _remove_private_migration_authorizer(connection)
         raise
@@ -1517,7 +2264,10 @@ def _seal_migration_connection(
         for row in target_functions
         if len(row) >= 1 and type(row[0]) is str
     }
-    authorizer = _MigrationAuthorizer(safe_functions)
+    authorizer = _MigrationAuthorizer(
+        safe_functions,
+        main_table_xinfo_scope,
+    )
     try:
         # This is the last callback-releasing sequence before verification
         # SQL. It is intentionally multi-pass: a displaced callback's

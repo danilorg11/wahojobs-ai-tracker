@@ -162,8 +162,13 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         )
         self.assertEqual(get_status, 200)
         self.assertIn(b"No persistent profile yet", get_body)
+        self.assertIn(b"href='/logout'", get_body)
         self.assertEqual(get_headers["Content-Type"], "text/html; charset=utf-8")
         self.assertEqual(get_headers["Cache-Control"], "no-store")
+        self.assertIn(
+            "form-action 'self'",
+            get_headers["Content-Security-Policy"],
+        )
 
         head_status, head_headers, head_body = self.request(
             "HEAD", "/account/profile", integration=integration
@@ -216,6 +221,15 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             self.assertEqual(status, 503)
             self.assertNotIn(marker.encode(), body)
             self.assertNotIn(marker, repr(headers))
+
+    def test_authentication_page_links_to_login_without_identity_or_redirect_input(self):
+        result = PersistentProfilePageResult("authentication_required")
+        page, status = render_persistent_profile_page(result)
+        self.assertEqual(int(status), 401)
+        self.assertIn("href='/login'", page)
+        self.assertIn("Continue to sign in", page)
+        self.assertNotIn("return_to", page)
+        self.assertNotIn("Sign-in integration is not available", page)
 
     def test_trusted_gateway_can_consume_request_credentials_without_request_selected_identity(self):
         token = "trusted-test-session-token"

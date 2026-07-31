@@ -114,7 +114,9 @@ def durable_transaction_database(*, suffix="durable-oidc"):
         path = Path(directory) / f"{suffix}.sqlite"
         connection = install_canonical_v2_profiles(path)
         migration_006.apply_google_oidc_authorization_transactions_migration(
-            connection
+            connection,
+            requested_path=path,
+            expected_identity=migration_006.database_file_identity(path),
         )
         connection.row_factory = sqlite3.Row
         connection.text_factory = str

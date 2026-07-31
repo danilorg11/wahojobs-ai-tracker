@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import sys
 import threading
+import types
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -63,6 +64,10 @@ LOCAL_PRODUCT_PROFILE_SEED_PATH = (
 FIND_MATCHES_PATHS = {"/find-matches", "/preview"}
 TRACKER_PATHS = {"/", "/tracker"}
 HEAVY_DASHBOARD_PATHS = {"/dashboard", "/market-dashboard"}
+_HTTP_METHOD_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_BROWSER_HEADER_VALUE_FORBIDDEN = re.compile(
+    r"[\x00-\x08\x0a-\x1f\x7f]"
+)
 
 PREVIEW_SAMPLES = {
     "beginner_bilingual": {
@@ -350,10 +355,254 @@ def parse_args():
     return parser.parse_args()
 
 
+_BROWSER_DEPENDENCY_FAILED = object()
+_BROWSER_DEPENDENCY_SANITIZE_FAILED = object()
+_BROWSER_CONTROL_FLOW = (KeyboardInterrupt, SystemExit, GeneratorExit)
+_BROWSER_EXCEPTION_CORE_FIELDS = frozenset(
+    {
+        "__cause__",
+        "__class__",
+        "__context__",
+        "__dict__",
+        "__notes__",
+        "__suppress_context__",
+        "__traceback__",
+        "__weakref__",
+        "args",
+    }
+)
+
+
+def _detach_browser_handler_exception(exc):
+    pending = [exc]
+    observed = set()
+    sanitized = True
+    while pending:
+        current = pending.pop()
+        if not isinstance(current, BaseException) or id(current) in observed:
+            continue
+        observed.add(id(current))
+
+        for link_name in ("__cause__", "__context__"):
+            try:
+                linked = object.__getattribute__(current, link_name)
+            except BaseException:
+                sanitized = False
+                continue
+            if isinstance(linked, BaseException):
+                pending.append(linked)
+
+        exception_type = type(current)
+        slot_descriptors = []
+        try:
+            exception_mro = type.__getattribute__(
+                exception_type,
+                "__mro__",
+            )
+        except BaseException:
+            exception_mro = ()
+            sanitized = False
+        for current_type in exception_mro:
+            try:
+                type_namespace = type.__getattribute__(
+                    current_type,
+                    "__dict__",
+                )
+            except BaseException:
+                sanitized = False
+                continue
+            for slot_name, descriptor in type_namespace.items():
+                if (
+                    slot_name in _BROWSER_EXCEPTION_CORE_FIELDS
+                    or not isinstance(
+                        descriptor,
+                        (
+                            types.MemberDescriptorType,
+                            types.GetSetDescriptorType,
+                        ),
+                    )
+                ):
+                    continue
+                slot_descriptors.append((slot_name, descriptor))
+
+        slot_values = []
+        for slot_name, descriptor in slot_descriptors:
+            try:
+                slot_value = descriptor.__get__(current, exception_type)
+            except (AttributeError, TypeError):
+                continue
+            except BaseException:
+                sanitized = False
+                continue
+            if isinstance(slot_value, BaseException):
+                pending.append(slot_value)
+            slot_values.append((slot_name, descriptor, slot_value))
+        slot_values.sort(key=lambda row: row[0] == "object")
+
+        for slot_name, descriptor, slot_value in slot_values:
+            try:
+                descriptor.__set__(current, None)
+            except BaseException:
+                if (
+                    slot_value is not None
+                    and type(slot_value) not in (bool, float, int)
+                ):
+                    sanitized = False
+        slot_values = None
+
+        try:
+            payload = object.__getattribute__(current, "__dict__")
+        except AttributeError:
+            payload = None
+        except BaseException:
+            payload = None
+            sanitized = False
+        if type(payload) is dict:
+            for payload_value in tuple(payload.values()):
+                if isinstance(payload_value, BaseException):
+                    pending.append(payload_value)
+            try:
+                payload.clear()
+            except BaseException:
+                sanitized = False
+        payload = None
+        payload_value = None
+
+        for field_name, replacement in (
+            ("__traceback__", None),
+            ("__cause__", None),
+            ("__context__", None),
+            ("__suppress_context__", True),
+            ("args", ()),
+        ):
+            try:
+                BaseException.__dict__[field_name].__set__(
+                    current,
+                    replacement,
+                )
+            except BaseException:
+                sanitized = False
+
+        for field_name, expected in (
+            ("__traceback__", None),
+            ("__cause__", None),
+            ("__context__", None),
+            ("__suppress_context__", True),
+            ("args", ()),
+        ):
+            try:
+                if (
+                    BaseException.__dict__[field_name].__get__(current)
+                    != expected
+                ):
+                    sanitized = False
+            except BaseException:
+                sanitized = False
+        try:
+            notes = object.__getattribute__(current, "__notes__")
+        except AttributeError:
+            notes = None
+        except BaseException:
+            notes = None
+            sanitized = False
+        if notes not in (None, (), []):
+            sanitized = False
+        notes = None
+        current = None
+    exc = None
+    return sanitized
+
+
+def _finish_browser_dependency_failure(failure):
+    sanitized = _detach_browser_handler_exception(failure)
+    failure = None
+    if sanitized:
+        return _BROWSER_DEPENDENCY_FAILED
+    return _BROWSER_DEPENDENCY_SANITIZE_FAILED
+
+
+def _raise_browser_dependency_control(control):
+    _detach_browser_handler_exception(control)
+    propagated = control
+    control = None
+    raise propagated from None
+
+
+def _match_durable_browser_route_worker(integration, path):
+    outcome = _BROWSER_DEPENDENCY_FAILED
+    failure = None
+    control = None
+    try:
+        outcome = integration.matches_route(path)
+    except _BROWSER_CONTROL_FLOW as exc:
+        control = exc
+    except Exception as exc:
+        failure = exc
+    finally:
+        integration = None
+        path = None
+    if failure is not None:
+        return _finish_browser_dependency_failure(failure)
+    if control is not None:
+        _raise_browser_dependency_control(control)
+    return outcome
+
+
+def _handle_durable_browser_request_worker(
+    integration,
+    method,
+    target,
+    headers,
+    body_stream,
+):
+    outcome = _BROWSER_DEPENDENCY_FAILED
+    failure = None
+    control = None
+    try:
+        outcome = integration.handle(method, target, headers, body_stream)
+    except _BROWSER_CONTROL_FLOW as exc:
+        control = exc
+    except Exception as exc:
+        failure = exc
+    finally:
+        integration = None
+        method = None
+        target = None
+        headers = None
+        body_stream = None
+    if failure is not None:
+        return _finish_browser_dependency_failure(failure)
+    if control is not None:
+        _raise_browser_dependency_control(control)
+    return outcome
+
+
+def _validate_durable_browser_response_worker(validate, response):
+    outcome = True
+    failure = None
+    control = None
+    try:
+        validate(response)
+    except _BROWSER_CONTROL_FLOW as exc:
+        control = exc
+    except Exception as exc:
+        failure = exc
+    finally:
+        validate = None
+        response = None
+    if failure is not None:
+        return _finish_browser_dependency_failure(failure)
+    if control is not None:
+        _raise_browser_dependency_control(control)
+    return outcome
+
+
 def make_handler(
     registry=None,
     demo_mode=False,
     persistent_profile_browser_integration=None,
+    durable_google_login_browser_integration=None,
+    exclusive_browser_integration=False,
 ):
     registry = registry if registry is not None else MatchRunRegistry()
     profile_browser_integration = persistent_profile_browser_integration
@@ -362,13 +611,48 @@ def make_handler(
         for name in ("matches_route", "handle")
     ):
         raise ValueError("invalid_profile_browser_integration")
+    login_browser_integration = durable_google_login_browser_integration
+    if login_browser_integration is not None and not all(
+        callable(getattr(login_browser_integration, name, None))
+        for name in ("matches_route", "handle")
+    ):
+        raise ValueError("invalid_durable_google_login_browser_integration")
+    if type(exclusive_browser_integration) is not bool or (
+        exclusive_browser_integration and login_browser_integration is None
+    ):
+        raise ValueError("invalid_exclusive_browser_integration")
 
     class ProductAppHandler(BaseHTTPRequestHandler):
         match_run_registry = registry
         is_demo_mode = demo_mode
+        _durable_google_login_browser_integration = login_browser_integration
+
+        def __getattr__(self, name):
+            if type(name) is str and name.startswith("do_"):
+                method = name[3:]
+                if _HTTP_METHOD_TOKEN.fullmatch(method) is not None:
+                    return lambda: self.dispatch_extension_method(method)
+            raise AttributeError(name)
+
+        def dispatch_extension_method(self, method):
+            path = urlparse(self.path).path
+            if self.dispatch_durable_google_login_browser_integration(method, path):
+                return
+            if self.reject_exclusive_browser_fallthrough(method):
+                return
+            if self.dispatch_profile_browser_integration(method, path):
+                return
+            self.send_error(
+                HTTPStatus.NOT_IMPLEMENTED,
+                f"Unsupported method ({method!r})",
+            )
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            if self.dispatch_durable_google_login_browser_integration("GET", parsed.path):
+                return
+            if self.reject_exclusive_browser_fallthrough("GET"):
+                return
             if self.dispatch_profile_browser_integration("GET", parsed.path):
                 return
             if parsed.path == "/health":
@@ -455,12 +739,20 @@ def make_handler(
 
         def do_HEAD(self):
             parsed = urlparse(self.path)
+            if self.dispatch_durable_google_login_browser_integration("HEAD", parsed.path):
+                return
+            if self.reject_exclusive_browser_fallthrough("HEAD"):
+                return
             if self.dispatch_profile_browser_integration("HEAD", parsed.path):
                 return
             self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('HEAD')")
 
         def do_POST(self):
             parsed = urlparse(self.path)
+            if self.dispatch_durable_google_login_browser_integration("POST", parsed.path):
+                return
+            if self.reject_exclusive_browser_fallthrough("POST"):
+                return
             if self.dispatch_profile_browser_integration("POST", parsed.path):
                 return
             if parsed.path in FIND_MATCHES_PATHS:
@@ -523,19 +815,176 @@ def make_handler(
                 )
 
         def do_PUT(self):
+            if self.dispatch_durable_google_login_browser_integration(
+                "PUT", urlparse(self.path).path
+            ):
+                return
+            if self.reject_exclusive_browser_fallthrough("PUT"):
+                return
             if self.dispatch_profile_browser_integration("PUT", urlparse(self.path).path):
                 return
             self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('PUT')")
 
         def do_PATCH(self):
+            if self.dispatch_durable_google_login_browser_integration(
+                "PATCH", urlparse(self.path).path
+            ):
+                return
+            if self.reject_exclusive_browser_fallthrough("PATCH"):
+                return
             if self.dispatch_profile_browser_integration("PATCH", urlparse(self.path).path):
                 return
             self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('PATCH')")
 
         def do_DELETE(self):
+            if self.dispatch_durable_google_login_browser_integration(
+                "DELETE", urlparse(self.path).path
+            ):
+                return
+            if self.reject_exclusive_browser_fallthrough("DELETE"):
+                return
             if self.dispatch_profile_browser_integration("DELETE", urlparse(self.path).path):
                 return
             self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('DELETE')")
+
+        def do_OPTIONS(self):
+            path = urlparse(self.path).path
+            if self.dispatch_durable_google_login_browser_integration("OPTIONS", path):
+                return
+            if self.reject_exclusive_browser_fallthrough("OPTIONS"):
+                return
+            if self.dispatch_profile_browser_integration("OPTIONS", path):
+                return
+            self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('OPTIONS')")
+
+        def do_TRACE(self):
+            path = urlparse(self.path).path
+            if self.dispatch_durable_google_login_browser_integration("TRACE", path):
+                return
+            if self.reject_exclusive_browser_fallthrough("TRACE"):
+                return
+            if self.dispatch_profile_browser_integration("TRACE", path):
+                return
+            self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('TRACE')")
+
+        def dispatch_durable_google_login_browser_integration(
+            self,
+            method,
+            path,
+            *,
+            force=False,
+        ):
+            integration = type(
+                self
+            )._durable_google_login_browser_integration
+            if integration is None:
+                return False
+            response = None
+            matches = None
+            validation = None
+            try:
+                if not force:
+                    matches = _match_durable_browser_route_worker(
+                        integration,
+                        path,
+                    )
+                    if matches is _BROWSER_DEPENDENCY_SANITIZE_FAILED:
+                        self.sanitize_browser_control_flow_request()
+                        return True
+                    if matches is _BROWSER_DEPENDENCY_FAILED:
+                        self.clear_pending_browser_headers()
+                        self.write_safe_browser_error(
+                            "The account page could not be loaded safely.",
+                            status=HTTPStatus.SERVICE_UNAVAILABLE,
+                        )
+                        return True
+                    if matches is not True:
+                        return False
+                response = _handle_durable_browser_request_worker(
+                    integration,
+                    method,
+                    self.path,
+                    self.headers,
+                    self.rfile,
+                )
+                if response is _BROWSER_DEPENDENCY_SANITIZE_FAILED:
+                    response = None
+                    self.clear_pending_browser_headers()
+                    self.sanitize_browser_control_flow_request()
+                    return True
+                if response is _BROWSER_DEPENDENCY_FAILED:
+                    response = None
+                    self.clear_pending_browser_headers()
+                    self.write_safe_browser_error(
+                        "The account page could not be loaded safely.",
+                        status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return True
+                validation = _validate_durable_browser_response_worker(
+                    self.validate_profile_browser_response,
+                    response,
+                )
+                if validation in (
+                    _BROWSER_DEPENDENCY_FAILED,
+                    _BROWSER_DEPENDENCY_SANITIZE_FAILED,
+                ):
+                    cleanup_sanitized = self.fail_browser_response_delivery(
+                        response
+                    )
+                    self.clear_pending_browser_headers()
+                    response = None
+                    if (
+                        validation is _BROWSER_DEPENDENCY_SANITIZE_FAILED
+                        or not cleanup_sanitized
+                    ):
+                        self.sanitize_browser_control_flow_request()
+                        integration = None
+                        return True
+                    self.write_safe_browser_error(
+                        "The account page could not be loaded safely.",
+                        status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return True
+            except _BROWSER_CONTROL_FLOW as exc:
+                self.fail_browser_response_delivery(response)
+                self.clear_pending_browser_headers()
+                response = None
+                matches = None
+                validation = None
+                propagated = exc
+                exc = None
+                self.sanitize_browser_control_flow_request()
+                method = None
+                path = None
+                force = None
+                integration = None
+                self = None
+                _detach_browser_handler_exception(propagated)
+                raise propagated from None
+            try:
+                self.write_profile_browser_response(response, head=method == "HEAD")
+            except _BROWSER_CONTROL_FLOW as exc:
+                response = None
+                propagated = exc
+                exc = None
+                self.sanitize_browser_control_flow_request()
+                method = None
+                path = None
+                force = None
+                integration = None
+                self = None
+                _detach_browser_handler_exception(propagated)
+                raise propagated from None
+            return True
+
+        def reject_exclusive_browser_fallthrough(self, method):
+            if not exclusive_browser_integration:
+                return False
+            return self.dispatch_durable_google_login_browser_integration(
+                method,
+                urlparse(self.path).path,
+                force=True,
+            )
 
         def dispatch_profile_browser_integration(self, method, path):
             if profile_browser_integration is None:
@@ -586,27 +1035,242 @@ def make_handler(
                 or type(headers) is not tuple
             ):
                 raise ValueError("invalid_profile_browser_response")
+            header_bytes = 0
             for header in headers:
                 if (
                     type(header) is not tuple
                     or len(header) != 2
-                    or any(
-                        type(value) is not str or "\r" in value or "\n" in value
-                        for value in header
-                    )
                 ):
                     raise ValueError("invalid_profile_browser_response")
+                name, value = header
+                if (
+                    type(name) is not str
+                    or _HTTP_METHOD_TOKEN.fullmatch(name) is None
+                    or type(value) is not str
+                    or _BROWSER_HEADER_VALUE_FORBIDDEN.search(value)
+                    is not None
+                ):
+                    raise ValueError("invalid_profile_browser_response")
+                try:
+                    header_bytes += len(name.encode("ascii"))
+                    header_bytes += len(value.encode("latin-1"))
+                except UnicodeError:
+                    raise ValueError(
+                        "invalid_profile_browser_response"
+                    ) from None
+            if header_bytes > 16_384:
+                raise ValueError("invalid_profile_browser_response")
+            acknowledge = getattr(response, "acknowledge_delivery", None)
+            fail = getattr(response, "fail_delivery", None)
+            if (acknowledge is None) != (fail is None) or (
+                acknowledge is not None
+                and (not callable(acknowledge) or not callable(fail))
+            ):
+                raise ValueError("invalid_profile_browser_response")
 
         def write_profile_browser_response(self, response, *, head=False):
-            self.send_response(response.status)
-            for name, value in response.headers:
-                self.send_header(name, value)
-            self.end_headers()
-            if not head:
+            delivery_aware = False
+            name = None
+            value = None
+            acknowledge = None
+            fail = None
+            try:
+                acknowledge = getattr(
+                    response,
+                    "acknowledge_delivery",
+                    None,
+                )
+                fail = getattr(response, "fail_delivery", None)
+                delivery_aware = callable(acknowledge) and callable(fail)
+            except BaseException as exc:
+                cleanup_sanitized = self.fail_browser_response_delivery(
+                    response
+                )
+                self.clear_pending_browser_headers()
+                response = None
+                acknowledge = None
+                fail = None
+                if isinstance(exc, _BROWSER_CONTROL_FLOW):
+                    propagated = exc
+                    exc = None
+                    self.sanitize_browser_control_flow_request()
+                    _detach_browser_handler_exception(propagated)
+                    raise propagated from None
+                sanitized = _detach_browser_handler_exception(exc)
+                exc = None
+                if not sanitized or not cleanup_sanitized:
+                    self.sanitize_browser_control_flow_request()
+                return
+            acknowledge = None
+            fail = None
+            try:
+                self.send_response(response.status)
+                for name, value in response.headers:
+                    self.send_header(name, value)
+                self.end_headers()
+            except BaseException as exc:
+                cleanup_sanitized = True
+                if delivery_aware:
+                    cleanup_sanitized = self.fail_browser_response_delivery(
+                        response
+                    )
+                self.clear_pending_browser_headers()
+                response = None
+                name = None
+                value = None
+                if isinstance(exc, _BROWSER_CONTROL_FLOW):
+                    propagated = exc
+                    exc = None
+                    self.sanitize_browser_control_flow_request()
+                    _detach_browser_handler_exception(propagated)
+                    raise propagated from None
+                sanitized = _detach_browser_handler_exception(exc)
+                exc = None
+                if not sanitized or not cleanup_sanitized:
+                    self.sanitize_browser_control_flow_request()
+                return
+            name = None
+            value = None
+            if delivery_aware:
                 try:
-                    self.wfile.write(response.body)
-                except OSError:
+                    response.acknowledge_delivery()
+                except BaseException as exc:
+                    response = None
+                    if isinstance(exc, _BROWSER_CONTROL_FLOW):
+                        propagated = exc
+                        exc = None
+                        self.sanitize_browser_control_flow_request()
+                        _detach_browser_handler_exception(propagated)
+                        raise propagated from None
+                    sanitized = _detach_browser_handler_exception(exc)
+                    exc = None
+                    if not sanitized:
+                        self.sanitize_browser_control_flow_request()
                     return
+            if not head:
+                payload = None
+                body_loaded = False
+                try:
+                    payload = response.body
+                    body_loaded = True
+                    response = None
+                    self.wfile.write(payload)
+                except BaseException as exc:
+                    response = None
+                    payload = None
+                    if isinstance(exc, _BROWSER_CONTROL_FLOW):
+                        propagated = exc
+                        exc = None
+                        self.sanitize_browser_control_flow_request()
+                        _detach_browser_handler_exception(propagated)
+                        raise propagated from None
+                    if not body_loaded or isinstance(exc, OSError):
+                        sanitized = _detach_browser_handler_exception(exc)
+                        exc = None
+                        if not sanitized:
+                            self.sanitize_browser_control_flow_request()
+                        return
+                    propagated = exc
+                    exc = None
+                    self.sanitize_browser_control_flow_request()
+                    _detach_browser_handler_exception(propagated)
+                    raise propagated from None
+                payload = None
+
+        @staticmethod
+        def fail_browser_response_delivery(response):
+            fail = None
+            sanitized = True
+            try:
+                fail = getattr(response, "fail_delivery", None)
+                if callable(fail):
+                    fail()
+            except BaseException as exc:
+                sanitized = _detach_browser_handler_exception(exc)
+                exc = None
+            finally:
+                response = None
+                fail = None
+            return sanitized
+
+        def clear_pending_browser_headers(self):
+            pending = getattr(self, "_headers_buffer", None)
+            if type(pending) is list:
+                try:
+                    pending.clear()
+                except BaseException as exc:
+                    _detach_browser_handler_exception(exc)
+                    exc = None
+            pending = None
+
+        def sanitize_browser_control_flow_request(self):
+            self.clear_pending_browser_headers()
+            for name, value in (
+                ("headers", ()),
+                ("path", ""),
+                ("requestline", ""),
+                ("raw_requestline", b""),
+                ("command", ""),
+            ):
+                try:
+                    setattr(self, name, value)
+                except BaseException as exc:
+                    _detach_browser_handler_exception(exc)
+                    exc = None
+            reader = getattr(self, "rfile", None)
+            close = getattr(reader, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except BaseException as exc:
+                    _detach_browser_handler_exception(exc)
+                    exc = None
+            try:
+                self.rfile = None
+            except BaseException as exc:
+                _detach_browser_handler_exception(exc)
+                exc = None
+            reader = None
+            close = None
+            try:
+                self.close_connection = True
+            except BaseException as exc:
+                _detach_browser_handler_exception(exc)
+                exc = None
+
+        def write_safe_browser_error(self, message, *, status):
+            self.clear_pending_browser_headers()
+            payload = render_error(message).encode("utf-8")
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header(
+                    "Content-Security-Policy",
+                    "default-src 'none'; style-src 'unsafe-inline'; "
+                    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+                )
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(payload)
+            except _BROWSER_CONTROL_FLOW as exc:
+                payload = None
+                self.clear_pending_browser_headers()
+                propagated = exc
+                exc = None
+                self.sanitize_browser_control_flow_request()
+                _detach_browser_handler_exception(propagated)
+                raise propagated from None
+            except Exception as exc:
+                payload = None
+                self.clear_pending_browser_headers()
+                sanitized = _detach_browser_handler_exception(exc)
+                exc = None
+                if not sanitized:
+                    self.sanitize_browser_control_flow_request()
+                return
 
         def read_form(self, *, keep_blank_values=False):
             length = int(self.headers.get("Content-Length", "0"))

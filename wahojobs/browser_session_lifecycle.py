@@ -57,8 +57,8 @@ _SERVICE_ACCESS_CAPABILITY = object()
 _RESULT_ISSUANCE_CAPABILITY = object()
 _RESPONSE_COMPOSITION_CAPABILITY = object()
 _REQUEST_SECRET_VAULT_CAPABILITY = object()
+_RESPONSE_DELIVERY_LEASE_CAPABILITY = object()
 _ISSUED_COMMANDS = weakref.WeakSet()
-_ISSUED_RESULTS = weakref.WeakSet()
 _SAVEPOINT_SEQUENCE = itertools.count(1)
 
 _ERROR_MESSAGES = {
@@ -231,6 +231,7 @@ class _RequestVaultEntry:
         "creation_idempotency_key",
         "predecessor_session_id",
         "binding_nonce",
+        "delivery_pending",
     )
 
     def __init__(
@@ -265,6 +266,7 @@ class _RequestVaultEntry:
         self.creation_idempotency_key = creation_idempotency_key
         self.predecessor_session_id = predecessor_session_id
         self.binding_nonce = binding_nonce
+        self.delivery_pending = False
 
     def clear(self):
         _clear_secret_buffer(self.token_buffer)
@@ -436,7 +438,97 @@ class RequestScopedSessionSecretVault:
                 "predecessor_session_id": entry.predecessor_session_id,
                 "effective_expires_at": entry.effective_expires_at,
                 "binding_nonce": entry.binding_nonce,
+                "delivery_pending": entry.delivery_pending,
             }
+
+    def _prepare_delivery(
+        self,
+        capability,
+        *,
+        handle,
+        expected_binding_nonce,
+        expected_effective_expires_at,
+        response_now,
+        failure_injector=None,
+    ):
+        self._require_service_access(capability)
+        entry = None
+        with self._lock:
+            if self._closed:
+                return ("error", "internal_consistency_failure")
+            entry = self._entries.get(handle)
+            if (
+                entry is None
+                or not entry.ready
+                or entry.delivery_pending
+                or not hmac.compare_digest(
+                    entry.binding_nonce,
+                    expected_binding_nonce,
+                )
+                or entry.effective_expires_at != expected_effective_expires_at
+            ):
+                return ("error", "internal_consistency_failure")
+            entry.delivery_pending = True
+        token = None
+        csrf = None
+        header = None
+        try:
+            remaining_seconds = int(
+                (entry.effective_expires_at - response_now).total_seconds()
+            )
+            if remaining_seconds <= 0:
+                return ("error", "session_state_conflict")
+            token = _credential_text(entry.token_buffer)
+            csrf = _credential_text(entry.csrf_buffer)
+            _inject(failure_injector, "during_delivery_cookie_formatting")
+            header = (
+                f"{SESSION_COOKIE_NAME}={token}; Path=/; "
+                f"Max-Age={remaining_seconds}; "
+                f"Expires={format_datetime(entry.effective_expires_at, usegmt=True)}; "
+                "Secure; HttpOnly; SameSite=Lax"
+            )
+            if "\r" in header or "\n" in header:
+                return ("error", "internal_consistency_failure")
+            _inject(failure_injector, "before_delivery_lease_return")
+            return ("ok", header, csrf)
+        except BaseException:
+            return ("error", "internal_consistency_failure")
+        finally:
+            cleared = _clear_vault_entry(entry)
+            token = None
+            csrf = None
+            header = None
+            if not cleared:
+                raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+    def _acknowledge_delivery(
+        self,
+        capability,
+        *,
+        handle,
+        expected_binding_nonce,
+    ):
+        self._require_service_access(capability)
+        entry = None
+        with self._lock:
+            entry = self._entries.get(handle)
+            if (
+                self._closed
+                or entry is None
+                or not entry.ready
+                or not entry.delivery_pending
+                or not hmac.compare_digest(
+                    entry.binding_nonce,
+                    expected_binding_nonce,
+                )
+            ):
+                raise BrowserSessionLifecycleError(
+                    "internal_consistency_failure"
+                )
+            self._entries.pop(handle)
+            object.__setattr__(self, "_secret_bytes", self._secret_bytes - 64)
+        if not _clear_vault_entry(entry):
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
 
     def _mark_ready(self, capability, handle):
         self._require_service_access(capability)
@@ -465,7 +557,7 @@ class RequestScopedSessionSecretVault:
             entry = self._entries.get(handle)
             if entry is None:
                 return ("error", "internal_consistency_failure", True)
-            if not entry.ready:
+            if not entry.ready or entry.delivery_pending:
                 return ("error", "internal_consistency_failure", True)
             if not hmac.compare_digest(entry.binding_nonce, expected_binding_nonce):
                 self._entries.pop(handle)
@@ -664,6 +756,195 @@ class ConsumedSessionResponse:
         raise TypeError("consumed_session_response_not_copyable")
 
 
+class SessionDeliveryLease:
+    """Sealed one-shot lease for browser-session response delivery."""
+
+    __slots__ = (
+        "_connection",
+        "_issued_session",
+        "_secret_vault",
+        "_trusted_now",
+        "_set_cookie_header",
+        "_csrf_credential",
+        "_status",
+        "_lock",
+        "_seal",
+    )
+
+    def __new__(cls, *_args, **_kwargs):
+        raise TypeError("session_delivery_lease_not_constructible")
+
+    @classmethod
+    def _issue(
+        cls,
+        capability,
+        *,
+        connection,
+        issued_session,
+        secret_vault,
+        trusted_now,
+        set_cookie_header,
+        csrf_credential,
+    ):
+        if (
+            cls is not SessionDeliveryLease
+            or capability is not _RESPONSE_DELIVERY_LEASE_CAPABILITY
+            or type(connection) is not sqlite3.Connection
+            or connection.in_transaction
+            or type(issued_session) is not IssuedBrowserSession
+            or not issued_session._is_sealed()
+            or issued_session.status != "delivery_pending"
+            or type(secret_vault) is not RequestScopedSessionSecretVault
+            or type(set_cookie_header) is not str
+            or "\r" in set_cookie_header
+            or "\n" in set_cookie_header
+            or type(csrf_credential) is not str
+            or _OPAQUE_CREDENTIAL.fullmatch(csrf_credential) is None
+        ):
+            raise TypeError("session_delivery_lease_not_constructible")
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_connection", connection)
+        object.__setattr__(instance, "_issued_session", issued_session)
+        object.__setattr__(instance, "_secret_vault", secret_vault)
+        object.__setattr__(instance, "_trusted_now", _trusted_time(trusted_now))
+        object.__setattr__(instance, "_set_cookie_header", set_cookie_header)
+        object.__setattr__(instance, "_csrf_credential", csrf_credential)
+        object.__setattr__(instance, "_status", "prepared")
+        object.__setattr__(instance, "_lock", threading.Lock())
+        object.__setattr__(instance, "_seal", _RESPONSE_DELIVERY_LEASE_CAPABILITY)
+        return instance
+
+    @property
+    def status(self):
+        self._require_sealed()
+        with self._lock:
+            status = self._status
+        return (
+            "prepared"
+            if status == "prepared"
+            else "acknowledged"
+            if status == "acknowledging"
+            else "failed"
+            if status == "failing"
+            else status
+        )
+
+    @property
+    def set_cookie_header(self):
+        return self._credential_value("_set_cookie_header")
+
+    @property
+    def csrf_credential(self):
+        return self._credential_value("_csrf_credential")
+
+    def acknowledge_delivery(self):
+        return _sanitized_call(lambda: _acknowledge_session_delivery(self))
+
+    def fail_delivery(self):
+        return _sanitized_call(lambda: _fail_session_delivery(self))
+
+    def _credential_value(self, name):
+        self._require_sealed()
+        with self._lock:
+            if self._status != "prepared":
+                raise BrowserSessionLifecycleError("already_completed")
+            value = getattr(self, name)
+        if type(value) is not str:
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        return value
+
+    def _require_sealed(self):
+        if (
+            type(self) is not SessionDeliveryLease
+            or getattr(self, "_seal", None)
+            is not _RESPONSE_DELIVERY_LEASE_CAPABILITY
+        ):
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+    def _erase(self, capability, terminal_status):
+        if (
+            capability is not _RESPONSE_DELIVERY_LEASE_CAPABILITY
+            or terminal_status not in {"acknowledged", "failed"}
+        ):
+            raise BrowserSessionLifecycleError(
+                "internal_consistency_failure"
+            )
+        object.__setattr__(self, "_connection", None)
+        object.__setattr__(self, "_issued_session", None)
+        object.__setattr__(self, "_secret_vault", None)
+        object.__setattr__(self, "_trusted_now", None)
+        object.__setattr__(self, "_set_cookie_header", None)
+        object.__setattr__(self, "_csrf_credential", None)
+        object.__setattr__(self, "_status", terminal_status)
+
+    def __setattr__(self, _name, _value):
+        raise AttributeError("session_delivery_lease_is_immutable")
+
+    def __repr__(self):
+        try:
+            status = self.status
+        except BaseException:
+            status = "invalid"
+        return (
+            f"SessionDeliveryLease(status={status!r}, "
+            "credentials=<redacted>)"
+        )
+
+    __str__ = __repr__
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("session_delivery_lease_not_serializable")
+
+    def __copy__(self):
+        raise TypeError("session_delivery_lease_not_copyable")
+
+    def __deepcopy__(self, _memo):
+        raise TypeError("session_delivery_lease_not_copyable")
+
+    def __init_subclass__(cls, **_kwargs):
+        raise TypeError("session_delivery_lease_not_subclassable")
+
+
+class _IssuedResultSeal:
+    """Immutable owner-bound proof for one locally issued result."""
+
+    __slots__ = ("_owner", "_capability")
+
+    def __new__(cls, *_args, **_kwargs):
+        raise TypeError("issued_result_seal_not_constructible")
+
+    @classmethod
+    def _issue(cls, capability, owner):
+        if cls is not _IssuedResultSeal or capability is not _RESULT_ISSUANCE_CAPABILITY:
+            raise TypeError("issued_result_seal_not_constructible")
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_owner", weakref.ref(owner))
+        object.__setattr__(instance, "_capability", capability)
+        return instance
+
+    def _owns(self, owner):
+        return (
+            type(self) is _IssuedResultSeal
+            and self._capability is _RESULT_ISSUANCE_CAPABILITY
+            and self._owner() is owner
+        )
+
+    def __setattr__(self, _name, _value):
+        raise AttributeError("issued_result_seal_is_immutable")
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("issued_result_seal_not_serializable")
+
+    def __copy__(self):
+        raise TypeError("issued_result_seal_not_copyable")
+
+    def __deepcopy__(self, _memo):
+        raise TypeError("issued_result_seal_not_copyable")
+
+    def __init_subclass__(cls, **_kwargs):
+        raise TypeError("issued_result_seal_not_subclassable")
+
+
 class IssuedBrowserSession:
     """Sealed nonsecret result keyed to an independent request-scoped vault."""
 
@@ -675,6 +956,7 @@ class IssuedBrowserSession:
         "_issuance_handle",
         "_issuance_binding",
         "_consumption_lock",
+        "_seal",
         "__weakref__",
     )
 
@@ -713,23 +995,31 @@ class IssuedBrowserSession:
         object.__setattr__(instance, "_issuance_handle", issuance_handle)
         object.__setattr__(instance, "_issuance_binding", issuance_binding)
         object.__setattr__(instance, "_consumption_lock", threading.Lock())
-        _ISSUED_RESULTS.add(instance)
+        object.__setattr__(
+            instance,
+            "_seal",
+            _IssuedResultSeal._issue(_RESULT_ISSUANCE_CAPABILITY, instance),
+        )
         return instance
 
     @property
     def status(self):
+        self._require_sealed()
         return self._status
 
     @property
     def idle_expires_at(self):
+        self._require_sealed()
         return self._idle_expires_at
 
     @property
     def absolute_expires_at(self):
+        self._require_sealed()
         return self._absolute_expires_at
 
     @property
     def effective_expires_at(self):
+        self._require_sealed()
         return self._effective_expires_at
 
     def consume_for_response(self, vault, capability, *, now, _failure_injector=None):
@@ -742,17 +1032,17 @@ class IssuedBrowserSession:
         )
 
     def _handle_for_service(self, capability):
-        if capability is not _SERVICE_ACCESS_CAPABILITY or self not in _ISSUED_RESULTS:
+        if capability is not _SERVICE_ACCESS_CAPABILITY or not self._is_sealed():
             raise BrowserSessionLifecycleError("internal_consistency_failure")
         return self._issuance_handle
 
     def _binding_for_service(self, capability):
-        if capability is not _SERVICE_ACCESS_CAPABILITY or self not in _ISSUED_RESULTS:
+        if capability is not _SERVICE_ACCESS_CAPABILITY or not self._is_sealed():
             raise BrowserSessionLifecycleError("internal_consistency_failure")
         return self._issuance_binding
 
     def _clear_handle(self, capability):
-        if capability is not _SERVICE_ACCESS_CAPABILITY or self not in _ISSUED_RESULTS:
+        if capability is not _SERVICE_ACCESS_CAPABILITY or not self._is_sealed():
             raise BrowserSessionLifecycleError("internal_consistency_failure")
         object.__setattr__(self, "_issuance_handle", None)
         object.__setattr__(self, "_issuance_binding", None)
@@ -760,7 +1050,7 @@ class IssuedBrowserSession:
     def _mark_issued(self, capability):
         if (
             capability is not _SERVICE_ACCESS_CAPABILITY
-            or self not in _ISSUED_RESULTS
+            or not self._is_sealed()
             or self._status != "pending_commit"
             or self._issuance_handle is None
             or self._issuance_binding is None
@@ -771,8 +1061,32 @@ class IssuedBrowserSession:
     def _mark_consumed(self, capability):
         if (
             capability is not _SERVICE_ACCESS_CAPABILITY
-            or self not in _ISSUED_RESULTS
+            or not self._is_sealed()
             or self._status != "issued"
+            or self._issuance_handle is None
+            or self._issuance_binding is None
+        ):
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        object.__setattr__(self, "_issuance_handle", None)
+        object.__setattr__(self, "_issuance_binding", None)
+        object.__setattr__(self, "_status", "consumed")
+
+    def _mark_delivery_pending(self, capability):
+        if (
+            capability is not _SERVICE_ACCESS_CAPABILITY
+            or not self._is_sealed()
+            or self._status != "issued"
+            or self._issuance_handle is None
+            or self._issuance_binding is None
+        ):
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        object.__setattr__(self, "_status", "delivery_pending")
+
+    def _mark_delivery_acknowledged(self, capability):
+        if (
+            capability is not _SERVICE_ACCESS_CAPABILITY
+            or not self._is_sealed()
+            or self._status != "delivery_pending"
             or self._issuance_handle is None
             or self._issuance_binding is None
         ):
@@ -784,19 +1098,39 @@ class IssuedBrowserSession:
     def _mark_terminal_failed(self, capability):
         if (
             capability is not _SERVICE_ACCESS_CAPABILITY
-            or self not in _ISSUED_RESULTS
-            or self._status not in {"issued", "pending_commit"}
+            or not self._is_sealed()
+            or self._status not in {
+                "issued",
+                "pending_commit",
+                "delivery_pending",
+            }
         ):
             raise BrowserSessionLifecycleError("internal_consistency_failure")
         object.__setattr__(self, "_issuance_handle", None)
         object.__setattr__(self, "_issuance_binding", None)
         object.__setattr__(self, "_status", "terminal_failed")
 
+    def _is_sealed(self):
+        seal = getattr(self, "_seal", None)
+        return (
+            type(self) is IssuedBrowserSession
+            and type(seal) is _IssuedResultSeal
+            and seal._owns(self)
+        )
+
+    def _require_sealed(self):
+        if not self._is_sealed():
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+
     def __setattr__(self, _name, _value):
         raise AttributeError("issued_browser_session_is_immutable")
 
     def __repr__(self):
-        return f"IssuedBrowserSession(status={self._status!r}, credentials=<redacted>)"
+        try:
+            status = self.status
+        except BaseException:
+            status = "invalid"
+        return f"IssuedBrowserSession(status={status!r}, credentials=<redacted>)"
 
     __str__ = __repr__
 
@@ -814,7 +1148,7 @@ class IssuedBrowserSession:
 
 
 class BrowserSessionMutationResult:
-    __slots__ = ("_status", "__weakref__")
+    __slots__ = ("_status", "_seal", "__weakref__")
 
     def __new__(cls, *_args, **_kwargs):
         raise TypeError("browser_session_mutation_result_not_constructible")
@@ -829,18 +1163,33 @@ class BrowserSessionMutationResult:
             raise TypeError("browser_session_mutation_result_not_constructible")
         instance = object.__new__(cls)
         object.__setattr__(instance, "_status", status)
-        _ISSUED_RESULTS.add(instance)
+        object.__setattr__(
+            instance,
+            "_seal",
+            _IssuedResultSeal._issue(_RESULT_ISSUANCE_CAPABILITY, instance),
+        )
         return instance
 
     @property
     def status(self):
+        seal = getattr(self, "_seal", None)
+        if (
+            type(self) is not BrowserSessionMutationResult
+            or type(seal) is not _IssuedResultSeal
+            or not seal._owns(self)
+        ):
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
         return self._status
 
     def __setattr__(self, _name, _value):
         raise AttributeError("browser_session_mutation_result_is_immutable")
 
     def __repr__(self):
-        return f"BrowserSessionMutationResult(status={self._status!r})"
+        try:
+            status = self.status
+        except BaseException:
+            status = "invalid"
+        return f"BrowserSessionMutationResult(status={status!r})"
 
     __str__ = __repr__
 
@@ -855,6 +1204,16 @@ class BrowserSessionMutationResult:
 
     def __init_subclass__(cls, **_kwargs):
         raise TypeError("browser_session_mutation_result_not_subclassable")
+
+
+def create_request_scoped_session_secret_vault() -> RequestScopedSessionSecretVault:
+    """Create one fixed-capacity production request vault."""
+
+    return RequestScopedSessionSecretVault._issue(
+        _REQUEST_SECRET_VAULT_CAPABILITY,
+        max_entries=1,
+        max_secret_bytes=64,
+    )
 
 
 def create_browser_session(
@@ -926,6 +1285,29 @@ def consume_issued_session(
             secret_vault,
             capability,
             response_now,
+            _failure_injector,
+        )
+    )
+
+
+def prepare_issued_session_delivery(
+    connection: sqlite3.Connection,
+    result: IssuedBrowserSession,
+    secret_vault: RequestScopedSessionSecretVault,
+    capability,
+    *,
+    now,
+    _failure_injector=None,
+) -> SessionDeliveryLease:
+    """Prepare credentials while retaining exact undelivered compensation."""
+
+    return _sanitized_call(
+        lambda: _prepare_issued_session_delivery(
+            connection,
+            result,
+            secret_vault,
+            capability,
+            now,
             _failure_injector,
         )
     )
@@ -1080,6 +1462,16 @@ def close_request_scoped_secret_vault(
             capability,
             _failure_injector,
         )
+    )
+
+
+def discard_request_scoped_session_secret_vault(
+    secret_vault: RequestScopedSessionSecretVault,
+):
+    """Idempotently erase and terminalize one production request vault."""
+
+    return _sanitized_call(
+        lambda: _discard_request_scoped_session_secret_vault(secret_vault)
     )
 
 
@@ -1558,7 +1950,7 @@ def _consume_issued_session(
     if (
         capability is not _RESPONSE_COMPOSITION_CAPABILITY
         or type(result) is not IssuedBrowserSession
-        or result not in _ISSUED_RESULTS
+        or not result._is_sealed()
     ):
         raise BrowserSessionLifecycleError("already_completed")
     _require_secret_vault(secret_vault)
@@ -1629,11 +2021,328 @@ def _consume_issued_session_once(result, secret_vault, now, failure_injector):
     return response
 
 
+def _prepare_issued_session_delivery(
+    connection,
+    result,
+    secret_vault,
+    capability,
+    trusted_now,
+    failure_injector,
+):
+    if (
+        capability is not _RESPONSE_COMPOSITION_CAPABILITY
+        or type(result) is not IssuedBrowserSession
+        or not result._is_sealed()
+        or type(connection) is not sqlite3.Connection
+        or connection.in_transaction
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    _require_secret_vault(secret_vault)
+    now = _trusted_time(trusted_now)
+    handle = None
+    binding_nonce = None
+    with result._consumption_lock:
+        if result.status in {
+            "consumed",
+            "already_completed",
+            "delivery_pending",
+        }:
+            raise BrowserSessionLifecycleError("already_completed")
+        if result.status == "terminal_failed":
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        if result.status == "pending_commit":
+            raise BrowserSessionLifecycleError("session_state_conflict")
+        if result.status != "issued":
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        handle = result._handle_for_service(_SERVICE_ACCESS_CAPABILITY)
+        binding_nonce = result._binding_for_service(_SERVICE_ACCESS_CAPABILITY)
+        if handle is None or binding_nonce is None:
+            result._mark_terminal_failed(_SERVICE_ACCESS_CAPABILITY)
+            _abort_vault_consumption(secret_vault, failure_injector)
+            raise BrowserSessionLifecycleError("internal_consistency_failure")
+        result._mark_delivery_pending(_SERVICE_ACCESS_CAPABILITY)
+        outcome = None
+        lease = None
+        prepared = False
+        control_flow = None
+        try:
+            outcome = secret_vault._prepare_delivery(
+                _REQUEST_SECRET_VAULT_CAPABILITY,
+                handle=handle,
+                expected_binding_nonce=binding_nonce,
+                expected_effective_expires_at=_parse_time(
+                    result.effective_expires_at
+                ),
+                response_now=now,
+                failure_injector=failure_injector,
+            )
+            if outcome[0] != "ok":
+                raise BrowserSessionLifecycleError(outcome[1])
+            lease = SessionDeliveryLease._issue(
+                _RESPONSE_DELIVERY_LEASE_CAPABILITY,
+                connection=connection,
+                issued_session=result,
+                secret_vault=secret_vault,
+                trusted_now=now,
+                set_cookie_header=outcome[1],
+                csrf_credential=outcome[2],
+            )
+            prepared = True
+            return lease
+        except (SystemExit, GeneratorExit, KeyboardInterrupt) as exc:
+            control_flow = exc
+        except BaseException:
+            pass
+        finally:
+            outcome = None
+            lease = None
+            if not prepared:
+                cleanup_control = _fail_prepared_delivery_resources(
+                    connection,
+                    result,
+                    secret_vault,
+                    now,
+                )
+                if control_flow is None:
+                    control_flow = cleanup_control
+                cleanup_control = None
+        if control_flow is not None:
+            propagated = control_flow
+            control_flow = None
+            handle = None
+            binding_nonce = None
+            _detach_lifecycle_exception(propagated)
+            raise propagated from None
+        handle = None
+        binding_nonce = None
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+
+def _acknowledge_session_delivery(lease):
+    _require_session_delivery_lease(lease)
+    control_flow = None
+    failed = False
+    handle = None
+    binding_nonce = None
+    with lease._lock:
+        if lease._status != "prepared":
+            raise BrowserSessionLifecycleError("already_completed")
+        object.__setattr__(lease, "_status", "acknowledging")
+        connection = lease._connection
+        result = lease._issued_session
+        secret_vault = lease._secret_vault
+        try:
+            handle = result._handle_for_service(_SERVICE_ACCESS_CAPABILITY)
+            binding_nonce = result._binding_for_service(
+                _SERVICE_ACCESS_CAPABILITY
+            )
+            secret_vault._acknowledge_delivery(
+                _REQUEST_SECRET_VAULT_CAPABILITY,
+                handle=handle,
+                expected_binding_nonce=binding_nonce,
+            )
+        except (SystemExit, GeneratorExit, KeyboardInterrupt) as exc:
+            control_flow = exc
+            failed = True
+        except BaseException:
+            failed = True
+        try:
+            if result.status == "delivery_pending":
+                result._mark_delivery_acknowledged(
+                    _SERVICE_ACCESS_CAPABILITY
+                )
+            elif result.status != "consumed":
+                failed = True
+        except BaseException:
+            failed = True
+        try:
+            secret_vault._emergency_terminalize(
+                _REQUEST_SECRET_VAULT_CAPABILITY
+            )
+            if not secret_vault._is_closed_and_empty(
+                _REQUEST_SECRET_VAULT_CAPABILITY
+            ):
+                failed = True
+        except BaseException:
+            failed = True
+        lease._erase(
+            _RESPONSE_DELIVERY_LEASE_CAPABILITY,
+            "acknowledged",
+        )
+        connection = None
+        result = None
+        secret_vault = None
+        handle = None
+        binding_nonce = None
+    if control_flow is not None:
+        propagated = control_flow
+        control_flow = None
+        _detach_lifecycle_exception(propagated)
+        raise propagated from None
+    if failed:
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+
+def _fail_session_delivery(lease):
+    _require_session_delivery_lease(lease)
+    control_flow = None
+    failed = False
+    with lease._lock:
+        if lease._status != "prepared":
+            raise BrowserSessionLifecycleError("already_completed")
+        object.__setattr__(lease, "_status", "failing")
+        connection = lease._connection
+        result = lease._issued_session
+        secret_vault = lease._secret_vault
+        trusted_now = lease._trusted_now
+        try:
+            control_flow = _fail_prepared_delivery_resources(
+                connection,
+                result,
+                secret_vault,
+                trusted_now,
+            )
+        except BaseException as exc:
+            control_flow = (
+                exc
+                if isinstance(
+                    exc,
+                    (SystemExit, GeneratorExit, KeyboardInterrupt),
+                )
+                else control_flow
+            )
+            failed = True
+        lease._erase(
+            _RESPONSE_DELIVERY_LEASE_CAPABILITY,
+            "failed",
+        )
+        connection = None
+        result = None
+        secret_vault = None
+        trusted_now = None
+    if control_flow is not None:
+        propagated = control_flow
+        control_flow = None
+        _detach_lifecycle_exception(propagated)
+        raise propagated from None
+    if failed:
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+
+
+def _fail_prepared_delivery_resources(
+    connection,
+    result,
+    secret_vault,
+    trusted_now,
+):
+    control_flow = None
+    compensated = False
+    for _attempt in range(2):
+        try:
+            outcome = _compensate_undelivered_issued_session(
+                connection,
+                result,
+                secret_vault,
+                _RESPONSE_COMPOSITION_CAPABILITY,
+                trusted_now,
+                None,
+            )
+            if outcome.status in {"revoked", "already_completed"}:
+                verified = _verify_compensated_undelivered_issued_session(
+                    connection,
+                    result,
+                    secret_vault,
+                    _RESPONSE_COMPOSITION_CAPABILITY,
+                    trusted_now,
+                )
+                if verified.status == "already_completed":
+                    compensated = True
+                    break
+        except (SystemExit, GeneratorExit, KeyboardInterrupt) as exc:
+            if control_flow is None:
+                control_flow = exc
+        except BaseException:
+            pass
+        if not _delivery_compensation_connection_usable(connection):
+            break
+    if not compensated:
+        for _attempt in range(2):
+            try:
+                outcome = _force_compensate_undelivered_issued_session(
+                    connection,
+                    result,
+                    secret_vault,
+                    _RESPONSE_COMPOSITION_CAPABILITY,
+                    trusted_now,
+                )
+                if outcome.status not in {"revoked", "already_completed"}:
+                    continue
+                verified = _verify_compensated_undelivered_issued_session(
+                    connection,
+                    result,
+                    secret_vault,
+                    _RESPONSE_COMPOSITION_CAPABILITY,
+                    trusted_now,
+                )
+                if verified.status == "already_completed":
+                    compensated = True
+                    break
+            except (SystemExit, GeneratorExit, KeyboardInterrupt) as exc:
+                if control_flow is None:
+                    control_flow = exc
+            except BaseException:
+                pass
+            if not _delivery_compensation_connection_usable(connection):
+                break
+    cleanup_failed = not compensated
+    try:
+        if result.status in {
+            "pending_commit",
+            "issued",
+            "delivery_pending",
+        }:
+            result._mark_terminal_failed(_SERVICE_ACCESS_CAPABILITY)
+        elif result.status != "terminal_failed":
+            cleanup_failed = True
+    except BaseException:
+        cleanup_failed = True
+    try:
+        secret_vault._emergency_terminalize(
+            _REQUEST_SECRET_VAULT_CAPABILITY
+        )
+        if not secret_vault._is_closed_and_empty(
+            _REQUEST_SECRET_VAULT_CAPABILITY
+        ):
+            cleanup_failed = True
+    except BaseException:
+        cleanup_failed = True
+    if cleanup_failed:
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    return control_flow
+
+
+def _delivery_compensation_connection_usable(connection):
+    try:
+        return (
+            type(connection) is sqlite3.Connection
+            and not connection.in_transaction
+            and connection.execute("SELECT 1").fetchone()[0] == 1
+        )
+    except BaseException:
+        return False
+
+
+def _require_session_delivery_lease(lease):
+    if type(lease) is not SessionDeliveryLease:
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
+    lease._require_sealed()
+
+
 def _finalize_pending_issued_session(connection, result, secret_vault, capability):
     if (
         capability is not _RESPONSE_COMPOSITION_CAPABILITY
         or type(result) is not IssuedBrowserSession
-        or result not in _ISSUED_RESULTS
+        or not result._is_sealed()
         or result.status != "pending_commit"
         or type(connection) is not sqlite3.Connection
         or connection.in_transaction
@@ -1713,8 +2422,12 @@ def _compensate_undelivered_issued_session(
     if (
         capability is not _RESPONSE_COMPOSITION_CAPABILITY
         or type(result) is not IssuedBrowserSession
-        or result not in _ISSUED_RESULTS
-        or result.status not in {"pending_commit", "issued"}
+        or not result._is_sealed()
+        or result.status not in {
+            "pending_commit",
+            "issued",
+            "delivery_pending",
+        }
         or type(connection) is not sqlite3.Connection
         or connection.in_transaction
     ):
@@ -1730,13 +2443,16 @@ def _compensate_undelivered_issued_session(
     if (
         metadata is None
         or metadata["operation"] != "create"
-        or metadata["ready"] != (result.status == "issued")
+        or metadata["ready"]
+        != (result.status in {"issued", "delivery_pending"})
+        or metadata["delivery_pending"]
+        != (result.status == "delivery_pending")
         or (
             result.status == "pending_commit"
             and metadata["connection_marker"] != id(connection)
         )
         or (
-            result.status == "issued"
+            result.status in {"issued", "delivery_pending"}
             and metadata["connection_marker"] is not None
         )
         or not hmac.compare_digest(metadata["binding_nonce"], binding_nonce)
@@ -1860,8 +2576,12 @@ def _force_compensate_undelivered_issued_session(
     if (
         capability is not _RESPONSE_COMPOSITION_CAPABILITY
         or type(result) is not IssuedBrowserSession
-        or result not in _ISSUED_RESULTS
-        or result.status not in {"pending_commit", "issued"}
+        or not result._is_sealed()
+        or result.status not in {
+            "pending_commit",
+            "issued",
+            "delivery_pending",
+        }
         or type(connection) is not sqlite3.Connection
         or connection.in_transaction
     ):
@@ -1877,13 +2597,16 @@ def _force_compensate_undelivered_issued_session(
     if (
         metadata is None
         or metadata["operation"] != "create"
-        or metadata["ready"] != (result.status == "issued")
+        or metadata["ready"]
+        != (result.status in {"issued", "delivery_pending"})
+        or metadata["delivery_pending"]
+        != (result.status == "delivery_pending")
         or (
             result.status == "pending_commit"
             and metadata["connection_marker"] != id(connection)
         )
         or (
-            result.status == "issued"
+            result.status in {"issued", "delivery_pending"}
             and metadata["connection_marker"] is not None
         )
         or not hmac.compare_digest(metadata["binding_nonce"], binding_nonce)
@@ -2003,8 +2726,12 @@ def _verify_compensated_undelivered_issued_session(
     if (
         capability is not _RESPONSE_COMPOSITION_CAPABILITY
         or type(result) is not IssuedBrowserSession
-        or result not in _ISSUED_RESULTS
-        or result.status not in {"pending_commit", "issued"}
+        or not result._is_sealed()
+        or result.status not in {
+            "pending_commit",
+            "issued",
+            "delivery_pending",
+        }
         or type(connection) is not sqlite3.Connection
         or connection.in_transaction
     ):
@@ -2020,13 +2747,16 @@ def _verify_compensated_undelivered_issued_session(
     if (
         metadata is None
         or metadata["operation"] != "create"
-        or metadata["ready"] != (result.status == "issued")
+        or metadata["ready"]
+        != (result.status in {"issued", "delivery_pending"})
+        or metadata["delivery_pending"]
+        != (result.status == "delivery_pending")
         or (
             result.status == "pending_commit"
             and metadata["connection_marker"] != id(connection)
         )
         or (
-            result.status == "issued"
+            result.status in {"issued", "delivery_pending"}
             and metadata["connection_marker"] is not None
         )
         or not hmac.compare_digest(metadata["binding_nonce"], binding_nonce)
@@ -2086,10 +2816,14 @@ def _terminalize_undelivered_issued_result(result, capability):
     if (
         capability is not _RESPONSE_COMPOSITION_CAPABILITY
         or type(result) is not IssuedBrowserSession
-        or result not in _ISSUED_RESULTS
+        or not result._is_sealed()
     ):
         raise BrowserSessionLifecycleError("internal_consistency_failure")
-    if result.status in {"pending_commit", "issued"}:
+    if result.status in {
+        "pending_commit",
+        "issued",
+        "delivery_pending",
+    }:
         result._mark_terminal_failed(_SERVICE_ACCESS_CAPABILITY)
     elif result.status != "terminal_failed":
         raise BrowserSessionLifecycleError("internal_consistency_failure")
@@ -2128,6 +2862,17 @@ def _close_request_scoped_secret_vault(secret_vault, capability, failure_injecto
         _REQUEST_SECRET_VAULT_CAPABILITY,
         failure_injector=failure_injector,
     )
+
+
+def _discard_request_scoped_session_secret_vault(secret_vault):
+    _require_secret_vault(secret_vault)
+    secret_vault._emergency_terminalize(
+        _REQUEST_SECRET_VAULT_CAPABILITY
+    )
+    if not secret_vault._is_closed_and_empty(
+        _REQUEST_SECRET_VAULT_CAPABILITY
+    ):
+        raise BrowserSessionLifecycleError("internal_consistency_failure")
 
 
 def _abort_vault_consumption(secret_vault, failure_injector=None):
@@ -2849,6 +3594,15 @@ def _inject(callback, point):
     if not callable(callback):
         raise BrowserSessionLifecycleError("internal_consistency_failure")
     callback(point)
+
+
+def _detach_lifecycle_exception(exc):
+    try:
+        exc.__traceback__ = None
+        exc.__cause__ = None
+        exc.__context__ = None
+    except BaseException:
+        pass
 
 
 def _sanitized_call(callback):

@@ -20,6 +20,7 @@ from tests.google_oidc_authorization_transactions_test_support import (
     vault_entry_count,
 )
 import wahojobs.google_oidc_authorization_transaction_repository as repository
+import wahojobs.google_oidc_durable_gateway as durable_gateway_module
 import wahojobs.google_oidc_gateway as gateway_module
 import wahojobs.google_oidc_transaction_protection as protection
 from wahojobs.google_oidc_authorization_transactions import (
@@ -27,6 +28,7 @@ from wahojobs.google_oidc_authorization_transactions import (
     PreparedDurableGoogleOidcAuthorization,
 )
 from wahojobs.google_oidc_durable_gateway import (
+    complete_browser_bound_durable_google_oidc_authorization,
     complete_durable_google_oidc_authorization,
     prepare_durable_google_oidc_authorization,
 )
@@ -87,6 +89,22 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(
             tuple(
                 inspect.signature(
+                    complete_browser_bound_durable_google_oidc_authorization
+                ).parameters
+            ),
+            (
+                "connection",
+                "gateway",
+                "key_authority",
+                "callback_url",
+                "browser_transaction_id",
+                "completion_policy",
+                "request_secret_vault",
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                inspect.signature(
                     complete_durable_google_oidc_authorization
                 ).parameters
             ),
@@ -97,6 +115,14 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 "callback_url",
                 "completion_policy",
                 "request_secret_vault",
+            ),
+        )
+        self.assertEqual(
+            durable_gateway_module.__all__,
+            (
+                "complete_browser_bound_durable_google_oidc_authorization",
+                "complete_durable_google_oidc_authorization",
+                "prepare_durable_google_oidc_authorization",
             ),
         )
 
@@ -156,6 +182,180 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertIs(type(replay), GoogleOidcGatewayFailure)
         self.assertEqual(replay.status, "invalid_or_expired_transaction")
         self.assertEqual(harness.transport.token_request_count, 1)
+        self.assertFalse(database.connection.in_transaction)
+
+    def test_matching_browser_binding_is_checked_after_terminal_commit_without_lock(self):
+        database, authority, harness, prepared = self.prepare(
+            "browser-binding-match"
+        )
+        callback = harness.transport.callback_for(prepared)
+        binding = prepared.transaction_id
+        vault = self.vault()
+        observations = []
+        original_compare = durable_gateway_module._constant_time_equal
+
+        def observe_compare(claimed, supplied):
+            observer = open_connection(database.path)
+            try:
+                observer.execute("BEGIN IMMEDIATE")
+                observer.rollback()
+            finally:
+                observer.close()
+            observations.append(
+                (
+                    database.connection.in_transaction,
+                    transaction_rows(database.connection)[0]["lifecycle"],
+                    claimed,
+                    supplied,
+                )
+            )
+            return original_compare(claimed, supplied)
+
+        with mock.patch.object(
+            durable_gateway_module,
+            "_constant_time_equal",
+            side_effect=observe_compare,
+        ):
+            result = complete_browser_bound_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                binding,
+                completion_policy(),
+                vault,
+            )
+
+        self.assertEqual(result.status, "issued")
+        self.assertEqual(vault_entry_count(vault), 1)
+        self.assertEqual(harness.transport.token_request_count, 1)
+        self.assertEqual(
+            observations,
+            [
+                (
+                    False,
+                    "consumed",
+                    binding.encode("ascii"),
+                    binding.encode("ascii"),
+                )
+            ],
+        )
+        self.assertFalse(database.connection.in_transaction)
+
+    def test_invalid_browser_bindings_terminally_fail_before_downstream_work(self):
+        cases = (
+            ("missing", None),
+            ("empty", ""),
+            ("wrong-type", bytearray(b"not-a-string")),
+            ("non-ascii", "oidctx_" + ("\N{LATIN SMALL LETTER E WITH ACUTE}" * 32)),
+            ("invalid-shape", "oidctx_" + ("g" * 32)),
+        )
+        for name, supplied_binding in cases:
+            with self.subTest(case=name):
+                database, authority, harness, prepared = self.prepare(
+                    f"browser-binding-{name}"
+                )
+                callback = harness.transport.callback_for(prepared)
+                vault = self.vault()
+                with (
+                    mock.patch.object(
+                        durable_gateway_module,
+                        "_constant_time_equal",
+                        wraps=durable_gateway_module._constant_time_equal,
+                    ) as compared,
+                    mock.patch.object(
+                        durable_gateway_module,
+                        "_complete_durable_google_oidc_claimed",
+                    ) as downstream,
+                ):
+                    result = (
+                        complete_browser_bound_durable_google_oidc_authorization(
+                            database.connection,
+                            harness.gateway,
+                            authority,
+                            callback,
+                            supplied_binding,
+                            completion_policy(),
+                            vault,
+                        )
+                    )
+                self.assertIs(type(result), GoogleOidcGatewayFailure)
+                self.assertEqual(
+                    result.status,
+                    "invalid_or_expired_transaction",
+                )
+                self.assertEqual(compared.call_count, 1)
+                downstream.assert_not_called()
+                self.assertEqual(
+                    transaction_rows(database.connection)[0]["lifecycle"],
+                    "consumed",
+                )
+                self.assertEqual(harness.transport.token_request_count, 0)
+                self.assertEqual(vault_entry_count(vault), 0)
+                self.assertFalse(database.connection.in_transaction)
+
+    def test_mismatched_browser_binding_clears_claimed_secrets_and_is_redacted(self):
+        database, authority, harness, prepared = self.prepare(
+            "browser-binding-secrecy"
+        )
+        callback = harness.transport.callback_for(prepared)
+        claimed_transaction_id = prepared.transaction_id
+        mismatched_binding = "oidctx_" + (
+            "0" * 32
+            if claimed_transaction_id != "oidctx_" + ("0" * 32)
+            else "1" * 32
+        )
+        captured_secret_buffers = []
+        original_take = durable_gateway_module._take_claimed_material
+
+        def capture_claimed_material(capsule):
+            values = original_take(capsule)
+            captured_secret_buffers.extend(
+                values[name]
+                for name in (
+                    "state",
+                    "nonce",
+                    "pkce_verifier",
+                    "b2d1_request_key",
+                )
+            )
+            return values
+
+        with (
+            mock.patch.object(
+                durable_gateway_module,
+                "_take_claimed_material",
+                side_effect=capture_claimed_material,
+            ),
+            mock.patch.object(
+                durable_gateway_module,
+                "_complete_durable_google_oidc_claimed",
+            ) as downstream,
+        ):
+            result = complete_browser_bound_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                mismatched_binding,
+                completion_policy(),
+                self.vault(),
+            )
+
+        self.assertEqual(result.status, "invalid_or_expired_transaction")
+        downstream.assert_not_called()
+        self.assertEqual(len(captured_secret_buffers), 4)
+        self.assertTrue(
+            all(buffer == bytearray() for buffer in captured_secret_buffers)
+        )
+        public_projection = repr(result) + str(result) + repr(result.as_dict())
+        self.assertNotIn(claimed_transaction_id, public_projection)
+        self.assertNotIn(mismatched_binding, public_projection)
+        self.assertEqual(harness.transport.token_request_count, 0)
+        self.assertEqual(
+            transaction_rows(database.connection)[0]["lifecycle"],
+            "consumed",
+        )
         self.assertFalse(database.connection.in_transaction)
 
     def test_process_reconstruction_and_retained_key_rotation_complete(self):

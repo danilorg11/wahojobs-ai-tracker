@@ -18,6 +18,7 @@ import sqlite3
 from wahojobs.google_oidc_authorization_transaction_schema import (
     MIGRATION_VERSION,
     attest_google_oidc_authorization_transaction_schema,
+    is_m006_verification_index_list_pragma,
 )
 from wahojobs.google_oidc_authorization_transactions import (
     GOOGLE_OIDC_RECONCILIATION_BUDGET,
@@ -41,6 +42,11 @@ _REPOSITORY_RECONCILIATION_BUDGET = GOOGLE_OIDC_RECONCILIATION_BUDGET
 # repository-wide output contract; there is no second report-size budget.
 MAX_REPORT_BYTES = MAX_OUTPUT_BYTES
 MAX_KEY_VERSION = 2_147_483_647
+_MAX_AUTHORIZER_TABLE_XINFO_SCOPE = 8_192
+_TABLE_XINFO_SCOPE_ROW_LIMIT = 8_193
+_TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY = 100
+_MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS = 4_096
+_PROGRESS_HANDLER_CLEAR_PASSES = 8
 
 _TIMESTAMP = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$"
@@ -232,25 +238,116 @@ _EXPECTED_STORAGE = {
     "protection_nonce": "blob",
     "protected_material": "blob",
 }
-_READ_ONLY_PRAGMAS = frozenset(
+_M006_FOREIGN_KEY_LIST_PRAGMA_SCOPE = frozenset(
     {
-        "database_list",
-        "foreign_key_check",
-        "foreign_key_list",
-        "foreign_keys",
-        "index_info",
-        "index_list",
-        "index_xinfo",
-        "integrity_check",
-        "query_only",
-        "schema_version",
-        "table_info",
-        "table_xinfo",
-        "trusted_schema",
+        ("google_oidc_authorization_transactions", "main"),
+        ("legacy_owner_aliases", None),
+        ("ownership_binding_events", None),
+        ("principal_account_bindings", None),
+        ("product_principals", None),
+        ("product_profile_revisions", None),
+        ("product_profile_sources", None),
+        ("product_profiles", None),
+        ("user_pipeline_state", "main"),
+        ("user_pipeline_transitions", "main"),
+        ("wahojobs_schema_migrations", "main"),
     }
 )
-_READ_FORM_ONLY_PRAGMAS = frozenset(
-    {"foreign_keys", "query_only", "schema_version", "trusted_schema"}
+_M006_INDEX_XINFO_PRAGMA_SCOPE = frozenset(
+    {
+        (
+            "idx_google_oidc_authorization_transactions_prepared_expiry",
+            "main",
+        ),
+        (
+            "idx_google_oidc_authorization_transactions_terminal_cleanup",
+            "main",
+        ),
+        ("idx_legacy_owner_aliases_family_coherence", None),
+        ("idx_legacy_owner_aliases_principal", None),
+        ("idx_ownership_binding_events_binding_time", None),
+        ("idx_ownership_binding_events_principal_version", None),
+        ("idx_principal_account_bindings_active_identity", None),
+        ("idx_principal_account_bindings_user_status", None),
+        ("idx_product_principals_environment_type", None),
+        ("idx_product_profile_revisions_lifecycle", None),
+        ("idx_product_profile_revisions_principal_history", None),
+        ("idx_product_profile_revisions_profile_history", None),
+        ("idx_product_profile_sources_profile", None),
+        ("idx_product_profile_sources_revision", None),
+        ("idx_product_profiles_environment", None),
+        ("idx_user_pipeline_items_pipeline_profile", "main"),
+        ("idx_user_pipeline_transitions_correction", "main"),
+        ("idx_user_pipeline_transitions_occurred", "main"),
+        ("idx_user_pipeline_transitions_pipeline_occurred", "main"),
+        ("idx_user_pipeline_transitions_profile_occurred", "main"),
+        ("idx_user_pipeline_transitions_undo", "main"),
+        (
+            "sqlite_autoindex_google_oidc_authorization_transactions_1",
+            "main",
+        ),
+        ("sqlite_autoindex_legacy_owner_aliases_1", None),
+        ("sqlite_autoindex_legacy_owner_aliases_2", None),
+        ("sqlite_autoindex_ownership_binding_events_1", None),
+        ("sqlite_autoindex_ownership_binding_events_2", None),
+        ("sqlite_autoindex_ownership_binding_events_3", None),
+        ("sqlite_autoindex_principal_account_bindings_1", None),
+        ("sqlite_autoindex_principal_account_bindings_2", None),
+        ("sqlite_autoindex_product_principals_1", None),
+        ("sqlite_autoindex_product_profile_revisions_1", None),
+        ("sqlite_autoindex_product_profile_revisions_2", None),
+        ("sqlite_autoindex_product_profile_revisions_3", None),
+        ("sqlite_autoindex_product_profile_revisions_4", None),
+        ("sqlite_autoindex_product_profile_revisions_5", None),
+        ("sqlite_autoindex_product_profile_sources_1", None),
+        ("sqlite_autoindex_product_profile_sources_2", None),
+        ("sqlite_autoindex_product_profile_sources_3", None),
+        ("sqlite_autoindex_product_profiles_1", None),
+        ("sqlite_autoindex_product_profiles_2", None),
+        ("sqlite_autoindex_product_profiles_3", None),
+        ("sqlite_autoindex_product_profiles_4", None),
+        ("sqlite_autoindex_user_pipeline_state_1", "main"),
+        ("sqlite_autoindex_user_pipeline_transitions_1", "main"),
+        ("sqlite_autoindex_user_pipeline_transitions_2", "main"),
+        ("sqlite_autoindex_wahojobs_schema_migrations_1", "main"),
+        (
+            "uq_google_oidc_authorization_transactions_protection_nonce",
+            "main",
+        ),
+        (
+            "uq_google_oidc_authorization_transactions_state_lookup",
+            "main",
+        ),
+    }
+)
+_M006_UNQUALIFIED_TABLE_XINFO_ARGUMENTS = frozenset(
+    {
+        "legacy_owner_aliases",
+        "ownership_binding_events",
+        "principal_account_bindings",
+        "product_principals",
+        "product_profile_revisions",
+        "product_profile_sources",
+        "product_profiles",
+    }
+)
+_RECONCILIATION_EXACT_PRAGMA_TUPLES = (
+    frozenset(
+        {
+            ("foreign_key_check", None, "main", None),
+            ("foreign_keys", None, None, None),
+            ("integrity_check", "101", "main", None),
+            ("trusted_schema", None, None, None),
+        }
+    )
+    | frozenset(
+        ("foreign_key_list", argument, database, None)
+        for argument, database in _M006_FOREIGN_KEY_LIST_PRAGMA_SCOPE
+    )
+    | frozenset(
+        ("index_xinfo", argument, database, None)
+        for argument, database in _M006_INDEX_XINFO_PRAGMA_SCOPE
+    )
 )
 _ALLOWED_AUTHORIZER_ACTIONS = frozenset(
     value
@@ -268,6 +365,7 @@ _SQLITE_EXECUTE = sqlite3.Connection.execute
 _SQLITE_CURSOR = sqlite3.Connection.cursor
 _SQLITE_CLOSE = sqlite3.Connection.close
 _SQLITE_SERIALIZE = sqlite3.Connection.serialize
+_SQLITE_SETCONFIG = sqlite3.Connection.setconfig
 _SQLITE_SET_AUTHORIZER = sqlite3.Connection.set_authorizer
 _SQLITE_SET_PROGRESS_HANDLER = sqlite3.Connection.set_progress_handler
 
@@ -1030,6 +1128,9 @@ class _BudgetedConnection:
     def setlimit(self, category, limit):
         return sqlite3.Connection.setlimit(self._connection, category, limit)
 
+    def setconfig(self, operation, value):
+        return _SQLITE_SETCONFIG(self._connection, operation, value)
+
 
 class _Collector:
     __slots__ = ("_budget", "_entries", "counts", "total")
@@ -1300,10 +1401,128 @@ def _bounded_backup(source, target, name, budget):
     )
 
 
+def _validated_main_table_xinfo_scope_rows(rows) -> frozenset[str]:
+    if type(rows) is not list:
+        raise sqlite3.DatabaseError("private_table_scope_invalid")
+    if len(rows) > _MAX_AUTHORIZER_TABLE_XINFO_SCOPE:
+        raise sqlite3.DatabaseError("private_table_scope_exceeded")
+    names = set()
+    for row in rows:
+        if (
+            type(row) is not tuple
+            or len(row) != 1
+            or type(row[0]) is not bytes
+        ):
+            raise sqlite3.DatabaseError("private_table_scope_invalid")
+        try:
+            name = row[0].decode("utf-8")
+        except UnicodeDecodeError:
+            raise sqlite3.DatabaseError(
+                "private_table_scope_invalid"
+            ) from None
+        if not name or name.encode("utf-8") != row[0]:
+            raise sqlite3.DatabaseError("private_table_scope_invalid")
+        names.add(name)
+    if len(names) != len(rows):
+        raise sqlite3.DatabaseError("private_table_scope_invalid")
+    return frozenset(names)
+
+
+def _bounded_main_table_xinfo_scope(
+    connection,
+    budget,
+) -> frozenset[str]:
+    progress_calls = 0
+
+    def bounded_progress():
+        nonlocal progress_calls
+        progress_calls += 1
+        if progress_calls > _MAX_TABLE_XINFO_SCOPE_PROGRESS_CALLS:
+            return 1
+        try:
+            budget.consume_progress()
+        except _OperationBudgetExceeded:
+            return 1
+        return 0
+
+    cursor = None
+    rows = None
+    failure = None
+    try:
+        _SQLITE_SET_PROGRESS_HANDLER(
+            connection,
+            bounded_progress,
+            _TABLE_XINFO_SCOPE_PROGRESS_GRANULARITY,
+        )
+        cursor = _SQLITE_EXECUTE(
+            connection,
+            "SELECT CAST(name AS BLOB) FROM main.sqlite_schema "
+            "WHERE type = CAST('table' AS TEXT) LIMIT 8193",
+        )
+        rows = cursor.fetchmany(_TABLE_XINFO_SCOPE_ROW_LIMIT)
+    except BaseException as caught:
+        failure = caught
+    finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except BaseException as caught:
+                if failure is None:
+                    failure = caught
+        progress_cleared = False
+        last_cleanup_failure = None
+        progress_clear_operation = _SQLITE_SET_PROGRESS_HANDLER
+        progress_clear_arguments = (connection, None, 0)
+        for _unused in range(_PROGRESS_HANDLER_CLEAR_PASSES):
+            try:
+                progress_clear_operation(*progress_clear_arguments)
+                progress_cleared = True
+            except BaseException as caught:
+                last_cleanup_failure = caught
+                continue
+            break
+        if not progress_cleared:
+            cleanup_failure = (
+                last_cleanup_failure
+                if last_cleanup_failure is not None
+                else sqlite3.DatabaseError(
+                    "private_table_scope_cleanup_failed"
+                )
+            )
+            if failure is None:
+                failure = cleanup_failure
+            else:
+                try:
+                    failure.add_note(
+                        "Private table-scope cleanup did not complete."
+                    )
+                except BaseException:
+                    pass
+            try:
+                _SQLITE_CLOSE(connection)
+            except BaseException:
+                try:
+                    failure.add_note(
+                        "Private table-scope connection close did not "
+                        "complete."
+                    )
+                except BaseException:
+                    pass
+    if failure is not None:
+        raise failure
+    return _validated_main_table_xinfo_scope_rows(rows)
+
+
 def _configure_owned_connection(connection, budget):
     _SQLITE_EXECUTE(connection, "PRAGMA foreign_keys = ON").close()
     _SQLITE_EXECUTE(connection, "PRAGMA recursive_triggers = OFF").close()
-    _SQLITE_EXECUTE(connection, "PRAGMA trusted_schema = OFF").close()
+    # SQLite 3.40 rejects exact built-in CHECK constraints such as
+    # json_valid() while compiling schema-introspection PRAGMAs with
+    # trusted_schema disabled. This connection is a fresh private snapshot
+    # with no caller functions or callbacks. Keep trusted-schema processing
+    # enabled only for the fixed schema/integrity verification phase, then
+    # disable it through sqlite3_db_config before any application-row scan.
+    _SQLITE_EXECUTE(connection, "PRAGMA trusted_schema = ON").close()
     _SQLITE_EXECUTE(connection, "PRAGMA temp_store = MEMORY").close()
     _SQLITE_EXECUTE(connection, "PRAGMA query_only = ON").close()
     if hasattr(sqlite3, "SQLITE_DBCONFIG_DEFENSIVE"):
@@ -1315,6 +1534,10 @@ def _configure_owned_connection(connection, budget):
             )
         except (AttributeError, sqlite3.NotSupportedError):
             pass
+    main_table_xinfo_scope = _bounded_main_table_xinfo_scope(
+        connection,
+        budget,
+    )
 
     def progress():
         try:
@@ -1323,24 +1546,98 @@ def _configure_owned_connection(connection, budget):
             return 1
         return 0
 
-    def authorize(action, first, second, _database, _source):
+    def authorize(action, first, second, database, source):
         try:
             budget.consume_authorizer()
         except _OperationBudgetExceeded:
+            return sqlite3.SQLITE_DENY
+        if type(action) is not int:
             return sqlite3.SQLITE_DENY
         if action in _ALLOWED_AUTHORIZER_ACTIONS:
             return sqlite3.SQLITE_OK
         if action == getattr(sqlite3, "SQLITE_PRAGMA", -1):
             pragma = first.lower() if type(first) is str else ""
-            if pragma in _READ_ONLY_PRAGMAS and not (
-                pragma in _READ_FORM_ONLY_PRAGMAS
-                and second is not None
+            if pragma == "table_xinfo":
+                return (
+                    sqlite3.SQLITE_OK
+                    if (
+                        type(first) is str
+                        and first == pragma
+                        and type(second) is str
+                        and (
+                            database is None
+                            or type(database) is str
+                        )
+                        and source is None
+                        and second in main_table_xinfo_scope
+                        and (
+                            database == "main"
+                            or (
+                                database is None
+                                and second
+                                in _M006_UNQUALIFIED_TABLE_XINFO_ARGUMENTS
+                            )
+                        )
+                    )
+                    else sqlite3.SQLITE_DENY
+                )
+            if pragma == "index_list":
+                return (
+                    sqlite3.SQLITE_OK
+                    if (
+                        type(first) is str
+                        and first == pragma
+                        and type(second) is str
+                        and (
+                            database is None
+                            or type(database) is str
+                        )
+                        and source is None
+                        and is_m006_verification_index_list_pragma(
+                            pragma,
+                            second,
+                            database,
+                            source,
+                        )
+                    )
+                    else sqlite3.SQLITE_DENY
+                )
+            if (
+                type(first) is str
+                and first == pragma
+                and (second is None or type(second) is str)
+                and (database is None or type(database) is str)
+                and source is None
+                and (pragma, second, database, source)
+                in _RECONCILIATION_EXACT_PRAGMA_TUPLES
             ):
                 return sqlite3.SQLITE_OK
         return sqlite3.SQLITE_DENY
 
     _SQLITE_SET_PROGRESS_HANDLER(connection, progress, 1_000)
     _SQLITE_SET_AUTHORIZER(connection, authorize)
+
+
+def _harden_owned_connection_for_data_scan(connection):
+    operation = getattr(
+        sqlite3,
+        "SQLITE_DBCONFIG_TRUSTED_SCHEMA",
+        None,
+    )
+    if type(operation) is not int:
+        raise sqlite3.NotSupportedError(
+            "trusted_schema_hardening_unavailable"
+        )
+    connection.setconfig(operation, False)
+    cursor = connection.execute("PRAGMA trusted_schema")
+    try:
+        row = cursor.fetchone()
+    finally:
+        cursor.close()
+    if row != (0,):
+        raise sqlite3.DatabaseError(
+            "trusted_schema_hardening_unavailable"
+        )
 
 
 def _close_owned_connection(connection):
@@ -1375,8 +1672,7 @@ def _scan_snapshot(
         collector.add("foreign_keys_disabled")
 
     integrity_cursor = connection.execute(
-        "SELECT CASE WHEN integrity_check = 'ok' THEN 1 ELSE 0 END "
-        "FROM pragma_integrity_check(101) LIMIT 101"
+        "PRAGMA main.integrity_check(101)"
     )
     try:
         integrity_rows, integrity_more = _bounded_cursor_rows(
@@ -1385,12 +1681,11 @@ def _scan_snapshot(
         )
     finally:
         integrity_cursor.close()
-    if integrity_more or integrity_rows != [(1,)]:
+    if integrity_more or integrity_rows != [("ok",)]:
         collector.add("integrity_check_failed")
 
     foreign_key_cursor = connection.execute(
-        "SELECT 1 FROM pragma_foreign_key_check LIMIT "
-        f"{MAX_RECONCILIATION_ROWS + 1}"
+        "PRAGMA main.foreign_key_check"
     )
     try:
         foreign_key_rows, foreign_key_more = _bounded_cursor_rows(
@@ -1405,6 +1700,7 @@ def _scan_snapshot(
             private_key=_canonical_integer(index),
         )
 
+    _harden_owned_connection_for_data_scan(connection)
     budget.start_transaction_scan()
     transaction_cursor = connection.execute(_transaction_scan_sql())
     try:
