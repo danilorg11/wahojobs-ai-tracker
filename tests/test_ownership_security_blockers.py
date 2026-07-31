@@ -3,7 +3,9 @@ import hashlib
 import json
 import sqlite3
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -14,9 +16,10 @@ from tests.ownership_test_support import (
     add_alias,
     add_binding,
     add_principal,
+    database_snapshot,
     install_ownership,
 )
-from wahojobs import ownership
+from wahojobs import accounts, ownership
 from wahojobs.ownership_reconciliation import reconcile_ownership
 
 
@@ -478,6 +481,397 @@ class OwnershipSecurityBlockerTests(unittest.TestCase):
                 ownership.create_binding_with_initial_event(self.conn, changed)
         self.assertEqual(self._binding_event_counts(), counts)
 
+    def test_account_native_bootstrap_is_atomic_idempotent_and_reconstructible(self):
+        user_id = add_active_user(self.conn, suffix="bootstrap")
+        before = database_snapshot(self.conn)
+
+        created = ownership.ensure_account_native_principal(
+            self.conn,
+            user_id=user_id,
+            environment_namespace="private_beta",
+            occurred_at=NOW_TEXT,
+        )
+        self.assertTrue(created.created)
+        self.assertRegex(created.principal_id, r"^prn_[0-9a-f]{32}$")
+        self.assertRegex(created.binding_id, r"^pab_[0-9a-f]{32}$")
+        self.assertRegex(created.initial_event_id, r"^obe_[0-9a-f]{32}$")
+        self.assertEqual(created.environment_namespace, "private_beta")
+        self.assertNotIn(user_id, repr(created))
+        self.assertNotIn("user_id", {field.name for field in dataclasses.fields(created)})
+
+        principal = self.conn.execute(
+            "SELECT principal_type, lifecycle_status, claim_policy, "
+            "exclusive_account_binding, version, provenance_json "
+            "FROM product_principals WHERE principal_id=?",
+            (created.principal_id,),
+        ).fetchone()
+        self.assertEqual(
+            tuple(principal),
+            ("account_native", "active", "account_native", 1, 1, "{}"),
+        )
+        binding = self.conn.execute(
+            "SELECT principal_id, user_id, environment_namespace, binding_role, "
+            "binding_status, version, latest_event_version, provenance_json "
+            "FROM principal_account_bindings WHERE binding_id=?",
+            (created.binding_id,),
+        ).fetchone()
+        self.assertEqual(
+            tuple(binding),
+            (
+                created.principal_id,
+                user_id,
+                "private_beta",
+                "owner",
+                "active",
+                1,
+                1,
+                "{}",
+            ),
+        )
+        event = self.conn.execute(
+            "SELECT principal_id, user_id, binding_id, environment_namespace, "
+            "event_version, event_type, prior_status, resulting_status, actor_type, "
+            "reason_code, approval_reference, idempotency_key, request_fingerprint, "
+            "occurred_at, metadata_json FROM ownership_binding_events WHERE event_id=?",
+            (created.initial_event_id,),
+        ).fetchone()
+        self.assertEqual(tuple(event[:12]), (
+            created.principal_id,
+            user_id,
+            created.binding_id,
+            "private_beta",
+            1,
+            "binding_activated",
+            None,
+            "active",
+            "system",
+            "account_native_bootstrap",
+            None,
+            "account-native-bootstrap-v1",
+        ))
+        ownership.validate_event_request_fingerprint(
+            event[12],
+            principal_id=event[0],
+            binding_id=event[2],
+            user_id=event[1],
+            expected_event_version=event[4],
+            event_type=event[5],
+            prior_status=event[6],
+            resulting_status=event[7],
+            actor_type=event[8],
+            reason_code=event[9],
+            approval_reference=event[10],
+            occurred_at=event[13],
+            metadata=json.loads(event[14]),
+        )
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM legacy_owner_aliases").fetchone()[0], 0)
+        ownership_text = json.dumps(
+            {
+                table: [tuple(row) for row in self.conn.execute(f"SELECT * FROM {table}")]
+                for table in ownership.OWNERSHIP_TABLES
+            },
+            sort_keys=True,
+        )
+        for private_value in (
+            "person-bootstrap@example.test",
+            "google-subject-bootstrap",
+            "local_user",
+        ):
+            self.assertNotIn(private_value, ownership_text)
+
+        after_create = database_snapshot(self.conn)
+        for table, fingerprint in before.items():
+            if table not in ownership.OWNERSHIP_TABLES:
+                self.assertEqual(after_create[table], fingerprint, table)
+        replay = ownership.ensure_account_native_principal(
+            self.conn,
+            user_id=user_id,
+            environment_namespace="private_beta",
+            occurred_at=NOW_TEXT,
+        )
+        self.assertFalse(replay.created)
+        self.assertEqual(
+            (replay.principal_id, replay.binding_id, replay.initial_event_id),
+            (created.principal_id, created.binding_id, created.initial_event_id),
+        )
+        self.assertEqual(database_snapshot(self.conn), after_create)
+
+        self.conn.close()
+        self.conn = self._connect(self.path)
+        reconstructed = ownership.ensure_account_native_principal(
+            self.conn,
+            user_id=user_id,
+            environment_namespace="private_beta",
+            occurred_at=NOW_TEXT,
+        )
+        self.assertFalse(reconstructed.created)
+        self.assertEqual(reconstructed.principal_id, created.principal_id)
+        self.assertEqual(database_snapshot(self.conn), after_create)
+        self._assert_database_clean(self.conn)
+
+    def test_account_native_bootstrap_interruptions_leave_no_partial_lineage(self):
+        user_id = add_active_user(self.conn, suffix="bootstrap-failure")
+        exception_types = (RuntimeError, KeyboardInterrupt, SystemExit, GeneratorExit)
+        failure_points = (
+            "after_principal_insert",
+            "after_binding_insert",
+            "after_initial_event_insert",
+        )
+        for failure_point in failure_points:
+            for exception_type in exception_types:
+                def fail(point, target=failure_point, raised=exception_type):
+                    if point == target:
+                        raise raised("injected bootstrap interruption")
+
+                with self.subTest(point=failure_point, exception=exception_type.__name__):
+                    with self.assertRaises(exception_type):
+                        ownership.ensure_account_native_principal(
+                            self.conn,
+                            user_id=user_id,
+                            environment_namespace="private_beta",
+                            occurred_at=NOW_TEXT,
+                            failure_injector=fail,
+                        )
+                    self.assertFalse(self.conn.in_transaction)
+                    self.assertEqual(self._ownership_counts(), (0, 0, 0, 0))
+                    self._assert_database_clean(self.conn)
+
+        recovered = ownership.ensure_account_native_principal(
+            self.conn,
+            user_id=user_id,
+            environment_namespace="private_beta",
+            occurred_at=NOW_TEXT,
+        )
+        self.assertTrue(recovered.created)
+        self.assertEqual(self._ownership_counts(), (1, 0, 1, 1))
+
+    def test_account_native_bootstrap_two_connections_converge(self):
+        user_id = add_active_user(self.conn, suffix="bootstrap-race")
+        self.conn.commit()
+        start = threading.Barrier(3)
+
+        def worker():
+            connection = self._connect(self.path, timeout=5.0)
+            try:
+                start.wait(timeout=5)
+                return ownership.ensure_account_native_principal(
+                    connection,
+                    user_id=user_id,
+                    environment_namespace="private_beta",
+                    occurred_at=NOW_TEXT,
+                )
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(worker) for _ in range(2)]
+            start.wait(timeout=5)
+            results = [future.result(timeout=15) for future in futures]
+
+        self.assertEqual({result.created for result in results}, {False, True})
+        self.assertEqual({result.principal_id for result in results}, {results[0].principal_id})
+        self.assertEqual({result.binding_id for result in results}, {results[0].binding_id})
+        self.assertEqual({result.initial_event_id for result in results}, {results[0].initial_event_id})
+        self.assertEqual(self._ownership_counts(), (1, 0, 1, 1))
+        self._assert_database_clean(self.conn)
+
+    def test_account_native_bootstrap_fails_closed_for_invalid_or_historical_state(self):
+        with self.assertRaises(ownership.OwnershipValidationError):
+            ownership.ensure_account_native_principal(
+                self.conn,
+                user_id="not-an-account",
+                environment_namespace="private_beta",
+                occurred_at=NOW_TEXT,
+            )
+        with self.assertRaises(ownership.OwnershipStateConflict):
+            ownership.ensure_account_native_principal(
+                self.conn,
+                user_id="usr_0123456789abcdef0123456789abcdef",
+                environment_namespace="private_beta",
+                occurred_at=NOW_TEXT,
+            )
+        self.assertEqual(self._ownership_counts(), (0, 0, 0, 0))
+
+        inactive_path = Path(self.tmp.name) / "inactive.sqlite"
+        inactive = install_ownership(inactive_path)
+        try:
+            inactive_user = add_active_user(inactive, suffix="bootstrap-inactive")
+            accounts.suspend_user(
+                inactive,
+                user_id=inactive_user,
+                expected_version=1,
+                source="test_admin",
+                idempotency_key="bootstrap-account-suspend",
+            )
+            with self.assertRaises(ownership.OwnershipStateConflict):
+                ownership.ensure_account_native_principal(
+                    inactive,
+                    user_id=inactive_user,
+                    environment_namespace="private_beta",
+                    occurred_at=NOW_TEXT,
+                )
+            self.assertEqual(self._ownership_counts(inactive), (0, 0, 0, 0))
+        finally:
+            inactive.close()
+
+        suspended_path = Path(self.tmp.name) / "suspended.sqlite"
+        suspended = install_ownership(suspended_path)
+        try:
+            suspended_user = add_active_user(suspended, suffix="bootstrap-suspended")
+            initial = ownership.ensure_account_native_principal(
+                suspended,
+                user_id=suspended_user,
+                environment_namespace="private_beta",
+                occurred_at=NOW_TEXT,
+            )
+            ownership.append_binding_event(
+                suspended,
+                ownership.BindingEventCommand(
+                    principal_id=initial.principal_id,
+                    binding_id=initial.binding_id,
+                    user_id=suspended_user,
+                    expected_event_version=2,
+                    event_type="binding_suspended",
+                    prior_status="active",
+                    resulting_status="suspended",
+                    actor_type="administrator",
+                    reason_code="manual_review",
+                    approval_reference=None,
+                    idempotency_key="bootstrap-binding-suspend",
+                    occurred_at=NOW_TEXT,
+                    metadata={},
+                ),
+            )
+            counts = self._ownership_counts(suspended)
+            with self.assertRaises(ownership.OwnershipStateConflict):
+                ownership.ensure_account_native_principal(
+                    suspended,
+                    user_id=suspended_user,
+                    environment_namespace="private_beta",
+                    occurred_at=NOW_TEXT,
+                )
+            self.assertEqual(self._ownership_counts(suspended), counts)
+            ownership.append_binding_event(
+                suspended,
+                ownership.BindingEventCommand(
+                    principal_id=initial.principal_id,
+                    binding_id=initial.binding_id,
+                    user_id=suspended_user,
+                    expected_event_version=3,
+                    event_type="binding_released",
+                    prior_status="suspended",
+                    resulting_status="released",
+                    actor_type="administrator",
+                    reason_code="manual_review",
+                    approval_reference=None,
+                    idempotency_key="bootstrap-binding-release",
+                    occurred_at=NOW_TEXT,
+                    metadata={},
+                ),
+            )
+            counts = self._ownership_counts(suspended)
+            with self.assertRaises(ownership.OwnershipStateConflict):
+                ownership.ensure_account_native_principal(
+                    suspended,
+                    user_id=suspended_user,
+                    environment_namespace="private_beta",
+                    occurred_at=NOW_TEXT,
+                )
+            self.assertEqual(self._ownership_counts(suspended), counts)
+        finally:
+            suspended.close()
+
+        ambiguous_path = Path(self.tmp.name) / "ambiguous.sqlite"
+        ambiguous = install_ownership(ambiguous_path)
+        try:
+            ambiguous_user = add_active_user(ambiguous, suffix="bootstrap-ambiguous")
+            for suffix in (701, 702):
+                principal_id = add_principal(
+                    ambiguous,
+                    suffix=str(suffix),
+                    environment="private_beta",
+                    principal_type="account_native",
+                    claim_policy="account_native",
+                )
+                binding_id = add_binding(
+                    ambiguous,
+                    principal_id,
+                    ambiguous_user,
+                    suffix=str(suffix),
+                    environment="private_beta",
+                )
+                add_activation_event(
+                    ambiguous,
+                    principal_id,
+                    ambiguous_user,
+                    binding_id,
+                    suffix=str(suffix),
+                    environment="private_beta",
+                )
+            counts = self._ownership_counts(ambiguous)
+            with self.assertRaises(ownership.OwnershipStateConflict):
+                ownership.ensure_account_native_principal(
+                    ambiguous,
+                    user_id=ambiguous_user,
+                    environment_namespace="private_beta",
+                    occurred_at=NOW_TEXT,
+                )
+            self.assertEqual(self._ownership_counts(ambiguous), counts)
+        finally:
+            ambiguous.close()
+
+        projection_path = Path(self.tmp.name) / "projection.sqlite"
+        projection = install_ownership(projection_path)
+        try:
+            projection_user = add_active_user(projection, suffix="bootstrap-projection")
+            projected = ownership.ensure_account_native_principal(
+                projection,
+                user_id=projection_user,
+                environment_namespace="private_beta",
+                occurred_at=NOW_TEXT,
+            )
+            update_guard = projection.execute(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' "
+                "AND name='trg_principal_account_bindings_update_guard'"
+            ).fetchone()[0]
+            projection.execute("DROP TRIGGER trg_principal_account_bindings_update_guard")
+            projection.execute(
+                "UPDATE principal_account_bindings SET binding_status='suspended', "
+                "version=2, latest_event_version=2, updated_at=?, suspended_at=? "
+                "WHERE binding_id=?",
+                (NOW_TEXT, NOW_TEXT, projected.binding_id),
+            )
+            projection.execute(update_guard)
+            projection.commit()
+            counts = self._ownership_counts(projection)
+            with self.assertRaises(ownership.OwnershipStateConflict):
+                ownership.ensure_account_native_principal(
+                    projection,
+                    user_id=projection_user,
+                    environment_namespace="private_beta",
+                    occurred_at=NOW_TEXT,
+                )
+            self.assertEqual(self._ownership_counts(projection), counts)
+            self._assert_database_clean(projection)
+        finally:
+            projection.close()
+
+        attestation_path = Path(self.tmp.name) / "attestation.sqlite"
+        attestation = install_ownership(attestation_path)
+        try:
+            attestation_user = add_active_user(attestation, suffix="bootstrap-attestation")
+            attestation.execute("DROP TRIGGER trg_ownership_binding_events_no_update")
+            with self.assertRaises(ownership.OwnershipStateConflict):
+                ownership.ensure_account_native_principal(
+                    attestation,
+                    user_id=attestation_user,
+                    environment_namespace="private_beta",
+                    occurred_at=NOW_TEXT,
+                )
+            self.assertEqual(self._ownership_counts(attestation), (0, 0, 0, 0))
+        finally:
+            attestation.close()
+
     def test_reconciliation_recomputes_event_fingerprints(self):
         user_id = add_active_user(self.conn)
         principal_id = add_principal(self.conn, suffix="60")
@@ -534,6 +928,24 @@ class OwnershipSecurityBlockerTests(unittest.TestCase):
             self.conn.execute("SELECT COUNT(*) FROM principal_account_bindings").fetchone()[0],
             self.conn.execute("SELECT COUNT(*) FROM ownership_binding_events").fetchone()[0],
         )
+
+    @staticmethod
+    def _connect(path, *, timeout=3.0):
+        connection = sqlite3.connect(path, timeout=timeout)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+    def _ownership_counts(self, connection=None):
+        connection = connection or self.conn
+        return tuple(
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ownership.OWNERSHIP_TABLES
+        )
+
+    def _assert_database_clean(self, connection):
+        self.assertEqual(connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+        self.assertEqual(list(connection.execute("PRAGMA foreign_key_check")), [])
 
 
 if __name__ == "__main__":

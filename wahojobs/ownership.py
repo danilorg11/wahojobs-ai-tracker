@@ -352,6 +352,15 @@ class OwnershipEventResult:
     replayed: bool
 
 
+@dataclass(frozen=True)
+class AccountNativePrincipalBootstrapResult:
+    principal_id: str
+    binding_id: str
+    initial_event_id: str
+    environment_namespace: str
+    created: bool
+
+
 def new_principal_id() -> PrincipalId:
     return PrincipalId(_random_id("prn"))
 
@@ -649,6 +658,87 @@ def ownership_timestamp_not_before(value, boundary) -> bool:
     except OwnershipValidationError:
         return False
     return datetime.fromisoformat(value) >= datetime.fromisoformat(boundary)
+
+
+def ensure_account_native_principal(
+    conn,
+    *,
+    user_id: str,
+    environment_namespace: str,
+    occurred_at: str,
+    failure_injector=None,
+) -> AccountNativePrincipalBootstrapResult:
+    """Atomically create or resolve one account-native owner lineage."""
+    user_id = _validate_account_id(user_id)
+    environment_namespace = validate_environment_namespace(environment_namespace)
+    occurred_at = _validate_timestamp(occurred_at)
+    try:
+        with _ownership_transaction(conn):
+            _require_bootstrap_database_state(conn)
+            account = _canonical_active_account(conn, user_id)
+            if not ownership_timestamp_not_before(occurred_at, account["created_at"]):
+                raise OwnershipValidationError("Ownership timestamp predates the account.")
+
+            existing = _account_native_bootstrap_result(
+                conn,
+                user_id=user_id,
+                environment_namespace=environment_namespace,
+                created=False,
+            )
+            if existing is not None:
+                return existing
+
+            principal_id = str(new_principal_id())
+            _, empty_json = canonical_metadata({})
+            conn.execute(
+                "INSERT INTO product_principals "
+                "(principal_id, environment_namespace, principal_type, lifecycle_status, "
+                "claim_policy, exclusive_account_binding, version, created_at, updated_at, "
+                "provenance_json) VALUES (?, ?, 'account_native', 'active', "
+                "'account_native', 1, 1, ?, ?, ?)",
+                (
+                    principal_id,
+                    environment_namespace,
+                    occurred_at,
+                    occurred_at,
+                    empty_json,
+                ),
+            )
+            _inject(failure_injector, "after_principal_insert")
+            created_event = create_binding_with_initial_event(
+                conn,
+                CreateBindingCommand(
+                    principal_id=principal_id,
+                    user_id=user_id,
+                    binding_role="owner",
+                    actor_type="system",
+                    reason_code="account_native_bootstrap",
+                    approval_reference=None,
+                    idempotency_key="account-native-bootstrap-v1",
+                    occurred_at=occurred_at,
+                    metadata={},
+                ),
+                failure_injector=failure_injector,
+            )
+            if created_event.replayed:
+                raise OwnershipStateConflict()
+            _require_bootstrap_database_state(conn)
+            resolved = _account_native_bootstrap_result(
+                conn,
+                user_id=user_id,
+                environment_namespace=environment_namespace,
+                created=True,
+            )
+            if (
+                resolved is None
+                or resolved.principal_id != principal_id
+                or resolved.binding_id != created_event.binding_id
+                or resolved.initial_event_id != created_event.event_id
+            ):
+                raise OwnershipStateConflict()
+            return resolved
+    except sqlite3.IntegrityError:
+        raise OwnershipStateConflict() from None
 
 
 def append_binding_event(conn, command: BindingEventCommand, *, failure_injector=None):
@@ -1047,6 +1137,118 @@ def _existing_event(conn, principal_id, idempotency_key):
     )
 
 
+def _require_bootstrap_database_state(conn):
+    foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()
+    if foreign_keys is None or foreign_keys[0] != 1:
+        raise OwnershipStateConflict()
+    try:
+        from wahojobs.ownership_reconciliation import reconcile_ownership
+
+        report = reconcile_ownership(conn)
+    except Exception:
+        raise OwnershipStateConflict() from None
+    if type(report) is not dict or report.get("blocking") is not False:
+        raise OwnershipStateConflict()
+
+
+def _canonical_active_account(conn, user_id):
+    from wahojobs.account_reconciliation import authoritative_account_row_valid
+
+    account = _fetch_dict(
+        conn,
+        "SELECT user_id, lifecycle_status, row_version, created_at, updated_at, "
+        "deletion_requested_at, deactivated_at FROM users WHERE user_id = ?",
+        (user_id,),
+    )
+    if (
+        account is None
+        or account.get("lifecycle_status") != "active"
+        or not authoritative_account_row_valid(account, expected_user_id=user_id)
+    ):
+        raise OwnershipStateConflict()
+    return account
+
+
+def _account_native_bootstrap_result(
+    conn,
+    *,
+    user_id,
+    environment_namespace,
+    created,
+):
+    bindings = _fetch_dict_rows(
+        conn,
+        "SELECT binding_id, principal_id, user_id, environment_namespace, "
+        "binding_role, binding_status, version, latest_event_version, "
+        "created_at, updated_at, suspended_at, provenance_json "
+        "FROM principal_account_bindings WHERE user_id = ? "
+        "ORDER BY binding_id LIMIT 65",
+        (user_id,),
+    )
+    if len(bindings) > 64:
+        raise OwnershipStateConflict()
+    owner_lineages = [
+        binding
+        for binding in bindings
+        if binding["environment_namespace"] == environment_namespace
+        and binding["binding_role"] == "owner"
+    ]
+    if not owner_lineages:
+        return None
+    if len(owner_lineages) != 1:
+        raise OwnershipStateConflict()
+    binding = owner_lineages[0]
+    if binding["binding_status"] != "active":
+        raise OwnershipStateConflict()
+
+    principal = _fetch_dict(
+        conn,
+        "SELECT principal_id, environment_namespace, principal_type, lifecycle_status, "
+        "claim_policy, exclusive_account_binding, version, created_at, updated_at, "
+        "provenance_json FROM product_principals WHERE principal_id = ?",
+        (binding["principal_id"],),
+    )
+    if (
+        principal is None
+        or principal["environment_namespace"] != environment_namespace
+        or principal["principal_type"] != "account_native"
+        or principal["lifecycle_status"] != "active"
+        or principal["claim_policy"] != "account_native"
+        or principal["exclusive_account_binding"] != 1
+    ):
+        raise OwnershipStateConflict()
+
+    events = _fetch_dict_rows(
+        conn,
+        "SELECT event_id, event_version FROM ownership_binding_events "
+        "WHERE binding_id = ? ORDER BY event_version, event_id LIMIT 129",
+        (binding["binding_id"],),
+    )
+    if (
+        not events
+        or len(events) > 128
+        or events[0]["event_version"] != 1
+        or events[-1]["event_version"] != binding["latest_event_version"]
+    ):
+        raise OwnershipStateConflict()
+    return AccountNativePrincipalBootstrapResult(
+        principal_id=principal["principal_id"],
+        binding_id=binding["binding_id"],
+        initial_event_id=events[0]["event_id"],
+        environment_namespace=environment_namespace,
+        created=created,
+    )
+
+
+def _row_dict(description, row):
+    return {item[0]: row[index] for index, item in enumerate(description)}
+
+
+def _fetch_dict_rows(conn, sql, parameters):
+    cursor = conn.execute(sql, parameters)
+    return [_row_dict(cursor.description, row) for row in cursor]
+
+
 def _fetch_dict(conn, sql, parameters):
     cursor = conn.execute(sql, parameters)
     row = cursor.fetchone()
@@ -1062,7 +1264,7 @@ def _ownership_transaction(conn):
         conn.execute(f"SAVEPOINT {savepoint}")
         try:
             yield
-        except Exception:
+        except BaseException:
             conn.execute(f"ROLLBACK TO {savepoint}")
             conn.execute(f"RELEASE {savepoint}")
             raise
@@ -1072,7 +1274,7 @@ def _ownership_transaction(conn):
     conn.execute("BEGIN IMMEDIATE")
     try:
         yield
-    except Exception:
+    except BaseException:
         conn.rollback()
         raise
     else:
