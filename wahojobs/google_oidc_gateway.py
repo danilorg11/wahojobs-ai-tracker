@@ -35,6 +35,10 @@ from wahojobs.accounts import (
 from wahojobs.google_oidc_authorization_transactions import (
     MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES,
 )
+from wahojobs.ownership import (
+    AccountNativePrincipalBootstrapResult,
+    ensure_account_native_principal,
+)
 import wahojobs.trusted_login_completion as _trusted_login
 from wahojobs.trusted_login_completion import (
     TrustedExternalIdentityAuthentication,
@@ -600,6 +604,23 @@ def _configure_invitation_provisioning(gateway, invitation_lookup_key):
         key_copy = None
 
 
+def _configure_account_native_bootstrap(gateway, bootstrap_authority):
+    """Install the accepted server-private ownership bootstrap authority."""
+
+    if bootstrap_authority is not ensure_account_native_principal:
+        raise TypeError("google_oidc_ownership_authority_invalid")
+    record = _gateway_record(gateway)
+    with record.lock:
+        if record.closed:
+            raise TypeError("google_oidc_gateway_unavailable")
+        if record.account_native_bootstrap is None:
+            record.account_native_bootstrap = bootstrap_authority
+            record.attestation = _gateway_attestation(record)
+        elif record.account_native_bootstrap is not bootstrap_authority:
+            raise TypeError("google_oidc_gateway_unavailable")
+    return gateway
+
+
 def _prepare_authorization_guarded(gateway_object):
     try:
         return _prepare_authorization_impl(gateway_object)
@@ -1008,6 +1029,7 @@ def _close_gateway_record(record):
         record.cache = None
         record.identity_verifier = None
         record.account_service = None
+        record.account_native_bootstrap = None
         record.invitation_lookup_key = None
         record.invitation_lookup_key_digest = None
         record.transaction_authority = None
@@ -1167,6 +1189,7 @@ class _GatewayRecord:
         "configuration_record",
         "identity_verifier",
         "account_service",
+        "account_native_bootstrap",
         "invitation_lookup_key",
         "invitation_lookup_key_digest",
         "provider_adapter",
@@ -1193,6 +1216,7 @@ class _GatewayRecord:
         self.configuration_record = configuration_record
         self.identity_verifier = identity_verifier
         self.account_service = account_service
+        self.account_native_bootstrap = None
         self.invitation_lookup_key = invitation_lookup_key
         self.invitation_lookup_key_digest = (
             None
@@ -1786,6 +1810,7 @@ def _gateway_attestation(record):
         id(record.configuration_record),
         id(record.identity_verifier),
         id(record.account_service),
+        id(record.account_native_bootstrap),
         id(record.invitation_lookup_key),
         record.invitation_lookup_key_digest,
         id(record.provider_adapter),
@@ -1921,9 +1946,14 @@ def _gateway_record(gateway):
         raise TypeError("google_oidc_gateway_unavailable") from None
     invitation_key = record.invitation_lookup_key
     invitation_digest = record.invitation_lookup_key_digest
+    bootstrap_authority = record.account_native_bootstrap
     if (
         type(record.account_service) is not AccountService
         or service_verifier is not record.identity_verifier
+        or (
+            bootstrap_authority is not None
+            and bootstrap_authority is not ensure_account_native_principal
+        )
         or not (
             (invitation_key is None and invitation_digest is None)
             or (
@@ -2442,6 +2472,7 @@ def _complete_durable_google_oidc_claimed(
     projection = None
     verified_identity = None
     resolved = None
+    ownership = None
     proof = None
     try:
         gateway_record = _gateway_record(gateway)
@@ -2520,6 +2551,15 @@ def _complete_durable_google_oidc_claimed(
         )
         if connection.in_transaction:
             raise _Unavailable()
+        ownership = _ensure_account_native_principal_for_login(
+            connection,
+            gateway_record,
+            resolved,
+            now,
+        )
+        if connection.in_transaction:
+            raise _Unavailable()
+        ownership = None
         authenticated_at = projection[1]
         proof_expiry = min(
             projection[2],
@@ -2586,8 +2626,51 @@ def _complete_durable_google_oidc_claimed(
         projection = None
         verified_identity = None
         resolved = None
+        ownership = None
         proof = None
         invitation_credential = None
+
+
+def _ensure_account_native_principal_for_login(
+    connection,
+    gateway_record,
+    resolved,
+    now,
+):
+    if (
+        type(connection) is not sqlite3.Connection
+        or connection.in_transaction
+        or type(gateway_record) is not _GatewayRecord
+        or gateway_record.closed
+        or gateway_record.account_native_bootstrap
+        is not ensure_account_native_principal
+        or type(resolved) is not _ResolvedDurableIdentity
+        or type(now) is not datetime
+    ):
+        raise _Unavailable()
+    result = gateway_record.account_native_bootstrap(
+        connection,
+        user_id=resolved.account_id,
+        environment_namespace=(
+            gateway_record.configuration_record.environment
+        ),
+        occurred_at=now.isoformat(timespec="seconds"),
+    )
+    if (
+        type(result) is not AccountNativePrincipalBootstrapResult
+        or result.environment_namespace
+        != gateway_record.configuration_record.environment
+        or type(result.principal_id) is not str
+        or not result.principal_id
+        or type(result.binding_id) is not str
+        or not result.binding_id
+        or type(result.initial_event_id) is not str
+        or not result.initial_event_id
+        or type(result.created) is not bool
+        or connection.in_transaction
+    ):
+        raise _Unavailable()
+    return result
 
 
 def _validated_callback_url(callback_url, redirect_uri):

@@ -5602,6 +5602,15 @@ def _prepare_durable_google_login_activation_worker(
                 _close_cleanup_resource,
                 dependencies=("browser_integration",),
             )
+            from wahojobs.google_oidc_gateway import (
+                _configure_account_native_bootstrap,
+            )
+            from wahojobs.ownership import ensure_account_native_principal
+
+            _configure_account_native_bootstrap(
+                gateway,
+                ensure_account_native_principal,
+            )
             _emit_runtime_checkpoint(checkpoint, "gateway_constructed")
             if client_secret:
                 raise DurableGoogleLoginConfigurationError()

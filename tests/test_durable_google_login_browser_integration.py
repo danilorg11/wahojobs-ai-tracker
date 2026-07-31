@@ -523,10 +523,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
     def test_invited_first_login_restarts_then_later_login_reuses_account(self):
         email = "private-beta-invite@example.test"
         preserved_tables = (
-            "product_principals",
             "legacy_owner_aliases",
-            "principal_account_bindings",
-            "ownership_binding_events",
             "product_profiles",
             "product_profile_revisions",
             "product_profile_sources",
@@ -591,6 +588,9 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                 _clock=state.clock,
                 _gateway_factory=state.gateway_factory,
             )
+            ownership_after_first = None
+            first_account_id = None
+            first_callback_public = None
             try:
                 with running_https_browser_app(second_runtime):
                     callback_url = provider_callback_for(
@@ -620,6 +620,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     callback_public = (
                         repr(callback.headers) + repr(callback.body)
                     )
+                    first_callback_public = callback_public
                     self.assertNotIn(
                         invitation.invitation_token,
                         callback_public,
@@ -633,6 +634,39 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                         cookies["__Host-wahojobs_session_csrf"],
                         r"^[A-Za-z0-9_-]{43}$",
                     )
+
+                    first_connection = sqlite3.connect(
+                        state.database_path
+                    )
+                    first_connection.row_factory = sqlite3.Row
+                    try:
+                        first_account_id = first_connection.execute(
+                            "SELECT user_id FROM auth_identities "
+                            "WHERE provider='google' AND "
+                            "provider_subject=?",
+                            (state.subject,),
+                        ).fetchone()[0]
+                        ownership_after_first = {
+                            table: tuple(
+                                tuple(row)
+                                for row in first_connection.execute(
+                                    f'SELECT * FROM "{table}" ORDER BY 1'
+                                )
+                            )
+                            for table in (
+                                "product_principals",
+                                "principal_account_bindings",
+                                "ownership_binding_events",
+                            )
+                        }
+                        self.assertTrue(
+                            all(
+                                len(rows) == 1
+                                for rows in ownership_after_first.values()
+                            )
+                        )
+                    finally:
+                        first_connection.close()
 
                     later_cookies, later_provider_url, _later_start = (
                         self.begin_login(state)
@@ -696,6 +730,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     self.assertEqual(len(identity_rows), 1)
                     identity = identity_rows[0]
                     account_id = identity["user_id"]
+                    self.assertEqual(account_id, first_account_id)
                     self.assertEqual(identity["verified_email"], email)
                     self.assertEqual(identity["email_verified"], 1)
                     self.assertEqual(
@@ -747,6 +782,18 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         {
+                            table: tuple(
+                                tuple(row)
+                                for row in connection.execute(
+                                    f'SELECT * FROM "{table}" ORDER BY 1'
+                                )
+                            )
+                            for table in ownership_after_first
+                        },
+                        ownership_after_first,
+                    )
+                    self.assertEqual(
+                        {
                             table: connection.execute(
                                 f'SELECT COUNT(*) FROM "{table}"'
                             ).fetchone()[0]
@@ -754,15 +801,40 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                         },
                         preserved_before,
                     )
+                    self.assertEqual(
+                        connection.execute(
+                            "PRAGMA integrity_check"
+                        ).fetchone()[0],
+                        "ok",
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "PRAGMA foreign_key_check"
+                        ).fetchall(),
+                        [],
+                    )
                 finally:
                     connection.close()
                 secret_text = invitation.invitation_token
+                ownership_ids = tuple(
+                    str(row[0])
+                    for rows in ownership_after_first.values()
+                    for row in rows
+                )
+                public_text = (
+                    first_callback_public
+                    + repr(observations)
+                    + repr(cookies)
+                    + repr(later_cookies)
+                    + provider_url
+                    + later_provider_url
+                )
                 self.assertNotIn(
                     secret_text,
-                    repr(observations)
-                    + repr(cookies)
-                    + repr(later_cookies),
+                    public_text,
                 )
+                for ownership_id in ownership_ids:
+                    self.assertNotIn(ownership_id, public_text)
             finally:
                 second_cleanup = second_runtime.close()
                 self.assertTrue(second_cleanup.cleanup_complete)

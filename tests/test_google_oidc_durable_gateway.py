@@ -610,6 +610,8 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 "account_sessions",
                 "product_principals",
                 "principal_account_bindings",
+                "ownership_binding_events",
+                "legacy_owner_aliases",
                 "product_profiles",
             )
         }
@@ -656,6 +658,22 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             (invitation.invitation.invitation_id,),
         ).fetchone()
         self.assertEqual(tuple(invitation_row), ("consumed", account_id))
+        ownership_after_first = {
+            table: tuple(
+                tuple(row)
+                for row in database.connection.execute(
+                    f'SELECT * FROM "{table}" ORDER BY 1'
+                )
+            )
+            for table in (
+                "product_principals",
+                "principal_account_bindings",
+                "ownership_binding_events",
+            )
+        }
+        self.assertTrue(
+            all(len(rows) == 1 for rows in ownership_after_first.values())
+        )
 
         later = prepare_durable_google_oidc_authorization(
             database.connection,
@@ -710,11 +728,19 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             ).fetchone()[0],
             2,
         )
-        for table in (
-            "product_principals",
-            "principal_account_bindings",
-            "product_profiles",
-        ):
+        self.assertEqual(
+            {
+                table: tuple(
+                    tuple(row)
+                    for row in database.connection.execute(
+                        f'SELECT * FROM "{table}" ORDER BY 1'
+                    )
+                )
+                for table in ownership_after_first
+            },
+            ownership_after_first,
+        )
+        for table in ("legacy_owner_aliases", "product_profiles"):
             self.assertEqual(
                 database.connection.execute(
                     f'SELECT COUNT(*) FROM "{table}"'
@@ -761,6 +787,19 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             self.vault(),
         )
         self.assertEqual(result.status, "issued")
+        self.assertEqual(
+            tuple(
+                database.connection.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0]
+                for table in (
+                    "product_principals",
+                    "principal_account_bindings",
+                    "ownership_binding_events",
+                )
+            ),
+            (1, 1, 1),
+        )
         row = database.connection.execute(
             "SELECT invitation_status, consumed_at, consumed_by_user_id "
             "FROM account_invitations WHERE invitation_id = ?",
@@ -824,6 +863,22 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             ).fetchone()[0],
             0,
         )
+        ownership_after_failure = {
+            table: tuple(
+                tuple(row)
+                for row in database.connection.execute(
+                    f'SELECT * FROM "{table}" ORDER BY 1'
+                )
+            )
+            for table in (
+                "product_principals",
+                "principal_account_bindings",
+                "ownership_binding_events",
+            )
+        }
+        self.assertTrue(
+            all(len(rows) == 1 for rows in ownership_after_failure.values())
+        )
 
         later = prepare_durable_google_oidc_authorization(
             database.connection,
@@ -865,6 +920,127 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             ).fetchone()[0],
             1,
         )
+        self.assertEqual(
+            {
+                table: tuple(
+                    tuple(row)
+                    for row in database.connection.execute(
+                        f'SELECT * FROM "{table}" ORDER BY 1'
+                    )
+                )
+                for table in ownership_after_failure
+            },
+            ownership_after_failure,
+        )
+        prepared.close()
+        later.close()
+
+    def test_bootstrap_failure_after_provisioning_blocks_session_then_recovers(self):
+        database = self.database("ownership-failure-after-provision")
+        subject = "google-subject-ownership-failure-after-provision-new"
+        email = "ownership-failure-after-provision@example.test"
+        invitation = self.invitation(database, "ownership-failure", email)
+        authority = self.keep(key_authority())
+        harness = self.keep(
+            make_real_gateway(
+                subject=subject,
+                invitation_lookup_key=bytearray(INVITATION_KEY),
+            )
+        )
+        prepared = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            invitation_credential=bytearray(
+                invitation.invitation_token.encode("ascii")
+            ),
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            claims_overrides={"email": email, "email_verified": True},
+        )
+        failed_vault = self.vault()
+        with mock.patch.object(
+            gateway_module,
+            "_ensure_account_native_principal_for_login",
+            side_effect=RuntimeError("injected_ownership_unavailable"),
+        ):
+            failed = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                failed_vault,
+            )
+        self.assertEqual(failed.status, "unavailable")
+        identity = database.connection.execute(
+            "SELECT user_id FROM auth_identities WHERE provider='google' "
+            "AND provider_subject=?",
+            (subject,),
+        ).fetchone()
+        self.assertIsNotNone(identity)
+        account_id = identity["user_id"]
+        self.assertEqual(
+            tuple(
+                database.connection.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0]
+                for table in (
+                    "product_principals",
+                    "principal_account_bindings",
+                    "ownership_binding_events",
+                    "account_sessions",
+                )
+            ),
+            (0, 0, 0, 0),
+        )
+        self.assertEqual(vault_entry_count(failed_vault), 0)
+        self.assertEqual(
+            tuple(
+                database.connection.execute(
+                    "SELECT invitation_status, consumed_by_user_id FROM "
+                    "account_invitations WHERE invitation_id=?",
+                    (invitation.invitation.invitation_id,),
+                ).fetchone()
+            ),
+            ("consumed", account_id),
+        )
+
+        later = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+        )
+        recovered_vault = self.vault()
+        recovered = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            harness.transport.callback_for(
+                later,
+                code="ownership-failure-recovery",
+                missing_claims=("email", "email_verified"),
+            ),
+            completion_policy(),
+            recovered_vault,
+        )
+        self.assertEqual(recovered.status, "issued")
+        self.assertEqual(
+            tuple(
+                database.connection.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0]
+                for table in (
+                    "product_principals",
+                    "principal_account_bindings",
+                    "ownership_binding_events",
+                    "account_sessions",
+                )
+            ),
+            (1, 1, 1, 1),
+        )
+        self.assertEqual(vault_entry_count(recovered_vault), 1)
         prepared.close()
         later.close()
 
@@ -1264,6 +1440,9 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         callback = harness.transport.callback_for(prepared)
         vault = self.vault()
         original_resolve = gateway_module._resolve_durable_identity
+        original_bootstrap = (
+            gateway_module._ensure_account_native_principal_for_login
+        )
         original_complete = gateway_module.complete_trusted_login
         observations = []
 
@@ -1271,8 +1450,31 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             observations.append(("identity", connection.in_transaction))
             return original_resolve(connection, identity, now)
 
+        def bootstrap(connection, *args, **kwargs):
+            observations.append(("ownership", connection.in_transaction))
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM account_sessions"
+                ).fetchone()[0],
+                0,
+            )
+            return original_bootstrap(connection, *args, **kwargs)
+
         def complete(connection, *args, **kwargs):
             observations.append(("b2d1", connection.in_transaction))
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        f'SELECT COUNT(*) FROM "{table}"'
+                    ).fetchone()[0]
+                    for table in (
+                        "product_principals",
+                        "principal_account_bindings",
+                        "ownership_binding_events",
+                    )
+                ),
+                (1, 1, 1),
+            )
             return original_complete(connection, *args, **kwargs)
 
         with (
@@ -1280,6 +1482,11 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 gateway_module,
                 "_resolve_durable_identity",
                 side_effect=resolve,
+            ),
+            mock.patch.object(
+                gateway_module,
+                "_ensure_account_native_principal_for_login",
+                side_effect=bootstrap,
             ),
             mock.patch.object(
                 gateway_module,
@@ -1298,8 +1505,161 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(result.status, "issued")
         self.assertEqual(
             observations,
-            [("identity", False), ("b2d1", False)],
+            [
+                ("identity", False),
+                ("ownership", False),
+                ("b2d1", False),
+            ],
         )
+
+    def test_missing_account_native_bootstrap_denies_before_session(self):
+        database = self.database("missing-account-native-bootstrap")
+        authority = self.keep(key_authority())
+        harness = self.keep(
+            make_real_gateway(
+                subject=database.subject,
+                configure_account_native_bootstrap=False,
+            )
+        )
+        prepared = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+        )
+        vault = self.vault()
+        result = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            harness.transport.callback_for(prepared),
+            completion_policy(),
+            vault,
+        )
+        self.assertEqual(result.status, "unavailable")
+        self.assertEqual(vault_entry_count(vault), 0)
+        self.assertEqual(
+            tuple(
+                database.connection.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0]
+                for table in (
+                    "product_principals",
+                    "principal_account_bindings",
+                    "ownership_binding_events",
+                    "account_sessions",
+                )
+            ),
+            (0, 0, 0, 0),
+        )
+        prepared.close()
+
+    def test_two_login_transactions_converge_before_independent_sessions(self):
+        database = self.database("two-login-ownership-convergence")
+        authority = self.keep(key_authority())
+        harnesses = tuple(
+            self.keep(
+                make_real_gateway(
+                    subject=database.subject,
+                )
+            )
+            for _index in range(2)
+        )
+        prepared = tuple(
+            prepare_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+            )
+            for harness in harnesses
+        )
+        callbacks = tuple(
+            harness.transport.callback_for(
+                transaction,
+                code=f"b24b-concurrent-{index}",
+            )
+            for index, (harness, transaction) in enumerate(
+                zip(harnesses, prepared)
+            )
+        )
+        original_bootstrap = (
+            gateway_module._ensure_account_native_principal_for_login
+        )
+        start = threading.Barrier(2)
+        bootstrap_results = []
+        outcomes = [None, None]
+        failures = [None, None]
+
+        def synchronized_bootstrap(*args, **kwargs):
+            start.wait(timeout=5)
+            result = original_bootstrap(*args, **kwargs)
+            bootstrap_results.append(result)
+            return result
+
+        def worker(index):
+            connection = open_connection(database.path)
+            vault = request_secret_vault()
+            try:
+                outcomes[index] = complete_durable_google_oidc_authorization(
+                    connection,
+                    harnesses[index].gateway,
+                    authority,
+                    callbacks[index],
+                    completion_policy(),
+                    vault,
+                )
+                self.assertEqual(vault_entry_count(vault), 1)
+            except BaseException as exc:
+                failures[index] = exc
+            finally:
+                close_secret_vault(vault)
+                connection.close()
+
+        with mock.patch.object(
+            gateway_module,
+            "_ensure_account_native_principal_for_login",
+            side_effect=synchronized_bootstrap,
+        ):
+            threads = tuple(
+                threading.Thread(target=worker, args=(index,))
+                for index in range(2)
+            )
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+
+        self.assertEqual(failures, [None, None])
+        self.assertEqual([result.status for result in outcomes], ["issued", "issued"])
+        self.assertEqual({result.created for result in bootstrap_results}, {False, True})
+        self.assertEqual(
+            len({result.principal_id for result in bootstrap_results}),
+            1,
+        )
+        self.assertEqual(
+            len({result.binding_id for result in bootstrap_results}),
+            1,
+        )
+        self.assertEqual(
+            len({result.initial_event_id for result in bootstrap_results}),
+            1,
+        )
+        self.assertEqual(
+            tuple(
+                database.connection.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0]
+                for table in (
+                    "product_principals",
+                    "principal_account_bindings",
+                    "ownership_binding_events",
+                    "account_sessions",
+                )
+            ),
+            (1, 1, 1, 2),
+        )
+        for transaction in prepared:
+            transaction.close()
 
     def test_control_flow_consumes_row_clears_gateway_and_propagates_exactly(self):
         database, authority, harness, prepared = self.prepare(

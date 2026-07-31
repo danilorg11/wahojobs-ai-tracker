@@ -158,12 +158,25 @@ the initial lifecycle event. Callback input cannot add or replace the bound
 credential. Later logins resolve the same immutable provider and subject and
 need no invitation; existing identities never consume a presented invitation.
 
-This activation still does not create a product principal, account/principal
-binding, persistent profile, invitation-delivery mechanism, or administration
-UI. Consequently the fixed `/account/profile` redirect is not yet a usable
-profile surface for a newly provisioned account. Ordinary-runtime activation,
-live Google deployment, and general identity linking remain deferred. The
-database must already contain the exact Migration-001 through Migration-006
+After that canonical account is resolved or provisioned, every durable login
+calls `ensure_account_native_principal()` with only the server-resolved account,
+configured environment, and trusted time. The canonical principal, active owner
+binding, and initial event must resolve successfully before trusted-login may
+create a session or credential. Existing valid lineages are reused without
+mutation; retry, runtime reconstruction, and concurrent logins converge on the
+same lineage. A bootstrap failure after invited-account creation leaves that
+account and consumed invitation intact but issues no session, allowing a later
+invitation-free login to retry the ownership step. A later session failure does
+not compensate or rewrite a valid ownership lineage.
+
+Sessions remain account-oriented and expose no principal, binding, or event
+identifier. This activation still does not create a persistent profile,
+invitation-delivery mechanism, or administration UI. Consequently the fixed
+`/account/profile` redirect is not yet a usable profile surface for a newly
+provisioned account. Browser input cannot select an ownership identifier or
+environment. Ordinary-runtime activation, live Google deployment, general
+identity linking, legacy claiming, and empty-profile activation remain deferred.
+The database must already contain the exact Migration-001 through Migration-006
 schema; neither the launcher nor login requests initialize, seed, repair, or
 migrate it.
 

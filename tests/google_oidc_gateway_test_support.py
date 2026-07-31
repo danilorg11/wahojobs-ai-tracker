@@ -33,6 +33,7 @@ from tests.browser_session_lifecycle_test_support import (
 )
 from tests.trusted_login_completion_test_support import completion_policy
 import wahojobs.google_oidc_gateway as _gateway
+from wahojobs.ownership import ensure_account_native_principal
 
 
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc)
@@ -1331,6 +1332,7 @@ def make_real_gateway(
     block=False,
     expose_transport_as_fake_provider=False,
     invitation_lookup_key=None,
+    configure_account_native_bootstrap=True,
 ):
     clock = clock or ManualClock()
     gateway = None
@@ -1361,6 +1363,11 @@ def make_real_gateway(
             _gateway._configure_invitation_provisioning(
                 gateway,
                 invitation_lookup_key,
+            )
+        if configure_account_native_bootstrap:
+            _gateway._configure_account_native_bootstrap(
+                gateway,
+                ensure_account_native_principal,
             )
     except BaseException:
         if gateway is not None:

@@ -573,12 +573,26 @@ invitation and creates the active account, Google identity, and account
 lifecycle event before trusted-login completion issues the session. Later
 logins resolve the same provider and subject and require no invitation.
 
-This slice does not create an account-native product principal, bind the new
-account to a principal, or create a persistent profile. The fixed callback
-redirect remains `/account/profile`, but that surface is not usable for the
-newly provisioned account until the later principal-binding slice. Invitation
-delivery, operator administration UI, general identity linking or merging,
-and ordinary-runtime activation remain deferred.
+Every durable completion then passes the canonical account through the private
+`ensure_account_native_principal()` authority before constructing the trusted
+login proof or invoking session creation. New accounts and existing identities
+without a lineage receive one canonical account-native principal, active owner
+binding, and initial event. Existing valid lineages are resolved without new
+history or timestamp changes, including after reconstruction and concurrent
+login attempts. Ownership failure is generic and precedes all session,
+credential, CSRF, cookie, and response delivery. If invited provisioning had
+already committed, the account remains valid and a later invitation-free login
+may complete bootstrap. If session completion later fails, the valid lineage is
+preserved for reuse.
+
+Principal, binding, and event identifiers never enter OAuth material, URLs,
+redirects, cookies, browser responses, logs, or account-oriented sessions, and
+browser input cannot select the ownership environment or identity. This slice
+does not create a persistent profile. The fixed callback redirect remains
+`/account/profile`, but that surface is not usable for the newly provisioned
+account until empty-profile activation. Invitation delivery, operator
+administration UI, general identity linking or merging, legacy claiming, and
+ordinary-runtime activation remain deferred.
 
 ## Controlled test and development demo
 
@@ -618,8 +632,8 @@ This milestone does not provide:
 - public/non-loopback serving, proxy trust, certificate deployment, or
   production TLS operations;
 - invitation delivery or administration UI, general identity linking or
-  account merge, or principal/profile/ownership provisioning for a newly
-  invited account;
+  account merge, or persistent-profile provisioning for a newly invited
+  account;
 - database initialization, seeding, repair, automatic migration, or
   Migration 007;
 - a client cookie-receipt acknowledgement protocol;
