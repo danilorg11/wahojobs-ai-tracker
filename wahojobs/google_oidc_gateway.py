@@ -26,7 +26,12 @@ from wahojobs.account_reconciliation import (
     authoritative_account_row_valid,
     authoritative_auth_identity_row_valid,
 )
-from wahojobs.accounts import TrustedIdentityVerifier
+from wahojobs.accounts import (
+    AccountService,
+    AuthenticationUnavailable,
+    InvalidAccountInput,
+    TrustedIdentityVerifier,
+)
 from wahojobs.google_oidc_authorization_transactions import (
     MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES,
 )
@@ -67,6 +72,8 @@ _SUPPORTED_RESPONSE_CONTENT_ENCODINGS = frozenset(
 )
 _SUBJECT_LIMIT = 1024
 _METADATA_VERSION = "google_oidc_v1"
+_INVITATION_LOOKUP_KEY_MIN_BYTES = 32
+_INVITATION_LOOKUP_KEY_MAX_BYTES = 512
 
 _FAILURE_STATUSES = frozenset(
     {
@@ -107,6 +114,10 @@ _PREPARATION_ISSUANCE_CAPABILITY = object()
 _FAILURE_ISSUANCE_CAPABILITY = object()
 
 class _AuthenticationDenied(Exception):
+    pass
+
+
+class _DurableIdentityMissing(_AuthenticationDenied):
     pass
 
 
@@ -452,13 +463,16 @@ class GoogleOidcGateway:
             )
             cache = _GoogleOidcJwksCache(config_record)
             adapter = _RealGoogleOidcAdapter(config_record, cache)
+            identity_verifier = TrustedIdentityVerifier()
             object.__setattr__(
                 self,
                 "_record",
                 _GatewayRecord(
                     configuration=configuration,
                     configuration_record=config_record,
-                    identity_verifier=TrustedIdentityVerifier(),
+                    identity_verifier=identity_verifier,
+                    account_service=AccountService(identity_verifier),
+                    invitation_lookup_key=None,
                     provider_adapter=adapter,
                     cache=cache,
                 ),
@@ -547,6 +561,43 @@ class GoogleOidcGateway:
 
     def __init_subclass__(cls, **_kwargs):
         raise TypeError("google_oidc_gateway_not_subclassable")
+
+
+def _configure_invitation_provisioning(gateway, invitation_lookup_key):
+    """Install one server-private M002 invitation authority before use."""
+
+    key_copy = None
+    try:
+        if type(invitation_lookup_key) is not bytearray:
+            raise TypeError("google_oidc_invitation_key_buffer_required")
+        key_copy = bytearray(invitation_lookup_key)
+        _clear_buffer(invitation_lookup_key)
+        if not (
+            _INVITATION_LOOKUP_KEY_MIN_BYTES
+            <= len(key_copy)
+            <= _INVITATION_LOOKUP_KEY_MAX_BYTES
+        ):
+            raise TypeError("google_oidc_invitation_key_invalid")
+        record = _gateway_record(gateway)
+        with record.lock:
+            if (
+                record.closed
+                or record.invitation_lookup_key is not None
+                or record.invitation_lookup_key_digest is not None
+            ):
+                raise TypeError("google_oidc_gateway_unavailable")
+            record.invitation_lookup_key = key_copy
+            record.invitation_lookup_key_digest = hashlib.sha256(
+                bytes(key_copy)
+            ).digest()
+            record.attestation = _gateway_attestation(record)
+            key_copy = None
+        return gateway
+    finally:
+        _clear_buffer(invitation_lookup_key)
+        _clear_buffer(key_copy)
+        invitation_lookup_key = None
+        key_copy = None
 
 
 def _prepare_authorization_guarded(gateway_object):
@@ -840,7 +891,7 @@ def _commit_claimed_delegation(
         or type(claim_attempt) is not object
         or type(resolved) is not _ResolvedDurableIdentity
         or type(projection) is not tuple
-        or len(projection) != 4
+        or len(projection) != 6
     ):
         raise _InvalidTransaction()
     with gateway_record.lock:
@@ -931,6 +982,7 @@ def _close_gateway_record(record):
     configuration = None
     configuration_record = None
     credential = None
+    invitation_lookup_key = None
     transactions = ()
     with record.lock:
         if (
@@ -951,9 +1003,13 @@ def _close_gateway_record(record):
         configuration_record = record.configuration_record
         if type(configuration_record) is _ConfigurationRecord:
             credential = configuration_record.credential
+        invitation_lookup_key = record.invitation_lookup_key
         record.provider_adapter = None
         record.cache = None
         record.identity_verifier = None
+        record.account_service = None
+        record.invitation_lookup_key = None
+        record.invitation_lookup_key_digest = None
         record.transaction_authority = None
         record.configuration = None
         record.configuration_record = None
@@ -969,6 +1025,7 @@ def _close_gateway_record(record):
             configuration_record.client_configuration_identity = None
             configuration_record.attestation = None
     _close_credential(credential)
+    _clear_buffer(invitation_lookup_key)
     if type(cache) is _GoogleOidcJwksCache:
         try:
             cache.close()
@@ -979,6 +1036,7 @@ def _close_gateway_record(record):
     configuration = None
     configuration_record = None
     credential = None
+    invitation_lookup_key = None
     transactions = ()
 
 
@@ -1108,6 +1166,9 @@ class _GatewayRecord:
         "configuration",
         "configuration_record",
         "identity_verifier",
+        "account_service",
+        "invitation_lookup_key",
+        "invitation_lookup_key_digest",
         "provider_adapter",
         "cache",
         "transaction_authority",
@@ -1123,12 +1184,21 @@ class _GatewayRecord:
         configuration,
         configuration_record,
         identity_verifier,
+        account_service,
+        invitation_lookup_key,
         provider_adapter,
         cache,
     ):
         self.configuration = configuration
         self.configuration_record = configuration_record
         self.identity_verifier = identity_verifier
+        self.account_service = account_service
+        self.invitation_lookup_key = invitation_lookup_key
+        self.invitation_lookup_key_digest = (
+            None
+            if invitation_lookup_key is None
+            else hashlib.sha256(bytes(invitation_lookup_key)).digest()
+        )
         self.provider_adapter = provider_adapter
         self.cache = cache
         self.transaction_authority = object()
@@ -1565,11 +1635,16 @@ class _RealGoogleOidcAdapter:
             )
             if token_expires_at <= authenticated_at:
                 raise _AuthenticationDenied()
+            verified_email, email_verified = _verified_email_projection(
+                claims
+            )
             return (
                 provider_subject,
                 authenticated_at,
                 token_expires_at,
                 _ASSURANCE_POLICY_VERSION,
+                verified_email,
+                email_verified,
             )
         except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
             _detach_exception(exc)
@@ -1710,12 +1785,30 @@ def _gateway_attestation(record):
         id(record.configuration),
         id(record.configuration_record),
         id(record.identity_verifier),
+        id(record.account_service),
+        id(record.invitation_lookup_key),
+        record.invitation_lookup_key_digest,
         id(record.provider_adapter),
         id(record.cache),
         id(record.transaction_authority),
         id(record.transactions),
         id(record.lock),
     )
+
+
+def _verified_email_projection(claims):
+    if not isinstance(claims, dict):
+        try:
+            email = claims.get("email")
+            email_verified = claims.get("email_verified")
+        except (AttributeError, TypeError):
+            return None, False
+    else:
+        email = claims.get("email")
+        email_verified = claims.get("email_verified")
+    if type(email) is not str or type(email_verified) is not bool:
+        return None, False
+    return email, email_verified is True
 
 
 def _transaction_attestation(record):
@@ -1818,6 +1911,34 @@ def _gateway_record(gateway):
     if _configuration_record(record.configuration) is not record.configuration_record:
         raise TypeError("google_oidc_gateway_unavailable")
     if type(record.identity_verifier) is not TrustedIdentityVerifier:
+        raise TypeError("google_oidc_gateway_unavailable")
+    try:
+        service_verifier = object.__getattribute__(
+            record.account_service,
+            "_identity_verifier",
+        )
+    except (AttributeError, TypeError):
+        raise TypeError("google_oidc_gateway_unavailable") from None
+    invitation_key = record.invitation_lookup_key
+    invitation_digest = record.invitation_lookup_key_digest
+    if (
+        type(record.account_service) is not AccountService
+        or service_verifier is not record.identity_verifier
+        or not (
+            (invitation_key is None and invitation_digest is None)
+            or (
+                type(invitation_key) is bytearray
+                and _INVITATION_LOOKUP_KEY_MIN_BYTES
+                <= len(invitation_key)
+                <= _INVITATION_LOOKUP_KEY_MAX_BYTES
+                and type(invitation_digest) is bytes
+                and hmac.compare_digest(
+                    hashlib.sha256(bytes(invitation_key)).digest(),
+                    invitation_digest,
+                )
+            )
+        )
+    ):
         raise TypeError("google_oidc_gateway_unavailable")
     if (
         type(record.cache) is not _GoogleOidcJwksCache
@@ -2281,12 +2402,18 @@ def _verify_provider(gateway, callback_url, transaction):
     projection = adapter.verify(callback_url, transaction)
     if (
         type(projection) is not tuple
-        or len(projection) != 4
+        or len(projection) != 6
         or type(projection[0]) is not str
         or type(projection[1]) is not datetime
         or type(projection[2]) is not datetime
         or projection[2] <= projection[1]
         or projection[3] != _ASSURANCE_POLICY_VERSION
+        or (
+            projection[4] is not None
+            and type(projection[4]) is not str
+        )
+        or type(projection[5]) is not bool
+        or (projection[5] and projection[4] is None)
     ):
         raise _Unavailable()
     return projection
@@ -2306,6 +2433,7 @@ def _complete_durable_google_oidc_claimed(
     created_at,
     expires_at,
     claimed_at,
+    invitation_credential=None,
 ):
     """Complete one already-terminal durable claim through the real gateway."""
 
@@ -2381,10 +2509,14 @@ def _complete_durable_google_oidc_claimed(
         )
         if not gateway_record.identity_verifier._accepts(verified_identity):
             raise _Unavailable()
-        resolved = _resolve_durable_identity(
+        resolved = _resolve_or_provision_durable_identity(
             connection,
+            gateway_record,
             verified_identity,
+            projection,
             now,
+            invitation_credential=invitation_credential,
+            idempotency_key=request_key,
         )
         if connection.in_transaction:
             raise _Unavailable()
@@ -2455,6 +2587,7 @@ def _complete_durable_google_oidc_claimed(
         verified_identity = None
         resolved = None
         proof = None
+        invitation_credential = None
 
 
 def _validated_callback_url(callback_url, redirect_uri):
@@ -3059,7 +3192,7 @@ def _resolve_durable_identity(connection, identity, now):
         (_PROVIDER, subject),
     )
     if not identity_rows:
-        raise _AuthenticationDenied()
+        raise _DurableIdentityMissing()
     if len(identity_rows) != 1:
         raise _Unavailable()
     identity_row = identity_rows[0]
@@ -3115,6 +3248,87 @@ def _resolve_durable_identity(connection, identity, now):
         account_id=account["user_id"],
         identity_id=identity_row["auth_identity_id"],
     )
+
+
+def _resolve_or_provision_durable_identity(
+    connection,
+    gateway_record,
+    lookup_identity,
+    projection,
+    now,
+    *,
+    invitation_credential,
+    idempotency_key,
+):
+    try:
+        return _resolve_durable_identity(connection, lookup_identity, now)
+    except _DurableIdentityMissing:
+        pass
+
+    if (
+        type(gateway_record) is not _GatewayRecord
+        or type(projection) is not tuple
+        or len(projection) != 6
+        or type(projection[4]) is not str
+        or projection[5] is not True
+        or type(invitation_credential) is not bytearray
+        or not invitation_credential
+        or type(idempotency_key) is not str
+    ):
+        raise _AuthenticationDenied()
+    invitation_key = gateway_record.invitation_lookup_key
+    if type(invitation_key) is not bytearray or not invitation_key:
+        raise _Unavailable()
+    try:
+        invitation_token = bytes(invitation_credential).decode(
+            "ascii",
+            "strict",
+        )
+    except UnicodeError:
+        raise _AuthenticationDenied() from None
+
+    provisioning_identity = None
+    invitation_lookup_key = None
+    try:
+        try:
+            provisioning_identity = (
+                gateway_record.identity_verifier.from_validated_google_claims(
+                    provider_subject=projection[0],
+                    verified_email=projection[4],
+                    email_verified=True,
+                    authenticated_at=now,
+                    metadata_version=_METADATA_VERSION,
+                )
+            )
+        except (AuthenticationUnavailable, InvalidAccountInput):
+            raise _AuthenticationDenied() from None
+        if not gateway_record.identity_verifier._accepts(
+            provisioning_identity
+        ):
+            raise _Unavailable()
+        invitation_lookup_key = bytes(invitation_key)
+        try:
+            gateway_record.account_service.create_invited_user(
+                connection,
+                identity=provisioning_identity,
+                invitation_token=invitation_token,
+                invitation_lookup_key=invitation_lookup_key,
+                idempotency_key=idempotency_key,
+                now=now,
+            )
+        except AuthenticationUnavailable:
+            raise _AuthenticationDenied() from None
+        if connection.in_transaction:
+            raise _Unavailable()
+        return _resolve_durable_identity(
+            connection,
+            provisioning_identity,
+            now,
+        )
+    finally:
+        invitation_token = None
+        invitation_lookup_key = None
+        provisioning_identity = None
 
 
 def _rows(connection, sql, parameters):

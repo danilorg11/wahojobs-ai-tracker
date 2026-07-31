@@ -29,6 +29,7 @@ LOGIN_CSRF = "l" * 43
 SESSION_TOKEN = "s" * 43
 SESSION_CSRF = "c" * 43
 TRANSACTION_ID = "oidctx_" + ("a" * 32)
+INVITATION_CREDENTIAL = "inv_" + ("b" * 32) + "." + ("C" * 43)
 AUTHORIZATION_URL = (
     "https://accounts.google.com/o/oauth2/v2/auth?client_id=test-client&state=opaque"
 )
@@ -138,6 +139,8 @@ class BrowserHarness:
         self.connections = []
         self.events = []
         self.prepare_calls = 0
+        self.prepare_invitations = []
+        self.prepare_invitation_buffers = []
         self.complete_calls = []
         self.vaults = []
         self.discarded = []
@@ -159,8 +162,21 @@ class BrowserHarness:
         self.connections.append(connection)
         return connection
 
-    def prepare(self, connection, gateway, key_authority):
+    def prepare(
+        self,
+        connection,
+        gateway,
+        key_authority,
+        *,
+        invitation_credential=None,
+    ):
         self.prepare_calls += 1
+        self.prepare_invitations.append(
+            None
+            if invitation_credential is None
+            else bytes(invitation_credential)
+        )
+        self.prepare_invitation_buffers.append(invitation_credential)
         self.events.append("prepare_returned")
         self.assert_dependencies(connection, gateway, key_authority)
         return FakePreparedAuthorization(self.events)
@@ -405,6 +421,7 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         response = self.integration.handle("GET", LOGIN_ROUTE, headers())
         self.assertEqual(response.status, 200)
         self.assertIn(b"Continue with Google", response.body)
+        self.assertIn(b"name='invitation'", response.body)
         self.assertIn(LOGIN_CSRF.encode(), response.body)
         self.assertEqual(
             set_cookies(response),
@@ -445,6 +462,88 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
             cookies,
         )
         self.assertTrue(self.harness.connections[0].closed)
+
+    def test_start_binds_only_one_strict_optional_invitation_and_clears_it(self):
+        body = (
+            f"csrf={LOGIN_CSRF}&invitation={INVITATION_CREDENTIAL}"
+        ).encode("ascii")
+        response = self.integration.handle(
+            "POST",
+            GOOGLE_LOGIN_START_ROUTE,
+            headers(
+                origin=True,
+                cookie=f"{LOGIN_CSRF_COOKIE_NAME}={LOGIN_CSRF}",
+                body=body,
+            ),
+            io.BytesIO(body),
+        )
+        self.assertEqual(response.status, 303)
+        self.assertEqual(
+            self.harness.prepare_invitations,
+            [INVITATION_CREDENTIAL.encode("ascii")],
+        )
+        self.assertEqual(
+            self.harness.prepare_invitation_buffers,
+            [bytearray()],
+        )
+        public = repr(response) + repr(response.headers) + str(response.body)
+        self.assertNotIn(INVITATION_CREDENTIAL, public)
+        self.assertNotIn(
+            INVITATION_CREDENTIAL,
+            dict(response.headers)["Location"],
+        )
+
+        invalid_values = (
+            "not-an-invitation",
+            "inv_" + ("b" * 32) + "." + ("C" * 42),
+            INVITATION_CREDENTIAL + "x",
+            "x" * 129,
+        )
+        for value in invalid_values:
+            with self.subTest(value_length=len(value)):
+                harness = BrowserHarness()
+                integration = harness.integration()
+                candidate = f"csrf={LOGIN_CSRF}&invitation={value}".encode(
+                    "ascii"
+                )
+                rejected = integration.handle(
+                    "POST",
+                    GOOGLE_LOGIN_START_ROUTE,
+                    headers(
+                        origin=True,
+                        cookie=(
+                            f"{LOGIN_CSRF_COOKIE_NAME}={LOGIN_CSRF}"
+                        ),
+                        body=candidate,
+                    ),
+                    io.BytesIO(candidate),
+                )
+                self.assertEqual(rejected.status, 403)
+                self.assertEqual(harness.prepare_calls, 0)
+                self.assertNotIn(value, str(rejected.body))
+
+        duplicate_harness = BrowserHarness()
+        duplicate_integration = duplicate_harness.integration()
+        duplicate = (
+            f"csrf={LOGIN_CSRF}&invitation={INVITATION_CREDENTIAL}"
+            f"&invitation={INVITATION_CREDENTIAL}"
+        ).encode("ascii")
+        rejected_duplicate = duplicate_integration.handle(
+            "POST",
+            GOOGLE_LOGIN_START_ROUTE,
+            headers(
+                origin=True,
+                cookie=f"{LOGIN_CSRF_COOKIE_NAME}={LOGIN_CSRF}",
+                body=duplicate,
+            ),
+            io.BytesIO(duplicate),
+        )
+        self.assertEqual(rejected_duplicate.status, 403)
+        self.assertEqual(duplicate_harness.prepare_calls, 0)
+        self.assertNotIn(
+            INVITATION_CREDENTIAL,
+            str(rejected_duplicate.body),
+        )
 
     def test_start_rejects_csrf_query_duplicates_and_unbounded_bodies_without_prepare(self):
         requests = (

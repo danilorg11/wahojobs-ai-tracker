@@ -272,6 +272,7 @@ def _complete_claimed_authorization(
             created_at=created_at,
             expires_at=expires_at,
             claimed_at=claimed_at,
+            invitation_credential=invitation_credential,
         )
     finally:
         _clear_buffer(invitation_credential)

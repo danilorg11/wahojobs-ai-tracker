@@ -33,6 +33,8 @@ MAX_KEY_VERSIONS = 3
 CLIENT_SECRET_MIN_BYTES = 16
 CLIENT_SECRET_MAX_BYTES = 512
 TRANSACTION_KEY_BYTES = 32
+INVITATION_LOOKUP_KEY_MIN_BYTES = 32
+INVITATION_LOOKUP_KEY_MAX_BYTES = 512
 POST_LOGIN_PATH = "/account/profile"
 CALLBACK_PATH = "/auth/google/callback"
 _EXPECTED_CLOSED_SCHEMA_OBJECT_COUNT = 174
@@ -75,6 +77,9 @@ _CONFIGURATION_FIELDS = frozenset(
         "session_absolute_ttl_seconds",
         "allowed_post_login_paths",
     }
+)
+_OPTIONAL_CONFIGURATION_FIELDS = frozenset(
+    {"account_invitation_lookup_key_file"}
 )
 _KEY_REFERENCE_FIELDS = frozenset({"version", "file"})
 _CLIENT_ID = re.compile(r"^[\x21-\x7e]{8,256}$")
@@ -203,6 +208,7 @@ class _PureConfiguration:
     google_redirect_uri: str
     google_client_id: str
     google_client_secret_path_text: str
+    account_invitation_lookup_key_path_text: str | None
     oidc_lookup_keys: tuple[_OidcKeyPathSpecification, ...]
     oidc_lookup_active_version: int
     oidc_protection_keys: tuple[_OidcKeyPathSpecification, ...]
@@ -221,6 +227,7 @@ class _DurableGoogleLoginConstructionConfiguration:
     google_redirect_uri: str
     google_client_id: str
     google_client_secret_file: _ValidatedFileReference
+    account_invitation_lookup_key_file: _ValidatedFileReference | None
     oidc_lookup_keys: tuple[_OidcKeyFileReference, ...]
     oidc_lookup_active_version: int
     oidc_protection_keys: tuple[_OidcKeyFileReference, ...]
@@ -240,6 +247,7 @@ class _GoogleGatewayConstructionConfiguration:
     environment: str
     google_redirect_uri: str
     google_client_id: str
+    invitation_lookup_key: bytearray | None
 
     def __repr__(self):
         return "_GoogleGatewayConstructionConfiguration(<redacted>)"
@@ -5521,19 +5529,28 @@ def _prepare_durable_google_login_activation_worker(
     browser_integration = None
     target = None
     secret_token = None
+    invitation_lookup_key = None
     completed = False
     cleanup_report = None
     try:
         target = configuration.database_target
         if pre_secret_preparer is not None:
             pre_secret_preparer()
-        client_secret, lookup_keys, protection_keys = _load_authority_material(
-            configuration
-        )
+        (
+            client_secret,
+            invitation_lookup_key,
+            lookup_keys,
+            protection_keys,
+        ) = _load_authority_material(configuration)
         _emit_runtime_checkpoint(checkpoint, "secrets_loaded")
         secret_token = coordinator.own(
             "secret_buffers",
-            (client_secret, lookup_keys, protection_keys),
+            (
+                client_secret,
+                invitation_lookup_key,
+                lookup_keys,
+                protection_keys,
+            ),
             _cleanup_secret_material,
         )
         try:
@@ -5547,7 +5564,10 @@ def _prepare_durable_google_login_activation_worker(
             )
             _emit_runtime_checkpoint(checkpoint, "database_attested")
             if gateway_factory is None:
-                from wahojobs.google_oidc_gateway import GoogleOidcGateway
+                from wahojobs.google_oidc_gateway import (
+                    GoogleOidcGateway,
+                    _configure_invitation_provisioning,
+                )
 
                 gateway = GoogleOidcGateway(
                     client_id=configuration.google_client_id,
@@ -5555,6 +5575,11 @@ def _prepare_durable_google_login_activation_worker(
                     redirect_uri=configuration.google_redirect_uri,
                     environment_namespace=configuration.environment,
                 )
+                if invitation_lookup_key is not None:
+                    _configure_invitation_provisioning(
+                        gateway,
+                        invitation_lookup_key,
+                    )
             else:
                 gateway_configuration = (
                     _GoogleGatewayConstructionConfiguration(
@@ -5563,6 +5588,7 @@ def _prepare_durable_google_login_activation_worker(
                             configuration.google_redirect_uri
                         ),
                         google_client_id=configuration.google_client_id,
+                        invitation_lookup_key=invitation_lookup_key,
                     )
                 )
                 gateway = gateway_factory(
@@ -5579,7 +5605,10 @@ def _prepare_durable_google_login_activation_worker(
             _emit_runtime_checkpoint(checkpoint, "gateway_constructed")
             if client_secret:
                 raise DurableGoogleLoginConfigurationError()
+            if invitation_lookup_key:
+                raise DurableGoogleLoginConfigurationError()
             client_secret = None
+            invitation_lookup_key = None
 
             from wahojobs.google_oidc_transaction_protection import (
                 GoogleOidcTransactionKeyAuthority,
@@ -5625,6 +5654,7 @@ def _prepare_durable_google_login_activation_worker(
             protection_keys = None
         finally:
             _clear_buffer(client_secret)
+            _clear_buffer(invitation_lookup_key)
             _clear_key_buffers(lookup_keys)
             _clear_key_buffers(protection_keys)
             if secret_token is not None:
@@ -5897,10 +5927,15 @@ def _validated_configuration(document):
     if type(document) is not dict:
         raise DurableGoogleLoginConfigurationError()
     fields = tuple(document.keys())
+    field_set = frozenset(fields)
     if (
-        len(fields) != len(_CONFIGURATION_FIELDS)
-        or any(type(field) is not str for field in fields)
-        or frozenset(fields) != _CONFIGURATION_FIELDS
+        any(type(field) is not str for field in fields)
+        or field_set
+        not in {
+            _CONFIGURATION_FIELDS,
+            _CONFIGURATION_FIELDS | _OPTIONAL_CONFIGURATION_FIELDS,
+        }
+        or len(fields) != len(field_set)
     ):
         raise DurableGoogleLoginConfigurationError()
     if (
@@ -5941,6 +5976,13 @@ def _validated_configuration(document):
     database_path_text = _validated_path_text(document["database_path"])
     client_secret_path_text = _validated_path_text(
         document["google_client_secret_file"]
+    )
+    invitation_lookup_key_path_text = (
+        None
+        if "account_invitation_lookup_key_file" not in document
+        else _validated_path_text(
+            document["account_invitation_lookup_key_file"]
+        )
     )
     lookup_keys = _validated_key_path_specifications(
         document["oidc_lookup_keys"]
@@ -5988,6 +6030,11 @@ def _validated_configuration(document):
     path_texts = (
         database_path_text,
         client_secret_path_text,
+        *(
+            ()
+            if invitation_lookup_key_path_text is None
+            else (invitation_lookup_key_path_text,)
+        ),
         *(item.path_text for item in lookup_keys),
         *(item.path_text for item in protection_keys),
     )
@@ -6005,6 +6052,9 @@ def _validated_configuration(document):
         google_redirect_uri=google_redirect_uri,
         google_client_id=client_id,
         google_client_secret_path_text=client_secret_path_text,
+        account_invitation_lookup_key_path_text=(
+            invitation_lookup_key_path_text
+        ),
         oidc_lookup_keys=lookup_keys,
         oidc_lookup_active_version=lookup_active,
         oidc_protection_keys=protection_keys,
@@ -6029,6 +6079,14 @@ def _resolve_configuration_files(pure, *, configuration_reference):
     client_secret_file = _validated_file_reference(
         pure.google_client_secret_path_text,
         secret=True,
+    )
+    invitation_lookup_key_file = (
+        None
+        if pure.account_invitation_lookup_key_path_text is None
+        else _validated_file_reference(
+            pure.account_invitation_lookup_key_path_text,
+            secret=True,
+        )
     )
     lookup_keys = tuple(
         _OidcKeyFileReference(
@@ -6055,6 +6113,11 @@ def _resolve_configuration_files(pure, *, configuration_reference):
             configuration_reference,
             database_reference,
             client_secret_file,
+            *(
+                ()
+                if invitation_lookup_key_file is None
+                else (invitation_lookup_key_file,)
+            ),
             *(item.file_reference for item in lookup_keys),
             *(item.file_reference for item in protection_keys),
         )
@@ -6071,6 +6134,7 @@ def _resolve_configuration_files(pure, *, configuration_reference):
         google_redirect_uri=pure.google_redirect_uri,
         google_client_id=pure.google_client_id,
         google_client_secret_file=client_secret_file,
+        account_invitation_lookup_key_file=invitation_lookup_key_file,
         oidc_lookup_keys=lookup_keys,
         oidc_lookup_active_version=pure.oidc_lookup_active_version,
         oidc_protection_keys=protection_keys,
@@ -6397,6 +6461,7 @@ def _require_distinct_file_identities(paths):
 
 def _load_authority_material(configuration):
     client_secret = None
+    invitation_lookup_key = None
     lookup = {}
     protection = {}
     try:
@@ -6407,6 +6472,12 @@ def _load_authority_material(configuration):
         )
         if any(byte < 0x21 or byte > 0x7E for byte in client_secret):
             raise DurableGoogleLoginConfigurationError()
+        if configuration.account_invitation_lookup_key_file is not None:
+            invitation_lookup_key = _read_mutable_file(
+                configuration.account_invitation_lookup_key_file,
+                minimum=INVITATION_LOOKUP_KEY_MIN_BYTES,
+                maximum=INVITATION_LOOKUP_KEY_MAX_BYTES,
+            )
         for item in configuration.oidc_lookup_keys:
             key_buffer = None
             try:
@@ -6431,7 +6502,15 @@ def _load_authority_material(configuration):
                 key_buffer = None
             finally:
                 _clear_buffer(key_buffer)
-        key_buffers = (*lookup.values(), *protection.values())
+        key_buffers = (
+            *(
+                ()
+                if invitation_lookup_key is None
+                else (invitation_lookup_key,)
+            ),
+            *lookup.values(),
+            *protection.values(),
+        )
         if any(
             hmac.compare_digest(left, right)
             for index, left in enumerate(key_buffers)
@@ -6439,9 +6518,10 @@ def _load_authority_material(configuration):
         ):
             raise DurableGoogleLoginConfigurationError()
         key_buffers = None
-        return client_secret, lookup, protection
+        return client_secret, invitation_lookup_key, lookup, protection
     except BaseException:
         _clear_buffer(client_secret)
+        _clear_buffer(invitation_lookup_key)
         _clear_key_buffers(lookup)
         _clear_key_buffers(protection)
         raise
@@ -6450,6 +6530,11 @@ def _load_authority_material(configuration):
 def _reverify_secret_file_references(configuration):
     references = (
         configuration.google_client_secret_file,
+        *(
+            ()
+            if configuration.account_invitation_lookup_key_file is None
+            else (configuration.account_invitation_lookup_key_file,)
+        ),
         *(item.file_reference for item in configuration.oidc_lookup_keys),
         *(
             item.file_reference
@@ -7638,10 +7723,16 @@ def _cleanup_resource_is_closed(resource):
 
 
 def _cleanup_secret_material(material):
-    if type(material) is not tuple or len(material) != 3:
+    if type(material) is not tuple or len(material) != 4:
         return False
-    client_secret, lookup_keys, protection_keys = material
+    (
+        client_secret,
+        invitation_lookup_key,
+        lookup_keys,
+        protection_keys,
+    ) = material
     _clear_buffer(client_secret)
+    _clear_buffer(invitation_lookup_key)
     _clear_key_buffers(lookup_keys)
     _clear_key_buffers(protection_keys)
     return True

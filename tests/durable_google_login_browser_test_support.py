@@ -35,7 +35,10 @@ from scripts.durable_google_login_app import (
     _serve_in_thread,
 )
 from scripts.local_product_app import make_handler
-from tests.accounts_test_support import NOW as ACCOUNT_CREATED_AT
+from tests.accounts_test_support import (
+    INVITATION_KEY,
+    NOW as ACCOUNT_CREATED_AT,
+)
 from tests.google_oidc_authorization_transactions_test_support import (
     LOOKUP_KEY_MATERIAL,
     PROTECTION_KEY_MATERIAL,
@@ -92,6 +95,7 @@ class TemporaryBrowserLoginState:
             client_secret=client_secret,
             redirect_uri=configuration.google_redirect_uri,
             subject=self.subject,
+            invitation_lookup_key=configuration.invitation_lookup_key,
             **self.gateway_options,
         )
         self.gateway_harnesses.append(harness)
@@ -130,6 +134,8 @@ def temporary_browser_login_state(
     port=8443,
     mutate_configuration=None,
     install_migrations=True,
+    seed_existing_identity=True,
+    enable_invited_provisioning=False,
 ):
     with tempfile.TemporaryDirectory(
         prefix="wahojobs-durable-browser-login-"
@@ -156,59 +162,62 @@ def temporary_browser_login_state(
                 )
                 connection.row_factory = sqlite3.Row
                 connection.text_factory = str
-                created = seed_existing_google_identity(
-                    connection,
-                    suffix=FIXTURE_SUFFIX,
-                    created_at=ACCOUNT_CREATED_AT,
-                )
-                account_id = created.user.user_id
-                principal_id = add_principal(
-                    connection,
-                    suffix=FIXTURE_PRINCIPAL_SUFFIX,
-                    environment="test",
-                    principal_type="account_native",
-                    status="active",
-                    claim_policy="account_native",
-                    exclusive=1,
-                )
-                binding_id = add_binding(
-                    connection,
-                    principal_id,
-                    account_id,
-                    suffix=FIXTURE_PRINCIPAL_SUFFIX,
-                    environment="test",
-                )
-                add_activation_event(
-                    connection,
-                    principal_id,
-                    account_id,
-                    binding_id,
-                    suffix=FIXTURE_PRINCIPAL_SUFFIX,
-                    environment="test",
-                )
-                connection.commit()
-                principal = TrustedPrincipalContext(
-                    principal_id=principal_id,
-                    environment_namespace="test",
-                    principal_type="account_native",
-                    lifecycle_status="active",
-                    claim_policy="account_native",
-                    exclusive_account_binding=True,
-                    eligibility_mode="account_native",
-                    active_owner_binding=True,
-                )
-                created_profile = create_persistent_profile(
-                    connection,
-                    create_command(
-                        principal,
-                        idempotency_key="profile-create-browser-login",
-                        source_text=(
-                            "Existing profile for the durable browser login "
-                            "fixture."
+                if seed_existing_identity:
+                    created = seed_existing_google_identity(
+                        connection,
+                        suffix=FIXTURE_SUFFIX,
+                        created_at=ACCOUNT_CREATED_AT,
+                    )
+                    account_id = created.user.user_id
+                    principal_id = add_principal(
+                        connection,
+                        suffix=FIXTURE_PRINCIPAL_SUFFIX,
+                        environment="test",
+                        principal_type="account_native",
+                        status="active",
+                        claim_policy="account_native",
+                        exclusive=1,
+                    )
+                    binding_id = add_binding(
+                        connection,
+                        principal_id,
+                        account_id,
+                        suffix=FIXTURE_PRINCIPAL_SUFFIX,
+                        environment="test",
+                    )
+                    add_activation_event(
+                        connection,
+                        principal_id,
+                        account_id,
+                        binding_id,
+                        suffix=FIXTURE_PRINCIPAL_SUFFIX,
+                        environment="test",
+                    )
+                    connection.commit()
+                    principal = TrustedPrincipalContext(
+                        principal_id=principal_id,
+                        environment_namespace="test",
+                        principal_type="account_native",
+                        lifecycle_status="active",
+                        claim_policy="account_native",
+                        exclusive_account_binding=True,
+                        eligibility_mode="account_native",
+                        active_owner_binding=True,
+                    )
+                    created_profile = create_persistent_profile(
+                        connection,
+                        create_command(
+                            principal,
+                            idempotency_key=(
+                                "profile-create-browser-login"
+                            ),
+                            source_text=(
+                                "Existing profile for the durable browser "
+                                "login fixture."
+                            ),
                         ),
-                    ),
-                )
-                profile_id = created_profile.profile_id
+                    )
+                    profile_id = created_profile.profile_id
             finally:
                 connection.close()
         else:
@@ -216,9 +225,16 @@ def temporary_browser_login_state(
                 pass
 
         client_secret_path = directory / "google-client-secret.bin"
+        invitation_lookup_key_path = (
+            directory / "invitation-lookup.key"
+            if enable_invited_provisioning
+            else None
+        )
         lookup_path = directory / "lookup-1.key"
         protection_path = directory / "protection-11.key"
         _write_secret(client_secret_path, CLIENT_SECRET)
+        if invitation_lookup_key_path is not None:
+            _write_secret(invitation_lookup_key_path, INVITATION_KEY)
         _write_secret(lookup_path, LOOKUP_KEY_MATERIAL[1])
         _write_secret(protection_path, PROTECTION_KEY_MATERIAL[11])
 
@@ -246,6 +262,10 @@ def temporary_browser_login_state(
             "session_absolute_ttl_seconds": 604_800,
             "allowed_post_login_paths": ["/account/profile"],
         }
+        if invitation_lookup_key_path is not None:
+            document["account_invitation_lookup_key_file"] = str(
+                invitation_lookup_key_path
+            )
         if mutate_configuration is not None:
             mutate_configuration(document)
         configuration_path = directory / "runtime.json"
@@ -419,11 +439,20 @@ class _PreparedAuthorizationUrl:
         self.authorization_url = authorization_url
 
 
-def provider_callback_for(state, authorization_url, *, code="browser-code"):
+def provider_callback_for(
+    state,
+    authorization_url,
+    *,
+    code="browser-code",
+    claims_overrides=None,
+    missing_claims=(),
+):
     return state.gateway_harness.transport.callback_for(
         _PreparedAuthorizationUrl(authorization_url),
         code=code,
         base_uri=state.redirect_uri,
+        claims_overrides=claims_overrides,
+        missing_claims=missing_claims,
     )
 
 

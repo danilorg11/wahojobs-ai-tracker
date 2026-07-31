@@ -4,6 +4,7 @@ import inspect
 import sqlite3
 import threading
 import unittest
+from datetime import timedelta
 from unittest import mock
 
 from tests.google_oidc_authorization_transactions_test_support import (
@@ -13,6 +14,7 @@ from tests.google_oidc_authorization_transactions_test_support import (
     durable_transaction_database,
     key_authority,
     make_real_gateway,
+    NOW,
     open_connection,
     request_secret_vault,
     sockets_blocked,
@@ -23,6 +25,8 @@ import wahojobs.google_oidc_authorization_transaction_repository as repository
 import wahojobs.google_oidc_durable_gateway as durable_gateway_module
 import wahojobs.google_oidc_gateway as gateway_module
 import wahojobs.google_oidc_transaction_protection as protection
+from tests.accounts_test_support import INVITATION_KEY
+from wahojobs import accounts
 from wahojobs.google_oidc_authorization_transactions import (
     MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES,
     PreparedDurableGoogleOidcAuthorization,
@@ -59,6 +63,25 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         value = request_secret_vault()
         self.addCleanup(close_secret_vault, value)
         return value
+
+    def invitation(
+        self,
+        database,
+        suffix,
+        email,
+        *,
+        now=NOW,
+        expires_at=None,
+    ):
+        return accounts.create_invitation(
+            database.connection,
+            email=email,
+            lookup_key=INVITATION_KEY,
+            expires_at=expires_at or now + timedelta(days=7),
+            created_by="b23b_test_operator",
+            idempotency_key=f"b23b-invitation-{suffix}",
+            now=now,
+        )
 
     def prepare(
         self,
@@ -455,7 +478,9 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         )
         observed = []
         retained = []
-        original = durable_gateway_module._complete_claimed_authorization
+        original = (
+            durable_gateway_module._complete_durable_google_oidc_claimed
+        )
 
         def observe(*args, **kwargs):
             invitation = kwargs["invitation_credential"]
@@ -465,7 +490,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
 
         with mock.patch.object(
             durable_gateway_module,
-            "_complete_claimed_authorization",
+            "_complete_durable_google_oidc_claimed",
             side_effect=observe,
         ) as completion:
             result = complete_durable_google_oidc_authorization(
@@ -496,6 +521,42 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         public_text = repr(result) + str(result) + repr(replay)
         self.assertNotIn(invitation_text, public_text)
 
+        plain_database = self.database("invitation-free-handoff")
+        plain_authority = self.keep(key_authority())
+        plain_gateway = self.keep(
+            make_real_gateway(subject=plain_database.subject)
+        )
+        plain_prepared = prepare_durable_google_oidc_authorization(
+            plain_database.connection,
+            plain_gateway.gateway,
+            plain_authority,
+        )
+        plain_callback = plain_gateway.transport.callback_for(
+            plain_prepared
+        )
+        plain_observed = []
+
+        def observe_plain(*args, **kwargs):
+            plain_observed.append(kwargs["invitation_credential"])
+            return original(*args, **kwargs)
+
+        with mock.patch.object(
+            durable_gateway_module,
+            "_complete_durable_google_oidc_claimed",
+            side_effect=observe_plain,
+        ):
+            plain_result = complete_durable_google_oidc_authorization(
+                plain_database.connection,
+                plain_gateway.gateway,
+                plain_authority,
+                plain_callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(plain_result.status, "issued")
+        self.assertEqual(plain_observed, [None])
+        plain_prepared.close()
+
     def test_callback_query_cannot_add_or_replace_bound_invitation(self):
         invitation = bytearray(
             ("inv_" + ("1" * 32) + "." + ("G" * 43)).encode("ascii")
@@ -523,6 +584,477 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(
             transaction_rows(database.connection)[0]["lifecycle"],
             "prepared",
+        )
+
+    def test_invited_identity_is_atomic_then_resolves_without_invitation(self):
+        database = self.database("invited-first-login")
+        subject = "google-subject-invited-first-login-new"
+        email = "invited-first-login@example.test"
+        invitation = self.invitation(database, "first-login", email)
+        authority = self.keep(key_authority())
+        harness = self.keep(
+            make_real_gateway(
+                subject=subject,
+                invitation_lookup_key=bytearray(INVITATION_KEY),
+            )
+        )
+        protected = bytearray(invitation.invitation_token.encode("ascii"))
+        before = {
+            table: database.connection.execute(
+                f'SELECT COUNT(*) FROM "{table}"'
+            ).fetchone()[0]
+            for table in (
+                "users",
+                "auth_identities",
+                "account_lifecycle_events",
+                "account_sessions",
+                "product_principals",
+                "principal_account_bindings",
+                "product_profiles",
+            )
+        }
+        prepared = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            invitation_credential=protected,
+        )
+        self.assertEqual(protected, bytearray())
+        self.assertNotIn(
+            invitation.invitation_token,
+            prepared.authorization_url,
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            claims_overrides={
+                "email": email,
+                "email_verified": True,
+            },
+        )
+        first = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            callback,
+            completion_policy(),
+            self.vault(),
+        )
+        self.assertEqual(first.status, "issued")
+        identity = database.connection.execute(
+            "SELECT auth_identity_id, user_id, verified_email, email_verified "
+            "FROM auth_identities WHERE provider = 'google' "
+            "AND provider_subject = ?",
+            (subject,),
+        ).fetchone()
+        self.assertIsNotNone(identity)
+        account_id = identity["user_id"]
+        self.assertEqual(identity["verified_email"], email)
+        self.assertEqual(identity["email_verified"], 1)
+        invitation_row = database.connection.execute(
+            "SELECT invitation_status, consumed_by_user_id "
+            "FROM account_invitations WHERE invitation_id = ?",
+            (invitation.invitation.invitation_id,),
+        ).fetchone()
+        self.assertEqual(tuple(invitation_row), ("consumed", account_id))
+
+        later = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+        )
+        later_callback = harness.transport.callback_for(
+            later,
+            code="later-invited-login",
+            missing_claims=("email", "email_verified"),
+        )
+        second = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            later_callback,
+            completion_policy(),
+            self.vault(),
+        )
+        replay = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            callback,
+            completion_policy(),
+            self.vault(),
+        )
+        self.assertEqual(second.status, "issued")
+        self.assertEqual(replay.status, "invalid_or_expired_transaction")
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM users"
+            ).fetchone()[0],
+            before["users"] + 1,
+        )
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM auth_identities"
+            ).fetchone()[0],
+            before["auth_identities"] + 1,
+        )
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM account_lifecycle_events"
+            ).fetchone()[0],
+            before["account_lifecycle_events"] + 1,
+        )
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM account_sessions WHERE user_id = ?",
+                (account_id,),
+            ).fetchone()[0],
+            2,
+        )
+        for table in (
+            "product_principals",
+            "principal_account_bindings",
+            "product_profiles",
+        ):
+            self.assertEqual(
+                database.connection.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0],
+                before[table],
+            )
+        public = repr(first) + repr(second) + repr(replay)
+        self.assertNotIn(invitation.invitation_token, public)
+        prepared.close()
+        later.close()
+
+    def test_existing_identity_never_consumes_a_presented_invitation(self):
+        database = self.database("existing-with-invitation")
+        invitation = self.invitation(
+            database,
+            "existing-identity",
+            "unused-existing-invitation@example.test",
+        )
+        authority = self.keep(key_authority())
+        harness = self.keep(
+            make_real_gateway(
+                subject=database.subject,
+                invitation_lookup_key=bytearray(INVITATION_KEY),
+            )
+        )
+        prepared = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            invitation_credential=bytearray(
+                invitation.invitation_token.encode("ascii")
+            ),
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            missing_claims=("email", "email_verified"),
+        )
+        result = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            callback,
+            completion_policy(),
+            self.vault(),
+        )
+        self.assertEqual(result.status, "issued")
+        row = database.connection.execute(
+            "SELECT invitation_status, consumed_at, consumed_by_user_id "
+            "FROM account_invitations WHERE invitation_id = ?",
+            (invitation.invitation.invitation_id,),
+        ).fetchone()
+        self.assertEqual(tuple(row), ("pending", None, None))
+        prepared.close()
+
+    def test_post_provision_failure_preserves_resolvable_identity(self):
+        database = self.database("post-provision-completion-failure")
+        subject = "google-subject-post-provision-failure"
+        email = "post-provision-failure@example.test"
+        invitation = self.invitation(database, "post-provision", email)
+        authority = self.keep(key_authority())
+        harness = self.keep(
+            make_real_gateway(
+                subject=subject,
+                invitation_lookup_key=bytearray(INVITATION_KEY),
+            )
+        )
+        prepared = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            invitation_credential=bytearray(
+                invitation.invitation_token.encode("ascii")
+            ),
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            claims_overrides={
+                "email": email,
+                "email_verified": True,
+            },
+        )
+        with mock.patch.object(
+            gateway_module,
+            "complete_trusted_login",
+            side_effect=RuntimeError("b23b_trusted_completion_failure"),
+        ):
+            failed = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(failed.status, "unavailable")
+        identity = database.connection.execute(
+            "SELECT user_id FROM auth_identities WHERE provider = 'google' "
+            "AND provider_subject = ?",
+            (subject,),
+        ).fetchone()
+        self.assertIsNotNone(identity)
+        account_id = identity["user_id"]
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM account_sessions WHERE user_id = ?",
+                (account_id,),
+            ).fetchone()[0],
+            0,
+        )
+
+        later = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+        )
+        later_callback = harness.transport.callback_for(
+            later,
+            code="post-provision-later-login",
+            missing_claims=("email", "email_verified"),
+        )
+        recovered = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            later_callback,
+            completion_policy(),
+            self.vault(),
+        )
+        self.assertEqual(recovered.status, "issued")
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM users"
+            ).fetchone()[0],
+            2,
+        )
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM auth_identities WHERE provider = "
+                "'google' AND provider_subject = ?",
+                (subject,),
+            ).fetchone()[0],
+            1,
+        )
+        self.assertEqual(
+            database.connection.execute(
+                "SELECT COUNT(*) FROM account_sessions WHERE user_id = ?",
+                (account_id,),
+            ).fetchone()[0],
+            1,
+        )
+        prepared.close()
+        later.close()
+
+    def test_new_identity_failures_leave_account_state_unchanged(self):
+        scenarios = (
+            ("missing-invitation", None, "new@example.test", True),
+            (
+                "unknown-invitation",
+                "inv_" + ("9" * 32) + "." + ("Z" * 43),
+                "new@example.test",
+                True,
+            ),
+            ("missing-email", "create", None, True),
+            ("unverified-email", "create", "new@example.test", False),
+            ("malformed-email", "create", "not-an-email", True),
+            ("mismatched-email", "create", "other@example.test", True),
+            ("expired-invitation", "expired", "new@example.test", True),
+            ("revoked-invitation", "revoked", "new@example.test", True),
+            ("consumed-invitation", "consumed", "new@example.test", True),
+        )
+        for name, invitation_mode, email, verified in scenarios:
+            with self.subTest(name=name):
+                database = self.database(f"invite-failure-{name}")
+                invitation = (
+                    None
+                    if invitation_mode not in {
+                        "create",
+                        "expired",
+                        "revoked",
+                        "consumed",
+                    }
+                    else self.invitation(
+                        database,
+                        f"failure-{name}",
+                        "new@example.test",
+                        now=(
+                            NOW - timedelta(days=2)
+                            if invitation_mode == "expired"
+                            else NOW
+                        ),
+                        expires_at=(
+                            NOW - timedelta(days=1)
+                            if invitation_mode == "expired"
+                            else None
+                        ),
+                    )
+                )
+                expected_invitation_status = "pending"
+                if invitation_mode == "revoked":
+                    accounts.revoke_invitation(
+                        database.connection,
+                        invitation_id=(
+                            invitation.invitation.invitation_id
+                        ),
+                        now=NOW,
+                    )
+                    expected_invitation_status = "revoked"
+                elif invitation_mode == "consumed":
+                    verifier = accounts.TrustedIdentityVerifier()
+                    service = accounts.AccountService(verifier)
+                    consumed_identity = (
+                        verifier.from_validated_google_claims(
+                            provider_subject=(
+                                "google-subject-consumed-invitation-owner"
+                            ),
+                            verified_email="new@example.test",
+                            email_verified=True,
+                            authenticated_at=NOW,
+                            metadata_version="google_oidc_v1",
+                        )
+                    )
+                    service.create_invited_user(
+                        database.connection,
+                        identity=consumed_identity,
+                        invitation_token=invitation.invitation_token,
+                        invitation_lookup_key=INVITATION_KEY,
+                        idempotency_key="b23b-consumed-invitation-owner",
+                        now=NOW,
+                    )
+                    expected_invitation_status = "consumed"
+                credential = (
+                    invitation_mode
+                    if invitation is None
+                    else invitation.invitation_token
+                )
+                before = tuple(
+                    database.connection.execute(
+                        f'SELECT COUNT(*) FROM "{table}"'
+                    ).fetchone()[0]
+                    for table in (
+                        "users",
+                        "auth_identities",
+                        "account_lifecycle_events",
+                        "account_sessions",
+                    )
+                )
+                authority = self.keep(key_authority())
+                harness = self.keep(
+                    make_real_gateway(
+                        subject=f"google-subject-{name}-new",
+                        invitation_lookup_key=bytearray(INVITATION_KEY),
+                    )
+                )
+                prepared = prepare_durable_google_oidc_authorization(
+                    database.connection,
+                    harness.gateway,
+                    authority,
+                    invitation_credential=(
+                        None
+                        if credential is None
+                        else bytearray(credential.encode("ascii"))
+                    ),
+                )
+                claims = {"email_verified": verified}
+                missing = ()
+                if email is None:
+                    missing = ("email",)
+                else:
+                    claims["email"] = email
+                callback = harness.transport.callback_for(
+                    prepared,
+                    claims_overrides=claims,
+                    missing_claims=missing,
+                )
+                result = complete_durable_google_oidc_authorization(
+                    database.connection,
+                    harness.gateway,
+                    authority,
+                    callback,
+                    completion_policy(),
+                    self.vault(),
+                )
+                self.assertEqual(result.status, "authentication_denied")
+                after = tuple(
+                    database.connection.execute(
+                        f'SELECT COUNT(*) FROM "{table}"'
+                    ).fetchone()[0]
+                    for table in (
+                        "users",
+                        "auth_identities",
+                        "account_lifecycle_events",
+                        "account_sessions",
+                    )
+                )
+                self.assertEqual(after, before)
+                if invitation is not None:
+                    self.assertEqual(
+                        database.connection.execute(
+                            "SELECT invitation_status FROM "
+                            "account_invitations WHERE invitation_id = ?",
+                            (invitation.invitation.invitation_id,),
+                        ).fetchone()[0],
+                        expected_invitation_status,
+                    )
+                prepared.close()
+
+    def test_private_handoff_clears_invitation_after_downstream_failure(self):
+        invitation = bytearray(
+            ("inv_" + ("4" * 32) + "." + ("Q" * 43)).encode("ascii")
+        )
+        retained = invitation
+        with mock.patch.object(
+            durable_gateway_module,
+            "_complete_durable_google_oidc_claimed",
+            side_effect=RuntimeError("closed_downstream_failure"),
+        ) as downstream:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "^closed_downstream_failure$",
+            ):
+                durable_gateway_module._complete_claimed_authorization(
+                    object(),
+                    object(),
+                    "callback",
+                    object(),
+                    object(),
+                    state=bytearray(b"state"),
+                    nonce=bytearray(b"nonce"),
+                    pkce_verifier=bytearray(b"verifier"),
+                    b2d1_request_key=bytearray(b"request"),
+                    invitation_credential=invitation,
+                    created_at=object(),
+                    expires_at=object(),
+                    claimed_at=object(),
+                )
+        self.assertEqual(retained, bytearray())
+        self.assertEqual(downstream.call_count, 1)
+        self.assertEqual(
+            downstream.call_args.kwargs["invitation_credential"],
+            bytearray(),
         )
 
     def test_configuration_boundary_accepts_maximum_redirect_and_reconstructs(self):

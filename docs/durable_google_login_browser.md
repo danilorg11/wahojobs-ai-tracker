@@ -27,7 +27,9 @@ mode.
 ## Strict configuration document
 
 `--config` accepts one explicit absolute path to a nonsecret JSON document. The
-document must have exactly these fields and no others:
+document must have exactly the fields below and no others. The
+`account_invitation_lookup_key_file` field is optional; omitting it preserves
+invitation-free existing-identity login.
 
 ```json
 {
@@ -40,6 +42,7 @@ document must have exactly these fields and no others:
   "google_redirect_uri": "https://127.0.0.1:8443/auth/google/callback",
   "google_client_id": "<NONSECRET_CLIENT_ID>",
   "google_client_secret_file": "<ABSOLUTE_EXTERNAL_SECRET_FILE>",
+  "account_invitation_lookup_key_file": "<ABSOLUTE_EXTERNAL_M002_INVITATION_KEY_FILE>",
   "oidc_lookup_keys": [
     {"version": 1, "file": "<ABSOLUTE_EXTERNAL_32_BYTE_KEY_FILE>"}
   ],
@@ -54,7 +57,8 @@ document must have exactly these fields and no others:
 }
 ```
 
-The JSON parser rejects duplicate keys, unknown or missing fields, non-finite
+The JSON parser rejects duplicate keys, unknown or missing required fields,
+an incomplete optional-field shape, non-finite
 constants, an unsupported version, and an oversized document. There is no
 `DB_PATH` or other environment-variable fallback. Partial configuration fails
 before the launcher binds its socket. All pure and cross-field validation
@@ -66,7 +70,10 @@ not accepted.
 
 The database and every referenced file must already exist as an ordinary,
 absolute, nonsymlink file. The runtime rejects reused file identities across
-the configuration, database, client secret, and all authority-key references.
+the configuration, database, client secret, optional invitation lookup key,
+and all authority-key references. The invitation lookup key is the existing
+external M002 HMAC authority used when the operator created the invitation; it
+is never placed in the JSON document itself.
 The database path must be lexical-canonical, outside every Git checkout,
 single-linked, free of SQLite sidecars, and unavailable to another writer.
 The runtime seals that file identity, keeps a raw descriptor pinned across each
@@ -435,7 +442,12 @@ case-insensitively for its type and subtype. The existing strict parser still
 rejects parameters, surrounding or embedded whitespace, malformed syntax,
 non-ASCII lookalikes, alternate media types, and duplicate `Content-Type`
 headers. The body is limited to 1 KiB and must contain exactly one strictly
-decoded `csrf` field. The form value and login-CSRF cookie must match exactly.
+decoded `csrf` field and at most one optional strict `invitation` field. The
+form value and login-CSRF cookie must match exactly. Invitation credentials are
+accepted only in this POST body. A valid value is immediately bound into the
+durable transaction's authenticated protected material; it is not copied into
+the provider URL, callback input, state, nonce, redirect, cookie, response, or
+cleartext database fields. Callback parameters cannot add or replace it.
 Query strings, additional fields, duplicate fields, invalid encodings, and
 `next` or destination parameters are not accepted.
 
@@ -548,13 +560,25 @@ session CSRF, and revokes the current session in a short writable transaction.
 Success clears the session and session-CSRF cookies and redirects only with
 `303` to `/login`. A subsequent profile refresh requires authentication.
 
-## Existing identities only
+## Existing and invited identities
 
-Browser login does not provision, link, create, seed, repair, merge, or claim
-an account, Google identity, account-native principal, persistent profile, or
-ownership relationship. The identity lookup must find one already existing,
-eligible Google identity backed by complete existing account and profile data.
-Missing or inactive identity state fails generically before session delivery.
+Identity resolution always starts with immutable Google provider and subject.
+An existing active identity follows the established session path without an
+invitation and never consumes an invitation that was presented at login start.
+Only when that identity is absent may the private completion boundary use the
+transaction-bound credential. The cryptographically verified Google result
+must contain an authoritative verified email matching the email-bound
+invitation. `AccountService.create_invited_user()` then atomically consumes the
+invitation and creates the active account, Google identity, and account
+lifecycle event before trusted-login completion issues the session. Later
+logins resolve the same provider and subject and require no invitation.
+
+This slice does not create an account-native product principal, bind the new
+account to a principal, or create a persistent profile. The fixed callback
+redirect remains `/account/profile`, but that surface is not usable for the
+newly provisioned account until the later principal-binding slice. Invitation
+delivery, operator administration UI, general identity linking or merging,
+and ordinary-runtime activation remain deferred.
 
 ## Controlled test and development demo
 
@@ -593,8 +617,9 @@ This milestone does not provide:
 - production runtime activation or production credential integration;
 - public/non-loopback serving, proxy trust, certificate deployment, or
   production TLS operations;
-- account signup, invitation consumption, identity linking, account merge, or
-  account/profile/principal/ownership provisioning;
+- invitation delivery or administration UI, general identity linking or
+  account merge, or principal/profile/ownership provisioning for a newly
+  invited account;
 - database initialization, seeding, repair, automatic migration, or
   Migration 007;
 - a client cookie-receipt acknowledgement protocol;

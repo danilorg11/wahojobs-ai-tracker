@@ -1330,8 +1330,10 @@ def make_real_gateway(
     outcomes=("success",),
     block=False,
     expose_transport_as_fake_provider=False,
+    invitation_lookup_key=None,
 ):
     clock = clock or ManualClock()
+    gateway = None
     secret = client_secret
     if secret is None:
         secret = bytearray(CLIENT_SECRET)
@@ -1355,7 +1357,14 @@ def make_real_gateway(
             redirect_uri=redirect_uri,
             environment_namespace="test",
         )
+        if invitation_lookup_key is not None:
+            _gateway._configure_invitation_provisioning(
+                gateway,
+                invitation_lookup_key,
+            )
     except BaseException:
+        if gateway is not None:
+            gateway.close()
         transport.close()
         raise
     configuration, _configuration_record = _gateway_support_records(gateway)

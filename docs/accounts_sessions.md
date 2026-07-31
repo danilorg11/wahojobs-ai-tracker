@@ -147,13 +147,25 @@ invoked. The ordinary startup does not load a configuration, open an account
 database, read login secrets, contact an identity provider, or activate the
 login, callback, logout, or protected-profile routes.
 
-The dedicated activation authenticates only an already existing active Google
-identity and its complete existing account, account-native principal,
-persistent profile, and ownership relationship. It does not consume an
-invitation or provision, link, repair, or create an account, authentication
-identity, principal, profile, or ownership row. Its database must already
-contain the exact Migration-001 through Migration-006 schema; neither the
-launcher nor login requests initialize, seed, repair, or migrate it.
+The dedicated activation authenticates an already existing active Google
+identity without an invitation. It can also accept an operator-created
+invitation only in the login-start POST body, bind that credential inside the
+durable transaction's protected material, and provision a first account when
+the cryptographically verified Google email matches the invitation.
+`AccountService.create_invited_user()` remains the sole atomic authority for
+invitation consumption, active-account creation, Google-identity creation, and
+the initial lifecycle event. Callback input cannot add or replace the bound
+credential. Later logins resolve the same immutable provider and subject and
+need no invitation; existing identities never consume a presented invitation.
+
+This activation still does not create a product principal, account/principal
+binding, persistent profile, invitation-delivery mechanism, or administration
+UI. Consequently the fixed `/account/profile` redirect is not yet a usable
+profile surface for a newly provisioned account. Ordinary-runtime activation,
+live Google deployment, and general identity linking remain deferred. The
+database must already contain the exact Migration-001 through Migration-006
+schema; neither the launcher nor login requests initialize, seed, repair, or
+migrate it.
 
 Successful B2D1 completion produces an issued session and one request-scoped
 compensation authority. The browser adapter converts that authority into a

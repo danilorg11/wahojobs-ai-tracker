@@ -70,6 +70,9 @@ _PROXY_HEADERS = frozenset(
 _HTTP_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _COOKIE_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _OPAQUE_CREDENTIAL = re.compile(r"^[A-Za-z0-9_-]{43}$")
+_INVITATION_CREDENTIAL = re.compile(
+    r"^inv_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$"
+)
 _TRANSACTION_ID = re.compile(r"^oidctx_[0-9a-f]{32}$")
 _CONTENT_LENGTH = re.compile(r"^(?:0|[1-9][0-9]{0,3})$")
 _INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
@@ -2299,6 +2302,9 @@ class DurableGoogleLoginBrowserIntegration:
             "<p>Continue with Google to open your account profile.</p>"
             f"<form method='post' action='{GOOGLE_LOGIN_START_ROUTE}'>"
             f"<input type='hidden' name='csrf' value='{html.escape(csrf, quote=True)}'>"
+            "<label for='invitation'>Invitation credential (optional)</label>"
+            "<input id='invitation' name='invitation' type='password' "
+            "autocomplete='one-time-code' spellcheck='false'>"
             "<button type='submit'>Continue with Google</button>"
             "</form></section>",
         )
@@ -2309,7 +2315,12 @@ class DurableGoogleLoginBrowserIntegration:
         )
 
     def _start_login(self, header_items, body_stream):
-        form = _strict_form(header_items, body_stream, expected_fields=("csrf",))
+        form = _strict_form(
+            header_items,
+            body_stream,
+            expected_fields=("csrf",),
+            optional_fields=("invitation",),
+        )
         cookie, cookie_valid = _security_cookie(
             header_items,
             LOGIN_CSRF_COOKIE_NAME,
@@ -2327,9 +2338,33 @@ class DurableGoogleLoginBrowserIntegration:
                 extra_headers=(("Set-Cookie", _clear_login_csrf_cookie()),),
             )
 
+        invitation_text = form.get("invitation")
+        if invitation_text == "":
+            invitation_text = None
+        if (
+            invitation_text is not None
+            and _INVITATION_CREDENTIAL.fullmatch(invitation_text) is None
+        ):
+            form = None
+            invitation_text = None
+            return _failure_response(
+                HTTPStatus.FORBIDDEN,
+                "Sign-in request rejected",
+                "Start sign-in again from this page.",
+                extra_headers=(("Set-Cookie", _clear_login_csrf_cookie()),),
+            )
+
         connection_owner = None
         connection = None
         prepared = None
+        invitation_credential = (
+            None
+            if invitation_text is None
+            else bytearray(invitation_text.encode("ascii"))
+        )
+        if "invitation" in form:
+            form["invitation"] = None
+        invitation_text = None
         try:
             connection_owner = self._connection_factory()
             connection = self._connection_borrower(connection_owner)
@@ -2338,11 +2373,19 @@ class DurableGoogleLoginBrowserIntegration:
                 or not callable(getattr(connection_owner, "close", None))
             ):
                 raise RuntimeError("invalid_connection")
-            prepared = self._prepare_authorization(
-                connection,
-                self._gateway,
-                self._key_authority,
-            )
+            if invitation_credential is None:
+                prepared = self._prepare_authorization(
+                    connection,
+                    self._gateway,
+                    self._key_authority,
+                )
+            else:
+                prepared = self._prepare_authorization(
+                    connection,
+                    self._gateway,
+                    self._key_authority,
+                    invitation_credential=invitation_credential,
+                )
             transaction_id = prepared.transaction_id
             authorization_url = prepared.authorization_url
             if (
@@ -2376,9 +2419,11 @@ class DurableGoogleLoginBrowserIntegration:
                 extra_headers=(("Set-Cookie", _clear_login_csrf_cookie()),),
             )
         finally:
+            _clear_browser_secret(invitation_credential)
             _close_quietly(prepared)
             _close_quietly(connection_owner)
             connection = None
+            invitation_credential = None
         return response
 
     def _complete_login(
@@ -2801,7 +2846,23 @@ def _header_values(items, name):
     return tuple(value for candidate, value in items if candidate.lower() == lowered)
 
 
-def _strict_form(header_items, body_stream, *, expected_fields):
+def _strict_form(
+    header_items,
+    body_stream,
+    *,
+    expected_fields,
+    optional_fields=(),
+):
+    if (
+        type(expected_fields) is not tuple
+        or type(optional_fields) is not tuple
+        or not expected_fields
+        or any(type(name) is not str for name in (*expected_fields, *optional_fields))
+        or len(set((*expected_fields, *optional_fields)))
+        != len(expected_fields) + len(optional_fields)
+    ):
+        return None
+    allowed_fields = frozenset((*expected_fields, *optional_fields))
     content_types = _header_values(header_items, "content-type")
     lengths = _header_values(header_items, "content-length")
     transfer_encodings = _header_values(header_items, "transfer-encoding")
@@ -2843,11 +2904,15 @@ def _strict_form(header_items, body_stream, *, expected_fields):
         )
     except (UnicodeError, ValueError):
         return None
-    if len(pairs) != len(expected_fields):
+    if not (
+        len(expected_fields)
+        <= len(pairs)
+        <= len(expected_fields) + len(optional_fields)
+    ):
         return None
     values = {}
     for name, value in pairs:
-        if name not in expected_fields or name in values:
+        if name not in allowed_fields or name in values:
             return None
         if (
             type(value) is not str
@@ -2856,9 +2921,15 @@ def _strict_form(header_items, body_stream, *, expected_fields):
         ):
             return None
         values[name] = value
-    if tuple(sorted(values)) != tuple(sorted(expected_fields)):
+    if any(name not in values for name in expected_fields):
         return None
     return values
+
+
+def _clear_browser_secret(value):
+    if type(value) is bytearray:
+        value[:] = b"\x00" * len(value)
+        value.clear()
 
 
 def _security_cookie(header_items, name, value_pattern):

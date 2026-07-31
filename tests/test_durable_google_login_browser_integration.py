@@ -1,4 +1,5 @@
 from contextlib import ExitStack
+from datetime import timedelta
 import hashlib
 import io
 import json
@@ -16,6 +17,7 @@ from scripts.durable_google_login_fixture_demo import (
     FIXTURE_COMPLETE_ROUTE,
     _ControlledProviderBridge,
 )
+from tests.accounts_test_support import INVITATION_KEY
 from tests.google_oidc_authorization_transactions_test_support import (
     LOOKUP_KEY_MATERIAL,
     PROTECTION_KEY_MATERIAL,
@@ -42,6 +44,7 @@ from tests.google_oidc_gateway_test_support import (
 from wahojobs.durable_google_login_runtime import (
     build_durable_google_login_runtime,
 )
+from wahojobs import accounts
 
 
 class _B22PreparedAuthorizationUrl:
@@ -446,8 +449,10 @@ class _B22FreshBrowserLoginWorker(FreshBrowserLoginWorker):
 
 
 class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
-    def start_application(self, stack):
-        state = stack.enter_context(temporary_browser_login_state())
+    def start_application(self, stack, **state_options):
+        state = stack.enter_context(
+            temporary_browser_login_state(**state_options)
+        )
         runtime = build_durable_google_login_runtime(
             state.configuration_path,
             _clock=state.clock,
@@ -482,7 +487,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
             else:
                 cookies.pop(name, None)
 
-    def begin_login(self, state):
+    def begin_login(self, state, *, invitation=None):
         cookies = {}
         login = https_request(state, "GET", "/login")
         self.assertEqual(login.status, 200)
@@ -490,10 +495,13 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
         self.update_cookies(cookies, login)
         csrf = cookies["__Host-wahojobs_login_csrf"]
 
+        values = {"csrf": csrf}
+        if invitation is not None:
+            values["invitation"] = invitation
         start = self.request_form(
             state,
             "/auth/google/start",
-            {"csrf": csrf},
+            values,
             cookies,
         )
         self.assertEqual(start.status, 303)
@@ -511,6 +519,258 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
             r"^oidctx_[0-9a-f]{32}$",
         )
         return cookies, provider_url, start
+
+    def test_invited_first_login_restarts_then_later_login_reuses_account(self):
+        email = "private-beta-invite@example.test"
+        preserved_tables = (
+            "product_principals",
+            "legacy_owner_aliases",
+            "principal_account_bindings",
+            "ownership_binding_events",
+            "product_profiles",
+            "product_profile_revisions",
+            "product_profile_sources",
+            "user_pipeline_items",
+            "user_pipeline_state",
+            "user_pipeline_transitions",
+        )
+        with ExitStack() as stack:
+            state = stack.enter_context(
+                temporary_browser_login_state(
+                    seed_existing_identity=False,
+                    enable_invited_provisioning=True,
+                )
+            )
+            stack.enter_context(loopback_and_in_memory_provider_only())
+            connection = sqlite3.connect(state.database_path)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            try:
+                invitation = accounts.create_invitation(
+                    connection,
+                    email=email,
+                    lookup_key=INVITATION_KEY,
+                    expires_at=NOW + timedelta(days=7),
+                    created_by="b23b_integration_operator",
+                    idempotency_key="b23b-integration-invitation",
+                    now=NOW,
+                )
+                preserved_before = {
+                    table: connection.execute(
+                        f'SELECT COUNT(*) FROM "{table}"'
+                    ).fetchone()[0]
+                    for table in preserved_tables
+                }
+            finally:
+                connection.close()
+
+            first_runtime = build_durable_google_login_runtime(
+                state.configuration_path,
+                _clock=state.clock,
+                _gateway_factory=state.gateway_factory,
+            )
+            with running_https_browser_app(first_runtime):
+                cookies, provider_url, start = self.begin_login(
+                    state,
+                    invitation=invitation.invitation_token,
+                )
+            first_transaction_cookie = cookies[
+                "__Host-wahojobs_google_tx"
+            ]
+            self.assertNotIn(invitation.invitation_token, provider_url)
+            self.assertNotIn(
+                invitation.invitation_token,
+                repr(start.headers) + repr(start.body),
+            )
+            first_cleanup = first_runtime.close()
+            self.assertTrue(first_cleanup.cleanup_complete)
+            state.close_harnesses()
+
+            second_runtime = build_durable_google_login_runtime(
+                state.configuration_path,
+                _clock=state.clock,
+                _gateway_factory=state.gateway_factory,
+            )
+            try:
+                with running_https_browser_app(second_runtime):
+                    callback_url = provider_callback_for(
+                        state,
+                        provider_url,
+                        code="b23b-first-login",
+                        claims_overrides={
+                            "email": email,
+                            "email_verified": True,
+                        },
+                    )
+                    callback_parts = urlsplit(callback_url)
+                    callback_path = (
+                        callback_parts.path + "?" + callback_parts.query
+                    )
+                    callback = https_request(
+                        state,
+                        "GET",
+                        callback_path,
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(callback.status, 303)
+                    self.assertEqual(
+                        callback.header_values("Location"),
+                        ("/account/profile",),
+                    )
+                    callback_public = (
+                        repr(callback.headers) + repr(callback.body)
+                    )
+                    self.assertNotIn(
+                        invitation.invitation_token,
+                        callback_public,
+                    )
+                    self.update_cookies(cookies, callback)
+                    self.assertRegex(
+                        cookies["wahojobs_session"],
+                        r"^[A-Za-z0-9_-]{43}$",
+                    )
+                    self.assertRegex(
+                        cookies["__Host-wahojobs_session_csrf"],
+                        r"^[A-Za-z0-9_-]{43}$",
+                    )
+
+                    later_cookies, later_provider_url, _later_start = (
+                        self.begin_login(state)
+                    )
+                    later_callback_url = provider_callback_for(
+                        state,
+                        later_provider_url,
+                        code="b23b-later-login",
+                        missing_claims=("email", "email_verified"),
+                    )
+                    later_parts = urlsplit(later_callback_url)
+                    later = https_request(
+                        state,
+                        "GET",
+                        later_parts.path + "?" + later_parts.query,
+                        headers=(
+                            (
+                                "Cookie",
+                                cookie_header(later_cookies),
+                            ),
+                        ),
+                    )
+                    self.assertEqual(later.status, 303)
+                    self.assertEqual(
+                        later.header_values("Location"),
+                        ("/account/profile",),
+                    )
+
+                    replay = https_request(
+                        state,
+                        "GET",
+                        callback_path,
+                        headers=(
+                            (
+                                "Cookie",
+                                cookie_header(
+                                    {
+                                        "__Host-wahojobs_google_tx": (
+                                            first_transaction_cookie
+                                        )
+                                    }
+                                ),
+                            ),
+                        ),
+                    )
+                    self.assertIn(replay.status, {400, 410})
+
+                observations = tuple(
+                    harness.transport.observations
+                    for harness in state.gateway_harnesses
+                )
+                connection = sqlite3.connect(state.database_path)
+                connection.row_factory = sqlite3.Row
+                try:
+                    identity_rows = connection.execute(
+                        "SELECT auth_identity_id, user_id, verified_email, "
+                        "email_verified FROM auth_identities "
+                        "WHERE provider = 'google' AND provider_subject = ?",
+                        (state.subject,),
+                    ).fetchall()
+                    self.assertEqual(len(identity_rows), 1)
+                    identity = identity_rows[0]
+                    account_id = identity["user_id"]
+                    self.assertEqual(identity["verified_email"], email)
+                    self.assertEqual(identity["email_verified"], 1)
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT lifecycle_status FROM users "
+                            "WHERE user_id = ?",
+                            (account_id,),
+                        ).fetchone()[0],
+                        "active",
+                    )
+                    self.assertEqual(
+                        tuple(
+                            connection.execute(
+                                "SELECT invitation_status, "
+                                "consumed_by_user_id FROM "
+                                "account_invitations WHERE invitation_id = ?",
+                                (invitation.invitation.invitation_id,),
+                            ).fetchone()
+                        ),
+                        ("consumed", account_id),
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM users"
+                        ).fetchone()[0],
+                        1,
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM auth_identities"
+                        ).fetchone()[0],
+                        1,
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM account_lifecycle_events "
+                            "WHERE user_id = ?",
+                            (account_id,),
+                        ).fetchone()[0],
+                        1,
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM account_sessions "
+                            "WHERE user_id = ?",
+                            (account_id,),
+                        ).fetchone()[0],
+                        2,
+                    )
+                    self.assertEqual(
+                        {
+                            table: connection.execute(
+                                f'SELECT COUNT(*) FROM "{table}"'
+                            ).fetchone()[0]
+                            for table in preserved_tables
+                        },
+                        preserved_before,
+                    )
+                finally:
+                    connection.close()
+                secret_text = invitation.invitation_token
+                self.assertNotIn(
+                    secret_text,
+                    repr(observations)
+                    + repr(cookies)
+                    + repr(later_cookies),
+                )
+            finally:
+                second_cleanup = second_runtime.close()
+                self.assertTrue(second_cleanup.cleanup_complete)
+                state.close_harnesses()
+            self.assertNotIn(
+                invitation.invitation_token.encode("ascii"),
+                state.database_path.read_bytes(),
+            )
 
     def test_login_profile_refresh_logout_and_post_logout_rejection(self):
         with ExitStack() as stack:
