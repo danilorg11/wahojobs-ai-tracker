@@ -548,9 +548,14 @@ After accepted delivery, the callback redirects only with `303` to the fixed
 `/account/profile` destination. There is no request-controlled redirect. The
 protected profile opens a fresh query-only connection or snapshot,
 authenticates with the accepted `wahojobs_session` parser, authorizes ownership,
-and renders the existing escaped, CSP-protected profile. The authenticated page
-provides fixed profile and logout navigation. A refresh with the active
-session remains authenticated; unauthenticated access offers `/login`.
+and renders the existing escaped, CSP-protected profile. When the authenticated
+account has a valid account-native lineage but no persistent-profile row, the
+same read boundary renders a fixed empty state and performs no profile,
+ownership, session, or legacy-data write. The route accepts only `GET` and
+`HEAD`; request input cannot select an account, principal, binding, profile, or
+environment. The authenticated page provides fixed profile and logout
+navigation. A refresh with the active session and a reconstructed dedicated
+runtime remain authenticated; unauthenticated access offers `/login`.
 
 `GET /logout` requires a valid current session and companion CSRF
 credential and returns a fixed no-store confirmation form. `POST /logout`
@@ -587,12 +592,14 @@ preserved for reuse.
 
 Principal, binding, and event identifiers never enter OAuth material, URLs,
 redirects, cookies, browser responses, logs, or account-oriented sessions, and
-browser input cannot select the ownership environment or identity. This slice
-does not create a persistent profile. The fixed callback redirect remains
-`/account/profile`, but that surface is not usable for the newly provisioned
-account until empty-profile activation. Invitation delivery, operator
-administration UI, general identity linking or merging, legacy claiming, and
-ordinary-runtime activation remain deferred.
+browser input cannot select the ownership environment or identity. The fixed
+callback redirect to `/account/profile` is usable immediately after successful
+ownership bootstrap: a newly provisioned account sees the authenticated empty
+state until a separate profile-creation milestone persists content. Valid
+existing profiles remain readable without mutation. Invitation delivery,
+operator administration UI, profile creation or editing, general identity
+linking or merging, legacy claiming, and ordinary-runtime activation remain
+deferred.
 
 ## Controlled test and development demo
 

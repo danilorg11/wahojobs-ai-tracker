@@ -17,7 +17,7 @@ from scripts.durable_google_login_fixture_demo import (
     FIXTURE_COMPLETE_ROUTE,
     _ControlledProviderBridge,
 )
-from tests.accounts_test_support import INVITATION_KEY
+from tests.accounts_test_support import INVITATION_KEY, create_user
 from tests.google_oidc_authorization_transactions_test_support import (
     LOOKUP_KEY_MATERIAL,
     PROTECTION_KEY_MATERIAL,
@@ -203,6 +203,40 @@ def _b22_database_snapshot(database_path):
         "rows": [list(row) for row in rows],
         "session_count": session_count,
     }
+
+
+def _b24c_database_content_snapshot(database_path):
+    database_uri = Path(database_path).resolve().as_uri() + "?mode=ro"
+    connection = sqlite3.connect(database_uri, uri=True, timeout=2.0)
+    connection.execute("PRAGMA query_only = ON")
+    try:
+        connection.execute("BEGIN")
+        tables = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema "
+                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
+                "ORDER BY name"
+            )
+        )
+        snapshot = tuple(
+            (
+                table,
+                tuple(
+                    tuple(row)
+                    for row in connection.execute(
+                        'SELECT * FROM "'
+                        + table.replace('"', '""')
+                        + '" ORDER BY rowid'
+                    )
+                ),
+            )
+            for table in tables
+        )
+        connection.rollback()
+        return snapshot
+    finally:
+        connection.close()
 
 
 def _b22_rotated_browser_worker_main(connection):
@@ -591,6 +625,8 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
             ownership_after_first = None
             first_account_id = None
             first_callback_public = None
+            first_session_token = None
+            profile_public_parts = []
             try:
                 with running_https_browser_app(second_runtime):
                     callback_url = provider_callback_for(
@@ -633,6 +669,72 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     self.assertRegex(
                         cookies["__Host-wahojobs_session_csrf"],
                         r"^[A-Za-z0-9_-]{43}$",
+                    )
+                    first_session_token = cookies["wahojobs_session"]
+
+                    profile_rows_before = _b24c_database_content_snapshot(
+                        state.database_path
+                    )
+                    first_profile = https_request(
+                        state,
+                        "GET",
+                        "/account/profile",
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(first_profile.status, 200)
+                    self.assertIn(
+                        b"No persistent profile yet",
+                        first_profile.body,
+                    )
+                    self.assertIn(b"/logout", first_profile.body)
+                    profile_public_parts.append(
+                        repr(first_profile.headers)
+                        + first_profile.body.decode("utf-8")
+                    )
+
+                    refreshed_profile = https_request(
+                        state,
+                        "GET",
+                        "/account/profile",
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(refreshed_profile.status, 200)
+                    self.assertEqual(
+                        refreshed_profile.body,
+                        first_profile.body,
+                    )
+
+                    head_profile = https_request(
+                        state,
+                        "HEAD",
+                        "/account/profile",
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(head_profile.status, 200)
+                    self.assertEqual(head_profile.body, b"")
+                    for header_name in (
+                        "Content-Type",
+                        "Content-Length",
+                        "Content-Security-Policy",
+                        "Cache-Control",
+                    ):
+                        self.assertEqual(
+                            head_profile.header_values(header_name),
+                            first_profile.header_values(header_name),
+                        )
+
+                    rejected_selector = https_request(
+                        state,
+                        "GET",
+                        "/account/profile?profile_id=browser-selected",
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(rejected_selector.status, 400)
+                    self.assertEqual(
+                        _b24c_database_content_snapshot(
+                            state.database_path
+                        ),
+                        profile_rows_before,
                     )
 
                     first_connection = sqlite3.connect(
@@ -693,6 +795,27 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     self.assertEqual(
                         later.header_values("Location"),
                         ("/account/profile",),
+                    )
+                    self.update_cookies(later_cookies, later)
+                    later_profile = https_request(
+                        state,
+                        "GET",
+                        "/account/profile",
+                        headers=(
+                            (
+                                "Cookie",
+                                cookie_header(later_cookies),
+                            ),
+                        ),
+                    )
+                    self.assertEqual(later_profile.status, 200)
+                    self.assertIn(
+                        b"No persistent profile yet",
+                        later_profile.body,
+                    )
+                    profile_public_parts.append(
+                        repr(later_profile.headers)
+                        + later_profile.body.decode("utf-8")
                     )
 
                     replay = https_request(
@@ -828,21 +951,198 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     + repr(later_cookies)
                     + provider_url
                     + later_provider_url
+                    + "".join(profile_public_parts)
                 )
                 self.assertNotIn(
                     secret_text,
                     public_text,
                 )
-                for ownership_id in ownership_ids:
-                    self.assertNotIn(ownership_id, public_text)
+                for durable_id in (
+                    str(first_account_id),
+                    str(identity["auth_identity_id"]),
+                    *ownership_ids,
+                ):
+                    self.assertNotIn(durable_id, public_text)
             finally:
                 second_cleanup = second_runtime.close()
                 self.assertTrue(second_cleanup.cleanup_complete)
+                state.close_harnesses()
+
+            profile_rows_before_reconstruction = (
+                _b24c_database_content_snapshot(state.database_path)
+            )
+            third_runtime = build_durable_google_login_runtime(
+                state.configuration_path,
+                _clock=state.clock,
+                _gateway_factory=state.gateway_factory,
+            )
+            try:
+                with running_https_browser_app(third_runtime):
+                    reconstructed_profile = https_request(
+                        state,
+                        "GET",
+                        "/account/profile",
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(reconstructed_profile.status, 200)
+                    self.assertIn(
+                        b"No persistent profile yet",
+                        reconstructed_profile.body,
+                    )
+                    for durable_id in (
+                        first_account_id,
+                        identity["auth_identity_id"],
+                        *(
+                            row[0]
+                            for rows in ownership_after_first.values()
+                            for row in rows
+                        ),
+                    ):
+                        self.assertNotIn(
+                            str(durable_id).encode("ascii"),
+                            reconstructed_profile.body,
+                        )
+                    self.assertEqual(
+                        _b24c_database_content_snapshot(
+                            state.database_path
+                        ),
+                        profile_rows_before_reconstruction,
+                    )
+
+                    logout_page = https_request(
+                        state,
+                        "GET",
+                        "/logout",
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(logout_page.status, 200)
+                    logout = self.request_form(
+                        state,
+                        "/logout",
+                        {
+                            "csrf": cookies[
+                                "__Host-wahojobs_session_csrf"
+                            ]
+                        },
+                        cookies,
+                    )
+                    self.assertEqual(logout.status, 303)
+                    self.assertEqual(
+                        logout.header_values("Location"),
+                        ("/login",),
+                    )
+                    self.update_cookies(cookies, logout)
+                    self.assertNotIn("wahojobs_session", cookies)
+                    self.assertNotIn(
+                        "__Host-wahojobs_session_csrf",
+                        cookies,
+                    )
+
+                    post_logout = https_request(
+                        state,
+                        "GET",
+                        "/account/profile",
+                        headers=(
+                            (
+                                "Cookie",
+                                "wahojobs_session=" + first_session_token,
+                            ),
+                        ),
+                    )
+                    self.assertEqual(post_logout.status, 401)
+                    self.assertIn(b"/login", post_logout.body)
+            finally:
+                third_cleanup = third_runtime.close()
+                self.assertTrue(third_cleanup.cleanup_complete)
                 state.close_harnesses()
             self.assertNotIn(
                 invitation.invitation_token.encode("ascii"),
                 state.database_path.read_bytes(),
             )
+
+    def test_profile_route_does_not_bootstrap_missing_ownership(self):
+        with ExitStack() as stack:
+            state = stack.enter_context(
+                temporary_browser_login_state(
+                    seed_existing_identity=False,
+                )
+            )
+            stack.enter_context(loopback_and_in_memory_provider_only())
+            connection = sqlite3.connect(state.database_path)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            try:
+                _invitation, created = create_user(
+                    connection,
+                    "b24c-missing-ownership",
+                    now=state.clock(),
+                )
+                session = accounts.create_session(
+                    connection,
+                    user_id=created.user.user_id,
+                    idle_ttl=timedelta(hours=1),
+                    absolute_ttl=timedelta(hours=8),
+                    idempotency_key="b24c-missing-ownership-session",
+                    now=state.clock(),
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM product_principals"
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                connection.close()
+
+            before = _b24c_database_content_snapshot(state.database_path)
+            runtime = build_durable_google_login_runtime(
+                state.configuration_path,
+                _clock=state.clock,
+                _gateway_factory=state.gateway_factory,
+            )
+            try:
+                with running_https_browser_app(runtime):
+                    with mock.patch(
+                        "wahojobs.ownership.ensure_account_native_principal"
+                    ) as bootstrap:
+                        response = https_request(
+                            state,
+                            "GET",
+                            "/account/profile",
+                            headers=(
+                                (
+                                    "Cookie",
+                                    cookie_header(
+                                        {
+                                            "wahojobs_session": (
+                                                session.session_token
+                                            )
+                                        }
+                                    ),
+                                ),
+                            ),
+                        )
+                    bootstrap.assert_not_called()
+                    self.assertEqual(response.status, 404)
+                    self.assertIn(b"Profile not found", response.body)
+                    self.assertNotIn(
+                        created.user.user_id.encode("ascii"),
+                        response.body,
+                    )
+                    self.assertNotIn(
+                        session.session_token.encode("ascii"),
+                        response.body,
+                    )
+                    self.assertEqual(
+                        _b24c_database_content_snapshot(
+                            state.database_path
+                        ),
+                        before,
+                    )
+            finally:
+                cleanup = runtime.close()
+                self.assertTrue(cleanup.cleanup_complete)
+                state.close_harnesses()
 
     def test_login_profile_refresh_logout_and_post_logout_rejection(self):
         with ExitStack() as stack:

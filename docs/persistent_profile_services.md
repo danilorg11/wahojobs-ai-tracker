@@ -1196,21 +1196,24 @@ database, load secrets, contact a provider, or activate protected routes.
 
 The dedicated composition owns `/login`, `/auth/google/start`,
 `/auth/google/callback`, `/logout`, and `/account/profile` without falling
-through to ordinary product routes. It reuses B2C1 only for an authenticated
-owner's existing persistent profile. Authentication uses a fresh read-only
-connection or snapshot, the accepted strict `wahojobs_session` parser, and
-ownership authorization. Authenticated rendering includes fixed safe profile
-and logout navigation; unauthenticated rendering offers `/login`. Refresh with
-an active session remains authenticated, while refresh after a successful
-logout again requires authentication. Existing CSP and escaping remain in
-force.
+through to ordinary product routes. It reuses B2C1 for both an authenticated
+owner's existing persistent profile and the accepted no-profile result.
+Authentication uses a fresh read-only connection or snapshot, the accepted
+strict `wahojobs_session` parser, and ownership authorization. A canonical
+active account with a valid account-native lineage but no profile row receives a
+fixed authenticated empty page; no profile or ownership row is synthesized.
+Authenticated rendering includes fixed safe profile and logout navigation;
+unauthenticated rendering offers `/login`. Refresh and dedicated-runtime
+reconstruction preserve access, while refresh after a successful logout again
+requires authentication. Existing CSP and escaping remain in force.
 
-This activation does not add a profile mutation or provisioning path. Login
-cannot create, link, seed, repair, or claim a user, Google identity,
-account-native principal, persistent profile, or ownership relationship.
-Every required row must already exist and be eligible. No Migration 007,
-automatic migration, signup flow, default database fallback, production
-activation, cleanup scheduler, or automatic key rotation is included.
+This activation does not add a persistent-profile mutation or provisioning
+path. The separately accepted invited-login and account-native bootstrap
+authorities may create the account, Google identity, principal, binding, and
+initial ownership event before session issuance, but profile GET/HEAD never
+creates, links, seeds, repairs, or claims any of those rows. No Migration 007,
+automatic migration, default database fallback, ordinary-runtime activation,
+cleanup scheduler, or automatic key rotation is included.
 
 Callback handling first parses the accepted callback state and terminally
 claims the durable authorization transaction. Only after that transaction is

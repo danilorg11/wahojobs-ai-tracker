@@ -170,12 +170,20 @@ invitation-free login to retry the ownership step. A later session failure does
 not compensate or rewrite a valid ownership lineage.
 
 Sessions remain account-oriented and expose no principal, binding, or event
-identifier. This activation still does not create a persistent profile,
-invitation-delivery mechanism, or administration UI. Consequently the fixed
-`/account/profile` redirect is not yet a usable profile surface for a newly
-provisioned account. Browser input cannot select an ownership identifier or
-environment. Ordinary-runtime activation, live Google deployment, general
-identity linking, legacy claiming, and empty-profile activation remain deferred.
+identifier. In the dedicated runtime, an authenticated account with a valid
+account-native ownership lineage may open `GET` or `HEAD /account/profile` even
+when it has no persistent-profile row. The route uses the accepted session and
+ownership read boundaries on a fresh query-only snapshot and renders a fixed
+empty state without inserting, seeding, repairing, or otherwise mutating profile
+or ownership data. Existing profiles continue through the same read-only route;
+refresh and runtime reconstruction preserve the result, while logout revokes
+access. Browser input cannot select an account, principal, profile, or ownership
+environment.
+
+This activation still does not create or edit a persistent profile, deliver an
+invitation, or provide an administration UI. Ordinary-runtime activation, live
+Google deployment, general identity linking, legacy claiming, and profile
+mutation remain deferred.
 The database must already contain the exact Migration-001 through Migration-006
 schema; neither the launcher nor login requests initialize, seed, repair, or
 migrate it.
