@@ -16,6 +16,9 @@ ordinary `scripts/local_product_app.py` startup remains
 authentication-dormant. Its optional injection seam has no default runtime and
 does not load configuration, read secrets, open an account database, contact a
 provider, or activate login, callback, logout, or protected-profile routes.
+It remains a local/development tool and is not mounted wholesale by the durable
+launcher; the durable product surface reuses only deliberately selected pure
+matching and presentation helpers.
 Importing the browser, runtime, launcher, or fixture modules performs no
 database, filesystem-secret, network, route, or environment side effect.
 
@@ -431,23 +434,27 @@ contract:
 | `/auth/google/callback` | `GET` | Terminal durable callback completion |
 | `/logout` | `GET`, `POST` | Confirmation and CSRF-protected revocation |
 | `/account/profile` | `GET`, `HEAD`, `POST` | Owned profile read or explicit first-profile creation |
-| `/find-matches` | `GET`, `POST` | Initial About You input, review, and an exact account-native confirmation |
+| `/find-matches` | `GET`, `HEAD`, `POST` | Authenticated candidate entry/review or query-only ranked matches from the durable profile |
 
 An unsupported method on an authentication path returns `405` with the fixed
 allowed-method declaration. The dedicated launcher enables exclusive
-fall-through rejection and owns one explicit bounded `MatchRunRegistry`. The
-exact same registry carries a draft through initial submission, review
-rendering, and confirmation. `GET /find-matches` opens the About You flow; an
-initial `POST /find-matches` creates the draft and redirects to its review; and
-only a strictly confirmation-shaped POST is claimed by the account-native
-confirmation dispatcher. Authentication and account routes remain exclusively
-owned. `/preview`, matching, recommendations, general product actions, and
-every unrelated ordinary route still receive the exclusive rejection. The
-configured Host/no-proxy guard runs before reachable `/find-matches` GET
-rendering and before any initial or confirmation POST body is read. Every such
-POST uses one bounded strict URL-encoded buffer for both classification and its
-owning handler; malformed percent escapes, invalid UTF-8, duplicate fields, and
-unsupported fields are rejected without reparsing or a second stream read.
+fall-through rejection, and the authenticated matches integration owns one
+bounded process-local `MatchRunRegistry`. The same registry carries a no-profile
+candidate draft through initial submission, structured review and draft correction,
+and explicit confirmation. Every `/find-matches` GET, HEAD, and POST first
+authenticates the durable session and authorizes the account-native principal;
+draft and review state is additionally bound to the originating account,
+environment, principal, and session by a server-only authority digest.
+
+`GET /find-matches` opens candidate entry when no persistent profile exists and
+regenerates ranked matches when one does. POST handles only the authenticated
+entry/review/confirmation journey. `/preview`, My Jobs, tracker and dashboard
+routes, `/action`, demo personas, legacy selectors, and unrelated ordinary
+routes receive the exclusive rejection. The configured Host/no-proxy guard runs
+before rendering or reading a POST body. The inner boundary then applies the
+accepted same-origin, session, CSRF, strict content-type, bounded single-read,
+encoding, duplicate-field, and unsupported-field decisions before acting on
+candidate state.
 Responses use bounded fixed HTML,
 escaping, `Cache-Control: no-store`, a default-deny CSP, `Referrer-Policy:
 no-referrer`, and `X-Content-Type-Options: nosniff`.
@@ -584,9 +591,10 @@ account has a valid account-native lineage but no persistent-profile row, the
 same read boundary renders a fixed empty state and performs no profile,
 ownership, session, or legacy-data write. GET and HEAD remain strictly
 read-only; request input cannot select an account, principal, binding, profile,
-or environment. The authenticated page provides fixed profile and logout
-navigation. A refresh with the active session and a reconstructed dedicated
-runtime remain authenticated; unauthenticated access offers `/login`.
+or environment. The empty page provides a fixed `Create profile` action and an
+existing-profile page provides `Find matches`; navigation is otherwise limited
+to profile and logout. A refresh with the active session and a reconstructed
+dedicated runtime remain authenticated; unauthenticated access offers `/login`.
 
 `POST /account/profile` is the sole activated profile mutation. It accepts an
 exact URL-encoded body containing only one 43-character process-local artifact
@@ -599,26 +607,20 @@ session authentication, raw session-CSRF validation, constant-time derived
 proof validation, canonical ownership authorization, artifact claim, sealed
 command validation, and the existing atomic create-once repository call.
 The response never changes cookies or exposes durable identifiers. Creation
-returns `303` to `/account/profile`, same-artifact replay returns the same
+returns `303` to `/find-matches`, same-artifact replay returns the same
 result while its tombstone is live, and an unrelated create for an existing
 profile returns `409`.
 
-The launcher explicitly negotiates the optional private
-`issue_confirmed_profile_artifact` capability and verifies that a supplied value
-is callable. Real production activation requires it; an established integration
-that implements only `matches_route()` and `handle()` remains valid at the
-legacy launcher-injection seam, but `/find-matches` then returns a fixed
-unavailable response and never reaches the legacy matcher. A present non-callable
-capability remains invalid. Production composition also supplies the private
-lookup-only completed-replay authenticator. The narrow confirmation dispatcher strictly
-validates the configured Host and Origin, framing, headers, UTF-8 form, existing
-review token, draft digest, schema, and explicit credentials confirmation before
-it calls that private sink. It renders only the opaque artifact and
-artifact-bound CSRF proof in the fixed creation form. The sink and
-`POST /account/profile` share the same creation service and process-local vault;
-there is no artifact-issuance HTTP endpoint. Initial draft and review handling
-are reachable, but matching, recommendations, and unrelated product routes
-remain dormant.
+The runtime composes the authenticated matches integration inside the protected
+profile integration and routes `/find-matches` through the durable browser
+owner. A missing or closed capability fails within that owned route and cannot
+fall through to the local product handler. Final confirmation uses the existing
+private artifact issuance and completed-replay capabilities. The dispatcher
+validates the existing review token, draft digest, schema, fields, authority
+binding, and explicit confirmation before issuance. It renders only the opaque
+artifact and artifact-bound CSRF proof in the fixed creation form. The sink and
+`POST /account/profile` share the B2.4d creation service and process-local vault;
+there is no artifact-issuance HTTP endpoint or durable draft/artifact table.
 
 The registry stores an immutable identity-free Canonical V1 review projection.
 It omits every `profile_id` occurrence instead of substituting a preview,
@@ -707,6 +709,26 @@ two `product_profile_sources` rows; the current-profile view reflects those
 rows. Account, identity, invitation, session, ownership, event, alias, legacy,
 and unrelated state does not change.
 
+For an existing authorized profile, match generation reads the current
+Canonical Profile V2 and calls the accepted `project_v2_to_matcher_v1()` with a
+fresh server-generated ephemeral matcher identity. The durable profile ID is
+neither used as that identity nor exposed as browser input. The matcher queries
+the same explicitly configured, schema-attested runtime SQLite database through
+its query-only connection provider, loads active non-simulation inventory, and
+constructs the checked-in metadata overlay explicitly. It never calls
+`wahojobs.config.DB_PATH`, the workspace-default database, a legacy
+`user_profiles` record, local pipeline state, or demo/`local_user` data. Missing,
+empty, stale, or insufficiently trusted inventory produces an honest empty or
+refresh-needed result without alternate inventory fallback.
+
+Match GET and HEAD perform no durable, inventory, pipeline, job, profile,
+session, ownership, or MatchRun mutation. Results reuse the existing ranking,
+trust, exclusion, section, and result-cap helpers, but use a dedicated minimal
+renderer. Only validated HTTP(S) opportunity URLs become application links, with
+new-tab `noopener noreferrer` isolation. The page exposes no My Jobs, tracker,
+dashboard, `/action`, mutation form, preview alias, demo persona, or legacy
+profile selection.
+
 `GET /logout` requires a valid current session and companion CSRF
 credential and returns a fixed no-store confirmation form. `POST /logout`
 accepts only the bounded strict form with exactly one `csrf` field, requires
@@ -785,12 +807,13 @@ it does not delete a user-supplied path.
 
 This milestone does not provide:
 
-- production runtime activation or production credential integration;
 - public/non-loopback serving, proxy trust, certificate deployment, or
-  production TLS operations;
+  production TLS operations, public signup, or public deployment readiness;
 - invitation delivery or administration UI, general identity linking or
-  account merge, or profile editing/replacement after the explicit first
-  creation;
+  account merge, or profile editing, correction, replacement, archive, purge,
+  or deletion UI after the explicit first creation;
+- My Jobs, tracker or pipeline actions, match history, or MatchRun persistence;
+- scheduled opportunity refresh or new crawler/source activation;
 - database initialization, seeding, repair, automatic migration, or
   Migration 007;
 - a client cookie-receipt acknowledgement protocol;
@@ -809,7 +832,8 @@ Process restart or a new browser flow remains an accepted operational recovery
 for such process-local stalls. Cryptographic run-ID collision is outside the
 practical threat model, and the confirmation cache may outlive the artifact by
 the small interval between their clock samples; artifact consumption remains
-authoritative. B2.4e remains unstarted.
+authoritative. The accepted B2.4d create-once and replay contracts remain
+frozen. Durable profile correction remains unstarted.
 
 Production topology, certificates, secret custody, controlled key rotation and
 retirement, provider credentials, operational monitoring, abuse controls,

@@ -37,6 +37,7 @@ _SERVE_POLL_SECONDS = 0.05
 _TLS_HANDSHAKE_SECONDS = 1.0
 _MAX_TRACKED_ACCEPTED_SOCKETS = 64
 _MISSING_PROFILE_CREATION_CAPABILITY = object()
+_FIND_MATCHES_ROUTE = "/find-matches"
 _SIGNAL_EXIT_STATUS = {
     "sigint": 130,
     "sigterm": 143,
@@ -2744,33 +2745,48 @@ def _completed_profile_confirmation_authenticator(browser_integration):
     return candidate
 
 
+def _require_profile_matches_route(browser_integration):
+    candidate = getattr(
+        browser_integration,
+        "matches_route",
+        _MISSING_PROFILE_CREATION_CAPABILITY,
+    )
+    if candidate is _MISSING_PROFILE_CREATION_CAPABILITY:
+        raise RuntimeError("profile_matching_capability_unavailable")
+    if not callable(candidate):
+        raise RuntimeError("profile_matching_capability_invalid")
+    try:
+        owned = candidate(_FIND_MATCHES_ROUTE)
+    except (KeyboardInterrupt, SystemExit, GeneratorExit):
+        raise
+    except Exception:
+        raise RuntimeError("profile_matching_capability_invalid") from None
+    if owned is not True:
+        raise RuntimeError("profile_matching_capability_unavailable")
+    return True
+
+
 def _construct_production_handler(
     browser_integration,
     public_origin,
     *,
     require_profile_creation,
 ):
-    from scripts.local_product_app import MatchRunRegistry, make_handler
+    from wahojobs.durable_product_browser_handler import (
+        make_durable_product_browser_handler,
+    )
 
     artifact_sink = _confirmed_profile_artifact_sink(
         browser_integration,
         required=require_profile_creation,
     )
-    registry = MatchRunRegistry()
-    handler_arguments = {
-        "registry": registry,
-        "durable_google_login_browser_integration": browser_integration,
-        "exclusive_browser_integration": True,
-    }
     if artifact_sink is not None:
-        handler_arguments.update(
-            confirmed_profile_artifact_sink=artifact_sink,
-            completed_profile_confirmation_authenticator=(
-                _completed_profile_confirmation_authenticator(browser_integration)
-            ),
-            profile_confirmation_public_origin=public_origin,
+        _completed_profile_confirmation_authenticator(
+            browser_integration
         )
-    return make_handler(**handler_arguments)
+    if require_profile_creation:
+        _require_profile_matches_route(browser_integration)
+    return make_durable_product_browser_handler(browser_integration)
 
 
 def main(

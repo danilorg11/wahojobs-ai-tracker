@@ -181,21 +181,17 @@ access. Browser input cannot select an account, principal, profile, or ownership
 environment.
 
 The dedicated runtime now also composes one explicit create-once profile
-boundary. The launcher owns one bounded process-local `MatchRunRegistry` and
-passes that exact object to the initial About You draft, review rendering, and
-confirmation paths. A normal browser can open `GET /find-matches`, submit the
-initial About You form to `POST /find-matches`, receive and edit the review form,
-and submit an exact confirmation before receiving the account-native create
-form. Exclusive routing continues to own the authentication and account paths;
-on `/find-matches` it claims only a genuinely confirmation-shaped POST. The
-ordinary GET and initial POST reach the local product flow, while matching,
-recommendations, `/preview`, and unrelated product fall-through remain dormant
-or rejected. Before either reachable `/find-matches` method is rendered or
-handled, the local boundary requires the configured Host and rejects the
-configured no-proxy policy's `Forwarded` and `X-Forwarded-*` inputs. POST body
-classification and final handling share one bounded buffer and strict
-URL-encoded multimap: the stream is read once, malformed percent escapes and
-invalid UTF-8 are rejected, and duplicate or unsupported fields remain invalid.
+boundary and one authenticated matches boundary. The matches integration owns a
+bounded process-local `MatchRunRegistry` for initial About You input, structured
+review/draft correction, and explicit confirmation. Every `/find-matches` GET, HEAD,
+and POST authenticates the durable session and authorizes the account-native
+owner before candidate-state action. Drafts carry a server-only binding to the
+resolved account, environment, principal, and session, so another account or
+session cannot continue or inspect them. Exclusive routing owns the whole route;
+it does not pass ordinary GET or POST into the local product handler. The
+configured Host/no-proxy boundary precedes rendering and body reads, and POST
+retains the same-origin, session-CSRF, strict framing, bounded single-read,
+encoding, duplicate-field, and unsupported-field decisions.
 
 Review state is an immutable identity-free Canonical V1 projection. Every
 `profile_id` occurrence is omitted rather than replaced with a preview,
@@ -271,12 +267,11 @@ a registered close authority. Close stops admission and gives the coordinator a 
 close/join bound; a still-live worker makes cleanup truthfully incomplete and a
 later close retries the unresolved resource. Startup and shutdown do not rely
 on daemon exit, finalizers, garbage collection, or process termination.
-Launcher composition explicitly negotiates the optional
-`issue_confirmed_profile_artifact` capability and requires it for real
-production activation, while an established routing-only integration remains a
-valid launcher test double. Without creation capability that compatibility
-composition returns a fixed unavailable response for `/find-matches` and cannot
-enter legacy matching; a present non-callable capability remains invalid.
+Launcher composition validates the private profile-artifact issuance and
+completed-replay capabilities and requires the durable integration to claim
+`/find-matches` before binding the production handler. An explicit routing-only
+test double remains possible for compatibility tests, but an absent capability
+fails closed and cannot enter the local matcher or product handler.
 
 The writable account-native create boundary also receives the exact authorized
 account and ownership lineage. Before profile replay or insertion, its
@@ -296,7 +291,40 @@ formal shutdown when trusted internal code holds a lock forever. Trusted token,
 clock, witness, and coordinator callbacks are expected to be finite and
 non-reentrant in production. Process restart or a new browser flow is an
 accepted operational recovery when process-local progress cannot continue.
-B2.4e remains unstarted.
+The accepted B2.4d artifact, replay, reconciliation, and create-once behavior is
+frozen.
+
+### Authenticated profile-to-matches composition
+
+The empty authenticated profile page links to candidate entry, and an existing
+profile page links directly to regenerated matches. Successful first creation
+redirects with `303` to `/find-matches`; exact authenticated replay still
+converges on the same account, principal, profile, initial revision, and sources.
+Logout and later login resolve the same durable authority without duplicating
+that state.
+
+For an existing profile, the server reads the authorized Canonical Profile V2
+through the runtime's query-only provider and projects it to Canonical Profile V1
+with a fresh server-generated ephemeral matcher identity. Neither browser input
+nor the persistent profile ID selects matcher authority. The opportunity query
+uses only the same explicitly configured, schema-attested SQLite database and an
+explicitly constructed checked-in metadata overlay. It never falls back to
+`wahojobs.config.DB_PATH`, the workspace database, legacy `user_profiles`,
+`local_user`, demo state, or local pipeline data. Match GET and HEAD mutate no
+account, session, ownership, profile, job, inventory, pipeline, or MatchRun state.
+
+The result surface has only profile/logout navigation and validated HTTP(S)
+external application links with new-tab isolation. It exposes no My Jobs,
+tracker, dashboard, `/action`, preview alias, demo persona, legacy selector, or
+mutation form. `scripts/local_product_app.py` remains a local/development tool
+and is not mounted wholesale by the durable launcher. Drafts and confirmed
+creation artifacts remain bounded and process-local; matches are regenerated
+rather than persisted.
+
+Profile editing or correction, replacement, archive/purge/deletion UI, public
+signup or deployment, scheduled opportunity refresh, My Jobs, tracker/pipeline
+state, and match history remain unstarted or explicitly excluded. Durable
+profile correction is the next separate milestone and remains unstarted.
 
 Successful B2D1 completion produces an issued session and one request-scoped
 compensation authority. The browser adapter converts that authority into a

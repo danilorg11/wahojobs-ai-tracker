@@ -28,6 +28,7 @@ GOOGLE_LOGIN_CALLBACK_ROUTE = "/auth/google/callback"
 LOGOUT_ROUTE = "/logout"
 AUTHENTICATED_DESTINATION = "/account/profile"
 PERSISTENT_PROFILE_ROUTE = AUTHENTICATED_DESTINATION
+FIND_MATCHES_ROUTE = "/find-matches"
 
 LOGIN_CSRF_COOKIE_NAME = "__Host-wahojobs_login_csrf"
 GOOGLE_TRANSACTION_COOKIE_NAME = "__Host-wahojobs_google_tx"
@@ -49,7 +50,11 @@ _AUTH_ROUTES = frozenset(
         GOOGLE_LOGIN_CALLBACK_ROUTE,
         LOGOUT_ROUTE,
         PERSISTENT_PROFILE_ROUTE,
+        FIND_MATCHES_ROUTE,
     }
+)
+_DELEGATED_ACCOUNT_ROUTES = frozenset(
+    {PERSISTENT_PROFILE_ROUTE, FIND_MATCHES_ROUTE}
 )
 _ALLOWED_METHODS = {
     LOGIN_ROUTE: ("GET",),
@@ -1893,7 +1898,7 @@ class DurableGoogleLoginBrowserResponse:
 
 
 class DurableGoogleLoginBrowserIntegration:
-    """Own the four explicit durable-login browser routes."""
+    """Own the explicit durable-login and authenticated account routes."""
 
     __slots__ = (
         "_public_origin",
@@ -2236,7 +2241,7 @@ class DurableGoogleLoginBrowserIntegration:
             header_items is not None
             and (
                 self._trusted_profile_post_headers(header_items)
-                if path == PERSISTENT_PROFILE_ROUTE and method == "POST"
+                if path in _DELEGATED_ACCOUNT_ROUTES and method == "POST"
                 else self._trusted_request_headers(header_items)
             )
         )
@@ -2252,7 +2257,7 @@ class DurableGoogleLoginBrowserIntegration:
                 "Page not found",
                 "This page is not available.",
             )
-        if path == PERSISTENT_PROFILE_ROUTE:
+        if path in _DELEGATED_ACCOUNT_ROUTES:
             return self._profile_integration.handle(
                 method,
                 target,
@@ -3545,6 +3550,7 @@ __all__ = [
     "AUTHENTICATED_DESTINATION",
     "DurableGoogleLoginBrowserIntegration",
     "DurableGoogleLoginBrowserResponse",
+    "FIND_MATCHES_ROUTE",
     "GOOGLE_LOGIN_CALLBACK_ROUTE",
     "GOOGLE_LOGIN_START_ROUTE",
     "GOOGLE_TRANSACTION_COOKIE_NAME",

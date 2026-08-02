@@ -222,6 +222,46 @@ def _profile_counts(path):
         connection.close()
 
 
+def _seed_invited_match_inventory(connection, *, observed_at):
+    observed = observed_at.isoformat()
+    connection.execute(
+        "INSERT INTO companies (id, name, slug, careers_url, source_tier, "
+        "inventory_model, market_count_policy) VALUES "
+        "(901, 'Configured Invited Inventory', 'configured-invited', "
+        "'https://jobs.example.test', 'core', 'live_feed', 'count_live')"
+    )
+    connection.execute(
+        "INSERT INTO canonical_opportunities ("
+        "id, company_id, canonical_key, canonical_title, normalized_title, "
+        "source_category, first_seen_at, last_seen_at, is_active, variant_count"
+        ") VALUES (901, 901, 'invited-python-evaluator', "
+        "'Distinctive Remote Python Evaluation Engineer', "
+        "'distinctive remote python evaluation engineer', "
+        "'Software Engineering', ?, ?, 1, 1)",
+        (observed, observed),
+    )
+    connection.execute(
+        "INSERT INTO crawl_runs (id, company_id, status, started_at, "
+        "finished_at, used_sample_data) VALUES (901, 901, 'success', ?, ?, 0)",
+        (observed, observed),
+    )
+    connection.execute(
+        "INSERT INTO jobs ("
+        "id, company_id, canonical_opportunity_id, external_id, title, location, "
+        "department, expertise, commitment, url, source_hash, opportunity_kind, "
+        "availability_basis, include_in_live_market_estimate, first_seen_at, "
+        "last_seen_at, is_active, updated_at"
+        ") VALUES (901, 901, 901, 'invited-python-evaluator', "
+        "'Distinctive Remote Python Evaluation Engineer', 'Remote', "
+        "'Software Engineering', 'Software Engineering', 'Contract', "
+        "'https://jobs.example.test/distinctive-invited-python', "
+        "'configured-invited-python-hash', 'live_posting', 'api_feed', 1, "
+        "?, ?, 1, ?)",
+        (observed, observed, observed),
+    )
+    connection.commit()
+
+
 def _merge_response_cookies(values, response):
     for name, value in cookie_values(response).items():
         if value:
@@ -2547,7 +2587,7 @@ class PersistentProfileCreationTests(unittest.TestCase):
         self.assertEqual(created.status, 303)
         self.assertEqual(
             tuple(value for name, value in created.headers if name == "Location"),
-            ("/account/profile",),
+            ("/find-matches",),
         )
         stored = self.integration.handle(
             "GET",
@@ -4441,6 +4481,10 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                     idempotency_key="b24d-invitation",
                     now=state.clock(),
                 )
+                _seed_invited_match_inventory(
+                    connection,
+                    observed_at=state.clock(),
+                )
             finally:
                 connection.close()
 
@@ -4732,7 +4776,26 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                         body=create_body,
                     )
                     self.assertEqual(created.status, 303)
-                    self.assertEqual(created.header_values("Location"), ("/account/profile",))
+                    self.assertEqual(created.header_values("Location"), ("/find-matches",))
+                    matches = https_request(
+                        state,
+                        "GET",
+                        created.header_values("Location")[0],
+                        headers=(("Cookie", cookie_header(cookies)),),
+                    )
+                    self.assertEqual(matches.status, 200)
+                    self.assertIn(
+                        b"Distinctive Remote Python Evaluation Engineer",
+                        matches.body,
+                    )
+                    self.assertIn(
+                        b"href='https://jobs.example.test/distinctive-invited-python'",
+                        matches.body,
+                    )
+                    self.assertIn(
+                        b"target='_blank' rel='noopener noreferrer'",
+                        matches.body,
+                    )
                     stored = https_request(
                         state,
                         "GET",
@@ -4815,6 +4878,17 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                     self.assertIn(
                         EXPECTED_DISPLAY_NAME.encode("utf-8"),
                         stored.body,
+                    )
+                    regenerated = https_request(
+                        state,
+                        "GET",
+                        "/find-matches",
+                        headers=(("Cookie", cookie_header(later_cookies)),),
+                    )
+                    self.assertEqual(regenerated.status, 200)
+                    self.assertIn(
+                        b"Distinctive Remote Python Evaluation Engineer",
+                        regenerated.body,
                     )
             finally:
                 report = reconstructed.close()

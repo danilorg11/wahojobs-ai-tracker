@@ -1197,27 +1197,27 @@ runtime, inspect configuration or environment variables, open the account
 database, load secrets, contact a provider, or activate protected routes.
 
 The dedicated composition owns `/login`, `/auth/google/start`,
-`/auth/google/callback`, `/logout`, and `/account/profile` without falling
-through to unrelated product routes. The launcher constructs one explicit
-bounded process-local `MatchRunRegistry` and passes that exact object to every
-stage of the About You flow. `GET /find-matches` opens the initial form, its
-ordinary POST creates a draft, the redirect renders the review from the same
-registry, and only a genuinely confirmation-shaped POST enters the exclusive
-account-native confirmation boundary. Authentication and account routes remain
-exclusive; `/preview`, matching, recommendations, general product actions, and
-other product routes remain dormant or rejected. The configured Host/no-proxy
-guard runs before reachable `/find-matches` GET rendering and before an initial
-or confirmation POST body is read. One bounded strict URL-encoded buffer is
-shared by classification and the owning handler, so malformed percent escapes,
-invalid UTF-8, duplicates, and unsupported fields are rejected without reparsing
-or a second read. It reuses B2C1 for both an
+`/auth/google/callback`, `/logout`, `/account/profile`, and `/find-matches`
+without falling through to unrelated product routes. The authenticated matches
+integration owns one bounded process-local `MatchRunRegistry` for no-profile
+candidate entry, structured review/draft correction, and explicit confirmation.
+Every GET, HEAD, and POST authenticates the durable session and authorizes the
+account-native owner. Draft state carries a server-only binding to the account,
+environment, principal, and session, so a capability from another authority
+cannot select or disclose it. The configured Host/no-proxy guard precedes
+rendering and body reads; POST then preserves same-origin, CSRF, strict framing,
+bounded single-read decoding, duplicate-field, and unsupported-field rejection.
+The durable launcher does not mount `scripts/local_product_app.py` wholesale;
+that script remains a local/development tool, while selected pure matching and
+presentation helpers are reused. It reuses B2C1 for both an
 authenticated owner's existing persistent profile and the accepted no-profile
 result.
 Authentication uses a fresh read-only connection or snapshot, the accepted
 strict `wahojobs_session` parser, and ownership authorization. A canonical
 active account with a valid account-native lineage but no profile row receives a
 fixed authenticated empty page; no profile or ownership row is synthesized.
-Authenticated rendering includes fixed safe profile and logout navigation;
+Authenticated rendering includes a `Create profile` or `Find matches` action
+and otherwise fixed safe profile and logout navigation;
 unauthenticated rendering offers `/login`. Refresh and dedicated-runtime
 reconstruction preserve access, while refresh after a successful logout again
 requires authentication. Existing CSP and escaping remain in force.
@@ -1318,15 +1318,13 @@ process termination. Earlier statements in this document that a dormant
 authorization-transaction component starts no worker remain scoped to that
 component, not to this activated profile-artifact vault.
 
-The launcher explicitly negotiates the optional
-`issue_confirmed_profile_artifact` capability and validates that it is callable.
-Real production activation requires the capability; integrations implementing
-only the established `matches_route()` and `handle()` routing contract remain
-valid through the legacy launcher-injection seam. Without the optional creation
-capability that compatibility composition returns a fixed unavailable response
-for `/find-matches` and cannot invoke legacy matching; a present non-callable
-capability remains invalid. Real production composition also requires the
-lookup-only completed-replay authenticator paired with issuance.
+The launcher explicitly validates the private
+`issue_confirmed_profile_artifact` capability and its paired lookup-only
+completed-replay authenticator for the profile-creation composition. It also
+requires the durable browser integration to claim `/find-matches` before binding
+the production handler. Routing-only test doubles remain possible only in their
+explicit compatibility mode; an absent route capability fails closed and never
+activates the local matcher or product handler.
 
 `PersistentProfileRepository` remains the sole durable create authority; the
 account-native composition uses its sealed-lineage create entrypoint while the
@@ -1349,10 +1347,35 @@ sole active ownership, and the complete unchanged ordered event lineage. An
 account transfer or replacement therefore fails closed before any profile row
 can be attributed to the new owner.
 
-Profile editing, replacement, deletion, general onboarding, matching,
-recommendations, legacy claiming, automatic migration, default database
-fallback, ordinary-runtime activation, cleanup scheduling, and automatic key
-rotation remain outside this boundary.
+The accepted B2.4d profile creation, immutable artifact, authenticated replay,
+reconciliation, and create-once contracts remain frozen. Successful creation now
+returns `303` to `/find-matches`; exact replay still converges on the original
+single profile, initial revision, and source set.
+
+The later authenticated profile-to-matches composition reads the authorized
+current Canonical Profile V2 on a query-only connection and projects it with
+`project_v2_to_matcher_v1()` using a fresh server-generated ephemeral matcher
+identity. The persistent profile identity is never a browser-selected matcher
+identifier. Opportunity rows come only from the durable runtime's explicitly
+configured, schema-attested SQLite database through the same query-only provider;
+the checked-in metadata overlay is also constructed explicitly. There is no
+fallback to `wahojobs.config.DB_PATH`, the workspace database, legacy
+`user_profiles`, `local_user`, demo state, or local pipeline data.
+
+Match regeneration is read-only and retains the existing inventory filtering,
+ranking, trust, exclusion, section, and result-cap rules. Empty or insufficiently
+trusted configured inventory produces an honest empty/refresh-needed page.
+Only validated HTTP(S) opportunity destinations are linked, with isolated
+new-tab behavior. Durable navigation is limited to profile, logout, and those
+destinations; My Jobs, tracker, dashboards, `/action`, preview aliases, demo
+personas, legacy selectors, and mutation forms are not rendered. Drafts and
+confirmed-creation artifacts remain bounded and process-local; match results are
+not persisted.
+
+Profile editing, correction, replacement, archive, purge and deletion UI,
+general onboarding, legacy claiming, automatic migration, public signup or
+deployment, scheduled refresh, My Jobs, tracker/pipeline behavior, and automatic
+key rotation remain outside this composition.
 
 B2.4d is an application milestone, not a formally verified crash-resilient
 state machine. It does not promise transparent in-process recovery when a
@@ -1363,8 +1386,8 @@ accepted operational recovery for such process-local stalls. Cryptographic run
 ID collision is outside the practical threat model, and the confirmation cache
 may outlive an artifact by the small interval between their clock samples;
 artifact consumption remains authoritative. Existing legacy synthetic profile
-construction outside this account-native graph remains deferred. B2.4e remains
-unstarted.
+construction outside this account-native graph remains deferred. Durable profile
+correction remains unstarted.
 
 Callback handling first parses the accepted callback state and terminally
 claims the durable authorization transaction. Only after that transaction is

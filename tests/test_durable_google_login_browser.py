@@ -12,6 +12,7 @@ from wahojobs.durable_google_login_browser import (
     AUTHENTICATED_DESTINATION,
     DurableGoogleLoginBrowserIntegration,
     DurableGoogleLoginBrowserResponse,
+    FIND_MATCHES_ROUTE,
     GOOGLE_LOGIN_CALLBACK_ROUTE,
     GOOGLE_LOGIN_START_ROUTE,
     GOOGLE_TRANSACTION_COOKIE_NAME,
@@ -127,10 +128,10 @@ class FakeProfileIntegration:
 
     @staticmethod
     def matches_route(path):
-        return path == AUTHENTICATED_DESTINATION
+        return path in {AUTHENTICATED_DESTINATION, FIND_MATCHES_ROUTE}
 
-    def handle(self, method, target, headers):
-        self.calls.append((method, target, headers))
+    def handle(self, method, target, headers, body_stream=None):
+        self.calls.append((method, target, headers, body_stream))
         return self.response
 
 
@@ -1296,6 +1297,36 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         )
         self.assertTrue(self.integration.matches_route(AUTHENTICATED_DESTINATION))
 
+    def test_find_matches_route_is_owned_and_delegated_after_host_boundary(self):
+        body_stream = io.BytesIO(b"candidate=reviewed")
+        for request_headers in (
+            (),
+            (("Host", "evil.test"),),
+            headers(extra=(("Forwarded", "host=app.test"),)),
+            headers(extra=(("X-Forwarded-Surprise", "app.test"),)),
+        ):
+            response = self.integration.handle(
+                "POST",
+                FIND_MATCHES_ROUTE,
+                request_headers,
+                body_stream,
+            )
+            self.assertEqual(response.status, 400)
+        self.assertEqual(self.harness.profile.calls, [])
+
+        response = self.integration.handle(
+            "POST",
+            FIND_MATCHES_ROUTE,
+            headers(),
+            body_stream,
+        )
+        self.assertIs(response, self.harness.profile.response)
+        self.assertEqual(
+            self.harness.profile.calls,
+            [("POST", FIND_MATCHES_ROUTE, headers(), body_stream)],
+        )
+        self.assertTrue(self.integration.matches_route(FIND_MATCHES_ROUTE))
+
     def test_invalid_configuration_and_unknown_routes_fail_closed(self):
         with self.assertRaises(ValueError):
             DurableGoogleLoginBrowserIntegration(
@@ -1313,19 +1344,24 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
                 prepare_authorization=self.harness.prepare,
                 complete_authorization=self.harness.complete,
             )
-        response = self.integration.handle("GET", "/find-matches", headers())
+        response = self.integration.handle("GET", "/unknown-account-route", headers())
         self.assertEqual(response.status, 404)
-        self.assertFalse(self.integration.matches_route("/find-matches"))
+        self.assertFalse(self.integration.matches_route("/unknown-account-route"))
 
     def test_close_gate_blocks_new_requests_and_retries_active_request(self):
         entered = threading.Event()
         release = threading.Event()
         original_handle = self.harness.profile.handle
 
-        def blocking_handle(method, target, request_headers):
+        def blocking_handle(method, target, request_headers, body_stream=None):
             entered.set()
             release.wait(2)
-            return original_handle(method, target, request_headers)
+            return original_handle(
+                method,
+                target,
+                request_headers,
+                body_stream,
+            )
 
         self.harness.profile.handle = blocking_handle
         responses = []

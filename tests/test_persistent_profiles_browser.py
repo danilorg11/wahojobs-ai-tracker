@@ -30,9 +30,11 @@ from wahojobs.persistent_profiles_application import (
     _TRUSTED_AUTHENTICATION_ACTOR_ISSUER,
 )
 from wahojobs.persistent_profiles_browser import (
+    FIND_MATCHES_ROUTE,
     MAX_PROFILE_BROWSER_RESPONSE_BYTES,
     PersistentProfileBrowserIntegration,
     PersistentProfileBrowserResponse,
+    _create_response_for_outcome,
     render_persistent_profile_page,
 )
 from wahojobs.persistent_profiles_repository import (
@@ -75,6 +77,43 @@ class BrowserReadOnlyProvider:
         return connection_scope()
 
 
+class FakeMatchesIntegration:
+    def __init__(self):
+        self.calls = []
+        self.close_calls = 0
+        self.response = PersistentProfileBrowserResponse(
+            200,
+            b"matches",
+            (("Content-Length", "7"),),
+        )
+        self._closed = False
+
+    @staticmethod
+    def matches_route(path):
+        return path == FIND_MATCHES_ROUTE
+
+    def handle(
+        self,
+        method,
+        target,
+        authentication_input=None,
+        body_stream=None,
+    ):
+        self.calls.append(
+            (method, target, authentication_input, body_stream)
+        )
+        return self.response
+
+    def close(self):
+        self.close_calls += 1
+        self._closed = True
+        return True
+
+    @property
+    def closed(self):
+        return self._closed
+
+
 class PersistentProfileBrowserTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -100,13 +139,23 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         self.authorization_calls += 1
         return self.grant
 
-    def integration(self, *, authenticate=None, authorize=None, provider=None):
+    def integration(
+        self,
+        *,
+        authenticate=None,
+        authorize=None,
+        provider=None,
+        matches_integration=None,
+    ):
         service = PersistentProfileApplicationService(
             authenticate=authenticate or self.authenticate,
             authorize=authorize or self.authorize,
             connection_provider=provider or self.provider,
         )
-        return PersistentProfileBrowserIntegration(service)
+        return PersistentProfileBrowserIntegration(
+            service,
+            matches_integration=matches_integration,
+        )
 
     def request(self, method, target, *, integration=None, headers=None):
         server = ThreadingHTTPServer(
@@ -162,6 +211,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         )
         self.assertEqual(get_status, 200)
         self.assertIn(b"No persistent profile yet", get_body)
+        self.assertIn(b"href='/find-matches'>Create profile</a>", get_body)
         self.assertIn(b"href='/logout'", get_body)
         self.assertEqual(get_headers["Content-Type"], "text/html; charset=utf-8")
         self.assertEqual(get_headers["Cache-Control"], "no-store")
@@ -186,6 +236,66 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             self.assertEqual(headers["Allow"], "GET, HEAD")
             self.assertIn(b"read-only", body)
         self.assertEqual(self.auth_calls, calls_before)
+
+    def test_optional_matches_integration_delegates_and_closes_with_profile_shell(self):
+        matches = FakeMatchesIntegration()
+        integration = self.integration(matches_integration=matches)
+        request_headers = (("Host", "app.test"),)
+        body_stream = object()
+
+        self.assertTrue(integration.matches_route(FIND_MATCHES_ROUTE))
+        response = integration.handle(
+            "POST",
+            FIND_MATCHES_ROUTE + "?review=1",
+            request_headers,
+            body_stream,
+        )
+        self.assertIs(response, matches.response)
+        self.assertEqual(
+            matches.calls,
+            [
+                (
+                    "POST",
+                    FIND_MATCHES_ROUTE + "?review=1",
+                    request_headers,
+                    body_stream,
+                )
+            ],
+        )
+
+        self.assertTrue(integration.close())
+        self.assertTrue(integration.closed)
+        self.assertEqual(matches.close_calls, 1)
+        unavailable = integration.handle("GET", FIND_MATCHES_ROUTE)
+        self.assertEqual(unavailable.status, 503)
+        self.assertEqual(len(matches.calls), 1)
+
+    def test_absent_matches_integration_fails_closed(self):
+        integration = self.integration()
+        self.assertFalse(integration.matches_route(FIND_MATCHES_ROUTE))
+        response = integration.handle("GET", FIND_MATCHES_ROUTE)
+        self.assertEqual(response.status, 404)
+        self.assertIn(b"Page not found", response.body)
+
+    def test_matches_integration_can_be_attached_exactly_once_before_use(self):
+        integration = self.integration()
+        matches = FakeMatchesIntegration()
+
+        self.assertTrue(integration.attach_matches_integration(matches))
+        self.assertTrue(integration.matches_route(FIND_MATCHES_ROUTE))
+        with self.assertRaisesRegex(
+            ValueError,
+            "invalid_persistent_profile_browser_configuration",
+        ):
+            integration.attach_matches_integration(FakeMatchesIntegration())
+
+        self.assertTrue(integration.close())
+        self.assertEqual(matches.close_calls, 1)
+
+    def test_successful_profile_create_redirects_to_matches(self):
+        response = _create_response_for_outcome("created")
+        self.assertEqual(response.status, 303)
+        self.assertEqual(dict(response.headers)["Location"], FIND_MATCHES_ROUTE)
 
     def test_authentication_and_authorization_states_are_generic(self):
         marker = "private-gateway-marker"
@@ -414,6 +524,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         )
         page, status = render_persistent_profile_page(result)
         self.assertEqual(int(status), 200)
+        self.assertIn("href='/find-matches'>Find matches</a>", page)
         self.assertNotIn("<script>", page)
         self.assertIn("&lt;script&gt;", page)
         self.assertIn("&amp;", page)

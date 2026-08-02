@@ -103,6 +103,9 @@ class DurableBrowserSessionAuthenticationGateway:
         return result
 
     def _authenticate(self, connection, request_context, *, now):
+        from wahojobs.authenticated_profile_matches import (
+            DurableMatchesRequestContext,
+        )
         from wahojobs.persistent_profile_creation import (
             ProfileCreateRequestContext,
         )
@@ -110,7 +113,11 @@ class DurableBrowserSessionAuthenticationGateway:
         if (
             not isinstance(connection, sqlite3.Connection)
             or type(request_context)
-            not in {BrowserRequestContext, ProfileCreateRequestContext}
+            not in {
+                BrowserRequestContext,
+                DurableMatchesRequestContext,
+                ProfileCreateRequestContext,
+            }
             or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
             or connection.execute("PRAGMA query_only").fetchone()[0] != 1
             or not attest_account_schema(connection)

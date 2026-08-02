@@ -1303,7 +1303,7 @@ print(canonical_v2.SCHEMA_VERSION)
         )
         self.assertEqual(result.stdout.strip(), SCHEMA_VERSION)
 
-    def test_only_dormant_migration_modules_import_or_name_v2(self):
+    def test_only_explicit_profile_modules_import_or_name_v2(self):
         references = []
         for root in (ROOT / "wahojobs", ROOT / "scripts"):
             for path in root.rglob("*.py"):
@@ -1314,16 +1314,21 @@ print(canonical_v2.SCHEMA_VERSION)
                     references.append(path.relative_to(ROOT).as_posix())
         self.assertEqual(len(references), len(set(references)))
         self.assertEqual(
-            references,
-            [
-                "wahojobs/google_oidc_authorization_transaction_schema.py",
-                "wahojobs/persistent_profiles.py",
-                "wahojobs/persistent_profiles_reconciliation.py",
-                "wahojobs/persistent_profiles_repository.py",
-                "wahojobs/persistent_profile_canonical_v2_schema.py",
-                "wahojobs/persistent_profile_schema.py",
-                "scripts/persistent_profile_canonical_v2_migration.py",
-            ],
+            sorted(references),
+            sorted(
+                [
+                    "wahojobs/authenticated_profile_matches.py",
+                    "wahojobs/durable_google_login_runtime.py",
+                    "wahojobs/google_oidc_authorization_transaction_schema.py",
+                    "wahojobs/persistent_profiles.py",
+                    "wahojobs/persistent_profiles_reconciliation.py",
+                    "wahojobs/persistent_profiles_repository.py",
+                    "wahojobs/persistent_profile_canonical_v2_schema.py",
+                    "wahojobs/persistent_profile_creation.py",
+                    "wahojobs/persistent_profile_schema.py",
+                    "scripts/persistent_profile_canonical_v2_migration.py",
+                ]
+            ),
         )
 
     def test_workspace_database_is_not_accessed_or_changed(self):

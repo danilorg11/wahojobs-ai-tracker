@@ -5678,6 +5678,14 @@ def _prepare_durable_google_login_activation_worker(
         from wahojobs.browser_session_authentication import (
             DurableBrowserSessionAuthenticationGateway,
         )
+        from wahojobs.authenticated_profile_matches import (
+            AuthenticatedProfileMatchesBrowserIntegration,
+            AuthenticatedProfileMatchesService,
+        )
+        from wahojobs.matching.metadata_overlay import (
+            DEFAULT_OVERLAY_PATH,
+            load_overlay,
+        )
         from wahojobs.persistent_profile_read_authorization import (
             DurablePersistentProfileReadAuthorizationGateway,
         )
@@ -5764,6 +5772,31 @@ def _prepare_durable_google_login_activation_worker(
             probe=_cleanup_resource_is_closed,
             dependencies=("browser_integration",),
         )
+        matches_service = AuthenticatedProfileMatchesService(
+            authentication_gateway=authentication_gateway,
+            authorization_gateway=authorization_gateway,
+            connection_provider=connections.read_only_connection_provider,
+            clock=clock,
+            binding_secret=secrets.token_bytes(32),
+        )
+        matches_integration = AuthenticatedProfileMatchesBrowserIntegration(
+            matches_service,
+            connection_provider=connections.read_only_connection_provider,
+            metadata_overlay=load_overlay(
+                path=DEFAULT_OVERLAY_PATH,
+                required=False,
+            ),
+            confirmed_profile_artifact_sink=(
+                profile_integration.issue_confirmed_artifact
+            ),
+            completed_profile_confirmation_authenticator=(
+                profile_integration.authenticate_completed_profile_replay
+            ),
+            public_origin=configuration.public_configuration.public_origin,
+            now=clock,
+        )
+        if profile_integration.attach_matches_integration(matches_integration) is not True:
+            raise DurableGoogleLoginConfigurationError()
         if profile_integration.activate() is not True:
             raise DurableGoogleLoginConfigurationError()
         _emit_runtime_checkpoint(

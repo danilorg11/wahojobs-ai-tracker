@@ -397,11 +397,56 @@ def build_preview_context_from_canonical(
     ambiguous_fields: list[str] | None = None,
     extraction_quality: str = "reviewed",
 ) -> dict:
-    """Match from a canonical profile without reparsing its original text."""
+    """Local wrapper that loads the default inventory before matching."""
+    inventory_rows, metadata_overlay_status = load_preview_rows(
+        use_overlay=use_overlay
+    )
+    return build_preview_context_from_canonical_rows(
+        canonical,
+        inventory_rows=inventory_rows,
+        metadata_overlay_status=metadata_overlay_status,
+        raw_input=raw_input,
+        input_style=input_style,
+        limit=limit,
+        normalizer_name=normalizer_name,
+        normalization_warnings=normalization_warnings,
+        missing_fields=missing_fields,
+        ambiguous_fields=ambiguous_fields,
+        extraction_quality=extraction_quality,
+    )
+
+
+def build_preview_context_from_canonical_rows(
+    canonical: dict,
+    *,
+    inventory_rows: list[dict],
+    metadata_overlay_status: dict,
+    raw_input: str = "",
+    input_style: str = "reviewed_structured_profile",
+    limit: int = DEFAULT_LIMIT,
+    normalizer_name: str = "reviewed_profile",
+    normalization_warnings: list[str] | None = None,
+    missing_fields: list[str] | None = None,
+    ambiguous_fields: list[str] | None = None,
+    extraction_quality: str = "reviewed",
+    evaluated_at: datetime | None = None,
+) -> dict:
+    """Match a canonical profile against explicit, already-loaded inventory rows.
+
+    This boundary deliberately has no database or metadata-overlay fallback.  A
+    caller selecting a non-local runtime must supply both dependencies.
+    """
     validate_canonical_profile(canonical)
     matcher_profile = canonical_to_matcher_profile(canonical)
     matcher_profile["language_locale_keys"] = canonical_language_locale_keys(canonical)
-    grouped_matches, overlay_status = build_grouped_matches(matcher_profile, limit, use_overlay=use_overlay)
+    rows = [dict(row) for row in inventory_rows]
+    overlay_status = dict(metadata_overlay_status)
+    grouped_matches = build_grouped_matches_from_rows(
+        matcher_profile,
+        rows,
+        limit,
+        evaluated_at=evaluated_at,
+    )
     canonical_summary = canonical_profile_debug_summary(canonical)
     normalization_warnings = list(normalization_warnings or [])
     missing_fields = list(
@@ -566,21 +611,7 @@ def build_grouped_matches_from_rows(
 
 def load_preview_rows(use_overlay: bool = True) -> tuple[list[dict], dict]:
     with get_connection() as conn:
-        live_rows = matcher.get_active_rows(conn, policy=MARKET_COUNT_POLICY_COUNT_LIVE)
-        evergreen_rows = matcher.get_active_rows(
-            conn,
-            policy_not=MARKET_COUNT_POLICY_COUNT_LIVE,
-            inventory_models=(INVENTORY_MODEL_EVERGREEN_APPLICATION,),
-        )
-        public_rows = matcher.get_active_rows(
-            conn,
-            policy_not=MARKET_COUNT_POLICY_COUNT_LIVE,
-            inventory_models=(INVENTORY_MODEL_PUBLIC_INVENTORY, INVENTORY_MODEL_MIXED),
-        )
-    rows = [
-        dict(row) for row in list(live_rows) + list(evergreen_rows) + list(public_rows)
-        if row["source_tier"] != SOURCE_TIER_EXPERIMENTAL
-    ]
+        rows = query_preview_rows(conn)
     if not use_overlay:
         return rows, {
             "enabled": False,
@@ -597,6 +628,29 @@ def load_preview_rows(use_overlay: bool = True) -> tuple[list[dict], dict]:
         "records_loaded": len(overlay.records_by_key),
         "rows_enriched": sum(1 for row in enriched_rows if row.get("metadata_overlay_applied")),
     }
+
+
+def query_preview_rows(connection) -> list[dict]:
+    """Query the preview inventory through one explicitly supplied connection."""
+    live_rows = matcher.get_active_rows(
+        connection,
+        policy=MARKET_COUNT_POLICY_COUNT_LIVE,
+    )
+    evergreen_rows = matcher.get_active_rows(
+        connection,
+        policy_not=MARKET_COUNT_POLICY_COUNT_LIVE,
+        inventory_models=(INVENTORY_MODEL_EVERGREEN_APPLICATION,),
+    )
+    public_rows = matcher.get_active_rows(
+        connection,
+        policy_not=MARKET_COUNT_POLICY_COUNT_LIVE,
+        inventory_models=(INVENTORY_MODEL_PUBLIC_INVENTORY, INVENTORY_MODEL_MIXED),
+    )
+    return [
+        dict(row)
+        for row in list(live_rows) + list(evergreen_rows) + list(public_rows)
+        if row["source_tier"] != SOURCE_TIER_EXPERIMENTAL
+    ]
 
 
 def apply_preview_guardrails(

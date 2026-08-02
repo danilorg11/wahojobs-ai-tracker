@@ -23,6 +23,7 @@ from wahojobs.persistent_profile_creation import (
 
 
 PERSISTENT_PROFILE_ROUTE = "/account/profile"
+FIND_MATCHES_ROUTE = "/find-matches"
 MAX_PROFILE_BROWSER_RESPONSE_BYTES = 1_048_576
 MAX_PROFILE_QUERY_BYTES = 256
 MAX_PROFILE_CREATE_BODY_BYTES = 1_024
@@ -119,6 +120,7 @@ class PersistentProfileBrowserIntegration:
     __slots__ = (
         "_closed",
         "_creation_service",
+        "_matches_integration",
         "_public_authority",
         "_public_origin",
         "_service",
@@ -129,6 +131,7 @@ class PersistentProfileBrowserIntegration:
         service: PersistentProfileApplicationService,
         *,
         creation_service=None,
+        matches_integration=None,
         public_origin=None,
     ):
         if (
@@ -140,6 +143,8 @@ class PersistentProfileBrowserIntegration:
             or ((creation_service is None) != (public_origin is None))
         ):
             raise ValueError("invalid_persistent_profile_browser_configuration")
+        if matches_integration is not None:
+            _require_matches_integration(matches_integration)
         authority = None
         if public_origin is not None:
             try:
@@ -163,6 +168,7 @@ class PersistentProfileBrowserIntegration:
                 raise ValueError("invalid_persistent_profile_browser_configuration")
         self._service = service
         self._creation_service = creation_service
+        self._matches_integration = matches_integration
         self._public_origin = public_origin
         self._public_authority = authority
         self._closed = False
@@ -172,8 +178,21 @@ class PersistentProfileBrowserIntegration:
             raise ConfirmedProfileArtifactUnavailable()
         return self._creation_service.activate()
 
+    def attach_matches_integration(self, matches_integration):
+        if self._closed or self._matches_integration is not None:
+            raise ValueError("invalid_persistent_profile_browser_configuration")
+        _require_matches_integration(matches_integration)
+        self._matches_integration = matches_integration
+        return True
+
     def matches_route(self, path: str) -> bool:
-        return path == PERSISTENT_PROFILE_ROUTE
+        if path == PERSISTENT_PROFILE_ROUTE:
+            return True
+        matches_integration = self._matches_integration
+        return (
+            matches_integration is not None
+            and matches_integration.matches_route(path) is True
+        )
 
     def handle(
         self,
@@ -184,6 +203,19 @@ class PersistentProfileBrowserIntegration:
     ) -> PersistentProfileBrowserResponse:
         if self._closed:
             return _create_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        if _request_target_path(target) == FIND_MATCHES_ROUTE:
+            matches_integration = self._matches_integration
+            if matches_integration is None:
+                return _response(
+                    HTTPStatus.NOT_FOUND,
+                    _generic_page("Page not found", "This page is not available."),
+                )
+            return matches_integration.handle(
+                method,
+                target,
+                authentication_input,
+                body_stream,
+            )
         allowed_methods = (
             ("GET", "HEAD", "POST")
             if self._creation_service is not None
@@ -372,6 +404,9 @@ class PersistentProfileBrowserIntegration:
         if self._creation_service is not None:
             if self._creation_service.close() is False:
                 return False
+        if self._matches_integration is not None:
+            if self._matches_integration.close() is False:
+                return False
         self._closed = True
         return True
 
@@ -379,7 +414,34 @@ class PersistentProfileBrowserIntegration:
     def closed(self):
         return self._closed and (
             self._creation_service is None or self._creation_service.closed
+        ) and (
+            self._matches_integration is None
+            or self._matches_integration.closed is True
         )
+
+
+def _require_matches_integration(matches_integration):
+    try:
+        matches_route = getattr(matches_integration, "matches_route", None)
+        handle_matches = getattr(matches_integration, "handle", None)
+        close_matches = getattr(matches_integration, "close", None)
+        matches_closed = getattr(matches_integration, "closed", None)
+        matches_route_owned = (
+            callable(matches_route)
+            and matches_route(FIND_MATCHES_ROUTE) is True
+        )
+    except Exception:
+        raise ValueError(
+            "invalid_persistent_profile_browser_configuration"
+        ) from None
+    if (
+        not matches_route_owned
+        or not callable(handle_matches)
+        or not callable(close_matches)
+        or type(matches_closed) is not bool
+        or matches_closed
+    ):
+        raise ValueError("invalid_persistent_profile_browser_configuration")
 
 
 def _parse_request_target(target: str) -> tuple[int | None, bool]:
@@ -410,6 +472,18 @@ def _parse_request_target(target: str) -> tuple[int | None, bool]:
     return cursor, True
 
 
+def _request_target_path(target: str) -> str | None:
+    if type(target) is not str:
+        return None
+    try:
+        parsed = urlsplit(target)
+    except (UnicodeError, ValueError):
+        return None
+    if parsed.scheme or parsed.netloc or parsed.fragment:
+        return None
+    return parsed.path
+
+
 def render_persistent_profile_page(
     result: PersistentProfilePageResult,
 ) -> tuple[str, HTTPStatus]:
@@ -438,7 +512,9 @@ def render_persistent_profile_page(
                 _authenticated_navigation()
                 + "<section class='empty'><h1>No persistent profile yet</h1>"
                 "<p>Confirm your reviewed About You details to create this profile explicitly.</p>"
-                "<p>Reading this page does not create or change profile data.</p></section>",
+                "<p>Reading this page does not create or change profile data.</p>"
+                f"<p><a class='primary-link' href='{FIND_MATCHES_ROUTE}'>"
+                "Create profile</a></p></section>",
             ),
             HTTPStatus.OK,
         )
@@ -509,6 +585,7 @@ def _render_available(result: PersistentProfilePageResult) -> str:
       <p class='eyebrow'>Account profile</p>
       <h1>{title}</h1>
       <p>{_safe_text(lifecycle_note)}</p>
+      <p><a class='primary-link' href='{FIND_MATCHES_ROUTE}'>Find matches</a></p>
       <dl class='meta'>
         <div><dt>Status</dt><dd>{_safe_text(_humanize(profile.lifecycle_status))}</dd></div>
         <div><dt>Current revision</dt><dd>{profile.revision_number}</dd></div>
@@ -542,7 +619,7 @@ def _create_response_for_outcome(state):
         return _response(
             HTTPStatus.SEE_OTHER,
             _generic_page("Profile created", "Your persistent profile is ready."),
-            extra_headers=(("Location", PERSISTENT_PROFILE_ROUTE),),
+            extra_headers=(("Location", FIND_MATCHES_ROUTE),),
         )
     status = {
         "conflict": HTTPStatus.CONFLICT,
