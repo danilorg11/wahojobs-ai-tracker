@@ -53,6 +53,7 @@ _SHUTDOWN_RESOURCE_CATEGORIES = frozenset(
         "database_descriptor",
         "database_attestation_connection",
         "database_connections",
+        "database_lifetime_ownership",
         "profile_integration",
         "browser_integration",
         "inactive_server",
@@ -1700,6 +1701,10 @@ class _DrainingThreadingHTTPServer(ThreadingHTTPServer):
         self._request_threads = set()
         self._published_handler = None
         self._shutdown_requested = None
+        self._database_lifetime_guard = None
+        self._database_lifetime_guard_required = False
+        self._database_lifetime_validation_lock = threading.Lock()
+        self._database_lifetime_valid = True
         if _construction_ownership is not None:
             _construction_ownership.acquire_server(self)
         try:
@@ -1795,6 +1800,16 @@ class _DrainingThreadingHTTPServer(ThreadingHTTPServer):
     def handle_error(self, _request, _client_address):
         return None
 
+    def server_bind(self):
+        if not self.require_database_lifetime_ownership():
+            raise OSError("database_lifetime_ownership_lost")
+        return super().server_bind()
+
+    def server_activate(self):
+        if not self.require_database_lifetime_ownership():
+            raise OSError("database_lifetime_ownership_lost")
+        return super().server_activate()
+
     def serve_forever(self, *args, **kwargs):
         current = threading.current_thread()
         with self._lifecycle_lock:
@@ -1822,6 +1837,8 @@ class _DrainingThreadingHTTPServer(ThreadingHTTPServer):
             current = None
 
     def service_actions(self):
+        if not self.require_database_lifetime_ownership():
+            raise RuntimeError("database_lifetime_ownership_lost")
         with self._lifecycle_lock:
             self._reap_request_threads_locked()
             outcome = self._serve_outcome
@@ -1850,11 +1867,72 @@ class _DrainingThreadingHTTPServer(ThreadingHTTPServer):
             self._serve_active
             and not self._stopping
             and not self._shutdown_is_requested()
+            and self._database_lifetime_valid
+            and (
+                not self._database_lifetime_guard_required
+                or self._database_lifetime_guard is not None
+            )
             and outcome is not None
             and outcome.ready_state_reached
             and not _socket_is_closed(self.socket)
             and self._published_handler is not None
         )
+
+    def set_database_lifetime_guard(self, guard):
+        if not callable(guard):
+            raise RuntimeError("invalid_database_lifetime_guard")
+        with self._database_lifetime_validation_lock:
+            with self._lifecycle_lock:
+                if (
+                    self._serve_active
+                    or self._database_lifetime_guard is not None
+                    or not self._database_lifetime_valid
+                ):
+                    raise RuntimeError(
+                        "database_lifetime_guard_already_configured"
+                    )
+                self._database_lifetime_guard_required = True
+                self._database_lifetime_guard = guard
+        return self.require_database_lifetime_ownership()
+
+    def require_database_lifetime_guard_installation(self):
+        with self._database_lifetime_validation_lock:
+            with self._lifecycle_lock:
+                if self._serve_active or not self._database_lifetime_valid:
+                    raise RuntimeError(
+                        "database_lifetime_guard_requirement_failed"
+                    )
+                self._database_lifetime_guard_required = True
+        return True
+
+    def require_database_lifetime_ownership(self):
+        with self._database_lifetime_validation_lock:
+            with self._lifecycle_lock:
+                guard = self._database_lifetime_guard
+                required = self._database_lifetime_guard_required
+                if not self._database_lifetime_valid:
+                    return False
+            if guard is None:
+                return not required
+            try:
+                valid = guard() is True
+            except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
+                _sanitize_launcher_exception(exc)
+                exc = None
+                valid = False
+            except Exception as exc:
+                _sanitize_launcher_exception(exc)
+                exc = None
+                valid = False
+            if not valid:
+                with self._lifecycle_lock:
+                    self._database_lifetime_valid = False
+                    self._stopping = True
+                    outcome = self._serve_outcome
+                if outcome is not None:
+                    outcome.request_stop()
+                return False
+            return True
 
     def set_serve_lifecycle(self, outcome, signal_state):
         if (
@@ -1888,6 +1966,8 @@ class _DrainingThreadingHTTPServer(ThreadingHTTPServer):
         return True
 
     def claim_serving_readiness(self):
+        if not self.require_database_lifetime_ownership():
+            return False
         with self._lifecycle_lock:
             if (
                 not self._serve_active
@@ -1953,6 +2033,8 @@ class _DrainingThreadingHTTPServer(ThreadingHTTPServer):
             )
 
     def get_request(self):
+        if not self.require_database_lifetime_ownership():
+            raise OSError("database_lifetime_ownership_lost")
         lease = _PendingTlsHandshake()
         request = None
         client_address = None
@@ -2063,6 +2145,9 @@ class _DrainingThreadingHTTPServer(ThreadingHTTPServer):
             wrapped = None
 
     def process_request(self, request, client_address):
+        if not self.require_database_lifetime_ownership():
+            self.shutdown_request(request)
+            return None
         start_error = None
         with self._lifecycle_lock:
             self._reap_request_threads_locked()
@@ -2906,6 +2991,7 @@ def main(
     primary_failed = False
     ready_reached = False
     runtime_uses_coordinator = False
+    database_lifetime_guard = None
     cleanup_report = coordinator.snapshot()
 
     def prepare_tls_workspace():
@@ -2995,6 +3081,22 @@ def main(
             _UnpublishedRequestHandler,
             server_ownership,
         )
+        if _runtime_builder is None and _server_factory is None:
+            require_database_lifetime_guard_installation = getattr(
+                server,
+                "require_database_lifetime_guard_installation",
+                None,
+            )
+            if (
+                not callable(
+                    require_database_lifetime_guard_installation
+                )
+                or require_database_lifetime_guard_installation()
+                is not True
+            ):
+                raise RuntimeError(
+                    "database_lifetime_guard_requirement_failed"
+                )
         tls_ownership.attach_server(server)
         _emit_checkpoint(_checkpoint_observer, "inactive_server")
         set_shutdown_notification = getattr(
@@ -3061,15 +3163,50 @@ def main(
             runtime = pending.complete_activation()
             runtime_uses_coordinator = True
             pending = None
+        database_lifetime_guard = getattr(
+            runtime,
+            "require_database_lifetime_ownership",
+            None,
+        )
+        if _runtime_builder is None and not callable(database_lifetime_guard):
+            raise RuntimeError("database_lifetime_guard_unavailable")
+        if (
+            callable(database_lifetime_guard)
+            and database_lifetime_guard() is not True
+        ):
+            raise RuntimeError("database_lifetime_ownership_unavailable")
+        install_database_lifetime_guard = getattr(
+            server,
+            "set_database_lifetime_guard",
+            None,
+        )
+        if callable(install_database_lifetime_guard) and callable(
+            database_lifetime_guard
+        ):
+            if (
+                install_database_lifetime_guard(database_lifetime_guard)
+                is not True
+            ):
+                raise RuntimeError("database_lifetime_guard_install_failed")
         _emit_checkpoint(_checkpoint_observer, "final_reverification")
 
         signal_state.install()
         _emit_checkpoint(_checkpoint_observer, "signals_installed")
         if not signal_state.requested:
+            if (
+                callable(database_lifetime_guard)
+                and database_lifetime_guard() is not True
+            ):
+                raise RuntimeError("database_lifetime_ownership_unavailable")
             server.server_bind()
             server_ownership.transition("tls_configured", "bound")
             _emit_checkpoint(_checkpoint_observer, "bound")
         if not signal_state.requested:
+            if (
+                callable(database_lifetime_guard)
+                and database_lifetime_guard() is not True
+            ):
+                raise RuntimeError("database_lifetime_ownership_unavailable")
             server.server_activate()
             server_ownership.transition("bound", "active")
             _emit_checkpoint(_checkpoint_observer, "activated")
@@ -3119,6 +3256,13 @@ def main(
                 signal_state,
             )
             if startup_state == "serving":
+                if (
+                    callable(database_lifetime_guard)
+                    and database_lifetime_guard() is not True
+                ):
+                    raise RuntimeError(
+                        "database_lifetime_ownership_unavailable"
+                    )
                 _emit_checkpoint(
                     _checkpoint_observer,
                     "ready_commit",
@@ -3168,6 +3312,13 @@ def main(
             elif not signal_state.requested:
                 primary_failed = True
         if ready_reached:
+            if (
+                callable(database_lifetime_guard)
+                and database_lifetime_guard() is not True
+            ):
+                raise RuntimeError(
+                    "database_lifetime_ownership_unavailable"
+                )
             print("Wahojobs durable Google login")
             print(f"Open: {configuration.public_origin}/login")
             print("Press Ctrl+C to stop.")
@@ -3204,6 +3355,7 @@ def main(
         exc = None
     finally:
         tls_context = None
+        database_lifetime_guard = None
         for _attempt in range(2):
             try:
                 if runtime is not None and runtime_uses_coordinator:

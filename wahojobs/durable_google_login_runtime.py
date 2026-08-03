@@ -26,6 +26,16 @@ import time
 from types import GetSetDescriptorType, MemberDescriptorType
 from urllib.parse import quote, urlsplit
 
+from wahojobs.database_lifetime_ownership import (
+    DatabaseLifetimeOwnership,
+    DatabaseLifetimeOwnershipError,
+    ROLE_DURABLE_RUNTIME,
+    acquire_database_lifetime_ownership,
+    database_lifetime_ownership_is_released,
+    release_database_lifetime_ownership,
+    require_database_lifetime_ownership,
+)
+
 
 CONFIGURATION_VERSION = 1
 CONFIGURATION_MAX_BYTES = 65_536
@@ -183,6 +193,57 @@ class _DatabaseTargetAuthority:
 
     def __deepcopy__(self, _memo):
         raise TypeError("database_target_authority_not_copyable")
+
+
+class _DatabaseLifetimeOwnershipResource:
+    __slots__ = ("_ownership", "_target")
+
+    def __init__(self, target):
+        if type(target) is not _DatabaseTargetAuthority:
+            raise DurableGoogleLoginConfigurationError()
+        self._target = target
+        self._ownership = None
+
+    def publish(self, ownership):
+        if (
+            type(ownership) is not DatabaseLifetimeOwnership
+            or self._ownership is not None
+        ):
+            raise DurableGoogleLoginConfigurationError()
+        self._ownership = ownership
+        return True
+
+    @property
+    def ownership(self):
+        ownership = self._ownership
+        if type(ownership) is not DatabaseLifetimeOwnership:
+            raise DurableGoogleLoginConfigurationError()
+        return ownership
+
+    def close(self):
+        ownership = self._ownership
+        if ownership is None:
+            return True
+        try:
+            return release_database_lifetime_ownership(
+                ownership,
+                role=ROLE_DURABLE_RUNTIME,
+                database_path=_database_target_path(self._target),
+            )
+        except DatabaseLifetimeOwnershipError:
+            raise DurableGoogleLoginConfigurationError() from None
+
+    @property
+    def closed(self):
+        ownership = self._ownership
+        return ownership is None or database_lifetime_ownership_is_released(
+            ownership
+        )
+
+    def __repr__(self):
+        return "_DatabaseLifetimeOwnershipResource(<sealed>)"
+
+    __str__ = __repr__
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1027,6 +1088,7 @@ class _CleanupEntry:
         "category",
         "dependencies",
         "probe",
+        "require_terminal_dependencies",
         "resource",
         "state",
         "token",
@@ -1041,10 +1103,12 @@ class _CleanupEntry:
         action,
         probe,
         dependencies,
+        require_terminal_dependencies,
     ):
         self.token = token
         self.category = category
         self.dependencies = dependencies
+        self.require_terminal_dependencies = require_terminal_dependencies
         self.resource = resource
         self.action = action
         self.probe = probe
@@ -1061,6 +1125,7 @@ _CLEANUP_RESOURCE_ORDER = (
     "database_descriptor",
     "database_attestation_connection",
     "database_connections",
+    "database_lifetime_ownership",
     "profile_integration",
     "browser_integration",
     "inactive_server",
@@ -1074,6 +1139,18 @@ _CLEANUP_RESOURCE_ORDER = (
     "signal_handlers",
 )
 _CLEANUP_RESOURCE_CATEGORIES = frozenset(_CLEANUP_RESOURCE_ORDER)
+_DATABASE_LIFETIME_TERMINAL_DEPENDENCIES = (
+    "database_descriptor",
+    "database_attestation_connection",
+    "database_connections",
+    "profile_integration",
+    "browser_integration",
+    "listener_socket",
+    "route_integration",
+    "request_threads",
+    "accepted_sockets",
+    "serve_thread",
+)
 _CLEANUP_WAIT_SECONDS = 5.0
 _ACTIVATION_PUBLICATION_WAIT_SECONDS = 1.0
 _ACTIVATION_PUBLICATION_GATE = _ActivationPublicationGate(
@@ -1117,6 +1194,7 @@ class _CleanupCoordinator:
         *,
         probe=None,
         dependencies=(),
+        require_terminal_dependencies=False,
     ):
         if (
             category not in _CLEANUP_RESOURCE_CATEGORIES
@@ -1124,6 +1202,7 @@ class _CleanupCoordinator:
             or not callable(action)
             or (probe is not None and not callable(probe))
             or type(dependencies) is not tuple
+            or type(require_terminal_dependencies) is not bool
             or any(
                 dependency not in _CLEANUP_RESOURCE_CATEGORIES
                 or dependency == category
@@ -1148,6 +1227,9 @@ class _CleanupCoordinator:
                     action=action,
                     probe=probe,
                     dependencies=dependencies,
+                    require_terminal_dependencies=(
+                        require_terminal_dependencies
+                    ),
                 )
             )
             self._last_report = self._snapshot_locked()
@@ -1546,7 +1628,10 @@ class _CleanupCoordinator:
             ]
             if matching and any(
                 candidate.state != "terminal"
-                and candidate.blocks_dependents
+                and (
+                    entry.require_terminal_dependencies
+                    or candidate.blocks_dependents
+                )
                 for candidate in matching
             ):
                 return True
@@ -2309,12 +2394,28 @@ class _DatabaseConnectionOwnership:
             if self._manager_identity is not manager._identity:
                 return False
             if self._state in {"leased", "close_pending"}:
-                return self._borrower_thread is current
-            if self._state == "rollback_pending":
-                return self._release_thread is current
-            if self._state == "closing":
-                return self._cleanup_thread is current
-            return self._state == "opening" and self._opening_thread is current
+                authorized = self._borrower_thread is current
+                requires_lifetime = authorized
+            elif self._state == "rollback_pending":
+                authorized = self._release_thread is current
+                requires_lifetime = False
+            elif self._state == "closing":
+                authorized = self._cleanup_thread is current
+                requires_lifetime = False
+            else:
+                authorized = (
+                    self._state == "opening"
+                    and self._opening_thread is current
+                )
+                requires_lifetime = authorized
+        if not authorized:
+            return False
+        if requires_lifetime:
+            try:
+                manager.require_database_lifetime_ownership()
+            except DurableGoogleLoginConfigurationError:
+                return False
+        return True
 
     def cleanup_owned_resources(self):
         _require_current_database_process(self._process_epoch)
@@ -2968,18 +3069,27 @@ class _RuntimeDatabaseConnections:
         "_accepting",
         "_condition",
         "_identity",
+        "_lifetime_ownership",
         "_next_generation",
         "_process_epoch",
         "_records",
         "_target",
     )
 
-    def __init__(self, target):
-        if type(target) is not _DatabaseTargetAuthority:
+    def __init__(self, target, *, lifetime_ownership=None):
+        if (
+            type(target) is not _DatabaseTargetAuthority
+            or (
+                lifetime_ownership is not None
+                and type(lifetime_ownership)
+                is not DatabaseLifetimeOwnership
+            )
+        ):
             raise DurableGoogleLoginConfigurationError()
         self._process_epoch = _current_database_process_epoch()
         self._identity = object()
         self._target = target
+        self._lifetime_ownership = lifetime_ownership
         self._accepting = True
         self._condition = threading.Condition(threading.Lock())
         self._records = {}
@@ -2988,8 +3098,38 @@ class _RuntimeDatabaseConnections:
     def require_current_process(self):
         return _require_current_database_process(self._process_epoch)
 
-    def open_writable_connection(self):
+    def require_database_lifetime_ownership(self):
         self.require_current_process()
+        with self._condition:
+            target = self._target
+            ownership = self._lifetime_ownership
+        if target is None:
+            raise DurableGoogleLoginConfigurationError()
+        if ownership is None:
+            return True
+        try:
+            return require_database_lifetime_ownership(
+                ownership,
+                role=ROLE_DURABLE_RUNTIME,
+                database_path=_database_target_path(target),
+            )
+        except DatabaseLifetimeOwnershipError:
+            raise DurableGoogleLoginConfigurationError() from None
+
+    def _attestation_lifetime_ownership(self):
+        self.require_database_lifetime_ownership()
+        with self._condition:
+            target = self._target
+            ownership = self._lifetime_ownership
+        if (
+            target is None
+            or type(ownership) is not DatabaseLifetimeOwnership
+        ):
+            raise DurableGoogleLoginConfigurationError()
+        return ownership
+
+    def open_writable_connection(self):
+        self.require_database_lifetime_ownership()
         return self._finish_connection_open(
             mode="rw",
             verify_schema=True,
@@ -2997,15 +3137,15 @@ class _RuntimeDatabaseConnections:
         )
 
     def read_only_connection_provider(self):
-        self.require_current_process()
+        self.require_database_lifetime_ownership()
         return _managed_read_only_connection_scope(self)
 
     def writable_connection_provider(self):
-        self.require_current_process()
+        self.require_database_lifetime_ownership()
         return _managed_writable_connection_scope(self)
 
     def guarded_read_only_connection_provider(self):
-        self.require_current_process()
+        self.require_database_lifetime_ownership()
         return _managed_read_only_lease_scope(self)
 
     def close(self):
@@ -3158,6 +3298,7 @@ class _RuntimeDatabaseConnections:
                 terminal = not self._records
                 if terminal:
                     self._target = None
+                    self._lifetime_ownership = None
                 self._condition.notify_all()
         if first_control is not None:
             propagated = first_control
@@ -3179,7 +3320,7 @@ class _RuntimeDatabaseConnections:
             )
 
     def _open_read_only_connection(self):
-        self.require_current_process()
+        self.require_database_lifetime_ownership()
         return self._finish_connection_open(
             mode="ro",
             verify_schema=True,
@@ -3194,7 +3335,7 @@ class _RuntimeDatabaseConnections:
         install_guard,
         standalone=False,
     ):
-        self.require_current_process()
+        self.require_database_lifetime_ownership()
         proof = _new_database_connection_proof()
         record = None
         lease = None
@@ -3260,6 +3401,7 @@ class _RuntimeDatabaseConnections:
                     record._cleanup_token = object()
                     cleanup_after_open = True
             if lease is not None:
+                self.require_database_lifetime_ownership()
                 return lease
             if cleanup_after_open:
                 self._cleanup_claimed_record(
@@ -4200,6 +4342,14 @@ class _PendingDurableGoogleLoginActivation:
                 raise DurableGoogleLoginConfigurationError()
             return self._browser_integration
 
+    def require_database_lifetime_ownership(self):
+        _require_current_database_process(self._process_epoch)
+        with self._condition:
+            if self._state != "pending" or self._shutdown_requested:
+                raise DurableGoogleLoginConfigurationError()
+            connections = self._connections
+        return connections.require_database_lifetime_ownership()
+
     def complete_activation(self):
         _require_current_database_process(self._process_epoch)
         activation_claimed = False
@@ -4215,11 +4365,16 @@ class _PendingDurableGoogleLoginActivation:
                 self._state = "offered"
                 configuration = self._configuration
             target = configuration.database_target
+            self._connections.require_database_lifetime_ownership()
             _reverify_secret_file_references(configuration)
             _attest_existing_database(
                 target,
                 cleanup_coordinator=self._cleanup_coordinator,
+                lifetime_ownership=(
+                    self._connections._attestation_lifetime_ownership()
+                ),
             )
+            self._connections.require_database_lifetime_ownership()
             _reverify_secret_file_references(configuration)
             _reverify_database_target(
                 target,
@@ -4240,6 +4395,7 @@ class _PendingDurableGoogleLoginActivation:
                 clock=self._clock,
                 cleanup_coordinator=self._cleanup_coordinator,
             )
+            self._connections.require_database_lifetime_ownership()
             with self._condition:
                 if (
                     self._shutdown_requested
@@ -4248,6 +4404,7 @@ class _PendingDurableGoogleLoginActivation:
                     raise DurableGoogleLoginConfigurationError()
                 self._state = "accepted"
                 self._condition.notify_all()
+            self._connections.require_database_lifetime_ownership()
             with self._condition:
                 if (
                     self._shutdown_requested
@@ -4265,6 +4422,7 @@ class _PendingDurableGoogleLoginActivation:
                 self._state = "committed"
                 self._activation_owner = None
                 self._condition.notify_all()
+            runtime.require_database_lifetime_ownership()
             return runtime
         except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
             propagated = exc
@@ -4551,6 +4709,14 @@ class DurableGoogleLoginRuntime:
                 raise DurableGoogleLoginConfigurationError()
             connections = self._connections
         return connections.open_writable_connection()
+
+    def require_database_lifetime_ownership(self):
+        _require_current_database_process(self._process_epoch)
+        with self._lock:
+            if self._shutdown_requested:
+                raise DurableGoogleLoginConfigurationError()
+            connections = self._connections
+        return connections.require_database_lifetime_ownership()
 
     def read_only_connection_provider(self):
         _require_current_database_process(self._process_epoch)
@@ -5533,20 +5699,82 @@ def _prepare_durable_google_login_activation_worker(
     profile_integration = None
     browser_integration = None
     target = None
+    lifetime_resource = None
+    lifetime_ownership = None
     secret_token = None
     invitation_lookup_key = None
     completed = False
     cleanup_report = None
     try:
         target = configuration.database_target
+        lifetime_resource = _DatabaseLifetimeOwnershipResource(target)
+        coordinator.own(
+            "database_lifetime_ownership",
+            lifetime_resource,
+            _cleanup_database_lifetime_ownership_resource,
+            probe=_database_lifetime_ownership_resource_is_closed,
+            dependencies=_DATABASE_LIFETIME_TERMINAL_DEPENDENCIES,
+            require_terminal_dependencies=True,
+        )
+        lifetime_ownership = acquire_database_lifetime_ownership(
+            _database_target_path(target),
+            role=ROLE_DURABLE_RUNTIME,
+            _publisher=lifetime_resource.publish,
+        )
+        require_database_lifetime_ownership(
+            lifetime_ownership,
+            role=ROLE_DURABLE_RUNTIME,
+            database_path=_database_target_path(target),
+        )
+        _reverify_database_target(
+            target,
+            require_no_sidecars=True,
+            require_stable_metadata=True,
+        )
+        _emit_runtime_checkpoint(checkpoint, "database_lifetime_owned")
+        require_database_lifetime_ownership(
+            lifetime_ownership,
+            role=ROLE_DURABLE_RUNTIME,
+            database_path=_database_target_path(target),
+        )
+        _attest_existing_database(
+            target,
+            cleanup_coordinator=coordinator,
+            lifetime_ownership=lifetime_ownership,
+        )
+        require_database_lifetime_ownership(
+            lifetime_ownership,
+            role=ROLE_DURABLE_RUNTIME,
+            database_path=_database_target_path(target),
+        )
+        _reverify_database_target(
+            target,
+            require_stable_metadata=True,
+        )
+        _emit_runtime_checkpoint(checkpoint, "database_attested")
+        require_database_lifetime_ownership(
+            lifetime_ownership,
+            role=ROLE_DURABLE_RUNTIME,
+            database_path=_database_target_path(target),
+        )
         if pre_secret_preparer is not None:
             pre_secret_preparer()
+        require_database_lifetime_ownership(
+            lifetime_ownership,
+            role=ROLE_DURABLE_RUNTIME,
+            database_path=_database_target_path(target),
+        )
         (
             client_secret,
             invitation_lookup_key,
             lookup_keys,
             protection_keys,
         ) = _load_authority_material(configuration)
+        require_database_lifetime_ownership(
+            lifetime_ownership,
+            role=ROLE_DURABLE_RUNTIME,
+            database_path=_database_target_path(target),
+        )
         _emit_runtime_checkpoint(checkpoint, "secrets_loaded")
         secret_token = coordinator.own(
             "secret_buffers",
@@ -5559,15 +5787,11 @@ def _prepare_durable_google_login_activation_worker(
             _cleanup_secret_material,
         )
         try:
-            _attest_existing_database(
-                target,
-                cleanup_coordinator=coordinator,
+            require_database_lifetime_ownership(
+                lifetime_ownership,
+                role=ROLE_DURABLE_RUNTIME,
+                database_path=_database_target_path(target),
             )
-            _reverify_database_target(
-                target,
-                require_stable_metadata=True,
-            )
-            _emit_runtime_checkpoint(checkpoint, "database_attested")
             if gateway_factory is None:
                 from wahojobs.google_oidc_gateway import (
                     GoogleOidcGateway,
@@ -5617,6 +5841,11 @@ def _prepare_durable_google_login_activation_worker(
                 ensure_account_native_principal,
             )
             _emit_runtime_checkpoint(checkpoint, "gateway_constructed")
+            require_database_lifetime_ownership(
+                lifetime_ownership,
+                role=ROLE_DURABLE_RUNTIME,
+                database_path=_database_target_path(target),
+            )
             if client_secret:
                 raise DurableGoogleLoginConfigurationError()
             if invitation_lookup_key:
@@ -5731,7 +5960,10 @@ def _prepare_durable_google_login_activation_worker(
             )
         )
 
-        connections = _RuntimeDatabaseConnections(target)
+        connections = _RuntimeDatabaseConnections(
+            target,
+            lifetime_ownership=lifetime_ownership,
+        )
         coordinator.own(
             "database_connections",
             connections,
@@ -5931,6 +6163,11 @@ def _prepare_durable_google_login_activation_worker(
             ),
         )
         _emit_runtime_checkpoint(checkpoint, "browser_constructed")
+        require_database_lifetime_ownership(
+            lifetime_ownership,
+            role=ROLE_DURABLE_RUNTIME,
+            database_path=_database_target_path(target),
+        )
         pending = _PendingDurableGoogleLoginActivation(
             _PENDING_ACTIVATION_CAPABILITY,
             configuration=configuration,
@@ -5956,6 +6193,8 @@ def _prepare_durable_google_login_activation_worker(
         cleanup_coordinator = None
         checkpoint = None
         target = None
+        lifetime_resource = None
+        lifetime_ownership = None
         if not completed:
             for _attempt in range(2):
                 cleanup_report = coordinator.cleanup(
@@ -7137,7 +7376,12 @@ def _database_descriptor_is_closed(descriptor):
     return descriptor.terminal
 
 
-def _attest_existing_database(target, *, cleanup_coordinator):
+def _attest_existing_database(
+    target,
+    *,
+    cleanup_coordinator,
+    lifetime_ownership=None,
+):
     from wahojobs.google_oidc_authorization_transaction_schema import (
         attest_google_oidc_authorization_transaction_schema,
     )
@@ -7145,8 +7389,22 @@ def _attest_existing_database(target, *, cleanup_coordinator):
     if (
         type(target) is not _DatabaseTargetAuthority
         or type(cleanup_coordinator) is not _CleanupCoordinator
+        or (
+            lifetime_ownership is not None
+            and type(lifetime_ownership)
+            is not DatabaseLifetimeOwnership
+        )
     ):
         raise DurableGoogleLoginConfigurationError()
+    if lifetime_ownership is not None:
+        try:
+            require_database_lifetime_ownership(
+                lifetime_ownership,
+                role=ROLE_DURABLE_RUNTIME,
+                database_path=_database_target_path(target),
+            )
+        except DatabaseLifetimeOwnershipError:
+            raise DurableGoogleLoginConfigurationError() from None
     _reverify_database_target(
         target,
         require_no_sidecars=True,
@@ -7156,13 +7414,32 @@ def _attest_existing_database(target, *, cleanup_coordinator):
         target,
         mode="rw",
         verify_schema=False,
-        install_guard=False,
+        install_guard=lifetime_ownership is not None,
         _cleanup_coordinator=cleanup_coordinator,
+        _lifetime_ownership=lifetime_ownership,
     )
     connection = _borrow_internal_database_connection(lease)
     try:
+        if lifetime_ownership is not None:
+            try:
+                require_database_lifetime_ownership(
+                    lifetime_ownership,
+                    role=ROLE_DURABLE_RUNTIME,
+                    database_path=_database_target_path(target),
+                )
+            except DatabaseLifetimeOwnershipError:
+                raise DurableGoogleLoginConfigurationError() from None
         connection.execute("BEGIN IMMEDIATE")
         connection.rollback()
+        if lifetime_ownership is not None:
+            try:
+                require_database_lifetime_ownership(
+                    lifetime_ownership,
+                    role=ROLE_DURABLE_RUNTIME,
+                    database_path=_database_target_path(target),
+                )
+            except DatabaseLifetimeOwnershipError:
+                raise DurableGoogleLoginConfigurationError() from None
         _reverify_database_target(
             target,
             require_no_sidecars=True,
@@ -7243,6 +7520,15 @@ def _attest_existing_database(target, *, cleanup_coordinator):
         require_no_sidecars=True,
         require_stable_metadata=True,
     )
+    if lifetime_ownership is not None:
+        try:
+            require_database_lifetime_ownership(
+                lifetime_ownership,
+                role=ROLE_DURABLE_RUNTIME,
+                database_path=_database_target_path(target),
+            )
+        except DatabaseLifetimeOwnershipError:
+            raise DurableGoogleLoginConfigurationError() from None
 
 
 def _open_writable_connection(target):
@@ -7257,6 +7543,7 @@ def _open_database_connection(
     verify_schema=True,
     install_guard=True,
     _cleanup_coordinator=None,
+    _lifetime_ownership=None,
 ):
     if (
         type(target) is not _DatabaseTargetAuthority
@@ -7264,12 +7551,20 @@ def _open_database_connection(
         or type(verify_schema) is not bool
         or type(install_guard) is not bool
         or (
+            _lifetime_ownership is not None
+            and type(_lifetime_ownership)
+            is not DatabaseLifetimeOwnership
+        )
+        or (
             _cleanup_coordinator is not None
             and type(_cleanup_coordinator) is not _CleanupCoordinator
         )
     ):
         raise DurableGoogleLoginConfigurationError()
-    manager = _RuntimeDatabaseConnections(target)
+    manager = _RuntimeDatabaseConnections(
+        target,
+        lifetime_ownership=_lifetime_ownership,
+    )
     lease = None
     connection_token = None
     try:
@@ -7323,6 +7618,19 @@ def _cleanup_database_manager_resource(manager):
     if type(manager) is not _RuntimeDatabaseConnections:
         raise DurableGoogleLoginConfigurationError()
     return manager.close()
+
+
+def _cleanup_database_lifetime_ownership_resource(resource):
+    if type(resource) is not _DatabaseLifetimeOwnershipResource:
+        raise DurableGoogleLoginConfigurationError()
+    return resource.close()
+
+
+def _database_lifetime_ownership_resource_is_closed(resource):
+    return (
+        type(resource) is _DatabaseLifetimeOwnershipResource
+        and resource.closed
+    )
 
 
 def _database_manager_is_closed(manager):

@@ -1352,7 +1352,12 @@ print(
                     writer = None
                     injected_sidecar = None
 
-                    def inject(target, *, cleanup_coordinator):
+                    def inject(
+                        target,
+                        *,
+                        cleanup_coordinator,
+                        lifetime_ownership=None,
+                    ):
                         nonlocal calls, writer, injected_sidecar
                         calls += 1
                         if calls == 2:
@@ -1387,6 +1392,7 @@ print(
                         return original(
                             target,
                             cleanup_coordinator=cleanup_coordinator,
+                            lifetime_ownership=lifetime_ownership,
                         )
 
                     try:
@@ -6766,13 +6772,15 @@ print("EXIT", status)
 
         checkpoints = (
             "configuration_validated",
+            "database_lifetime_owned",
+            "database_attested",
             "configuration_resolved",
             "tls_workspace_ready",
             "secrets_loaded",
-            "database_attested",
             "gateway_constructed",
             "key_authority_constructed",
             "connections_constructed",
+            "profile_integration_activated",
             "browser_constructed",
             "runtime_prepared",
             "inactive_server",
@@ -7150,13 +7158,15 @@ print("EXIT", status)
         self.assertEqual(result, 2)
         expected = (
             "configuration_validated",
+            "database_lifetime_owned",
+            "database_attested",
             "configuration_resolved",
             "tls_workspace_ready",
             "secrets_loaded",
-            "database_attested",
             "gateway_constructed",
             "key_authority_constructed",
             "connections_constructed",
+            "profile_integration_activated",
             "browser_constructed",
             "runtime_prepared",
             "inactive_server",

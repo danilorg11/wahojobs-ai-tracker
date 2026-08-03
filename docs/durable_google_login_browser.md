@@ -78,15 +78,17 @@ and all authority-key references. The invitation lookup key is the existing
 external M002 HMAC authority used when the operator created the invitation; it
 is never placed in the JSON document itself.
 The database path must be lexical-canonical, outside every Git checkout,
-single-linked, free of SQLite sidecars, and unavailable to another writer.
-The runtime seals that file identity, keeps a raw descriptor pinned across each
-SQLite connect-and-verify boundary, opens it explicitly in existing-file mode,
-and requires the byte-exact stored SQL plus closed base and Migration-001
-through Migration-006 marker inventory. Every later connection verifies the
-same sealed file before application SQL. After constructing the browser
-integration, startup repeats the writer, identity, sidecar, integrity, marker,
-and exact-schema checks before publishing the runtime. Startup never
-initializes, seeds, repairs, checkpoints, or migrates the database.
+single-linked, and free of SQLite sidecars. An existing participating lifetime
+owner makes startup fail closed, and the independent SQLite attestation still
+requires the database to be unavailable to another writer. The runtime seals
+that file identity, keeps a raw descriptor pinned across each SQLite
+connect-and-verify boundary, opens it explicitly in existing-file mode, and
+requires the byte-exact stored SQL plus closed base and Migration-001 through
+Migration-006 marker inventory. Every later connection verifies the same
+sealed file before application SQL. After constructing the browser integration,
+startup repeats the writer, identity, sidecar, integrity, marker, and
+exact-schema checks before publishing the runtime. Startup never initializes,
+seeds, repairs, checkpoints, or migrates the database.
 
 The supported local authority policy is exact:
 
@@ -111,6 +113,84 @@ OS-temporary files, identity-checked before and after TLS loading, and removed
 before the TLS context becomes usable. They are not repository artifacts.
 
 ## Database ownership and restart contract
+
+PB-OWN-1 adds one server-private lifetime-ownership protocol for one exact
+database file. It recognizes only the sealed `durable_runtime` and
+`offline_operator` roles. A role is part of the ownership capability; it is not
+an invitation command, a database mutation permission, or a public API. The
+same exclusion matrix applies within one process and between processes:
+
+| Current participating owner | Durable-runtime acquisition | Offline-operator acquisition |
+| --- | --- | --- |
+| none | acquire | acquire |
+| `durable_runtime` | fail closed with contention | fail closed with contention |
+| `offline_operator` | fail closed with contention | fail closed with contention |
+
+Acquisition derives one sibling coordination path by appending
+`.wahojobs-lifetime.lock` to the database filename. The coordination file is a
+zero-length, ordinary, single-linked file, not a symlink or Windows reparse
+point. On POSIX it must belong to the effective user and grant no group or
+other permissions. It contains no role, PID, path, token, secret, or status.
+The file deliberately remains after release and after process death; its mere
+existence is inert, and a valid stale unlocked file is reused rather than
+deleted or replaced.
+
+The owner opens that file with an exact non-inheritable descriptor and acquires
+without waiting. Windows uses `msvcrt.locking` with `LK_NBLCK` over the one byte
+at offset zero; POSIX uses `flock` with `LOCK_EX | LOCK_NB`. A process-local
+registry serializes acquisition and rejects a second same-process owner before
+native lock semantics could admit it. The database object identity and the
+coordination path/descriptor identity are revalidated when ownership is
+published and whenever the capability is required. Database or coordination
+replacement, an unsafe path component, or a coordination file that is no
+longer the sealed empty file invalidates the owner and fails closed.
+
+This is a participating-process protocol, not a universal filesystem mutex.
+A program that does not use it can still access the database. The contract
+assumes a local filesystem with the documented Windows byte-range-lock or
+POSIX `flock` and stable file-identity behavior; it makes no correctness claim
+for SMB, NFS, other remote filesystems, or synchronization layers, and the
+runtime does not detect all such placements. Consequently the existing SQLite
+defenses remain mandatory: rollback-journal format, sidecar rejection, the
+`BEGIN IMMEDIATE` writer probe, integrity and exact-schema attestation, and
+pinned file-identity checks are not replaced by lifetime ownership.
+The ordinary local prototype does not participate. The protocol does not claim
+protection from a malicious process running as the same operating-system
+identity or from a privileged local administrator. Windows uses only the
+standard-library file-lock boundary described here; PB-OWN-1 does not add or
+claim a stronger Windows ACL boundary.
+
+After configuration and referenced-file identities are fully validated, the
+activation worker registers the lifetime resource with cleanup ownership and
+then acquires it for `durable_runtime`. Acquisition and identity revalidation
+precede the first database attestation; that attestation precedes TLS-workspace
+construction, secret reads, gateway and authority construction, all later
+database connections, listener construction and bind, activation, and
+readiness. Guard checks revalidate the exact process epoch, role, database
+path, sealed capability, and file identities at database and launcher
+activation boundaries.
+
+Cleanup retains lifetime ownership until every declared database-capable
+dependency is terminal: database descriptors and attestation connections,
+runtime database connections, profile and browser integrations, the listener,
+routes, request and serve threads, and accepted sockets. A live or uncertain
+database-capable dependency prevents release. Closing the exact owned file
+object is the native lock-release and descriptor-close primitive; an
+incomplete close remains an unresolved `database_lifetime_ownership` cleanup
+category, and an indeterminate native close fails closed until process exit
+rather than being reported as released. A completed release can be replayed
+idempotently. Normal cleanup never deletes the empty coordination file.
+
+The coordination descriptor is non-inheritable across execution. On POSIX,
+the fork-child callback closes the child's inherited descriptor, invalidates
+its inherited records and process epoch, and replaces its same-process
+registry; the parent retains the original lock. The child cannot require or
+release the parent's capability, and a fresh child acquisition still contends
+while the parent owns the database. On clean process exit the runtime releases
+the lock after terminal cleanup. On process death the operating system releases
+the native lock, so a later fresh process can revalidate both file identities
+and acquire the same persistent coordination file. That recovery does not
+bypass SQLite recovery or attestation.
 
 Raw database-validation descriptors and SQLite connections are separate
 resources. A raw descriptor is held by one exact, non-inheritable file-object
@@ -275,44 +355,50 @@ transfer mechanism.
 
 Durable authorization restart depends only on committed Migration-006 state.
 The permanent restart proof uses two serial fresh interpreters: process A
-commits authorization start and performs production-equivalent cleanup before
-it is reaped; process B then reconstructs configuration, authorities, runtime,
-descriptors, and connections from explicit files and completes the callback
-with the network-disabled synthetic provider. Separate abrupt-exit schedules
-prove rollback before the start commit and recovery of one prepared row after
-the commit. No runtime object, connection, descriptor, socket, lock, thread, or
-in-memory authority crosses the process boundary. The B2.1 database/restart
-contract itself adds no migration or automatic migration and makes no
-multiprocess callback-competition guarantee. Additive retained-key rollover is
-the separate clean-reconstruction contract below.
+commits authorization start and performs production-equivalent cleanup,
+including terminal lifetime-ownership release, before it is reaped; process B
+then reconstructs configuration, reacquires lifetime ownership, and reconstructs
+authorities, runtime, descriptors, and connections from explicit files before
+it completes the callback with the network-disabled synthetic provider.
+Separate abrupt-exit schedules prove rollback before the start commit and
+recovery of one prepared row after the commit; after process death, process B
+must still reacquire ownership and pass all SQLite checks. No runtime object,
+connection, descriptor, socket, native lock, thread, or in-memory authority
+crosses the process boundary. The empty coordination file may persist, but it
+does not convey ownership. The B2.1 database/restart contract itself adds no
+migration or automatic migration and makes no multiprocess callback-competition
+guarantee. Additive retained-key rollover is the separate clean-reconstruction
+contract below.
 
 ## Activation, readiness, and shutdown
 
 The dedicated launcher uses one all-or-nothing activation sequence:
 
-1. completely validate nonsecret configuration;
-2. resolve the database, secret-file, key-file, and external TLS-workspace
-   identities and policies;
-3. load secret material into private construction buffers;
-4. attest the already migrated database;
-5. construct the gateway, lookup/protection authority, connection owner,
+1. completely validate nonsecret configuration and resolve the database,
+   secret-file, and key-file identities and policies;
+2. register and acquire exact database lifetime ownership;
+3. attest the already migrated database while that capability remains valid;
+4. construct and validate the external TLS workspace;
+5. load secret material into private construction buffers;
+6. construct the gateway, lookup/protection authority, connection owner,
    dormant profile-artifact vault and coordinator, profile service, and profile
    integration privately;
-6. register the complete profile integration with the outer cleanup authority,
+7. register the complete profile integration with the outer cleanup authority,
    start its non-daemon vault coordinator only after that registration, and then
    construct the browser integration;
-7. register cleanup ownership, then construct an inactive, unbound server with
+8. register cleanup ownership, then construct an inactive, unbound server with
    an inert handler and immediately attach it and its concrete listener to that
    owner;
-8. build the TLS context and configure explicit per-connection TLS;
-9. publish the dedicated handler only after HTTPS construction;
-10. repeat the database and secret identity attestations;
-11. bind the listener;
-12. activate it; and
-13. start the owned serve thread, wait boundedly for its first successful
+9. build the TLS context and configure explicit per-connection TLS;
+10. publish the dedicated handler only after HTTPS construction;
+11. repeat the database and secret identity attestations and require current
+    lifetime ownership;
+12. bind the listener only after another lifetime-ownership check;
+13. activate it only after another lifetime-ownership check; and
+14. start the owned serve thread, wait boundedly for its first successful
     serving-loop checkpoint, hold that first iteration on a bounded two-party
-    decision, atomically claim readiness against shutdown and serve failure,
-    publish readiness, and serve.
+    decision, require lifetime ownership again, atomically claim readiness
+    against shutdown and serve failure, publish readiness, and serve.
 
 Signal handlers are installed after final runtime construction and before bind,
 activation, or readiness. A signal received at any later checkpoint prevents
@@ -328,13 +414,15 @@ accepting, close pending handshakes and accepted sockets, boundedly drain
 request threads, detach the route, close the high-level server and concrete
 listener, stop browser request admission, close database connections and both
 logical key-authority cleanup positions, close the Google gateway, remove the
-TLS workspace, and finally restore prior signal handlers. The request-thread
-and serve-thread drain bounds are two seconds per cleanup attempt. A live
-thread, connection, listener, socket, or other failed close remains a
-fixed-category unresolved entry. A later cleanup call retries only unresolved
-entries; terminal resources are not closed twice. Ordinary and explicitly
-named control-flow cleanup failures cannot skip another cleanup action or
-replace an earlier startup/request failure.
+TLS workspace, release database lifetime ownership only after its complete
+terminal-dependency set has closed, and finally restore prior signal handlers.
+The request-thread and serve-thread drain bounds are two seconds per cleanup
+attempt. A live thread, connection, listener, socket, lifetime-ownership
+descriptor, or other failed close remains a fixed-category unresolved entry. A
+later cleanup call retries only unresolved entries; terminal resources are not
+closed twice. Ordinary and explicitly named control-flow cleanup failures
+cannot skip another cleanup action or replace an earlier startup/request
+failure.
 
 The profile-artifact vault has a separate claim-cleanup coordinator. Its object
 and worker are constructed dormant, and neither the vault nor its service
@@ -878,14 +966,25 @@ it does not delete a user-supplied path.
 
 ## Explicit limitations and deferred operations
 
+PB-OWN-1 supplies only the server-private lifetime-ownership primitive and its
+durable-runtime integration. It does not implement PB-OPS-1: there is no
+offline invitation command and no invitation create, status, or revoke
+operation. The `offline_operator` role reserves a participant in the exclusion
+matrix; acquiring that role alone grants no product or database authority.
+PB-OWN-1 adds no schema, migration, administrator interface, or deployment
+surface.
+PB-OPS-1 can later participate by acquiring `offline_operator` for the exact
+configured database before its own database attestation; no such operator or
+invitation behavior is implemented here.
+
 This milestone does not provide:
 
 - public/non-loopback serving, proxy trust, certificate deployment, or
   production TLS operations, public signup, or public deployment readiness;
-- invitation delivery or administration UI, general identity linking or
-  account merge, or profile operations beyond the bounded same-profile
-  correction flow, including replacement, archive, reactivate, purge, deletion,
-  rollback, or revision-history UI;
+- invitation creation, status, revocation, delivery, or administration UI,
+  general identity linking or account merge, or profile operations beyond the
+  bounded same-profile correction flow, including replacement, archive,
+  reactivate, purge, deletion, rollback, or revision-history UI;
 - My Jobs, tracker or pipeline actions, match history, or MatchRun persistence;
 - scheduled opportunity refresh or new crawler/source activation;
 - database initialization, seeding, repair, automatic migration, or
