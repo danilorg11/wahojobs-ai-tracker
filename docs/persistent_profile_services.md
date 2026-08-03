@@ -1368,14 +1368,74 @@ trusted configured inventory produces an honest empty/refresh-needed page.
 Only validated HTTP(S) opportunity destinations are linked, with isolated
 new-tab behavior. Durable navigation is limited to profile, logout, and those
 destinations; My Jobs, tracker, dashboards, `/action`, preview aliases, demo
-personas, legacy selectors, and mutation forms are not rendered. Drafts and
-confirmed-creation artifacts remain bounded and process-local; match results are
-not persisted.
+personas, legacy selectors, and mutation forms are not rendered. Creation and
+correction drafts and confirmed artifacts remain bounded and process-local;
+match results are not persisted.
 
-Profile editing, correction, replacement, archive, purge and deletion UI,
-general onboarding, legacy claiming, automatic migration, public signup or
-deployment, scheduled refresh, My Jobs, tracker/pipeline behavior, and automatic
-key rotation remain outside this composition.
+### Bounded durable profile-correction composition
+
+The existing-profile `GET /account/profile` page continues to render the
+authorized current profile and `Find matches`, and now also offers one clear
+`Update profile` action on that same route. Correction begins from the complete
+current Canonical Profile V2 returned by the accepted query-only authorized
+read. The server projects that trusted snapshot into an identity-free review
+draft and reuses the accepted draft/review/correct/confirm machinery. Browser
+fields are untrusted correction input and are never accepted as an authoritative
+V2 document or as profile, principal, revision, provenance, or source identity.
+
+Correction drafts and immutable confirmation artifacts are distinct from the
+B2.4d creation purpose and remain bounded, expiring, and process-local. Their
+server-private binding covers the authenticated account, environment,
+account-native principal, session, existing profile, exact base/current
+revision, and correction purpose. The browser receives only opaque protected
+references and purpose-bound proofs. Cross-account, cross-session, expired,
+tampered, wrong-purpose, and restart-lost pending, uncommitted state fails
+without disclosure or partial durable mutation. A successfully committed
+artifact remains eligible for authenticated exact durable replay after
+process-local expiry or runtime reconstruction.
+
+Confirmation rebuilds and validates one complete corrected Canonical V2
+snapshot while retaining the same server-authorized persistent profile ID. It
+uses the shared reviewed-profile source-bundle builder, always includes the
+confirmed correction source, and prepares the existing
+`AppendProfileRevisionCommand` with revision kind `correction`, the exact
+expected current revision number, the exact prior revision as correction
+target, and a stable server-derived idempotency key. The accepted
+`append_profile_revision` path atomically appends exactly one immutable revision
+and its complete ordered sources and advances the current view. It does not
+replace an earlier revision, rewrite the profile container or ownership
+lineage, or persist Canonical V1.
+
+The correction source bundle retains the complete server-normalized review
+semantics under the installed 32,768-byte-per-source and 16-source limits. The
+ordinary case remains one byte-identical correction source. When that canonical
+JSON is larger, the correction-only builder deterministically divides it into
+at most 15 ordered, hash- and length-bound JSON fragments while the confirmed
+About You source remains ordinal 1. Reassembly yields the exact ordinary JSON,
+and changed V2 provenance is bound server-side to every correction-source
+ordinal. This partition mode is not enabled for the frozen B2.4d creation path.
+
+Exact replay converges on the accepted append, including after runtime
+reconstruction. Changed replay conflicts generically. A stale base or two
+competing corrections cannot overwrite the newly current revision; the losing
+append leaves durable material unchanged. Success returns `303` to
+`/find-matches`, which performs a fresh authorized read of the newly current V2
+and the already accepted ephemeral V1 matcher projection against only the
+configured inventory. B2.4d creation and Authenticated Profile-to-Matches remain
+frozen dependencies.
+
+Correction-vault shutdown first rejects new consume operations and keeps a
+vault-owned operation token for the entire admitted path, including a missing
+local artifact's durable-replay lookup and append. Close waits with a finite
+bound. A timeout preserves records and leaves cleanup unresolved for a later
+retry; a successful close guarantees that no admitted correction append can
+commit afterward.
+
+Arbitrary profile replacement, additional edit kinds, archive, reactivate,
+purge and deletion UI, revision-history UI, general onboarding, legacy
+claiming, automatic migration, public signup or deployment, scheduled refresh,
+My Jobs, tracker/pipeline behavior, and automatic key rotation remain outside
+this composition. The ordinary local-product runtime is unchanged.
 
 B2.4d is an application milestone, not a formally verified crash-resilient
 state machine. It does not promise transparent in-process recovery when a
@@ -1386,8 +1446,9 @@ accepted operational recovery for such process-local stalls. Cryptographic run
 ID collision is outside the practical threat model, and the confirmation cache
 may outlive an artifact by the small interval between their clock samples;
 artifact consumption remains authoritative. Existing legacy synthetic profile
-construction outside this account-native graph remains deferred. Durable profile
-correction remains unstarted.
+construction outside this account-native graph remains deferred. The bounded
+durable correction flow above does not broaden those recovery claims or activate
+any later profile operation.
 
 Callback handling first parses the accepted callback state and terminally
 claims the durable authorization transaction. Only after that transaction is

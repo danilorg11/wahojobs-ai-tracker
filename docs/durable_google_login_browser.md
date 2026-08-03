@@ -433,7 +433,7 @@ contract:
 | `/auth/google/start` | `POST` | Durable authorization preparation |
 | `/auth/google/callback` | `GET` | Terminal durable callback completion |
 | `/logout` | `GET`, `POST` | Confirmation and CSRF-protected revocation |
-| `/account/profile` | `GET`, `HEAD`, `POST` | Owned profile read or explicit first-profile creation |
+| `/account/profile` | `GET`, `HEAD`, `POST` | Owned profile read, explicit first-profile creation, or bounded same-profile correction |
 | `/find-matches` | `GET`, `HEAD`, `POST` | Authenticated candidate entry/review or query-only ranked matches from the durable profile |
 
 An unsupported method on an authentication path returns `405` with the fixed
@@ -580,7 +580,7 @@ No cookie has a `Domain` attribute, and no insecure development variant exists.
 Cookie clearing preserves the corresponding `Secure`, `HttpOnly`, `Path=/`,
 and `SameSite` policy while setting `Max-Age=0` and a fixed expired date.
 
-## Protected profile, refresh, and logout
+## Protected profile, correction, refresh, and logout
 
 After accepted delivery, the callback redirects only with `303` to the fixed
 `/account/profile` destination. There is no request-controlled redirect. The
@@ -591,25 +591,34 @@ account has a valid account-native lineage but no persistent-profile row, the
 same read boundary renders a fixed empty state and performs no profile,
 ownership, session, or legacy-data write. GET and HEAD remain strictly
 read-only; request input cannot select an account, principal, binding, profile,
-or environment. The empty page provides a fixed `Create profile` action and an
-existing-profile page provides `Find matches`; navigation is otherwise limited
-to profile and logout. A refresh with the active session and a reconstructed
-dedicated runtime remain authenticated; unauthenticated access offers `/login`.
+or environment. The empty page provides a fixed `Create profile` action. An
+existing-profile page retains `Find matches` and adds one clear `Update profile`
+entry point; navigation is otherwise limited to profile and logout. A refresh
+with the active session and a reconstructed dedicated runtime remain
+authenticated; unauthenticated access offers `/login`.
 
-`POST /account/profile` is the sole activated profile mutation. It accepts an
-exact URL-encoded body containing only one 43-character process-local artifact
-reference and one 43-character purpose/artifact-bound CSRF proof. The target
-has no query, the body is capped at 1 KiB, and duplicate, additional,
-percent-reinterpreted, or browser-selected identity and command fields are
-rejected. Exact Host and proxy prohibitions are checked first, followed by
-same-origin policy, strict form parsing, session and CSRF-cookie parsing,
-session authentication, raw session-CSRF validation, constant-time derived
-proof validation, canonical ownership authorization, artifact claim, sealed
-command validation, and the existing atomic create-once repository call.
+`POST /account/profile` remains the sole activated profile-mutation route. It
+accepts only fixed server-rendered creation or correction action forms; there
+is no second correction route and no request-controlled destination. The
+creation target has no query, while correction targets contain only a fixed
+action and opaque purpose proof. Bodies are bounded and strictly single-read
+URL-encoded forms, and duplicate, additional, percent-reinterpreted, or
+browser-selected identity and command fields are rejected. Exact Host and proxy prohibitions are checked
+first and POST requires the exact same origin. Correction actions then validate
+the durable session cookie, purpose-bound session CSRF, actor/session account
+agreement, account-native principal, and authorized current profile before the
+correction body is parsed or acted upon. Thus browser data cannot choose the
+account, principal, binding, profile, current/base revision, correction target,
+environment, actor, source ownership, idempotency identity, or redirect.
+
+The frozen first-creation apply form contains only one 43-character
+process-local artifact reference and one 43-character
+purpose/artifact-bound CSRF proof. Its accepted authority, artifact claim,
+sealed-command validation, and atomic create-once repository call are unchanged.
 The response never changes cookies or exposes durable identifiers. Creation
-returns `303` to `/find-matches`, same-artifact replay returns the same
-result while its tombstone is live, and an unrelated create for an existing
-profile returns `409`.
+returns `303` to `/find-matches`, same-artifact replay returns the same result
+while its tombstone is live, and an unrelated create for an existing profile
+returns `409`.
 
 The runtime composes the authenticated matches integration inside the protected
 profile integration and routes `/find-matches` through the durable browser
@@ -708,6 +717,70 @@ idempotency are all server-owned. One successful creation adds only one
 two `product_profile_sources` rows; the current-profile view reflects those
 rows. Account, identity, invitation, session, ownership, event, alias, legacy,
 and unrelated state does not change.
+
+### Bounded durable profile correction
+
+`Update profile` begins the distinct correction action namespace on the same
+`/account/profile` route. The server first authorizes and reads the complete
+current Canonical Profile V2, including its exact current revision, through the
+accepted query-only profile boundary. It projects that trusted snapshot into an
+identity-free review draft and reuses the accepted structured
+draft/review/correct/confirm machinery. The `start`, `redraft`, `confirm`, and
+`apply` actions use purpose-bound proofs; no hidden browser field contains an
+authoritative V2 document, durable identifier, hash, source metadata, or base
+revision. HEAD follows the same authority and representation decision as GET,
+returns no external body, and remains write-free.
+
+Drafts and immutable correction artifacts are bound server-side to the account,
+environment, account-native principal, session, existing profile, exact base
+revision and full base-V2 hash, and the distinct correction purpose. They are
+process-local: the draft registry and artifact vault each have an independent
+64-entry cap and non-sliding 600-second lifetime. Only bounded opaque
+draft/review/artifact references and
+integrity-protected proofs cross the browser boundary. A wrong account or session, expired or tampered
+reference, wrong purpose, or restart-lost pending, uncommitted reference fails
+without disclosing or changing durable profile state. After a successful
+append, authenticated exact replay can deliberately converge from the durable
+revision even after process-local expiry or runtime reconstruction.
+
+Confirmation rebuilds and validates a complete corrected Canonical V2 snapshot
+with the same server-authorized persistent profile ID. It constructs the full
+ordered source bundle from the accepted reviewed-profile builder, including the
+confirmed About You text and deterministic confirmed-correction JSON evidence.
+The ordinary evidence remains one byte-identical source. If the complete
+server-normalized JSON exceeds the installed per-source limit, correction alone
+uses up to 15 ordered, hash- and length-bound fragments within the existing
+16-source contract; exact reassembly recovers the ordinary JSON, and changed V2
+provenance names every server-selected correction ordinal. B2.4d creation keeps
+its frozen single-source behavior.
+The server prepares the existing append command with revision kind
+`correction`, the authorized expected-current revision number, the exact base
+revision as `correction_of_revision_id`, fixed actor/reason/version values, the
+accepted timestamp, and a stable idempotency key derived from the sealed
+correction authority. Browser input supplies none of those values.
+
+The existing `append_profile_revision` service performs the write in its
+accepted transaction: it checks replay before stale state, verifies the
+predecessor and contiguous revision number, appends one immutable full-V2
+revision and its complete sources, and advances the current view atomically.
+The profile container, persistent identity, account-native principal, owner
+binding, and earlier revisions and sources do not change. Canonical V1 is never
+persisted. Exact artifact replay converges on the same append, including after
+runtime reconstruction. Changed replay conflicts; a stale base or competing
+correction cannot overwrite the winner and leaves no partial rows.
+
+Correction shutdown stops new consume admission and holds a vault-owned
+operation token across both ordinary artifact claims and the durable replay
+fallback. Close waits for admitted operations with a finite bound. If that
+bound expires, cleanup remains unresolved and retryable and the vault retains
+its records; after a successful close, no correction append can commit later.
+
+Successful apply returns only `303 /find-matches`. That request performs a
+fresh authenticated read of the newly current V2 and the frozen ephemeral-V1
+matching projection against the configured query-only inventory. The accepted
+B2.4d create-once and Authenticated Profile-to-Matches behavior remains
+unchanged. Correction activates no archive, reactivate, deletion, rollback,
+history, local-product, My Jobs, tracker, or pipeline operation.
 
 For an existing authorized profile, match generation reads the current
 Canonical Profile V2 and calls the accepted `project_v2_to_matcher_v1()` with a
@@ -810,8 +883,9 @@ This milestone does not provide:
 - public/non-loopback serving, proxy trust, certificate deployment, or
   production TLS operations, public signup, or public deployment readiness;
 - invitation delivery or administration UI, general identity linking or
-  account merge, or profile editing, correction, replacement, archive, purge,
-  or deletion UI after the explicit first creation;
+  account merge, or profile operations beyond the bounded same-profile
+  correction flow, including replacement, archive, reactivate, purge, deletion,
+  rollback, or revision-history UI;
 - My Jobs, tracker or pipeline actions, match history, or MatchRun persistence;
 - scheduled opportunity refresh or new crawler/source activation;
 - database initialization, seeding, repair, automatic migration, or
@@ -833,7 +907,9 @@ for such process-local stalls. Cryptographic run-ID collision is outside the
 practical threat model, and the confirmation cache may outlive the artifact by
 the small interval between their clock samples; artifact consumption remains
 authoritative. The accepted B2.4d create-once and replay contracts remain
-frozen. Durable profile correction remains unstarted.
+frozen, as does the accepted Authenticated Profile-to-Matches contract. The
+bounded correction flow does not activate any later profile or lifecycle
+operation.
 
 Production topology, certificates, secret custody, controlled key rotation and
 retirement, provider credentials, operational monitoring, abuse controls,

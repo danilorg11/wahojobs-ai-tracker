@@ -24,6 +24,8 @@ from wahojobs.persistent_profile_schema import (
 from wahojobs.profiles.canonical import (
     CONFIDENCE_LEVELS,
     LANGUAGE_PROFICIENCIES,
+    PROFILE_SOURCE_USER_CONFIRMATION,
+    PROFILE_SOURCE_USER_CORRECTION,
     PROFILE_SOURCES,
     SCHEMA_VERSION as V1_SCHEMA_VERSION,
     UNKNOWN,
@@ -557,6 +559,20 @@ def convert_v1_to_v2(
         validate_canonical_profile(original)
     except (ValueError, TypeError) as exc:
         raise CanonicalProfileV2Error("invalid_v1_input") from exc
+    return _convert_validated_v1_to_v2(
+        original,
+        persistent_profile_id=persistent_profile_id,
+        source_ordinal_resolver=source_ordinal_resolver,
+    )
+
+
+def _convert_validated_v1_to_v2(
+    original,
+    *,
+    persistent_profile_id,
+    source_ordinal_resolver,
+):
+    """Convert a private V1 value that already passed its domain validator."""
     if not _is_valid_profile_id(persistent_profile_id):
         raise CanonicalProfileV2Error("invalid_persistent_profile_id")
     if not callable(source_ordinal_resolver):
@@ -624,6 +640,517 @@ def convert_v1_to_v2(
     converted_sources.sort(key=lambda item: (item["field_path"].casefold(), item["field_path"]))
     profile_v2["provenance"]["field_sources"] = converted_sources
     return validate_canonical_profile_v2(profile_v2)
+
+
+@_sanitized_public_boundary
+def project_v2_to_review_v1(v2: dict) -> dict:
+    """Project authoritative V2 content into identity-free V1 review state.
+
+    This adapter is deliberately separate from the lossy matcher projection.
+    Review state preserves all durable semantic content, including the ordered
+    ``years_by_domain`` records, while rebuilding V1 field provenance from the
+    server-validated snapshot as an explicit user confirmation.
+    """
+    profile_v2 = validate_canonical_profile_v2(v2)
+    persistent_profile_id = profile_v2["identity"]["profile_id"]
+
+    languages = [dict(deepcopy(item), evidence=[]) for item in profile_v2["languages"]]
+    skills = deepcopy(profile_v2["skills"])
+    skills["entries"] = [
+        dict(deepcopy(item), evidence=[])
+        for item in profile_v2["skills"].get("entries", [])
+    ]
+    signals = [
+        dict(deepcopy(item), evidence=[])
+        for item in profile_v2["derived_matcher_signals"]["signals"]
+    ]
+    experience = deepcopy(profile_v2["experience"])
+    experience["years_by_domain"] = {
+        item["domain"]: item["years"]
+        for item in profile_v2["experience"]["years_by_domain"]
+    }
+
+    review_v1 = {
+        "schema_version": V1_SCHEMA_VERSION,
+        "identity": {
+            "display_name": profile_v2["identity"]["display_name"],
+            "source_inputs": [],
+        },
+        "languages": languages,
+        "location": deepcopy(profile_v2["location"]),
+        "education": deepcopy(profile_v2["education"]),
+        "credentials": deepcopy(profile_v2["credentials"]),
+        "experience": experience,
+        "skills": skills,
+        "preferences": deepcopy(profile_v2["preferences"]),
+        "constraints": deepcopy(profile_v2["constraints"]),
+        "derived_matcher_signals": {
+            **deepcopy(profile_v2["derived_matcher_signals"]),
+            "signals": signals,
+        },
+        "matcher_compatible_profile": {},
+        "provenance": {
+            "extracted_from": profile_v2["provenance"]["extracted_from"],
+            "evidence_snippets": [],
+            "confidence": profile_v2["provenance"]["confidence"],
+            "missing_fields": deepcopy(profile_v2["provenance"]["missing_fields"]),
+            "ambiguous_fields": deepcopy(profile_v2["provenance"]["ambiguous_fields"]),
+            "reviewed": True,
+        },
+    }
+    sources = field_sources_for_profile(
+        review_v1,
+        PROFILE_SOURCE_USER_CONFIRMATION,
+        explicit=True,
+    )
+    review_v1["provenance"]["field_sources"] = {
+        path: sources[path]
+        for path in sorted(sources, key=lambda value: (value.casefold(), value))
+    }
+
+    # Validate the complete V1 shape through the accepted validator without
+    # placing any synthetic identity in the returned review document.
+    validation_copy = deepcopy(review_v1)
+    validation_copy["identity"]["profile_id"] = "canonical_v2_review_validation"
+    validation_copy["provenance"]["field_sources"] = field_sources_for_profile(
+        validation_copy,
+        PROFILE_SOURCE_USER_CONFIRMATION,
+        explicit=True,
+    )
+    try:
+        validate_canonical_profile(validation_copy)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise CanonicalProfileV2Error("invalid_v1_review_projection") from exc
+
+    if (
+        _contains_text_fragment(review_v1, persistent_profile_id)
+        or _contains_durable_resource_id(review_v1)
+    ):
+        raise CanonicalProfileV2Error("persistent_identity_leak")
+    return deepcopy(review_v1)
+
+
+@_sanitized_public_boundary
+def merge_server_review_correction_v2(
+    base_v2: dict,
+    baseline_review_v1: dict,
+    corrected_review_v1: dict,
+) -> dict:
+    """Merge one server-validated review delta into an authoritative V2 snapshot.
+
+    The review form is intentionally narrower than Canonical V2.  This merge
+    therefore compares two server-produced review results, copies only fields
+    whose normalized review semantics changed, and leaves every unrepresented
+    V2 value and ordered record on the trusted base untouched.  Browser input
+    is never accepted as a V2 document.
+    """
+    base = validate_canonical_profile_v2(base_v2)
+    profile_id = base["identity"]["profile_id"]
+    baseline = _validated_bound_review_v1(baseline_review_v1, profile_id)
+    corrected = _validated_bound_review_v1(corrected_review_v1, profile_id)
+    field_changes = [
+        (name, review_path, target_paths)
+        for name, review_path, target_paths in _REVIEW_CORRECTION_FIELD_TARGETS
+        if _nested_value(baseline, review_path)
+        != _nested_value(corrected, review_path)
+    ]
+    languages_changed = baseline["languages"] != corrected["languages"]
+    skills_changed = (
+        baseline["skills"]["normalized"]
+        != corrected["skills"]["normalized"]
+    )
+    changed_fields = {name for name, _path, _targets in field_changes}
+    changed_roots = {
+        target_path[0]
+        for _name, _path, target_paths in field_changes
+        for target_path in target_paths
+    }
+    if languages_changed:
+        changed_fields.add("languages")
+        changed_roots.add("languages")
+    if skills_changed:
+        changed_fields.add("skills")
+        changed_roots.add("skills")
+
+    candidate = None
+    if changed_fields:
+        candidate_review = project_v2_to_review_v1(base)
+        for _name, review_path, target_paths in field_changes:
+            _set_nested_value(
+                candidate_review,
+                review_path,
+                _nested_value(corrected, review_path),
+            )
+            for target_path in target_paths:
+                _set_nested_value(
+                    candidate_review,
+                    target_path,
+                    _nested_value(corrected, target_path),
+                )
+        if languages_changed:
+            candidate_review["languages"] = deepcopy(corrected["languages"])
+        if skills_changed:
+            candidate_review["skills"] = deepcopy(corrected["skills"])
+        for trigger_fields, target_paths in _REVIEW_CORRECTION_DEPENDENT_TARGETS:
+            if changed_fields.intersection(trigger_fields):
+                for target_path in target_paths:
+                    _set_nested_value(
+                        candidate_review,
+                        target_path,
+                        _nested_value(corrected, target_path),
+                    )
+        candidate_review["matcher_compatible_profile"] = {}
+        candidate_review["provenance"]["missing_fields"] = deepcopy(
+            corrected["provenance"]["missing_fields"]
+        )
+        candidate_review["provenance"]["ambiguous_fields"] = deepcopy(
+            corrected["provenance"]["ambiguous_fields"]
+        )
+        candidate_review["provenance"]["reviewed"] = True
+        candidate_review["provenance"]["field_sources"] = field_sources_for_profile(
+            candidate_review,
+            PROFILE_SOURCE_USER_CONFIRMATION,
+            explicit=True,
+        )
+        candidate = _convert_validated_v1_to_v2(
+            _validated_bound_review_v1(candidate_review, profile_id),
+            persistent_profile_id=profile_id,
+            source_ordinal_resolver=lambda _path, _kind, _explicit: (2,),
+        )
+
+    result = deepcopy(base)
+    for _name, _review_path, target_paths in field_changes:
+        for target_path in target_paths:
+            _set_nested_value(
+                result,
+                target_path,
+                _nested_value(candidate, target_path),
+            )
+
+    if languages_changed:
+        result["languages"] = _preserve_unchanged_language_records(
+            base["languages"],
+            candidate["languages"],
+        )
+
+    if skills_changed:
+        result["skills"]["normalized"] = deepcopy(
+            candidate["skills"]["normalized"]
+        )
+        result["skills"]["free_text_labels"] = deepcopy(
+            candidate["skills"]["free_text_labels"]
+        )
+        result["skills"]["entries"] = _preserve_unchanged_skill_records(
+            base["skills"]["entries"],
+            candidate["skills"]["entries"],
+        )
+
+    for trigger_fields, target_paths in _REVIEW_CORRECTION_DEPENDENT_TARGETS:
+        if changed_fields.intersection(trigger_fields):
+            for target_path in target_paths:
+                _set_nested_value(
+                    result,
+                    target_path,
+                    _nested_value(candidate, target_path),
+                )
+
+    if changed_fields:
+        result["provenance"]["missing_fields"] = deepcopy(
+            candidate["provenance"]["missing_fields"]
+        )
+        result["provenance"]["ambiguous_fields"] = deepcopy(
+            candidate["provenance"]["ambiguous_fields"]
+        )
+    result["provenance"]["reviewed"] = True
+    result["provenance"]["field_sources"] = [
+        {
+            "field_path": path,
+            "path_version": FIELD_PATH_VERSION,
+            "source_ordinals": [2 if _field_path_root(path) in changed_roots else 1],
+            "source_kind": (
+                PROFILE_SOURCE_USER_CORRECTION
+                if _field_path_root(path) in changed_roots
+                else PROFILE_SOURCE_USER_CONFIRMATION
+            ),
+            "explicit": True,
+        }
+        for path in sorted(
+            _material_field_paths(result),
+            key=lambda value: (value.casefold(), value),
+        )
+    ]
+    return validate_canonical_profile_v2(result)
+
+
+_REVIEW_CORRECTION_FIELD_TARGETS = (
+    ("country", ("location", "country"), (("location", "country"), ("location", "residence"))),
+    ("region", ("location", "region"), (("location", "region"),)),
+    ("city", ("location", "city"), (("location", "city"),)),
+    (
+        "work_authorization",
+        ("location", "work_authorization"),
+        (("location", "work_authorization"),),
+    ),
+    (
+        "eligible_countries",
+        ("location", "eligible_countries"),
+        (("location", "eligible_countries"),),
+    ),
+    (
+        "geographic_restrictions",
+        ("location", "geographic_work_restrictions"),
+        (("location", "restrictions"), ("location", "geographic_work_restrictions")),
+    ),
+    (
+        "remote",
+        ("preferences", "remote"),
+        (("location", "remote_eligibility"), ("preferences", "remote")),
+    ),
+    (
+        "education_level",
+        ("education", "education_level"),
+        (("education", "education_level"),),
+    ),
+    ("degrees", ("education", "degrees"), (("education", "degrees"),)),
+    (
+        "education_fields",
+        ("education", "fields_or_domains"),
+        (("education", "fields_or_domains"),),
+    ),
+    (
+        "institutions",
+        ("education", "institutions"),
+        (("education", "institutions"),),
+    ),
+    (
+        "education_status",
+        ("education", "completion_status"),
+        (("education", "completion_status"),),
+    ),
+    (
+        "credential_status",
+        ("credentials", "credential_status"),
+        (("credentials", "credential_status"),),
+    ),
+    (
+        "certifications",
+        ("credentials", "certifications"),
+        (("credentials", "certifications"),),
+    ),
+    ("licenses", ("credentials", "licenses"), (("credentials", "licenses"),)),
+    (
+        "jurisdictions",
+        ("credentials", "jurisdictions"),
+        (("credentials", "jurisdictions"),),
+    ),
+    (
+        "security_clearances",
+        ("credentials", "security_clearances"),
+        (("credentials", "security_clearances"),),
+    ),
+    (
+        "total_years",
+        ("experience", "total_years"),
+        (("experience", "total_years"),),
+    ),
+    ("seniority", ("experience", "seniority"), (("experience", "seniority"),)),
+    (
+        "job_titles",
+        ("experience", "job_titles"),
+        (("experience", "recent_roles"), ("experience", "job_titles")),
+    ),
+    (
+        "occupational_families",
+        ("experience", "occupational_families"),
+        (("experience", "occupational_families"),),
+    ),
+    (
+        "professional_domains",
+        ("experience", "professional_domains"),
+        (("experience", "professional_domains"),),
+    ),
+    ("industries", ("experience", "industries"), (("experience", "industries"),)),
+    (
+        "contribution_type",
+        ("experience", "contribution_type"),
+        (("experience", "contribution_type"),),
+    ),
+    (
+        "specialties",
+        ("experience", "specialties"),
+        (("experience", "specialties"),),
+    ),
+    (
+        "technical_skills",
+        ("skills", "technical"),
+        (("skills", "technical"),),
+    ),
+    (
+        "software_tools",
+        ("skills", "software_tools"),
+        (("skills", "software_tools"),),
+    ),
+    (
+        "writing_research_skills",
+        ("skills", "writing_research"),
+        (("skills", "writing_research"),),
+    ),
+    (
+        "administrative_support_skills",
+        ("skills", "administrative_support"),
+        (("skills", "administrative_support"),),
+    ),
+    (
+        "domain_specific_skills",
+        ("skills", "domain_specific"),
+        (("skills", "domain_specific"),),
+    ),
+    (
+        "employment_types",
+        ("preferences", "employment_types"),
+        (("preferences", "employment_types"),),
+    ),
+    (
+        "synchronous_preference",
+        ("preferences", "synchronous_preference"),
+        (("preferences", "synchronous_preference"),),
+    ),
+    (
+        "phone_preference",
+        ("preferences", "phone_preference"),
+        (("preferences", "phone_preference"),),
+    ),
+    ("schedule", ("preferences", "schedule"), (("preferences", "schedule"),)),
+    (
+        "availability",
+        ("preferences", "availability"),
+        (("preferences", "availability"),),
+    ),
+    (
+        "target_opportunity_types",
+        ("preferences", "target_opportunity_types"),
+        (
+            ("preferences", "target_opportunity_types"),
+            ("preferences", "preferred_task_types"),
+        ),
+    ),
+    ("flexible", ("preferences", "flexible"), (("preferences", "flexible"),)),
+    (
+        "hard_constraints",
+        ("constraints", "hard_constraints"),
+        (("constraints", "hard_constraints"),),
+    ),
+    (
+        "soft_preferences",
+        ("constraints", "soft_preferences"),
+        (("constraints", "soft_preferences"),),
+    ),
+    (
+        "avoid_keywords",
+        ("constraints", "avoid_keywords"),
+        (("constraints", "avoid_keywords"),),
+    ),
+    (
+        "excluded_domains",
+        ("constraints", "excluded_domains"),
+        (("constraints", "excluded_domains"),),
+    ),
+    (
+        "accessibility_constraints",
+        ("constraints", "accessibility_constraints"),
+        (("constraints", "accessibility_constraints"),),
+    ),
+)
+
+_REVIEW_CORRECTION_DEPENDENT_TARGETS = (
+    (
+        frozenset({"education_fields", "professional_domains"}),
+        (("derived_matcher_signals", "derived_domains"),),
+    ),
+    (
+        frozenset(
+            {"languages", "education_fields", "professional_domains", "skills"}
+        ),
+        (("derived_matcher_signals", "signals"),),
+    ),
+    (
+        frozenset({"target_opportunity_types"}),
+        (("derived_matcher_signals", "derived_target_work_types"),),
+    ),
+    (
+        frozenset({"remote", "flexible", "employment_types"}),
+        (("preferences", "work_preferences"),),
+    ),
+    (
+        frozenset({"excluded_domains", "accessibility_constraints"}),
+        (("constraints", "negative_constraints"),),
+    ),
+    (
+        frozenset({"avoid_keywords", "excluded_domains"}),
+        (
+            ("constraints", "avoid_keywords"),
+            ("derived_matcher_signals", "avoid_keywords"),
+        ),
+    ),
+)
+
+
+def _validated_bound_review_v1(review, profile_id):
+    if type(review) is not dict or type(review.get("identity")) is not dict:
+        raise CanonicalProfileV2Error("invalid_v1_review_projection")
+    bound = deepcopy(review)
+    if "profile_id" in bound["identity"]:
+        raise CanonicalProfileV2Error("invalid_v1_review_projection")
+    bound["identity"]["profile_id"] = profile_id
+    sources = bound.get("provenance", {}).get("field_sources")
+    identity_source = sources.get("identity.display_name") if type(sources) is dict else None
+    if type(identity_source) is not dict:
+        raise CanonicalProfileV2Error("invalid_v1_review_projection")
+    sources["identity.profile_id"] = deepcopy(identity_source)
+    try:
+        validate_canonical_profile(bound)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise CanonicalProfileV2Error("invalid_v1_review_projection") from exc
+    return bound
+
+
+def _nested_value(value, path):
+    current = value
+    for key in path:
+        current = current[key]
+    return current
+
+
+def _set_nested_value(value, path, replacement):
+    current = value
+    for key in path[:-1]:
+        current = current[key]
+    current[path[-1]] = deepcopy(replacement)
+
+
+def _preserve_unchanged_language_records(base, candidate):
+    by_semantics = {
+        (item["language"], item["proficiency"], item.get("locale", "")): item
+        for item in base
+    }
+    return [
+        deepcopy(
+            by_semantics.get(
+                (item["language"], item["proficiency"], item.get("locale", "")),
+                item,
+            )
+        )
+        for item in candidate
+    ]
+
+
+def _preserve_unchanged_skill_records(base, candidate):
+    by_skill = {item["skill"]: item for item in base}
+    return [deepcopy(by_skill.get(item["skill"], item)) for item in candidate]
+
+
+def _field_path_root(path):
+    return path.split(".", 1)[0].split("[", 1)[0]
 
 
 @_sanitized_public_boundary

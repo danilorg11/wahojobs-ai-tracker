@@ -109,6 +109,9 @@ class DurableBrowserSessionAuthenticationGateway:
         from wahojobs.persistent_profile_creation import (
             ProfileCreateRequestContext,
         )
+        from wahojobs.persistent_profile_corrections import (
+            ProfileCorrectionRequestContext,
+        )
 
         if (
             not isinstance(connection, sqlite3.Connection)
@@ -117,6 +120,7 @@ class DurableBrowserSessionAuthenticationGateway:
                 BrowserRequestContext,
                 DurableMatchesRequestContext,
                 ProfileCreateRequestContext,
+                ProfileCorrectionRequestContext,
             }
             or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
             or connection.execute("PRAGMA query_only").fetchone()[0] != 1

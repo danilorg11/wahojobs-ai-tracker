@@ -349,6 +349,304 @@ def _submitted_form(body, form_id):
     return parser.action, tuple(parser.fields)
 
 
+class ReviewedProfileSourceBundleTests(unittest.TestCase):
+    @staticmethod
+    def _reviewed_profile(*, force_confirmation_sources=False):
+        canonical = normalize_identity_free_profile_input(
+            RAW_ABOUT_YOU,
+            "short_paragraph",
+        )
+        fields = profile_review_form_fields(canonical, "run", "R" * 43)
+        updates = profile_review_updates_from_form(
+            {name: [value] for name, value in fields.items()},
+            profile_review_language_slots(canonical),
+        )
+        reviewed = apply_identity_free_profile_review(canonical, updates)
+        if force_confirmation_sources:
+            mapping = reviewed.to_mapping()
+            for detail in mapping["provenance"]["field_sources"].values():
+                if detail["source"] == "user_correction":
+                    detail["source"] = "user_confirmation"
+            reviewed = IdentityFreeCanonicalProfileV1.from_mapping(mapping)
+        return reviewed, updates
+
+    def test_bundle_preserves_deterministic_sources_resolver_and_redaction(self):
+        reviewed, updates = self._reviewed_profile()
+        expected_correction = json.dumps(
+            {
+                "schema_version": "user_confirmed_correction_v1",
+                "updates": updates,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        bundle = persistent_profile_creation.prepare_reviewed_profile_source_bundle(
+            reviewed,
+            RAW_ABOUT_YOU,
+            updates,
+            REQUEST_AT,
+        )
+
+        self.assertEqual(bundle.correction_json, expected_correction)
+        self.assertEqual(
+            tuple(source.source_type for source in bundle.sources),
+            ("confirmed_about_you_text", "user_confirmed_correction"),
+        )
+        self.assertEqual(
+            tuple(source.content for source in bundle.sources),
+            (RAW_ABOUT_YOU, expected_correction),
+        )
+        self.assertEqual(
+            tuple(source.confirmed_at for source in bundle.sources),
+            (REQUEST_AT.isoformat(timespec="seconds"),) * 2,
+        )
+
+        real_convert = persistent_profile_creation.convert_v1_to_v2
+        with mock.patch.object(
+            persistent_profile_creation,
+            "convert_v1_to_v2",
+            wraps=real_convert,
+        ) as convert:
+            profile_v2 = bundle.build_canonical_v2(FORMER_SEMANTIC_PROFILE_ID)
+        self.assertEqual(convert.call_count, 1)
+        self.assertEqual(
+            convert.call_args.args[0]["identity"]["profile_id"],
+            FORMER_SEMANTIC_PROFILE_ID,
+        )
+        self.assertEqual(
+            convert.call_args.kwargs["persistent_profile_id"],
+            FORMER_SEMANTIC_PROFILE_ID,
+        )
+        resolver = convert.call_args.kwargs["source_ordinal_resolver"]
+        self.assertEqual(resolver("ignored", "parsed_free_text", False), (1,))
+        self.assertEqual(resolver("ignored", "user_confirmation", True), (1,))
+        self.assertEqual(resolver("ignored", "user_correction", True), (2,))
+        with self.assertRaisesRegex(ValueError, "unexpected_profile_provenance"):
+            resolver("ignored", "external_source", True)
+        self.assertEqual(
+            profile_v2["identity"]["profile_id"],
+            FORMER_SEMANTIC_PROFILE_ID,
+        )
+        rendered_v2 = json.dumps(profile_v2, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn(RAW_ABOUT_YOU, rendered_v2)
+        self.assertNotIn(expected_correction, rendered_v2)
+        self.assertNotIn(RAW_ABOUT_YOU, repr(bundle))
+        self.assertNotIn(expected_correction, repr(bundle))
+        with self.assertRaises((AttributeError, TypeError)):
+            bundle.correction_json = "changed"
+        with self.assertRaisesRegex(
+            TypeError,
+            "reviewed_profile_source_bundle_not_serializable",
+        ):
+            bundle.__reduce_ex__(4)
+
+    def test_require_correction_forces_second_source_without_remapping_provenance(self):
+        reviewed, updates = self._reviewed_profile(
+            force_confirmation_sources=True
+        )
+        ordinary = persistent_profile_creation.prepare_reviewed_profile_source_bundle(
+            reviewed,
+            RAW_ABOUT_YOU,
+            updates,
+            REQUEST_AT,
+        )
+        self.assertIsNone(ordinary.correction_json)
+        self.assertEqual(
+            tuple(source.source_type for source in ordinary.sources),
+            ("confirmed_about_you_text",),
+        )
+
+        forced = persistent_profile_creation.prepare_reviewed_profile_source_bundle(
+            reviewed,
+            RAW_ABOUT_YOU,
+            updates,
+            REQUEST_AT,
+            require_correction=True,
+        )
+        expected_correction = json.dumps(
+            {
+                "schema_version": "user_confirmed_correction_v1",
+                "updates": updates,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        self.assertEqual(forced.correction_json, expected_correction)
+        self.assertEqual(
+            tuple(source.source_type for source in forced.sources),
+            ("confirmed_about_you_text", "user_confirmed_correction"),
+        )
+        self.assertIs(
+            type(forced.sources[1]),
+            persistent_profiles_domain.UserConfirmedCorrectionSourceDraft,
+        )
+        profile_v2 = forced.build_canonical_v2(FORMER_SEMANTIC_PROFILE_ID)
+        self.assertEqual(
+            {
+                tuple(source["source_ordinals"])
+                for source in profile_v2["provenance"]["field_sources"]
+            },
+            {(1,)},
+        )
+
+    @staticmethod
+    def _reassemble_partitioned_sources(sources):
+        parts = [json.loads(source.content) for source in sources]
+        expected_count = len(parts)
+        expected_hash = parts[0]["complete_content_sha256"]
+        expected_bytes = parts[0]["complete_content_bytes"]
+        for index, part in enumerate(parts, start=1):
+            if part["partition_version"] != "user_confirmed_correction_partition_v1":
+                raise AssertionError("unexpected partition version")
+            if (part["part"], part["parts"]) != (index, expected_count):
+                raise AssertionError("unexpected partition ordering")
+            if (
+                part["complete_content_sha256"] != expected_hash
+                or part["complete_content_bytes"] != expected_bytes
+            ):
+                raise AssertionError("inconsistent partition manifest")
+        content = "".join(part["content_fragment"] for part in parts)
+        encoded = content.encode("utf-8")
+        if len(encoded) != expected_bytes:
+            raise AssertionError("partition byte length mismatch")
+        if hashlib.sha256(encoded).hexdigest() != expected_hash:
+            raise AssertionError("partition digest mismatch")
+        return content
+
+    def test_correction_source_partition_preserves_exact_boundary_and_content(self):
+        empty = persistent_profile_creation._correction_source_json({"payload": ""})
+        overhead = len(empty.encode("utf-8"))
+        exact_updates = {
+            "payload": "x" * (persistent_profiles_domain.MAX_SOURCE_BYTES - overhead)
+        }
+        exact_json = persistent_profile_creation._correction_source_json(
+            exact_updates
+        )
+        self.assertEqual(
+            len(exact_json.encode("utf-8")),
+            persistent_profiles_domain.MAX_SOURCE_BYTES,
+        )
+        exact_content, exact_sources = (
+            persistent_profile_creation._prepare_user_confirmed_correction_sources(
+                exact_updates,
+                REQUEST_AT,
+            )
+        )
+        self.assertEqual(exact_content, exact_json)
+        self.assertEqual(len(exact_sources), 1)
+        self.assertEqual(exact_sources[0].content, exact_json)
+
+        over_updates = {"payload": exact_updates["payload"] + "x"}
+        over_json, over_sources = (
+            persistent_profile_creation._prepare_user_confirmed_correction_sources(
+                over_updates,
+                REQUEST_AT,
+            )
+        )
+        self.assertEqual(len(over_json.encode("utf-8")), 32_769)
+        self.assertGreater(len(over_sources), 1)
+        self.assertLessEqual(len(over_sources), 15)
+        self.assertTrue(
+            all(
+                len(source.content.encode("utf-8"))
+                <= persistent_profiles_domain.MAX_SOURCE_BYTES
+                for source in over_sources
+            )
+        )
+        self.assertEqual(
+            self._reassemble_partitioned_sources(over_sources),
+            over_json,
+        )
+
+    def test_correction_source_partition_is_multibyte_and_escape_safe(self):
+        updates = {"oversized_csv": ("café 👩🏽‍💻 \\\u0022, " * 3_000).rstrip(", ")}
+        correction_json, sources = (
+            persistent_profile_creation._prepare_user_confirmed_correction_sources(
+                updates,
+                REQUEST_AT,
+            )
+        )
+        self.assertGreater(len(correction_json.encode("utf-8")), 32_768)
+        self.assertGreater(len(sources), 1)
+        self.assertEqual(
+            self._reassemble_partitioned_sources(sources),
+            correction_json,
+        )
+        self.assertEqual(json.loads(correction_json)["updates"], updates)
+
+    def test_correction_source_partition_fails_closed_beyond_fifteen_rows(self):
+        updates = {
+            "payload": "x" * (persistent_profiles_domain.MAX_SOURCE_BYTES * 16)
+        }
+        with self.assertRaises(PersistentProfileDomainError) as raised:
+            persistent_profile_creation._prepare_user_confirmed_correction_sources(
+                updates,
+                REQUEST_AT,
+            )
+        self.assertEqual(raised.exception.reason_code, "content_rejected")
+
+    def test_source_bundle_partitioning_is_explicit_and_small_bytes_are_frozen(self):
+        reviewed, updates = self._reviewed_profile()
+        ordinary = persistent_profile_creation.prepare_reviewed_profile_source_bundle(
+            reviewed,
+            RAW_ABOUT_YOU,
+            updates,
+            REQUEST_AT,
+            require_correction=True,
+        )
+        opted_in = persistent_profile_creation.prepare_reviewed_profile_source_bundle(
+            reviewed,
+            RAW_ABOUT_YOU,
+            updates,
+            REQUEST_AT,
+            require_correction=True,
+            partition_correction_sources=True,
+        )
+        self.assertEqual(
+            tuple(source.content_bytes for source in opted_in.sources),
+            tuple(source.content_bytes for source in ordinary.sources),
+        )
+        self.assertEqual(
+            persistent_profiles_domain.source_bundle_hash(opted_in.sources),
+            persistent_profiles_domain.source_bundle_hash(ordinary.sources),
+        )
+
+        oversized_updates = {
+            "payload": "x" * persistent_profiles_domain.MAX_SOURCE_BYTES
+        }
+        with self.assertRaises(PersistentProfileDomainError) as rejected:
+            persistent_profile_creation.prepare_reviewed_profile_source_bundle(
+                reviewed,
+                RAW_ABOUT_YOU,
+                oversized_updates,
+                REQUEST_AT,
+                require_correction=True,
+            )
+        self.assertEqual(rejected.exception.reason_code, "content_rejected")
+
+        partitioned = (
+            persistent_profile_creation.prepare_reviewed_profile_source_bundle(
+                reviewed,
+                RAW_ABOUT_YOU,
+                oversized_updates,
+                REQUEST_AT,
+                require_correction=True,
+                partition_correction_sources=True,
+            )
+        )
+        self.assertGreater(len(partitioned.sources), 2)
+        self.assertLessEqual(len(partitioned.sources), 16)
+        self.assertEqual(partitioned.sources[0].content, RAW_ABOUT_YOU)
+        self.assertEqual(
+            self._reassemble_partitioned_sources(partitioned.sources[1:]),
+            partitioned.correction_json,
+        )
+
+
 class PersistentProfileCreationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="wahojobs-b24d-")

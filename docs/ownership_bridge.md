@@ -1,6 +1,11 @@
-# Dormant Product Principal Ownership Bridge
+# Product Principal Ownership Bridge
 
-Accounts Milestone B1 defines a durable ownership namespace without changing any current product owner. Migration 003 is installed in the workspace database as dormant infrastructure, no principal or alias has been registered, and browser authentication and product authorization remain disconnected.
+Accounts Milestone B1 defined the durable ownership namespace without changing
+any historical product owner. Migration 003 was installed as dormant
+infrastructure at that checkpoint. Later reviewed account-native activation now
+uses the same principal, binding, and event contracts in the dedicated durable
+browser runtime; it does not register or claim legacy aliases or rewrite
+historical ownership-bearing rows.
 
 ## Identity boundaries
 
@@ -38,7 +43,7 @@ The installed schema added exactly 4 tables, 7 named indexes, 8 SQLite automatic
 - `principal_account_bindings`
 - `ownership_binding_events`
 
-Immediately after installation, all four ownership tables and all eight account tables contained zero rows. No principal, legacy alias, account binding, or ownership event was created; `local_user` remained unregistered. No historical product owner or profile identifier was rewritten. Browser authentication and product authorization remained disconnected, so the ownership bridge remains dormant infrastructure.
+Immediately after installation, all four ownership tables and all eight account tables contained zero rows. No principal, legacy alias, account binding, or ownership event was created; `local_user` remained unregistered. No historical product owner or profile identifier was rewritten. Browser authentication and product authorization remained disconnected, so the ownership bridge was dormant infrastructure at that installation checkpoint.
 
 Existing data remained intact:
 
@@ -71,17 +76,17 @@ Discovery is read-only. Before cutover, a well-formed unregistered legacy alias 
 
 ## Bindings and event history
 
-A `principal_account_bindings` row is the future authorization projection. It joins one product principal to one Migration-002 account in the same principal environment, records role and lifecycle, and uses a guarded version. Exclusive principals may have only one active owner binding. Active binding creation requires an active principal, an active account, and a claimable policy.
+A `principal_account_bindings` row is the durable authorization projection. It joins one product principal to one Migration-002 account in the same principal environment, records role and lifecycle, and uses a guarded version. Exclusive principals may have only one active owner binding. Active binding creation requires an active principal, an active account, and a claimable policy.
 
 `ownership_binding_events` is the append-only historical source of truth. `principal_account_bindings` is its current projection. Event versions are contiguous per binding and begin with `binding_activated` at version 1. Later events support suspension, reactivation, release, and administrative correction. Relationships, environment, time boundaries, and idempotency are constrained; UPDATE and DELETE are rejected.
 
-The dormant `create_binding_with_initial_event()` and `append_binding_event()` operations are the supported mutation boundary. They compute a lowercase SHA-256 request fingerprint internally from every semantic command field and canonical metadata. Idempotency is scoped to `(principal_id, idempotency_key)`. An exact retry returns the original sanitized event result without changing the current projection, including after later events. Reusing the key for a changed command raises one generic conflict. Event insertion and projection update share a transaction or collision-resistant caller savepoint; failure leaves neither a partial event nor a projection change. Reconciliation recomputes fingerprints from durable event content.
+`create_binding_with_initial_event()` and `append_binding_event()` are the supported mutation boundary. They compute a lowercase SHA-256 request fingerprint internally from every semantic command field and canonical metadata. Idempotency is scoped to `(principal_id, idempotency_key)`. An exact retry returns the original sanitized event result without changing the current projection, including after later events. Reusing the key for a changed command raises one generic conflict. Event insertion and projection update share a transaction or collision-resistant caller savepoint; failure leaves neither a partial event nor a projection change. Reconciliation recomputes fingerprints from durable event content.
 
 The `ensure_account_native_principal()` authority bootstraps one canonical active account into one active `account_native` principal and owner binding. Principal insertion delegates binding and initial-event creation to the existing mutation boundary inside the same write transaction. The append-only event remains the source of truth and the binding remains its validated projection. Exact retry, repository reconstruction, and independently connected concurrent callers converge without adding history or refreshing timestamps. Existing state is schema-attested and reconciled under the write authority; ambiguous owners, historical non-active bindings, unavailable accounts, or inconsistent event projections fail closed without replacement or repair.
 
 Durable Google completion now invokes that authority after canonical account resolution or invited provisioning and before any trusted-login session operation. Both new and existing accounts use the same server-private dependency. Bootstrap failure issues no session; a valid lineage survives later session failure. Runtime reconstruction, retries, and concurrent logins resolve the same principal and binding without adding an event. Sessions remain account-oriented and expose no ownership identifiers.
 
-The account ID is only the binding target. Email, provider subject, invitation material, session or cookie values, browser-selected owner IDs, and raw legacy-owner values are neither accepted nor persisted as ownership identity, and bootstrap creates no legacy alias. Authenticated empty-profile availability, legacy claiming, and ordinary-runtime activation remain deferred to later slices.
+The account ID is only the binding target. Email, provider subject, invitation material, session or cookie values, browser-selected owner IDs, and raw legacy-owner values are neither accepted nor persisted as ownership identity, and bootstrap creates no legacy alias. The dedicated runtime now supports the authenticated empty-profile, first-creation, existing-profile correction, and matching journeys. Legacy claiming and ordinary local-runtime activation remain deferred.
 
 Provenance and event metadata store only bounded deterministic JSON. No redundant content-hash column is persisted because ordinary SQLite cannot independently recompute SHA-256. Domain validation uses Unicode normalization and semantic separator removal; direct-SQL triggers enforce the same bounded JSON shapes and an ASCII-key subset so Unicode lookalikes cannot bypass SQL checks. Both layers reject sensitive nested fields such as email, provider subjects, session/CSRF material, invitation secrets, resumes, raw claims or application content, credentials, database paths, SQL, authorization, and secrets/tokens, plus bearer material in values. Limits cover serialized bytes, nesting depth, node count, collection size, key length, and string length. Reconciliation applies the domain policy again and never includes rejected values in findings.
 
@@ -102,11 +107,38 @@ The reconciler also checks principal, alias, binding, and event integrity; cross
 
 Every principal, alias, binding, and event carries an explicit environment namespace. Aliases, bindings, and events must agree with their principal; bindings and events cannot cross their established relation. Environment is part of immutable identity, not a display label or a value inferred from email/profile content.
 
-## Deferred boundaries
+## Later account-native profile activation and corrections
 
-- B2: reviewed legacy alias registration policy and principal seeding in an isolated migration.
-- B3: guarded claim/binding service, concurrency, authorization policy, and administrative approval.
-- B4: persistent canonical profiles owned by principals, with explicit migration and provenance.
-- B5: browser session-to-principal authorization, MatchRun/pipeline cutover, account upgrade, and recovery UX.
+The dedicated durable browser runtime resolves an authenticated session to its
+account and then to the one canonical active `account_native` principal and
+exclusive owner binding. The existing profile read authorization boundary, not
+browser input, selects the persistent profile. The same authorized profile page
+supports frozen first creation, current-profile reads, fresh matching, and one
+bounded `Update profile` correction flow on `/account/profile`.
 
-Until those milestones are separately reviewed, existing product reads and writes continue using legacy profile identifiers. B1 does not change matching, My Jobs, pipeline actions, MatchRun ownership, source ingestion, or browser behavior.
+A correction grant is derived from session/account agreement, configured
+environment, the account-native principal and binding, the existing profile,
+and the exact authorized current revision. Process-local drafts and artifacts
+add the originating session and correction purpose to that binding. Another
+account or session cannot inspect or apply them, and the browser cannot select
+or replace any ownership or profile identity. Confirmation retains the same
+profile container and persistent profile ID and uses the accepted append service
+with the expected current revision and exact correction target.
+
+One successful correction adds only one immutable full-Canonical-V2 revision
+and its complete source bundle and advances the derived current-profile view.
+It adds or changes no account, identity, principal, binding, ownership event,
+legacy alias, or profile container, and it never persists Canonical V1. Exact
+replay converges; stale or competing bases fail without ownership replacement
+or partial rows. Success redirects to a fresh authorized match regeneration.
+The accepted B2.4d create-once and Authenticated Profile-to-Matches contracts
+remain frozen.
+
+## Remaining deferred boundaries
+
+Reviewed legacy alias registration and claiming, administrative ownership
+transfer, arbitrary profile replacement, archive/reactivate/deletion or purge,
+revision-history UI, local-product ownership cutover, My Jobs, pipeline actions,
+MatchRun persistence, public signup, and deployment remain separate future
+work. The bounded correction flow does not mutate legacy ownership, activate
+`local_user`, or claim public-deployment readiness.

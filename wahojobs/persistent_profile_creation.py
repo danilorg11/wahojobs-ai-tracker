@@ -31,6 +31,8 @@ from wahojobs.persistent_profiles import (
     ConfirmedAboutYouTextSourceDraft,
     CreatePersistentProfileCommand,
     IdentityFreeCanonicalProfileV1,
+    MAX_SOURCE_BYTES,
+    MAX_SOURCES,
     PersistentProfileDomainError,
     TrustedPrincipalContext,
     UserConfirmedCorrectionSourceDraft,
@@ -79,6 +81,8 @@ _CLAIM_CLEANUP_POLL_SECONDS = 0.05
 _CLAIM_CLEANUP_PROBE_JOIN_SECONDS = 0.5
 _CLAIM_CLEANUP_REQUEST_WAIT_SECONDS = 2.0
 _CLAIM_CLEANUP_CLOSE_JOIN_SECONDS = 2.0
+_CORRECTION_PARTITION_VERSION = "user_confirmed_correction_partition_v1"
+_MAX_CORRECTION_SOURCE_PARTS = MAX_SOURCES - 1
 
 
 def _configuration_error() -> ValueError:
@@ -292,6 +296,44 @@ class ProfileCreateOutcome:
 
     def __repr__(self):
         return f"ProfileCreateOutcome(state={self.state!r})"
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class ReviewedProfileSourceBundle:
+    """Sealed durable sources and V2 construction for one reviewed profile."""
+
+    _reviewed_profile_json: bytes = field(repr=False)
+    sources: tuple = field(repr=False)
+    correction_json: str | None = field(repr=False)
+
+    def __init__(self, *_args, **_kwargs):
+        raise _configuration_error()
+
+    def _source_ordinal_resolver(self, _field_path, source_kind, _explicit):
+        if source_kind in {"parsed_free_text", "user_confirmation"}:
+            return (1,)
+        if source_kind == "user_correction" and self.correction_json is not None:
+            return tuple(range(2, len(self.sources) + 1))
+        raise ValueError("unexpected_profile_provenance")
+
+    def build_canonical_v2(self, profile_id):
+        reviewed_profile = IdentityFreeCanonicalProfileV1.from_json_bytes(
+            self._reviewed_profile_json
+        )
+        return convert_v1_to_v2(
+            reviewed_profile.bind_durable_profile_id(profile_id),
+            persistent_profile_id=profile_id,
+            source_ordinal_resolver=self._source_ordinal_resolver,
+        )
+
+    def __repr__(self):
+        return (
+            "ReviewedProfileSourceBundle("
+            f"source_count={len(self.sources)}, content=<redacted>)"
+        )
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("reviewed_profile_source_bundle_not_serializable")
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1458,27 +1500,15 @@ class PersistentProfileCreationService:
         parsed = reviewed_profile.to_mapping()
         if parsed["provenance"].get("reviewed") is not True:
             raise _configuration_error()
-        has_correction = any(
-            type(detail) is dict and detail.get("source") == "user_correction"
-            for detail in parsed["provenance"]["field_sources"].values()
-        )
-        correction_json = None
-        if has_correction:
-            correction_json = json.dumps(
-                {
-                    "schema_version": "user_confirmed_correction_v1",
-                    "updates": normalized_updates,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
         accepted_at = _trusted_utc(self._clock())
         confirmation_time = accepted_at
-        ConfirmedAboutYouTextSourceDraft(raw_about_you, confirmation_time)
-        if correction_json is not None:
-            UserConfirmedCorrectionSourceDraft(correction_json, confirmation_time)
+        source_bundle = prepare_reviewed_profile_source_bundle(
+            reviewed_profile,
+            raw_about_you,
+            normalized_updates,
+            confirmation_time,
+        )
+        correction_json = source_bundle.correction_json
         idempotency_token = self._token_factory()
         if type(idempotency_token) is not str or _OPAQUE_REFERENCE.fullmatch(idempotency_token) is None:
             raise _configuration_error()
@@ -1487,10 +1517,7 @@ class PersistentProfileCreationService:
         purpose = binding[-1]
         idempotency_key = "profile-create:" + idempotency_token
         command = _prepare_command(
-            reviewed_json=reviewed_json,
-            raw_about_you=raw_about_you,
-            correction_json=correction_json,
-            confirmation_time=confirmation_time,
+            source_bundle=source_bundle,
             accepted_at=accepted_at,
             idempotency_key=idempotency_key,
             principal=grant.principal_for_repository(),
@@ -1556,6 +1583,187 @@ def profile_create_csrf_proof(csrf_secret, artifact_reference):
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
+def _correction_source_json(normalized_updates):
+    return json.dumps(
+        {
+            "schema_version": "user_confirmed_correction_v1",
+            "updates": normalized_updates,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _partitioned_correction_source_json(
+    fragment,
+    *,
+    part,
+    parts,
+    complete_content_bytes,
+    complete_content_sha256,
+):
+    return json.dumps(
+        {
+            "complete_content_bytes": complete_content_bytes,
+            "complete_content_sha256": complete_content_sha256,
+            "content_fragment": fragment,
+            "part": part,
+            "partition_version": _CORRECTION_PARTITION_VERSION,
+            "parts": parts,
+            "schema_version": "user_confirmed_correction_v1",
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _largest_correction_fragment_end(
+    content,
+    start,
+    *,
+    complete_content_bytes,
+    complete_content_sha256,
+):
+    """Choose one deterministic code-point boundary under the source-row cap."""
+    lower = start + 1
+    upper = len(content)
+    accepted = None
+    while lower <= upper:
+        midpoint = (lower + upper) // 2
+        candidate = _partitioned_correction_source_json(
+            content[start:midpoint],
+            part=_MAX_CORRECTION_SOURCE_PARTS,
+            parts=_MAX_CORRECTION_SOURCE_PARTS,
+            complete_content_bytes=complete_content_bytes,
+            complete_content_sha256=complete_content_sha256,
+        )
+        try:
+            fits = len(candidate.encode("utf-8")) <= MAX_SOURCE_BYTES
+        except UnicodeEncodeError:
+            fits = False
+        if fits:
+            accepted = midpoint
+            lower = midpoint + 1
+        else:
+            upper = midpoint - 1
+    if accepted is None:
+        raise PersistentProfileDomainError("content_rejected")
+    return accepted
+
+
+def _prepare_user_confirmed_correction_sources(normalized_updates, confirmed_at):
+    """Build bounded correction rows while preserving ordinary source bytes."""
+    correction_json = _correction_source_json(normalized_updates)
+    try:
+        correction_bytes = correction_json.encode("utf-8")
+    except UnicodeEncodeError:
+        raise PersistentProfileDomainError("content_rejected") from None
+    if len(correction_bytes) <= MAX_SOURCE_BYTES:
+        return (
+            correction_json,
+            (UserConfirmedCorrectionSourceDraft(correction_json, confirmed_at),),
+        )
+
+    content_hash = hashlib.sha256(correction_bytes).hexdigest()
+    fragments = []
+    position = 0
+    for _part in range(_MAX_CORRECTION_SOURCE_PARTS):
+        if position == len(correction_json):
+            break
+        end = _largest_correction_fragment_end(
+            correction_json,
+            position,
+            complete_content_bytes=len(correction_bytes),
+            complete_content_sha256=content_hash,
+        )
+        fragments.append(correction_json[position:end])
+        position = end
+    if position != len(correction_json) or not fragments:
+        raise PersistentProfileDomainError("content_rejected")
+
+    part_count = len(fragments)
+    contents = tuple(
+        _partitioned_correction_source_json(
+            fragment,
+            part=index,
+            parts=part_count,
+            complete_content_bytes=len(correction_bytes),
+            complete_content_sha256=content_hash,
+        )
+        for index, fragment in enumerate(fragments, start=1)
+    )
+    if (
+        "".join(fragments) != correction_json
+        or any(len(content.encode("utf-8")) > MAX_SOURCE_BYTES for content in contents)
+    ):
+        raise PersistentProfileDomainError("content_rejected")
+    return (
+        correction_json,
+        tuple(
+            UserConfirmedCorrectionSourceDraft(content, confirmed_at)
+            for content in contents
+        ),
+    )
+
+
+def prepare_reviewed_profile_source_bundle(
+    reviewed_profile,
+    raw_about_you,
+    normalized_updates,
+    confirmed_at,
+    require_correction=False,
+    partition_correction_sources=False,
+):
+    if (
+        type(reviewed_profile) is not IdentityFreeCanonicalProfileV1
+        or type(raw_about_you) is not str
+        or type(normalized_updates) is not dict
+        or type(require_correction) is not bool
+        or type(partition_correction_sources) is not bool
+    ):
+        raise _configuration_error()
+    parsed = reviewed_profile.to_mapping()
+    if parsed["provenance"].get("reviewed") is not True:
+        raise _configuration_error()
+    has_correction = require_correction or any(
+        type(detail) is dict and detail.get("source") == "user_correction"
+        for detail in parsed["provenance"]["field_sources"].values()
+    )
+    correction_json = None
+    correction_sources = ()
+    if has_correction:
+        if partition_correction_sources:
+            correction_json, correction_sources = (
+                _prepare_user_confirmed_correction_sources(
+                    normalized_updates,
+                    confirmed_at,
+                )
+            )
+        else:
+            correction_json = _correction_source_json(normalized_updates)
+            correction_sources = (
+                UserConfirmedCorrectionSourceDraft(
+                    correction_json,
+                    confirmed_at,
+                ),
+            )
+    sources = [ConfirmedAboutYouTextSourceDraft(raw_about_you, confirmed_at)]
+    sources.extend(correction_sources)
+    bundle = object.__new__(ReviewedProfileSourceBundle)
+    object.__setattr__(
+        bundle,
+        "_reviewed_profile_json",
+        reviewed_profile.canonical_bytes,
+    )
+    object.__setattr__(bundle, "sources", tuple(sources))
+    object.__setattr__(bundle, "correction_json", correction_json)
+    return bundle
+
+
 def _command_from_snapshot(snapshot, principal):
     if (
         type(snapshot) is not _ConfirmedProfileArtifactSnapshot
@@ -1576,52 +1784,21 @@ def _command_from_snapshot(snapshot, principal):
 
 def _prepare_command(
     *,
-    reviewed_json,
-    raw_about_you,
-    correction_json,
-    confirmation_time,
+    source_bundle,
     accepted_at,
     idempotency_key,
     principal,
 ):
     try:
-        reviewed = IdentityFreeCanonicalProfileV1.from_json_bytes(
-            reviewed_json
-        )
-        sources = [
-            ConfirmedAboutYouTextSourceDraft(
-                raw_about_you,
-                confirmation_time,
-            )
-        ]
-        if correction_json is not None:
-            sources.append(
-                UserConfirmedCorrectionSourceDraft(
-                    correction_json,
-                    confirmation_time,
-                )
-            )
-
-        def source_ordinal_resolver(_field_path, source_kind, _explicit):
-            if source_kind in {"parsed_free_text", "user_confirmation"}:
-                return (1,)
-            if source_kind == "user_correction" and correction_json is not None:
-                return (2,)
-            raise ValueError("unexpected_profile_provenance")
-
-        def convert_with_durable_profile_id(profile_id):
-            return convert_v1_to_v2(
-                reviewed.bind_durable_profile_id(profile_id),
-                persistent_profile_id=profile_id,
-                source_ordinal_resolver=source_ordinal_resolver,
-            )
+        if type(source_bundle) is not ReviewedProfileSourceBundle:
+            raise TypeError("invalid_reviewed_profile_source_bundle")
 
         return CreatePersistentProfileCommand.prepare(
             principal=principal,
             canonical_profile_v2=_create_canonical_profile_v2_draft(
-                convert_with_durable_profile_id
+                source_bundle.build_canonical_v2
             ),
-            sources=tuple(sources),
+            sources=source_bundle.sources,
             normalizer_version=PROFILE_CREATE_NORMALIZER_VERSION,
             reviewer_version=PROFILE_CREATE_REVIEWER_VERSION,
             actor_type=PROFILE_CREATE_ACTOR_TYPE,

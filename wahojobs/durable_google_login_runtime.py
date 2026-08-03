@@ -5697,6 +5697,10 @@ def _prepare_durable_google_login_activation_worker(
             DurablePersistentProfileCreateAuthorizationGateway,
             PersistentProfileCreationService,
         )
+        from .persistent_profile_corrections import (
+            ConfirmedProfileCorrectionArtifactVault,
+            PersistentProfileCorrectionService,
+        )
         from .persistent_profiles_browser import (
             PersistentProfileBrowserIntegration,
         )
@@ -5760,9 +5764,26 @@ def _prepare_durable_google_login_activation_worker(
             clock=clock,
             token_factory=lambda: secrets.token_urlsafe(32),
         )
+        profile_correction_service = PersistentProfileCorrectionService(
+            authentication_gateway=authentication_gateway,
+            authorization_gateway=authorization_gateway,
+            read_connection_provider=(
+                connections.read_only_connection_provider
+            ),
+            write_connection_provider=(
+                connections.writable_connection_provider
+            ),
+            vault=ConfirmedProfileCorrectionArtifactVault(
+                monotonic=time.monotonic,
+            ),
+            clock=clock,
+            token_factory=lambda: secrets.token_urlsafe(32),
+            binding_secret=secrets.token_bytes(32),
+        )
         profile_integration = PersistentProfileBrowserIntegration(
             profile_service,
             creation_service=profile_creation_service,
+            correction_service=profile_correction_service,
             public_origin=configuration.public_configuration.public_origin,
         )
         coordinator.own(

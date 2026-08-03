@@ -398,7 +398,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         self.assertEqual(self.auth_calls, 0)
         self.assertEqual(self.provider.opened, 0)
 
-    def test_active_profile_and_metadata_only_history_hide_durable_identifiers(self):
+    def test_active_profile_hides_revision_history_and_durable_identifiers(self):
         created = self.create_profile()
         self.append(created, 1, "edit")
         status, _headers, body = self.request(
@@ -407,9 +407,11 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         text = body.decode("utf-8")
         self.assertEqual(status, 200)
         self.assertIn("Account profile", text)
-        self.assertIn("Revision 2", text)
-        self.assertIn("Revision 1", text)
         self.assertIn("Professional domains", text)
+        self.assertNotIn("Revision history", text)
+        self.assertNotIn("Revision 2", text)
+        self.assertNotIn("Revision 1", text)
+        self.assertNotIn("Older revisions", text)
         for secret in (
             created.profile_id,
             created.revision_id,
@@ -474,7 +476,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertIn(b"temporarily unavailable", body)
 
-    def test_history_cursor_is_bounded_and_selects_no_identity(self):
+    def test_history_cursor_is_bounded_without_exposing_revision_history(self):
         created = self.create_profile()
         for revision in range(1, 22):
             self.append(created, revision, "edit")
@@ -482,13 +484,14 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             "GET", "/account/profile", integration=self.integration()
         )
         self.assertEqual(status, 200)
-        self.assertEqual(first.count(b"class='history-item'"), 20)
-        self.assertIn(b"?before=3", first)
+        self.assertNotIn(b"history-item", first)
+        self.assertNotIn(b"Older revisions", first)
         status, _headers, second = self.request(
             "GET", "/account/profile?before=3", integration=self.integration()
         )
         self.assertEqual(status, 200)
-        self.assertEqual(second.count(b"class='history-item'"), 2)
+        self.assertEqual(second, first)
+        self.assertNotIn(b"Revision history", second)
         self.assertNotIn(b"Older revisions", second)
 
     def test_wrong_principal_is_empty_and_cannot_observe_another_profile(self):
@@ -564,7 +567,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         self.assertIn(b"could not be displayed safely", response.body)
         self.assertNotIn(b"x" * 128, response.body)
 
-    def test_empty_history_rendering_and_html_renderer_failure_are_bounded(self):
+    def test_empty_profile_rendering_and_html_renderer_failure_are_bounded(self):
         result = PersistentProfilePageResult(
             "active",
             profile=PersistentProfileView(
@@ -578,7 +581,8 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         )
         page, status = render_persistent_profile_page(result)
         self.assertEqual(int(status), 200)
-        self.assertIn("No revision history is available", page)
+        self.assertIn("No additional profile details are available", page)
+        self.assertNotIn("Revision history", page)
 
         service = PersistentProfileApplicationService(
             authenticate=self.authenticate,

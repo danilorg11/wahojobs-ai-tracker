@@ -3,6 +3,7 @@ from copy import deepcopy
 import hashlib
 import html
 import json
+import math
 import re
 import secrets
 import sqlite3
@@ -268,15 +269,27 @@ class MatchRunRegistry:
         self,
         max_size=MATCH_RUN_REGISTRY_LIMIT,
         *,
+        absolute_ttl_seconds=None,
         _retention_clock=time.monotonic,
     ):
         if max_size < 1:
             raise ValueError("MatchRun registry max_size must be positive.")
         if not callable(_retention_clock):
             raise ValueError("MatchRun registry retention clock must be callable.")
+        if (
+            absolute_ttl_seconds is not None
+            and (
+                type(absolute_ttl_seconds) not in (float, int)
+                or not math.isfinite(absolute_ttl_seconds)
+                or absolute_ttl_seconds <= 0
+            )
+        ):
+            raise ValueError("MatchRun registry absolute TTL must be positive.")
         self.max_size = max_size
+        self._absolute_ttl_seconds = absolute_ttl_seconds
         self._retention_clock = _retention_clock
         self._runs = OrderedDict()
+        self._run_deadlines = {}
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._confirmations = {}
@@ -310,6 +323,10 @@ class MatchRunRegistry:
         with self._condition:
             self._purge_expired_confirmation_results_locked()
             self._runs[run.match_run_id] = run
+            if self._absolute_ttl_seconds is not None:
+                self._run_deadlines[run.match_run_id] = (
+                    self._retention_now_locked() + self._absolute_ttl_seconds
+                )
             self._runs.move_to_end(run.match_run_id)
             while len(self._runs) > self.max_size:
                 candidate = next(
@@ -323,11 +340,13 @@ class MatchRunRegistry:
                 )
                 if candidate is None:
                     del self._runs[run.match_run_id]
+                    self._run_deadlines.pop(run.match_run_id, None)
                     raise ActionError(
                         "Profile review is temporarily unavailable.",
                         HTTPStatus.SERVICE_UNAVAILABLE,
                     )
                 del self._runs[candidate]
+                self._run_deadlines.pop(candidate, None)
                 self._confirmations.pop(candidate, None)
         return run
 
@@ -513,6 +532,10 @@ class MatchRunRegistry:
                     + PROFILE_CONFIRMATION_RETENTION_SECONDS
                 )
             self._runs[lease.match_run_id] = state.reviewed_run
+            if self._absolute_ttl_seconds is not None:
+                self._run_deadlines[lease.match_run_id] = (
+                    self._retention_now_locked() + self._absolute_ttl_seconds
+                )
             self._runs.move_to_end(lease.match_run_id)
             state.recovery_only = False
             state.state = "completed"
@@ -610,9 +633,7 @@ class MatchRunRegistry:
         }
 
     def _purge_expired_confirmation_results_locked(self):
-        now = self._retention_clock()
-        if type(now) not in (float, int):
-            raise RuntimeError("invalid_profile_confirmation_retention_clock")
+        now = self._retention_now_locked()
         for match_run_id, state in tuple(self._confirmations.items()):
             if (
                 state.state in {"maybe_issued", "completed"}
@@ -621,6 +642,41 @@ class MatchRunRegistry:
             ):
                 self._confirmations.pop(match_run_id, None)
                 self._runs.pop(match_run_id, None)
+                self._run_deadlines.pop(match_run_id, None)
+        for match_run_id, deadline in tuple(self._run_deadlines.items()):
+            if (
+                now >= deadline
+                and not self._confirmation_pinned_locked(match_run_id)
+            ):
+                self._run_deadlines.pop(match_run_id, None)
+                self._runs.pop(match_run_id, None)
+
+    def _retention_now_locked(self):
+        now = self._retention_clock()
+        if type(now) not in (float, int) or not math.isfinite(now):
+            raise RuntimeError("invalid_profile_confirmation_retention_clock")
+        return now
+
+    def peek(self, match_run_id):
+        """Return a run without changing its access time, ordering, or storage."""
+
+        with self._condition:
+            run = self._runs.get(match_run_id)
+            if run is None:
+                return None
+            now = self._retention_now_locked()
+            deadline = self._run_deadlines.get(match_run_id)
+            state = self._confirmations.get(match_run_id)
+            if deadline is not None and now >= deadline:
+                return None
+            if (
+                state is not None
+                and state.state in {"maybe_issued", "completed"}
+                and state.retention_deadline is not None
+                and now >= state.retention_deadline
+            ):
+                return None
+            return run
 
     def get(self, match_run_id):
         with self._condition:
@@ -2893,8 +2949,14 @@ def render_confirmed_profile_creation(offer):
 
 def _is_confirmed_profile_artifact_offer(value):
     from wahojobs.persistent_profile_creation import ConfirmedProfileArtifactOffer
+    from wahojobs.persistent_profile_corrections import (
+        ConfirmedProfileCorrectionArtifactOffer,
+    )
 
-    return type(value) is ConfirmedProfileArtifactOffer
+    return type(value) in {
+        ConfirmedProfileArtifactOffer,
+        ConfirmedProfileCorrectionArtifactOffer,
+    }
 
 
 def profile_review_updates_from_form(form, language_slots):
@@ -4328,7 +4390,16 @@ def render_profile_review_intro(match_run_id, has_results=False):
     """
 
 
-def render_structured_profile_review(canonical, match_run_id, review_token):
+def render_structured_profile_review(
+    canonical,
+    match_run_id,
+    review_token,
+    *,
+    form_action="/find-matches",
+    back_url=None,
+    submit_label="Find my matches",
+    include_draft_fingerprint=True,
+):
     location = canonical.get("location") or {}
     education = canonical.get("education") or {}
     credentials = canonical.get("credentials") or {}
@@ -4344,14 +4415,23 @@ def render_structured_profile_review(canonical, match_run_id, review_token):
         root: profile_review_source_label(canonical, root)
         for root in ("location", "languages", "experience", "education", "skills", "preferences", "credentials")
     }
-    back_url = "/find-matches?" + urlencode({"run": match_run_id, "edit_text": "1"})
+    if back_url is None:
+        back_url = "/find-matches?" + urlencode(
+            {"run": match_run_id, "edit_text": "1"}
+        )
+    draft_fingerprint = (
+        '<input type="hidden" name="profile_draft_fingerprint" '
+        f'value="{e(profile_draft_fingerprint(canonical))}">'
+        if include_draft_fingerprint
+        else ""
+    )
     return f"""
-    <form method="post" action="/find-matches" class="profile-review-form" id="profile-review-form">
+    <form method="post" action="{e(form_action)}" class="profile-review-form" id="profile-review-form">
       <input type="hidden" name="form_action" value="confirm_profile">
       <input type="hidden" name="edit_run_id" value="{e(match_run_id)}">
       <input type="hidden" name="review_token" value="{e(review_token)}">
       <input type="hidden" name="schema_version" value="{e(SCHEMA_VERSION)}">
-      <input type="hidden" name="profile_draft_fingerprint" value="{e(profile_draft_fingerprint(canonical))}">
+      {draft_fingerprint}
 
       <section class="review-section review-section-primary">
         <div class="review-section-heading"><div><h2>Location</h2><p>Used only to avoid showing work you cannot access.</p></div>{source_notes['location']}</div>
@@ -4461,7 +4541,7 @@ def render_structured_profile_review(canonical, match_run_id, review_token):
 
       <div class="review-actions">
         <a class="open button-secondary" href="{e(back_url)}">Back</a>
-        <button type="submit" id="confirm-profile-button">Find my matches</button>
+        <button type="submit" id="confirm-profile-button">{e(submit_label)}</button>
       </div>
     </form>
     """

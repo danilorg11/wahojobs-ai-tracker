@@ -181,7 +181,8 @@ access. Browser input cannot select an account, principal, profile, or ownership
 environment.
 
 The dedicated runtime now also composes one explicit create-once profile
-boundary and one authenticated matches boundary. The matches integration owns a
+boundary, one bounded same-profile correction boundary, and one authenticated
+matches boundary. The matches integration owns a
 bounded process-local `MatchRunRegistry` for initial About You input, structured
 review/draft correction, and explicit confirmation. Every `/find-matches` GET, HEAD,
 and POST authenticates the durable session and authorizes the account-native
@@ -239,7 +240,8 @@ fingerprint, and the sealed binding/lineage/content/command envelope defines the
 artifact fingerprint. GET and HEAD remain strictly read-only and never issue
 artifacts or create profiles.
 
-The artifact vault has a non-sliding 600-second lifetime and a 64-record cap.
+The B2.4d creation artifact vault has a non-sliding 600-second lifetime and a
+64-record cap.
 Created and conflict results remain deterministic until the original deadline;
 an unexpired or actively owned in-flight record is not evicted. Under the
 trusted, finite callback contract, callback-owned immutable claim tokens protect
@@ -255,9 +257,10 @@ retirement behavior. Pending
 references are deliberately lost on runtime reconstruction, while an already
 committed profile remains durable and readable. The browser cannot
 choose ownership, profile identity, provenance, timestamps, versions,
-idempotency, actor, or reason metadata. Profile editing, invitation delivery or
-administration, ordinary-runtime activation, live Google deployment, general
-identity linking, and legacy claiming remain deferred.
+idempotency, actor, or reason metadata. Profile operations beyond the bounded
+correction flow, invitation delivery or administration, ordinary-runtime
+activation, live Google deployment, general identity linking, and legacy
+claiming remain deferred.
 
 The vault constructs its claim-cleanup coordinator dormant. Runtime activation
 constructs the service and profile integration, registers that outer integration
@@ -294,6 +297,54 @@ accepted operational recovery when process-local progress cannot continue.
 The accepted B2.4d artifact, replay, reconciliation, and create-once behavior is
 frozen.
 
+### Bounded durable profile corrections
+
+The same authenticated `/account/profile` journey now provides one bounded
+correction flow for an existing active profile. The existing page still shows
+the authorized current profile and `Find matches`, with `Update profile` as the
+single correction entry point. Every correction request validates the exact
+Host/no-proxy boundary; every POST also validates the exact same origin. The
+durable session and purpose-bound CSRF, actor/session account agreement,
+account-native principal, and current-profile authorization are established
+before correction body state is parsed or acted upon. Browser
+input cannot select the account, principal, environment, ownership binding,
+profile, base revision, correction target, idempotency identity, or redirect.
+
+The server-authorized full current Canonical V2 revision is the correction
+base. Its identity-free review projection and all draft/artifact state remain
+process-local, capacity-bounded, non-sliding-expiring, and bound to the account,
+environment, principal, session, profile, exact base revision, and distinct
+correction purpose. Cross-account and cross-session use and wrong-purpose or
+tampered references fail closed. Expiry or restart loss of a pending,
+uncommitted draft or artifact also fails closed; an artifact that already
+committed may instead converge through authenticated exact durable replay. No
+pending draft or artifact is stored in account/session tables.
+
+Confirmation rebuilds a complete validated V2 snapshot with the same durable
+profile identity and invokes the accepted idempotent append service with the
+authorized expected-current revision and exact correction target. One success
+adds one immutable correction revision and its complete source bundle; it does
+not change the account, session, account-native principal, owner binding, or
+profile container, and it never persists Canonical V1. Exact replay converges,
+including after runtime reconstruction; changed replay conflicts and stale or
+competing bases cannot replace the current revision. Success redirects only
+with `303` to `/find-matches` for a fresh authenticated match regeneration from
+the newly current V2.
+
+Complete normalized correction evidence uses the existing bounded source
+contract. It is one unchanged JSON source ordinarily; an oversized correction
+is deterministically represented by at most 15 ordered, integrity-bound
+correction fragments plus the ordinal-1 About You source. The fragments
+reassemble to the exact ordinary JSON, and their ordinals are selected only by
+the server. This correction-only behavior does not alter B2.4d creation.
+
+Correction shutdown is coordinated separately from the B2.4d creation-vault
+worker. It first stops new correction consumption, retains an operation token
+across both a process-local artifact claim and the durable-replay fallback, and
+waits for admitted operations with a finite bound. A timed-out close remains
+unresolved and retryable without discarding its records. Once close reports
+success, no admitted correction operation can commit afterward.
+
 ### Authenticated profile-to-matches composition
 
 The empty authenticated profile page links to candidate entry, and an existing
@@ -317,14 +368,17 @@ The result surface has only profile/logout navigation and validated HTTP(S)
 external application links with new-tab isolation. It exposes no My Jobs,
 tracker, dashboard, `/action`, preview alias, demo persona, legacy selector, or
 mutation form. `scripts/local_product_app.py` remains a local/development tool
-and is not mounted wholesale by the durable launcher. Drafts and confirmed
-creation artifacts remain bounded and process-local; matches are regenerated
-rather than persisted.
+and is not mounted wholesale by the durable launcher. Creation and correction
+drafts and confirmed artifacts remain bounded and process-local; matches are
+regenerated rather than persisted.
 
-Profile editing or correction, replacement, archive/purge/deletion UI, public
-signup or deployment, scheduled opportunity refresh, My Jobs, tracker/pipeline
-state, and match history remain unstarted or explicitly excluded. Durable
-profile correction is the next separate milestone and remains unstarted.
+The bounded same-profile correction flow described above is available without
+changing the frozen B2.4d creation or accepted Authenticated
+Profile-to-Matches contracts. Arbitrary editing or replacement, archive,
+reactivate, purge or deletion UI, revision-history UI, public signup or
+deployment, scheduled opportunity refresh, My Jobs, tracker/pipeline state,
+and match history remain unstarted or explicitly excluded. The ordinary local
+product remains separate.
 
 Successful B2D1 completion produces an issued session and one request-scoped
 compensation authority. The browser adapter converts that authority into a

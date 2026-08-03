@@ -1,9 +1,10 @@
 # Canonical Profile V2
 
-`canonical_profile_v2` is the proposed durable profile document for the next
-persistent-profile migration. It is implemented as a pure domain contract and
-compatibility layer only. No database migration, persistence service, browser
-integration, or runtime import is active yet.
+`canonical_profile_v2` is the durable structured-profile document installed by
+Migration 005 and used by the accepted persistent-profile repository. The
+dedicated authenticated runtime reads and writes only complete Canonical V2
+profile revisions. Canonical V1 remains a normalization, review, and matcher
+compatibility format; it is never stored as a persistent profile revision.
 
 ## Why V2 exists
 
@@ -48,7 +49,7 @@ V2 does not contain `matcher_compatible_profile`, original About You text,
 source copies, evidence, evidence snippets, fixture/case/input IDs, account or
 principal identity, provider identity, email, session data, tokens, or
 authorization data. Exact confirmed input belongs in immutable revision source
-records once a future service exists.
+records maintained by the persistent-profile repository.
 
 ## Dynamic structures
 
@@ -169,11 +170,13 @@ code.
 
 ## Compatibility conversion
 
-V1-to-V2 conversion validates V1, deep-copies it, receives the new persistent
-profile ID explicitly, converts dynamic maps to records, resolves provenance
-through a pure source-ordinal resolver, and removes raw/evidence and legacy
-matcher data. Unknown fields, ambiguous source mapping, and normalized
-collisions fail with bounded redacted reason codes.
+V1-to-V2 conversion validates V1, deep-copies it, and receives the
+server-authorized persistent profile ID explicitly: newly generated for first
+creation or retained from the authorized current profile for correction. It
+converts dynamic maps to records, resolves provenance through a pure
+source-ordinal resolver, and removes raw/evidence and legacy matcher data.
+Unknown fields, ambiguous source mapping, and normalized collisions fail with
+bounded redacted reason codes.
 
 V2-to-V1 projection validates V2 and receives an ephemeral matcher ID. It
 reconstructs only the valid runtime V1 document and a derived matcher block.
@@ -184,30 +187,64 @@ in the V1 projection because current matching does not consume it and restoring
 the dynamic map would reintroduce V1 path and Unicode limitations. Durable V2
 retains the complete domain-year records.
 
+The separate V2-to-review-V1 projection starts profile correction only from the
+server-authorized current V2 revision. It removes the durable profile identity
+and produces an immutable identity-free review draft for the accepted
+draft/review/correct/confirm machinery. Browser fields are correction input;
+they are never accepted as an authoritative complete V2 document. On confirmed
+correction, the server rebuilds and validates a complete V2 snapshot and binds
+the existing authorized persistent profile ID before append.
+
+The correction merge compares the server-rendered baseline with the
+server-validated review result and changes only the represented semantics the
+candidate actually corrected. Unchanged and non-rendered V2 records—including
+ordered language and skill details outside the bounded form—remain exact copies
+of the authorized base. Derived matcher fields and provenance
+are rebuilt from the final complete snapshot; the durable correction source
+records the same complete normalized review semantics.
+
 Round trips are semantically, not byte, equivalent. Schema version, identity,
 evidence removal, source-input removal, provenance representation, map/array
 representation, matcher-block derivation, and deterministic ordering are
 intentional differences. Matching labels and product sections must remain
 unchanged.
 
-## Future Migration 005 boundary
+## Durable persistence and correction boundary
 
-Migration 005 is not part of this milestone. It must be separately reviewed and
-installed before V2 or `confirmed_lifecycle_action` can be persisted.
+Migration 005, the persistent-profile repository, and its reconciliation
+contract remain authoritative for durable V2. First creation and the bounded
+authenticated correction flow share the accepted source normalization,
+provenance rebuilding, canonical serialization, and hashing rules. Creation
+generates a durable profile ID once. Correction keeps that exact server-owned
+ID, supplies the full corrected current V2 snapshot, the complete ordered
+source bundle, the expected current revision number, and the exact prior
+revision correction target to the accepted idempotent append service. A
+successful correction appends one immutable revision and advances the current
+view; it never replaces an earlier revision and never persists Canonical V1.
 
-No database repository, reconciliation service, CLI, browser integration,
-MatchRun integration, authentication path, authorization path, or normal
-runtime import exists for V2 in this milestone.
+An exact correction replay converges on the already accepted revision. A stale
+base or competing correction cannot overwrite the current V2. Authenticated
+matching then reads the newly current V2 and uses only
+`project_v2_to_matcher_v1()` with a fresh ephemeral matcher identity. These
+correction and matching uses do not weaken the frozen create-once B2.4d or
+accepted authenticated matching contracts.
 
-The future lifecycle source is controlled JSON with source type
+The installed lifecycle source is controlled JSON with source type
 `confirmed_lifecycle_action`, format `application/json`, and schema
 `confirmed_lifecycle_action_v1`. It has exactly `action` and `schema_version`.
 Allowed actions are `archive`, `reactivate`, and `deletion_request`. It contains
 no free text, profile input, identity, or arbitrary metadata, and its action must
-agree with the future revision kind.
+agree with the revision kind. The bounded browser milestone activates none of
+those lifecycle operations, and it exposes no archive, reactivate, deletion,
+rollback, or revision-history UI.
 
 The canonical archive payload is:
 
 ```json
 {"action":"archive","schema_version":"confirmed_lifecycle_action_v1"}
 ```
+
+This document does not claim public deployment readiness. Public signup,
+profile-history UI, lifecycle controls, My Jobs, local-product activation,
+scheduled refresh, and deployment operations remain outside the bounded
+correction milestone.

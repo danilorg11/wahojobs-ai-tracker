@@ -18,11 +18,22 @@ if str(SCRIPTS) not in sys.path:
 
 import matching_quality_report as benchmark
 import profile_match_digest as matcher
+from scripts.local_product_app import (
+    apply_identity_free_profile_review,
+    profile_review_form_fields,
+    profile_review_language_slots,
+    profile_review_updates_from_form,
+)
 from wahojobs.profiles.canonical import (
+    PROFILE_SOURCE_EXTERNAL,
+    PROFILE_SOURCE_USER_CONFIRMATION,
     canonical_to_matcher_profile,
     complete_trusted_fixture_provenance,
+    field_sources_for_profile,
     validate_canonical_profile,
 )
+from wahojobs.persistent_profiles import IdentityFreeCanonicalProfileV1
+from wahojobs.profiles import canonical_v2 as canonical_v2_module
 from wahojobs.profiles.canonical_v2 import (
     CANONICAL_PROFILE_V2_LIMITS,
     CanonicalProfileV2Error,
@@ -37,9 +48,11 @@ from wahojobs.profiles.canonical_v2 import (
     STRUCTURED_WHITESPACE_POLICY,
     canonical_profile_v2_json_bytes,
     convert_v1_to_v2,
+    merge_server_review_correction_v2,
     normalize_comparison_label,
     parse_canonical_profile_v2_json,
     parse_field_path,
+    project_v2_to_review_v1,
     project_v2_to_matcher_v1,
     resolve_field_path,
     validate_ephemeral_matcher_profile_id,
@@ -139,6 +152,44 @@ class CanonicalProfileV2Tests(unittest.TestCase):
             source_ordinal_resolver=ordinal_resolver,
         )
 
+    def _merge_review_updates(self, changes, *, case_index=0):
+        profile_id = persistent_id(902)
+        base_v2 = convert_v1_to_v2(
+            self.cases[case_index]["expected_canonical_profile"],
+            persistent_profile_id=profile_id,
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        draft = IdentityFreeCanonicalProfileV1.from_mapping(
+            project_v2_to_review_v1(base_v2)
+        )
+        fields = profile_review_form_fields(
+            draft,
+            "canonical-review-dependencies",
+            "R" * 43,
+        )
+        default_updates = profile_review_updates_from_form(
+            {name: [value] for name, value in fields.items()},
+            profile_review_language_slots(draft),
+        )
+        baseline = apply_identity_free_profile_review(draft, default_updates)
+        corrected_updates = deepcopy(default_updates)
+        corrected_updates.update(deepcopy(changes))
+        corrected = apply_identity_free_profile_review(
+            draft,
+            corrected_updates,
+        )
+        merged = merge_server_review_correction_v2(
+            base_v2,
+            baseline.to_mapping(),
+            corrected.to_mapping(),
+        )
+        expected = convert_v1_to_v2(
+            corrected.bind_durable_profile_id(profile_id),
+            persistent_profile_id=profile_id,
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        return base_v2, merged, expected
+
     def assert_rejected(self, value, reason=None):
         with self.assertRaises(CanonicalProfileV2Error) as raised:
             validate_canonical_profile_v2(value)
@@ -168,6 +219,394 @@ class CanonicalProfileV2Tests(unittest.TestCase):
                     projected["identity"]["profile_id"],
                     v2["identity"]["profile_id"],
                 )
+
+    def test_review_projection_round_trips_every_durable_semantic_field(self):
+        for index, case in enumerate(self.cases, start=1):
+            with self.subTest(case_id=case["case_id"]):
+                original = convert_v1_to_v2(
+                    case["expected_canonical_profile"],
+                    persistent_profile_id=persistent_id(index),
+                    source_ordinal_resolver=ordinal_resolver,
+                )
+                review = project_v2_to_review_v1(original)
+                identity_free = IdentityFreeCanonicalProfileV1.from_mapping(review)
+                rebound = identity_free.bind_durable_profile_id(
+                    original["identity"]["profile_id"]
+                )
+                round_tripped = convert_v1_to_v2(
+                    rebound,
+                    persistent_profile_id=original["identity"]["profile_id"],
+                    source_ordinal_resolver=ordinal_resolver,
+                )
+
+                original_semantics = deepcopy(original)
+                round_trip_semantics = deepcopy(round_tripped)
+                del original_semantics["provenance"]
+                del round_trip_semantics["provenance"]
+                self.assertEqual(round_trip_semantics, original_semantics)
+
+    def test_review_merge_accepts_valid_alias_expanded_server_provenance(self):
+        def values(prefix):
+            return [
+                f"{prefix} {index:02d} " + ("?" * 112)
+                for index in range(40)
+            ]
+
+        v1 = deepcopy(self.cases[0]["expected_canonical_profile"])
+        for field, prefix in (
+            ("hard_constraints", "Hard"),
+            ("soft_preferences", "Soft"),
+            ("avoid_keywords", "Avoid"),
+            ("excluded_domains", "Excluded"),
+            ("accessibility_constraints", "Access"),
+        ):
+            v1["constraints"][field] = values(prefix)
+        v1["provenance"]["field_sources"] = field_sources_for_profile(
+            v1,
+            PROFILE_SOURCE_EXTERNAL,
+            explicit=True,
+        )
+        validate_canonical_profile(v1)
+        profile_id = persistent_id(901)
+        base_v2 = convert_v1_to_v2(
+            v1,
+            persistent_profile_id=profile_id,
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        original_v2 = deepcopy(base_v2)
+        baseline = IdentityFreeCanonicalProfileV1.from_mapping(
+            project_v2_to_review_v1(base_v2)
+        )
+        fields = profile_review_form_fields(
+            baseline,
+            "canonical-review-correction",
+            "R" * 43,
+        )
+        updates = profile_review_updates_from_form(
+            {name: [value] for name, value in fields.items()},
+            profile_review_language_slots(baseline),
+        )
+        normalized_baseline = apply_identity_free_profile_review(
+            baseline,
+            updates,
+        )
+        corrected_updates = deepcopy(updates)
+        corrected_updates["city"] = "Recife"
+        corrected = apply_identity_free_profile_review(
+            baseline,
+            corrected_updates,
+        )
+        corrected_mapping = corrected.to_mapping()
+        self.assertGreater(
+            len(corrected_mapping["provenance"]["field_sources"]),
+            CANONICAL_PROFILE_V2_LIMITS["object_children"],
+        )
+
+        with self.assertRaises(CanonicalProfileV2Error) as raised:
+            convert_v1_to_v2(
+                corrected.bind_durable_profile_id(profile_id),
+                persistent_profile_id=profile_id,
+                source_ordinal_resolver=ordinal_resolver,
+            )
+        self.assertIn("object_too_large", raised.exception.reason_codes)
+
+        merged = merge_server_review_correction_v2(
+            base_v2,
+            normalized_baseline.to_mapping(),
+            corrected_mapping,
+        )
+        self.assertEqual(validate_canonical_profile_v2(merged), merged)
+        self.assertEqual(base_v2, original_v2)
+        expected_location = deepcopy(base_v2["location"])
+        expected_location["city"] = "Recife"
+        self.assertEqual(merged["location"], expected_location)
+        for root in (
+            "identity",
+            "languages",
+            "education",
+            "credentials",
+            "experience",
+            "skills",
+            "preferences",
+            "constraints",
+            "derived_matcher_signals",
+        ):
+            self.assertEqual(merged[root], base_v2[root])
+
+    def test_review_merge_updates_every_multi_target_alias(self):
+        def nested(value, path):
+            for part in path:
+                value = value[part]
+            return value
+
+        cases = (
+            (
+                "country",
+                {"country": "Canada"},
+                (("location", "country"), ("location", "residence")),
+            ),
+            (
+                "geographic_restrictions",
+                {"geographic_restrictions": "Canada only"},
+                (
+                    ("location", "restrictions"),
+                    ("location", "geographic_work_restrictions"),
+                ),
+            ),
+            (
+                "remote",
+                {"remote": False},
+                (
+                    ("location", "remote_eligibility"),
+                    ("preferences", "remote"),
+                ),
+            ),
+            (
+                "job_titles",
+                {"job_titles": "Astronaut"},
+                (
+                    ("experience", "recent_roles"),
+                    ("experience", "job_titles"),
+                ),
+            ),
+            (
+                "target_opportunity_types",
+                {"target_opportunity_types": "contract"},
+                (
+                    ("preferences", "target_opportunity_types"),
+                    ("preferences", "preferred_task_types"),
+                ),
+            ),
+        )
+        multi_target_names = {
+            name
+            for name, _review_path, target_paths in (
+                canonical_v2_module._REVIEW_CORRECTION_FIELD_TARGETS
+            )
+            if len(target_paths) > 1
+        }
+        self.assertEqual(multi_target_names, {name for name, _changes, _paths in cases})
+
+        for name, changes, target_paths in cases:
+            with self.subTest(field=name):
+                base, merged, expected = self._merge_review_updates(changes)
+                self.assertEqual(validate_canonical_profile_v2(merged), merged)
+                self.assertTrue(
+                    any(
+                        nested(expected, path) != nested(base, path)
+                        for path in target_paths
+                    )
+                )
+                for path in target_paths:
+                    self.assertEqual(
+                        nested(merged, path),
+                        nested(expected, path),
+                    )
+
+    def test_review_merge_updates_every_dependent_semantic(self):
+        def nested(value, path):
+            for part in path:
+                value = value[part]
+            return value
+
+        cases = (
+            (
+                "education_fields",
+                {"education_fields": "legal"},
+                (
+                    ("derived_matcher_signals", "derived_domains"),
+                    ("derived_matcher_signals", "signals"),
+                ),
+                0,
+            ),
+            (
+                "professional_domains",
+                {"professional_domains": "finance"},
+                (
+                    ("derived_matcher_signals", "derived_domains"),
+                    ("derived_matcher_signals", "signals"),
+                ),
+                0,
+            ),
+            (
+                "languages",
+                {
+                    "languages": [
+                        {
+                            "language": "German",
+                            "proficiency": "fluent",
+                            "locale": "",
+                        }
+                    ]
+                },
+                (("derived_matcher_signals", "signals"),),
+                8,
+            ),
+            (
+                "skills",
+                {"skills": "writing"},
+                (("derived_matcher_signals", "signals"),),
+                0,
+            ),
+            (
+                "target_opportunity_types",
+                {"target_opportunity_types": "contract"},
+                (("derived_matcher_signals", "derived_target_work_types"),),
+                0,
+            ),
+            (
+                "remote",
+                {"remote": False},
+                (("preferences", "work_preferences"),),
+                0,
+            ),
+            (
+                "flexible",
+                {"flexible": False},
+                (("preferences", "work_preferences"),),
+                0,
+            ),
+            (
+                "employment_types",
+                {"employment_types": "contract"},
+                (("preferences", "work_preferences"),),
+                0,
+            ),
+            (
+                "excluded_domains",
+                {"excluded_domains": "gambling"},
+                (
+                    ("constraints", "negative_constraints"),
+                    ("constraints", "avoid_keywords"),
+                    ("derived_matcher_signals", "avoid_keywords"),
+                ),
+                0,
+            ),
+            (
+                "accessibility_constraints",
+                {"accessibility_constraints": "no calls"},
+                (("constraints", "negative_constraints"),),
+                0,
+            ),
+            (
+                "avoid_keywords",
+                {"avoid_keywords": "sales"},
+                (
+                    ("constraints", "avoid_keywords"),
+                    ("derived_matcher_signals", "avoid_keywords"),
+                ),
+                0,
+            ),
+        )
+        expected_triggers = {
+            trigger
+            for trigger_fields, _target_paths in (
+                canonical_v2_module._REVIEW_CORRECTION_DEPENDENT_TARGETS
+            )
+            for trigger in trigger_fields
+        }
+        self.assertEqual(expected_triggers, {name for name, *_rest in cases})
+
+        for name, changes, target_paths, case_index in cases:
+            with self.subTest(field=name):
+                base, merged, expected = self._merge_review_updates(
+                    changes,
+                    case_index=case_index,
+                )
+                self.assertEqual(validate_canonical_profile_v2(merged), merged)
+                self.assertTrue(
+                    any(
+                        nested(expected, path) != nested(base, path)
+                        for path in target_paths
+                    )
+                )
+                for path in target_paths:
+                    self.assertEqual(
+                        nested(merged, path),
+                        nested(expected, path),
+                    )
+
+    def test_review_projection_preserves_exact_domain_years_and_rebuilds_provenance(self):
+        index, case = next(
+            (index, case)
+            for index, case in enumerate(self.cases, start=1)
+            if case["expected_canonical_profile"]["experience"]["years_by_domain"]
+        )
+        v2 = convert_v1_to_v2(
+            case["expected_canonical_profile"],
+            persistent_profile_id=persistent_id(index),
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        review = project_v2_to_review_v1(v2)
+
+        self.assertEqual(
+            review["experience"]["years_by_domain"],
+            {
+                item["domain"]: item["years"]
+                for item in v2["experience"]["years_by_domain"]
+            },
+        )
+        self.assertTrue(review["provenance"]["reviewed"])
+        self.assertTrue(review["provenance"]["field_sources"])
+        self.assertTrue(
+            all(
+                detail
+                == {
+                    "source": PROFILE_SOURCE_USER_CONFIRMATION,
+                    "explicit": True,
+                }
+                for detail in review["provenance"]["field_sources"].values()
+            )
+        )
+        self.assertIn(
+            "identity.display_name",
+            review["provenance"]["field_sources"],
+        )
+
+    def test_review_projection_is_identity_free_validated_and_canonical(self):
+        original = self.convert_case()
+        noncanonical = deepcopy(original)
+        noncanonical["identity"]["display_name"] = unicodedata.normalize(
+            "NFD", "  Café   Reviewer  "
+        )
+        noncanonical["languages"] = list(reversed(noncanonical["languages"]))
+        noncanonical["skills"]["entries"] = list(
+            reversed(noncanonical["skills"]["entries"])
+        )
+        validated = validate_canonical_profile_v2(noncanonical)
+
+        review = project_v2_to_review_v1(noncanonical)
+        encoded = json.dumps(review, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn("profile_id", encoded)
+        self.assertNotIn(original["identity"]["profile_id"], encoded)
+        self.assertEqual(review["identity"]["display_name"], "Café Reviewer")
+        self.assertTrue(unicodedata.is_normalized("NFC", encoded))
+        self.assertEqual(
+            review["languages"],
+            [dict(deepcopy(item), evidence=[]) for item in validated["languages"]],
+        )
+        self.assertEqual(
+            review["skills"]["entries"],
+            [
+                dict(deepcopy(item), evidence=[])
+                for item in validated["skills"]["entries"]
+            ],
+        )
+        IdentityFreeCanonicalProfileV1.from_mapping(review)
+
+        invalid = deepcopy(original)
+        invalid["unsupported"] = "value"
+        with self.assertRaises(CanonicalProfileV2Error):
+            project_v2_to_review_v1(invalid)
+
+        embedded = deepcopy(original)
+        embedded["constraints"]["soft_preferences"] = [
+            "server prn_" + "7" * 32
+        ]
+        rebuild_field_sources(embedded)
+        with self.assertRaises(CanonicalProfileV2Error) as raised:
+            project_v2_to_review_v1(embedded)
+        self.assertEqual(raised.exception.reason_codes, ("persistent_identity_leak",))
 
     def test_exact_root_identity_and_privacy_contract(self):
         v2 = self.convert_case()
@@ -1325,6 +1764,7 @@ print(canonical_v2.SCHEMA_VERSION)
                     "wahojobs/persistent_profiles_repository.py",
                     "wahojobs/persistent_profile_canonical_v2_schema.py",
                     "wahojobs/persistent_profile_creation.py",
+                    "wahojobs/persistent_profile_corrections.py",
                     "wahojobs/persistent_profile_schema.py",
                     "scripts/persistent_profile_canonical_v2_migration.py",
                 ]
