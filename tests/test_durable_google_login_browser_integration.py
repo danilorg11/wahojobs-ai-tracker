@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import socket
 import sqlite3
+import sys
+import traceback
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -237,6 +239,162 @@ def _b24c_database_content_snapshot(database_path):
         return snapshot
     finally:
         connection.close()
+
+
+def _b21_assert_exclusive_project_imports(expected_root):
+    root = Path(expected_root).resolve()
+    if Path(__file__).resolve().parents[1] != root:
+        raise AssertionError("b21_isolated_interpreter_wrong_root")
+    checked = 0
+    for name, module in tuple(sys.modules.items()):
+        if not (
+            name in {"scripts", "tests", "wahojobs"}
+            or name.startswith(("scripts.", "tests.", "wahojobs."))
+        ):
+            continue
+        source = getattr(module, "__file__", None)
+        if source is None:
+            continue
+        try:
+            Path(source).resolve().relative_to(root)
+        except ValueError:
+            raise AssertionError(
+                f"b21_isolated_interpreter_cross_tree_import:{name}"
+            ) from None
+        checked += 1
+    if checked == 0:
+        raise AssertionError("b21_isolated_interpreter_imports_unverified")
+    return checked
+
+
+def _b21_isolated_contract_main(connection):
+    failure = None
+    result = None
+    try:
+        request = browser_test_support._b21_receive_message(connection)
+        if (
+            set(request) != {"expected_root", "expected_seed"}
+            or type(request["expected_root"]) is not str
+            or type(request["expected_seed"]) is not str
+            or os.environ.get("PYTHONHASHSEED")
+            != request["expected_seed"]
+            or os.environ.get("PYTHONDONTWRITEBYTECODE") != "1"
+            or not sys.dont_write_bytecode
+        ):
+            raise AssertionError("invalid_b21_isolated_interpreter_request")
+        imports_before = _b21_assert_exclusive_project_imports(
+            request["expected_root"]
+        )
+        case = DurableGoogleLoginB21RestartTests(
+            "test_b21_process_exit_before_authorization_commit_recovers_database"
+        )
+        with loopback_and_in_memory_provider_only():
+            result = case._run_b21_process_exit_before_commit_contract()
+        imports_after = _b21_assert_exclusive_project_imports(
+            request["expected_root"]
+        )
+        result.update(
+            {
+                "isolated_pid": os.getpid(),
+                "start_method": multiprocessing.get_start_method(),
+                "seed": os.environ.get("PYTHONHASHSEED"),
+                "dont_write_bytecode": bool(sys.dont_write_bytecode),
+                "expected_root": request["expected_root"],
+                "imports_before": imports_before,
+                "imports_after": imports_after,
+                "egress_guard_closed": True,
+            }
+        )
+    except BaseException as error:
+        failure = error
+    finally:
+        try:
+            if failure is None:
+                document = {"kind": "complete", **result}
+            else:
+                detail = "".join(
+                    traceback.format_exception(
+                        type(failure),
+                        failure,
+                        failure.__traceback__,
+                    )
+                )
+                document = {
+                    "kind": "failure",
+                    "exception_type": type(failure).__name__,
+                    "exception_message": str(failure),
+                    "traceback": detail[-16_384:],
+                }
+            browser_test_support._b21_send_message(connection, document)
+        except BaseException as error:
+            if failure is None:
+                failure = error
+        try:
+            connection.close()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+    if failure is not None:
+        raise SystemExit(2)
+
+
+class _B21IsolatedContractWorker(FreshBrowserLoginWorker):
+    __slots__ = ()
+
+    def __init__(self, request):
+        context = multiprocessing.get_context("spawn")
+        parent, child = context.Pipe(duplex=True)
+        process = context.Process(
+            target=_b21_isolated_contract_main,
+            args=(child,),
+            name="durable-google-login-b21-isolated-contract",
+            daemon=False,
+        )
+        self._connection = parent
+        self._process = process
+        self._terminal = False
+        try:
+            process.start()
+        except BaseException:
+            parent.close()
+            child.close()
+            raise
+        child.close()
+        try:
+            browser_test_support._b21_send_message(parent, request)
+        except BaseException:
+            self.kill_and_reap()
+            raise
+
+    def finish_and_reap(self):
+        if self._terminal:
+            raise AssertionError("b21_isolated_interpreter_already_terminal")
+        try:
+            try:
+                result = self.receive()
+            except BaseException as error:
+                raise AssertionError(
+                    "b21_isolated_interpreter_protocol_failed"
+                ) from error
+            self._process.join(
+                browser_test_support._B21_WORKER_TIMEOUT_SECONDS
+            )
+            if self._process.is_alive():
+                raise AssertionError("b21_isolated_interpreter_timeout")
+            if result.get("kind") == "failure":
+                raise AssertionError(
+                    "b21_isolated_interpreter_failure:"
+                    f"{result.get('exception_type')}:"
+                    f"{result.get('exception_message')}\n"
+                    f"{result.get('traceback')}"
+                )
+            if result.get("kind") != "complete":
+                raise AssertionError("invalid_b21_isolated_interpreter_result")
+            if self._process.exitcode != 0:
+                raise AssertionError("b21_isolated_interpreter_abnormal_exit")
+            return result
+        finally:
+            self._finish_handles(force=True)
 
 
 def _b22_rotated_browser_worker_main(connection):
@@ -1818,12 +1976,13 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
             handle_baseline,
         )
 
-    def test_b21_process_exit_before_authorization_commit_recovers_database(self):
+    def _run_b21_process_exit_before_commit_contract(self):
         warm_spawn_process_accounting()
         child_baseline = self._active_child_pids()
         with temporary_browser_login_state() as state:
             temporary_directory = state.directory
             handle_baseline = process_native_handle_count()
+            self.assertIsNotNone(handle_baseline)
             worker = FreshBrowserLoginWorker(
                 self._worker_request(
                     state,
@@ -1843,11 +2002,62 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
                 child_baseline,
                 worker_pid,
             )
+            handle_final = process_native_handle_count()
             self.assertEqual(
-                process_native_handle_count(),
+                handle_final,
                 handle_baseline,
             )
         self.assertFalse(temporary_directory.exists())
+        return {
+            "handle_baseline": handle_baseline,
+            "handle_final": handle_final,
+            "worker_pid": worker_pid,
+            "worker_resources_terminal": True,
+            "database_recovered": True,
+            "children_reaped": True,
+            "temporary_directory_removed": True,
+        }
+
+    def test_b21_process_exit_before_authorization_commit_recovers_database(self):
+        warm_spawn_process_accounting()
+        child_baseline = self._active_child_pids()
+        expected_root = str(Path(__file__).resolve().parents[1])
+        isolated = _B21IsolatedContractWorker(
+            {
+                "expected_root": expected_root,
+                "expected_seed": os.environ["PYTHONHASHSEED"],
+            }
+        )
+        isolated_pid = isolated.pid
+        try:
+            completed = isolated.finish_and_reap()
+        finally:
+            isolated.kill_and_reap()
+        self.assertTrue(isolated.assert_terminal_resources())
+        self.assertEqual(completed["isolated_pid"], isolated_pid)
+        self.assertEqual(completed["start_method"], "spawn")
+        self.assertEqual(completed["seed"], os.environ["PYTHONHASHSEED"])
+        self.assertTrue(completed["dont_write_bytecode"])
+        self.assertEqual(completed["expected_root"], expected_root)
+        self.assertGreater(completed["imports_before"], 0)
+        self.assertGreaterEqual(
+            completed["imports_after"],
+            completed["imports_before"],
+        )
+        self.assertTrue(completed["egress_guard_closed"])
+        self.assertEqual(
+            completed["handle_final"],
+            completed["handle_baseline"],
+        )
+        self.assertTrue(completed["worker_resources_terminal"])
+        self.assertTrue(completed["database_recovered"])
+        self.assertTrue(completed["children_reaped"])
+        self.assertTrue(completed["temporary_directory_removed"])
+        self._assert_scoped_children_reaped(
+            child_baseline,
+            isolated_pid,
+            completed["worker_pid"],
+        )
 
     def test_b21_process_exit_after_commit_preserves_one_prepared_transaction(self):
         warm_spawn_process_accounting()
