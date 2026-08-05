@@ -431,6 +431,30 @@ def invited_email_hmac(
     return hmac.new(key, normalized.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def invitation_creation_request_fingerprint(
+    *,
+    email: str,
+    lookup_key: bytes,
+    expires_at: datetime,
+    created_by: str,
+    source_metadata: dict | None = None,
+) -> str:
+    """Return the authoritative Migration-002 invitation fingerprint."""
+    expires = _aware_datetime(expires_at, "expires_at")
+    created_by = _source_text(created_by, "created_by")
+    metadata_json = _metadata_json(source_metadata)
+    normalized = normalize_email(email)
+    return _fingerprint(
+        {
+            "hash_version": INVITATION_HASH_VERSION,
+            "invited_email_hmac": invited_email_hmac(normalized, lookup_key),
+            "expires_at": _timestamp(expires),
+            "created_by": created_by,
+            "source_metadata": json.loads(metadata_json),
+        }
+    )
+
+
 def session_creation_request_fingerprint(
     *,
     user_id: str,
@@ -507,14 +531,12 @@ def create_invitation(
     invitation_token = f"{invitation_id}.{raw_secret}"
     email_hash = invited_email_hmac(normalized, lookup_key)
     secret_hash = invitation_secret_hmac(raw_secret, lookup_key)
-    fingerprint = _fingerprint(
-        {
-            "hash_version": INVITATION_HASH_VERSION,
-            "invited_email_hmac": email_hash,
-            "expires_at": _timestamp(expires),
-            "created_by": created_by,
-            "source_metadata": json.loads(metadata_json),
-        }
+    fingerprint = invitation_creation_request_fingerprint(
+        email=normalized,
+        lookup_key=lookup_key,
+        expires_at=expires,
+        created_by=created_by,
+        source_metadata=json.loads(metadata_json),
     )
     try:
         with atomic(conn):
@@ -566,16 +588,20 @@ def revoke_invitation(
         invitation_id = _strict_id(invitation_id, "invitation_id", "inv_")
     except InvalidAccountInput as exc:
         raise AuthenticationUnavailable() from exc
-    now = _now(now)
     try:
         with atomic(conn):
+            operation_time = _now(now)
+            timestamp = _timestamp(operation_time)
             cursor = conn.execute(
                 """
                 UPDATE account_invitations
-                SET invitation_status = 'revoked', revoked_at = ?
-                WHERE invitation_id = ? AND invitation_status = 'pending'
+                SET invitation_status = 'revoked',
+                    revoked_at = :now
+                WHERE invitation_id = :invitation_id
+                  AND invitation_status = 'pending'
+                  AND expires_at > :now
                 """,
-                (_timestamp(now), invitation_id),
+                {"now": timestamp, "invitation_id": invitation_id},
             )
             if cursor.rowcount != 1:
                 raise AuthenticationUnavailable()

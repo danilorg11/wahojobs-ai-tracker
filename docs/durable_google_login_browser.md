@@ -930,9 +930,10 @@ callback redirect to `/account/profile` is usable immediately after successful
 ownership bootstrap: a newly provisioned account sees the authenticated empty
 state until the user explicitly confirms reviewed About You content and submits
 the resulting create form. Valid existing profiles remain readable without
-mutation. Invitation delivery, operator administration UI, profile editing or
-replacement, general identity linking or merging, legacy claiming, and
-ordinary-runtime activation remain deferred.
+mutation. Online invitation delivery, an operator administration UI, profile
+editing or replacement, general identity linking or merging, legacy claiming,
+and ordinary-runtime activation remain deferred. The separate offline
+PB-OPS-1 protected-file boundary is documented below.
 
 ## Controlled test and development demo
 
@@ -964,25 +965,301 @@ The demo never reads the Local workspace database or contacts Google. Cleanup
 removes only its own temporary directory after the server and runtime close;
 it does not delete a user-supplied path.
 
+## Offline private-beta invitation operations (PB-OPS-1)
+
+PB-OPS-1 is the only supported private-beta invitation operator surface. It is
+offline and process-bounded; it does not start the durable browser runtime, a
+listener, TLS, a route, an OIDC provider, a crawler, a matcher, or an
+application server. The exact grammar is:
+
+```text
+python -B scripts/private_beta_invitations.py [--json] create \
+  --config ABSOLUTE_CONFIG \
+  --database ABSOLUTE_DATABASE \
+  --invitation-key-file ABSOLUTE_KEY_FILE \
+  --request-id OPAQUE_REQUEST_ID \
+  --expires-at YYYY-MM-DDTHH:MM:SSZ \
+  --credential-output ABSOLUTE_NEW_FILE
+
+python -B scripts/private_beta_invitations.py [--json] status \
+  --config ABSOLUTE_CONFIG \
+  --database ABSOLUTE_DATABASE \
+  --invitation-key-file ABSOLUTE_KEY_FILE \
+  --invitation-id inv_<32-lowercase-hex>
+
+python -B scripts/private_beta_invitations.py [--json] revoke \
+  --config ABSOLUTE_CONFIG \
+  --database ABSOLUTE_DATABASE \
+  --invitation-key-file ABSOLUTE_KEY_FILE \
+  --invitation-id inv_<32-lowercase-hex>
+```
+
+`--json` is accepted only before the operation. There are no defaults,
+environment fallbacks, workspace-database fallbacks, inferred targets, email
+arguments, email files, email environment variables, stdin fallbacks, list,
+search, export, resend, renew, import, consume, or bulk operations. Request IDs
+match `[A-Za-z0-9][A-Za-z0-9._~-]{15,127}` and enter the durable namespace
+`pb-ops-1:create:v1:<request-id>`. Expiry is whole-second Zulu UTC only.
+
+### Triple selection and provenance boundary
+
+The invocation's local root of trust has two explicit parts: the executing
+project/package root and the pinned, strictly validated version-1 configuration
+with `environment == "private_beta"`. The operations module must itself be an
+absolute, link-free source under that root. Every loaded `scripts`, `tests`, or
+`wahojobs` module with a source file must resolve link-free into the same root,
+so mixed import roots fail closed. This works unchanged in an exact archive
+extraction with no repository metadata.
+
+The configuration's canonical database and
+`account_invitation_lookup_key_file` paths are authoritative. The explicit
+database and invitation-key arguments are mandatory operator cross-confirmations
+and must canonically name those same files. Configuration, database, key,
+PB-OWN coordination, output parent, stage, and final identities are pinned and
+revalidated at their operation boundaries; unsafe links, reparse points,
+aliases, metadata, sidecars, replacements, and identity overlaps fail closed.
+Configuration, database, key, and credential output must be outside the
+executing project root.
+
+PB-OPS performs no Git operation and does not consult `PATH`, the current
+directory, `.git`, worktree metadata, or `GIT_*` interpretation to establish
+authority. This boundary therefore does not discover unrelated clones or prove
+deployment authenticity, historical freshness, or backup lineage. It also
+cannot detect a complete, internally consistent configuration/database/key
+bundle substituted before invocation and explicitly selected by the operator.
+Stronger provenance requires an external trust root and remains deferred.
+
+### Ownership and database attestation
+
+The order is fixed:
+
+1. parse and validate the nonsecret command structure;
+2. open and pin the exact configuration, validate its complete version-1
+   syntax without a database descriptor or SQLite open, require private beta,
+   and cross-confirm the database and key paths;
+3. validate target identities and, for create, the private output parent;
+4. for create, obtain the email twice from the native controlling terminal
+   while echo is disabled, normalize both entries, and require an exact match;
+5. acquire the accepted PB-OWN-1 capability with `offline_operator`, immediately
+   authenticate it, and revalidate every pinned identity;
+6. only then open the exact database directly (`mode=ro` plus `query_only=ON`
+   for status, `mode=rw` for create/revoke); and
+7. attest the exact open path and identity, all six migration markers, the
+   complete closed schema, account schema, Migration 006, foreign-key
+   enforcement, empty temp schema, rollback-journal mode, integrity via
+   `quick_check(1)`, referential integrity via `foreign_key_check`, and forbidden
+   sidecar absence.
+
+Create and revoke acquire `BEGIN IMMEDIATE` before mutation. Create reads key
+bytes only after that writer acquisition; status and revoke validate the key
+file identity but never open or read it and never perform an HMAC. A create
+retry may recover SQLite's exact same-database regular rollback journal left by
+abrupt pre-commit death while PB-OWN is held: SQLite handles an authentic hot
+journal, while the operator identity-checks and retires an ignored zero-magic
+non-hot journal. WAL, SHM, master/super journals, malformed rollback journals,
+and all sidecars on status or revoke remain forbidden.
+
+Every cursor, transaction, connection, database descriptor, key handle, output
+handle, and directory handle must be terminal before authentic PB-OWN release.
+The database identity and sidecar-free state are then checked again. No result
+is published until release succeeds; close, identity, cleanup, or release
+failure suppresses success.
+
+Each close owner retains its stored handle or capability until close succeeds
+or terminal closure is independently proven. Close attempts are bounded, and
+one failure never suppresses an attempt for another authority. If a database
+session remains live, PB-OWN remains held. A process-owned retained-cleanup
+coordinator keeps that exact session and ownership capability, plus any live
+output or pinned-configuration authority, reachable after the public cleanup
+error. A later invocation drains the exact retained cleanup first, closes the
+database session before releasing PB-OWN, and only then may open new resources.
+No cleanup depends on a finalizer or garbage collection.
+
+The internal operation state records, independently, no irreversible action,
+database commit attempted/confirmed, credential publication
+attempted/confirmed, ownership release attempted/confirmed, and result delivery
+attempted/confirmed. Each attempted flag is set before the corresponding
+commit, publication, release, write, or flush can become externally durable.
+
+### Create, protected credential, replay, and recovery
+
+The normalized email is never persisted. Migration 002 stores its domain HMAC
+and display hint. Source metadata has exactly these semantics:
+
+```json
+{
+  "configuration_binding_sha256": "<environment/config/database/key-target binding>",
+  "operator_protocol": "pb_ops_1_create_v1",
+  "output_binding_sha256": "<canonical-final-path binding>"
+}
+```
+
+The authoritative domain fingerprint binds that email HMAC, exact expiry,
+fixed operator actor/protocol, stable private-beta target binding, exact output
+destination, and protocol version. It is computed only by
+`invitation_creation_request_fingerprint()`. Inside the outer immediate
+transaction, no request row creates one invitation through the existing
+`create_invitation()` savepoint; an exact key/fingerprint replays; a changed
+fingerprint returns `REQUEST_ID_CONFLICT` without mutation. Descriptor numbers,
+inode/file IDs, and process objects are not stable binding inputs.
+
+The new credential file is canonical bounded JSON plus exactly one newline:
+
+```json
+{
+  "configuration_binding_sha256": "<stable-target-binding>",
+  "email_hint": "p***@example.test",
+  "expires_at": "2026-09-01T12:00:00Z",
+  "format": "wahojobs-private-beta-invitation-v1",
+  "invitation_credential": "inv_<public-id>.<raw-secret>",
+  "invitation_reference": "inv_<public-id>",
+  "output_binding_sha256": "<canonical-output-binding>",
+  "request_fingerprint": "<stored-semantic-fingerprint>",
+  "request_id_sha256": "<request-id-digest>",
+  "recovery_tag": "<domain-separated-hmac>"
+}
+```
+
+The deterministic stage is
+`<parent>/.pb-ops-1-<sha256(canonical-final-path)>.pending`. It is created
+exclusively, hardened, completely written, flushed, closed, reopened,
+authenticated, and revalidated before SQLite commit. After commit it is
+published in the same directory by a native atomic no-replace operation,
+reopened and authenticated as the final file, and durably flushed according to
+the platform contract. Invitation creation linearizes at SQLite commit;
+credential delivery linearizes at no-replace publication; operator success
+linearizes only after terminal cleanup and authentic PB-OWN release.
+
+Retries converge as follows:
+
+- before commit, SQLite rolls back; an authenticated inactive stage bound to
+  the same semantic request may be reclaimed, while unrelated or
+  unauthenticated content is never overwritten;
+- after commit and before publication, the authenticated stage is the sole
+  credential authority and an exact retry publishes it;
+- after publication and before reporting, an exact retry authenticates the
+  committed row and final envelope and reports redacted replay success;
+- a committed row with neither its bound final file nor an authenticated stage
+  is `CREDENTIAL_RECOVERY_UNAVAILABLE`; no replacement credential is generated
+  or printed; and
+- one output path coordinates across databases as well as within one database:
+  only the process that holds the exclusive stage/final name may commit a row
+  bound to that destination.
+
+An unrelated final or stage is never replaced. Protected output publication
+and any authenticated recovery complete while PB-OWN remains held.
+
+The POSIX hard-link fallback has one additional authentic crash state: after
+the no-replace link and before stage unlink, the exact stage and final names can
+refer to the same inode. This pair is admitted only provisionally so committed
+recovery can authenticate it; ordinary `_validate_output_file()` continues to
+require link count one. Recovery requires both exact deterministic names,
+regular no-follow files, identical device and inode, link count exactly two,
+no third hard link, effective-user ownership, mode `0600`, equal bounded size,
+an unchanged authenticated parent directory, an authenticated envelope bound
+to the same request/fingerprint/target, and the matching committed pending row.
+It then removes only the stage name, durably flushes the directory, reopens and
+authenticates the final, and requires link count one. Any mismatch fails closed
+without deleting either name.
+
+### Native output guarantees
+
+On POSIX, the pre-existing output parent must be owned by the effective user
+and private; path components cannot be unsafe links or writable aliases. Stage
+creation uses directory-relative exclusive/no-follow primitives, mode `0600`,
+regular-file/owner/link-count/identity checks, file `fsync`, directory `fsync`,
+and native same-directory no-replace publication. When
+`renameat2(RENAME_NOREPLACE)` is unavailable, a directory-relative no-follow
+hard link creates the final name without replacement and the exact stage name
+is then unlinked. Exact retry recovers both the two-link interruption and the
+post-unlink/pre-directory-flush interruption described above.
+
+On Windows, the output must be on a supported fixed NTFS/ReFS volume. UNC and
+mapped-remote paths, alternate data streams, reparses, unsafe identities, and
+non-private ACLs are rejected. The parent and credential use a protected
+private DACL; creation uses `CREATE_NEW` and non-inheritable handles; file ID,
+type, link count, DACL, size, and path identity are checked; file writes are
+flushed; and publication uses same-directory no-replace `MoveFileExW` with
+write-through. Windows does not expose the POSIX directory-`fsync` contract, so
+PB-OPS does not claim one.
+
+These controls do not defend against the same OS identity, administrators or
+root, backup privileges, malware, unsupported/network filesystems, or power
+loss beyond the native primitives just listed.
+
+### Redacted results, errors, and exit codes
+
+Create success exposes only operation/outcome, invitation reference, email
+hint, expiry, and effective status. Status adds `created_at`; revoke returns the
+same redacted identity/state fields. No output contains a request ID, target or
+credential path, full email, raw credential, key/HMAC material, internal row
+identifier, or exception detail. Status selects one exact invitation and never
+joins user, identity, profile, principal, or ownership data.
+
+The complete success payload is rendered in memory before any byte is emitted,
+bounded to 4096 bytes, written as one record, flushed, and only then confirmed.
+Human mode is:
+
+```text
+PB_OPS_1_SUCCESS_V1 bytes=<payload-bytes> sha256=<payload-sha256> payload=<redacted-fields>
+```
+
+JSON mode is one canonical object with `frame == "pb_ops_1_success_v1"`, the
+whitelisted `payload`, `payload_bytes`, and `payload_sha256`. Only a complete
+valid frame together with exit 0 is success.
+
+Before success emission and on ordinary application-controlled failures,
+stdout is empty. Stderr is one fixed code line, or one compact JSON object when
+`--json` was selected. A non-pending revoke may add only its effective status
+from `pending`, `expired`, `consumed`, or `revoked`. A hostile stdout stream can
+accept an irreversible prefix before raising; that prefix is not a complete
+valid frame, cannot be rolled back, and is never followed by a second stdout
+record. A stream can also accept the complete record and fail its flush; the
+nonzero exit still means the record is not success.
+
+Once database commit or credential publication may have occurred, any
+unconfirmed delivery, cleanup interruption, or post-release interruption is
+`COMMITTED_RETRY_REQUIRED`/8 rather than `INTERNAL_FAILURE`. Its redacted human
+or JSON notice states only that durable mutation or publication may already
+have occurred, the result is not an ordinary failure, the exact same invocation
+must be repeated, exact retry is the only supported recovery, and success
+requires a complete frame plus exit 0. When applicable it also reports the
+separate fact `cleanup=INCOMPLETE`; it never includes paths, email, request ID,
+database identity, credential, authority value, or exception detail. If no
+durable mutation was possible, a nonterminal cleanup failure is instead
+`CLEANUP_INCOMPLETE`/7 and overrides the primary validation or business error.
+
+```text
+0  success, exact replay/recovery, status, or successful revoke
+2  syntax/input, terminal, email, request, reference, expiry, or output form
+3  configuration, target, identity, schema, integrity, or key-source failure
+4  retryable PB-OWN or SQLite contention
+5  request conflict, unknown invitation, or non-pending revoke
+6  credential destination, publication, or recovery failure
+7  incomplete cleanup, lost ownership, or sanitized internal failure
+8  committed or published state may exist; repeat only the exact invocation
+```
+
+PB-OPS-1 adds no schema or migration, browser/runtime route, administrator UI,
+deployment authorization, managed secret distribution, backup proof, or key
+rotation/retirement workflow. The existing deployment, certificate, provider,
+monitoring, abuse-control, and key-rotation exclusions remain unchanged.
+
 ## Explicit limitations and deferred operations
 
-PB-OWN-1 supplies only the server-private lifetime-ownership primitive and its
-durable-runtime integration. It does not implement PB-OPS-1: there is no
-offline invitation command and no invitation create, status, or revoke
-operation. The `offline_operator` role reserves a participant in the exclusion
-matrix; acquiring that role alone grants no product or database authority.
-PB-OWN-1 adds no schema, migration, administrator interface, or deployment
-surface.
-PB-OPS-1 can later participate by acquiring `offline_operator` for the exact
-configured database before its own database attestation; no such operator or
-invitation behavior is implemented here.
+PB-OWN-1 remains only the server-private lifetime-ownership primitive. PB-OPS-1
+uses its `offline_operator` role but derives database and invitation authority
+from the separately pinned private-beta configuration and complete attestation;
+the role alone grants no product or database authority. Neither milestone adds
+a schema, migration, administrator interface, or deployment surface.
 
 This milestone does not provide:
 
 - public/non-loopback serving, proxy trust, certificate deployment, or
   production TLS operations, public signup, or public deployment readiness;
-- invitation creation, status, revocation, delivery, or administration UI,
-  general identity linking or account merge, or profile operations beyond the
+- online or bulk invitation creation, list/search/export, resend, renew,
+  browser administration UI, or credential delivery beyond PB-OPS-1's one
+  protected offline file, general identity linking or account merge, or profile operations beyond the
   bounded same-profile correction flow, including replacement, archive,
   reactivate, purge, deletion, rollback, or revision-history UI;
 - My Jobs, tracker or pipeline actions, match history, or MatchRun persistence;

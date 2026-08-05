@@ -258,9 +258,10 @@ references are deliberately lost on runtime reconstruction, while an already
 committed profile remains durable and readable. The browser cannot
 choose ownership, profile identity, provenance, timestamps, versions,
 idempotency, actor, or reason metadata. Profile operations beyond the bounded
-correction flow, invitation delivery or administration, ordinary-runtime
-activation, live Google deployment, general identity linking, and legacy
-claiming remain deferred.
+correction flow, online invitation delivery or browser administration,
+ordinary-runtime activation, live Google deployment, general identity linking,
+and legacy claiming remain deferred. The separate offline PB-OPS-1 boundary is
+described at the end of this document.
 
 The vault constructs its claim-cleanup coordinator dormant. Runtime activation
 constructs the service and profile integration, registers that outer integration
@@ -403,3 +404,132 @@ cookies, and redirects only to `/login`.
 The full activation contract, including its local-only runtime policy and
 deferred production work, is documented in
 `docs/durable_google_login_browser.md`.
+
+## Offline private-beta invitation lifecycle
+
+PB-OPS-1 adds one offline operator boundary over the existing Migration-002
+invitation domain. It adds no table, migration, browser route, listener,
+provider behavior, invitation consumption behavior, user/identity lookup, or
+administrator UI. All three operations require a pinned version-1
+`private_beta` configuration and explicit matching database and invitation-key
+targets, acquire PB-OWN-1 as `offline_operator`, directly open and completely
+attest that one database, and release ownership only after every database and
+filesystem resource is terminal.
+
+The executing PB-OPS package root and the securely opened configuration form
+the local root of trust. Every loaded `scripts`, `tests`, and `wahojobs` module
+that has a source file must resolve without a link to that one root. The
+configuration, database, key, and credential output must be outside it. This
+authority is valid in an archive extraction and never consults Git metadata,
+the current directory, `PATH`, a Git environment variable, or a subprocess.
+
+Invitation status has a persisted state and an effective state:
+
+```text
+persisted consumed                         -> consumed
+persisted revoked                          -> revoked
+persisted pending and expires_at <= now    -> expired
+persisted pending and expires_at > now     -> pending
+```
+
+`expired` is never persisted by status. Status uses a query-only, read-only
+connection and selects only the exact invitation's reference, display hint,
+creation time, expiry, and persisted status. It does not read request metadata,
+key bytes, credentials, users, identities, profiles, principals, or ownership
+rows and performs no HMAC or write transaction. Its public whitelist is exactly
+`invitation_reference`, `email_hint`, `created_at`, `expires_at`, and effective
+`status`, plus the fixed operation/outcome labels used by the CLI renderer.
+
+Revocation linearizes at the guarded Migration-002 update:
+
+```sql
+UPDATE account_invitations
+SET invitation_status = 'revoked',
+    revoked_at = :now
+WHERE invitation_id = :invitation_id
+  AND invitation_status = 'pending'
+  AND expires_at > :now
+```
+
+The canonical whole-second UTC operation time is captured only after
+`BEGIN IMMEDIATE` acquires the writer lock. Consequently an invitation that is
+consumed, expired, already revoked, unknown, malformed, or otherwise not
+persisted pending and unexpired is not changed. Repeated revocation reports the
+redacted `replayed` outcome and revoked state without rewriting `revoked_at`.
+Invitation consumption remains the existing browser/domain operation and is
+unchanged.
+
+Create keeps `create_invitation()` as the sole domain authority inside an outer
+`BEGIN IMMEDIATE`; its existing inner transaction is a savepoint, so the
+offline layer retains final commit authority. The public
+`invitation_creation_request_fingerprint()` helper is the sole authoritative
+fingerprint constructor. For PB-OPS its semantic inputs bind the normalized
+email through the domain HMAC, exact expiry, fixed offline actor and protocol,
+the selected private-beta configuration/database/key target binding, the exact
+credential-output destination, and protocol version. Stable semantic bindings
+never include descriptors, process objects, inode/file IDs, or other transient
+identity evidence.
+
+The durable idempotency key is
+`pb-ops-1:create:v1:<operator-request-id>`. A missing key creates one invitation;
+the same key and fingerprint replays or recovers the same committed invitation;
+the same key with changed semantics is a nonmutating `REQUEST_ID_CONFLICT`.
+Migration-002's unique `idempotency_key` admits at most one committed row.
+
+The raw invitation credential is never stored in SQLite. Before commit it
+exists only in the domain return value and the private, authenticated
+same-directory pending envelope. After commit, that envelope is either the
+recoverable sole credential authority or has been atomically published without
+replacement as the final `0600`/private-DACL credential file. Exact retries
+authenticate the stage or final against the stored fingerprint, request digest,
+configuration/output bindings, invitation secret HMAC, reference, hint, and
+expiry. If a committed row loses both its authenticated stage and final file,
+recovery is unavailable: the operator never regenerates, prints, or silently
+hides a second credential.
+
+On POSIX systems without `renameat2(RENAME_NOREPLACE)`, publication uses a
+same-directory no-follow hard link followed by removal of the deterministic
+stage name. A crash can therefore leave both exact names on one inode. Exact
+retry accepts that state only inside committed-request recovery, after proving
+the two regular names have the same device and inode, link count exactly two,
+owner `euid`, mode `0600`, bounded size, authenticated envelope, matching
+request/fingerprint/database row, and unchanged output-directory identity. It
+removes only the authenticated stage, flushes the directory, then requires an
+authenticated final with link count one. Any third link or other mismatch
+fails closed without deleting either name; ordinary output validation still
+requires link count one.
+
+PB-OPS records database commit, credential publication, ownership release, and
+result delivery as separate attempted and confirmed phases, setting each
+attempted phase before its potentially durable operation. Once commit or
+publication may have occurred, a control-flow interruption or later cleanup or
+delivery failure is `COMMITTED_RETRY_REQUIRED` (exit 8), never an ordinary
+internal failure. It states only that durable work may have occurred and that
+the operator must repeat the exact invocation. A cleanup fact is retained
+alongside that outcome when applicable. Before any possible durable change, a
+nonterminal cleanup failure instead overrides a validation or business result
+as `CLEANUP_INCOMPLETE`.
+
+Success is one bounded in-memory frame, emitted by one write and confirmed only
+after its required flush. Human mode uses `PB_OPS_1_SUCCESS_V1` with payload
+length and SHA-256; JSON mode uses `pb_ops_1_success_v1` with a canonical
+payload, byte count, and SHA-256. Only a complete frame together with exit 0 is
+success. A hostile output stream can accept an irreversible prefix or a whole
+record and then fail; PB-OPS emits no second stdout record, reports exit 8 for a
+durable operation, and sends only a redacted exact-retry notice to stderr.
+
+Close owners retain their live handle or capability until terminality is
+independently proven. All authorities receive a bounded close attempt even
+when another close fails. A process-owned retained-cleanup coordinator keeps
+any still-live database session, output/configuration authority, and PB-OWN
+capability reachable; it closes the session before ownership release and a
+later invocation drains that exact cleanup before opening new resources. No
+finalizer or garbage collection is part of this contract.
+
+This is an offline-only control boundary. It does not claim deployment
+authenticity, configuration/database/key historical freshness, backup lineage,
+discovery of unrelated clones, managed secret custody, key rotation, online
+delivery, list/search/export, resend, renew, consume, bulk administration, or a
+web administration surface. A complete internally consistent target bundle
+substituted before invocation and explicitly selected by the operator is not
+detectable without an external trust root.
