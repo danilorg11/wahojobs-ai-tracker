@@ -1134,6 +1134,9 @@ class PersistentProfileCreationTests(unittest.TestCase):
                 registry,
                 confirmed_profile_artifact_sink=sink,
                 authentication_input=self._cookie_headers(),
+                completed_profile_confirmation_authenticator=(
+                    self.integration.authenticate_completed_profile_replay
+                ),
             ),
             recovered,
         )
@@ -1158,40 +1161,22 @@ class PersistentProfileCreationTests(unittest.TestCase):
         self.assertEqual(raised.exception.status, 503)
         self.assertEqual(invalid_modes, [False])
         with registry._condition:
-            state = registry._confirmations[pending.match_run_id]
-            self.assertEqual(state.state, "maybe_issued")
-            self.assertIsNone(state.completed_result)
-        self.assertEqual(
-            set(self._confirmation_artifact_references()),
-            baseline,
-        )
-
-        recovery_modes = []
-        sink = self._recording_confirmation_sink(recovery_modes)
-        with self.assertRaises(ActionError) as raised:
-            create_match_run(
-                form,
-                registry,
-                confirmed_profile_artifact_sink=sink,
-                authentication_input=self._cookie_headers(),
-            )
-        self.assertEqual(raised.exception.status, 503)
-        self.assertEqual(recovery_modes, [True])
+            self.assertNotIn(pending.match_run_id, registry._confirmations)
         self.assertEqual(
             set(self._confirmation_artifact_references()),
             baseline,
         )
         self.assertIs(registry.confirmation_draft(pending.match_run_id), pending)
-        with registry._condition:
-            self.assertNotIn(pending.match_run_id, registry._confirmations)
 
+        recovery_modes = []
+        sink = self._recording_confirmation_sink(recovery_modes)
         completed = create_match_run(
             form,
             registry,
             confirmed_profile_artifact_sink=sink,
             authentication_input=self._cookie_headers(),
         )
-        self.assertEqual(recovery_modes, [True, False])
+        self.assertEqual(recovery_modes, [False])
         created = set(self._confirmation_artifact_references()) - baseline
         self.assertEqual(len(created), 1)
         self.assertEqual(
@@ -1204,10 +1189,13 @@ class PersistentProfileCreationTests(unittest.TestCase):
                 registry,
                 confirmed_profile_artifact_sink=sink,
                 authentication_input=self._cookie_headers(),
+                completed_profile_confirmation_authenticator=(
+                    self.integration.authenticate_completed_profile_replay
+                ),
             ),
             completed,
         )
-        self.assertEqual(recovery_modes, [True, False])
+        self.assertEqual(recovery_modes, [False])
 
     def test_confirmation_preserves_exact_controls_before_and_after_may_exist(self):
         for boundary in ("before", "after"):
@@ -2131,6 +2119,9 @@ class PersistentProfileCreationTests(unittest.TestCase):
                         registry,
                         confirmed_profile_artifact_sink=sink,
                         authentication_input=self._cookie_headers(),
+                        completed_profile_confirmation_authenticator=(
+                            self.integration.authenticate_completed_profile_replay
+                        ),
                     )
                     created = (
                         set(self._confirmation_artifact_references()) - baseline
@@ -2146,6 +2137,9 @@ class PersistentProfileCreationTests(unittest.TestCase):
                             registry,
                             confirmed_profile_artifact_sink=sink,
                             authentication_input=self._cookie_headers(),
+                            completed_profile_confirmation_authenticator=(
+                                self.integration.authenticate_completed_profile_replay
+                            ),
                         ),
                         completed,
                     )

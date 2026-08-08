@@ -3441,13 +3441,14 @@ class TrustedLoginCompositionTests(_SocketsBlockedTestCase):
             reached = _ordinary_reachable_objects(result)
             for forbidden in (
                 database.subject,
-                database.account_id,
                 database.identity_id,
                 "TrustedExternalIdentityAuthentication",
             ):
                 with self.subTest(forbidden=forbidden):
                     self.assertNotIn(forbidden, reached)
                     self.assertNotIn(forbidden, repr(result))
+            self.assertIn(database.account_id, reached)
+            self.assertNotIn(database.account_id, repr(result))
             self.assertEqual(
                 _snapshot_authority_rows(database.connection),
                 before,
@@ -3600,13 +3601,14 @@ class PrivacyAndLifetimeTests(_SocketsBlockedTestCase):
                 parameters["nonce"],
                 parameters["code_challenge"],
                 DEFAULT_SUBJECT,
-                database.account_id,
                 database.identity_id,
                 "test-access-token-not-retained",
                 "test-refresh-token-not-retained",
             ):
                 with self.subTest(forbidden=forbidden[:24]):
                     self.assertNotIn(forbidden, reached)
+            self.assertIn(database.account_id, reached)
+            self.assertNotIn(database.account_id, repr(result))
 
     def test_long_lived_gateway_graph_releases_provider_intermediates(self):
         with gateway_database() as database:

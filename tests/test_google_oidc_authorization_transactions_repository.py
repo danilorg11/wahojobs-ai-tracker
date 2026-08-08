@@ -2737,6 +2737,33 @@ class GoogleOidcAuthorizationTransactionRepositoryTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_prerequisite_column_snapshot_decodes_only_blob_results(self):
+        connection = sqlite3.connect(":memory:")
+        connection.execute(
+            "CREATE TABLE audit_blob_column_snapshot("
+            "first_column TEXT, second_column INTEGER)"
+        )
+        callback_calls = []
+
+        def forbidden_text_factory(_value):
+            callback_calls.append("called")
+            raise AssertionError("caller_text_factory_invoked")
+
+        connection.text_factory = forbidden_text_factory
+        try:
+            snapshot = transaction_schema._bounded_prerequisite_schema_snapshot(
+                connection,
+                transaction_schema._expected_m001_m003_ownership_contract(),
+                transaction_schema._new_prerequisite_closure_budget(),
+            )
+            self.assertEqual(
+                snapshot["main"]["columns"]["audit_blob_column_snapshot"],
+                ("first_column", "second_column"),
+            )
+            self.assertEqual(callback_calls, [])
+        finally:
+            connection.close()
+
     def test_prerequisite_closure_accepts_canonical_and_unrelated_objects(self):
         pending = install_canonical_v2_profiles(":memory:")
         try:

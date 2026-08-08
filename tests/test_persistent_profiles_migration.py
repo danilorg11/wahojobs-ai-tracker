@@ -85,7 +85,6 @@ class PersistentProfilesMigrationTests(unittest.TestCase):
                 workspace,
                 Path(os.path.relpath(workspace, ROOT)),
                 workspace.parent / "child" / ".." / workspace.name,
-                Path(str(workspace).upper()),
                 hard_link,
             )
             for candidate in variants:
@@ -95,6 +94,18 @@ class PersistentProfilesMigrationTests(unittest.TestCase):
                             candidate, workspace_path=workspace
                         )
                     )
+
+            case_variant = Path(str(workspace).upper())
+            same_case_identity = os.path.normcase(
+                os.path.abspath(case_variant)
+            ) == os.path.normcase(os.path.abspath(workspace))
+            self.assertEqual(
+                migration.is_workspace_database_file(
+                    case_variant,
+                    workspace_path=workspace,
+                ),
+                same_case_identity,
+            )
 
             self.assertFalse(
                 migration.is_workspace_database_file(

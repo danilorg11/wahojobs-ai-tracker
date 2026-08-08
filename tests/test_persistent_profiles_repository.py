@@ -42,6 +42,7 @@ from wahojobs.persistent_profiles_repository import (
     PURGE_FAILURE_BOUNDARIES,
     MAX_HISTORY_RESPONSE_BYTES,
     PersistentProfileRepository,
+    PersistentProfileRepositoryDefiniteRollback,
     _serialize_history_page_for_size,
     append_profile_revision,
     create_persistent_profile,
@@ -1187,6 +1188,24 @@ class PersistentProfilesRepositoryTests(unittest.TestCase):
         rendered = repr(error) + str(error) + json.dumps(error.public_dict())
         self.assertNotIn(str(self.path), rendered)
         self.assertNotIn(command.profile_id, rendered)
+        self.connection = connect_repository_database(self.path)
+
+    def test_pre_transaction_sqlite_failure_is_definite_and_detached(self):
+        command = create_command(self.principal)
+        self.connection.close()
+        with self.assertRaises(
+            PersistentProfileRepositoryDefiniteRollback
+        ) as raised:
+            create_persistent_profile(
+                self.connection,
+                command,
+            )
+        self.assertEqual(
+            raised.exception.reason_code,
+            "internal_consistency_failure",
+        )
+        self.assertIsNone(raised.exception.__cause__)
+        self.assertIsNone(raised.exception.__context__)
         self.connection = connect_repository_database(self.path)
 
     def test_repository_import_is_dormant_and_normal_runtime_has_no_import(self):

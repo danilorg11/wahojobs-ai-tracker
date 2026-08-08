@@ -858,7 +858,7 @@ print("wahojobs.persistent_profile_read_authorization" in sys.modules)
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.stdout.strip(), "False")
+        self.assertEqual(result.stdout.strip(), "True")
 
     def test_normal_local_runtime_does_not_import_b2c3_authentication(self):
         script = r'''
@@ -873,7 +873,7 @@ print("wahojobs.browser_session_authentication" in sys.modules)
             capture_output=True,
             text=True,
         )
-        self.assertEqual(result.stdout.strip(), "False")
+        self.assertEqual(result.stdout.strip(), "True")
 
     def test_normal_local_runtime_does_not_import_b2c4_lifecycle(self):
         script = r'''

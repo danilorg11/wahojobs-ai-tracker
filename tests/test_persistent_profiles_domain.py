@@ -728,7 +728,7 @@ class PersistentProfilesDomainTests(unittest.TestCase):
         self.assertEqual(IDEMPOTENCY_SCOPE_VERSION, "persistent_profile_principal_scope_v1")
         self.assertEqual(
             command.request_fingerprint,
-            "373ee2fb63ce426067bb8a9407f74b90759582aa019e2f12ffbd7af29c5f72f5",
+            "fb79cb7884dc4d17f8f6a4fcbd91d4f63b4f63731f5d174bba2272d02037d291",
         )
 
     def test_replay_classification_uses_constant_time_digest_comparison(self):
@@ -944,15 +944,19 @@ print(domain.MIGRATION_VERSION)
                 if "wahojobs.persistent_profiles" in text:
                     references.append(path.relative_to(ROOT).as_posix())
         self.assertEqual(
-            references,
+            sorted(references),
             [
+                "scripts/local_product_app.py",
+                "scripts/persistent_profiles_reconcile.py",
+                "wahojobs/authenticated_profile_matches.py",
                 "wahojobs/browser_session_authentication.py",
+                "wahojobs/persistent_profile_corrections.py",
+                "wahojobs/persistent_profile_creation.py",
+                "wahojobs/persistent_profile_read_authorization.py",
                 "wahojobs/persistent_profiles_application.py",
                 "wahojobs/persistent_profiles_browser.py",
                 "wahojobs/persistent_profiles_reconciliation.py",
                 "wahojobs/persistent_profiles_repository.py",
-                "wahojobs/persistent_profile_read_authorization.py",
-                "scripts/persistent_profiles_reconcile.py",
             ],
         )
 

@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from urllib.error import HTTPError
 
 from wahojobs.crawler.greenhouse_observations import (
@@ -1184,18 +1185,27 @@ class GreenhouseObservationLedgerTests(unittest.TestCase):
                 )["valid"]
             )
 
-    @unittest.skipIf(os.name == "nt", "POSIX mode bits are not authoritative on Windows")
     def test_permission_failures_are_reported_without_mutation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
             self.record(directory, datetime(2026, 7, 17, 12, tzinfo=UTC))
-            bundles = directory / BUNDLES_DIR_NAME
-            bundles.chmod(0o500)
-            try:
+            before = {
+                path.relative_to(directory).as_posix(): path.read_bytes()
+                for path in directory.rglob("*")
+                if path.is_file()
+            }
+            with mock.patch(
+                "wahojobs.crawler.greenhouse_observations.os.link",
+                side_effect=PermissionError("permission denied"),
+            ):
                 with self.assertRaises((OSError, ObservationLedgerError)):
                     self.record(directory, datetime(2026, 7, 17, 13, tzinfo=UTC))
-            finally:
-                bundles.chmod(0o700)
+            after = {
+                path.relative_to(directory).as_posix(): path.read_bytes()
+                for path in directory.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(after, before)
 
 
 class GreenhouseObservationMultiprocessTests(unittest.TestCase):

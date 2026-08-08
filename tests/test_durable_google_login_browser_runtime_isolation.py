@@ -20,11 +20,13 @@ import threading
 import time
 import traceback
 from types import (
+    CodeType,
     FrameType,
     FunctionType,
     GetSetDescriptorType,
     MemberDescriptorType,
     MethodType,
+    ModuleType,
     SimpleNamespace,
     TracebackType,
 )
@@ -171,6 +173,10 @@ def _retained_canary_hits(root, canary):
                         pending.append(cell.cell_contents)
                     except ValueError:
                         pass
+            continue
+        if type(value) in {CodeType, ModuleType}:
+            # Executable and module-namespace metadata contain source literals,
+            # not values retained by the live runtime graph under inspection.
             continue
         try:
             attributes = object.__getattribute__(value, "__dict__")
@@ -2703,39 +2709,39 @@ print(
     def test_runtime_close_retries_only_failed_gateway(self):
         calls = []
 
-        class Gateway:
-            def close(self):
+        with temporary_browser_login_state() as state:
+            runtime = build_durable_google_login_runtime(
+                state.configuration_path,
+                _clock=state.clock,
+                _gateway_factory=state.gateway_factory,
+            )
+            gateway_type = type(state.gateway_harness.gateway)
+            real_close = gateway_type.close
+
+            def flaky_close(gateway):
                 calls.append("gateway")
                 if len(calls) == 1:
                     raise RuntimeError(
                         "PRIVATE_GATEWAY_CLOSE_FAILURE"
                     )
+                return real_close(gateway)
 
-        def gateway_factory(_configuration, client_secret):
-            client_secret.clear()
-            return Gateway()
+            with mock.patch.object(gateway_type, "close", flaky_close):
+                first = runtime.close()
+                self.assertFalse(first.cleanup_complete)
+                self.assertEqual(
+                    first.unresolved_resources,
+                    ("google_gateway",),
+                )
+                self.assertIsNone(
+                    object.__getattribute__(runtime, "_connections")
+                )
+                self.assertIsNone(
+                    object.__getattribute__(runtime, "_key_authority")
+                )
 
-        with temporary_browser_login_state() as state:
-            runtime = build_durable_google_login_runtime(
-                state.configuration_path,
-                _clock=state.clock,
-                _gateway_factory=gateway_factory,
-            )
-            first = runtime.close()
-            self.assertFalse(first.cleanup_complete)
-            self.assertEqual(
-                first.unresolved_resources,
-                ("google_gateway",),
-            )
-            self.assertIsNone(
-                object.__getattribute__(runtime, "_connections")
-            )
-            self.assertIsNone(
-                object.__getattribute__(runtime, "_key_authority")
-            )
-
-            second = runtime.close()
-            self.assertTrue(second.cleanup_complete)
+                second = runtime.close()
+                self.assertTrue(second.cleanup_complete)
             self.assertEqual(calls, ["gateway", "gateway"])
             self.assertIn("closed", repr(runtime))
 
@@ -2744,35 +2750,35 @@ print(
     ):
         close_calls = 0
 
-        class Gateway:
-            def close(self):
-                nonlocal close_calls
-                close_calls += 1
-                if close_calls == 1:
-                    raise RuntimeError("PRIVATE_PARTIAL_CLOSE")
-
-        def gateway_factory(_configuration, client_secret):
-            client_secret.clear()
-            return Gateway()
-
         with temporary_browser_login_state() as state:
             runtime = build_durable_google_login_runtime(
                 state.configuration_path,
                 _clock=state.clock,
-                _gateway_factory=gateway_factory,
+                _gateway_factory=state.gateway_factory,
             )
-            self.assertFalse(runtime.close().cleanup_complete)
-            for operation in (
-                lambda: runtime.browser_integration,
-                runtime.open_writable_connection,
-                runtime.read_only_connection_provider,
-            ):
-                with self.assertRaises(
-                    DurableGoogleLoginConfigurationError
+            gateway_type = type(state.gateway_harness.gateway)
+            real_close = gateway_type.close
+
+            def flaky_close(gateway):
+                nonlocal close_calls
+                close_calls += 1
+                if close_calls == 1:
+                    raise RuntimeError("PRIVATE_PARTIAL_CLOSE")
+                return real_close(gateway)
+
+            with mock.patch.object(gateway_type, "close", flaky_close):
+                self.assertFalse(runtime.close().cleanup_complete)
+                for operation in (
+                    lambda: runtime.browser_integration,
+                    runtime.open_writable_connection,
+                    runtime.read_only_connection_provider,
                 ):
-                    operation()
-            self.assertIn("closing", repr(runtime))
-            self.assertTrue(runtime.close().cleanup_complete)
+                    with self.assertRaises(
+                        DurableGoogleLoginConfigurationError
+                    ):
+                        operation()
+                self.assertIn("closing", repr(runtime))
+                self.assertTrue(runtime.close().cleanup_complete)
             self.assertEqual(close_calls, 2)
 
     def test_lookup_and_protection_cleanup_retry_independently(self):
@@ -3290,6 +3296,10 @@ print(
         server._accepted_sockets = {request}
         server._request_threads = set()
         server._shutdown_requested = None
+        server._database_lifetime_guard = None
+        server._database_lifetime_guard_required = False
+        server._database_lifetime_validation_lock = threading.Lock()
+        server._database_lifetime_valid = True
         server.process_request(request, ("127.0.0.1", 1))
         self.assertIn(request, server._accepted_sockets)
         self.assertFalse(request.closed)
@@ -6148,7 +6158,7 @@ print("EXIT", status)
 
             def __enter__(self):
                 self.entries += 1
-                if self.entries == 2:
+                if self.entries == 3:
                     raise RuntimeError(
                         "PRIVATE_REGISTRATION_LOCK_FAILURE"
                     )
@@ -19790,7 +19800,10 @@ finally:
             "provider_cleanup_complete": bool,
         }
 
-        with temporary_browser_login_state() as state:
+        with (
+            temporary_browser_login_state() as state,
+            temporary_browser_login_state(port=8444) as fresh_state,
+        ):
             runtime = build_durable_google_login_runtime(
                 state.configuration_path,
                 _clock=state.clock,
@@ -20134,7 +20147,7 @@ finally:
                                 redirect_uri=(
                                     configuration.google_redirect_uri
                                 ),
-                                subject=state.subject,
+                                subject=fresh_state.subject,
                             )
                             child_harnesses.append(harness)
                             return harness.gateway
@@ -20142,7 +20155,7 @@ finally:
                         stage = "fresh_runtime_build"
                         child_runtime = (
                             build_durable_google_login_runtime(
-                                state.configuration_path,
+                                fresh_state.configuration_path,
                                 _clock=child_clock,
                                 _gateway_factory=(
                                     child_gateway_factory
@@ -21421,7 +21434,10 @@ finally:
                 )
             self.assertEqual(read_requests[-1], 1)
 
-        with temporary_browser_login_state() as state:
+        with (
+            temporary_browser_login_state() as state,
+            temporary_browser_login_state(port=8444) as fresh_state,
+        ):
             runtime = build_durable_google_login_runtime(
                 state.configuration_path,
                 _clock=state.clock,
@@ -21457,7 +21473,7 @@ finally:
             parent_connection = parent_record._connection_identity
             parent_browser = runtime.browser_integration
             parent_active_requests = parent_browser.active_request_count
-            database_path = state.database_path.resolve(strict=True)
+            database_path = fresh_state.database_path.resolve(strict=True)
             database_stat = database_path.stat()
             database_identity = (
                 database_stat.st_dev,
@@ -21760,14 +21776,14 @@ finally:
                                 client_id=configuration.google_client_id,
                                 client_secret=client_secret,
                                 redirect_uri=configuration.google_redirect_uri,
-                                subject=state.subject,
+                                subject=fresh_state.subject,
                             )
                             child_harnesses.append(harness)
                             return harness.gateway
 
                         stage = "fresh_runtime_build"
                         child_runtime = build_durable_google_login_runtime(
-                            state.configuration_path,
+                            fresh_state.configuration_path,
                             _clock=child_clock,
                             _gateway_factory=child_gateway_factory,
                         )

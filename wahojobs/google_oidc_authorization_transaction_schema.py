@@ -935,7 +935,9 @@ def _bounded_prerequisite_schema_snapshot(conn, contract, budget) -> dict:
                 cursor.row_factory = None
                 try:
                     cursor.execute(
-                        f"PRAGMA {schema}.table_xinfo({_quote(name)})"
+                        "SELECT CAST(name AS BLOB) "
+                        "FROM pragma_table_xinfo(?, ?)",
+                        (name, schema),
                     )
                     column_rows = cursor.fetchmany(
                         remaining_columns + 1
@@ -946,8 +948,8 @@ def _bounded_prerequisite_schema_snapshot(conn, contract, budget) -> dict:
                     not column_rows
                     or any(
                         type(row) is not tuple
-                        or len(row) < 2
-                        or type(row[1]) not in {str, bytes}
+                        or len(row) != 1
+                        or type(row[0]) is not bytes
                         for row in column_rows
                     )
                 ):
@@ -956,11 +958,7 @@ def _bounded_prerequisite_schema_snapshot(conn, contract, budget) -> dict:
                     )
                 names = []
                 for row in column_rows:
-                    value = row[1]
-                    if type(value) is bytes:
-                        value = value.decode("utf-8", "strict")
-                    else:
-                        value.encode("utf-8", "strict")
+                    value = row[0].decode("utf-8", "strict")
                     names.append(value)
                 names = tuple(names)
                 _consume_prerequisite_closure_budget(

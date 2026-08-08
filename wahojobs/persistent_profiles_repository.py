@@ -419,7 +419,10 @@ class _MutationController:
 
     def fail(self) -> bool:
         if self.state is None:
-            return not self.connection.in_transaction
+            # No transaction or commit was started by this controller.  In
+            # particular, do not probe a connection that may have failed while
+            # answering the initial in_transaction query.
+            return True
         if self.commit_completed:
             return False
         try:
@@ -478,31 +481,36 @@ class PersistentProfileRepository:
     def _mutate(self, connection, operation):
         connection = _require_connection(connection)
         controller = _MutationController(connection)
+        failure = None
         try:
             controller.begin()
             result = operation(connection)
             controller.succeed()
         except PersistentProfileDomainError as exc:
             if controller.fail():
-                raise
-            exc = None
-            raise PersistentProfileRepositoryOutcomeUncertain() from None
+                failure = exc
+            else:
+                failure = PersistentProfileRepositoryOutcomeUncertain()
         except sqlite3.Error as exc:
             reason = _sqlite_reason(getattr(exc, "sqlite_errorcode", None))
-            exc = None
             if controller.fail():
-                raise PersistentProfileRepositoryDefiniteRollback(reason) from None
-            raise PersistentProfileRepositoryOutcomeUncertain() from None
-        except Exception as exc:
-            exc = None
+                failure = PersistentProfileRepositoryDefiniteRollback(reason)
+            else:
+                failure = PersistentProfileRepositoryOutcomeUncertain()
+        except Exception:
             if controller.fail():
-                raise PersistentProfileRepositoryDefiniteRollback(
+                failure = PersistentProfileRepositoryDefiniteRollback(
                     "internal_consistency_failure"
-                ) from None
-            raise PersistentProfileRepositoryOutcomeUncertain() from None
+                )
+            else:
+                failure = PersistentProfileRepositoryOutcomeUncertain()
         except BaseException:
             controller.fail()
             raise
+        if failure is not None:
+            failure.__cause__ = None
+            failure.__context__ = None
+            raise failure from None
         return result
 
     @staticmethod

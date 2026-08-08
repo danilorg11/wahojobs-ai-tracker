@@ -1,5 +1,4 @@
 import dataclasses
-import importlib
 import os
 import subprocess
 import sys
@@ -73,16 +72,34 @@ class OwnershipDomainTests(unittest.TestCase):
 
     def test_import_has_no_file_database_network_or_environment_side_effect(self):
         with tempfile.TemporaryDirectory() as tmp:
-            before_environment = dict(os.environ)
-            sys.modules.pop("wahojobs.ownership", None)
-            imported = importlib.import_module("wahojobs.ownership")
-            self.assertEqual(dict(os.environ), before_environment)
-            self.assertEqual(imported.MIGRATION_VERSION, "003_product_principals")
             env = dict(os.environ)
             root = str(Path(__file__).resolve().parents[1])
             env["PYTHONPATH"] = root + os.pathsep + env.get("PYTHONPATH", "")
+            script = r'''
+import builtins
+import os
+import socket
+import sqlite3
+
+before_environment = dict(os.environ)
+def blocked(*_args, **_kwargs):
+    raise RuntimeError("import_side_effect")
+
+sqlite3.connect = blocked
+socket.socket = blocked
+original_open = builtins.open
+def guarded_open(file, mode="r", *args, **kwargs):
+    if any(flag in mode for flag in ("w", "a", "x", "+")):
+        raise RuntimeError("import_file_write")
+    return original_open(file, mode, *args, **kwargs)
+
+builtins.open = guarded_open
+import wahojobs.ownership as imported
+assert dict(os.environ) == before_environment
+print(imported.MIGRATION_VERSION)
+'''
             result = subprocess.run(
-                [sys.executable, "-B", "-c", "import wahojobs.ownership; print('imported')"],
+                [sys.executable, "-B", "-c", script],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -91,7 +108,10 @@ class OwnershipDomainTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "imported")
+            self.assertEqual(
+                result.stdout.strip(),
+                ownership.MIGRATION_VERSION,
+            )
             self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
