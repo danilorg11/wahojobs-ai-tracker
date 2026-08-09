@@ -3,6 +3,7 @@ __pycache__/
 
 data/*.sqlite
 data/*.sqlite-*
+/data/wahojobs.sqlite.wahojobs-lifetime.lock
 
 .env
 .venv/
