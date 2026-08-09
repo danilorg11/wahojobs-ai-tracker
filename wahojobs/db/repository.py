@@ -140,13 +140,8 @@ WELOCALIZE_SEED = {
 
 
 def initialize_database(db_path=DB_PATH):
-    schema_path = Path(__file__).with_name("schema.sql")
     with get_connection(db_path) as conn:
-        conn.executescript(schema_path.read_text(encoding="utf-8"))
-        ensure_company_classification_columns(conn)
-        ensure_job_optional_columns(conn)
-        ensure_job_classification_columns(conn)
-        ensure_canonical_schema(conn)
+        install_base_schema(conn)
         for seed in (
             ALIGNERR_SEED,
             APPEN_SEED,
@@ -211,6 +206,17 @@ def initialize_database(db_path=DB_PATH):
         welocalize = get_company_by_slug(conn, "welocalize")
         if welocalize is not None:
             sync_welocalize_canonical_opportunities(conn, welocalize["id"])
+
+
+def install_base_schema(conn):
+    """Install only the complete current base schema on an open connection."""
+
+    schema_path = Path(__file__).with_name("schema.sql")
+    conn.executescript(schema_path.read_text(encoding="utf-8"))
+    ensure_company_classification_columns(conn)
+    ensure_job_optional_columns(conn)
+    ensure_job_classification_columns(conn)
+    ensure_canonical_schema(conn)
 
 
 def with_source_classification_defaults(seed):

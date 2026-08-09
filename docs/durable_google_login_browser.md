@@ -24,8 +24,11 @@ database, filesystem-secret, network, route, or environment side effect.
 
 Production activation is unsupported. This milestone supports exactly the
 `development`, `test`, and `private_beta` environment names under the strict
-local policy below. It introduces neither Migration 007 nor an insecure-cookie
-mode.
+local policy below. The browser milestone itself introduced no schema change;
+current main now requires the separately installed, offline Migration 007
+closed-schema authority documented in
+`docs/closed_schema_convergence_migration.md`. It does not introduce an
+insecure-cookie mode.
 
 ## Strict configuration document
 
@@ -84,9 +87,10 @@ requires the database to be unavailable to another writer. The runtime seals
 that file identity, keeps a raw descriptor pinned across each SQLite
 connect-and-verify boundary, opens it explicitly in existing-file mode, and
 requires the byte-exact stored SQL plus closed base and Migration-001 through
-Migration-006 marker inventory. Every later connection verifies the same
+Migration-007 marker inventory. Every later connection verifies the same
 sealed file before application SQL. After constructing the browser integration,
-startup repeats the writer, identity, sidecar, integrity, marker, and
+startup repeats the writer, identity, sidecar, quick-integrity, foreign-key,
+marker, and
 exact-schema checks before publishing the runtime. Startup never initializes,
 seeds, repairs, checkpoints, or migrates the database.
 
@@ -946,7 +950,7 @@ python -B scripts/durable_google_login_fixture_demo.py --smoke --restart-before-
 ```
 
 Each run creates a fresh OS-temporary directory outside every checkout, a fresh
-temporary SQLite database with explicit Migration-001 through Migration-006
+temporary SQLite database with explicit Migration-001 through Migration-007
 installation, exactly one existing Google identity with its account,
 account-native principal, persistent profile, and ownership relationship, and
 deterministic test-only authorities stored under that directory. It serves
@@ -1044,7 +1048,7 @@ The order is fixed:
    authenticate it, and revalidate every pinned identity;
 6. only then open the exact database directly (`mode=ro` plus `query_only=ON`
    for status, `mode=rw` for create/revoke); and
-7. attest the exact open path and identity, all six migration markers, the
+7. attest the exact open path and identity, all seven migration markers, the
    complete closed schema, account schema, Migration 006, foreign-key
    enforcement, empty temp schema, rollback-journal mode, integrity via
    `quick_check(1)`, referential integrity via `foreign_key_check`, and forbidden
@@ -1264,8 +1268,8 @@ This milestone does not provide:
   reactivate, purge, deletion, rollback, or revision-history UI;
 - My Jobs, tracker or pipeline actions, match history, or MatchRun persistence;
 - scheduled opportunity refresh or new crawler/source activation;
-- database initialization, seeding, repair, automatic migration, or
-  Migration 007;
+- database initialization, seeding, repair, or automatic migration; Migration
+  007 remains an explicit offline operator action;
 - a client cookie-receipt acknowledgement protocol;
 - a cleanup scheduler, reconciliation scheduler, or automated key rotation;
 - production secret distribution, managed key custody, retained-key retirement,

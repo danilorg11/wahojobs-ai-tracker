@@ -25,6 +25,7 @@ from urllib.parse import urlencode, urlsplit
 
 from requests.adapters import HTTPAdapter
 
+import scripts.closed_schema_convergence_migration as migration_007
 import scripts.google_oidc_authorization_transactions_migration as migration_006
 from scripts.durable_google_login_app import (
     _DrainingThreadingHTTPServer,
@@ -62,6 +63,11 @@ from tests.persistent_profile_canonical_v2_test_support import (
     install_canonical_v2_profiles,
 )
 from tests.persistent_profiles_repository_test_support import create_command
+from wahojobs.database_lifetime_ownership import (
+    ROLE_OFFLINE_OPERATOR,
+    acquire_database_lifetime_ownership,
+    release_database_lifetime_ownership,
+)
 from wahojobs.persistent_profiles import TrustedPrincipalContext
 from wahojobs.persistent_profiles_repository import (
     create_persistent_profile,
@@ -162,6 +168,25 @@ def temporary_browser_login_state(
                         database_path
                     ),
                 )
+                ownership = acquire_database_lifetime_ownership(
+                    database_path,
+                    role=ROLE_OFFLINE_OPERATOR,
+                )
+                try:
+                    migration_007.apply_closed_schema_convergence_migration(
+                        connection,
+                        requested_path=database_path,
+                        expected_identity=migration_006.database_file_identity(
+                            database_path
+                        ),
+                        ownership=ownership,
+                    )
+                finally:
+                    release_database_lifetime_ownership(
+                        ownership,
+                        role=ROLE_OFFLINE_OPERATOR,
+                        database_path=database_path,
+                    )
                 connection.row_factory = sqlite3.Row
                 connection.text_factory = str
                 if seed_existing_identity:

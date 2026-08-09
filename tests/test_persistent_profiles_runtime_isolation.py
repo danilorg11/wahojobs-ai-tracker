@@ -448,6 +448,7 @@ print(
                 "004_persistent_product_profiles.sql",
                 "005_persistent_profile_canonical_v2.sql",
                 "006_google_oidc_authorization_transactions.sql",
+                "007_closed_schema_convergence.sql",
             ],
         )
 

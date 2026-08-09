@@ -26,6 +26,10 @@ import time
 from types import GetSetDescriptorType, MemberDescriptorType
 from urllib.parse import quote, urlsplit
 
+from wahojobs.closed_schema_authority import (
+    ClosedSchemaAttestationError,
+    current_closed_schema_is_exact,
+)
 from wahojobs.database_lifetime_ownership import (
     DatabaseLifetimeOwnership,
     DatabaseLifetimeOwnershipError,
@@ -48,19 +52,6 @@ INVITATION_LOOKUP_KEY_MIN_BYTES = 32
 INVITATION_LOOKUP_KEY_MAX_BYTES = 512
 POST_LOGIN_PATH = "/account/profile"
 CALLBACK_PATH = "/auth/google/callback"
-_EXPECTED_CLOSED_SCHEMA_OBJECT_COUNT = 174
-_EXPECTED_CLOSED_SCHEMA_FINGERPRINT = (
-    "f45e9d4c8c0f487a8437fdf1f5a323010d7c0b56c5d4a61a07ee4fe1f4f53735"
-)
-_EXPECTED_MIGRATION_MARKERS = (
-    "001_pipeline_state",
-    "002_accounts_sessions",
-    "003_product_principals",
-    "004_persistent_product_profiles",
-    "005_persistent_profile_canonical_v2",
-    "006_google_oidc_authorization_transactions",
-)
-_MAX_CLOSED_SCHEMA_SQL_BYTES = 1_048_576
 _SQLITE_HEADER_BYTES = 100
 _PATH_TYPE = type(Path())
 _WINDOWS_REPARSE_ATTRIBUTE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
@@ -7465,6 +7456,8 @@ def _attest_existing_database(
         integrity = connection.execute("PRAGMA quick_check(1)").fetchone()
         if tuple(integrity) != ("ok",):
             raise DurableGoogleLoginConfigurationError()
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise DurableGoogleLoginConfigurationError()
         _attest_closed_database_schema(connection)
     except BaseException:
         try:
@@ -7849,71 +7842,11 @@ def _verify_open_database_target(connection, target):
 
 
 def _attest_closed_database_schema(connection):
-    cursor = connection.cursor()
-    cursor.row_factory = None
-    rows = []
-    total_sql_bytes = 0
     try:
-        cursor.execute(
-            "SELECT CAST(type AS BLOB), CAST(name AS BLOB), "
-            "CAST(tbl_name AS BLOB), CAST(sql AS BLOB) "
-            "FROM main.sqlite_schema "
-            "WHERE type IN ('table','index','trigger','view') "
-            "ORDER BY type, name, tbl_name "
-            f"LIMIT {_EXPECTED_CLOSED_SCHEMA_OBJECT_COUNT + 1}"
-        )
-        for raw in cursor.fetchall():
-            if (
-                type(raw) is not tuple
-                or len(raw) != 4
-                or any(type(value) is not bytes for value in raw[:3])
-                or (raw[3] is not None and type(raw[3]) is not bytes)
-            ):
-                raise DurableGoogleLoginConfigurationError()
-            kind, name, table_name = (
-                value.decode("utf-8", "strict") for value in raw[:3]
-            )
-            sql = None
-            if raw[3] is not None:
-                total_sql_bytes += len(raw[3])
-                if total_sql_bytes > _MAX_CLOSED_SCHEMA_SQL_BYTES:
-                    raise DurableGoogleLoginConfigurationError()
-                sql = raw[3].decode("utf-8", "strict")
-            rows.append((kind, name, table_name, sql))
-        marker_rows = cursor.execute(
-            "SELECT CAST(version AS BLOB) "
-            "FROM main.wahojobs_schema_migrations "
-            "ORDER BY version LIMIT 7"
-        ).fetchall()
-        temporary_count = cursor.execute(
-            "SELECT COUNT(*) FROM temp.sqlite_schema"
-        ).fetchone()
-    finally:
-        cursor.close()
-    if (
-        len(rows) != _EXPECTED_CLOSED_SCHEMA_OBJECT_COUNT
-        or tuple(
-            row[0].decode("utf-8", "strict")
-            for row in marker_rows
-            if type(row) is tuple
-            and len(row) == 1
-            and type(row[0]) is bytes
-        )
-        != _EXPECTED_MIGRATION_MARKERS
-        or temporary_count != (0,)
-    ):
-        raise DurableGoogleLoginConfigurationError()
-    payload = json.dumps(
-        rows,
-        ensure_ascii=True,
-        separators=(",", ":"),
-    ).encode("ascii")
-    if (
-        not hmac.compare_digest(
-            hashlib.sha256(payload).hexdigest(),
-            _EXPECTED_CLOSED_SCHEMA_FINGERPRINT,
-        )
-    ):
+        exact = current_closed_schema_is_exact(connection)
+    except ClosedSchemaAttestationError:
+        raise DurableGoogleLoginConfigurationError() from None
+    if exact is not True:
         raise DurableGoogleLoginConfigurationError()
 
 

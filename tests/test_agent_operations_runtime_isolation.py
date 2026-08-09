@@ -237,12 +237,13 @@ print(operations._is_trusted_approval(approval))
             "004_persistent_product_profiles.sql",
             "005_persistent_profile_canonical_v2.sql",
             "006_google_oidc_authorization_transactions.sql",
+            "007_closed_schema_convergence.sql",
         ]
         self.assertEqual([path.name for path in migrations], accepted_migrations)
         self.assertNotEqual(
             [
                 *accepted_migrations,
-                "007_unexpected_dormant_migration.sql",
+                "008_unexpected_dormant_migration.sql",
             ],
             accepted_migrations,
         )

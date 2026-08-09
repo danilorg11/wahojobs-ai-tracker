@@ -1757,7 +1757,7 @@ print(canonical_v2.SCHEMA_VERSION)
             sorted(
                 [
                     "wahojobs/authenticated_profile_matches.py",
-                    "wahojobs/durable_google_login_runtime.py",
+                    "wahojobs/closed_schema_authority.py",
                     "wahojobs/google_oidc_authorization_transaction_schema.py",
                     "wahojobs/persistent_profiles.py",
                     "wahojobs/persistent_profiles_reconciliation.py",

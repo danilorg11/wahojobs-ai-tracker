@@ -18,6 +18,7 @@ import time
 import unittest
 from unittest import mock
 
+import scripts.closed_schema_convergence_migration as migration_007
 import scripts.google_oidc_authorization_transactions_migration as migration_006
 import scripts.private_beta_invitations as cli
 from tests.persistent_profile_canonical_v2_test_support import (
@@ -335,6 +336,25 @@ def private_beta_state(*, environment="private_beta", mutate_configuration=None)
                 requested_path=database_path,
                 expected_identity=migration_006.database_file_identity(database_path),
             )
+            ownership = acquire_database_lifetime_ownership(
+                database_path,
+                role=ROLE_OFFLINE_OPERATOR,
+            )
+            try:
+                migration_007.apply_closed_schema_convergence_migration(
+                    connection,
+                    requested_path=database_path,
+                    expected_identity=migration_006.database_file_identity(
+                        database_path
+                    ),
+                    ownership=ownership,
+                )
+            finally:
+                release_database_lifetime_ownership(
+                    ownership,
+                    role=ROLE_OFFLINE_OPERATOR,
+                    database_path=database_path,
+                )
             connection.execute("PRAGMA journal_mode = DELETE")
             connection.commit()
         finally:
@@ -899,8 +919,13 @@ class PrivateBetaInvitationOperationTests(unittest.TestCase):
 
     def test_hidden_double_entry_occurs_before_ownership(self):
         with private_beta_state() as state:
-            coordination = Path(str(state["database"]) + ".wahojobs-lifetime.lock")
-            with self.assertRaises(PrivateBetaInvitationOperationError) as caught:
+            with mock.patch.object(
+                operations,
+                "acquire_database_lifetime_ownership",
+                side_effect=AssertionError("ownership_must_follow_email_validation"),
+            ) as acquire_ownership, self.assertRaises(
+                PrivateBetaInvitationOperationError
+            ) as caught:
                 _create(
                     state,
                     hidden_email_reader=lambda: (
@@ -909,7 +934,7 @@ class PrivateBetaInvitationOperationTests(unittest.TestCase):
                     ),
                 )
             self.assertEqual(caught.exception.code, "EMAIL_MISMATCH")
-            self.assertFalse(coordination.exists())
+            acquire_ownership.assert_not_called()
             self.assertEqual(_invitation_rows(state["database"]), ())
 
     def test_real_ownership_contention_is_retryable(self):
@@ -2964,26 +2989,34 @@ class PrivateBetaInvitationSubprocessTests(unittest.TestCase):
                 "--credential-output",
                 str(state["output"]),
             ]
-            completed = subprocess.run(
-                command,
-                cwd=ROOT,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=30,
-                creationflags=(
-                    subprocess.DETACHED_PROCESS if os.name == "nt" else 0
-                ),
-                start_new_session=(os.name == "posix"),
+            owner = acquire_database_lifetime_ownership(
+                state["database"],
+                role=ROLE_OFFLINE_OPERATOR,
             )
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=ROOT,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=30,
+                    creationflags=(
+                        subprocess.DETACHED_PROCESS if os.name == "nt" else 0
+                    ),
+                    start_new_session=(os.name == "posix"),
+                )
+            finally:
+                release_database_lifetime_ownership(
+                    owner,
+                    role=ROLE_OFFLINE_OPERATOR,
+                    database_path=state["database"],
+                )
             self.assertEqual(completed.returncode, 2)
             self.assertEqual(completed.stdout, "")
             self.assertEqual(completed.stderr, "CONSOLE_UNAVAILABLE\n")
             self.assertEqual(_invitation_rows(state["database"]), ())
-            self.assertFalse(
-                Path(str(state["database"]) + ".wahojobs-lifetime.lock").exists()
-            )
 
     def test_status_json_subprocess_is_whitelisted(self):
         with private_beta_state() as state:

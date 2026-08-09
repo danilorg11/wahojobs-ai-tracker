@@ -100,6 +100,9 @@ PREREQUISITE_MIGRATION_VERSIONS = (
     "004_persistent_product_profiles",
     "005_persistent_profile_canonical_v2",
 )
+KNOWN_SUCCESSOR_MIGRATION_VERSIONS = (
+    "007_closed_schema_convergence",
+)
 EXPECTED_SCHEMA_FINGERPRINT = (
     "68e923ece8223ea606782905e61ef81b3030e531191400b49efe92daac88e3c0"
 )
@@ -189,7 +192,8 @@ def attest_google_oidc_authorization_transaction_schema(
         if version not in marker_versions
     )
     accepted_marker_versions = set(PREREQUISITE_MIGRATION_VERSIONS) | {
-        MIGRATION_VERSION
+        MIGRATION_VERSION,
+        *KNOWN_SUCCESSOR_MIGRATION_VERSIONS,
     }
     unexpected_marker_versions = tuple(
         sorted(marker_versions - accepted_marker_versions)

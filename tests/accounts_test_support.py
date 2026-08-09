@@ -5,7 +5,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = ROOT / "wahojobs" / "db" / "schema.sql"
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
@@ -13,6 +12,7 @@ if str(SCRIPTS) not in sys.path:
 import accounts_migration  # noqa: E402
 import pipeline_state_migration  # noqa: E402
 from wahojobs import accounts  # noqa: E402
+from wahojobs.db.repository import install_base_schema  # noqa: E402
 
 
 NOW = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
@@ -30,7 +30,7 @@ def connect(path):
 
 def install_base(path):
     conn = connect(path)
-    conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    install_base_schema(conn)
     conn.commit()
     return conn
 

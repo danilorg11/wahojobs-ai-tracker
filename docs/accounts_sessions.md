@@ -284,9 +284,11 @@ active owner binding and version, sole-owner status, and complete ordered event
 history. Replacement by another account fails before profile mutation. Proved
 rollback releases only the exact claim; uncertain commit retains replay
 authority; fatal content or lineage inconsistency remains terminal.
-The database must already contain the exact Migration-001 through Migration-006
-schema; neither the launcher nor login requests initialize, seed, repair, or
-migrate it.
+The database must already contain the exact Migration-001 through Migration-007
+schema. Migration 007 is the separate offline closed-schema convergence
+boundary documented in `docs/closed_schema_convergence_migration.md`; neither
+the launcher nor login requests initialize, seed, repair, or migrate the
+database.
 
 This application milestone does not claim transparent in-process recovery from
 an internal sink or trusted callback that remains blocked forever, recovery from
@@ -390,7 +392,10 @@ Successful `end_headers()` is the accepted server-side delivery boundary: the
 lease is then acknowledged once and its compensation and credential metadata
 are erased. A later body or socket failure does not revoke the session. This
 boundary does not prove that a browser received or persisted either cookie.
-There is no client acknowledgement protocol and no Migration 007.
+There is no client acknowledgement protocol. This historical B2D1 slice added
+no Migration 007. Current M007 exists as a separate explicit offline operation,
+has not been applied to the workspace database, and requires separate future
+authorization there.
 
 The session cookie remains `wahojobs_session`, using the accepted 43-character
 credential encoding with `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no
@@ -415,6 +420,12 @@ administrator UI. All three operations require a pinned version-1
 targets, acquire PB-OWN-1 as `offline_operator`, directly open and completely
 attest that one database, and release ownership only after every database and
 filesystem resource is terminal.
+
+Current PB-OPS attestation requires the shared exact 176-object closed schema
+and ordered Migration-001 through Migration-007 marker inventory. PB-OPS-1 did
+not itself add Migration 007 and never installs it; target convergence remains
+the separate explicit offline operation described in
+`docs/closed_schema_convergence_migration.md`.
 
 The executing PB-OPS package root and the securely opened configuration form
 the local root of trust. Every loaded `scripts`, `tests`, and `wahojobs` module

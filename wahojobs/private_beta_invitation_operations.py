@@ -42,6 +42,10 @@ from wahojobs.accounts import (
     normalize_email,
     revoke_invitation,
 )
+from wahojobs.closed_schema_authority import (
+    ClosedSchemaAttestationError,
+    current_closed_schema_is_exact,
+)
 from wahojobs.database_lifetime_ownership import (
     DatabaseLifetimeOwnershipError,
     ROLE_OFFLINE_OPERATOR,
@@ -51,8 +55,6 @@ from wahojobs.database_lifetime_ownership import (
     require_database_lifetime_ownership,
 )
 from wahojobs.google_oidc_authorization_transaction_schema import (
-    MIGRATION_VERSION as GOOGLE_OIDC_MIGRATION_VERSION,
-    PREREQUISITE_MIGRATION_VERSIONS as GOOGLE_OIDC_PREREQUISITE_MIGRATIONS,
     attest_google_oidc_authorization_transaction_schema,
 )
 
@@ -88,16 +90,6 @@ _EXPIRY = re.compile(
 )
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EMAIL_HINT = re.compile(r"^[^@\x00-\x20]{1}\*\*\*@[^@\x00-\x20]{1,255}$")
-
-_EXPECTED_SCHEMA_OBJECT_COUNT = 174
-_EXPECTED_SCHEMA_FINGERPRINT = (
-    "f45e9d4c8c0f487a8437fdf1f5a323010d7c0b56c5d4a61a07ee4fe1f4f53735"
-)
-_EXPECTED_MIGRATION_MARKERS = (
-    *GOOGLE_OIDC_PREREQUISITE_MIGRATIONS,
-    GOOGLE_OIDC_MIGRATION_VERSION,
-)
-_MAX_SCHEMA_SQL_BYTES = 1_048_576
 
 _PUBLIC_ERROR_PAIRS = frozenset(
     {
@@ -3171,72 +3163,22 @@ def _attest_database(connection: sqlite3.Connection, targets: _TargetSet):
         raise _error("DATABASE_ATTESTATION_FAILED", 3)
     _require_no_sqlite_sidecars(targets.database_path)
     cursor = connection.cursor()
-    rows = []
-    total_sql_bytes = 0
     try:
         journal = cursor.execute("PRAGMA main.journal_mode").fetchone()
         foreign_keys = cursor.execute("PRAGMA foreign_keys").fetchone()
         if journal != ("delete",) or foreign_keys != (1,):
             raise _error("DATABASE_ATTESTATION_FAILED", 3)
-        cursor.execute(
-            "SELECT CAST(type AS BLOB), CAST(name AS BLOB), "
-            "CAST(tbl_name AS BLOB), CAST(sql AS BLOB) "
-            "FROM main.sqlite_schema "
-            "WHERE type IN ('table','index','trigger','view') "
-            "ORDER BY type, name, tbl_name "
-            f"LIMIT {_EXPECTED_SCHEMA_OBJECT_COUNT + 1}"
-        )
-        for raw in cursor.fetchall():
-            if (
-                type(raw) is not tuple
-                or len(raw) != 4
-                or any(type(value) is not bytes for value in raw[:3])
-                or (raw[3] is not None and type(raw[3]) is not bytes)
-            ):
-                raise _error("DATABASE_ATTESTATION_FAILED", 3)
-            kind, name, table_name = (
-                value.decode("utf-8", "strict") for value in raw[:3]
-            )
-            sql = None
-            if raw[3] is not None:
-                total_sql_bytes += len(raw[3])
-                if total_sql_bytes > _MAX_SCHEMA_SQL_BYTES:
-                    raise _error("DATABASE_ATTESTATION_FAILED", 3)
-                sql = raw[3].decode("utf-8", "strict")
-            rows.append((kind, name, table_name, sql))
-        marker_rows = cursor.execute(
-            "SELECT CAST(version AS BLOB) "
-            "FROM main.wahojobs_schema_migrations "
-            "ORDER BY version LIMIT 7"
-        ).fetchall()
-        temporary_count = cursor.execute(
-            "SELECT COUNT(*) FROM temp.sqlite_schema"
-        ).fetchone()
+        exact_schema = current_closed_schema_is_exact(connection)
         quick = cursor.execute("PRAGMA quick_check(1)").fetchone()
         foreign_key_violation = cursor.execute("PRAGMA foreign_key_check").fetchone()
-    except (UnicodeError, sqlite3.Error):
+    except (ClosedSchemaAttestationError, UnicodeError, sqlite3.Error):
         raise _error("DATABASE_ATTESTATION_FAILED", 3) from None
     finally:
         cursor.close()
-    markers = []
-    for row in marker_rows:
-        if type(row) is not tuple or len(row) != 1 or type(row[0]) is not bytes:
-            raise _error("DATABASE_ATTESTATION_FAILED", 3)
-        try:
-            markers.append(row[0].decode("utf-8", "strict"))
-        except UnicodeError:
-            raise _error("DATABASE_ATTESTATION_FAILED", 3) from None
-    payload = json.dumps(rows, ensure_ascii=True, separators=(",", ":")).encode("ascii")
     if (
-        len(rows) != _EXPECTED_SCHEMA_OBJECT_COUNT
-        or tuple(markers) != _EXPECTED_MIGRATION_MARKERS
-        or temporary_count != (0,)
+        exact_schema is not True
         or quick != ("ok",)
         or foreign_key_violation is not None
-        or not hmac.compare_digest(
-            hashlib.sha256(payload).hexdigest(),
-            _EXPECTED_SCHEMA_FINGERPRINT,
-        )
     ):
         raise _error("DATABASE_ATTESTATION_FAILED", 3)
     try:

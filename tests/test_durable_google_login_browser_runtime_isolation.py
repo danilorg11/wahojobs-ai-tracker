@@ -42,6 +42,7 @@ from tests.durable_google_login_browser_test_support import (
     provider_callback_for,
     temporary_browser_login_state,
 )
+from wahojobs.closed_schema_authority import CURRENT_CLOSED_SCHEMA_MARKERS
 from wahojobs.durable_google_login_runtime import (
     DurableGoogleLoginConfigurationError,
     build_durable_google_login_runtime,
@@ -1474,7 +1475,7 @@ print(
                             "SELECT COUNT(*) "
                             "FROM wahojobs_schema_migrations"
                         ).fetchone()[0],
-                        6,
+                        len(CURRENT_CLOSED_SCHEMA_MARKERS),
                     )
                 finally:
                     first.close()
@@ -12797,7 +12798,7 @@ print(
         result = self.run_python(source)
         self.assertEqual(result.stdout.strip(), "False False False")
 
-    def test_migration_inventory_still_ends_at_m006(self):
+    def test_migration_inventory_still_ends_at_m007(self):
         migrations = sorted(
             (ROOT / "wahojobs" / "db" / "migrations").glob("*.sql")
         )
@@ -12810,6 +12811,7 @@ print(
                 "004_persistent_product_profiles.sql",
                 "005_persistent_profile_canonical_v2.sql",
                 "006_google_oidc_authorization_transactions.sql",
+                "007_closed_schema_convergence.sql",
             ],
         )
 
