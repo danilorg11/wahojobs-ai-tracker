@@ -695,6 +695,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._browser_headers(session),
         )
         self.assertEqual(start.status, 200)
+        self.assertEqual(
+            self._response_header(start, "Referrer-Policy"),
+            "same-origin",
+        )
         form = self._form(start, "intent")
         response, probe = self._post_form(
             browser,
@@ -713,6 +717,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._browser_headers(self.session),
         )
         self.assertEqual(review.status, 200)
+        self.assertEqual(
+            self._response_header(review, "Referrer-Policy"),
+            "same-origin",
+        )
         edit_links = [
             href
             for href in self._markup(review).links
@@ -725,6 +733,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._browser_headers(self.session),
         )
         self.assertEqual(edit.status, 200)
+        self.assertEqual(
+            self._response_header(edit, "Referrer-Policy"),
+            "same-origin",
+        )
         edit_form = self._form(edit, "edit_run_id", "review_token", "schema_version")
         fields = list(edit_form["fields"])
         fields = self._set_form_field(fields, "credentials_confirmed", "1")
@@ -738,6 +750,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._browser_headers(self.session),
         )
         self.assertEqual(reviewed.status, 200)
+        self.assertEqual(
+            self._response_header(reviewed, "Referrer-Policy"),
+            "same-origin",
+        )
         confirm_form = self._form(reviewed, "draft", "review_token")
         confirm_fields = self._set_form_field(
             list(confirm_form["fields"]),
@@ -750,6 +766,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             confirm_fields,
         )
         self.assertEqual((confirmed.status, probe.read_count), (200, 1))
+        self.assertEqual(
+            self._response_header(confirmed, "Referrer-Policy"),
+            "same-origin",
+        )
         return self._form(confirmed, "artifact", "csrf")
 
     def _seed_inventory(self):
@@ -875,6 +895,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         body = get_response.body.decode("utf-8")
 
         self.assertEqual((get_response.status, head_response.status), (200, 200))
+        self.assertEqual(
+            self._response_header(get_response, "Referrer-Policy"),
+            "no-referrer",
+        )
         self.assertEqual(head_response.body, b"")
         self.assertEqual(
             self._response_header(head_response, "Content-Length"),
@@ -941,6 +965,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         self.assertNotIn("Update profile", absent_body)
         self.assertNotIn("correction=", absent_body)
         self.assertEqual(self._profile_counts(), absent_counts)
+
+    def test_form_bearing_correction_stages_use_same_origin_policy(self):
+        browser = self._build_browser()
+        self._browser_apply_offer(browser, changes=(("city", "Recife"),))
 
     def test_browser_authority_order_zero_early_reads_and_one_valid_read(self):
         browser = self._build_browser()

@@ -433,9 +433,45 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         )
         response_headers = dict(response.headers)
         self.assertEqual(response_headers["Cache-Control"], "no-store")
+        self.assertEqual(response_headers["Referrer-Policy"], "same-origin")
         self.assertIn("form-action 'self'", response_headers["Content-Security-Policy"])
         self.assertNotIn("Domain=", repr(response.headers))
         self.assertNotIn(LOGIN_CSRF, repr(response))
+
+    def test_referrer_policy_is_form_compatible_but_callbacks_and_errors_stay_private(self):
+        login = self.integration.handle("GET", LOGIN_ROUTE, headers())
+        self.assertEqual(dict(login.headers)["Referrer-Policy"], "same-origin")
+
+        self.harness.completion_status = "denied"
+        callback = self.integration.handle(
+            "GET",
+            GOOGLE_LOGIN_CALLBACK_ROUTE + "?error=access_denied&state=opaque",
+            headers(),
+        )
+        self.assertEqual(dict(callback.headers)["Referrer-Policy"], "no-referrer")
+
+        error = self.integration.handle(
+            "GET",
+            LOGIN_ROUTE,
+            (("Host", "evil.test"),),
+        )
+        self.assertEqual(error.status, 400)
+        self.assertEqual(dict(error.headers)["Referrer-Policy"], "no-referrer")
+
+        body = f"csrf={LOGIN_CSRF}".encode("ascii")
+        null_origin = self.integration.handle(
+            "POST",
+            GOOGLE_LOGIN_START_ROUTE,
+            headers(
+                cookie=f"{LOGIN_CSRF_COOKIE_NAME}={LOGIN_CSRF}",
+                body=body,
+                extra=(("Origin", "null"),),
+            ),
+            io.BytesIO(body),
+        )
+        self.assertEqual(null_origin.status, 400)
+        self.assertEqual(self.harness.prepare_calls, 0)
+        self.assertEqual(dict(null_origin.headers)["Referrer-Policy"], "no-referrer")
 
     def test_start_requires_exact_same_origin_form_and_commits_before_url_access(self):
         body = f"csrf={LOGIN_CSRF}".encode()
@@ -768,6 +804,16 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
                     cookie=f"{LOGIN_CSRF_COOKIE_NAME}={LOGIN_CSRF}",
                     body=b"csrf=" + LOGIN_CSRF.encode(),
                     extra=(("Origin", "https://evil.test"),),
+                ),
+                400,
+            ),
+            (
+                "POST",
+                GOOGLE_LOGIN_START_ROUTE,
+                headers(
+                    cookie=f"{LOGIN_CSRF_COOKIE_NAME}={LOGIN_CSRF}",
+                    body=b"csrf=" + LOGIN_CSRF.encode(),
+                    extra=(("Origin", "null"),),
                 ),
                 400,
             ),
@@ -1253,6 +1299,7 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         )
         self.assertEqual(page.status, 200)
         self.assertIn(SESSION_CSRF.encode(), page.body)
+        self.assertEqual(dict(page.headers)["Referrer-Policy"], "same-origin")
         self.assertEqual(len(self.harness.validate_calls), 1)
 
         body = f"csrf={SESSION_CSRF}".encode()
@@ -1264,6 +1311,7 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         )
         self.assertEqual(response.status, 303)
         self.assertEqual(dict(response.headers)["Location"], LOGIN_ROUTE)
+        self.assertEqual(dict(response.headers)["Referrer-Policy"], "no-referrer")
         self.assertEqual(len(self.harness.revoke_calls), 1)
         cookies = set_cookies(response)
         self.assertTrue(any(value.startswith("wahojobs_session=;") for value in cookies))

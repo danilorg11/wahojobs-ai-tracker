@@ -547,9 +547,16 @@ before rendering or reading a POST body. The inner boundary then applies the
 accepted same-origin, session, CSRF, strict content-type, bounded single-read,
 encoding, duplicate-field, and unsupported-field decisions before acting on
 candidate state.
-Responses use bounded fixed HTML,
-escaping, `Cache-Control: no-store`, a default-deny CSP, `Referrer-Policy:
-no-referrer`, and `X-Content-Type-Options: nosniff`.
+Responses use bounded fixed HTML, escaping, `Cache-Control: no-store`, a
+default-deny CSP, and `X-Content-Type-Options: nosniff`. Pages that render a
+same-origin POST form (login, logout, profile entry/review/creation, and profile
+correction stages) use `Referrer-Policy: same-origin` so the browser preserves
+its non-opaque same-origin provenance for the protected submission. Callback,
+redirect, error, and other non-form or query-sensitive responses retain
+`Referrer-Policy: no-referrer`, so callback URLs and authorization codes cannot
+become referrers. This response policy does not relax the request boundary:
+the exact configured `Origin` remains mandatory for POST, and missing,
+mismatched, duplicated, or `null` origins remain rejected.
 
 All owned requests require exactly one configured `Host` authority. Missing,
 duplicate, malformed, or mismatched `Host` is rejected. `Forwarded` and every

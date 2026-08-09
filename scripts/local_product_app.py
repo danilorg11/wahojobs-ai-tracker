@@ -2052,7 +2052,7 @@ def make_handler(
                 "default-src 'none'; style-src 'unsafe-inline'; "
                 "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
             )
-            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Referrer-Policy", "same-origin")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

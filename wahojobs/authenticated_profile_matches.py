@@ -83,10 +83,11 @@ _SECURITY_HEADERS = (
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
         "form-action 'self'; frame-ancestors 'none'",
     ),
-    ("Referrer-Policy", "no-referrer"),
     ("X-Content-Type-Options", "nosniff"),
     ("Cache-Control", "no-store"),
 )
+_NO_REFERRER_POLICY = "no-referrer"
+_SAME_ORIGIN_REFERRER_POLICY = "same-origin"
 
 
 class DurableMatchesRequestContext:
@@ -545,7 +546,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 )
             return self._render_persistent_matches(authority)
         if not params:
-            return _html_response(HTTPStatus.OK, _render_candidate_entry())
+            return _form_page_response(HTTPStatus.OK, _render_candidate_entry())
         run = self._authorized_run(params["run"], authority)
         if run is None:
             return _failure_response(
@@ -554,11 +555,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "That profile review is unknown or has expired.",
             )
         if params.get("edit_text") == "1":
-            return _html_response(
+            return _form_page_response(
                 HTTPStatus.OK,
                 _render_candidate_entry(run=run),
             )
-        return _html_response(
+        return _form_page_response(
             HTTPStatus.OK,
             _render_candidate_review(run),
         )
@@ -591,7 +592,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 content = local_product.render_confirmed_profile_creation(
                     result.artifact_offer
                 )
-                return _html_response(HTTPStatus.OK, content)
+                return _form_page_response(HTTPStatus.OK, content)
             run = self._create_candidate_draft(form, authority)
             location = AUTHENTICATED_MATCHES_ROUTE + "?" + urlencode(
                 {"run": run.match_run_id, "review": "1"}
@@ -1183,7 +1184,13 @@ def _page(title, body):
 </html>"""
 
 
-def _html_response(status, content, *, extra_headers=()):
+def _html_response(
+    status,
+    content,
+    *,
+    referrer_policy=_NO_REFERRER_POLICY,
+    extra_headers=(),
+):
     payload = content.encode("utf-8")
     if len(payload) > MAX_MATCHES_RESPONSE_BYTES:
         return _failure_response(
@@ -1191,6 +1198,11 @@ def _html_response(status, content, *, extra_headers=()):
             "Matches temporarily unavailable",
             "Matches cannot be displayed safely right now.",
         )
+    if referrer_policy not in {
+        _NO_REFERRER_POLICY,
+        _SAME_ORIGIN_REFERRER_POLICY,
+    }:
+        raise ValueError("invalid_authenticated_matches_response")
     return AuthenticatedMatchesBrowserResponse(
         int(status),
         payload,
@@ -1198,8 +1210,17 @@ def _html_response(status, content, *, extra_headers=()):
             ("Content-Type", "text/html; charset=utf-8"),
             ("Content-Length", str(len(payload))),
             *_SECURITY_HEADERS,
+            ("Referrer-Policy", referrer_policy),
             *extra_headers,
         ),
+    )
+
+
+def _form_page_response(status, content):
+    return _html_response(
+        status,
+        content,
+        referrer_policy=_SAME_ORIGIN_REFERRER_POLICY,
     )
 
 

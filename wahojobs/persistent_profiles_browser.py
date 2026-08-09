@@ -103,10 +103,11 @@ _SECURITY_HEADERS = (
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
         "form-action 'self'; frame-ancestors 'none'",
     ),
-    ("Referrer-Policy", "no-referrer"),
     ("X-Content-Type-Options", "nosniff"),
     ("Cache-Control", "no-store"),
 )
+_NO_REFERRER_POLICY = "no-referrer"
+_SAME_ORIGIN_REFERRER_POLICY = "same-origin"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -385,7 +386,7 @@ class PersistentProfileBrowserIntegration:
             return failure
         stage, draft_reference, review_token = correction_target
         if stage == "start":
-            return _response(
+            return _form_page_response(
                 HTTPStatus.OK,
                 _render_correction_start(
                     _correction_action_target(csrf_secret, "start")
@@ -399,7 +400,7 @@ class PersistentProfileBrowserIntegration:
         if failure is not None:
             return failure
         if stage == "review":
-            return _response(
+            return _form_page_response(
                 HTTPStatus.OK,
                 _render_correction_review(
                     run,
@@ -425,7 +426,7 @@ class PersistentProfileBrowserIntegration:
             submit_label="Review changes",
             include_draft_fingerprint=False,
         )
-        return _response(
+        return _form_page_response(
             HTTPStatus.OK,
             _page(
                 "Edit profile correction",
@@ -763,7 +764,7 @@ class PersistentProfileBrowserIntegration:
         offer = getattr(result, "artifact_offer", None)
         if type(offer) is not ConfirmedProfileCorrectionArtifactOffer:
             return _correction_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
-        return _response(
+        return _form_page_response(
             HTTPStatus.OK,
             _render_correction_apply(
                 offer,
@@ -1508,15 +1509,35 @@ def _render_available(
     return _page("My persistent profile", _authenticated_navigation() + body)
 
 
-def _response(status, content: str, *, extra_headers=()) -> PersistentProfileBrowserResponse:
+def _response(
+    status,
+    content: str,
+    *,
+    referrer_policy=_NO_REFERRER_POLICY,
+    extra_headers=(),
+) -> PersistentProfileBrowserResponse:
     payload = content.encode("utf-8")
+    if referrer_policy not in {
+        _NO_REFERRER_POLICY,
+        _SAME_ORIGIN_REFERRER_POLICY,
+    }:
+        raise ValueError("invalid_persistent_profile_browser_response")
     headers = (
         ("Content-Type", "text/html; charset=utf-8"),
         ("Content-Length", str(len(payload))),
         *_SECURITY_HEADERS,
+        ("Referrer-Policy", referrer_policy),
         *extra_headers,
     )
     return PersistentProfileBrowserResponse(int(status), payload, tuple(headers))
+
+
+def _form_page_response(status, content: str) -> PersistentProfileBrowserResponse:
+    return _response(
+        status,
+        content,
+        referrer_policy=_SAME_ORIGIN_REFERRER_POLICY,
+    )
 
 
 def _create_response_for_outcome(state):

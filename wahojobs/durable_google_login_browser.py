@@ -100,10 +100,11 @@ _SECURITY_HEADERS = (
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
         "form-action 'self'; frame-ancestors 'none'",
     ),
-    ("Referrer-Policy", "no-referrer"),
     ("X-Content-Type-Options", "nosniff"),
     ("Cache-Control", "no-store"),
 )
+_NO_REFERRER_POLICY = "no-referrer"
+_SAME_ORIGIN_REFERRER_POLICY = "same-origin"
 _DELIVERY_AUTHORITY_CAPABILITY = object()
 _ABANDONED_BROWSER_CLEANUP_CAPABILITY = object()
 
@@ -2366,7 +2367,7 @@ class DurableGoogleLoginBrowserIntegration:
             "<button type='submit'>Continue with Google</button>"
             "</form></section>",
         )
-        return _response(
+        return _form_page_response(
             HTTPStatus.OK,
             body,
             extra_headers=(("Set-Cookie", _login_csrf_cookie(csrf)),),
@@ -2750,7 +2751,7 @@ class DurableGoogleLoginBrowserIntegration:
             f"<p><a href='{AUTHENTICATED_DESTINATION}'>Return to profile</a></p>"
             "</section>",
         )
-        return _response(HTTPStatus.OK, body)
+        return _form_page_response(HTTPStatus.OK, body)
 
     def _logout(self, header_items, body_stream):
         form = _strict_form(header_items, body_stream, expected_fields=("csrf",))
@@ -3104,6 +3105,7 @@ def _response(
     status,
     content,
     *,
+    referrer_policy=_NO_REFERRER_POLICY,
     extra_headers=(),
     delivery_lease=None,
     owned_connection=None,
@@ -3116,10 +3118,16 @@ def _response(
         payload = content
     else:
         raise ValueError("invalid_durable_google_login_browser_response")
+    if referrer_policy not in {
+        _NO_REFERRER_POLICY,
+        _SAME_ORIGIN_REFERRER_POLICY,
+    }:
+        raise ValueError("invalid_durable_google_login_browser_response")
     headers = (
         ("Content-Type", "text/html; charset=utf-8"),
         ("Content-Length", str(len(payload))),
         *_SECURITY_HEADERS,
+        ("Referrer-Policy", referrer_policy),
         *extra_headers,
     )
     return DurableGoogleLoginBrowserResponse(
@@ -3130,6 +3138,15 @@ def _response(
         _owned_connection=owned_connection,
         _request_release=request_release,
         _delivery_owner=delivery_owner,
+    )
+
+
+def _form_page_response(status, content, *, extra_headers=()):
+    return _response(
+        status,
+        content,
+        referrer_policy=_SAME_ORIGIN_REFERRER_POLICY,
+        extra_headers=extra_headers,
     )
 
 

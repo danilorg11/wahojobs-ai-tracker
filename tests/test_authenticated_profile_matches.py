@@ -911,6 +911,17 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 side_effect=normalize,
             ) as normalize_call,
         ):
+            empty_entry = integration.handle(
+                "GET",
+                "/find-matches",
+                self._headers(SESSION_A),
+            )
+            self.assertEqual(empty_entry.status, 200)
+            self.assertEqual(
+                dict(empty_entry.headers)["Referrer-Policy"],
+                "same-origin",
+            )
+
             unauthorized = integration.handle(
                 "POST",
                 "/find-matches",
@@ -945,11 +956,31 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 location,
                 self._headers(SESSION_A),
             )
+            edit_authority = integration.handle(
+                "GET",
+                "/find-matches?" + urlencode(
+                    {"run": run_id, "edit_text": "1"}
+                ),
+                self._headers(SESSION_A),
+            )
 
         self.assertEqual(wrong_authority.status, 410)
+        self.assertEqual(
+            dict(wrong_authority.headers)["Referrer-Policy"],
+            "no-referrer",
+        )
         self.assertNotIn(raw_input, self._body(wrong_authority))
         self.assertEqual(correct_authority.status, 200)
+        self.assertEqual(
+            dict(correct_authority.headers)["Referrer-Policy"],
+            "same-origin",
+        )
         self.assertIn("Make sure we understood you", self._body(correct_authority))
+        self.assertEqual(edit_authority.status, 200)
+        self.assertEqual(
+            dict(edit_authority.headers)["Referrer-Policy"],
+            "same-origin",
+        )
         self.assertEqual(self.artifacts, [])
         self.assertEqual(self.replays, [])
 

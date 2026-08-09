@@ -1325,6 +1325,10 @@ class PersistentProfileCreationTests(unittest.TestCase):
                 completed.artifact_offer,
             )
         self.assertIs(raised.exception, delivery_failure)
+        delivery.send_header.assert_any_call(
+            "Referrer-Policy",
+            "same-origin",
+        )
 
         retried = create_match_run(
             form,
@@ -4832,6 +4836,10 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                         headers=(("Cookie", cookie_header(cookies)),),
                     )
                     self.assertIn(b"No persistent profile yet", empty.body)
+                    self.assertEqual(
+                        empty.header_values("Referrer-Policy"),
+                        ("no-referrer",),
+                    )
 
                     with (
                         mock.patch.object(
@@ -4848,6 +4856,10 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                         )
                         self.assertEqual(opened.status, 200)
                         self.assertIn(b"find-matches-form", opened.body)
+                        self.assertEqual(
+                            opened.header_values("Referrer-Policy"),
+                            ("same-origin",),
+                        )
 
                         initial = https_request(
                             state,
@@ -4881,6 +4893,10 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                             headers=(("Cookie", cookie_header(cookies)),),
                         )
                         self.assertEqual(review.status, 200)
+                        self.assertEqual(
+                            review.header_values("Referrer-Policy"),
+                            ("same-origin",),
+                        )
                         review_action, review_fields = _submitted_form(
                             review.body,
                             "profile-review-form",
@@ -5023,7 +5039,7 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         confirmation.header_values("Referrer-Policy"),
-                        ("no-referrer",),
+                        ("same-origin",),
                     )
                     self.assertEqual(
                         confirmation.header_values("X-Content-Type-Options"),
