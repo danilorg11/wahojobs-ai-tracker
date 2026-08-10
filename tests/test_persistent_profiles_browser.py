@@ -215,8 +215,13 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         self.assertIn(b"href='/logout'", get_body)
         self.assertEqual(get_headers["Content-Type"], "text/html; charset=utf-8")
         self.assertEqual(get_headers["Cache-Control"], "no-store")
-        self.assertIn(
-            "form-action 'self'",
+        self.assertEqual(
+            get_headers["Content-Security-Policy"],
+            "default-src 'none'; style-src 'unsafe-inline'; "
+            "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        )
+        self.assertNotIn(
+            "accounts.google.com",
             get_headers["Content-Security-Policy"],
         )
 

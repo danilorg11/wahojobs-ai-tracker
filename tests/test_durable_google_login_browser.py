@@ -5,6 +5,7 @@ import unittest
 import warnings
 from datetime import datetime, timezone
 from types import GetSetDescriptorType, MemberDescriptorType
+from urllib.parse import urlsplit
 from unittest import mock
 
 import wahojobs.durable_google_login_browser as browser_module
@@ -33,6 +34,14 @@ TRANSACTION_ID = "oidctx_" + ("a" * 32)
 INVITATION_CREDENTIAL = "inv_" + ("b" * 32) + "." + ("C" * 43)
 AUTHORIZATION_URL = (
     "https://accounts.google.com/o/oauth2/v2/auth?client_id=test-client&state=opaque"
+)
+ORDINARY_FORM_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+    "form-action 'self'; frame-ancestors 'none'"
+)
+GOOGLE_LOGIN_FORM_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+    "form-action 'self' https://accounts.google.com; frame-ancestors 'none'"
 )
 SESSION_COOKIE = (
     f"wahojobs_session={SESSION_TOKEN}; Path=/; Max-Age=3600; "
@@ -434,7 +443,28 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         response_headers = dict(response.headers)
         self.assertEqual(response_headers["Cache-Control"], "no-store")
         self.assertEqual(response_headers["Referrer-Policy"], "same-origin")
-        self.assertIn("form-action 'self'", response_headers["Content-Security-Policy"])
+        csp_values = tuple(
+            value
+            for name, value in response.headers
+            if name == "Content-Security-Policy"
+        )
+        self.assertEqual(
+            csp_values,
+            (GOOGLE_LOGIN_FORM_CONTENT_SECURITY_POLICY,),
+        )
+        directives = {
+            parts[0]: tuple(parts[1:])
+            for directive in csp_values[0].split(";")
+            if (parts := directive.strip().split())
+        }
+        self.assertEqual(
+            directives["form-action"],
+            ("'self'", "https://accounts.google.com"),
+        )
+        self.assertNotIn("*", csp_values[0])
+        self.assertNotIn("https:", directives["form-action"])
+        self.assertNotIn("oauth2.googleapis.com", csp_values[0])
+        self.assertNotIn("www.googleapis.com", csp_values[0])
         self.assertNotIn("Domain=", repr(response.headers))
         self.assertNotIn(LOGIN_CSRF, repr(response))
 
@@ -449,6 +479,14 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
             headers(),
         )
         self.assertEqual(dict(callback.headers)["Referrer-Policy"], "no-referrer")
+        self.assertEqual(
+            tuple(
+                value
+                for name, value in callback.headers
+                if name == "Content-Security-Policy"
+            ),
+            (ORDINARY_FORM_CONTENT_SECURITY_POLICY,),
+        )
 
         error = self.integration.handle(
             "GET",
@@ -457,6 +495,10 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         )
         self.assertEqual(error.status, 400)
         self.assertEqual(dict(error.headers)["Referrer-Policy"], "no-referrer")
+        self.assertEqual(
+            dict(error.headers)["Content-Security-Policy"],
+            ORDINARY_FORM_CONTENT_SECURITY_POLICY,
+        )
 
         body = f"csrf={LOGIN_CSRF}".encode("ascii")
         null_origin = self.integration.handle(
@@ -472,6 +514,10 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         self.assertEqual(null_origin.status, 400)
         self.assertEqual(self.harness.prepare_calls, 0)
         self.assertEqual(dict(null_origin.headers)["Referrer-Policy"], "no-referrer")
+        self.assertEqual(
+            dict(null_origin.headers)["Content-Security-Policy"],
+            ORDINARY_FORM_CONTENT_SECURITY_POLICY,
+        )
 
     def test_start_requires_exact_same_origin_form_and_commits_before_url_access(self):
         body = f"csrf={LOGIN_CSRF}".encode()
@@ -486,7 +532,15 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
             io.BytesIO(body),
         )
         self.assertEqual(response.status, 303)
-        self.assertEqual(dict(response.headers)["Location"], AUTHORIZATION_URL)
+        locations = tuple(
+            value for name, value in response.headers if name == "Location"
+        )
+        self.assertEqual(locations, (AUTHORIZATION_URL,))
+        parsed_location = urlsplit(locations[0])
+        self.assertEqual(parsed_location.scheme, "https")
+        self.assertEqual(parsed_location.netloc, "accounts.google.com")
+        self.assertEqual(parsed_location.path, "/o/oauth2/v2/auth")
+        self.assertTrue(parsed_location.query)
         self.assertEqual(self.harness.prepare_calls, 1)
         self.assertLess(
             self.harness.events.index("prepare_returned"),
@@ -1300,6 +1354,18 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
         self.assertEqual(page.status, 200)
         self.assertIn(SESSION_CSRF.encode(), page.body)
         self.assertEqual(dict(page.headers)["Referrer-Policy"], "same-origin")
+        self.assertEqual(
+            tuple(
+                value
+                for name, value in page.headers
+                if name == "Content-Security-Policy"
+            ),
+            (ORDINARY_FORM_CONTENT_SECURITY_POLICY,),
+        )
+        self.assertNotIn(
+            "accounts.google.com",
+            dict(page.headers)["Content-Security-Policy"],
+        )
         self.assertEqual(len(self.harness.validate_calls), 1)
 
         body = f"csrf={SESSION_CSRF}".encode()

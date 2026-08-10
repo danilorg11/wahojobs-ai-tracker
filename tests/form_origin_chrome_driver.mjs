@@ -137,6 +137,21 @@ function headerValue(headers, name) {
 }
 
 
+function isPinnedProviderAuthorizationUrl(value) {
+  try {
+    const target = new URL(value);
+    return (
+      target.origin === "https://accounts.google.com"
+      && target.pathname === "/o/oauth2/v2/auth"
+      && target.search.length > 1
+      && target.hash === ""
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+
 async function evaluate(session, expression) {
   const result = await session.send("Runtime.evaluate", {
     expression,
@@ -198,8 +213,11 @@ async function main() {
   try {
     session = await connectDevTools(debugPort);
     const observed = {
+      cspFormActionViolationCount: 0,
+      cspSecurityLogCount: 0,
       loginGetCount: 0,
       loginStatus: null,
+      responseContentSecurityPolicy: null,
       responseReferrerPolicy: null,
       startPostCount: 0,
       startRequestId: null,
@@ -208,6 +226,7 @@ async function main() {
       startRedirectStatus: null,
       providerBlockedCount: 0,
       providerFailures: [],
+      providerTargetMatchesPinned: false,
     };
     const extraHeaders = new Map();
 
@@ -238,6 +257,10 @@ async function main() {
     session.on("Network.responseReceived", (event) => {
       if (event.response.url === loginUrl && event.type === "Document") {
         observed.loginStatus = event.response.status;
+        observed.responseContentSecurityPolicy = headerValue(
+          event.response.headers,
+          "Content-Security-Policy",
+        );
         observed.responseReferrerPolicy = headerValue(
           event.response.headers,
           "Referrer-Policy",
@@ -247,9 +270,39 @@ async function main() {
         observed.startStatus = event.response.status;
       }
     });
+    session.on("Log.entryAdded", (event) => {
+      const entry = event.entry || {};
+      const text = String(entry.text || "");
+      if (entry.source === "security") {
+        observed.cspSecurityLogCount += 1;
+      }
+      if (
+        entry.source === "security"
+        && text.includes("Content Security Policy")
+        && text.includes("form-action")
+        && text.includes("'self'")
+      ) {
+        observed.cspFormActionViolationCount += 1;
+      }
+    });
     session.on("Fetch.requestPaused", (event) => {
+      if (
+        event.request.url === loginStartUrl
+        && event.responseStatusCode !== undefined
+      ) {
+        observed.startStatus = event.responseStatusCode;
+        session.send("Fetch.continueRequest", {
+          requestId: event.requestId,
+        }).catch((error) => {
+          observed.providerFailures.push(error.message);
+        });
+        return;
+      }
       if (event.request.url.startsWith(providerPrefix)) {
         observed.providerBlockedCount += 1;
+        observed.providerTargetMatchesPinned = (
+          isPinnedProviderAuthorizationUrl(event.request.url)
+        );
         session.send("Fetch.failRequest", {
           requestId: event.requestId,
           errorReason: "BlockedByClient",
@@ -262,11 +315,18 @@ async function main() {
     await session.send("Page.enable");
     await session.send("Runtime.enable");
     await session.send("Network.enable");
+    await session.send("Log.enable");
     await session.send("Fetch.enable", {
-      patterns: [{
-        urlPattern: "https://accounts.google.com/*",
-        requestStage: "Request",
-      }],
+      patterns: [
+        {
+          urlPattern: loginStartUrl,
+          requestStage: "Response",
+        },
+        {
+          urlPattern: "https://accounts.google.com/*",
+          requestStage: "Request",
+        },
+      ],
     });
     await session.send("Page.navigate", { url: loginUrl });
     await waitFor(
@@ -310,6 +370,10 @@ async function main() {
       () => observed.startPostCount === 1,
       "login_start_post",
     );
+    await waitFor(
+      () => observed.startStatus === 303,
+      "login_start_response",
+    );
     await delay(1_000);
     if (observed.startRequestId && extraHeaders.has(observed.startRequestId)) {
       observed.cdpOrigin = (
@@ -327,7 +391,11 @@ async function main() {
     process.stdout.write(`${JSON.stringify({
       chromePid: chrome.pid,
       cdpOrigin: observed.cdpOrigin,
+      cspFormActionViolation: observed.cspFormActionViolationCount > 0,
+      cspFormActionViolationCount: observed.cspFormActionViolationCount,
+      cspSecurityLogCount: observed.cspSecurityLogCount,
       documentOrigin: document.origin,
+      documentContentSecurityPolicy: observed.responseContentSecurityPolicy,
       documentReferrerPolicy: observed.responseReferrerPolicy,
       finalLoginUrl: document.url,
       globalCertificateErrorsIgnored: false,
@@ -335,6 +403,7 @@ async function main() {
       loginStatus: observed.loginStatus,
       narrowSpkiAllowlistUsed: true,
       providerBlockedBeforeNetwork: observed.providerBlockedCount,
+      providerTargetMatchesPinned: observed.providerTargetMatchesPinned,
       responseReferrerPolicy: observed.responseReferrerPolicy,
       secureContext: document.secureContext,
       startPostCount: observed.startPostCount,

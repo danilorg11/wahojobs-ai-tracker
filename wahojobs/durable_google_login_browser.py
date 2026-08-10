@@ -21,6 +21,10 @@ import threading
 from types import GetSetDescriptorType, MemberDescriptorType
 from urllib.parse import parse_qsl, urlsplit
 
+from wahojobs.google_oidc_gateway import (
+    _AUTHORIZATION_ENDPOINT as _PINNED_GOOGLE_AUTHORIZATION_ENDPOINT,
+)
+
 
 LOGIN_ROUTE = "/login"
 GOOGLE_LOGIN_START_ROUTE = "/auth/google/start"
@@ -94,12 +98,38 @@ _SESSION_COOKIE = re.compile(
 _HEADER_VALUE_FORBIDDEN = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 _EXPIRED_COOKIE_DATE = "Thu, 01 Jan 1970 00:00:00 GMT"
 
+_ORDINARY_FORM_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+    "form-action 'self'; frame-ancestors 'none'"
+)
+_PINNED_GOOGLE_AUTHORIZATION_TARGET = urlsplit(
+    _PINNED_GOOGLE_AUTHORIZATION_ENDPOINT
+)
+if (
+    _PINNED_GOOGLE_AUTHORIZATION_TARGET.scheme != "https"
+    or not _PINNED_GOOGLE_AUTHORIZATION_TARGET.netloc
+    or _PINNED_GOOGLE_AUTHORIZATION_TARGET.username is not None
+    or _PINNED_GOOGLE_AUTHORIZATION_TARGET.password is not None
+    or _PINNED_GOOGLE_AUTHORIZATION_TARGET.query
+    or _PINNED_GOOGLE_AUTHORIZATION_TARGET.fragment
+):
+    raise RuntimeError("invalid_pinned_google_authorization_endpoint")
+_PINNED_GOOGLE_AUTHORIZATION_ORIGIN = (
+    f"{_PINNED_GOOGLE_AUTHORIZATION_TARGET.scheme}://"
+    f"{_PINNED_GOOGLE_AUTHORIZATION_TARGET.netloc}"
+)
+_GOOGLE_LOGIN_FORM_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+    f"form-action 'self' {_PINNED_GOOGLE_AUTHORIZATION_ORIGIN}; "
+    "frame-ancestors 'none'"
+)
+_ALLOWED_CONTENT_SECURITY_POLICIES = frozenset(
+    {
+        _ORDINARY_FORM_CONTENT_SECURITY_POLICY,
+        _GOOGLE_LOGIN_FORM_CONTENT_SECURITY_POLICY,
+    }
+)
 _SECURITY_HEADERS = (
-    (
-        "Content-Security-Policy",
-        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
-        "form-action 'self'; frame-ancestors 'none'",
-    ),
     ("X-Content-Type-Options", "nosniff"),
     ("Cache-Control", "no-store"),
 )
@@ -2370,6 +2400,9 @@ class DurableGoogleLoginBrowserIntegration:
         return _form_page_response(
             HTTPStatus.OK,
             body,
+            content_security_policy=(
+                _GOOGLE_LOGIN_FORM_CONTENT_SECURITY_POLICY
+            ),
             extra_headers=(("Set-Cookie", _login_csrf_cookie(csrf)),),
         )
 
@@ -3105,6 +3138,7 @@ def _response(
     status,
     content,
     *,
+    content_security_policy=_ORDINARY_FORM_CONTENT_SECURITY_POLICY,
     referrer_policy=_NO_REFERRER_POLICY,
     extra_headers=(),
     delivery_lease=None,
@@ -3121,11 +3155,12 @@ def _response(
     if referrer_policy not in {
         _NO_REFERRER_POLICY,
         _SAME_ORIGIN_REFERRER_POLICY,
-    }:
+    } or content_security_policy not in _ALLOWED_CONTENT_SECURITY_POLICIES:
         raise ValueError("invalid_durable_google_login_browser_response")
     headers = (
         ("Content-Type", "text/html; charset=utf-8"),
         ("Content-Length", str(len(payload))),
+        ("Content-Security-Policy", content_security_policy),
         *_SECURITY_HEADERS,
         ("Referrer-Policy", referrer_policy),
         *extra_headers,
@@ -3141,10 +3176,17 @@ def _response(
     )
 
 
-def _form_page_response(status, content, *, extra_headers=()):
+def _form_page_response(
+    status,
+    content,
+    *,
+    content_security_policy=_ORDINARY_FORM_CONTENT_SECURITY_POLICY,
+    extra_headers=(),
+):
     return _response(
         status,
         content,
+        content_security_policy=content_security_policy,
         referrer_policy=_SAME_ORIGIN_REFERRER_POLICY,
         extra_headers=extra_headers,
     )

@@ -87,6 +87,10 @@ from wahojobs.profiles.canonical import (
 
 PUBLIC_ORIGIN = "https://app.test"
 PUBLIC_AUTHORITY = "app.test"
+ORDINARY_FORM_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+    "form-action 'self'; frame-ancestors 'none'"
+)
 
 
 @contextmanager
@@ -671,6 +675,11 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         return candidates[0]
 
+    def _assert_self_only_form_policy(self, response):
+        policy = self._response_header(response, "Content-Security-Policy")
+        self.assertEqual(policy, ORDINARY_FORM_CONTENT_SECURITY_POLICY)
+        self.assertNotIn("accounts.google.com", policy)
+
     @staticmethod
     def _set_form_field(fields, name, value):
         return [item for item in fields if item[0] != name] + [(name, value)]
@@ -699,6 +708,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._response_header(start, "Referrer-Policy"),
             "same-origin",
         )
+        self._assert_self_only_form_policy(start)
         form = self._form(start, "intent")
         response, probe = self._post_form(
             browser,
@@ -721,6 +731,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._response_header(review, "Referrer-Policy"),
             "same-origin",
         )
+        self._assert_self_only_form_policy(review)
         edit_links = [
             href
             for href in self._markup(review).links
@@ -737,6 +748,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._response_header(edit, "Referrer-Policy"),
             "same-origin",
         )
+        self._assert_self_only_form_policy(edit)
         edit_form = self._form(edit, "edit_run_id", "review_token", "schema_version")
         fields = list(edit_form["fields"])
         fields = self._set_form_field(fields, "credentials_confirmed", "1")
@@ -754,6 +766,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._response_header(reviewed, "Referrer-Policy"),
             "same-origin",
         )
+        self._assert_self_only_form_policy(reviewed)
         confirm_form = self._form(reviewed, "draft", "review_token")
         confirm_fields = self._set_form_field(
             list(confirm_form["fields"]),
@@ -770,6 +783,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             self._response_header(confirmed, "Referrer-Policy"),
             "same-origin",
         )
+        self._assert_self_only_form_policy(confirmed)
         return self._form(confirmed, "artifact", "csrf")
 
     def _seed_inventory(self):

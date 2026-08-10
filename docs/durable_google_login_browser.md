@@ -558,6 +558,19 @@ become referrers. This response policy does not relax the request boundary:
 the exact configured `Origin` remains mandatory for POST, and missing,
 mismatched, duplicated, or `null` origins remain rejected.
 
+CSP form-navigation authority is selected explicitly. `/login` alone emits
+`form-action 'self' https://accounts.google.com`: `'self'` admits the protected
+POST to `/auth/google/start`, and the second source is the origin derived from
+the server-private pinned Google authorization endpoint. Chromium applies the
+source document's `form-action` directive when the POST's `303` redirects the
+form navigation, so that one pinned origin must be present for the authorization
+navigation. No browser input or request parameter selects the source. Logout,
+profile, matching, and correction forms retain `form-action 'self'`, and no
+wildcard, generic HTTPS source, token, JWKS, or userinfo endpoint is admitted.
+The exact Origin and CSRF checks remain mandatory. Login-start preparation only
+commits the local authorization transaction and constructs the authorization
+URL; it performs no provider transport or provider egress.
+
 All owned requests require exactly one configured `Host` authority. Missing,
 duplicate, malformed, or mismatched `Host` is rejected. `Forwarded` and every
 `X-Forwarded-*` header are rejected, and no proxy is implicitly trusted.

@@ -15,6 +15,7 @@ import tempfile
 import threading
 import unittest
 from unittest import mock
+from urllib.parse import urlsplit
 
 from tests.accounts_test_support import INVITATION_KEY
 from tests.durable_google_login_browser_test_support import (
@@ -23,6 +24,7 @@ from tests.durable_google_login_browser_test_support import (
     temporary_browser_login_state,
 )
 from wahojobs import accounts
+import wahojobs.durable_google_login_browser as browser_module
 from wahojobs.durable_google_login_browser import (
     DurableGoogleLoginBrowserIntegration,
     GOOGLE_LOGIN_START_ROUTE,
@@ -34,6 +36,12 @@ from wahojobs.durable_google_login_runtime import (
 
 _RUN_BROWSER_TEST = "WAHOJOBS_RUN_CHROME_ORIGIN_TEST"
 _CHROME = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+_PARENT_FORM_CONTENT_SECURITY_POLICY = (
+    browser_module._ORDINARY_FORM_CONTENT_SECURITY_POLICY
+)
+_CANDIDATE_FORM_CONTENT_SECURITY_POLICY = (
+    browser_module._GOOGLE_LOGIN_FORM_CONTENT_SECURITY_POLICY
+)
 
 
 def _unused_loopback_port():
@@ -69,9 +77,13 @@ def _synthetic_database_snapshot(database_path):
             "SELECT invitation_status, consumed_at, revoked_at "
             "FROM account_invitations"
         ).fetchone()
-        transaction = connection.execute(
-            "SELECT lifecycle FROM google_oidc_authorization_transactions"
-        ).fetchone()
+        transactions = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT lifecycle "
+                "FROM google_oidc_authorization_transactions"
+            )
+        )
         zero_tables = {
             table: connection.execute(
                 f'SELECT COUNT(*) FROM "{table}"'
@@ -80,13 +92,14 @@ def _synthetic_database_snapshot(database_path):
                 "users",
                 "auth_identities",
                 "product_principals",
+                "principal_account_bindings",
                 "account_sessions",
                 "product_profiles",
             )
         }
         return {
             "invitation": invitation,
-            "transaction": transaction,
+            "transactions": transactions,
             "zero_tables": zero_tables,
             "integrity": connection.execute(
                 "PRAGMA integrity_check"
@@ -101,13 +114,7 @@ def _synthetic_database_snapshot(database_path):
     f"set {_RUN_BROWSER_TEST}=1 for the real-Chrome origin regression",
 )
 class FormOriginChromeTests(unittest.TestCase):
-    def test_chrome_sends_exact_origin_and_provider_egress_is_blocked(self):
-        if not _CHROME.is_file():
-            self.fail("installed_chrome_unavailable")
-        node = shutil.which("node")
-        if node is None:
-            self.fail("node_runtime_unavailable")
-
+    def _run_scenario(self, *, node, parent_policy):
         runtime_port = _unused_loopback_port()
         debug_port = _unused_loopback_port()
         driver = Path(__file__).with_name("form_origin_chrome_driver.mjs")
@@ -118,7 +125,11 @@ class FormOriginChromeTests(unittest.TestCase):
         public_report = None
 
         with tempfile.TemporaryDirectory(
-            prefix="wahojobs-form-origin-chrome-"
+            prefix=(
+                "wahojobs-form-origin-parent-"
+                if parent_policy
+                else "wahojobs-form-origin-candidate-"
+            )
         ) as raw_profile:
             profile_directory = Path(raw_profile).resolve()
             with ExitStack() as stack:
@@ -181,20 +192,47 @@ class FormOriginChromeTests(unittest.TestCase):
                     )
                     if observation is not None:
                         observation["response_status"] = response.status
+                        locations = _header_values(
+                            response.headers,
+                            "Location",
+                        )
+                        observation["location_header_count"] = len(locations)
+                        if len(locations) == 1:
+                            parsed = urlsplit(locations[0])
+                            observation["location_target_is_pinned"] = (
+                                parsed.scheme == "https"
+                                and parsed.netloc == "accounts.google.com"
+                                and parsed.path == "/o/oauth2/v2/auth"
+                                and bool(parsed.query)
+                                and not parsed.fragment
+                            )
+                        else:
+                            observation["location_target_is_pinned"] = False
                         with observation_lock:
                             observed_requests.append(observation)
                     return response
 
                 close_report = None
                 try:
-                    with (
-                        mock.patch.object(
-                            DurableGoogleLoginBrowserIntegration,
-                            "handle",
-                            new=observed_handle,
-                        ),
-                        running_https_production_launcher_app(runtime),
-                    ):
+                    with ExitStack() as running_stack:
+                        running_stack.enter_context(
+                            mock.patch.object(
+                                DurableGoogleLoginBrowserIntegration,
+                                "handle",
+                                new=observed_handle,
+                            )
+                        )
+                        if parent_policy:
+                            running_stack.enter_context(
+                                mock.patch.object(
+                                    browser_module,
+                                    "_GOOGLE_LOGIN_FORM_CONTENT_SECURITY_POLICY",
+                                    _PARENT_FORM_CONTENT_SECURITY_POLICY,
+                                )
+                            )
+                        running_stack.enter_context(
+                            running_https_production_launcher_app(runtime)
+                        )
                         environment = dict(os.environ)
                         environment["WAHOJOBS_SYNTHETIC_INVITATION"] = (
                             invitation.invitation_token
@@ -251,14 +289,48 @@ class FormOriginChromeTests(unittest.TestCase):
                         browser["globalCertificateErrorsIgnored"]
                     )
                     self.assertEqual(browser["startPostCount"], 1)
-                    self.assertIn(
-                        browser["providerBlockedBeforeNetwork"],
-                        (0, 1),
-                    )
-                    self.assertIn(
+                    self.assertEqual(browser["startStatus"], 303)
+                    self.assertEqual(
                         browser["cdpOrigin"],
-                        (None, state.public_origin),
+                        state.public_origin,
                     )
+                    expected_policy = (
+                        _PARENT_FORM_CONTENT_SECURITY_POLICY
+                        if parent_policy
+                        else _CANDIDATE_FORM_CONTENT_SECURITY_POLICY
+                    )
+                    self.assertEqual(
+                        browser["documentContentSecurityPolicy"],
+                        expected_policy,
+                    )
+                    if parent_policy:
+                        self.assertTrue(browser["cspFormActionViolation"])
+                        self.assertGreaterEqual(
+                            browser["cspFormActionViolationCount"],
+                            1,
+                        )
+                        self.assertGreaterEqual(
+                            browser["cspSecurityLogCount"],
+                            1,
+                        )
+                        self.assertEqual(
+                            browser["providerBlockedBeforeNetwork"],
+                            0,
+                        )
+                        self.assertIsNone(browser["startRedirectStatus"])
+                        self.assertFalse(browser["providerTargetMatchesPinned"])
+                    else:
+                        self.assertFalse(browser["cspFormActionViolation"])
+                        self.assertEqual(
+                            browser["cspFormActionViolationCount"],
+                            0,
+                        )
+                        self.assertEqual(
+                            browser["providerBlockedBeforeNetwork"],
+                            1,
+                        )
+                        self.assertEqual(browser["startRedirectStatus"], 303)
+                        self.assertTrue(browser["providerTargetMatchesPinned"])
                     with observation_lock:
                         observed = tuple(observed_requests)
                     self.assertEqual(len(observed), 1)
@@ -275,6 +347,8 @@ class FormOriginChromeTests(unittest.TestCase):
                         ("application/x-www-form-urlencoded",),
                     )
                     self.assertEqual(observed[0]["response_status"], 303)
+                    self.assertEqual(observed[0]["location_header_count"], 1)
+                    self.assertTrue(observed[0]["location_target_is_pinned"])
                     provider_calls = state.gateway_harness.transport.call_count
                     self.assertEqual(provider_calls, 0)
                 finally:
@@ -284,8 +358,7 @@ class FormOriginChromeTests(unittest.TestCase):
                 snapshot = _synthetic_database_snapshot(state.database_path)
                 self.assertEqual(snapshot["integrity"], "ok")
                 self.assertEqual(snapshot["invitation"], ("pending", None, None))
-                self.assertIsNotNone(snapshot["transaction"])
-                self.assertEqual(snapshot["transaction"][0], "prepared")
+                self.assertEqual(snapshot["transactions"], ("prepared",))
                 self.assertEqual(set(snapshot["zero_tables"].values()), {0})
                 self.assertFalse(
                     any(
@@ -296,24 +369,51 @@ class FormOriginChromeTests(unittest.TestCase):
                 )
                 public_report = {
                     "actual_origin": observed[0]["origin"][0],
+                    "csp_form_action_violation": browser[
+                        "cspFormActionViolation"
+                    ],
                     "document_origin": browser["documentOrigin"],
                     "login_status": browser["loginStatus"],
                     "provider_external_calls": provider_calls,
                     "provider_navigation_intercepted_before_network": (
                         browser["providerBlockedBeforeNetwork"] == 1
                     ),
+                    "provider_navigation_target_pinned": browser[
+                        "providerTargetMatchesPinned"
+                    ],
                     "referrer_policy": browser["documentReferrerPolicy"],
                     "request_reached_login_start": True,
-                    "synthetic_oidc_lifecycle": snapshot["transaction"][0],
+                    "start_status": browser["startStatus"],
+                    "synthetic_oidc_lifecycle": snapshot["transactions"][0],
                 }
 
         self.assertIsNotNone(state_directory)
         self.assertIsNotNone(profile_directory)
         self.assertFalse(state_directory.exists())
         self.assertFalse(profile_directory.exists())
+        return public_report
+
+    def test_parent_csp_blocks_and_candidate_attempts_pinned_navigation(self):
+        if not _CHROME.is_file():
+            self.fail("installed_chrome_unavailable")
+        node = shutil.which("node")
+        if node is None:
+            self.fail("node_runtime_unavailable")
+
+        parent_report = self._run_scenario(node=node, parent_policy=True)
+        candidate_report = self._run_scenario(
+            node=node,
+            parent_policy=False,
+        )
         print(
-            "BROWSER_FORM_ORIGIN_CONFIRMATION "
-            + json.dumps(public_report, sort_keys=True),
+            "BROWSER_FORM_REDIRECT_CSP_CONFIRMATION "
+            + json.dumps(
+                {
+                    "candidate": candidate_report,
+                    "parent": parent_report,
+                },
+                sort_keys=True,
+            ),
             flush=True,
         )
 

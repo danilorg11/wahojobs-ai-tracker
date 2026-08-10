@@ -56,6 +56,10 @@ SESSION_UNAUTHORIZED = "u" * 43
 CSRF = "c" * 43
 BINDING_A = "1" * 64
 BINDING_B = "2" * 64
+ORDINARY_FORM_CONTENT_SECURITY_POLICY = (
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+    "form-action 'self'; frame-ancestors 'none'"
+)
 
 
 def _unused_loopback_port():
@@ -921,6 +925,10 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 dict(empty_entry.headers)["Referrer-Policy"],
                 "same-origin",
             )
+            self.assertEqual(
+                dict(empty_entry.headers)["Content-Security-Policy"],
+                ORDINARY_FORM_CONTENT_SECURITY_POLICY,
+            )
 
             unauthorized = integration.handle(
                 "POST",
@@ -975,11 +983,19 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             dict(correct_authority.headers)["Referrer-Policy"],
             "same-origin",
         )
+        self.assertEqual(
+            dict(correct_authority.headers)["Content-Security-Policy"],
+            ORDINARY_FORM_CONTENT_SECURITY_POLICY,
+        )
         self.assertIn("Make sure we understood you", self._body(correct_authority))
         self.assertEqual(edit_authority.status, 200)
         self.assertEqual(
             dict(edit_authority.headers)["Referrer-Policy"],
             "same-origin",
+        )
+        self.assertEqual(
+            dict(edit_authority.headers)["Content-Security-Policy"],
+            ORDINARY_FORM_CONTENT_SECURITY_POLICY,
         )
         self.assertEqual(self.artifacts, [])
         self.assertEqual(self.replays, [])
