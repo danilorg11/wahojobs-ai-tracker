@@ -11,6 +11,7 @@ import hashlib
 import io
 import ipaddress
 import json
+import math
 import multiprocessing
 import os
 from pathlib import Path
@@ -78,6 +79,28 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_SUFFIX = "durable-browser-login"
 FIXTURE_SUBJECT = f"google-subject-{FIXTURE_SUFFIX}"
 FIXTURE_PRINCIPAL_SUFFIX = "71"
+LOCAL_HTTPS_CONNECT_TLS_WRITE_TIMEOUT_SECONDS = 5
+LOCAL_HTTPS_RESPONSE_READ_TIMEOUT_SECONDS = 15
+
+
+class LocalHttpsRequestTimeout(TimeoutError):
+    """Secret-safe timeout from one bounded local HTTPS client phase."""
+
+    __slots__ = ("stage", "timeout_seconds")
+
+    def __init__(self, stage, timeout_seconds):
+        self.stage = stage
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            "local HTTPS test request timed out during "
+            f"{stage} after {timeout_seconds:g} seconds"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _LocalHttpsTimeoutMetadata:
+    stage: str
+    timeout_seconds: float
 
 
 @dataclass(slots=True)
@@ -438,6 +461,57 @@ def https_request(
     *,
     headers=(),
     body=None,
+    connect_tls_write_timeout_seconds=(
+        LOCAL_HTTPS_CONNECT_TLS_WRITE_TIMEOUT_SECONDS
+    ),
+    response_read_timeout_seconds=(
+        LOCAL_HTTPS_RESPONSE_READ_TIMEOUT_SECONDS
+    ),
+):
+    connect_tls_write_timeout_seconds = _validated_local_https_timeout(
+        "connect_tls_write",
+        connect_tls_write_timeout_seconds,
+    )
+    response_read_timeout_seconds = _validated_local_https_timeout(
+        "response_read",
+        response_read_timeout_seconds,
+    )
+    outcome = _perform_local_https_request(
+        state,
+        method,
+        target,
+        headers=headers,
+        body=body,
+        connect_tls_write_timeout_seconds=(
+            connect_tls_write_timeout_seconds
+        ),
+        response_read_timeout_seconds=response_read_timeout_seconds,
+    )
+    if not isinstance(outcome, _LocalHttpsTimeoutMetadata):
+        return outcome
+
+    timeout_stage = outcome.stage
+    timeout_seconds = outcome.timeout_seconds
+    outcome = None
+    state = None
+    method = None
+    target = None
+    headers = None
+    body = None
+    connect_tls_write_timeout_seconds = None
+    response_read_timeout_seconds = None
+    _raise_local_https_timeout(timeout_stage, timeout_seconds)
+
+
+def _perform_local_https_request(
+    state,
+    method,
+    target,
+    *,
+    headers,
+    body,
+    connect_tls_write_timeout_seconds,
+    response_read_timeout_seconds,
 ):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
@@ -446,27 +520,99 @@ def https_request(
         "127.0.0.1",
         urlsplit(state.public_origin).port,
         context=context,
-        timeout=5,
+        timeout=connect_tls_write_timeout_seconds,
     )
     request_headers = {
         "Host": urlsplit(state.public_origin).netloc,
         **dict(headers),
     }
+    response = None
+    result = None
+    timeout_metadata = None
     try:
-        connection.request(
-            method,
-            target,
-            body=body,
-            headers=request_headers,
-        )
-        response = connection.getresponse()
-        return BrowserHttpResponse(
-            status=response.status,
-            headers=tuple(response.getheaders()),
-            body=response.read(),
-        )
+        try:
+            connection.connect()
+            request_socket = _require_local_https_tls_socket(connection)
+            connection.request(
+                method,
+                target,
+                body=body,
+                headers=request_headers,
+            )
+        except TimeoutError:
+            timeout_metadata = _LocalHttpsTimeoutMetadata(
+                "connect/TLS/request-write",
+                connect_tls_write_timeout_seconds,
+            )
+
+        if timeout_metadata is None:
+            _apply_local_https_response_timeout(
+                connection,
+                request_socket,
+                response_read_timeout_seconds,
+            )
+            try:
+                response = connection.getresponse()
+                result = BrowserHttpResponse(
+                    status=response.status,
+                    headers=tuple(response.getheaders()),
+                    body=response.read(),
+                )
+            except TimeoutError:
+                timeout_metadata = _LocalHttpsTimeoutMetadata(
+                    "response status/header/body read",
+                    response_read_timeout_seconds,
+                )
     finally:
-        connection.close()
+        try:
+            if response is not None:
+                response.close()
+        finally:
+            connection.close()
+    if timeout_metadata is not None:
+        return timeout_metadata
+    return result
+
+
+def _raise_local_https_timeout(stage, timeout_seconds):
+    raise LocalHttpsRequestTimeout(stage, timeout_seconds)
+
+
+def _validated_local_https_timeout(name, value):
+    if (
+        type(value) not in {int, float}
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        raise ValueError(f"invalid_local_https_{name}_timeout")
+    return float(value)
+
+
+def _require_local_https_tls_socket(connection):
+    connected_socket = connection.sock
+    if not isinstance(connected_socket, ssl.SSLSocket):
+        raise RuntimeError("local_https_connected_tls_socket_required")
+    return connected_socket
+
+
+def _apply_local_https_response_timeout(
+    connection,
+    request_socket,
+    timeout_seconds,
+):
+    connected_socket = connection.sock
+    if connected_socket is None:
+        raise RuntimeError("local_https_socket_missing_before_response")
+    if connected_socket is not request_socket:
+        raise RuntimeError("local_https_socket_replaced_before_response")
+    try:
+        connected_socket.settimeout(timeout_seconds)
+    except Exception as exc:
+        raise RuntimeError(
+            "local_https_response_read_timeout_not_applied"
+        ) from exc
+    if connection.sock is not connected_socket:
+        raise RuntimeError("local_https_socket_replaced_before_response")
 
 
 def cookie_values(response):
@@ -1143,6 +1289,9 @@ def _fresh_browser_login_worker_main(connection):
 __all__ = (
     "BrowserHttpResponse",
     "FreshBrowserLoginWorker",
+    "LOCAL_HTTPS_CONNECT_TLS_WRITE_TIMEOUT_SECONDS",
+    "LOCAL_HTTPS_RESPONSE_READ_TIMEOUT_SECONDS",
+    "LocalHttpsRequestTimeout",
     "TemporaryBrowserLoginState",
     "cookie_header",
     "cookie_values",
