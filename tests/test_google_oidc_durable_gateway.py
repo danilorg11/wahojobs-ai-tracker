@@ -6,6 +6,7 @@ import threading
 import unittest
 from datetime import timedelta
 from unittest import mock
+from urllib.parse import urlencode
 
 from tests.google_oidc_authorization_transactions_test_support import (
     authorization_parameters,
@@ -26,6 +27,7 @@ import wahojobs.google_oidc_durable_gateway as durable_gateway_module
 import wahojobs.google_oidc_gateway as gateway_module
 import wahojobs.google_oidc_transaction_protection as protection
 from tests.accounts_test_support import INVITATION_KEY
+from tests.google_oidc_gateway_test_support import REDIRECT_URI
 from wahojobs import accounts
 from wahojobs.google_oidc_authorization_transactions import (
     MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES,
@@ -106,6 +108,75 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         )
         self.assertIs(type(prepared), PreparedDurableGoogleOidcAuthorization)
         return database, authority, harness, prepared
+
+    @staticmethod
+    def callback_url(*fields):
+        return REDIRECT_URI + "?" + urlencode(fields)
+
+    @staticmethod
+    def mutation_snapshot(connection):
+        transaction = tuple(
+            tuple(row)
+            for row in connection.execute(
+                "SELECT lifecycle, row_version FROM "
+                "google_oidc_authorization_transactions "
+                "ORDER BY transaction_id"
+            )
+        )
+        counts = tuple(
+            (
+                table,
+                connection.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0],
+            )
+            for table in (
+                "account_invitations",
+                "users",
+                "auth_identities",
+                "product_principals",
+                "principal_account_bindings",
+                "account_sessions",
+                "product_profiles",
+            )
+        )
+        return transaction, counts
+
+    def assert_preclaim_rejection(self, suffix, callback_factory):
+        database, authority, harness, prepared = self.prepare(suffix)
+        state = authorization_parameters(prepared)["state"]
+        before = self.mutation_snapshot(database.connection)
+        callback = callback_factory(harness, prepared, state)
+        with (
+            mock.patch.object(
+                durable_gateway_module,
+                "claim_google_oidc_authorization_transaction",
+                wraps=(
+                    durable_gateway_module
+                    .claim_google_oidc_authorization_transaction
+                ),
+            ) as claim,
+            mock.patch.object(
+                durable_gateway_module,
+                "_complete_claimed_authorization",
+                wraps=durable_gateway_module._complete_claimed_authorization,
+            ) as downstream,
+        ):
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.status, "invalid_or_expired_transaction")
+        claim.assert_not_called()
+        downstream.assert_not_called()
+        self.assertEqual(self.mutation_snapshot(database.connection), before)
+        self.assertEqual(harness.transport.token_request_count, 0)
+        self.assertEqual(harness.transport.jwks_request_count, 0)
+        self.assertFalse(database.connection.in_transaction)
 
     def test_public_functions_accept_no_injected_protocol_or_repository(self):
         self.assertEqual(
@@ -1351,17 +1422,30 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         callback = harness.transport.callback_for(
             prepared,
             error="access_denied",
+            extra_pairs=(
+                ("error_description", "authorization declined"),
+                ("error_uri", "https://accounts.google.com/error"),
+            ),
         )
         vault = self.vault()
-        result = complete_durable_google_oidc_authorization(
-            database.connection,
-            harness.gateway,
-            authority,
-            callback,
-            completion_policy(),
-            vault,
-        )
+        with mock.patch.object(
+            durable_gateway_module,
+            "claim_google_oidc_authorization_transaction",
+            wraps=(
+                durable_gateway_module
+                .claim_google_oidc_authorization_transaction
+            ),
+        ) as claim:
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                vault,
+            )
         self.assertEqual(result.status, "authentication_denied")
+        claim.assert_called_once()
         self.assertEqual(transaction_rows(database.connection)[0]["lifecycle"], "consumed")
         self.assertEqual(harness.transport.token_request_count, 0)
         replay = complete_durable_google_oidc_authorization(
@@ -1374,6 +1458,224 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         )
         self.assertEqual(replay.status, "invalid_or_expired_transaction")
         self.assertEqual(harness.transport.token_request_count, 0)
+
+    def test_exact_response_issuer_and_query_order_reach_claim_and_fake_provider(self):
+        database, authority, harness, prepared = self.prepare(
+            "exact-response-issuer"
+        )
+        state = authorization_parameters(prepared)["state"]
+        code = "exact-response-issuer-code"
+        harness.transport.callback_for(prepared, code=code)
+        callback = self.callback_url(
+            ("iss", "https://accounts.google.com"),
+            ("state", state),
+            ("code", code),
+        )
+        with mock.patch.object(
+            durable_gateway_module,
+            "claim_google_oidc_authorization_transaction",
+            wraps=(
+                durable_gateway_module
+                .claim_google_oidc_authorization_transaction
+            ),
+        ) as claim:
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.status, "issued")
+        claim.assert_called_once()
+        self.assertEqual(
+            transaction_rows(database.connection)[0]["lifecycle"],
+            "consumed",
+        )
+        self.assertEqual(harness.transport.token_request_count, 1)
+        self.assertEqual(harness.transport.jwks_request_count, 1)
+
+    def test_missing_duplicate_blank_and_nonexact_response_issuers_stop_preclaim(self):
+        issuer_cases = (
+            ("missing", None),
+            ("blank", ""),
+            ("legacy_bare", "accounts.google.com"),
+            ("http", "http://accounts.google.com"),
+            ("trailing_slash", "https://accounts.google.com/"),
+            ("explicit_port", "https://accounts.google.com:443"),
+            ("google_subdomain", "https://login.accounts.google.com"),
+            ("userinfo", "https://user@accounts.google.com"),
+            ("path", "https://accounts.google.com/oidc"),
+            ("query", "https://accounts.google.com?issuer=google"),
+            ("fragment", "https://accounts.google.com#issuer"),
+            ("mixed_case", "https://Accounts.Google.com"),
+            ("control", "https://accounts.google.com\n"),
+        )
+        for name, issuer in issuer_cases:
+            with self.subTest(case=name):
+                self.assert_preclaim_rejection(
+                    f"issuer-{name}",
+                    lambda harness, prepared, _state, issuer=issuer: (
+                        harness.transport.callback_for(
+                            prepared,
+                            code=f"issuer-{name}-code",
+                            issuer=issuer,
+                        )
+                    ),
+                )
+
+        self.assert_preclaim_rejection(
+            "issuer-duplicate",
+            lambda harness, prepared, _state: (
+                harness.transport.callback_for(
+                    prepared,
+                    code="issuer-duplicate-code",
+                    extra_pairs=(("iss", "https://accounts.google.com"),),
+                )
+            ),
+        )
+        self.assert_preclaim_rejection(
+            "issuer-malformed-percent",
+            lambda _harness, _prepared, state: (
+                REDIRECT_URI
+                + f"?state={state}&code=issuer-malformed&iss=%"
+            ),
+        )
+        self.assert_preclaim_rejection(
+            "issuer-invalid-utf8",
+            lambda _harness, _prepared, state: (
+                REDIRECT_URI
+                + f"?state={state}&code=issuer-utf8&iss=%FF"
+            ),
+        )
+
+    def test_success_field_inventory_and_cardinality_stop_preclaim(self):
+        cases = (
+            (
+                "missing_state",
+                lambda _harness, _prepared, _state: self.callback_url(
+                    ("code", "missing-state"),
+                    ("iss", "https://accounts.google.com"),
+                ),
+            ),
+            (
+                "missing_code",
+                lambda _harness, _prepared, state: self.callback_url(
+                    ("state", state),
+                    ("iss", "https://accounts.google.com"),
+                ),
+            ),
+            (
+                "blank_state",
+                lambda _harness, _prepared, _state: self.callback_url(
+                    ("state", ""),
+                    ("code", "blank-state"),
+                    ("iss", "https://accounts.google.com"),
+                ),
+            ),
+            (
+                "blank_code",
+                lambda _harness, _prepared, state: self.callback_url(
+                    ("state", state),
+                    ("code", ""),
+                    ("iss", "https://accounts.google.com"),
+                ),
+            ),
+            (
+                "duplicate_state",
+                lambda _harness, _prepared, state: self.callback_url(
+                    ("state", state),
+                    ("state", state),
+                    ("code", "duplicate-state"),
+                    ("iss", "https://accounts.google.com"),
+                ),
+            ),
+            (
+                "duplicate_code",
+                lambda _harness, _prepared, state: self.callback_url(
+                    ("state", state),
+                    ("code", "duplicate-code-a"),
+                    ("code", "duplicate-code-b"),
+                    ("iss", "https://accounts.google.com"),
+                ),
+            ),
+            (
+                "unknown_field",
+                lambda _harness, _prepared, state: self.callback_url(
+                    ("state", state),
+                    ("code", "unknown-field"),
+                    ("iss", "https://accounts.google.com"),
+                    ("scope", "openid"),
+                ),
+            ),
+        )
+        for name, callback_factory in cases:
+            with self.subTest(case=name):
+                self.assert_preclaim_rejection(
+                    f"success-shape-{name}",
+                    callback_factory,
+                )
+
+    def test_error_response_issuer_failures_stop_before_claim(self):
+        cases = (
+            ("missing", None, ()),
+            ("blank", "", ()),
+            ("wrong", "accounts.google.com", ()),
+            (
+                "duplicate",
+                "https://accounts.google.com",
+                (("iss", "https://accounts.google.com"),),
+            ),
+        )
+        for name, issuer, extra_pairs in cases:
+            with self.subTest(case=name):
+                self.assert_preclaim_rejection(
+                    f"error-issuer-{name}",
+                    lambda harness, prepared, _state,
+                    issuer=issuer, extra_pairs=extra_pairs: (
+                        harness.transport.callback_for(
+                            prepared,
+                            error="access_denied",
+                            issuer=issuer,
+                            extra_pairs=extra_pairs,
+                        )
+                    ),
+                )
+
+    def test_exact_issuer_unknown_state_reaches_distinct_lookup_miss(self):
+        database, authority, harness, _prepared = self.prepare(
+            "unknown-state-lookup"
+        )
+        unknown_state = "A" * 43
+        callback = self.callback_url(
+            ("state", unknown_state),
+            ("iss", "https://accounts.google.com"),
+            ("code", "unknown-state-code"),
+        )
+        before = self.mutation_snapshot(database.connection)
+        with mock.patch.object(
+            durable_gateway_module,
+            "claim_google_oidc_authorization_transaction",
+            wraps=(
+                durable_gateway_module
+                .claim_google_oidc_authorization_transaction
+            ),
+        ) as claim:
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.status, "invalid_or_expired_transaction")
+        claim.assert_called_once()
+        self.assertEqual(claim.call_args.args[3], unknown_state)
+        self.assertEqual(self.mutation_snapshot(database.connection), before)
+        self.assertEqual(harness.transport.token_request_count, 0)
+        self.assertEqual(harness.transport.jwks_request_count, 0)
 
     def test_malformed_callback_fails_before_claim_and_preserves_prepared_row(self):
         database, authority, harness, _prepared = self.prepare("malformed")

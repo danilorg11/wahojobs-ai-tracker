@@ -13,7 +13,7 @@ import traceback
 from types import SimpleNamespace
 import unittest
 from unittest import mock
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from scripts.durable_google_login_fixture_demo import (
     FIXTURE_COMPLETE_ROUTE,
@@ -797,6 +797,19 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                         },
                     )
                     callback_parts = urlsplit(callback_url)
+                    self.assertEqual(
+                        tuple(
+                            sorted(
+                                name
+                                for name, _value in parse_qsl(
+                                    callback_parts.query,
+                                    keep_blank_values=True,
+                                    strict_parsing=True,
+                                )
+                            )
+                        ),
+                        ("code", "iss", "state"),
+                    )
                     callback_path = (
                         callback_parts.path + "?" + callback_parts.query
                     )

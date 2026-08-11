@@ -901,6 +901,17 @@ replacement text, and decoded control characters fail closed. Only a canonical
 callback rebuilt from the exact validated, unique, allowed fields reaches
 Authlib; the original raw query is never reparsed downstream.
 
+Google authorization success responses require exactly one each of `state`,
+`code`, and RFC 9207 `iss`. Redirected Google error responses require exactly
+one each of `state`, `error`, and `iss`, and may contain only the existing
+optional `error_description` and `error_uri` fields. The response `iss` must
+equal the pinned modern Google issuer `https://accounts.google.com` exactly;
+the callback does not normalize issuer URLs, accept the legacy bare issuer, or
+ignore additional parameters. The strict response shape and issuer are checked
+before durable state lookup, transaction claim, or provider exchange. This
+authorization-response check is separate from the later signed ID-token `iss`
+claim validation, whose modern and legacy issuer contract is unchanged.
+
 Token and JWKS responses accept only identity content, including the documented
 absent-encoding form, or the reviewed gzip and deflate encodings. Encoding names
 are case-insensitive, but unknown, malformed, duplicated, multiple, or

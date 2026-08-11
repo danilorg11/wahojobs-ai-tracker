@@ -1414,10 +1414,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
     FIELDS = (
         "code",
         "state",
-        "authuser",
-        "hd",
-        "prompt",
-        "scope",
+        "iss",
         "error",
         "error_description",
         "error_uri",
@@ -1455,22 +1452,37 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
         state = authorization_parameters(prepared)["state"]
         code = "phase2-callback-no-exchange-code"
         if target == "code":
-            return ((raw_name, raw_value), ("state", state))
+            return (
+                (raw_name, raw_value),
+                ("state", state),
+                ("iss", "https://accounts.google.com"),
+            )
         if target == "state":
-            return (("code", code), (raw_name, raw_value))
+            return (
+                ("code", code),
+                (raw_name, raw_value),
+                ("iss", "https://accounts.google.com"),
+            )
+        if target == "iss":
+            return (
+                ("code", code),
+                ("state", state),
+                (raw_name, raw_value),
+            )
         if target == "error":
-            return ((raw_name, raw_value), ("state", state))
+            return (
+                (raw_name, raw_value),
+                ("state", state),
+                ("iss", "https://accounts.google.com"),
+            )
         if target in {"error_description", "error_uri"}:
             return (
                 ("error", "access_denied"),
                 (raw_name, raw_value),
                 ("state", state),
+                ("iss", "https://accounts.google.com"),
             )
-        return (
-            ("code", code),
-            ("state", state),
-            (raw_name, raw_value),
-        )
+        raise AssertionError("unknown_callback_field")
 
     def _assert_invalid_callback(self, fields):
         harness = make_real_gateway()
@@ -1574,6 +1586,34 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
         finally:
             harness.close()
 
+    def _assert_four_field_callback_rejected_before_lookup(self, fields):
+        harness = self.keep_harness(make_real_gateway())
+        prepared = harness.gateway.prepare_authorization()
+        callback_fields = fields(prepared)
+        self.assertEqual(len(callback_fields), 4)
+        self.assertLess(
+            len(callback_fields),
+            gateway_module._CALLBACK_PARAMETER_LIMIT,
+        )
+        callback = self._raw_callback(callback_fields)
+        with self.assertRaises(gateway_module._InvalidTransaction):
+            gateway_module._durable_google_oidc_callback_state(
+                harness.gateway,
+                callback,
+            )
+        self.assertEqual(prepared.transaction.status, "fresh")
+        gateway_record = object.__getattribute__(
+            harness.gateway,
+            "_record",
+        )
+        transaction_record = gateway_record.transactions.get(
+            prepared.transaction
+        )
+        self.assertEqual(transaction_record.lifecycle, "fresh")
+        self.assertEqual(harness.transport.token_request_count, 0)
+        self.assertEqual(harness.transport.jwks_request_count, 0)
+        self._assert_invalid_callback(fields)
+
     def test_valid_strict_component_matrix(self):
         value_forms = (
             (
@@ -1611,6 +1651,71 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                         ),
                         ((field, expected_value),),
                     )
+
+    def test_response_issuer_rejection_categories_are_bounded(self):
+        with self.assertRaises(gateway_module._ResponseIssuerMissing):
+            gateway_module._validated_callback_parameters(
+                "state=opaque&code=synthetic"
+            )
+        with self.assertRaises(gateway_module._ResponseIssuerMismatch):
+            gateway_module._validated_callback_parameters(
+                "state=opaque&code=synthetic&iss=accounts.google.com"
+            )
+        with self.assertRaises(gateway_module._CallbackQueryInvalid):
+            gateway_module._validated_callback_parameters(
+                "state=opaque&code=synthetic&"
+                "iss=https%3A%2F%2Faccounts.google.com&scope=openid"
+            )
+
+    def test_duplicate_error_is_rejected_before_lookup_or_claim(self):
+        def duplicate_error_fields(prepared):
+            return (
+                ("state", authorization_parameters(prepared)["state"]),
+                ("error", "access_denied"),
+                ("iss", "https://accounts.google.com"),
+                ("error", "temporarily_unavailable"),
+            )
+
+        self._assert_four_field_callback_rejected_before_lookup(
+            duplicate_error_fields
+        )
+
+    def test_authuser_callback_field_is_rejected_individually(self):
+        def authuser_fields(prepared):
+            return (
+                ("state", authorization_parameters(prepared)["state"]),
+                ("code", "individual-authuser-code"),
+                ("iss", "https://accounts.google.com"),
+                ("authuser", "0"),
+            )
+
+        self._assert_four_field_callback_rejected_before_lookup(
+            authuser_fields
+        )
+
+    def test_hd_callback_field_is_rejected_individually(self):
+        def hd_fields(prepared):
+            return (
+                ("state", authorization_parameters(prepared)["state"]),
+                ("code", "individual-hd-code"),
+                ("iss", "https://accounts.google.com"),
+                ("hd", "example.invalid"),
+            )
+
+        self._assert_four_field_callback_rejected_before_lookup(hd_fields)
+
+    def test_prompt_callback_field_is_rejected_individually(self):
+        def prompt_fields(prepared):
+            return (
+                ("state", authorization_parameters(prepared)["state"]),
+                ("code", "individual-prompt-code"),
+                ("iss", "https://accounts.google.com"),
+                ("prompt", "consent"),
+            )
+
+        self._assert_four_field_callback_rejected_before_lookup(
+            prompt_fields
+        )
 
     def test_invalid_name_and_value_matrix_stops_all_authority(self):
         for field in self.FIELDS:
@@ -1668,6 +1773,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                                 "state",
                                 authorization_parameters(prepared)["state"],
                             ),
+                            ("iss", "https://accounts.google.com"),
                             (raw_name, "phase2-valid-value"),
                         )
                     )
@@ -1680,10 +1786,8 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
             ("code_ascii", "code", "phase2-code-ascii"),
             ("code_utf8", "code", "phase2-%E2%98%83"),
             ("state_percent_ascii", "state", None),
-            ("authuser_utf8", "authuser", "phase2-%E2%98%83"),
-            ("hd_utf8", "hd", "phase2-%E2%98%83"),
-            ("prompt_utf8", "prompt", "phase2-%E2%98%83"),
-            ("scope_utf8", "scope", "phase2-%E2%98%83"),
+            ("issuer_percent_ascii", "iss", None),
+            ("query_order", "order", None),
         )
         original_fetch = OAuth2Session.fetch_token
         for case_name, field, raw_value in cases:
@@ -1702,6 +1806,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     fields = (
                         ("code", raw_value),
                         ("state", state),
+                        ("iss", "https://accounts.google.com"),
                     )
                 elif field == "state":
                     code = f"phase2-canonical-{case_name}"
@@ -1712,14 +1817,28 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     fields = (
                         ("code", code),
                         ("state", encoded_state),
+                        ("iss", "https://accounts.google.com"),
                     )
-                else:
+                elif field == "iss":
                     code = f"phase2-canonical-{case_name}"
                     harness.transport.callback_for(prepared, code=code)
                     fields = (
                         ("code", code),
                         ("state", state),
-                        (field, raw_value),
+                        (
+                            "iss",
+                            self._percent_ascii(
+                                "https://accounts.google.com"
+                            ),
+                        ),
+                    )
+                else:
+                    code = f"phase2-canonical-{case_name}"
+                    harness.transport.callback_for(prepared, code=code)
+                    fields = (
+                        ("iss", "https://accounts.google.com"),
+                        ("state", state),
+                        ("code", code),
                     )
                 callback = self._raw_callback(fields)
                 expected_canonical = (
@@ -1761,6 +1880,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     ("code", "first"),
                     ("code", "second"),
                     ("state", state(prepared)),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
             (
@@ -1769,6 +1889,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     ("code", "phase2-shape-code"),
                     ("state", state(prepared)),
                     ("state", "second-state"),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
             (
@@ -1776,6 +1897,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     ("code", ""),
                     ("state", state(prepared)),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
             (
@@ -1783,6 +1905,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda _prepared: (
                     ("code", "phase2-shape-code"),
                     ("state", ""),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
             (
@@ -1790,6 +1913,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     ("code", "phase2-shape-code"),
                     ("state", state(prepared)),
+                    ("iss", "https://accounts.google.com"),
                     ("authuser", "0"),
                     ("hd", "example.invalid"),
                     ("prompt", "none"),
@@ -1805,6 +1929,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     (
                         ("code", "x" * 8_200),
                         ("state", state(prepared)),
+                        ("iss", "https://accounts.google.com"),
                     )
                 ),
             ),
@@ -1813,6 +1938,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     ("code", "x" * 4_097),
                     ("state", state(prepared)),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
             (
@@ -1820,6 +1946,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     "http://accounts-d.test.invalid/callback"
                     f"?code=phase2-shape-code&state={state(prepared)}"
+                    "&iss=https%3A%2F%2Faccounts.google.com"
                 ),
             ),
             (
@@ -1827,6 +1954,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     "https://other.test.invalid/callback"
                     f"?code=phase2-shape-code&state={state(prepared)}"
+                    "&iss=https%3A%2F%2Faccounts.google.com"
                 ),
             ),
             (
@@ -1834,6 +1962,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     "https://accounts-d.test.invalid/other"
                     f"?code=phase2-shape-code&state={state(prepared)}"
+                    "&iss=https%3A%2F%2Faccounts.google.com"
                 ),
             ),
             (
@@ -1841,6 +1970,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     "https://accounts-d.test.invalid:444/callback"
                     f"?code=phase2-shape-code&state={state(prepared)}"
+                    "&iss=https%3A%2F%2Faccounts.google.com"
                 ),
             ),
             (
@@ -1848,6 +1978,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 lambda prepared: (
                     REDIRECT_URI
                     + f"?code=phase2-shape-code&state={state(prepared)}"
+                    + "&iss=https%3A%2F%2Faccounts.google.com"
                     + "#fragment"
                 ),
             ),
@@ -1857,6 +1988,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     ("code", "phase2-shape-code"),
                     ("error", "access_denied"),
                     ("state", state(prepared)),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
             (
@@ -1865,6 +1997,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     ("code", "phase2-shape-code"),
                     ("error_description", "denied"),
                     ("state", state(prepared)),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
             (
@@ -1873,6 +2006,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                     ("code", "phase2-shape-code"),
                     ("error_uri", "https://example.invalid/error"),
                     ("state", state(prepared)),
+                    ("iss", "https://accounts.google.com"),
                 ),
             ),
         )

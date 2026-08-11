@@ -49,7 +49,7 @@ from wahojobs.trusted_login_completion import (
 _PROVIDER = "google"
 _CANONICAL_ISSUER = "https://accounts.google.com"
 _ACCEPTED_ISSUERS = (_CANONICAL_ISSUER, "accounts.google.com")
-_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+_AUTHORIZATION_ENDPOINT = _CANONICAL_ISSUER + "/o/oauth2/v2/auth"
 _TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 _JWKS_ENDPOINT = "https://www.googleapis.com/oauth2/v3/certs"
 _SCOPES = ("openid", "email")
@@ -93,19 +93,15 @@ _FAILURE_HASHES = {
     "invalid_or_expired_transaction": 0x612B8D3,
     "unavailable": 0x7D903E4,
 }
-_ALLOWED_CALLBACK_NAMES = frozenset(
-    {
-        "authuser",
-        "code",
-        "error",
-        "error_description",
-        "error_uri",
-        "hd",
-        "prompt",
-        "scope",
-        "state",
-    }
+_SUCCESS_CALLBACK_NAMES = frozenset({"code", "iss", "state"})
+_ERROR_CALLBACK_REQUIRED_NAMES = frozenset({"error", "iss", "state"})
+_ERROR_CALLBACK_OPTIONAL_NAMES = frozenset(
+    {"error_description", "error_uri"}
 )
+_ERROR_CALLBACK_NAMES = (
+    _ERROR_CALLBACK_REQUIRED_NAMES | _ERROR_CALLBACK_OPTIONAL_NAMES
+)
+_ALLOWED_CALLBACK_NAMES = _SUCCESS_CALLBACK_NAMES | _ERROR_CALLBACK_NAMES
 _OAUTH_INFRASTRUCTURE_ERRORS = frozenset(
     {"server_error", "temporarily_unavailable"}
 )
@@ -118,6 +114,18 @@ _PREPARATION_ISSUANCE_CAPABILITY = object()
 _FAILURE_ISSUANCE_CAPABILITY = object()
 
 class _AuthenticationDenied(Exception):
+    pass
+
+
+class _CallbackQueryInvalid(_AuthenticationDenied):
+    pass
+
+
+class _ResponseIssuerMissing(_AuthenticationDenied):
+    pass
+
+
+class _ResponseIssuerMismatch(_AuthenticationDenied):
     pass
 
 
@@ -2698,32 +2706,7 @@ def _validated_callback_url(callback_url, redirect_uri):
         or callback_url.split("?", 1)[0] != redirect_uri
     ):
         raise _AuthenticationDenied()
-    pairs = _strict_callback_query(parts.query)
-    if not pairs or len(pairs) > _CALLBACK_PARAMETER_LIMIT:
-        raise _AuthenticationDenied()
-    values = {}
-    for name, value in pairs:
-        if (
-            not name
-            or name not in _ALLOWED_CALLBACK_NAMES
-            or name in values
-            or len(name.encode("utf-8")) > _CALLBACK_PARAMETER_NAME_LIMIT
-            or len(value.encode("utf-8")) > _CALLBACK_PARAMETER_VALUE_LIMIT
-            or _CONTROL_CHARACTERS.search(name) is not None
-            or _CONTROL_CHARACTERS.search(value) is not None
-        ):
-            raise _AuthenticationDenied()
-        values[name] = value
-    if not values.get("state"):
-        raise _AuthenticationDenied()
-    has_code = bool(values.get("code"))
-    has_error = bool(values.get("error"))
-    if has_code == has_error:
-        raise _AuthenticationDenied()
-    if has_code and (
-        "error_description" in values or "error_uri" in values
-    ):
-        raise _AuthenticationDenied()
+    pairs, _values, has_error = _validated_callback_parameters(parts.query)
     if has_error:
         raise _AuthenticationDenied()
     try:
@@ -2771,11 +2754,29 @@ def _durable_google_oidc_callback_state(gateway, callback_url):
     ):
         raise _InvalidTransaction()
     try:
-        pairs = _strict_callback_query(parts.query)
+        _pairs, values, _has_error = _validated_callback_parameters(
+            parts.query
+        )
     except (TypeError, ValueError, _AuthenticationDenied):
         raise _InvalidTransaction() from None
-    if not pairs or len(pairs) > _CALLBACK_PARAMETER_LIMIT:
+    state = values.get("state")
+    if (
+        type(state) is not str
+        or _DURABLE_STATE.fullmatch(state) is None
+    ):
         raise _InvalidTransaction()
+    return state
+
+
+def _validated_callback_parameters(raw_query):
+    """Return one exact Google success or redirected-error field set."""
+
+    try:
+        pairs = _strict_callback_query(raw_query)
+    except (TypeError, ValueError, _AuthenticationDenied):
+        raise _CallbackQueryInvalid() from None
+    if not pairs or len(pairs) > _CALLBACK_PARAMETER_LIMIT:
+        raise _CallbackQueryInvalid()
     values = {}
     for name, value in pairs:
         if (
@@ -2787,25 +2788,33 @@ def _durable_google_oidc_callback_state(gateway, callback_url):
             or _CONTROL_CHARACTERS.search(name) is not None
             or _CONTROL_CHARACTERS.search(value) is not None
         ):
-            raise _InvalidTransaction()
+            raise _CallbackQueryInvalid()
         values[name] = value
-    state = values.get("state")
-    has_code = bool(values.get("code"))
-    has_error = bool(values.get("error"))
+
+    if "iss" not in values:
+        raise _ResponseIssuerMissing()
+    if not _valid_authorization_response_issuer(values["iss"]):
+        raise _ResponseIssuerMismatch()
+
+    names = frozenset(values)
+    if names == _SUCCESS_CALLBACK_NAMES:
+        if not values["state"] or not values["code"]:
+            raise _CallbackQueryInvalid()
+        return pairs, values, False
     if (
-        type(state) is not str
-        or _DURABLE_STATE.fullmatch(state) is None
-        or has_code == has_error
-        or (
-            has_code
-            and (
-                "error_description" in values
-                or "error_uri" in values
-            )
-        )
+        _ERROR_CALLBACK_REQUIRED_NAMES <= names <= _ERROR_CALLBACK_NAMES
+        and values["state"]
+        and values["error"]
     ):
-        raise _InvalidTransaction()
-    return state
+        return pairs, values, True
+    raise _CallbackQueryInvalid()
+
+
+def _valid_authorization_response_issuer(value):
+    return type(value) is str and hmac.compare_digest(
+        value,
+        _CANONICAL_ISSUER,
+    )
 
 
 def _strict_callback_query(raw_query):

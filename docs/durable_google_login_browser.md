@@ -613,19 +613,31 @@ returns a generic no-store response without a `Location`.
 The callback URL is constructed only from the configured
 `google_redirect_uri` plus the request's raw query. Scheme, authority, and
 callback prefix are never inferred from `Host`, proxy headers, or another
-request value. Existing bounded callback parsing and state lookup remain
-authoritative.
+request value. A Google success callback contains exactly one each of `state`,
+`code`, and RFC 9207 `iss`. An accepted redirected-error callback contains
+exactly one each of `state`, `error`, and `iss`, plus only the existing optional
+`error_description` and `error_uri` fields. In both shapes `iss` must equal the
+pinned modern issuer `https://accounts.google.com` exactly. Missing, blank,
+duplicated, non-exact, malformed, or non-UTF-8 issuer input fails closed;
+arbitrary callback parameters remain rejected.
+
+The authorization-response issuer check occurs during bounded callback parsing
+before durable state lookup, transaction claim, browser binding, or provider
+exchange. It does not alter the separate later validation of the signed
+ID-token `iss` claim, which continues to use its existing modern/legacy issuer
+contract.
 
 The browser callback order is security-significant:
 
-1. parse the callback state under the accepted gateway contract;
-2. atomically and terminally claim the durable authorization transaction;
-3. release the authorization-transaction write lock;
-4. compare the claimed transaction identity with
+1. parse the exact callback shape and validate the response issuer;
+2. recover the callback state and perform the durable digest lookup;
+3. atomically and terminally claim the durable authorization transaction;
+4. release the authorization-transaction write lock;
+5. compare the claimed transaction identity with
    `__Host-wahojobs_google_tx` in constant time;
-5. only for a matching binding, perform provider traffic and verification,
+6. only for a matching binding, perform provider traffic and verification,
    identity lookup, proof issuance, and B2D1 completion; and
-6. only for an exact B2D1 `issued` result, prepare the browser-session delivery
+7. only for an exact B2D1 `issued` result, prepare the browser-session delivery
    lease.
 
 A missing, malformed, duplicate, or swapped transaction cookie leaves the

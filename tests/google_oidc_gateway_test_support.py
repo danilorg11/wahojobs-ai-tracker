@@ -704,6 +704,7 @@ class InMemoryGoogleTransport:
         *,
         code=DEFAULT_CODE,
         state=_DEFAULT,
+        issuer="https://accounts.google.com",
         error=None,
         base_uri=REDIRECT_URI,
         extra_pairs=(),
@@ -735,6 +736,8 @@ class InMemoryGoogleTransport:
             pairs.append(("error", error))
         if state is not None:
             pairs.append(("state", state))
+        if issuer is not None:
+            pairs.append(("iss", issuer))
         pairs.extend(tuple(extra_pairs))
         return base_uri + "?" + urlencode(pairs)
 
