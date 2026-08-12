@@ -18,7 +18,7 @@ import threading
 import types
 import unittest
 from unittest import mock
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 import weakref
 import zlib
 
@@ -544,8 +544,10 @@ class TrustedConfigurationTests(_SocketsBlockedTestCase):
             original_record,
         )
 
-    def test_callback_cannot_override_trusted_configuration(self):
-        harness = self.keep_harness(make_real_gateway())
+    def test_callback_extensions_cannot_override_trusted_configuration_or_transport(self):
+        from authlib.integrations.requests_client import OAuth2Session
+
+        original_fetch = OAuth2Session.fetch_token
         for name, value in (
             ("client_id", "attacker-client"),
             ("redirect_uri", "https://attacker.invalid/callback"),
@@ -556,19 +558,46 @@ class TrustedConfigurationTests(_SocketsBlockedTestCase):
             ("profile", "someone-else"),
         ):
             with self.subTest(name=name):
+                harness = self.keep_harness(make_real_gateway())
                 prepared = harness.gateway.prepare_authorization()
                 callback = harness.transport.callback_for(
                     prepared,
-                    code=f"override-{name}",
+                    code="configuration-extension-code",
                     extra_pairs=((name, value),),
                 )
-                result = self.complete_real_failure(
-                    harness,
-                    prepared,
-                    callback,
+                with mock.patch.object(
+                    OAuth2Session,
+                    "fetch_token",
+                    autospec=True,
+                    side_effect=original_fetch,
+                ) as fetch_token:
+                    result = self.complete_real_failure(
+                        harness,
+                        prepared,
+                        callback,
+                    )
+                self.assertEqual(result.status, "unavailable")
+                fetch_token.assert_called_once()
+                authorization_response = fetch_token.call_args.kwargs[
+                    "authorization_response"
+                ]
+                self.assertEqual(
+                    {
+                        field
+                        for field, _item in parse_qsl(
+                            urlsplit(authorization_response).query,
+                            keep_blank_values=True,
+                            strict_parsing=True,
+                        )
+                    },
+                    {"code", "iss", "state"},
                 )
-                self.assertEqual(result.status, "authentication_denied")
-        self.assertEqual(harness.transport.token_request_count, 0)
+                self.assertNotIn(name, authorization_response)
+                self.assertNotIn(value, authorization_response)
+                token = harness.transport.observations[0]
+                self.assertTrue(token.exact_client)
+                self.assertTrue(token.exact_redirect)
+                self.assertTrue(token.exact_pkce)
 
     def test_deployment_constructor_has_no_test_authority_inputs(self):
         parameters = inspect.signature(GoogleOidcGateway).parameters
@@ -1418,6 +1447,7 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
         "error",
         "error_description",
         "error_uri",
+        "future_extension",
     )
     INVALID_COMPONENT_SUFFIXES = (
         ("incomplete_percent", "%"),
@@ -1481,6 +1511,13 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                 (raw_name, raw_value),
                 ("state", state),
                 ("iss", "https://accounts.google.com"),
+            )
+        if target == "future_extension":
+            return (
+                ("code", code),
+                ("state", state),
+                ("iss", "https://accounts.google.com"),
+                (raw_name, raw_value),
             )
         raise AssertionError("unknown_callback_field")
 
@@ -1614,6 +1651,94 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
         self.assertEqual(harness.transport.jwks_request_count, 0)
         self._assert_invalid_callback(fields)
 
+    def _assert_extension_field_accepted_and_discarded(self, name, value):
+        from authlib.integrations.requests_client import OAuth2Session
+
+        harness = self.keep_harness(make_real_gateway())
+        prepared = harness.gateway.prepare_authorization()
+        state = authorization_parameters(prepared)["state"]
+        code = "accepted-extension-code"
+        harness.transport.callback_for(prepared, code=code)
+        fields = (
+            (name, value),
+            ("state", state),
+            ("iss", "https://accounts.google.com"),
+            ("code", code),
+        )
+        callback = self._raw_callback(fields)
+        authoritative_pairs, authoritative_values, has_error = (
+            gateway_module._validated_callback_parameters(
+                urlsplit(callback).query
+            )
+        )
+        self.assertFalse(has_error)
+        self.assertEqual(
+            authoritative_pairs,
+            (
+                ("state", state),
+                ("iss", "https://accounts.google.com"),
+                ("code", code),
+            ),
+        )
+        self.assertEqual(
+            set(authoritative_values),
+            {"code", "iss", "state"},
+        )
+        self.assertNotIn(name, authoritative_values)
+        self.assertEqual(
+            gateway_module._durable_google_oidc_callback_state(
+                harness.gateway,
+                callback,
+            ),
+            state,
+        )
+        self.assertEqual(prepared.transaction.status, "fresh")
+
+        original_fetch = OAuth2Session.fetch_token
+        original_validate = gateway_module._validated_code_id_token
+        with (
+            mock.patch.object(
+                OAuth2Session,
+                "fetch_token",
+                autospec=True,
+                side_effect=original_fetch,
+            ) as fetch_token,
+            mock.patch.object(
+                gateway_module,
+                "_validated_code_id_token",
+                side_effect=original_validate,
+            ) as validate_id_token,
+            mock.patch("logging.Logger._log") as logger,
+        ):
+            result = self.complete_real_failure(
+                harness,
+                prepared,
+                callback,
+            )
+        self.assertEqual(result.status, "unavailable")
+        fetch_token.assert_called_once()
+        validate_id_token.assert_called_once()
+        logger.assert_not_called()
+        authorization_response = fetch_token.call_args.kwargs[
+            "authorization_response"
+        ]
+        self.assertEqual(
+            {
+                field
+                for field, _item in parse_qsl(
+                    urlsplit(authorization_response).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
+            },
+            {"code", "iss", "state"},
+        )
+        self.assertNotIn(name, authorization_response)
+        self.assertNotIn(value, authorization_response)
+        self.assertNotIn(value, repr(validate_id_token.call_args))
+        self.assertEqual(harness.transport.token_request_count, 1)
+        self.assertEqual(harness.transport.jwks_request_count, 1)
+
     def test_valid_strict_component_matrix(self):
         value_forms = (
             (
@@ -1661,10 +1786,10 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
             gateway_module._validated_callback_parameters(
                 "state=opaque&code=synthetic&iss=accounts.google.com"
             )
-        with self.assertRaises(gateway_module._CallbackQueryInvalid):
+        with self.assertRaises(gateway_module._ResponseIssuerMismatch):
             gateway_module._validated_callback_parameters(
                 "state=opaque&code=synthetic&"
-                "iss=https%3A%2F%2Faccounts.google.com&scope=openid"
+                "iss=accounts.google.com&scope=openid"
             )
 
     def test_duplicate_error_is_rejected_before_lookup_or_claim(self):
@@ -1680,41 +1805,34 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
             duplicate_error_fields
         )
 
-    def test_authuser_callback_field_is_rejected_individually(self):
-        def authuser_fields(prepared):
-            return (
-                ("state", authorization_parameters(prepared)["state"]),
-                ("code", "individual-authuser-code"),
-                ("iss", "https://accounts.google.com"),
-                ("authuser", "0"),
-            )
-
-        self._assert_four_field_callback_rejected_before_lookup(
-            authuser_fields
+    def test_authuser_callback_field_is_accepted_and_discarded(self):
+        self._assert_extension_field_accepted_and_discarded(
+            "authuser",
+            "synthetic-authuser-extension",
         )
 
-    def test_hd_callback_field_is_rejected_individually(self):
-        def hd_fields(prepared):
-            return (
-                ("state", authorization_parameters(prepared)["state"]),
-                ("code", "individual-hd-code"),
-                ("iss", "https://accounts.google.com"),
-                ("hd", "example.invalid"),
-            )
+    def test_hd_callback_field_is_accepted_and_discarded(self):
+        self._assert_extension_field_accepted_and_discarded(
+            "hd",
+            "synthetic-hd-extension.invalid",
+        )
 
-        self._assert_four_field_callback_rejected_before_lookup(hd_fields)
+    def test_prompt_callback_field_is_accepted_and_discarded(self):
+        self._assert_extension_field_accepted_and_discarded(
+            "prompt",
+            "synthetic-prompt-extension",
+        )
 
-    def test_prompt_callback_field_is_rejected_individually(self):
-        def prompt_fields(prepared):
-            return (
-                ("state", authorization_parameters(prepared)["state"]),
-                ("code", "individual-prompt-code"),
-                ("iss", "https://accounts.google.com"),
-                ("prompt", "consent"),
-            )
+    def test_scope_callback_field_is_accepted_and_discarded(self):
+        self._assert_extension_field_accepted_and_discarded(
+            "scope",
+            "synthetic-scope-extension",
+        )
 
-        self._assert_four_field_callback_rejected_before_lookup(
-            prompt_fields
+    def test_generic_future_extension_is_accepted_and_discarded(self):
+        self._assert_extension_field_accepted_and_discarded(
+            "future_provider_extension",
+            "synthetic-future-extension",
         )
 
     def test_invalid_name_and_value_matrix_stops_all_authority(self):
@@ -1751,33 +1869,53 @@ class StrictCallbackDecodingMatrixTests(_SocketsBlockedTestCase):
                         )
                     )
 
-    def test_unknown_parameter_name_matrix_stops_all_authority(self):
-        unknown_names = (
+    def test_unique_extension_name_forms_are_decoded_and_discarded(self):
+        extension_names = (
             ("literal_ascii", "phase2_unknown"),
             ("percent_ascii", "%70hase2_unknown"),
             ("percent_utf8", "phase2_%E2%98%83"),
-        ) + tuple(
-            (
-                case_name,
-                "phase2_unknown" + suffix,
-            )
-            for case_name, suffix in self.INVALID_COMPONENT_SUFFIXES
         )
-        for case_name, raw_name in unknown_names:
+        for case_name, raw_name in extension_names:
             with self.subTest(case=case_name):
-                self._assert_invalid_callback(
-                    lambda prepared, raw_name=raw_name: (
-                        (
-                            ("code", "phase2-unknown-name-code"),
-                            (
-                                "state",
-                                authorization_parameters(prepared)["state"],
-                            ),
-                            ("iss", "https://accounts.google.com"),
-                            (raw_name, "phase2-valid-value"),
-                        )
+                authoritative_pairs, values, has_error = (
+                    gateway_module._validated_callback_parameters(
+                        "code=phase2-extension-code&state=opaque&"
+                        "iss=https%3A%2F%2Faccounts.google.com&"
+                        f"{raw_name}=phase2-valid-value"
                     )
                 )
+                self.assertFalse(has_error)
+                self.assertEqual(
+                    authoritative_pairs,
+                    (
+                        ("code", "phase2-extension-code"),
+                        ("state", "opaque"),
+                        ("iss", "https://accounts.google.com"),
+                    ),
+                )
+                self.assertEqual(set(values), {"code", "iss", "state"})
+
+    def test_callback_field_limit_accepts_nine_and_rejects_ten(self):
+        accepted = (
+            "state=opaque&error=access_denied&"
+            "iss=https%3A%2F%2Faccounts.google.com&"
+            "error_description=declined&error_uri=https%3A%2F%2Fexample.invalid&"
+            "authuser=0&hd=example.invalid&prompt=none&scope=openid"
+        )
+        pairs, values, has_error = (
+            gateway_module._validated_callback_parameters(accepted)
+        )
+        self.assertEqual(gateway_module._CALLBACK_PARAMETER_LIMIT, 9)
+        self.assertTrue(has_error)
+        self.assertEqual(
+            set(values),
+            {"error", "error_description", "error_uri", "iss", "state"},
+        )
+        self.assertEqual(len(pairs), 5)
+        with self.assertRaises(gateway_module._CallbackQueryInvalid):
+            gateway_module._validated_callback_parameters(
+                accepted + "&future_extension=bounded-overflow"
+            )
 
     def test_only_canonical_strict_callback_reaches_authlib(self):
         from authlib.integrations.requests_client import OAuth2Session
@@ -2874,8 +3012,11 @@ class ProviderClientAuthorityTests(_SocketsBlockedTestCase):
         self.assertNotIn("tests.google_oidc_gateway_test_support", source)
         self.assertNotIn("_route_http_adapter_send", source)
 
-    def test_callback_cannot_assert_verification(self):
-        harness = self.keep_harness(make_real_gateway())
+    def test_callback_extensions_cannot_assert_verification_authority(self):
+        from authlib.integrations.requests_client import OAuth2Session
+
+        original_fetch = OAuth2Session.fetch_token
+        original_validate = gateway_module._validated_code_id_token
         for name in (
             "verified",
             "verified_identity",
@@ -2884,19 +3025,55 @@ class ProviderClientAuthorityTests(_SocketsBlockedTestCase):
             "provider_client",
         ):
             with self.subTest(name=name):
+                harness = self.keep_harness(make_real_gateway())
                 prepared = harness.gateway.prepare_authorization()
                 callback = harness.transport.callback_for(
                     prepared,
-                    code=f"assertion-{name}",
-                    extra_pairs=((name, "trusted"),),
+                    code="extension-assertion-code",
+                    extra_pairs=((name, "untrusted-extension-value"),),
                 )
-                result = self.complete_real_failure(
-                    harness,
-                    prepared,
-                    callback,
+                with (
+                    mock.patch.object(
+                        OAuth2Session,
+                        "fetch_token",
+                        autospec=True,
+                        side_effect=original_fetch,
+                    ) as fetch_token,
+                    mock.patch.object(
+                        gateway_module,
+                        "_validated_code_id_token",
+                        side_effect=original_validate,
+                    ) as validate_id_token,
+                ):
+                    result = self.complete_real_failure(
+                        harness,
+                        prepared,
+                        callback,
+                    )
+                self.assertEqual(result.status, "unavailable")
+                fetch_token.assert_called_once()
+                validate_id_token.assert_called_once()
+                authorization_response = fetch_token.call_args.kwargs[
+                    "authorization_response"
+                ]
+                self.assertEqual(
+                    {
+                        field
+                        for field, _item in parse_qsl(
+                            urlsplit(authorization_response).query,
+                            keep_blank_values=True,
+                            strict_parsing=True,
+                        )
+                    },
+                    {"code", "iss", "state"},
                 )
-                self.assertEqual(result.status, "authentication_denied")
-        self.assertEqual(harness.transport.token_request_count, 0)
+                self.assertNotIn(name, authorization_response)
+                self.assertNotIn(
+                    "untrusted-extension-value",
+                    repr(validate_id_token.call_args),
+                )
+                self.assertEqual(harness.transport.token_request_count, 1)
+                self.assertEqual(harness.transport.jwks_request_count, 1)
 
     def test_each_gateway_owns_distinct_configuration_and_provider_state(self):
         first = self.keep_harness(make_fake_gateway())

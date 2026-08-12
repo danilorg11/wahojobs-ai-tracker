@@ -47,6 +47,7 @@ from wahojobs.durable_google_login_runtime import (
     build_durable_google_login_runtime,
 )
 from wahojobs import accounts
+import wahojobs.google_oidc_durable_gateway as durable_gateway_module
 
 
 class _B22PreparedAuthorizationUrl:
@@ -712,7 +713,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
         )
         return cookies, provider_url, start
 
-    def test_invited_first_login_restarts_then_later_login_reuses_account(self):
+    def test_real_google_callback_extensions_forward_raw_and_reuse_invited_account(self):
         email = "private-beta-invite@example.test"
         preserved_tables = (
             "legacy_owner_aliases",
@@ -775,11 +776,20 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
             self.assertTrue(first_cleanup.cleanup_complete)
             state.close_harnesses()
 
-            second_runtime = build_durable_google_login_runtime(
-                state.configuration_path,
-                _clock=state.clock,
-                _gateway_factory=state.gateway_factory,
+            original_complete = (
+                durable_gateway_module
+                .complete_browser_bound_durable_google_oidc_authorization
             )
+            with mock.patch.object(
+                durable_gateway_module,
+                "complete_browser_bound_durable_google_oidc_authorization",
+                wraps=original_complete,
+            ) as callback_boundary:
+                second_runtime = build_durable_google_login_runtime(
+                    state.configuration_path,
+                    _clock=state.clock,
+                    _gateway_factory=state.gateway_factory,
+                )
             ownership_after_first = None
             first_account_id = None
             first_callback_public = None
@@ -787,10 +797,16 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
             profile_public_parts = []
             try:
                 with running_https_browser_app(second_runtime):
+                    browser_extensions = (
+                        ("authuser", "synthetic-browser-authuser"),
+                        ("prompt", "synthetic-browser-prompt"),
+                        ("scope", "synthetic-browser-scope"),
+                    )
                     callback_url = provider_callback_for(
                         state,
                         provider_url,
                         code="b23b-first-login",
+                        extra_pairs=browser_extensions,
                         claims_overrides={
                             "email": email,
                             "email_verified": True,
@@ -808,18 +824,27 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                                 )
                             )
                         ),
-                        ("code", "iss", "state"),
+                        ("authuser", "code", "iss", "prompt", "scope", "state"),
                     )
                     callback_path = (
                         callback_parts.path + "?" + callback_parts.query
                     )
-                    callback = https_request(
-                        state,
-                        "GET",
-                        callback_path,
-                        headers=(("Cookie", cookie_header(cookies)),),
+                    expected_raw_callback = (
+                        state.redirect_uri + "?" + callback_parts.query
                     )
+                    with mock.patch("logging.Logger._log") as callback_logger:
+                        callback = https_request(
+                            state,
+                            "GET",
+                            callback_path,
+                            headers=(("Cookie", cookie_header(cookies)),),
+                        )
                     self.assertEqual(callback.status, 303)
+                    self.assertGreaterEqual(callback_boundary.call_count, 1)
+                    self.assertEqual(
+                        callback_boundary.call_args_list[0].args[3],
+                        expected_raw_callback,
+                    )
                     self.assertEqual(
                         callback.header_values("Location"),
                         ("/account/profile",),
@@ -828,6 +853,10 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                         repr(callback.headers) + repr(callback.body)
                     )
                     first_callback_public = callback_public
+                    callback_log_text = repr(callback_logger.call_args_list)
+                    for _extension_name, extension_value in browser_extensions:
+                        self.assertNotIn(extension_value, callback_public)
+                        self.assertNotIn(extension_value, callback_log_text)
                     self.assertNotIn(
                         invitation.invitation_token,
                         callback_public,
@@ -944,25 +973,47 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     later_cookies, later_provider_url, _later_start = (
                         self.begin_login(state)
                     )
+                    browser_future_extension = (
+                        "future_provider_extension",
+                        "synthetic-browser-future-extension",
+                    )
                     later_callback_url = provider_callback_for(
                         state,
                         later_provider_url,
                         code="b23b-later-login",
+                        extra_pairs=(browser_future_extension,),
                         missing_claims=("email", "email_verified"),
                     )
                     later_parts = urlsplit(later_callback_url)
-                    later = https_request(
-                        state,
-                        "GET",
-                        later_parts.path + "?" + later_parts.query,
-                        headers=(
-                            (
-                                "Cookie",
-                                cookie_header(later_cookies),
-                            ),
-                        ),
+                    expected_later_raw_callback = (
+                        state.redirect_uri + "?" + later_parts.query
                     )
+                    with mock.patch("logging.Logger._log") as later_logger:
+                        later = https_request(
+                            state,
+                            "GET",
+                            later_parts.path + "?" + later_parts.query,
+                            headers=(
+                                (
+                                    "Cookie",
+                                    cookie_header(later_cookies),
+                                ),
+                            ),
+                        )
                     self.assertEqual(later.status, 303)
+                    self.assertGreaterEqual(callback_boundary.call_count, 2)
+                    self.assertEqual(
+                        callback_boundary.call_args_list[1].args[3],
+                        expected_later_raw_callback,
+                    )
+                    self.assertNotIn(
+                        browser_future_extension[1],
+                        repr(later.headers) + repr(later.body),
+                    )
+                    self.assertNotIn(
+                        browser_future_extension[1],
+                        repr(later_logger.call_args_list),
+                    )
                     self.assertEqual(
                         later.header_values("Location"),
                         ("/account/profile",),
@@ -1011,6 +1062,22 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                 observations = tuple(
                     harness.transport.observations
                     for harness in state.gateway_harnesses
+                )
+                self.assertEqual(
+                    sum(
+                        item.role == "token"
+                        for group in observations
+                        for item in group
+                    ),
+                    2,
+                )
+                self.assertEqual(
+                    sum(
+                        item.role == "jwks"
+                        for group in observations
+                        for item in group
+                    ),
+                    1,
                 )
                 connection = sqlite3.connect(state.database_path)
                 connection.row_factory = sqlite3.Row
@@ -1107,6 +1174,12 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                         ).fetchall(),
                         [],
                     )
+                    database_text = "\n".join(connection.iterdump())
+                    for _extension_name, extension_value in (
+                        *browser_extensions,
+                        browser_future_extension,
+                    ):
+                        self.assertNotIn(extension_value, database_text)
                 finally:
                     connection.close()
                 secret_text = invitation.invitation_token
@@ -1128,6 +1201,11 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     secret_text,
                     public_text,
                 )
+                for _extension_name, extension_value in (
+                    *browser_extensions,
+                    browser_future_extension,
+                ):
+                    self.assertNotIn(extension_value, public_text)
                 for durable_id in (
                     str(first_account_id),
                     str(identity["auth_identity_id"]),

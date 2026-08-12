@@ -897,20 +897,33 @@ redirect registration.
 
 Callback parameter names and values are structurally percent-decoded and
 strictly UTF-8 validated before provider exchange. Invalid escapes, invalid or
-replacement text, and decoded control characters fail closed. Only a canonical
-callback rebuilt from the exact validated, unique, allowed fields reaches
-Authlib; the original raw query is never reparsed downstream.
+replacement text, decoded control characters, empty names, duplicate decoded
+names, and over-limit callbacks fail closed. The full ASCII callback remains
+limited to 8,192 bytes; at most nine decoded fields are accepted, with 64-byte
+UTF-8 names and 4,096-byte UTF-8 values. Only a canonical callback rebuilt from
+the authoritative fields reaches Authlib; the original raw query is never
+reparsed downstream.
 
-Google authorization success responses require exactly one each of `state`,
-`code`, and RFC 9207 `iss`. Redirected Google error responses require exactly
-one each of `state`, `error`, and `iss`, and may contain only the existing
-optional `error_description` and `error_uri` fields. The response `iss` must
-equal the pinned modern Google issuer `https://accounts.google.com` exactly;
-the callback does not normalize issuer URLs, accept the legacy bare issuer, or
-ignore additional parameters. The strict response shape and issuer are checked
-before durable state lookup, transaction claim, or provider exchange. This
-authorization-response check is separate from the later signed ID-token `iss`
-claim validation, whose modern and legacy issuer contract is unchanged.
+Google authorization success responses require exactly one nonblank `state`,
+`code`, and RFC 9207 `iss` and no `error`. Redirected Google error responses
+require exactly one nonblank `state`, `error`, and `iss`, no `code`, and may
+contain at most one each of the existing optional `error_description` and
+`error_uri` diagnostics. The response `iss` must equal the pinned modern Google
+issuer `https://accounts.google.com` exactly; the callback does not normalize
+issuer URLs or accept the legacy bare issuer.
+
+Every other unique, bounded callback field is a non-authoritative extension and
+is discarded after strict structural parsing. This open extension handling is
+not an allowlist: Google may return `authuser`, `hd`, `prompt`, and `scope`, and
+future extension names receive the same treatment. Those fields do not
+establish identity, verified domain membership, granted scopes, policy,
+invitation, or session authority. Their values are not logged, persisted,
+rendered, passed to durable lookup/claim, sent in the token exchange, or passed
+to ID-token validation. The critical response shape and exact issuer are
+checked, and extensions are discarded, before durable state lookup,
+transaction claim, or provider exchange. Authorization-response validation
+remains separate from the later signed ID-token `iss` claim validation, whose
+modern and legacy issuer contract is unchanged.
 
 Token and JWKS responses accept only identity content, including the documented
 absent-encoding form, or the reviewed gzip and deflate encodings. Encoding names

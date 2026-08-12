@@ -23,9 +23,9 @@ from wahojobs.google_oidc_authorization_transactions import (
 from wahojobs.google_oidc_gateway import (
     GoogleOidcGateway,
     _complete_durable_google_oidc_claimed,
-    _durable_google_oidc_callback_state,
     _failure,
     _poison_gateway_for_control,
+    _validated_durable_google_oidc_callback,
 )
 from wahojobs.google_oidc_transaction_protection import (
     GoogleOidcTransactionKeyAuthority,
@@ -82,15 +82,19 @@ def complete_durable_google_oidc_authorization(
     """Terminally claim before invoking the existing real provider/B2D1 path."""
 
     callback_state = None
+    authoritative_callback_url = None
     capsule = None
     values = None
     try:
         _require_concrete_boundary(connection, gateway, key_authority)
         try:
-            callback_state = _durable_google_oidc_callback_state(
-                gateway,
-                callback_url,
+            callback_state, authoritative_callback_url = (
+                _validated_durable_google_oidc_callback(
+                    gateway,
+                    callback_url,
+                )
             )
+            callback_url = None
         except (KeyboardInterrupt, SystemExit, GeneratorExit):
             raise
         except Exception as exc:
@@ -115,7 +119,7 @@ def complete_durable_google_oidc_authorization(
         return _complete_claimed_authorization(
             gateway,
             connection,
-            callback_url,
+            authoritative_callback_url,
             completion_policy,
             request_secret_vault,
             state=values["state"],
@@ -145,6 +149,7 @@ def complete_durable_google_oidc_authorization(
         gateway = None
         key_authority = None
         callback_url = None
+        authoritative_callback_url = None
         completion_policy = None
         request_secret_vault = None
         callback_state = None
@@ -164,15 +169,19 @@ def complete_browser_bound_durable_google_oidc_authorization(
     """Terminally claim before accepting one browser transaction binding."""
 
     callback_state = None
+    authoritative_callback_url = None
     capsule = None
     values = None
     try:
         _require_concrete_boundary(connection, gateway, key_authority)
         try:
-            callback_state = _durable_google_oidc_callback_state(
-                gateway,
-                callback_url,
+            callback_state, authoritative_callback_url = (
+                _validated_durable_google_oidc_callback(
+                    gateway,
+                    callback_url,
+                )
             )
+            callback_url = None
         except (KeyboardInterrupt, SystemExit, GeneratorExit):
             raise
         except Exception as exc:
@@ -202,7 +211,7 @@ def complete_browser_bound_durable_google_oidc_authorization(
         return _complete_claimed_authorization(
             gateway,
             connection,
-            callback_url,
+            authoritative_callback_url,
             completion_policy,
             request_secret_vault,
             state=values["state"],
@@ -232,6 +241,7 @@ def complete_browser_bound_durable_google_oidc_authorization(
         gateway = None
         key_authority = None
         callback_url = None
+        authoritative_callback_url = None
         browser_transaction_id = None
         completion_policy = None
         request_secret_vault = None

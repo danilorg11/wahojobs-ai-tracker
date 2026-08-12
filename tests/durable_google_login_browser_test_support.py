@@ -644,6 +644,7 @@ def provider_callback_for(
     authorization_url,
     *,
     code="browser-code",
+    extra_pairs=(),
     claims_overrides=None,
     missing_claims=(),
 ):
@@ -651,6 +652,7 @@ def provider_callback_for(
         _PreparedAuthorizationUrl(authorization_url),
         code=code,
         base_uri=state.redirect_uri,
+        extra_pairs=extra_pairs,
         claims_overrides=claims_overrides,
         missing_claims=missing_claims,
     )

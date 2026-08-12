@@ -68,7 +68,7 @@ _JWKS_MAX_KEYS = 32
 _TRANSACTION_TTL = timedelta(minutes=10)
 _ENVIRONMENTS = frozenset({"development", "test", "private_beta"})
 _CALLBACK_URL_LIMIT = 8192
-_CALLBACK_PARAMETER_LIMIT = 8
+_CALLBACK_PARAMETER_LIMIT = 9
 _CALLBACK_PARAMETER_NAME_LIMIT = 64
 _CALLBACK_PARAMETER_VALUE_LIMIT = 4096
 _SUPPORTED_RESPONSE_CONTENT_ENCODINGS = frozenset(
@@ -101,7 +101,9 @@ _ERROR_CALLBACK_OPTIONAL_NAMES = frozenset(
 _ERROR_CALLBACK_NAMES = (
     _ERROR_CALLBACK_REQUIRED_NAMES | _ERROR_CALLBACK_OPTIONAL_NAMES
 )
-_ALLOWED_CALLBACK_NAMES = _SUCCESS_CALLBACK_NAMES | _ERROR_CALLBACK_NAMES
+_AUTHORITATIVE_CALLBACK_NAMES = (
+    _SUCCESS_CALLBACK_NAMES | _ERROR_CALLBACK_NAMES
+)
 _OAUTH_INFRASTRUCTURE_ERRORS = frozenset(
     {"server_error", "temporarily_unavailable"}
 )
@@ -2682,6 +2684,18 @@ def _ensure_account_native_principal_for_login(
 
 
 def _validated_callback_url(callback_url, redirect_uri):
+    canonical_callback, _values, has_error = _validated_callback_response(
+        callback_url,
+        redirect_uri,
+    )
+    if has_error:
+        raise _AuthenticationDenied()
+    return canonical_callback
+
+
+def _validated_callback_response(callback_url, redirect_uri):
+    """Validate one callback and discard bounded non-authoritative fields."""
+
     if (
         type(callback_url) is not str
         or not callback_url
@@ -2706,9 +2720,7 @@ def _validated_callback_url(callback_url, redirect_uri):
         or callback_url.split("?", 1)[0] != redirect_uri
     ):
         raise _AuthenticationDenied()
-    pairs, _values, has_error = _validated_callback_parameters(parts.query)
-    if has_error:
-        raise _AuthenticationDenied()
+    pairs, values, has_error = _validated_callback_parameters(parts.query)
     try:
         canonical_query = urlencode(
             pairs,
@@ -2725,37 +2737,17 @@ def _validated_callback_url(callback_url, redirect_uri):
             raise _AuthenticationDenied()
     except (TypeError, UnicodeError, ValueError):
         raise _AuthenticationDenied() from None
-    return canonical_callback
+    return canonical_callback, values, has_error
 
 
-def _durable_google_oidc_callback_state(gateway, callback_url):
-    """Strictly recover correlation state before any durable claim or I/O."""
+def _validated_durable_google_oidc_callback(gateway, callback_url):
+    """Recover state and an authoritative-only callback before durable I/O."""
 
     gateway_record = _gateway_record(gateway)
     redirect_uri = gateway_record.configuration_record.redirect_uri
-    if (
-        type(callback_url) is not str
-        or not callback_url
-        or _CONTROL_CHARACTERS.search(callback_url) is not None
-    ):
-        raise _InvalidTransaction()
     try:
-        encoded = callback_url.encode("ascii", "strict")
-        parts = urlsplit(callback_url)
-    except (UnicodeError, ValueError):
-        raise _InvalidTransaction() from None
-    if (
-        len(encoded) > _CALLBACK_URL_LIMIT
-        or parts.fragment
-        or parts.username is not None
-        or parts.password is not None
-        or "?" not in callback_url
-        or callback_url.split("?", 1)[0] != redirect_uri
-    ):
-        raise _InvalidTransaction()
-    try:
-        _pairs, values, _has_error = _validated_callback_parameters(
-            parts.query
+        canonical_callback, values, _has_error = (
+            _validated_callback_response(callback_url, redirect_uri)
         )
     except (TypeError, ValueError, _AuthenticationDenied):
         raise _InvalidTransaction() from None
@@ -2765,49 +2757,68 @@ def _durable_google_oidc_callback_state(gateway, callback_url):
         or _DURABLE_STATE.fullmatch(state) is None
     ):
         raise _InvalidTransaction()
-    return state
+    return state, canonical_callback
+
+
+def _durable_google_oidc_callback_state(gateway, callback_url):
+    """Strictly recover correlation state before any durable claim or I/O."""
+
+    try:
+        state, canonical_callback = _validated_durable_google_oidc_callback(
+            gateway,
+            callback_url,
+        )
+        return state
+    finally:
+        callback_url = None
+        canonical_callback = None
 
 
 def _validated_callback_parameters(raw_query):
-    """Return one exact Google success or redirected-error field set."""
+    """Decode one bounded response and retain only authoritative fields."""
 
     try:
-        pairs = _strict_callback_query(raw_query)
+        decoded_pairs = _strict_callback_query(raw_query)
     except (TypeError, ValueError, _AuthenticationDenied):
         raise _CallbackQueryInvalid() from None
-    if not pairs or len(pairs) > _CALLBACK_PARAMETER_LIMIT:
+    if not decoded_pairs or len(decoded_pairs) > _CALLBACK_PARAMETER_LIMIT:
         raise _CallbackQueryInvalid()
+    seen_names = set()
+    authoritative_pairs = []
     values = {}
-    for name, value in pairs:
+    for name, value in decoded_pairs:
         if (
             not name
-            or name not in _ALLOWED_CALLBACK_NAMES
-            or name in values
+            or name in seen_names
             or len(name.encode("utf-8")) > _CALLBACK_PARAMETER_NAME_LIMIT
             or len(value.encode("utf-8")) > _CALLBACK_PARAMETER_VALUE_LIMIT
             or _CONTROL_CHARACTERS.search(name) is not None
             or _CONTROL_CHARACTERS.search(value) is not None
         ):
             raise _CallbackQueryInvalid()
-        values[name] = value
+        seen_names.add(name)
+        if name in _AUTHORITATIVE_CALLBACK_NAMES:
+            authoritative_pairs.append((name, value))
+            values[name] = value
 
+    names = frozenset(values)
+    success_shape = bool(
+        frozenset({"code", "state"}) <= names <= _SUCCESS_CALLBACK_NAMES
+        and values["state"]
+        and values["code"]
+    )
+    error_shape = bool(
+        frozenset({"error", "state"}) <= names <= _ERROR_CALLBACK_NAMES
+        and values["state"]
+        and values["error"]
+    )
+    if success_shape == error_shape:
+        raise _CallbackQueryInvalid()
     if "iss" not in values:
         raise _ResponseIssuerMissing()
     if not _valid_authorization_response_issuer(values["iss"]):
         raise _ResponseIssuerMismatch()
-
-    names = frozenset(values)
-    if names == _SUCCESS_CALLBACK_NAMES:
-        if not values["state"] or not values["code"]:
-            raise _CallbackQueryInvalid()
-        return pairs, values, False
-    if (
-        _ERROR_CALLBACK_REQUIRED_NAMES <= names <= _ERROR_CALLBACK_NAMES
-        and values["state"]
-        and values["error"]
-    ):
-        return pairs, values, True
-    raise _CallbackQueryInvalid()
+    return tuple(authoritative_pairs), values, error_shape
 
 
 def _valid_authorization_response_issuer(value):

@@ -6,7 +6,7 @@ import threading
 import unittest
 from datetime import timedelta
 from unittest import mock
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from tests.google_oidc_authorization_transactions_test_support import (
     authorization_parameters,
@@ -177,6 +177,68 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(harness.transport.token_request_count, 0)
         self.assertEqual(harness.transport.jwks_request_count, 0)
         self.assertFalse(database.connection.in_transaction)
+
+    def assert_success_extension_reaches_claim_and_is_discarded(
+        self,
+        suffix,
+        name,
+        value,
+    ):
+        database, authority, harness, prepared = self.prepare(suffix)
+        state = authorization_parameters(prepared)["state"]
+        callback = harness.transport.callback_for(
+            prepared,
+            code="bounded-extension-success-code",
+            extra_pairs=((name, value),),
+        )
+        with (
+            mock.patch.object(
+                durable_gateway_module,
+                "claim_google_oidc_authorization_transaction",
+                wraps=(
+                    durable_gateway_module
+                    .claim_google_oidc_authorization_transaction
+                ),
+            ) as claim,
+            mock.patch.object(
+                durable_gateway_module,
+                "_complete_claimed_authorization",
+                wraps=durable_gateway_module._complete_claimed_authorization,
+            ) as downstream,
+        ):
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.status, "issued")
+        claim.assert_called_once()
+        self.assertEqual(claim.call_args.args[3], state)
+        downstream.assert_called_once()
+        authoritative_callback = downstream.call_args.args[2]
+        self.assertEqual(
+            {
+                field
+                for field, _item in parse_qsl(
+                    urlsplit(authoritative_callback).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
+            },
+            {"code", "iss", "state"},
+        )
+        self.assertNotIn(name, authoritative_callback)
+        self.assertNotIn(value, authoritative_callback)
+        self.assertNotIn(
+            value,
+            "\n".join(database.connection.iterdump()),
+        )
+        self.assertEqual(harness.transport.token_request_count, 1)
+        self.assertEqual(harness.transport.jwks_request_count, 1)
+        prepared.close()
 
     def test_public_functions_accept_no_injected_protocol_or_repository(self):
         self.assertEqual(
@@ -628,20 +690,44 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(plain_observed, [None])
         plain_prepared.close()
 
-    def test_callback_query_cannot_add_or_replace_bound_invitation(self):
+    def test_callback_invitation_extension_is_ignored_without_replacing_bound_invitation(self):
         invitation = bytearray(
             ("inv_" + ("1" * 32) + "." + ("G" * 43)).encode("ascii")
         )
+        bound_invitation = bytes(invitation)
         database, authority, harness, prepared = self.prepare(
             "invitation-callback-substitution",
             invitation_credential=invitation,
         )
         callback = harness.transport.callback_for(prepared)
-        substituted = callback + "&invitation=attacker-controlled"
-        with mock.patch.object(
-            durable_gateway_module,
-            "_complete_claimed_authorization",
-        ) as downstream:
+        extension_value = "synthetic-untrusted-invitation-extension"
+        substituted = callback + "&" + urlencode(
+            (("invitation", extension_value),)
+        )
+        observed = {}
+
+        def observe(*args, **kwargs):
+            observed["callback_url"] = args[2]
+            observed["invitation_credential"] = bytes(
+                kwargs["invitation_credential"]
+            )
+            return gateway_module._failure("authentication_denied")
+
+        with (
+            mock.patch.object(
+                durable_gateway_module,
+                "claim_google_oidc_authorization_transaction",
+                wraps=(
+                    durable_gateway_module
+                    .claim_google_oidc_authorization_transaction
+                ),
+            ) as claim,
+            mock.patch.object(
+                durable_gateway_module,
+                "_complete_claimed_authorization",
+                side_effect=observe,
+            ) as downstream,
+        ):
             result = complete_durable_google_oidc_authorization(
                 database.connection,
                 harness.gateway,
@@ -650,14 +736,35 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 completion_policy(),
                 self.vault(),
             )
-        self.assertEqual(result.status, "invalid_or_expired_transaction")
-        downstream.assert_not_called()
+        self.assertEqual(result.status, "authentication_denied")
+        claim.assert_called_once()
+        downstream.assert_called_once()
+        self.assertEqual(
+            observed["invitation_credential"],
+            bound_invitation,
+        )
+        self.assertEqual(
+            {
+                name
+                for name, _value in parse_qsl(
+                    urlsplit(observed["callback_url"]).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
+            },
+            {"code", "iss", "state"},
+        )
+        self.assertNotIn(extension_value, observed["callback_url"])
+        self.assertNotIn(
+            extension_value,
+            "\n".join(database.connection.iterdump()),
+        )
         self.assertEqual(
             transaction_rows(database.connection)[0]["lifecycle"],
-            "prepared",
+            "consumed",
         )
 
-    def test_invited_identity_is_atomic_then_resolves_without_invitation(self):
+    def test_invited_identity_extensions_are_discarded_then_reuses_without_invitation(self):
         database = self.database("invited-first-login")
         subject = "google-subject-invited-first-login-new"
         email = "invited-first-login@example.test"
@@ -697,22 +804,74 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             invitation.invitation_token,
             prepared.authorization_url,
         )
+        real_google_extensions = (
+            ("authuser", "synthetic-real-shape-authuser"),
+            ("prompt", "synthetic-real-shape-prompt"),
+            ("scope", "synthetic-real-shape-scope"),
+        )
         callback = harness.transport.callback_for(
             prepared,
+            code="real-google-shape-invited-code",
+            extra_pairs=real_google_extensions,
             claims_overrides={
                 "email": email,
                 "email_verified": True,
             },
         )
-        first = complete_durable_google_oidc_authorization(
-            database.connection,
-            harness.gateway,
-            authority,
-            callback,
-            completion_policy(),
-            self.vault(),
-        )
+        original_validate = gateway_module._validated_code_id_token
+        with (
+            mock.patch.object(
+                durable_gateway_module,
+                "claim_google_oidc_authorization_transaction",
+                wraps=(
+                    durable_gateway_module
+                    .claim_google_oidc_authorization_transaction
+                ),
+            ) as first_claim,
+            mock.patch.object(
+                durable_gateway_module,
+                "_complete_claimed_authorization",
+                wraps=durable_gateway_module._complete_claimed_authorization,
+            ) as first_downstream,
+            mock.patch.object(
+                gateway_module,
+                "_validated_code_id_token",
+                side_effect=original_validate,
+            ) as first_id_token_validation,
+        ):
+            first = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
         self.assertEqual(first.status, "issued")
+        first_claim.assert_called_once()
+        first_downstream.assert_called_once()
+        first_id_token_validation.assert_called_once()
+        first_authoritative_callback = first_downstream.call_args.args[2]
+        self.assertEqual(
+            {
+                name
+                for name, _value in parse_qsl(
+                    urlsplit(first_authoritative_callback).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
+            },
+            {"code", "iss", "state"},
+        )
+        for extension_name, extension_value in real_google_extensions:
+            self.assertNotIn(extension_name, first_authoritative_callback)
+            self.assertNotIn(extension_value, first_authoritative_callback)
+            self.assertNotIn(
+                extension_value,
+                repr(first_id_token_validation.call_args),
+            )
+        self.assertEqual(harness.transport.token_request_count, 1)
+        self.assertEqual(harness.transport.jwks_request_count, 1)
         identity = database.connection.execute(
             "SELECT auth_identity_id, user_id, verified_email, email_verified "
             "FROM auth_identities WHERE provider = 'google' "
@@ -751,19 +910,33 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             harness.gateway,
             authority,
         )
+        future_extension = (
+            "future_provider_extension",
+            "synthetic-future-provider-extension",
+        )
         later_callback = harness.transport.callback_for(
             later,
             code="later-invited-login",
+            extra_pairs=(future_extension,),
             missing_claims=("email", "email_verified"),
         )
-        second = complete_durable_google_oidc_authorization(
-            database.connection,
-            harness.gateway,
-            authority,
-            later_callback,
-            completion_policy(),
-            self.vault(),
-        )
+        with mock.patch.object(
+            durable_gateway_module,
+            "_complete_claimed_authorization",
+            wraps=durable_gateway_module._complete_claimed_authorization,
+        ) as later_downstream:
+            second = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                later_callback,
+                completion_policy(),
+                self.vault(),
+            )
+        later_downstream.assert_called_once()
+        later_authoritative_callback = later_downstream.call_args.args[2]
+        self.assertNotIn(future_extension[0], later_authoritative_callback)
+        self.assertNotIn(future_extension[1], later_authoritative_callback)
         replay = complete_durable_google_oidc_authorization(
             database.connection,
             harness.gateway,
@@ -774,6 +947,8 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         )
         self.assertEqual(second.status, "issued")
         self.assertEqual(replay.status, "invalid_or_expired_transaction")
+        self.assertEqual(harness.transport.token_request_count, 2)
+        self.assertEqual(harness.transport.jwks_request_count, 1)
         self.assertEqual(
             database.connection.execute(
                 "SELECT COUNT(*) FROM users"
@@ -820,6 +995,13 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             )
         public = repr(first) + repr(second) + repr(replay)
         self.assertNotIn(invitation.invitation_token, public)
+        database_text = "\n".join(database.connection.iterdump())
+        for _extension_name, extension_value in (
+            *real_google_extensions,
+            future_extension,
+        ):
+            self.assertNotIn(extension_value, database_text)
+            self.assertNotIn(extension_value, public)
         prepared.close()
         later.close()
 
@@ -1417,25 +1599,52 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 )
                 self.assertEqual(harness.transport.token_request_count, 0)
 
-    def test_provider_denial_is_terminal_and_replay_never_reaches_provider(self):
+    def test_bounded_error_extensions_are_discarded_then_denial_is_terminal(self):
         database, authority, harness, prepared = self.prepare("denial")
+        state = authorization_parameters(prepared)["state"]
+        extension_pairs = (
+            ("authuser", "synthetic-error-authuser"),
+            ("hd", "synthetic-error-hd.invalid"),
+            ("prompt", "synthetic-error-prompt"),
+            ("scope", "synthetic-error-scope"),
+        )
         callback = harness.transport.callback_for(
             prepared,
             error="access_denied",
             extra_pairs=(
                 ("error_description", "authorization declined"),
                 ("error_uri", "https://accounts.google.com/error"),
+                *extension_pairs,
             ),
         )
-        vault = self.vault()
-        with mock.patch.object(
-            durable_gateway_module,
-            "claim_google_oidc_authorization_transaction",
-            wraps=(
-                durable_gateway_module
-                .claim_google_oidc_authorization_transaction
+        self.assertEqual(
+            len(
+                parse_qsl(
+                    urlsplit(callback).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
             ),
-        ) as claim:
+            gateway_module._CALLBACK_PARAMETER_LIMIT,
+        )
+        before_counts = self.mutation_snapshot(database.connection)[1]
+        vault = self.vault()
+        with (
+            mock.patch.object(
+                durable_gateway_module,
+                "claim_google_oidc_authorization_transaction",
+                wraps=(
+                    durable_gateway_module
+                    .claim_google_oidc_authorization_transaction
+                ),
+            ) as claim,
+            mock.patch.object(
+                durable_gateway_module,
+                "_complete_claimed_authorization",
+                wraps=durable_gateway_module._complete_claimed_authorization,
+            ) as downstream,
+            mock.patch("logging.Logger._log") as logger,
+        ):
             result = complete_durable_google_oidc_authorization(
                 database.connection,
                 harness.gateway,
@@ -1446,8 +1655,47 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             )
         self.assertEqual(result.status, "authentication_denied")
         claim.assert_called_once()
+        downstream.assert_called_once()
+        logger.assert_not_called()
+        authoritative_callback = downstream.call_args.args[2]
+        authoritative_pairs = parse_qsl(
+            urlsplit(authoritative_callback).query,
+            keep_blank_values=True,
+            strict_parsing=True,
+        )
+        self.assertEqual(len(authoritative_pairs), 5)
+        authoritative_names = [name for name, _value in authoritative_pairs]
+        self.assertEqual(
+            sorted(authoritative_names),
+            sorted(
+                ("error", "error_description", "error_uri", "iss", "state")
+            ),
+        )
+        authoritative_values = dict(authoritative_pairs)
+        self.assertEqual(
+            authoritative_values,
+            {
+                "error": "access_denied",
+                "error_description": "authorization declined",
+                "error_uri": "https://accounts.google.com/error",
+                "iss": "https://accounts.google.com",
+                "state": state,
+            },
+        )
+        for extension_name, extension_value in extension_pairs:
+            self.assertNotIn(extension_name, authoritative_names)
+            self.assertNotIn(extension_value, repr(result))
+            self.assertNotIn(
+                extension_value,
+                "\n".join(database.connection.iterdump()),
+            )
         self.assertEqual(transaction_rows(database.connection)[0]["lifecycle"], "consumed")
+        self.assertEqual(
+            self.mutation_snapshot(database.connection)[1],
+            before_counts,
+        )
         self.assertEqual(harness.transport.token_request_count, 0)
+        self.assertEqual(harness.transport.jwks_request_count, 0)
         replay = complete_durable_google_oidc_authorization(
             database.connection,
             harness.gateway,
@@ -1459,7 +1707,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(replay.status, "invalid_or_expired_transaction")
         self.assertEqual(harness.transport.token_request_count, 0)
 
-    def test_exact_response_issuer_and_query_order_reach_claim_and_fake_provider(self):
+    def test_real_google_six_field_success_reaches_claim_and_fake_provider(self):
         database, authority, harness, prepared = self.prepare(
             "exact-response-issuer"
         )
@@ -1467,18 +1715,45 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         code = "exact-response-issuer-code"
         harness.transport.callback_for(prepared, code=code)
         callback = self.callback_url(
-            ("iss", "https://accounts.google.com"),
+            ("prompt", "synthetic-real-prompt"),
             ("state", state),
+            ("authuser", "synthetic-real-authuser"),
+            ("iss", "https://accounts.google.com"),
+            ("scope", "synthetic-real-scope"),
             ("code", code),
         )
-        with mock.patch.object(
-            durable_gateway_module,
-            "claim_google_oidc_authorization_transaction",
-            wraps=(
-                durable_gateway_module
-                .claim_google_oidc_authorization_transaction
-            ),
-        ) as claim:
+        self.assertEqual(
+            {
+                name
+                for name, _value in parse_qsl(
+                    urlsplit(callback).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
+            },
+            {"authuser", "code", "iss", "prompt", "scope", "state"},
+        )
+        original_validate = gateway_module._validated_code_id_token
+        with (
+            mock.patch.object(
+                durable_gateway_module,
+                "claim_google_oidc_authorization_transaction",
+                wraps=(
+                    durable_gateway_module
+                    .claim_google_oidc_authorization_transaction
+                ),
+            ) as claim,
+            mock.patch.object(
+                durable_gateway_module,
+                "_complete_claimed_authorization",
+                wraps=durable_gateway_module._complete_claimed_authorization,
+            ) as downstream,
+            mock.patch.object(
+                gateway_module,
+                "_validated_code_id_token",
+                side_effect=original_validate,
+            ) as validate_id_token,
+        ):
             result = complete_durable_google_oidc_authorization(
                 database.connection,
                 harness.gateway,
@@ -1489,12 +1764,52 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             )
         self.assertEqual(result.status, "issued")
         claim.assert_called_once()
+        self.assertEqual(claim.call_args.args[3], state)
+        downstream.assert_called_once()
+        validate_id_token.assert_called_once()
+        authoritative_callback = downstream.call_args.args[2]
+        self.assertEqual(
+            {
+                name
+                for name, _value in parse_qsl(
+                    urlsplit(authoritative_callback).query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                )
+            },
+            {"code", "iss", "state"},
+        )
+        for extension_value in (
+            "synthetic-real-authuser",
+            "synthetic-real-prompt",
+            "synthetic-real-scope",
+        ):
+            self.assertNotIn(extension_value, authoritative_callback)
+            self.assertNotIn(extension_value, repr(validate_id_token.call_args))
+            self.assertNotIn(
+                extension_value,
+                "\n".join(database.connection.iterdump()),
+            )
         self.assertEqual(
             transaction_rows(database.connection)[0]["lifecycle"],
             "consumed",
         )
         self.assertEqual(harness.transport.token_request_count, 1)
         self.assertEqual(harness.transport.jwks_request_count, 1)
+
+    def test_google_hd_extension_reaches_claim_and_is_discarded(self):
+        self.assert_success_extension_reaches_claim_and_is_discarded(
+            "google-hd-extension",
+            "hd",
+            "synthetic-google-hd.invalid",
+        )
+
+    def test_generic_future_extension_reaches_claim_and_is_discarded(self):
+        self.assert_success_extension_reaches_claim_and_is_discarded(
+            "generic-future-extension",
+            "future_provider_extension",
+            "synthetic-generic-future-extension",
+        )
 
     def test_missing_duplicate_blank_and_nonexact_response_issuers_stop_preclaim(self):
         issuer_cases = (
@@ -1550,7 +1865,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             ),
         )
 
-    def test_success_field_inventory_and_cardinality_stop_preclaim(self):
+    def test_success_critical_shape_and_field_count_overflow_stop_preclaim(self):
         cases = (
             (
                 "missing_state",
@@ -1601,12 +1916,12 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 ),
             ),
             (
-                "unknown_field",
+                "field_count_overflow",
                 lambda _harness, _prepared, state: self.callback_url(
                     ("state", state),
-                    ("code", "unknown-field"),
+                    ("code", "field-count-overflow"),
                     ("iss", "https://accounts.google.com"),
-                    ("scope", "openid"),
+                    *((f"extension_{index}", str(index)) for index in range(7)),
                 ),
             ),
         )
@@ -1616,6 +1931,17 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                     f"success-shape-{name}",
                     callback_factory,
                 )
+
+    def test_duplicate_decoded_extension_name_stops_preclaim(self):
+        self.assert_preclaim_rejection(
+            "duplicate-decoded-extension",
+            lambda _harness, _prepared, state: (
+                REDIRECT_URI
+                + f"?state={state}&code=duplicate-extension"
+                + "&iss=https%3A%2F%2Faccounts.google.com"
+                + "&future_extension=first&%66uture_extension=second"
+            ),
+        )
 
     def test_error_response_issuer_failures_stop_before_claim(self):
         cases = (
