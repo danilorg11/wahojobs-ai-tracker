@@ -69,6 +69,52 @@ _SHUTDOWN_RESOURCE_CATEGORIES = frozenset(
 )
 
 
+class _GoogleCallbackFailureStderrWriter:
+    """App-owned, synchronized writer for one fixed diagnostic line."""
+
+    __slots__ = ("__allowed_lines", "__lock", "__stream")
+
+    def __init__(self, stream):
+        from wahojobs.google_oidc_gateway import (
+            _GOOGLE_CALLBACK_FAILURE_EVENT_MAX_BYTES,
+            _GOOGLE_CALLBACK_FAILURE_LINES_V1,
+            _GOOGLE_CALLBACK_FAILURE_MAX_LINE_BYTES_V1,
+        )
+
+        if (
+            type(_GOOGLE_CALLBACK_FAILURE_LINES_V1) is not frozenset
+            or _GOOGLE_CALLBACK_FAILURE_MAX_LINE_BYTES_V1 != 131
+            or _GOOGLE_CALLBACK_FAILURE_MAX_LINE_BYTES_V1
+            > _GOOGLE_CALLBACK_FAILURE_EVENT_MAX_BYTES
+        ):
+            raise RuntimeError("google_callback_failure_event_contract_invalid")
+        self.__allowed_lines = _GOOGLE_CALLBACK_FAILURE_LINES_V1
+        self.__stream = stream
+        self.__lock = threading.Lock()
+
+    def __call__(self, line):
+        if type(line) is not str or line not in self.__allowed_lines:
+            return False
+        payload = line + "\n"
+        if (
+            len(payload.encode("ascii")) > 256
+            or not payload.endswith("\n")
+            or payload.endswith("\n\n")
+        ):
+            return False
+        with self.__lock:
+            self.__stream.write(payload)
+            self.__stream.flush()
+        payload = None
+        line = None
+        return True
+
+    def __repr__(self):
+        return "_GoogleCallbackFailureStderrWriter(<configured>)"
+
+    __str__ = __repr__
+
+
 class _ServerCleanupFailure(Exception):
     __slots__ = ()
 
@@ -2894,8 +2940,12 @@ def main(
         prepare_durable_google_login_activation,
     )
 
+    callback_failure_writer = None
     handoff_reservation = None
     try:
+        callback_failure_writer = _GoogleCallbackFailureStderrWriter(
+            sys.stderr
+        )
         handoff_reservation = _new_activation_handoff_reservation()
         _reserve_activation_handoff(handoff_reservation)
     except (KeyboardInterrupt, SystemExit, GeneratorExit):
@@ -3034,6 +3084,9 @@ def main(
                 _cleanup_coordinator=coordinator,
                 _checkpoint=_checkpoint_observer,
                 _handoff_reservation=handoff_reservation,
+                _callback_failure_telemetry_sink=(
+                    callback_failure_writer
+                ),
             )
             configuration = pending.configuration
             browser_integration = pending.browser_integration
@@ -3461,6 +3514,7 @@ def main(
             _sanitize_launcher_exception(exc)
             exc = None
 
+    callback_failure_writer = None
     if primary_control is not None:
         propagated = primary_control
         primary_control = None

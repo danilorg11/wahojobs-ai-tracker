@@ -12,6 +12,7 @@ import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 
 
 PROVIDERS = {"google"}
@@ -100,6 +101,21 @@ class InvalidAccountInput(AccountError):
 class AuthenticationUnavailable(AccountError):
     def __init__(self):
         super().__init__("Authentication could not be completed.")
+
+
+class _InvitedUserDenialReason(Enum):
+    VERIFIED_EMAIL_REJECTED = "verified_email_rejected"
+    INVITATION_EMAIL_AGREEMENT_REJECTED = (
+        "invitation_email_agreement_rejected"
+    )
+    ACCOUNT_COMPLETION_REJECTED = "account_completion_rejected"
+
+
+class _InvitedUserDenialCapture:
+    __slots__ = ("reason",)
+
+    def __init__(self):
+        self.reason = _InvitedUserDenialReason.ACCOUNT_COMPLETION_REJECTED
 
 
 class SessionUnavailable(AccountError):
@@ -231,14 +247,105 @@ class AccountService:
         self._identity_verifier = identity_verifier
 
     def create_invited_user(self, conn, **kwargs):
-        return _create_invited_user(
-            conn, identity_verifier=self._identity_verifier, **kwargs
-        )
+        outcome = None
+        try:
+            outcome = _classified_invited_user_completion(
+                self._identity_verifier,
+                conn,
+                kwargs,
+            )
+        finally:
+            for name in tuple(kwargs):
+                kwargs[name] = None
+            kwargs.clear()
+            conn = None
+        if type(outcome) is _InvitedUserDenialReason:
+            outcome = None
+            raise AuthenticationUnavailable() from None
+        return outcome
+
+    def _create_invited_user_for_google_oidc(self, conn, **kwargs):
+        outcome = None
+        try:
+            outcome = _classified_invited_user_completion(
+                self._identity_verifier,
+                conn,
+                kwargs,
+            )
+        finally:
+            for name in tuple(kwargs):
+                kwargs[name] = None
+            kwargs.clear()
+            conn = None
+        return outcome
 
     def link_verified_identity(self, conn, **kwargs):
         return _link_verified_identity(
             conn, identity_verifier=self._identity_verifier, **kwargs
         )
+
+
+def _classified_invited_user_completion(identity_verifier, conn, arguments):
+    capture = _InvitedUserDenialCapture()
+    created = None
+    denial = None
+    try:
+        created = _create_invited_user(
+            conn,
+            identity_verifier=identity_verifier,
+            _denial_capture=capture,
+            **arguments,
+        )
+    except AuthenticationUnavailable as exc:
+        denial = capture.reason
+        _detach_account_exception(exc)
+    finally:
+        for name in tuple(arguments):
+            arguments[name] = None
+        arguments.clear()
+        capture.reason = None
+        capture = None
+        identity_verifier = None
+        conn = None
+    if type(denial) is _InvitedUserDenialReason:
+        created = None
+        return denial
+    denial = None
+    return created
+
+
+def _mark_invited_user_denial(capture, reason):
+    if (
+        type(capture) is not _InvitedUserDenialCapture
+        or type(reason) is not _InvitedUserDenialReason
+    ):
+        raise TypeError("invited_user_denial_classification_invalid")
+    capture.reason = reason
+
+
+def _detach_account_exception(exc):
+    linked = ()
+    try:
+        linked = (exc.__cause__, exc.__context__)
+    except (AttributeError, TypeError):
+        linked = ()
+    try:
+        exc.__traceback__ = None
+        exc.__cause__ = None
+        exc.__context__ = None
+    except (AttributeError, TypeError):
+        pass
+    for item in linked:
+        if isinstance(item, BaseException) and item is not exc:
+            try:
+                item.__traceback__ = None
+                item.__cause__ = None
+                item.__context__ = None
+            except (AttributeError, TypeError):
+                pass
+        item = None
+    linked = ()
+    exc = None
 
 
 @dataclass(frozen=True)
@@ -619,6 +726,7 @@ def _create_invited_user(
     conn,
     *,
     identity_verifier: TrustedIdentityVerifier,
+    _denial_capture: _InvitedUserDenialCapture,
     identity: VerifiedProviderIdentity,
     invitation_token: str,
     invitation_lookup_key: bytes,
@@ -629,11 +737,23 @@ def _create_invited_user(
 ) -> CreatedUser:
     identity = _trusted_identity(identity, identity_verifier)
     if not identity.email_verified or identity.verified_email is None:
+        _mark_invited_user_denial(
+            _denial_capture,
+            _InvitedUserDenialReason.VERIFIED_EMAIL_REJECTED,
+        )
         raise AuthenticationUnavailable()
     now = _now(now)
     idempotency_key = _idempotency_key(idempotency_key)
     normalized_email = normalize_email(identity.verified_email)
-    invitation_id, raw_secret = _invitation_token(invitation_token)
+    try:
+        invitation_id, raw_secret = _invitation_token(invitation_token)
+    except AuthenticationUnavailable as exc:
+        _mark_invited_user_denial(
+            _denial_capture,
+            _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+        )
+        _detach_account_exception(exc)
+        raise AuthenticationUnavailable() from None
     try:
         secret_hash = invitation_secret_hmac(
             raw_secret, invitation_lookup_key, version=invitation_hash_version
@@ -642,7 +762,12 @@ def _create_invited_user(
             normalized_email, invitation_lookup_key, version=invitation_hash_version
         )
     except InvalidAccountInput as exc:
-        raise AuthenticationUnavailable() from exc
+        _mark_invited_user_denial(
+            _denial_capture,
+            _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+        )
+        _detach_account_exception(exc)
+        raise AuthenticationUnavailable() from None
     user_id = _random_id("usr")
     identity_id = _random_id("auth")
     occurred_at = _timestamp(now)
@@ -664,6 +789,10 @@ def _create_invited_user(
                 (invitation_id,),
             ).fetchone()
             if invitation is None:
+                _mark_invited_user_denial(
+                    _denial_capture,
+                    _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+                )
                 raise AuthenticationUnavailable()
             secret_matches = hmac.compare_digest(
                 invitation["invitation_secret_hmac"], secret_hash
@@ -676,6 +805,10 @@ def _create_invited_user(
                 or not secret_matches
                 or not email_matches
             ):
+                _mark_invited_user_denial(
+                    _denial_capture,
+                    _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+                )
                 raise AuthenticationUnavailable()
             existing_identity = conn.execute(
                 "SELECT * FROM auth_identities WHERE link_idempotency_key = ?",
@@ -687,6 +820,10 @@ def _create_invited_user(
                     or existing_identity["request_fingerprint"] != fingerprint
                     or invitation["consumed_by_user_id"] != existing_identity["user_id"]
                 ):
+                    _mark_invited_user_denial(
+                        _denial_capture,
+                        _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+                    )
                     raise AuthenticationUnavailable()
                 return CreatedUser(
                     _public_user(_user_row(conn, existing_identity["user_id"])),
@@ -697,6 +834,10 @@ def _create_invited_user(
                 invitation["invitation_status"] != "pending"
                 or _parse_timestamp(invitation["expires_at"]) <= now
             ):
+                _mark_invited_user_denial(
+                    _denial_capture,
+                    _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+                )
                 raise AuthenticationUnavailable()
             conn.execute(
                 """
@@ -750,6 +891,10 @@ def _create_invited_user(
                 (occurred_at, user_id, invitation["invitation_id"]),
             )
             if cursor.rowcount != 1:
+                _mark_invited_user_denial(
+                    _denial_capture,
+                    _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+                )
                 raise AuthenticationUnavailable()
             _inject(failure_injector, "after_invitation_consumption")
             user = _public_user(_user_row(conn, user_id))
@@ -761,7 +906,12 @@ def _create_invited_user(
             del event
             return CreatedUser(user, public_identity, invitation["invitation_id"])
     except sqlite3.IntegrityError as exc:
-        raise AuthenticationUnavailable() from exc
+        _mark_invited_user_denial(
+            _denial_capture,
+            _InvitedUserDenialReason.ACCOUNT_COMPLETION_REJECTED,
+        )
+        _detach_account_exception(exc)
+        raise AuthenticationUnavailable() from None
 
 
 def _link_verified_identity(

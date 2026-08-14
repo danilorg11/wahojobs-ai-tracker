@@ -141,6 +141,102 @@ class GoogleOidcGatewayConcurrencyTests(unittest.TestCase):
                 harness.transport.release.set()
                 harness.close()
 
+    def test_concurrent_terminal_denial_physically_emits_once_and_replay_emits_nothing(self):
+        from scripts.durable_google_login_app import (
+            _GoogleCallbackFailureStderrWriter,
+        )
+
+        class Stream:
+            def __init__(self):
+                self.write_calls = []
+                self.flush_calls = 0
+
+            def write(self, value):
+                self.write_calls.append(value)
+
+            def flush(self):
+                self.flush_calls += 1
+
+        with gateway_database(suffix="oidc-concurrent-denial-telemetry") as database:
+            stream = Stream()
+            writer = _GoogleCallbackFailureStderrWriter(stream)
+            harness = make_fake_gateway(
+                subject=database.subject,
+                outcomes=("authentication_denied",),
+                block=True,
+            )
+            gateway_module._configure_callback_failure_telemetry(
+                harness.gateway,
+                writer,
+            )
+            policy = completion_policy()
+            prepared = harness.gateway.prepare_authorization()
+            callback = harness.transport.callback_for(prepared)
+
+            def worker():
+                connection = connect(database.path, timeout=5.0)
+                try:
+                    return self._complete(
+                        harness,
+                        connection,
+                        prepared,
+                        policy,
+                        callback,
+                    )
+                finally:
+                    connection.close()
+
+            try:
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    winner = pool.submit(worker)
+                    self.assertTrue(
+                        harness.transport.entered.wait(timeout=5.0)
+                    )
+                    replay = pool.submit(worker)
+                    replay_outcome = replay.result(timeout=5.0)
+                    harness.transport.release.set()
+                    winner_outcome = winner.result(timeout=10.0)
+
+                self.assertEqual(
+                    winner_outcome[:3],
+                    ("authentication_denied", False, 0),
+                )
+                self.assertEqual(
+                    replay_outcome[:3],
+                    ("invalid_or_expired_transaction", False, 0),
+                )
+                self.assertEqual(harness.transport.call_count, 1)
+                self.assertEqual(prepared.transaction.status, "consumed")
+                expected_line = (
+                    gateway_module._GOOGLE_CALLBACK_FAILURE_EVENTS_V1[
+                        gateway_module._GoogleCallbackFailureStageV1
+                        .TOKEN_EXCHANGE_OAUTH_REJECTED
+                    ]
+                    + "\n"
+                )
+                self.assertEqual(
+                    stream.write_calls,
+                    [expected_line],
+                )
+                self.assertEqual(stream.flush_calls, 1)
+
+                later_replay = worker()
+                self.assertEqual(
+                    later_replay[:3],
+                    ("invalid_or_expired_transaction", False, 0),
+                )
+                self.assertEqual(stream.write_calls, [expected_line])
+                self.assertEqual(stream.flush_calls, 1)
+                self.assertEqual(
+                    database.connection.execute(
+                        "SELECT COUNT(*) FROM account_sessions"
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                harness.transport.release.set()
+                harness.close()
+
     def test_durable_suspension_or_disablement_before_b2d1_denies_login(self):
         for mutation in ("suspend_account", "disable_identity"):
             with self.subTest(mutation=mutation):

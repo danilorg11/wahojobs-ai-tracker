@@ -671,6 +671,64 @@ No authorization-transaction write lock spans browser binding, provider work,
 identity lookup, proof issuance, B2D1, response construction, or response
 delivery.
 
+## Server-private callback failure-stage diagnostics
+
+Post-binding callback failures that remain public
+`authentication_denied` responses have one diagnostic-only, server-private
+classification. The browser contract is unchanged: it still receives HTTP
+`401`, the generic “Google sign-in was not accepted” page, transaction-cookie
+clearing, and no internal stage, provider detail, or credential. The closed
+version-1 stage set is exactly:
+
+- `provider_authorization_error`;
+- `token_exchange_oauth_rejected`;
+- `token_response_rejected`;
+- `id_token_key_or_signature_rejected`;
+- `id_token_claims_rejected`;
+- `verified_email_rejected`;
+- `invitation_email_agreement_rejected`; and
+- `account_completion_rejected`.
+
+Each terminal denial attempts one fixed ASCII JSON line on the launcher-owned
+standard-error stream:
+
+```json
+{"frame":"google_callback_failure_stage_v1","stage":"<fixed-enum>","public_status":"authentication_denied"}
+```
+
+The event map is immutable and precomputed. The largest JSON payload is 130
+bytes; the writer appends exactly one LF, so the largest line is 131 bytes,
+below the fixed 256-byte limit. The production launcher captures one explicit
+stderr stream, serializes writers with a private lock, performs one `write()`
+and one synchronous `flush()` per attempted event, and never uses Python
+logging, ambient handlers, propagation, or formatters. It does not retry an
+uncertain write or flush. A sink, lock, write, or flush failure—including a
+`BaseException`—is discarded without a traceback, fallback message, or effect
+on authentication, transaction terminality, invitation/account/session state,
+or the browser response.
+
+Only fixed enum values cross the account-to-Google classification boundary.
+Secret-bearing invitation/account work reduces an expected denial to one of
+three scalar reasons, detaches the original exception graph, clears
+request-derived helper references, and raises a fresh unchanged public
+`AuthenticationUnavailable` outside that context when the public account API
+is used. The account layer never emits the Google diagnostic itself; the
+Google callback layer is the sole logical emission authority.
+
+The line contains no callback names or values, authorization code, state,
+PKCE, nonce, Cookie, provider body or OAuth text, token or claim, email,
+invitation material, lookup key, identity/account/principal/session identifier,
+exception type, message, or free-form text. Nothing is persisted to SQLite or
+another store, and telemetry performs no network request. Successful invited
+login and later invitation-free login emit nothing. Preclaim rejection and
+terminal replay emit nothing. Token/JWKS infrastructure failures retain their
+existing public HTTP `503` paths and emit no authentication-denial stage.
+
+This facility is bounded, best-effort diagnostics only; it grants no authority
+and changes no accept/reject decision. The controlled real-Google rehearsal has
+not yet succeeded, so a later authorized rehearsal is still required to obtain
+the first real stage event.
+
 ## Sealed response-delivery lease
 
 An exact successful B2D1 result contains one issued browser session and

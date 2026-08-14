@@ -235,6 +235,159 @@ class IdentityInvitationTests(AccountsServiceTestCase):
         )
         self.assertEqual({tuple(item[2]) for item in errors}, {()})
 
+    def test_invited_user_denials_are_scalar_and_public_exception_graph_is_secret_free(self):
+        for removed_name in (
+            "_VerifiedEmailUnavailable",
+            "_InvitationEmailAgreementUnavailable",
+            "_AccountCompletionUnavailable",
+        ):
+            self.assertFalse(hasattr(accounts, removed_name))
+
+        email = "sentinel-verified-email@example.test"
+        subject = "SENTINEL_IDENTITY_SUBJECT"
+        lookup_key = b"SENTINEL_LOOKUP_KEY_MATERIAL_32_BYTES_MINIMUM"
+        idempotency_key = "SENTINEL_ACCOUNT_PRINCIPAL_SESSION_IDENTIFIER"
+        sqlite_message = "SENTINEL_SQLITE_INTEGRITY_MESSAGE"
+        creation = accounts.create_invitation(
+            self.conn,
+            email=email,
+            lookup_key=lookup_key,
+            expires_at=NOW + timedelta(days=1),
+            created_by="test_admin",
+            idempotency_key="sentinel-invitation-create",
+            now=NOW,
+        )
+        identity = IDENTITY_VERIFIER.from_validated_google_claims(
+            provider_subject=subject,
+            verified_email=email,
+            email_verified=True,
+            authenticated_at=NOW,
+            metadata_version="google_oidc_v1",
+        )
+
+        def inject(stage):
+            if stage == "after_user_insert":
+                raise sqlite3.IntegrityError(sqlite_message)
+
+        private = ACCOUNT_SERVICE._create_invited_user_for_google_oidc(
+            self.conn,
+            identity=identity,
+            invitation_token=creation.invitation_token,
+            invitation_lookup_key=lookup_key,
+            idempotency_key=idempotency_key,
+            now=NOW,
+            failure_injector=inject,
+        )
+        self.assertIs(
+            private,
+            accounts._InvitedUserDenialReason.ACCOUNT_COMPLETION_REJECTED,
+        )
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM users").fetchone()[0],
+            0,
+        )
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT invitation_status FROM account_invitations "
+                "WHERE invitation_id = ?",
+                (creation.invitation.invitation_id,),
+            ).fetchone()[0],
+            "pending",
+        )
+
+        try:
+            ACCOUNT_SERVICE.create_invited_user(
+                self.conn,
+                identity=identity,
+                invitation_token=creation.invitation_token,
+                invitation_lookup_key=lookup_key,
+                idempotency_key=idempotency_key,
+                now=NOW,
+                failure_injector=inject,
+            )
+        except accounts.AuthenticationUnavailable as exc:
+            public_error = exc
+        else:
+            self.fail("Expected a public authentication denial")
+
+        self.assertIs(type(public_error), accounts.AuthenticationUnavailable)
+        self.assertEqual(
+            public_error.args,
+            ("Authentication could not be completed.",),
+        )
+        self.assertEqual(public_error.__dict__, {})
+        self.assertIsNone(public_error.__cause__)
+        self.assertIsNone(public_error.__context__)
+
+        account_frames = []
+        traceback = public_error.__traceback__
+        while traceback is not None:
+            if (
+                traceback.tb_frame.f_globals.get("__name__")
+                == "wahojobs.accounts"
+            ):
+                account_frames.append(dict(traceback.tb_frame.f_locals))
+            traceback = traceback.tb_next
+        self.assertEqual(len(account_frames), 1)
+        self.assertEqual(
+            account_frames[0].get("kwargs"),
+            {},
+        )
+        self.assertIsNone(account_frames[0].get("conn"))
+        self.assertIsNone(account_frames[0].get("outcome"))
+
+        retained = (
+            repr(private)
+            + repr(public_error.args)
+            + repr(public_error.__dict__)
+            + repr(account_frames)
+        )
+        sentinels = (
+            email,
+            subject,
+            lookup_key.decode("ascii"),
+            idempotency_key,
+            sqlite_message,
+            creation.invitation_token,
+            creation.invitation.invitation_id,
+        )
+        for sentinel in sentinels:
+            with self.subTest(sentinel=sentinel):
+                self.assertNotIn(sentinel, retained)
+
+        unverified = IDENTITY_VERIFIER.from_validated_google_claims(
+            provider_subject="sentinel-unverified-subject",
+            verified_email=None,
+            email_verified=False,
+            authenticated_at=NOW,
+            metadata_version="google_oidc_v1",
+        )
+        self.assertIs(
+            ACCOUNT_SERVICE._create_invited_user_for_google_oidc(
+                self.conn,
+                identity=unverified,
+                invitation_token=creation.invitation_token,
+                invitation_lookup_key=lookup_key,
+                idempotency_key="sentinel-unverified-attempt",
+                now=NOW,
+            ),
+            accounts._InvitedUserDenialReason.VERIFIED_EMAIL_REJECTED,
+        )
+        self.assertIs(
+            ACCOUNT_SERVICE._create_invited_user_for_google_oidc(
+                self.conn,
+                identity=identity,
+                invitation_token="malformed-invitation-sentinel",
+                invitation_lookup_key=lookup_key,
+                idempotency_key="sentinel-agreement-attempt",
+                now=NOW,
+            ),
+            (
+                accounts._InvitedUserDenialReason
+                .INVITATION_EMAIL_AGREEMENT_REJECTED
+            ),
+        )
+
     def test_concurrent_invitation_consumption_creates_one_user(self):
         creation = self.invite("race@example.test", "race")
         self.conn.close()

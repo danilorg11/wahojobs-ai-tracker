@@ -4341,6 +4341,29 @@ class _PendingDurableGoogleLoginActivation:
             connections = self._connections
         return connections.require_database_lifetime_ownership()
 
+    def _configure_callback_failure_telemetry(self, sink):
+        _require_current_database_process(self._process_epoch)
+        if not callable(sink):
+            raise DurableGoogleLoginConfigurationError()
+        with self._condition:
+            if self._state != "pending" or self._shutdown_requested:
+                raise DurableGoogleLoginConfigurationError()
+            gateway = self._gateway
+        try:
+            from wahojobs.google_oidc_gateway import (
+                _configure_callback_failure_telemetry,
+            )
+
+            _configure_callback_failure_telemetry(gateway, sink)
+            return True
+        except (KeyboardInterrupt, SystemExit, GeneratorExit):
+            raise
+        except Exception:
+            raise DurableGoogleLoginConfigurationError() from None
+        finally:
+            gateway = None
+            sink = None
+
     def complete_activation(self):
         _require_current_database_process(self._process_epoch)
         activation_claimed = False
@@ -4942,9 +4965,15 @@ def prepare_durable_google_login_activation(
     _cleanup_coordinator=None,
     _checkpoint=None,
     _handoff_reservation=None,
+    _callback_failure_telemetry_sink=None,
 ):
     """Construct private authorities without publishing the ready runtime."""
 
+    if (
+        _callback_failure_telemetry_sink is not None
+        and not callable(_callback_failure_telemetry_sink)
+    ):
+        raise DurableGoogleLoginConfigurationError()
     owns_handoff_reservation = _handoff_reservation is None
     handoff_reservation = (
         _new_activation_handoff_reservation()
@@ -4987,6 +5016,10 @@ def prepare_durable_google_login_activation(
                 outcome,
             )
             result = _publish_configuration_worker_outcome(outcome)
+            if _callback_failure_telemetry_sink is not None:
+                result._configure_callback_failure_telemetry(
+                    _callback_failure_telemetry_sink
+                )
             configuration_path = None
             _clock = None
             _gateway_factory = None
@@ -4995,6 +5028,7 @@ def prepare_durable_google_login_activation(
             _cleanup_coordinator = None
             _checkpoint = None
             _handoff_reservation = None
+            _callback_failure_telemetry_sink = None
     except (KeyboardInterrupt, SystemExit, GeneratorExit):
         if outcome is not None:
             _close_worker_outcome_value_preserving_primary(outcome)
@@ -5020,6 +5054,7 @@ def prepare_durable_google_login_activation(
                     handoff_reservation
                 )
             handoff_reservation = None
+            _callback_failure_telemetry_sink = None
             return result
         except (
             KeyboardInterrupt,

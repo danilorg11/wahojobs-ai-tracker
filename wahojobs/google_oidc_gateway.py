@@ -19,6 +19,8 @@ import threading
 import time
 import weakref
 from datetime import datetime, timedelta, timezone
+from enum import Enum
+from types import MappingProxyType
 from urllib.parse import parse_qsl, unquote_to_bytes, urlencode, urlsplit
 
 from wahojobs.account_reconciliation import (
@@ -31,6 +33,7 @@ from wahojobs.accounts import (
     AuthenticationUnavailable,
     InvalidAccountInput,
     TrustedIdentityVerifier,
+    _InvitedUserDenialReason,
 )
 from wahojobs.google_oidc_authorization_transactions import (
     MAX_DURABLE_CONFIGURATION_CONTEXT_BYTES,
@@ -115,8 +118,111 @@ _DURABLE_STATE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _PREPARATION_ISSUANCE_CAPABILITY = object()
 _FAILURE_ISSUANCE_CAPABILITY = object()
 
+
+class _GoogleCallbackFailureStageV1(Enum):
+    PROVIDER_AUTHORIZATION_ERROR = "provider_authorization_error"
+    TOKEN_EXCHANGE_OAUTH_REJECTED = "token_exchange_oauth_rejected"
+    TOKEN_RESPONSE_REJECTED = "token_response_rejected"
+    ID_TOKEN_KEY_OR_SIGNATURE_REJECTED = (
+        "id_token_key_or_signature_rejected"
+    )
+    ID_TOKEN_CLAIMS_REJECTED = "id_token_claims_rejected"
+    VERIFIED_EMAIL_REJECTED = "verified_email_rejected"
+    INVITATION_EMAIL_AGREEMENT_REJECTED = (
+        "invitation_email_agreement_rejected"
+    )
+    ACCOUNT_COMPLETION_REJECTED = "account_completion_rejected"
+
+
+_GOOGLE_CALLBACK_FAILURE_FRAME_V1 = "google_callback_failure_stage_v1"
+_GOOGLE_CALLBACK_FAILURE_EVENT_MAX_BYTES = 256
+_GOOGLE_CALLBACK_FAILURE_EVENTS_V1 = MappingProxyType(
+    {
+        stage: json.dumps(
+            {
+                "frame": _GOOGLE_CALLBACK_FAILURE_FRAME_V1,
+                "stage": stage.value,
+                "public_status": "authentication_denied",
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        for stage in _GoogleCallbackFailureStageV1
+    }
+)
+_GOOGLE_CALLBACK_FAILURE_LINES_V1 = frozenset(
+    _GOOGLE_CALLBACK_FAILURE_EVENTS_V1.values()
+)
+_INVITED_USER_DENIAL_STAGES_V1 = MappingProxyType(
+    {
+        _InvitedUserDenialReason.VERIFIED_EMAIL_REJECTED: (
+            _GoogleCallbackFailureStageV1.VERIFIED_EMAIL_REJECTED
+        ),
+        _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED: (
+            _GoogleCallbackFailureStageV1.INVITATION_EMAIL_AGREEMENT_REJECTED
+        ),
+        _InvitedUserDenialReason.ACCOUNT_COMPLETION_REJECTED: (
+            _GoogleCallbackFailureStageV1.ACCOUNT_COMPLETION_REJECTED
+        ),
+    }
+)
+_GOOGLE_CALLBACK_FAILURE_MAX_JSON_BYTES_V1 = max(
+    len(event.encode("ascii"))
+    for event in _GOOGLE_CALLBACK_FAILURE_EVENTS_V1.values()
+)
+_GOOGLE_CALLBACK_FAILURE_MAX_LINE_BYTES_V1 = max(
+    len((event + "\n").encode("ascii"))
+    for event in _GOOGLE_CALLBACK_FAILURE_EVENTS_V1.values()
+)
+if (
+    _GOOGLE_CALLBACK_FAILURE_MAX_JSON_BYTES_V1 != 130
+    or _GOOGLE_CALLBACK_FAILURE_MAX_LINE_BYTES_V1 != 131
+    or _GOOGLE_CALLBACK_FAILURE_MAX_LINE_BYTES_V1
+    > _GOOGLE_CALLBACK_FAILURE_EVENT_MAX_BYTES
+    or len(_GOOGLE_CALLBACK_FAILURE_LINES_V1)
+    != len(_GoogleCallbackFailureStageV1)
+    or set(_INVITED_USER_DENIAL_STAGES_V1)
+    != set(_InvitedUserDenialReason)
+):
+    raise RuntimeError("google_callback_failure_event_contract_invalid")
+
+
 class _AuthenticationDenied(Exception):
-    pass
+    stage = None
+
+
+class _ProviderAuthorizationError(_AuthenticationDenied):
+    stage = _GoogleCallbackFailureStageV1.PROVIDER_AUTHORIZATION_ERROR
+
+
+class _TokenExchangeOauthRejected(_AuthenticationDenied):
+    stage = _GoogleCallbackFailureStageV1.TOKEN_EXCHANGE_OAUTH_REJECTED
+
+
+class _TokenResponseRejected(_AuthenticationDenied):
+    stage = _GoogleCallbackFailureStageV1.TOKEN_RESPONSE_REJECTED
+
+
+class _IdTokenKeyOrSignatureRejected(_AuthenticationDenied):
+    stage = _GoogleCallbackFailureStageV1.ID_TOKEN_KEY_OR_SIGNATURE_REJECTED
+
+
+class _IdTokenClaimsRejected(_AuthenticationDenied):
+    stage = _GoogleCallbackFailureStageV1.ID_TOKEN_CLAIMS_REJECTED
+
+
+class _VerifiedEmailRejected(_AuthenticationDenied):
+    stage = _GoogleCallbackFailureStageV1.VERIFIED_EMAIL_REJECTED
+
+
+class _InvitationEmailAgreementRejected(_AuthenticationDenied):
+    stage = (
+        _GoogleCallbackFailureStageV1.INVITATION_EMAIL_AGREEMENT_REJECTED
+    )
+
+
+class _AccountCompletionRejected(_AuthenticationDenied):
+    stage = _GoogleCallbackFailureStageV1.ACCOUNT_COMPLETION_REJECTED
 
 
 class _CallbackQueryInvalid(_AuthenticationDenied):
@@ -132,7 +238,7 @@ class _ResponseIssuerMismatch(_AuthenticationDenied):
 
 
 class _DurableIdentityMissing(_AuthenticationDenied):
-    pass
+    stage = _GoogleCallbackFailureStageV1.ACCOUNT_COMPLETION_REJECTED
 
 
 class _ProviderUnavailable(Exception):
@@ -487,6 +593,7 @@ class GoogleOidcGateway:
                     identity_verifier=identity_verifier,
                     account_service=AccountService(identity_verifier),
                     invitation_lookup_key=None,
+                    callback_failure_sink=None,
                     provider_adapter=adapter,
                     cache=cache,
                 ),
@@ -631,6 +738,20 @@ def _configure_account_native_bootstrap(gateway, bootstrap_authority):
     return gateway
 
 
+def _configure_callback_failure_telemetry(gateway, sink):
+    """Install one server-private, fixed-line diagnostic sink."""
+
+    if not callable(sink):
+        raise TypeError("google_callback_failure_sink_invalid")
+    record = _gateway_record(gateway)
+    with record.lock:
+        if record.closed or record.callback_failure_sink is not None:
+            raise TypeError("google_oidc_gateway_unavailable")
+        record.callback_failure_sink = sink
+        record.attestation = _gateway_attestation(record)
+    return gateway
+
+
 def _prepare_authorization_guarded(gateway_object):
     try:
         return _prepare_authorization_impl(gateway_object)
@@ -736,6 +857,7 @@ def _complete_authorization_impl(
     capsule = None
     capsule_values = None
     proof = None
+    callback_failure_sink = None
     try:
         try:
             gateway_record = _gateway_record(gateway_object)
@@ -774,8 +896,10 @@ def _complete_authorization_impl(
             _detach_exception(exc)
             return _failure("invalid_or_expired_transaction")
         except _AuthenticationDenied as exc:
-            _detach_exception(exc)
-            return _failure("authentication_denied")
+            return _authentication_denied_failure_from_exception(
+                exc,
+                gateway_record.callback_failure_sink,
+            )
         except _ProviderUnavailable as exc:
             _detach_exception(exc)
             if gateway_record.closed:
@@ -832,6 +956,7 @@ def _complete_authorization_impl(
                 trusted_now,
             ) = capsule_values
             capsule_values = None
+            callback_failure_sink = gateway_record.callback_failure_sink
             gateway_object = None
             gateway_record = None
             transaction = None
@@ -855,8 +980,15 @@ def _complete_authorization_impl(
             _detach_exception(exc)
             return _failure("invalid_or_expired_transaction")
         except _AuthenticationDenied as exc:
-            _detach_exception(exc)
-            return _failure("authentication_denied")
+            if (
+                callback_failure_sink is None
+                and type(gateway_record) is _GatewayRecord
+            ):
+                callback_failure_sink = gateway_record.callback_failure_sink
+            return _authentication_denied_failure_from_exception(
+                exc,
+                callback_failure_sink,
+            )
         except _Unavailable as exc:
             _detach_exception(exc)
             return _failure("unavailable")
@@ -868,13 +1000,17 @@ def _complete_authorization_impl(
             return _failure("unavailable")
 
         try:
-            return complete_trusted_login(
+            result = complete_trusted_login(
                 connection,
                 proof,
                 completion_policy,
                 request_secret_vault,
                 trusted_now=trusted_now,
                 idempotency_key=request_key,
+            )
+            return _telemetry_checked_account_completion(
+                result,
+                callback_failure_sink,
             )
         finally:
             account_id = None
@@ -903,6 +1039,7 @@ def _complete_authorization_impl(
         capsule = None
         capsule_values = None
         proof = None
+        callback_failure_sink = None
 
 
 def _commit_claimed_delegation(
@@ -977,7 +1114,7 @@ def _commit_claimed_delegation(
                 transaction_record.expires_at,
             )
             if proof_expiry <= committed_now:
-                raise _AuthenticationDenied()
+                raise _AccountCompletionRejected()
             request_key = _buffer_text(
                 transaction_record.b2d1_request_key
             )
@@ -1042,6 +1179,7 @@ def _close_gateway_record(record):
         record.account_native_bootstrap = None
         record.invitation_lookup_key = None
         record.invitation_lookup_key_digest = None
+        record.callback_failure_sink = None
         record.transaction_authority = None
         record.configuration = None
         record.configuration_record = None
@@ -1202,6 +1340,7 @@ class _GatewayRecord:
         "account_native_bootstrap",
         "invitation_lookup_key",
         "invitation_lookup_key_digest",
+        "callback_failure_sink",
         "provider_adapter",
         "cache",
         "transaction_authority",
@@ -1219,6 +1358,7 @@ class _GatewayRecord:
         identity_verifier,
         account_service,
         invitation_lookup_key,
+        callback_failure_sink,
         provider_adapter,
         cache,
     ):
@@ -1233,6 +1373,7 @@ class _GatewayRecord:
             if invitation_lookup_key is None
             else hashlib.sha256(bytes(invitation_lookup_key)).digest()
         )
+        self.callback_failure_sink = callback_failure_sink
         self.provider_adapter = provider_adapter
         self.cache = cache
         self.transaction_authority = object()
@@ -1604,6 +1745,7 @@ class _RealGoogleOidcAdapter:
         claims = None
         key_set = None
         generation = None
+        oauth_error_code = None
         try:
             token = _exchange_code(
                 dependencies,
@@ -1637,23 +1779,28 @@ class _RealGoogleOidcAdapter:
                         dependencies.KeySet,
                     )
                 except _JwksRefreshRateLimited:
-                    raise _AuthenticationDenied() from None
+                    raise _IdTokenKeyOrSignatureRejected() from None
                 try:
                     decoded = dependencies.jwt.decode(
                         id_token,
                         key_set,
                         algorithms=["RS256"],
                     )
-                except dependencies.InvalidKeyIdError:
-                    raise _AuthenticationDenied() from None
+                except dependencies.JoseError:
+                    raise _IdTokenKeyOrSignatureRejected() from None
             now = _clock_now(self._configuration)
-            claims = _validated_code_id_token(
-                dependencies,
-                decoded,
-                transaction,
-                self._configuration,
-                now,
-            )
+            try:
+                claims = _validated_code_id_token(
+                    dependencies,
+                    decoded,
+                    transaction,
+                    self._configuration,
+                    now,
+                )
+            except _AuthenticationDenied:
+                raise _IdTokenClaimsRejected() from None
+            except dependencies.JoseError:
+                raise _IdTokenClaimsRejected() from None
             provider_subject = _validated_subject(claims["sub"])
             authenticated_at = _canonical_time(
                 datetime.fromtimestamp(
@@ -1668,7 +1815,7 @@ class _RealGoogleOidcAdapter:
                 )
             )
             if token_expires_at <= authenticated_at:
-                raise _AuthenticationDenied()
+                raise _IdTokenClaimsRejected()
             verified_email, email_verified = _verified_email_projection(
                 claims
             )
@@ -1699,17 +1846,17 @@ class _RealGoogleOidcAdapter:
             _detach_exception(exc)
             raise _InvalidTransaction() from None
         except dependencies.OAuthError as exc:
-            error = exc.error
+            oauth_error_code = exc.error
             _detach_exception(exc)
-            if error in _OAUTH_INFRASTRUCTURE_ERRORS:
+            if oauth_error_code in _OAUTH_INFRASTRUCTURE_ERRORS:
                 raise _ProviderUnavailable() from None
-            raise _AuthenticationDenied() from None
+            raise _TokenExchangeOauthRejected() from None
         except dependencies.RequestException as exc:
             _detach_exception(exc)
             raise _ProviderUnavailable() from None
         except dependencies.JoseError as exc:
             _detach_exception(exc)
-            raise _AuthenticationDenied() from None
+            raise _IdTokenKeyOrSignatureRejected() from None
         except dependencies.AuthlibBaseError as exc:
             _detach_exception(exc)
             raise _ProviderUnavailable() from None
@@ -1725,6 +1872,7 @@ class _RealGoogleOidcAdapter:
             claims = None
             key_set = None
             generation = None
+            oauth_error_code = None
             callback_url = None
             transaction = None
             dependencies = None
@@ -1823,6 +1971,7 @@ def _gateway_attestation(record):
         id(record.account_native_bootstrap),
         id(record.invitation_lookup_key),
         record.invitation_lookup_key_digest,
+        id(record.callback_failure_sink),
         id(record.provider_adapter),
         id(record.cache),
         id(record.transaction_authority),
@@ -1957,12 +2106,17 @@ def _gateway_record(gateway):
     invitation_key = record.invitation_lookup_key
     invitation_digest = record.invitation_lookup_key_digest
     bootstrap_authority = record.account_native_bootstrap
+    callback_failure_sink = record.callback_failure_sink
     if (
         type(record.account_service) is not AccountService
         or service_verifier is not record.identity_verifier
         or (
             bootstrap_authority is not None
             and bootstrap_authority is not ensure_account_native_principal
+        )
+        or (
+            callback_failure_sink is not None
+            and not callable(callback_failure_sink)
         )
         or not (
             (invitation_key is None and invitation_digest is None)
@@ -2578,7 +2732,7 @@ def _complete_durable_google_oidc_claimed(
             expires_at,
         )
         if proof_expiry <= now:
-            raise _AuthenticationDenied()
+            raise _AccountCompletionRejected()
         proof = TrustedExternalIdentityAuthentication._issue(
             _trusted_login._ASSERTION_ISSUANCE_CAPABILITY,
             account_id=resolved.account_id,
@@ -2589,7 +2743,7 @@ def _complete_durable_google_oidc_claimed(
             assurance_policy_version=_ASSURANCE_POLICY_VERSION,
             environment_namespace=configuration.environment,
         )
-        return complete_trusted_login(
+        result = complete_trusted_login(
             connection,
             proof,
             completion_policy,
@@ -2597,12 +2751,23 @@ def _complete_durable_google_oidc_claimed(
             trusted_now=now,
             idempotency_key=request_key,
         )
+        return _telemetry_checked_account_completion(
+            result,
+            gateway_record.callback_failure_sink,
+        )
     except _InvalidTransaction as exc:
         _detach_exception(exc)
         return _failure("invalid_or_expired_transaction")
     except _AuthenticationDenied as exc:
-        _detach_exception(exc)
-        return _failure("authentication_denied")
+        callback_failure_sink = (
+            gateway_record.callback_failure_sink
+            if type(gateway_record) is _GatewayRecord
+            else None
+        )
+        return _authentication_denied_failure_from_exception(
+            exc,
+            callback_failure_sink,
+        )
     except _ProviderUnavailable as exc:
         _detach_exception(exc)
         if gateway_record is not None and gateway_record.closed:
@@ -2632,6 +2797,7 @@ def _complete_durable_google_oidc_claimed(
         completion_policy = None
         request_secret_vault = None
         gateway_record = None
+        callback_failure_sink = None
         transaction = None
         projection = None
         verified_identity = None
@@ -2689,7 +2855,7 @@ def _validated_callback_url(callback_url, redirect_uri):
         redirect_uri,
     )
     if has_error:
-        raise _AuthenticationDenied()
+        raise _ProviderAuthorizationError()
     return canonical_callback
 
 
@@ -2872,8 +3038,11 @@ def _strict_callback_component(raw_component):
 
 def _exchange_code(dependencies, configuration, transaction, callback_url):
     session = None
+    response_status = None
     token = None
     preserved_control = None
+    oauth_error_code = None
+    observed_status = None
     state = _buffer_text(transaction.state)
     verifier = _buffer_text(transaction.pkce_verifier)
     secret = _credential_text(
@@ -2881,7 +3050,7 @@ def _exchange_code(dependencies, configuration, transaction, callback_url):
         configuration.authority,
     )
     try:
-        session = _new_bounded_oauth_session(
+        session, response_status = _new_bounded_oauth_session(
             dependencies,
             configuration,
             secret,
@@ -2903,6 +3072,24 @@ def _exchange_code(dependencies, configuration, transaction, callback_url):
         if not isinstance(token, dict):
             raise _ProviderUnavailable()
         return {"id_token": token.get("id_token")}
+    except (
+        dependencies.MismatchingStateError,
+        dependencies.MismatchingStateException,
+    ):
+        raise
+    except dependencies.OAuthError as exc:
+        oauth_error_code = exc.error
+        observed_status = (
+            response_status[0]
+            if type(response_status) is list and len(response_status) == 1
+            else None
+        )
+        _detach_exception(exc)
+        if oauth_error_code in _OAUTH_INFRASTRUCTURE_ERRORS:
+            raise _ProviderUnavailable() from None
+        if observed_status == 200:
+            raise _TokenResponseRejected() from None
+        raise _TokenExchangeOauthRejected() from None
     except (KeyboardInterrupt, SystemExit, GeneratorExit) as exc:
         preserved_control = exc
         _detach_exception(exc)
@@ -2918,7 +3105,12 @@ def _exchange_code(dependencies, configuration, transaction, callback_url):
                 session.close,
             )
         session = None
+        if type(response_status) is list:
+            response_status.clear()
+        response_status = None
         token = None
+        oauth_error_code = None
+        observed_status = None
         callback_url = None
         transaction = None
         configuration = None
@@ -2927,6 +3119,7 @@ def _exchange_code(dependencies, configuration, transaction, callback_url):
 
 def _new_bounded_oauth_session(dependencies, configuration, client_secret):
     expected_url = configuration.token_endpoint
+    response_status = [None]
 
     class BoundedOAuth2Session(dependencies.OAuth2Session):
         def send(self, request, **kwargs):
@@ -2962,15 +3155,17 @@ def _new_bounded_oauth_session(dependencies, configuration, client_secret):
             lambda response: _validate_token_response(
                 response,
                 expected_url,
+                response_status,
             ),
         )
-        return session
+        return session, response_status
     except BaseException as exc:
         _cleanup_preserving_exception(
             exc,
             lambda: _clear_oauth_session_token(session),
             session.close,
         )
+        response_status.clear()
         raise
 
 
@@ -3177,7 +3372,7 @@ def _parsed_content_encoding(value):
     return normalized
 
 
-def _validate_token_response(response, expected_url):
+def _validate_token_response(response, expected_url, response_status=None):
     if (
         response.url != expected_url
         or response.is_redirect
@@ -3185,6 +3380,10 @@ def _validate_token_response(response, expected_url):
         or not _json_content_type(response.headers.get("Content-Type"))
     ):
         raise _ProviderResponseInvalid()
+    if response_status is not None:
+        if type(response_status) is not list or len(response_status) != 1:
+            raise _ProviderResponseInvalid()
+        response_status[0] = response.status_code
     return response
 
 
@@ -3268,7 +3467,7 @@ def _validated_code_id_token(
             leeway=configuration.clock_skew_seconds,
         )
         if claims["exp"] <= claims["auth_time"]:
-            raise _AuthenticationDenied()
+            raise _IdTokenClaimsRejected()
         return claims
     finally:
         nonce = None
@@ -3307,7 +3506,7 @@ def _resolve_durable_identity(connection, identity, now):
     ):
         raise _Unavailable()
     if identity_row["disabled_at"] is not None:
-        raise _AuthenticationDenied()
+        raise _AccountCompletionRejected()
     account_rows = _rows(
         connection,
         "SELECT user_id, lifecycle_status, row_version, created_at, updated_at, "
@@ -3316,7 +3515,7 @@ def _resolve_durable_identity(connection, identity, now):
         (identity_row["user_id"],),
     )
     if not account_rows:
-        raise _AuthenticationDenied()
+        raise _AccountCompletionRejected()
     if len(account_rows) != 1:
         raise _Unavailable()
     account = account_rows[0]
@@ -3326,7 +3525,7 @@ def _resolve_durable_identity(connection, identity, now):
     ):
         raise _Unavailable()
     if account["lifecycle_status"] != "active":
-        raise _AuthenticationDenied()
+        raise _AccountCompletionRejected()
     if not authoritative_auth_identity_row_valid(
         identity_row,
         expected_user_id=account["user_id"],
@@ -3372,13 +3571,16 @@ def _resolve_or_provision_durable_identity(
         type(gateway_record) is not _GatewayRecord
         or type(projection) is not tuple
         or len(projection) != 6
-        or type(projection[4]) is not str
-        or projection[5] is not True
-        or type(invitation_credential) is not bytearray
-        or not invitation_credential
         or type(idempotency_key) is not str
     ):
-        raise _AuthenticationDenied()
+        raise _AccountCompletionRejected()
+    if type(projection[4]) is not str or projection[5] is not True:
+        raise _VerifiedEmailRejected()
+    if (
+        type(invitation_credential) is not bytearray
+        or not invitation_credential
+    ):
+        raise _InvitationEmailAgreementRejected()
     invitation_key = gateway_record.invitation_lookup_key
     if type(invitation_key) is not bytearray or not invitation_key:
         raise _Unavailable()
@@ -3388,10 +3590,11 @@ def _resolve_or_provision_durable_identity(
             "strict",
         )
     except UnicodeError:
-        raise _AuthenticationDenied() from None
+        raise _InvitationEmailAgreementRejected() from None
 
     provisioning_identity = None
     invitation_lookup_key = None
+    account_outcome = None
     try:
         try:
             provisioning_identity = (
@@ -3404,14 +3607,15 @@ def _resolve_or_provision_durable_identity(
                 )
             )
         except (AuthenticationUnavailable, InvalidAccountInput):
-            raise _AuthenticationDenied() from None
+            raise _VerifiedEmailRejected() from None
         if not gateway_record.identity_verifier._accepts(
             provisioning_identity
         ):
             raise _Unavailable()
         invitation_lookup_key = bytes(invitation_key)
-        try:
-            gateway_record.account_service.create_invited_user(
+        account_outcome = (
+            gateway_record.account_service
+            ._create_invited_user_for_google_oidc(
                 connection,
                 identity=provisioning_identity,
                 invitation_token=invitation_token,
@@ -3419,8 +3623,10 @@ def _resolve_or_provision_durable_identity(
                 idempotency_key=idempotency_key,
                 now=now,
             )
-        except AuthenticationUnavailable:
-            raise _AuthenticationDenied() from None
+        )
+        if type(account_outcome) is _InvitedUserDenialReason:
+            _raise_invited_user_denial(account_outcome)
+        account_outcome = None
         if connection.in_transaction:
             raise _Unavailable()
         return _resolve_durable_identity(
@@ -3432,6 +3638,22 @@ def _resolve_or_provision_durable_identity(
         invitation_token = None
         invitation_lookup_key = None
         provisioning_identity = None
+        account_outcome = None
+
+
+def _raise_invited_user_denial(reason):
+    stage = _INVITED_USER_DENIAL_STAGES_V1.get(reason)
+    reason = None
+    if stage is _GoogleCallbackFailureStageV1.VERIFIED_EMAIL_REJECTED:
+        raise _VerifiedEmailRejected()
+    if (
+        stage
+        is _GoogleCallbackFailureStageV1.INVITATION_EMAIL_AGREEMENT_REJECTED
+    ):
+        raise _InvitationEmailAgreementRejected()
+    if stage is _GoogleCallbackFailureStageV1.ACCOUNT_COMPLETION_REJECTED:
+        raise _AccountCompletionRejected()
+    raise _Unavailable()
 
 
 def _rows(connection, sql, parameters):
@@ -3669,6 +3891,44 @@ def _failure(status):
         _FAILURE_ISSUANCE_CAPABILITY,
         status,
     )
+
+
+def _authentication_denied_failure_from_exception(exc, sink):
+    stage = getattr(type(exc), "stage", None)
+    _detach_exception(exc)
+    _emit_google_callback_failure_stage_v1(stage, sink)
+    return _failure("authentication_denied")
+
+
+def _telemetry_checked_account_completion(result, sink):
+    if getattr(result, "status", None) == "authentication_denied":
+        _emit_google_callback_failure_stage_v1(
+            _GoogleCallbackFailureStageV1.ACCOUNT_COMPLETION_REJECTED,
+            sink,
+        )
+    return result
+
+
+def _emit_google_callback_failure_stage_v1(stage, sink=None):
+    if type(stage) is not _GoogleCallbackFailureStageV1:
+        return False
+    event = _GOOGLE_CALLBACK_FAILURE_EVENTS_V1.get(stage)
+    if (
+        type(event) is not str
+        or len(event.encode("ascii"))
+        > _GOOGLE_CALLBACK_FAILURE_EVENT_MAX_BYTES
+    ):
+        return False
+    if sink is None or not callable(sink):
+        return False
+    sink_failed = False
+    try:
+        sink(event)
+    except BaseException:
+        sink_failed = True
+    event = None
+    sink = None
+    return not sink_failed
 
 
 def _detach_exception(exc):

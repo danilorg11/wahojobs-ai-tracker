@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from unittest import mock
 
 import wahojobs.durable_google_login_browser as browser_module
+import wahojobs.google_oidc_gateway as gateway_module
 from wahojobs.durable_google_login_browser import (
     AUTHENTICATED_DESTINATION,
     DurableGoogleLoginBrowserIntegration,
@@ -1002,6 +1003,45 @@ class DurableGoogleLoginBrowserTests(unittest.TestCase):
                 self.assertEqual(response.status, expected_status)
                 self.assertNotIn(marker.encode(), response.body)
                 self.assertNotIn(SESSION_COOKIE.encode(), response.body)
+        self.assertEqual(self.harness.delivery_leases, [])
+
+    def test_all_callback_failure_stages_remain_server_private(self):
+        self.harness.completion_status = "authentication_denied"
+        for stage in gateway_module._GoogleCallbackFailureStageV1:
+            with self.subTest(stage=stage.value):
+                before_calls = len(self.harness.complete_calls)
+                response = self.integration.handle(
+                    "GET",
+                    GOOGLE_LOGIN_CALLBACK_ROUTE
+                    + "?error=private-provider-value&state=private-state",
+                    headers(
+                        cookie=(
+                            f"{GOOGLE_TRANSACTION_COOKIE_NAME}="
+                            f"{TRANSACTION_ID}"
+                        )
+                    ),
+                )
+                public = repr(response.headers).encode("utf-8") + response.body
+                self.assertEqual(response.status, 401)
+                self.assertIn(
+                    b"Google sign-in was not accepted. Start again to continue.",
+                    response.body,
+                )
+                self.assertNotIn(stage.value.encode("ascii"), public)
+                self.assertNotIn(b"private-provider-value", public)
+                self.assertNotIn(b"private-state", public)
+                self.assertEqual(
+                    len(self.harness.complete_calls),
+                    before_calls + 1,
+                )
+                self.assertTrue(
+                    any(
+                        value.startswith(
+                            f"{GOOGLE_TRANSACTION_COOKIE_NAME}=;"
+                        )
+                        for value in set_cookies(response)
+                    )
+                )
         self.assertEqual(self.harness.delivery_leases, [])
 
     def test_invalid_delivery_output_fails_lease_discards_vault_and_closes_connection(self):

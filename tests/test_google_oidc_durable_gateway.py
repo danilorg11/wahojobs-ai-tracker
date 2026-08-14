@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import inspect
+import json
+import logging
 import sqlite3
 import threading
 import unittest
@@ -90,6 +94,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         suffix,
         *,
         invitation_credential=None,
+        telemetry_sink=None,
         **gateway_options,
     ):
         database = self.database(suffix)
@@ -100,6 +105,11 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 **gateway_options,
             )
         )
+        if telemetry_sink is not None:
+            gateway_module._configure_callback_failure_telemetry(
+                harness.gateway,
+                telemetry_sink,
+            )
         prepared = prepare_durable_google_oidc_authorization(
             database.connection,
             harness.gateway,
@@ -142,8 +152,582 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         )
         return transaction, counts
 
+    def assert_callback_failure_event(self, events, expected_stage):
+        self.assertEqual(len(events), 1)
+        encoded = events[0]
+        self.assertIs(type(encoded), str)
+        self.assertLessEqual(
+            len(encoded.encode("ascii")),
+            gateway_module._GOOGLE_CALLBACK_FAILURE_EVENT_MAX_BYTES,
+        )
+        self.assertEqual(
+            json.loads(encoded),
+            {
+                "frame": "google_callback_failure_stage_v1",
+                "stage": expected_stage,
+                "public_status": "authentication_denied",
+            },
+        )
+
+    def test_callback_failure_stage_contract_is_closed_bounded_and_private(self):
+        expected_stages = {
+            "provider_authorization_error",
+            "token_exchange_oauth_rejected",
+            "token_response_rejected",
+            "id_token_key_or_signature_rejected",
+            "id_token_claims_rejected",
+            "verified_email_rejected",
+            "invitation_email_agreement_rejected",
+            "account_completion_rejected",
+        }
+        stage_type = gateway_module._GoogleCallbackFailureStageV1
+        self.assertEqual({stage.value for stage in stage_type}, expected_stages)
+        self.assertEqual(
+            set(gateway_module._GOOGLE_CALLBACK_FAILURE_EVENTS_V1),
+            set(stage_type),
+        )
+        self.assertEqual(
+            gateway_module._GOOGLE_CALLBACK_FAILURE_MAX_JSON_BYTES_V1,
+            130,
+        )
+        self.assertEqual(
+            gateway_module._GOOGLE_CALLBACK_FAILURE_MAX_LINE_BYTES_V1,
+            131,
+        )
+        self.assertEqual(
+            gateway_module._GOOGLE_CALLBACK_FAILURE_LINES_V1,
+            frozenset(
+                gateway_module._GOOGLE_CALLBACK_FAILURE_EVENTS_V1.values()
+            ),
+        )
+        with self.assertRaises(TypeError):
+            gateway_module._GOOGLE_CALLBACK_FAILURE_EVENTS_V1[
+                next(iter(stage_type))
+            ] = "mutable"
+        for stage, encoded in (
+            gateway_module._GOOGLE_CALLBACK_FAILURE_EVENTS_V1.items()
+        ):
+            with self.subTest(stage=stage.value):
+                self.assertEqual(
+                    json.loads(encoded),
+                    {
+                        "frame": "google_callback_failure_stage_v1",
+                        "stage": stage.value,
+                        "public_status": "authentication_denied",
+                    },
+                )
+                self.assertLessEqual(
+                    len(encoded.encode("ascii")),
+                    gateway_module._GOOGLE_CALLBACK_FAILURE_EVENT_MAX_BYTES,
+                )
+        self.assertNotIn(
+            "_GoogleCallbackFailureStageV1",
+            gateway_module.__all__,
+        )
+        public = gateway_module._failure("authentication_denied")
+        self.assertEqual(public.as_dict(), {"status": "authentication_denied"})
+        self.assertFalse(expected_stages.intersection(repr(public).split()))
+
+    def test_fixed_sink_boundary_excludes_every_callback_secret_class(self):
+        class Capture:
+            __slots__ = ("calls",)
+
+            def __init__(self):
+                self.calls = []
+
+            def __call__(self, *args, **kwargs):
+                self.calls.append((args, kwargs))
+
+        secret_sentinels = {
+            "state": "SENTINEL_CALLBACK_STATE_VALUE",
+            "authorization_code": "SENTINEL_AUTHORIZATION_CODE_VALUE",
+            "callback_extension": "SENTINEL_CALLBACK_EXTENSION_VALUE",
+            "cookie": "SENTINEL_COOKIE_VALUE",
+            "pkce": "SENTINEL_PKCE_VALUE",
+            "nonce": "SENTINEL_NONCE_VALUE",
+            "oauth_error": "SENTINEL_OAUTH_ERROR_VALUE",
+            "oauth_description": "SENTINEL_OAUTH_DESCRIPTION_VALUE",
+            "token_response": "SENTINEL_TOKEN_RESPONSE_VALUE",
+            "access_token": "SENTINEL_ACCESS_TOKEN_VALUE",
+            "id_token": "SENTINEL_ID_TOKEN_VALUE",
+            "id_token_claim": "SENTINEL_ID_TOKEN_CLAIM_VALUE",
+            "verified_email": "sentinel-email@example.test",
+            "invitation_credential": "SENTINEL_INVITATION_CREDENTIAL_VALUE",
+            "invitation_reference": "SENTINEL_INVITATION_REFERENCE_VALUE",
+            "lookup_key": "SENTINEL_INVITATION_LOOKUP_KEY_VALUE",
+            "identity_subject": "SENTINEL_IDENTITY_SUBJECT_VALUE",
+            "account_identifier": "SENTINEL_ACCOUNT_IDENTIFIER_VALUE",
+            "principal_identifier": "SENTINEL_PRINCIPAL_IDENTIFIER_VALUE",
+            "session_identifier": "SENTINEL_SESSION_IDENTIFIER_VALUE",
+            "sqlite_message": "SENTINEL_SQLITE_EXCEPTION_MESSAGE",
+        }
+        capture = Capture()
+        for stage in gateway_module._GoogleCallbackFailureStageV1:
+            self.assertTrue(
+                gateway_module._emit_google_callback_failure_stage_v1(
+                    stage,
+                    capture,
+                )
+            )
+
+        self.assertEqual(
+            len(capture.calls),
+            len(gateway_module._GoogleCallbackFailureStageV1),
+        )
+        for args, kwargs in capture.calls:
+            self.assertEqual(len(args), 1)
+            self.assertEqual(kwargs, {})
+            self.assertIn(
+                args[0],
+                gateway_module._GOOGLE_CALLBACK_FAILURE_LINES_V1,
+            )
+        retained = (
+            repr(capture.calls)
+            + repr(tuple(gateway_module._GoogleCallbackFailureStageV1))
+            + repr(gateway_module._failure("authentication_denied"))
+        )
+        for category, sentinel in secret_sentinels.items():
+            with self.subTest(category=category):
+                self.assertNotIn(sentinel, retained)
+
+        before = list(capture.calls)
+        self.assertFalse(
+            gateway_module._emit_google_callback_failure_stage_v1(
+                "provider_authorization_error",
+                capture,
+            )
+        )
+        self.assertFalse(
+            gateway_module._emit_google_callback_failure_stage_v1(
+                object(),
+                capture,
+            )
+        )
+        self.assertEqual(capture.calls, before)
+
+    def test_provider_token_and_id_token_denials_emit_one_exact_stage(self):
+        cases = (
+            "provider_authorization_error",
+            "token_exchange_oauth_rejected",
+            "token_response_rejected",
+            "id_token_key_or_signature_rejected",
+            "id_token_claims_rejected",
+        )
+        for expected_stage in cases:
+            with self.subTest(stage=expected_stage):
+                gateway_options = {}
+                events = []
+                if expected_stage == "token_exchange_oauth_rejected":
+                    gateway_options["outcomes"] = ("authentication_denied",)
+                database, authority, harness, prepared = self.prepare(
+                    f"telemetry-{expected_stage}",
+                    telemetry_sink=events.append,
+                    **gateway_options,
+                )
+                if expected_stage == "provider_authorization_error":
+                    callback = harness.transport.callback_for(
+                        prepared,
+                        error="access_denied",
+                    )
+                elif expected_stage == "token_response_rejected":
+                    harness.transport.queue_token_response(
+                        document={"error": "synthetic-token-response-rejection"},
+                        status=200,
+                    )
+                    callback = harness.transport.callback_for(prepared)
+                elif expected_stage == "id_token_key_or_signature_rejected":
+                    callback = harness.transport.callback_for(
+                        prepared,
+                        raw_id_token="synthetic-malformed-id-token",
+                    )
+                elif expected_stage == "id_token_claims_rejected":
+                    callback = harness.transport.callback_for(
+                        prepared,
+                        claims_overrides={"aud": "synthetic-wrong-audience"},
+                    )
+                else:
+                    callback = harness.transport.callback_for(prepared)
+                result = complete_durable_google_oidc_authorization(
+                    database.connection,
+                    harness.gateway,
+                    authority,
+                    callback,
+                    completion_policy(),
+                    self.vault(),
+                )
+                self.assertEqual(result.status, "authentication_denied")
+                self.assertEqual(
+                    result.as_dict(),
+                    {"status": "authentication_denied"},
+                )
+                self.assert_callback_failure_event(events, expected_stage)
+                self.assertNotIn(
+                    "synthetic-",
+                    events[0],
+                )
+                prepared.close()
+
+    def test_trusted_account_completion_denial_emits_account_stage(self):
+        events = []
+        database, authority, harness, prepared = self.prepare(
+            "telemetry-account-completion",
+            telemetry_sink=events.append,
+        )
+        callback = harness.transport.callback_for(prepared)
+        denied = gateway_module._failure("authentication_denied")
+        with mock.patch.object(
+            gateway_module,
+            "complete_trusted_login",
+            return_value=denied,
+        ) as complete_login:
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertIs(result, denied)
+        complete_login.assert_called_once()
+        self.assert_callback_failure_event(
+            events,
+            "account_completion_rejected",
+        )
+        prepared.close()
+
+    def test_infrastructure_failures_emit_no_authentication_denial_stage(self):
+        cases = (
+            ("token-transport", {"outcomes": ("provider_unavailable",)}, None),
+            ("jwks-document", {}, {"document": {"keys": []}}),
+        )
+        for name, gateway_options, jwks_plan in cases:
+            with self.subTest(case=name):
+                events = []
+                database, authority, harness, prepared = self.prepare(
+                    f"telemetry-infrastructure-{name}",
+                    telemetry_sink=events.append,
+                    **gateway_options,
+                )
+                if jwks_plan is not None:
+                    harness.transport.queue_jwks_response(**jwks_plan)
+                callback = harness.transport.callback_for(prepared)
+                result = complete_durable_google_oidc_authorization(
+                    database.connection,
+                    harness.gateway,
+                    authority,
+                    callback,
+                    completion_policy(),
+                    self.vault(),
+                )
+                self.assertEqual(result.status, "provider_unavailable")
+                self.assertEqual(events, [])
+                self.assertEqual(harness.transport.token_request_count, 1)
+                self.assertEqual(
+                    harness.transport.jwks_request_count,
+                    int(jwks_plan is not None),
+                )
+                prepared.close()
+
+    def test_telemetry_sink_failure_does_not_change_public_denial(self):
+        calls = []
+
+        def failing_sink(line):
+            calls.append(line)
+            raise RuntimeError("synthetic-telemetry-sink-failure")
+
+        database, authority, harness, prepared = self.prepare(
+            "telemetry-sink-failure",
+            telemetry_sink=failing_sink,
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            error="synthetic-provider-denial",
+        )
+        result = complete_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            callback,
+            completion_policy(),
+            self.vault(),
+        )
+        self.assertEqual(result.as_dict(), {"status": "authentication_denied"})
+        self.assertEqual(len(calls), 1)
+        prepared.close()
+
+    def test_telemetry_sink_baseexception_is_silent_and_does_not_change_denial(self):
+        class SinkBaseFailure(BaseException):
+            pass
+
+        calls = []
+
+        def failing_sink(line):
+            calls.append(line)
+            raise SinkBaseFailure("PRIVATE_SINK_BASEEXCEPTION_MESSAGE")
+
+        database, authority, harness, prepared = self.prepare(
+            "telemetry-sink-baseexception",
+            telemetry_sink=failing_sink,
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            error="synthetic-provider-denial",
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.as_dict(), {"status": "authentication_denied"})
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(
+            transaction_rows(database.connection)[0]["lifecycle"],
+            "consumed",
+        )
+        prepared.close()
+
+    def test_telemetry_sink_hostile_baseexception_attribute_hook_cannot_escape(self):
+        class SecondaryControl(BaseException):
+            pass
+
+        class HostileControl(BaseException):
+            attribute_hook_calls = {
+                "__traceback__": 0,
+                "__cause__": 0,
+                "__context__": 0,
+            }
+
+            def __setattr__(self, name, value):
+                if name in self.attribute_hook_calls:
+                    self.attribute_hook_calls[name] += 1
+                    raise SecondaryControl()
+                return super().__setattr__(name, value)
+
+        sink_calls = []
+
+        def hostile_sink(line):
+            sink_calls.append(line)
+            raise HostileControl("PRIVATE_HOSTILE_SINK_MESSAGE")
+
+        database, authority, harness, prepared = self.prepare(
+            "telemetry-sink-hostile-baseexception",
+            telemetry_sink=hostile_sink,
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            error="synthetic-provider-denial",
+        )
+        emitter_results = []
+        original_emitter = (
+            gateway_module._emit_google_callback_failure_stage_v1
+        )
+
+        def observed_emitter(stage, sink=None):
+            result = original_emitter(stage, sink)
+            emitter_results.append(result)
+            return result
+
+        records = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        root = logging.getLogger()
+        handlers = (Capture(), Capture())
+        for handler in handlers:
+            root.addHandler(handler)
+        try:
+            with (
+                mock.patch.object(
+                    gateway_module,
+                    "_emit_google_callback_failure_stage_v1",
+                    side_effect=observed_emitter,
+                ),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                result = complete_durable_google_oidc_authorization(
+                    database.connection,
+                    harness.gateway,
+                    authority,
+                    callback,
+                    completion_policy(),
+                    self.vault(),
+                )
+        finally:
+            for handler in handlers:
+                root.removeHandler(handler)
+
+        self.assertEqual(result.as_dict(), {"status": "authentication_denied"})
+        self.assertEqual(emitter_results, [False])
+        self.assertEqual(len(sink_calls), 1)
+        self.assertIn(
+            sink_calls[0],
+            gateway_module._GOOGLE_CALLBACK_FAILURE_LINES_V1,
+        )
+        self.assertEqual(
+            HostileControl.attribute_hook_calls,
+            {
+                "__traceback__": 0,
+                "__cause__": 0,
+                "__context__": 0,
+            },
+        )
+        self.assertEqual(records, [])
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), "")
+        transaction = transaction_rows(database.connection)[0]
+        self.assertEqual(
+            (transaction["lifecycle"], transaction["row_version"]),
+            ("consumed", 2),
+        )
+        self.assertEqual(harness.transport.token_request_count, 0)
+        self.assertEqual(harness.transport.jwks_request_count, 0)
+        prepared.close()
+
+    def test_production_writer_write_and_flush_failures_do_not_change_denial(self):
+        from scripts.durable_google_login_app import (
+            _GoogleCallbackFailureStderrWriter,
+        )
+
+        class Stream:
+            def __init__(self, failed_operation):
+                self.failed_operation = failed_operation
+                self.write_calls = 0
+                self.flush_calls = 0
+
+            def write(self, _line):
+                self.write_calls += 1
+                if self.failed_operation == "write":
+                    raise RuntimeError("PRIVATE_TELEMETRY_WRITE_FAILURE")
+
+            def flush(self):
+                self.flush_calls += 1
+                if self.failed_operation == "flush":
+                    raise RuntimeError("PRIVATE_TELEMETRY_FLUSH_FAILURE")
+
+        for failed_operation in ("write", "flush"):
+            with self.subTest(failed_operation=failed_operation):
+                stream = Stream(failed_operation)
+                writer = _GoogleCallbackFailureStderrWriter(stream)
+                database, authority, harness, prepared = self.prepare(
+                    f"telemetry-writer-{failed_operation}",
+                    telemetry_sink=writer,
+                )
+                callback = harness.transport.callback_for(
+                    prepared,
+                    error="synthetic-provider-denial",
+                )
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    result = complete_durable_google_oidc_authorization(
+                        database.connection,
+                        harness.gateway,
+                        authority,
+                        callback,
+                        completion_policy(),
+                        self.vault(),
+                    )
+                self.assertEqual(
+                    result.as_dict(),
+                    {"status": "authentication_denied"},
+                )
+                self.assertEqual(stream.write_calls, 1)
+                self.assertEqual(
+                    stream.flush_calls,
+                    int(failed_operation == "flush"),
+                )
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertEqual(stderr.getvalue(), "")
+                self.assertEqual(
+                    transaction_rows(database.connection)[0]["lifecycle"],
+                    "consumed",
+                )
+                prepared.close()
+
+    def test_private_account_write_rejection_emits_account_stage(self):
+        events = []
+        database = self.database("telemetry-account-write")
+        invitation = self.invitation(
+            database,
+            "telemetry-account-write",
+            "synthetic-account-write@example.test",
+        )
+        authority = self.keep(key_authority())
+        harness = self.keep(
+            make_real_gateway(
+                subject="synthetic-account-write-subject",
+                invitation_lookup_key=bytearray(INVITATION_KEY),
+            )
+        )
+        gateway_module._configure_callback_failure_telemetry(
+            harness.gateway,
+            events.append,
+        )
+        prepared = prepare_durable_google_oidc_authorization(
+            database.connection,
+            harness.gateway,
+            authority,
+            invitation_credential=bytearray(
+                invitation.invitation_token.encode("ascii")
+            ),
+        )
+        callback = harness.transport.callback_for(
+            prepared,
+            claims_overrides={
+                "email": "synthetic-account-write@example.test",
+                "email_verified": True,
+            },
+        )
+        before = self.mutation_snapshot(database.connection)
+        with mock.patch.object(
+            accounts.AccountService,
+            "_create_invited_user_for_google_oidc",
+            return_value=(
+                accounts._InvitedUserDenialReason
+                .ACCOUNT_COMPLETION_REJECTED
+            ),
+        ) as create_user:
+            result = complete_durable_google_oidc_authorization(
+                database.connection,
+                harness.gateway,
+                authority,
+                callback,
+                completion_policy(),
+                self.vault(),
+            )
+        self.assertEqual(result.status, "authentication_denied")
+        create_user.assert_called_once()
+        self.assert_callback_failure_event(
+            events,
+            "account_completion_rejected",
+        )
+        after_transaction, after_counts = self.mutation_snapshot(
+            database.connection
+        )
+        self.assertEqual(after_transaction, (("consumed", 2),))
+        self.assertEqual(after_counts, before[1])
+        prepared.close()
+
     def assert_preclaim_rejection(self, suffix, callback_factory):
-        database, authority, harness, prepared = self.prepare(suffix)
+        events = []
+        database, authority, harness, prepared = self.prepare(
+            suffix,
+            telemetry_sink=events.append,
+        )
         state = authorization_parameters(prepared)["state"]
         before = self.mutation_snapshot(database.connection)
         callback = callback_factory(harness, prepared, state)
@@ -176,6 +760,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(self.mutation_snapshot(database.connection), before)
         self.assertEqual(harness.transport.token_request_count, 0)
         self.assertEqual(harness.transport.jwks_request_count, 0)
+        self.assertEqual(events, [])
         self.assertFalse(database.connection.in_transaction)
 
     def assert_success_extension_reaches_claim_and_is_discarded(
@@ -219,18 +804,19 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(claim.call_args.args[3], state)
         downstream.assert_called_once()
         authoritative_callback = downstream.call_args.args[2]
+        authoritative_names = {
+            field
+            for field, _item in parse_qsl(
+                urlsplit(authoritative_callback).query,
+                keep_blank_values=True,
+                strict_parsing=True,
+            )
+        }
         self.assertEqual(
-            {
-                field
-                for field, _item in parse_qsl(
-                    urlsplit(authoritative_callback).query,
-                    keep_blank_values=True,
-                    strict_parsing=True,
-                )
-            },
+            authoritative_names,
             {"code", "iss", "state"},
         )
-        self.assertNotIn(name, authoritative_callback)
+        self.assertNotIn(name, authoritative_names)
         self.assertNotIn(value, authoritative_callback)
         self.assertNotIn(
             value,
@@ -765,6 +1351,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         )
 
     def test_invited_identity_extensions_are_discarded_then_reuses_without_invitation(self):
+        events = []
         database = self.database("invited-first-login")
         subject = "google-subject-invited-first-login-new"
         email = "invited-first-login@example.test"
@@ -775,6 +1362,10 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 subject=subject,
                 invitation_lookup_key=bytearray(INVITATION_KEY),
             )
+        )
+        gateway_module._configure_callback_failure_telemetry(
+            harness.gateway,
+            events.append,
         )
         protected = bytearray(invitation.invitation_token.encode("ascii"))
         before = {
@@ -947,6 +1538,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         )
         self.assertEqual(second.status, "issued")
         self.assertEqual(replay.status, "invalid_or_expired_transaction")
+        self.assertEqual(events, [])
         self.assertEqual(harness.transport.token_request_count, 2)
         self.assertEqual(harness.transport.jwks_request_count, 1)
         self.assertEqual(
@@ -1299,23 +1891,73 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
 
     def test_new_identity_failures_leave_account_state_unchanged(self):
         scenarios = (
-            ("missing-invitation", None, "new@example.test", True),
+            (
+                "missing-invitation",
+                None,
+                "new@example.test",
+                True,
+                "invitation_email_agreement_rejected",
+            ),
             (
                 "unknown-invitation",
                 "inv_" + ("9" * 32) + "." + ("Z" * 43),
                 "new@example.test",
                 True,
+                "invitation_email_agreement_rejected",
             ),
-            ("missing-email", "create", None, True),
-            ("unverified-email", "create", "new@example.test", False),
-            ("malformed-email", "create", "not-an-email", True),
-            ("mismatched-email", "create", "other@example.test", True),
-            ("expired-invitation", "expired", "new@example.test", True),
-            ("revoked-invitation", "revoked", "new@example.test", True),
-            ("consumed-invitation", "consumed", "new@example.test", True),
+            (
+                "missing-email",
+                "create",
+                None,
+                True,
+                "verified_email_rejected",
+            ),
+            (
+                "unverified-email",
+                "create",
+                "new@example.test",
+                False,
+                "verified_email_rejected",
+            ),
+            (
+                "malformed-email",
+                "create",
+                "not-an-email",
+                True,
+                "verified_email_rejected",
+            ),
+            (
+                "mismatched-email",
+                "create",
+                "other@example.test",
+                True,
+                "invitation_email_agreement_rejected",
+            ),
+            (
+                "expired-invitation",
+                "expired",
+                "new@example.test",
+                True,
+                "invitation_email_agreement_rejected",
+            ),
+            (
+                "revoked-invitation",
+                "revoked",
+                "new@example.test",
+                True,
+                "invitation_email_agreement_rejected",
+            ),
+            (
+                "consumed-invitation",
+                "consumed",
+                "new@example.test",
+                True,
+                "invitation_email_agreement_rejected",
+            ),
         )
-        for name, invitation_mode, email, verified in scenarios:
+        for name, invitation_mode, email, verified, expected_stage in scenarios:
             with self.subTest(name=name):
+                events = []
                 database = self.database(f"invite-failure-{name}")
                 invitation = (
                     None
@@ -1397,6 +2039,10 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                         invitation_lookup_key=bytearray(INVITATION_KEY),
                     )
                 )
+                gateway_module._configure_callback_failure_telemetry(
+                    harness.gateway,
+                    events.append,
+                )
                 prepared = prepare_durable_google_oidc_authorization(
                     database.connection,
                     harness.gateway,
@@ -1427,6 +2073,12 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                     self.vault(),
                 )
                 self.assertEqual(result.status, "authentication_denied")
+                self.assert_callback_failure_event(events, expected_stage)
+                event = events[0]
+                if email is not None:
+                    self.assertNotIn(email, event)
+                if credential is not None:
+                    self.assertNotIn(credential, event)
                 after = tuple(
                     database.connection.execute(
                         f'SELECT COUNT(*) FROM "{table}"'
@@ -1600,7 +2252,11 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 self.assertEqual(harness.transport.token_request_count, 0)
 
     def test_bounded_error_extensions_are_discarded_then_denial_is_terminal(self):
-        database, authority, harness, prepared = self.prepare("denial")
+        events = []
+        database, authority, harness, prepared = self.prepare(
+            "denial",
+            telemetry_sink=events.append,
+        )
         state = authorization_parameters(prepared)["state"]
         extension_pairs = (
             ("authuser", "synthetic-error-authuser"),
@@ -1643,7 +2299,6 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 "_complete_claimed_authorization",
                 wraps=durable_gateway_module._complete_claimed_authorization,
             ) as downstream,
-            mock.patch("logging.Logger._log") as logger,
         ):
             result = complete_durable_google_oidc_authorization(
                 database.connection,
@@ -1656,7 +2311,10 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(result.status, "authentication_denied")
         claim.assert_called_once()
         downstream.assert_called_once()
-        logger.assert_not_called()
+        self.assert_callback_failure_event(
+            events,
+            "provider_authorization_error",
+        )
         authoritative_callback = downstream.call_args.args[2]
         authoritative_pairs = parse_qsl(
             urlsplit(authoritative_callback).query,
@@ -1705,6 +2363,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
             vault,
         )
         self.assertEqual(replay.status, "invalid_or_expired_transaction")
+        self.assertEqual(len(events), 1)
         self.assertEqual(harness.transport.token_request_count, 0)
 
     def test_real_google_six_field_success_reaches_claim_and_fake_provider(self):
@@ -1970,8 +2629,10 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
                 )
 
     def test_exact_issuer_unknown_state_reaches_distinct_lookup_miss(self):
+        events = []
         database, authority, harness, _prepared = self.prepare(
-            "unknown-state-lookup"
+            "unknown-state-lookup",
+            telemetry_sink=events.append,
         )
         unknown_state = "A" * 43
         callback = self.callback_url(
@@ -2002,9 +2663,14 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(self.mutation_snapshot(database.connection), before)
         self.assertEqual(harness.transport.token_request_count, 0)
         self.assertEqual(harness.transport.jwks_request_count, 0)
+        self.assertEqual(events, [])
 
     def test_malformed_callback_fails_before_claim_and_preserves_prepared_row(self):
-        database, authority, harness, _prepared = self.prepare("malformed")
+        events = []
+        database, authority, harness, _prepared = self.prepare(
+            "malformed",
+            telemetry_sink=events.append,
+        )
         result = complete_durable_google_oidc_authorization(
             database.connection,
             harness.gateway,
@@ -2016,6 +2682,7 @@ class DurableGoogleOidcGatewayTests(unittest.TestCase):
         self.assertEqual(result.status, "invalid_or_expired_transaction")
         self.assertEqual(transaction_rows(database.connection)[0]["lifecycle"], "prepared")
         self.assertEqual(harness.transport.token_request_count, 0)
+        self.assertEqual(events, [])
 
     def test_provider_wait_holds_no_sqlite_write_transaction_or_lock(self):
         database, authority, harness, prepared = self.prepare(
