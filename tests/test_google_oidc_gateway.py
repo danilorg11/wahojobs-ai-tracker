@@ -483,10 +483,50 @@ class TrustedConfigurationTests(_SocketsBlockedTestCase):
         self.assertEqual(parameters["response_type"], "code")
         self.assertEqual(parameters["scope"], "openid email")
         self.assertEqual(parameters["code_challenge_method"], "S256")
+        configuration_record = object.__getattribute__(
+            harness.configuration,
+            "_TrustedGoogleOidcConfiguration__record",
+        )
+        self.assertEqual(parameters["max_age"], "86400")
+        self.assertEqual(
+            int(parameters["max_age"]),
+            configuration_record.maximum_authentication_age_seconds,
+        )
         self.assertEqual(
             json.loads(parameters["claims"]),
             {"id_token": {"auth_time": {"essential": True}}},
         )
+        self.assertNotIn("prompt", parameters)
+
+        pairs = parse_qsl(
+            endpoint.query,
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=16,
+        )
+        for case, replacement in (("missing", None), ("wrong", "86399")):
+            with self.subTest(max_age=case):
+                changed_pairs = [
+                    (name, replacement if name == "max_age" else value)
+                    for name, value in pairs
+                    if name != "max_age" or replacement is not None
+                ]
+                changed_url = urlunsplit(
+                    (
+                        endpoint.scheme,
+                        endpoint.netloc,
+                        endpoint.path,
+                        urlencode(changed_pairs),
+                        endpoint.fragment,
+                    )
+                )
+                with self.assertRaises(gateway_module._Unavailable):
+                    gateway_module._validate_prepared_authorization_url(
+                        changed_url,
+                        configuration_record,
+                        parameters["state"],
+                        parameters["nonce"],
+                    )
 
     def test_direct_construction_subclass_duck_and_lookalike_are_rejected(self):
         for constructor, arguments in (
@@ -1210,7 +1250,14 @@ class RealProtocolAdapterTests(_SocketsBlockedTestCase):
                 "stale",
                 {
                     "auth_time": timestamp(
-                        NOW - timedelta(seconds=86_461)
+                        NOW
+                        - timedelta(
+                            seconds=(
+                                gateway_module._MAX_AUTHENTICATION_AGE_SECONDS
+                                + gateway_module._CLOCK_SKEW_SECONDS
+                                + 1
+                            )
+                        )
                     )
                 },
                 (),

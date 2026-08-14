@@ -2316,6 +2316,7 @@ def _prepare_authorization_url(configuration, transaction):
             state=state,
             code_verifier=verifier,
             nonce=nonce,
+            max_age=configuration.maximum_authentication_age_seconds,
             claims=json.dumps(
                 {"id_token": {"auth_time": {"essential": True}}},
                 sort_keys=True,
@@ -2378,6 +2379,7 @@ def _validate_prepared_authorization_url(url, configuration, state, nonce):
         "nonce": nonce,
         "code_challenge_method": configuration.pkce_method,
         "scope": "openid email",
+        "max_age": str(configuration.maximum_authentication_age_seconds),
         "claims": json.dumps(
             {"id_token": {"auth_time": {"essential": True}}},
             sort_keys=True,

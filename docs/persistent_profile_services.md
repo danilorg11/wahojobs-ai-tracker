@@ -891,9 +891,12 @@ Authorization requires one-use state and nonce values, PKCE S256, an accepted
 Google issuer, one exact audience, an exact `azp` value when present, an RS256
 signature, and valid expiry and `iat` values. A signed `auth_time` value is
 mandatory, may be at most 86,400 seconds old, and is subject to the approved
-60-second clock-skew policy. Deployment therefore requires Google session-age
-support that supplies `auth_time`, in addition to production credentials and
-redirect registration.
+60-second clock-skew policy. The authorization request keeps `auth_time`
+essential and sends `max_age=86400`, asking Google to enforce the same 24-hour
+freshness policy that the gateway validates locally; it does not force
+`prompt=login`. Deployment therefore requires Google session-age support that
+supplies `auth_time`, in addition to production credentials and redirect
+registration.
 
 Callback parameter names and values are structurally percent-decoded and
 strictly UTF-8 validated before provider exchange. Invalid escapes, invalid or
