@@ -87,11 +87,12 @@ _EXPIRED_COOKIE_DATE = "Thu, 01 Jan 1970 00:00:00 GMT"
 _SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("Cache-Control", "no-store"),
-    ("Referrer-Policy", "no-referrer"),
+    ("Referrer-Policy", "same-origin"),
 )
 _CONTENT_SECURITY_POLICY = (
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
-    "form-action 'self'; frame-ancestors 'none'"
+    "form-action 'self' https://api.workos.com https://*.authkit.app; "
+    "frame-ancestors 'none'"
 )
 
 

@@ -172,6 +172,20 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
         self.assertEqual(_header_values(response, "Location"), [AUTHENTICATED_DESTINATION])
         return response, target, code, transaction_cookie
 
+    def test_login_response_allows_exact_hosted_ui_navigation(self):
+        response = self.browser.handle("GET", LOGIN_ROUTE, self._get_headers())
+        self.assertEqual(response.status, 200)
+        self.assertEqual(_header_values(response, "Referrer-Policy"), ["same-origin"])
+        self.assertEqual(
+            _header_values(response, "Content-Security-Policy"),
+            [
+                "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+                "form-action 'self' https://api.workos.com https://*.authkit.app; "
+                "frame-ancestors 'none'"
+            ],
+        )
+        response.acknowledge_delivery()
+
     def test_success_uses_existing_session_delivery_and_replay_is_terminal(self):
         response, target, code, transaction_cookie = self._successful_login()
         session_pair = _cookie_pair(response, SESSION_COOKIE_NAME)
