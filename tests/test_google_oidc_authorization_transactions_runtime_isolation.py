@@ -208,7 +208,7 @@ print(
             False,
         )
 
-    def test_exact_migration_inventory_ends_at_m007(self):
+    def test_exact_migration_inventory_ends_at_m008(self):
         migrations = sorted(
             (ROOT / "wahojobs" / "db" / "migrations").glob("*.sql")
         )
@@ -222,6 +222,7 @@ print(
                 "005_persistent_profile_canonical_v2.sql",
                 "006_google_oidc_authorization_transactions.sql",
                 "007_closed_schema_convergence.sql",
+                "008_workos_authkit_provider.sql",
             ],
         )
 

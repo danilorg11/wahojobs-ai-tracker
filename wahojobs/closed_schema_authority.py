@@ -29,6 +29,19 @@ CURRENT_CLOSED_SCHEMA_FINGERPRINT = (
     "37a156dd9677e2bdb0eba5168a4ea150e30d771e1e7104a3b368f31667c2eaed"
 )
 
+# M007 remains an accepted closed schema for the unchanged Google runtime.
+# M008 changes only the auth-identity provider check and is accepted alongside
+# it so an upgraded database preserves every existing capability.
+WORKOS_AUTHKIT_CLOSED_SCHEMA_MIGRATION = "008_workos_authkit_provider"
+WORKOS_AUTHKIT_CLOSED_SCHEMA_MARKERS = (
+    *CURRENT_CLOSED_SCHEMA_MARKERS,
+    WORKOS_AUTHKIT_CLOSED_SCHEMA_MIGRATION,
+)
+WORKOS_AUTHKIT_CLOSED_SCHEMA_OBJECT_COUNT = 176
+WORKOS_AUTHKIT_CLOSED_SCHEMA_FINGERPRINT = (
+    "c906791bbbe607ec42ed6b5953d86a7f9ed580c38919704a6abf2e1740fb30e3"
+)
+
 _MAX_CLOSED_SCHEMA_SQL_BYTES = 1_048_576
 
 
@@ -87,7 +100,7 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
             "SELECT CAST(version AS BLOB) "
             "FROM main.wahojobs_schema_migrations "
             "ORDER BY version "
-            f"LIMIT {len(CURRENT_CLOSED_SCHEMA_MARKERS) + 1}"
+            f"LIMIT {len(WORKOS_AUTHKIT_CLOSED_SCHEMA_MARKERS) + 1}"
         ).fetchall()
         for raw in marker_rows:
             if type(raw) is not tuple or len(raw) != 1 or type(raw[0]) is not bytes:
@@ -129,15 +142,24 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
 
 
 def current_closed_schema_is_exact(connection) -> bool:
-    """Return exact ``True`` only for the approved M001--M007 schema."""
+    """Return exact ``True`` for either approved M007 or M008 closure."""
 
     identity = capture_closed_schema_identity(connection)
-    return (
-        identity.object_count == CURRENT_CLOSED_SCHEMA_OBJECT_COUNT
-        and hmac.compare_digest(
-            identity.fingerprint,
+    accepted = (
+        (
+            CURRENT_CLOSED_SCHEMA_OBJECT_COUNT,
             CURRENT_CLOSED_SCHEMA_FINGERPRINT,
-        )
-        and identity.migration_markers == CURRENT_CLOSED_SCHEMA_MARKERS
-        and identity.temporary_object_count == 0
+            CURRENT_CLOSED_SCHEMA_MARKERS,
+        ),
+        (
+            WORKOS_AUTHKIT_CLOSED_SCHEMA_OBJECT_COUNT,
+            WORKOS_AUTHKIT_CLOSED_SCHEMA_FINGERPRINT,
+            WORKOS_AUTHKIT_CLOSED_SCHEMA_MARKERS,
+        ),
+    )
+    return identity.temporary_object_count == 0 and any(
+        identity.object_count == object_count
+        and hmac.compare_digest(identity.fingerprint, fingerprint)
+        and identity.migration_markers == markers
+        for object_count, fingerprint, markers in accepted
     )

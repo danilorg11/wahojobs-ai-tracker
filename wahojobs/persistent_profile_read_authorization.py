@@ -11,6 +11,7 @@ import sqlite3
 from wahojobs.account_reconciliation import (
     EXPECTED_ACCOUNT_OBJECTS,
     MIGRATION_VERSION as ACCOUNTS_MIGRATION_VERSION,
+    attest_account_schema,
     authoritative_auth_identity_row_valid,
     expected_account_schema_fingerprints,
 )
@@ -570,15 +571,7 @@ def _accounts_schema_attested(connection) -> bool:
     expected = _expected_accounts_manifest()
     if set(expected) != EXPECTED_ACCOUNT_OBJECTS:
         return False
-    actual = {
-        (row[0], row[1]): _definition_fingerprint(_normalize_sql(row[2]))
-        for row in connection.execute(
-            "SELECT type, name, sql FROM sqlite_master "
-            "WHERE type IN ('table', 'index', 'trigger')"
-        )
-        if (row[0], row[1]) in expected
-    }
-    return actual == dict(expected)
+    return attest_account_schema(connection)
 
 
 def _expected_accounts_manifest():

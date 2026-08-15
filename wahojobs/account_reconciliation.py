@@ -93,10 +93,28 @@ ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS = MappingProxyType(
     }
 )
 
+WORKOS_AUTHKIT_PROVIDER_MIGRATION_VERSION = "008_workos_authkit_provider"
+_WORKOS_AUTHKIT_ACCOUNT_SCHEMA_FINGERPRINTS = dict(
+    ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS
+)
+_WORKOS_AUTHKIT_ACCOUNT_SCHEMA_FINGERPRINTS[("table", "auth_identities")] = (
+    "0a570974208061c2b9d08cdaf374d76786b13db020762af4a024bc82cb8f22b3"
+)
+WORKOS_AUTHKIT_ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS = MappingProxyType(
+    _WORKOS_AUTHKIT_ACCOUNT_SCHEMA_FINGERPRINTS
+)
+del _WORKOS_AUTHKIT_ACCOUNT_SCHEMA_FINGERPRINTS
+
 
 def expected_account_schema_fingerprints():
     """Return the immutable committed Migration-002 object fingerprints."""
     return ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS
+
+
+def expected_workos_authkit_account_schema_fingerprints():
+    """Return the M008 account fingerprints with the expanded provider check."""
+
+    return WORKOS_AUTHKIT_ACCOUNT_SCHEMA_DEFINITION_FINGERPRINTS
 
 
 def attest_account_schema(conn) -> bool:
@@ -107,7 +125,17 @@ def attest_account_schema(conn) -> bool:
     ).fetchone()
     if marker is None or marker[0] != 1:
         return False
-    expected = expected_account_schema_fingerprints()
+    upgraded = conn.execute(
+        "SELECT COUNT(*) FROM wahojobs_schema_migrations WHERE version = ?",
+        (WORKOS_AUTHKIT_PROVIDER_MIGRATION_VERSION,),
+    ).fetchone()
+    if upgraded is None or upgraded[0] not in {0, 1}:
+        return False
+    expected = (
+        expected_workos_authkit_account_schema_fingerprints()
+        if upgraded[0] == 1
+        else expected_account_schema_fingerprints()
+    )
     main_objects = tuple(
         conn.execute(
             "SELECT type, name, sql FROM sqlite_master "

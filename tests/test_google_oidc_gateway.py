@@ -62,34 +62,42 @@ from wahojobs.google_oidc_gateway import (
 ROOT = Path(__file__).resolve().parents[1]
 GATEWAY_PATH = ROOT / "wahojobs" / "google_oidc_gateway.py"
 APPROVED_INPUT_HASH = (
-    "c1b545ecfc06a07278760010b409927ff4c4572fc0828b94c75deb665f79932f"
+    "ad98ae0e20742519e9866531bb24f99a79cec9d100780107e0bae98d640e9c99"
 )
 APPROVED_LOCK_HASH = (
-    "f602b884da32d2f02f120b4b7bb4b594ba928338df0937550b5fa82f0974d95b"
+    "1fadebfc987a09fe5af62ae68f71b170ff91a9500d68e17f8917d1b920511ae9"
 )
 APPROVED_LOCK_CANONICAL_LF_HASH = (
-    "d6df028523ff16c94430683157c63620512600c17f5f86f43405c2505befe40a"
+    "482e87807668f764ec4e95311d8f205b7fc93bd3477fb293a0be62ab9e0e6f05"
 )
-APPROVED_INPUT_BYTES = 68
-APPROVED_LOCK_CANONICAL_LF_BYTES = 22166
-APPROVED_LOCK_BYTES = 22450
+APPROVED_INPUT_BYTES = 83
+APPROVED_LOCK_CANONICAL_LF_BYTES = 23679
+APPROVED_LOCK_BYTES = 23998
 APPROVED_DIRECT = {
     "authlib": "1.7.2",
-    "cryptography": "49.0.0",
+    "cryptography": "50.0.0",
     "joserfc": "1.7.4",
     "requests": "2.34.2",
+    "workos": "10.2.0",
 }
 APPROVED_CLOSURE = {
+    "anyio": "4.14.2",
     "authlib": "1.7.2",
     "certifi": "2026.7.22",
     "cffi": "2.1.0",
     "charset-normalizer": "3.4.9",
-    "cryptography": "49.0.0",
+    "cryptography": "50.0.0",
+    "h11": "0.16.0",
+    "httpcore": "1.0.9",
+    "httpx": "0.28.1",
     "idna": "3.18",
     "joserfc": "1.7.4",
     "pycparser": "3.0",
+    "pyjwt": "2.13.0",
     "requests": "2.34.2",
+    "typing-extensions": "4.16.0",
     "urllib3": "2.7.0",
+    "workos": "10.2.0",
 }
 
 
@@ -311,9 +319,10 @@ class DependencyAndLockContractTests(unittest.TestCase):
             canonical_input.split(b"\n"),
             [
                 b"Authlib==1.7.2",
-                b"cryptography==49.0.0",
+                b"cryptography==50.0.0",
                 b"joserfc==1.7.4",
                 b"requests==2.34.2",
+                b"workos==10.2.0",
                 b"",
             ],
         )

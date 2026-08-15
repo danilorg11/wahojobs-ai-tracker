@@ -880,8 +880,10 @@ The Google OIDC gateway is a dormant, default-disabled bridge into the accepted
 B2D1 completion boundary. Its initial application platform is CPython 3.12 on
 Windows x86-64, and Google is the only supported provider. The reviewed runtime
 dependency boundary is the exact hash-locked Authlib 1.7.2, joserfc 1.7.4, and
-Requests 2.34.2 stack, with cryptography 49.0.0 promoted from that unchanged
-closure as the direct storage-protection dependency. Those libraries own the
+Requests 2.34.2 stack. Those Google dependencies remain present and unchanged;
+the shared direct cryptography pin is 50.0.0 because the separately reviewed
+WorkOS AuthKit 10.2.0 SDK requires the compatible 50.0 release line. Those
+libraries own the
 standard OAuth, OpenID Connect, JOSE, HTTPS, and AES-GCM primitive work;
 Wahojobs owns only the narrow transaction, freshness, bounded-transport,
 verified-identity projection, durable-resolution, and failure policies around

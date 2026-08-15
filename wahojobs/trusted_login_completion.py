@@ -69,6 +69,9 @@ _VALIDATED_LOGINS = weakref.WeakSet()
 _RUNTIME_EXPECTED_PROVIDER = "google"
 _RUNTIME_ASSURANCE_POLICY_VERSION = "google_oidc_v1"
 _RUNTIME_COMPLETION_POLICY_VERSION = "trusted_login_completion_v1"
+_WORKOS_AUTHKIT_EXPECTED_PROVIDER = "workos_authkit"
+_WORKOS_AUTHKIT_ASSURANCE_POLICY_VERSION = "workos_authkit_magic_auth_v1"
+_WORKOS_AUTHKIT_PROOF_TTL = timedelta(seconds=60)
 
 _OUTCOMES = frozenset(
     {
@@ -728,6 +731,53 @@ def create_trusted_login_completion_policy(
         environment_namespace=environment_namespace,
         completion_policy_version=_RUNTIME_COMPLETION_POLICY_VERSION,
         session_policy=session_policy,
+    )
+
+
+def create_workos_authkit_trusted_login_completion_policy(
+    *,
+    environment_namespace: str,
+    idle_ttl: timedelta,
+    absolute_ttl: timedelta,
+) -> TrustedLoginCompletionPolicy:
+    """Issue the fixed Magic Auth policy for the WorkOS composition."""
+
+    session_policy = TrustedLoginSessionPolicy(
+        environment_namespace=environment_namespace,
+        idle_ttl=idle_ttl,
+        absolute_ttl=absolute_ttl,
+    )
+    return TrustedLoginCompletionPolicy._issue(
+        _COMPLETION_POLICY_ISSUANCE_CAPABILITY,
+        expected_provider=_WORKOS_AUTHKIT_EXPECTED_PROVIDER,
+        expected_assurance_policy_version=(
+            _WORKOS_AUTHKIT_ASSURANCE_POLICY_VERSION
+        ),
+        environment_namespace=environment_namespace,
+        completion_policy_version=_RUNTIME_COMPLETION_POLICY_VERSION,
+        session_policy=session_policy,
+    )
+
+
+def issue_workos_authkit_trusted_authentication(
+    *,
+    account_id: str,
+    identity_id: str,
+    completed_at: datetime,
+    environment_namespace: str,
+) -> TrustedExternalIdentityAuthentication:
+    """Seal the narrow server-observed Magic Auth freshness mapping."""
+
+    completed_at = _trusted_time(completed_at)
+    return TrustedExternalIdentityAuthentication._issue(
+        _ASSERTION_ISSUANCE_CAPABILITY,
+        account_id=account_id,
+        identity_id=identity_id,
+        provider=_WORKOS_AUTHKIT_EXPECTED_PROVIDER,
+        authenticated_at=completed_at,
+        expires_at=completed_at + _WORKOS_AUTHKIT_PROOF_TTL,
+        assurance_policy_version=_WORKOS_AUTHKIT_ASSURANCE_POLICY_VERSION,
+        environment_namespace=environment_namespace,
     )
 
 

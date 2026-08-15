@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 
-PROVIDERS = {"google"}
+PROVIDERS = {"google", "workos_authkit"}
 LIFECYCLE_STATUSES = {
     "active",
     "suspended",
@@ -218,6 +218,31 @@ class TrustedIdentityVerifier:
         _IDENTITY_ATTESTATIONS[identity] = (self._capability, snapshot)
         return identity
 
+    def from_workos_authkit_authentication(
+        self,
+        *,
+        provider_subject: str,
+        verified_email: str,
+        authenticated_at: datetime,
+        metadata_version: str,
+    ) -> VerifiedProviderIdentity:
+        """Issue one identity from a server-verified Magic Auth completion."""
+
+        identity = object.__new__(VerifiedProviderIdentity)
+        values = _validate_verified_identity_values(
+            provider="workos_authkit",
+            provider_subject=provider_subject,
+            verified_email=verified_email,
+            email_verified=True,
+            authenticated_at=authenticated_at,
+            metadata_version=metadata_version,
+        )
+        for field, value in values.items():
+            object.__setattr__(identity, f"_{field}", value)
+        snapshot = tuple(values.values())
+        _IDENTITY_ATTESTATIONS[identity] = (self._capability, snapshot)
+        return identity
+
     def _accepts(self, identity) -> bool:
         if type(identity) is not VerifiedProviderIdentity:
             return False
@@ -278,6 +303,26 @@ class AccountService:
             kwargs.clear()
             conn = None
         return outcome
+
+    def create_invited_user_for_workos_authkit(self, conn, **kwargs):
+        """Complete one classified invitation-bound WorkOS registration."""
+
+        outcome = None
+        try:
+            outcome = _classified_invited_user_completion(
+                self._identity_verifier,
+                conn,
+                kwargs,
+            )
+        finally:
+            for name in tuple(kwargs):
+                kwargs[name] = None
+            kwargs.clear()
+            conn = None
+        return outcome
+
+    def pending_invitation_is_valid(self, conn, **kwargs):
+        return pending_invitation_is_valid(conn, **kwargs)
 
     def link_verified_identity(self, conn, **kwargs):
         return _link_verified_identity(
@@ -722,6 +767,70 @@ def revoke_invitation(
         raise AuthenticationUnavailable() from exc
 
 
+def pending_invitation_is_valid(
+    conn,
+    *,
+    invitation_token: str,
+    invitation_lookup_key: bytes,
+    invitation_hash_version: str = INVITATION_HASH_VERSION,
+    now: datetime | None = None,
+) -> bool:
+    """Validate one still-pending invitation without consuming or exposing it."""
+
+    raw_secret = None
+    candidate_hash = None
+    try:
+        now = _now(now)
+        invitation_id, raw_secret = _invitation_token(invitation_token)
+        candidate_hash = invitation_secret_hmac(
+            raw_secret,
+            invitation_lookup_key,
+            version=invitation_hash_version,
+        )
+        rows = conn.execute(
+            "SELECT invitation_secret_hmac, hash_version, invitation_status, "
+            "expires_at, consumed_at, revoked_at, consumed_by_user_id "
+            "FROM account_invitations WHERE invitation_id = ? LIMIT 2",
+            (invitation_id,),
+        ).fetchall()
+        if len(rows) != 1:
+            return False
+        values = tuple(rows[0])
+        if len(values) != 7:
+            return False
+        (
+            stored_hash,
+            hash_version,
+            status,
+            expires_at,
+            consumed_at,
+            revoked_at,
+            consumed_by_user_id,
+        ) = values
+        if (
+            type(stored_hash) is not str
+            or type(candidate_hash) is not str
+            or not hmac.compare_digest(stored_hash, candidate_hash)
+            or hash_version != invitation_hash_version
+        ):
+            return False
+        expiry = _parse_timestamp(expires_at)
+        return (
+            status == "pending"
+            and expiry > now
+            and consumed_at is None
+            and revoked_at is None
+            and consumed_by_user_id is None
+        )
+    except (AccountError, sqlite3.Error, TypeError, ValueError):
+        return False
+    finally:
+        invitation_token = None
+        invitation_lookup_key = None
+        raw_secret = None
+        candidate_hash = None
+
+
 def _create_invited_user(
     conn,
     *,
@@ -837,6 +946,15 @@ def _create_invited_user(
                 _mark_invited_user_denial(
                     _denial_capture,
                     _InvitedUserDenialReason.INVITATION_EMAIL_AGREEMENT_REJECTED,
+                )
+                raise AuthenticationUnavailable()
+            if identity.provider == "workos_authkit" and conn.execute(
+                "SELECT 1 FROM auth_identities WHERE verified_email = ? LIMIT 1",
+                (normalized_email,),
+            ).fetchone() is not None:
+                _mark_invited_user_denial(
+                    _denial_capture,
+                    _InvitedUserDenialReason.ACCOUNT_COMPLETION_REJECTED,
                 )
                 raise AuthenticationUnavailable()
             conn.execute(
