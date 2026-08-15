@@ -1072,17 +1072,14 @@ def _render_match_results(context, *, inventory_count):
         context,
         limit=MATCH_PRESENTATION_LIMIT,
     )
-    cards_by_section = {section: [] for section in profile_preview.SECTION_ORDER}
+    cards = []
     for match in matches:
         url = local_product.safe_job_url(match.get("url"))
         if url is None:
             continue
-        section = match.get("presentation_source_section")
-        if section not in cards_by_section:
-            continue
         reason = profile_preview.user_fit_reason(match)
         caution = local_product.product_caution_note(match)
-        cards_by_section[section].append(
+        cards.append(
             "<article class='match-card'>"
             f"<p class='source'>{_safe(match.get('source') or 'Opportunity')}</p>"
             f"<h3>{_safe(match.get('display_title') or match.get('title') or 'Opportunity')}</h3>"
@@ -1097,24 +1094,14 @@ def _render_match_results(context, *, inventory_count):
             "rel='noopener noreferrer'>View opportunity</a></p>"
             "</article>"
         )
-    sections = []
-    for section in profile_preview.SECTION_ORDER:
-        cards = cards_by_section[section]
-        if not cards:
-            continue
-        label = profile_preview.SECTION_LABELS.get(section, section)
-        sections.append(
-            "<section class='match-section'>"
-            f"<h2>{_safe(label)}</h2>"
-            + "".join(cards)
-            + "</section>"
-        )
-    if sections:
-        count = sum(len(cards) for cards in cards_by_section.values())
+    if cards:
+        count = len(cards)
         content = (
             f"<p class='summary'><strong>{count} "
             f"{'match' if count == 1 else 'matches'}</strong></p>"
-            + "".join(sections)
+            "<section class='match-list' aria-label='Ranked matches'>"
+            + "".join(cards)
+            + "</section>"
         )
     elif inventory_count == 0:
         content = (

@@ -1,6 +1,8 @@
 import unittest
+from unittest import mock
 
 import scripts.local_product_app as app
+from wahojobs import authenticated_profile_matches
 from wahojobs.profiles.normalizer import BaselineHeuristicProfileNormalizer
 
 
@@ -68,6 +70,40 @@ def make_context(section_counts=None):
 
 
 class RankedPresentationTests(unittest.TestCase):
+    def test_persisted_results_render_one_continuous_ranked_list(self):
+        ranked_matches = []
+        for index, section in enumerate(app.ACTIONABLE_PRESENTATION_SECTIONS, start=1):
+            match = make_match(f"Ranked opportunity {index}")
+            match["presentation_rank"] = index
+            match["presentation_source_section"] = section
+            match["affirmative_fit_why"] = [f"Fit explanation {index}."]
+            ranked_matches.append(match)
+
+        with mock.patch.object(
+            app,
+            "build_browser_presentation_matches",
+            return_value=ranked_matches,
+        ):
+            page = authenticated_profile_matches._render_match_results(
+                {}, inventory_count=3
+            )
+
+        self.assertEqual(page.count("class='match-list'"), 1)
+        self.assertEqual(page.count("class='match-card'"), 3)
+        positions = [
+            page.index(f"Ranked opportunity {index}")
+            for index in range(1, 4)
+        ]
+        self.assertEqual(positions, sorted(positions))
+        for heading in (
+            "Do These First",
+            "Best Matches",
+            "Also Worth Reviewing",
+        ):
+            self.assertNotIn(heading, page)
+        for index in range(1, 4):
+            self.assertIn(f"Fit explanation {index}.", page)
+
     def test_ranked_matches_preserve_actionable_section_order_and_cap_at_ten(self):
         context = make_context(
             {
