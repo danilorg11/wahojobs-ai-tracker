@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import html
@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from scripts import local_product_app as local_product
 from scripts import profile_to_matches_preview as profile_preview
+from wahojobs import pipeline_actions, pipeline_records, pipeline_state
 from wahojobs.accounts import SessionUnavailable, resolve_session, validate_session_csrf
 from wahojobs.browser_session_authentication import (
     BrowserSessionAuthenticationUnavailable,
@@ -45,6 +46,15 @@ from wahojobs.profiles.canonical_v2 import (
 
 
 AUTHENTICATED_MATCHES_ROUTE = "/find-matches"
+AUTHENTICATED_TRACKER_ROUTE = "/tracker"
+AUTHENTICATED_ACTION_ROUTE = "/action"
+AUTHENTICATED_CANDIDATE_ROUTES = frozenset(
+    {
+        AUTHENTICATED_MATCHES_ROUTE,
+        AUTHENTICATED_TRACKER_ROUTE,
+        AUTHENTICATED_ACTION_ROUTE,
+    }
+)
 MAX_MATCHES_RESPONSE_BYTES = 1_048_576
 MAX_MATCHES_TARGET_BYTES = 2_048
 MAX_MATCHES_POST_BODY_BYTES = 65_536
@@ -155,19 +165,59 @@ class AuthenticatedMatchesBrowserResponse:
 
 
 class _AuthorizedMatchesState:
-    __slots__ = ("_draft_binding", "_profile_v2", "state")
+    __slots__ = (
+        "_account_id",
+        "_draft_binding",
+        "_environment_namespace",
+        "_principal_id",
+        "_profile_id",
+        "_profile_v2",
+        "_session_id",
+        "state",
+    )
 
-    def __init__(self, state, *, draft_binding, profile_v2=None):
+    def __init__(
+        self,
+        state,
+        *,
+        draft_binding,
+        account_id=None,
+        environment_namespace=None,
+        principal_id=None,
+        session_id=None,
+        profile_id=None,
+        profile_v2=None,
+    ):
         if (
             state not in {"empty", "profile"}
             or type(draft_binding) is not str
             or re.fullmatch(r"[0-9a-f]{64}", draft_binding) is None
             or (state == "profile") != (type(profile_v2) is dict)
+            or any(
+                value is not None and (type(value) is not str or not value)
+                for value in (
+                    account_id,
+                    environment_namespace,
+                    principal_id,
+                    session_id,
+                    profile_id,
+                )
+            )
+            or (state == "empty" and profile_id is not None)
+            or (state == "profile" and profile_id is None and account_id is not None)
         ):
             raise ValueError("invalid_authenticated_matches_authority")
-        self.state = state
-        self._draft_binding = draft_binding
-        self._profile_v2 = deepcopy(profile_v2)
+        object.__setattr__(self, "state", state)
+        object.__setattr__(self, "_draft_binding", draft_binding)
+        object.__setattr__(self, "_profile_v2", deepcopy(profile_v2))
+        object.__setattr__(self, "_account_id", account_id)
+        object.__setattr__(self, "_environment_namespace", environment_namespace)
+        object.__setattr__(self, "_principal_id", principal_id)
+        object.__setattr__(self, "_session_id", session_id)
+        object.__setattr__(self, "_profile_id", profile_id)
+
+    def __setattr__(self, _name, _value):
+        raise AttributeError("authenticated_matches_authority_is_immutable")
 
     def draft_binding(self):
         return self._draft_binding
@@ -176,6 +226,18 @@ class _AuthorizedMatchesState:
         if self.state != "profile" or self._profile_v2 is None:
             raise ValueError("authenticated_matches_profile_unavailable")
         return deepcopy(self._profile_v2)
+
+    def candidate_workflow_authority(self):
+        values = (
+            self._account_id,
+            self._environment_namespace,
+            self._principal_id,
+            self._session_id,
+            self._profile_id,
+        )
+        if self.state != "profile" or any(type(value) is not str or not value for value in values):
+            raise ValueError("authenticated_candidate_workflow_authority_unavailable")
+        return values
 
     def __repr__(self):
         return f"_AuthorizedMatchesState(state={self.state!r}, content=<redacted>)"
@@ -355,6 +417,10 @@ class AuthenticatedProfileMatchesService:
                                 _AuthorizedMatchesState(
                                     "empty",
                                     draft_binding=binding,
+                                    account_id=account_reference[0],
+                                    environment_namespace=account_reference[1],
+                                    principal_id=principal.principal_id,
+                                    session_id=session.session_id,
                                 ),
                             )
                         if reason == "schema_capability_unavailable":
@@ -368,9 +434,12 @@ class AuthenticatedProfileMatchesService:
                         include_structured_profile=True
                     )
                     profile_v2 = trusted_summary.get("structured_profile")
+                    profile_id = trusted_summary.get("profile_id")
                     if (
                         trusted_summary.get("structured_profile_included") is not True
                         or type(profile_v2) is not dict
+                        or type(profile_id) is not str
+                        or not profile_id
                     ):
                         return MatchesAuthorityResult("profile_unavailable")
                     return MatchesAuthorityResult(
@@ -378,6 +447,11 @@ class AuthenticatedProfileMatchesService:
                         _AuthorizedMatchesState(
                             "profile",
                             draft_binding=binding,
+                            account_id=account_reference[0],
+                            environment_namespace=account_reference[1],
+                            principal_id=principal.principal_id,
+                            session_id=session.session_id,
+                            profile_id=profile_id,
                             profile_v2=profile_v2,
                         ),
                     )
@@ -403,6 +477,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_closed",
         "_completed_replay_authenticator",
         "_connection_provider",
+        "_write_connection_provider",
         "_ephemeral_identity_factory",
         "_metadata_overlay",
         "_now",
@@ -417,6 +492,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         service,
         *,
         connection_provider,
+        write_connection_provider=None,
         metadata_overlay,
         confirmed_profile_artifact_sink,
         completed_profile_confirmation_authenticator,
@@ -429,6 +505,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         if (
             type(service) is not AuthenticatedProfileMatchesService
             or not callable(connection_provider)
+            or (
+                write_connection_provider is not None
+                and not callable(write_connection_provider)
+            )
             or type(metadata_overlay) is not OpportunityMetadataOverlay
             or not callable(confirmed_profile_artifact_sink)
             or not callable(completed_profile_confirmation_authenticator)
@@ -445,6 +525,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             raise ValueError("invalid_authenticated_matches_browser_configuration")
         self._service = service
         self._connection_provider = connection_provider
+        self._write_connection_provider = write_connection_provider
         self._metadata_overlay = metadata_overlay
         self._artifact_sink = confirmed_profile_artifact_sink
         self._completed_replay_authenticator = (
@@ -458,7 +539,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._closed = False
 
     def matches_route(self, path):
-        return not self._closed and path == AUTHENTICATED_MATCHES_ROUTE
+        if self._closed or path == AUTHENTICATED_ACTION_ROUTE and self._write_connection_provider is None:
+            return False
+        if path == AUTHENTICATED_TRACKER_ROUTE and self._write_connection_provider is None:
+            return False
+        return path in AUTHENTICATED_CANDIDATE_ROUTES
 
     def handle(self, method, target, authentication_input=None, body_stream=None):
         if self._closed:
@@ -474,7 +559,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "This matches route does not accept that method.",
                 extra_headers=(("Allow", "GET, HEAD, POST"),),
             )
-        params = _parse_target(target, method=method)
+        parsed_target = _parse_target(target, method=method)
+        params = None if parsed_target is None else parsed_target[1]
         if params is None:
             return _failure_response(
                 HTTPStatus.BAD_REQUEST,
@@ -491,6 +577,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Matches request unavailable",
                 "This matches request is not valid.",
             )
+        route = parsed_target[0]
+        if route != AUTHENTICATED_MATCHES_ROUTE and self._write_connection_provider is None:
+            return _failure_response(HTTPStatus.NOT_FOUND, "Page not found", "This page is not available.")
         if method == "POST" and not _trusted_same_origin(
             header_items,
             self._public_origin,
@@ -525,6 +614,31 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         if authority_result.state not in {"empty", "profile"}:
             return _authority_failure(authority_result.state)
         authority = authority_result.authorized_state()
+        if route == AUTHENTICATED_ACTION_ROUTE:
+            if method != "POST":
+                return _failure_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "Method not allowed",
+                    "This action route accepts POST only.",
+                    extra_headers=(("Allow", "POST"),),
+                )
+            if authority.state != "profile":
+                return _authority_failure("profile_unavailable")
+            form = _strict_post_form(header_items, body_stream)
+            if form is None:
+                return _workflow_failure(HTTPStatus.BAD_REQUEST, "Malformed action request.", header_items)
+            return self._handle_action(form, authority, header_items)
+        if route == AUTHENTICATED_TRACKER_ROUTE:
+            if method not in {"GET", "HEAD"}:
+                return _failure_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "Method not allowed",
+                    "My Jobs accepts GET and HEAD only.",
+                    extra_headers=(("Allow", "GET, HEAD"),),
+                )
+            if authority.state != "profile":
+                return _authority_failure("profile_unavailable")
+            return self._handle_tracker(params, authority)
         if method in {"GET", "HEAD"}:
             return self._handle_get(params, authority)
         form = _strict_post_form(header_items, body_stream)
@@ -536,15 +650,57 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             )
         return self._handle_post(form, authority, header_items)
 
+    def current_matches_target(self, run_id, authentication_input=None):
+        """Return a current-run target only when this request still owns the run."""
+        if self._closed:
+            return None
+        header_items = _validated_header_items(authentication_input)
+        if header_items is None or not _trusted_host_headers(
+            header_items,
+            self._public_authority,
+        ):
+            return None
+        session_token, session_valid = _security_cookie(
+            header_items,
+            SESSION_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        if not session_valid:
+            return None
+        authority_result = self._service.resolve(
+            method="GET",
+            authentication_input=header_items,
+            session_token=session_token,
+            csrf_secret=None,
+        )
+        if authority_result.state != "profile":
+            return None
+        authority = authority_result.authorized_state()
+        run = self._authorized_run(run_id, authority)
+        if run is None or run.recommendation_context is None:
+            return None
+        return AUTHENTICATED_MATCHES_ROUTE + "?" + urlencode(
+            {"run": run.match_run_id}
+        )
+
     def _handle_get(self, params, authority):
         if authority.state == "profile":
+            current_run = None
             if params:
-                return _failure_response(
-                    HTTPStatus.BAD_REQUEST,
-                    "Matches request unavailable",
-                    "This matches request is not valid.",
-                )
-            return self._render_persistent_matches(authority)
+                if self._write_connection_provider is None or set(params) - {"run", "review"}:
+                    return _failure_response(
+                        HTTPStatus.BAD_REQUEST,
+                        "Matches request unavailable",
+                        "This matches request is not valid.",
+                    )
+                current_run = self._authorized_run(params.get("run"), authority)
+                if current_run is None:
+                    return _failure_response(
+                        HTTPStatus.GONE,
+                        "Matches session expired",
+                        "Reload matches to continue.",
+                    )
+            return self._render_persistent_matches(authority, run=current_run)
         if not params:
             return _form_page_response(HTTPStatus.OK, _render_candidate_entry())
         run = self._authorized_run(params["run"], authority)
@@ -621,6 +777,181 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "This profile review could not be completed safely.",
             )
 
+    def _handle_tracker(self, params, authority):
+        try:
+            run = None
+            run_id = params.get("run")
+            if run_id:
+                run = self._authorized_run(run_id, authority)
+                if run is None:
+                    return _failure_response(
+                        HTTPStatus.GONE,
+                        "My Jobs session expired",
+                        "Reload My Jobs to continue.",
+                    )
+            if run is None:
+                run = self._registry.create(
+                    owner_profile_id=authority.candidate_workflow_authority()[4],
+                    raw_input="",
+                    input_style="short_paragraph",
+                    recommendation_context=None,
+                    profile_confirmed=True,
+                )
+            records = self._load_pipeline_records(authority)
+            content = _render_authenticated_tracker(
+                records,
+                run.match_run_id,
+                params.get("view", "all"),
+                current_matches_available=run.recommendation_context is not None,
+            )
+            return _form_page_response(HTTPStatus.OK, content)
+        except (sqlite3.Error, ValueError, TypeError, pipeline_records.PipelineRecordInvariant):
+            return _failure_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "My Jobs temporarily unavailable",
+                "Your jobs cannot be loaded safely right now.",
+            )
+
+    def _handle_action(self, form, authority, header_items):
+        wants_json = (
+            any("application/json" in value.lower() for value in _header_values(header_items, "accept"))
+            or _header_values(header_items, local_product.INLINE_ACTION_HEADER.lower()) == ("1",)
+        )
+        try:
+            allowed_fields = (
+                local_product.ACTION_REQUIRED_SINGLE_FIELDS
+                | local_product.ACTION_OPTIONAL_SINGLE_FIELDS
+            )
+            if set(form) - allowed_fields:
+                raise local_product.MalformedActionRequest()
+            local_product.validate_action_form(form)
+            run_id = local_product.action_form_value(form, "match_run_id")
+            run = self._authorized_run(run_id, authority)
+            if run is None:
+                raise local_product.ActionError(
+                    "That match run is unknown or has expired. Reload and try again.",
+                    HTTPStatus.GONE,
+                )
+            result = self._perform_pipeline_action(form, run, authority)
+            if wants_json:
+                return _json_response(
+                    HTTPStatus.OK,
+                    local_product.action_json_payload(result, run, form),
+                )
+            if local_product.action_form_value(form, "section") == "tracker":
+                location = AUTHENTICATED_TRACKER_ROUTE + "?" + urlencode(
+                    {
+                        "run": run.match_run_id,
+                        "view": local_product.action_form_value(
+                            form,
+                            "tracker_view",
+                            allow_empty=True,
+                        )
+                        or "all",
+                    }
+                )
+            else:
+                location = AUTHENTICATED_MATCHES_ROUTE + "?" + urlencode(
+                    {"run": run.match_run_id}
+                )
+            return _redirect_response(location)
+        except local_product.ActionError as exc:
+            message = str(exc)
+            status = exc.status
+        except (pipeline_state.StaleStateVersion, pipeline_state.IdempotencyConflict) as exc:
+            status = HTTPStatus.CONFLICT
+            message = (
+                "This item changed since the page was loaded. Refresh and try again."
+                if isinstance(exc, pipeline_state.StaleStateVersion)
+                else "This action conflicts with an earlier request. Refresh and try again."
+            )
+        except (pipeline_actions.UnresolvedLegacyWorkflow, pipeline_state.InvalidTransition) as exc:
+            status = HTTPStatus.CONFLICT
+            message = str(exc)
+        except pipeline_actions.PipelineActionValidationError as exc:
+            status = HTTPStatus.BAD_REQUEST
+            message = str(exc)
+        except (KeyboardInterrupt, SystemExit, GeneratorExit):
+            raise
+        except Exception:
+            status = HTTPStatus.SERVICE_UNAVAILABLE
+            message = "The action could not be completed safely."
+        return _workflow_failure(status, message, header_items, wants_json=wants_json)
+
+    def _load_pipeline_records(self, authority):
+        account_id, _environment, _principal_id, _session_id, profile_id = (
+            authority.candidate_workflow_authority()
+        )
+        connection = None
+        with self._connection_provider() as connection:
+            if (
+                not isinstance(connection, sqlite3.Connection)
+                or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+                or connection.in_transaction
+            ):
+                raise ValueError("candidate_workflow_read_unavailable")
+            connection.execute("BEGIN")
+            try:
+                owner = connection.execute(
+                    "SELECT user_id, is_sample FROM user_profiles WHERE profile_id=?",
+                    (profile_id,),
+                ).fetchone()
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM user_pipeline_items WHERE profile_id=?",
+                    (profile_id,),
+                ).fetchone()[0]
+                if owner is None and count:
+                    raise ValueError("candidate_workflow_owner_unavailable")
+                if owner is not None and (
+                    owner["user_id"] != account_id or owner["is_sample"] != 0
+                ):
+                    raise ValueError("candidate_workflow_owner_unavailable")
+                local_product.require_normalized_browser_read_ready(connection)
+                return [
+                    local_product.normalized_browser_record(record)
+                    for record in pipeline_records.list_pipeline_records(
+                        connection,
+                        profile_id,
+                        mutation_grade=True,
+                    )
+                ]
+            finally:
+                if connection.in_transaction:
+                    connection.rollback()
+
+    def _perform_pipeline_action(self, form, run, authority):
+        if self._write_connection_provider is None:
+            raise local_product.ActionError(
+                "Candidate workflow is unavailable.",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+        connection = None
+        with self._write_connection_provider() as connection:
+            if (
+                not isinstance(connection, sqlite3.Connection)
+                or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                or connection.execute("PRAGMA query_only").fetchone()[0] != 0
+                or connection.in_transaction
+            ):
+                raise local_product.ActionError(
+                    "Candidate workflow is unavailable.",
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                )
+            with pipeline_state.atomic(connection):
+                _ensure_candidate_workflow_owner(
+                    connection,
+                    authority,
+                    now=_trusted_utc(self._now()),
+                )
+                return _perform_authenticated_pipeline_action(
+                    connection,
+                    form=form,
+                    run=run,
+                    owner_profile_id=authority.candidate_workflow_authority()[4],
+                    now=_trusted_utc(self._now()),
+                )
+
     def _create_candidate_draft(self, form, authority):
         allowed = {"input_text", "input_style", "edit_run_id", "edit_review_token"}
         if set(form) - allowed:
@@ -687,35 +1018,64 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             if confirmation
             else self._registry.get(run_id)
         )
-        if run is None or not hmac.compare_digest(
-            run.owner_profile_id,
-            authority.draft_binding(),
-        ):
+        expected_owner = authority.draft_binding()
+        if self._write_connection_provider is not None and authority.state == "profile":
+            expected_owner = authority.candidate_workflow_authority()[4]
+        if run is None or not hmac.compare_digest(run.owner_profile_id, expected_owner):
             return None
         return run
 
-    def _render_persistent_matches(self, authority):
+    def _render_persistent_matches(self, authority, *, run=None):
         try:
-            profile_v2 = authority.trusted_profile_v2()
-            matcher_profile_id = self._ephemeral_identity_factory()
-            projected = project_v2_to_matcher_v1(
-                profile_v2,
-                matcher_profile_id=matcher_profile_id,
+            if run is not None and run.recommendation_context is not None:
+                context = run.recommendation_context
+                inventory_count = context.get("_authenticated_inventory_count")
+                if type(inventory_count) is not int or inventory_count < 0:
+                    raise ValueError("candidate_match_run_inventory_unavailable")
+            else:
+                profile_v2 = authority.trusted_profile_v2()
+                matcher_profile_id = self._ephemeral_identity_factory()
+                projected = project_v2_to_matcher_v1(
+                    profile_v2,
+                    matcher_profile_id=matcher_profile_id,
+                )
+                rows, overlay_status = self._load_inventory()
+                inventory_count = len(rows)
+                evaluated_at = _trusted_utc(self._now())
+                context = profile_preview.build_preview_context_from_canonical_rows(
+                    projected,
+                    inventory_rows=rows,
+                    metadata_overlay_status=overlay_status,
+                    limit=local_product.PREVIEW_MATCH_LIMIT,
+                    normalizer_name="canonical_v2_projection",
+                    normalization_warnings=[],
+                    extraction_quality="reviewed",
+                    evaluated_at=evaluated_at,
+                )
+            if self._write_connection_provider is None:
+                content = _render_match_results(context, inventory_count=inventory_count)
+            else:
+                records = self._load_pipeline_records(authority)
+                if run is None or run.recommendation_context is None:
+                    context["_authenticated_inventory_count"] = inventory_count
+                    run = self._registry.create(
+                        owner_profile_id=authority.candidate_workflow_authority()[4],
+                        raw_input="",
+                        input_style="short_paragraph",
+                        recommendation_context=context,
+                        profile_confirmed=True,
+                    )
+                content = _render_match_results(
+                    context,
+                    inventory_count=inventory_count,
+                    tracked=local_product.demo.build_tracked_index(records),
+                    match_run_id=run.match_run_id,
+                )
+            return (
+                _form_page_response(HTTPStatus.OK, content)
+                if self._write_connection_provider is not None
+                else _html_response(HTTPStatus.OK, content)
             )
-            rows, overlay_status = self._load_inventory()
-            evaluated_at = _trusted_utc(self._now())
-            context = profile_preview.build_preview_context_from_canonical_rows(
-                projected,
-                inventory_rows=rows,
-                metadata_overlay_status=overlay_status,
-                limit=local_product.PREVIEW_MATCH_LIMIT,
-                normalizer_name="canonical_v2_projection",
-                normalization_warnings=[],
-                extraction_quality="reviewed",
-                evaluated_at=evaluated_at,
-            )
-            content = _render_match_results(context, inventory_count=len(rows))
-            return _html_response(HTTPStatus.OK, content)
         except (CanonicalProfileV2Error, sqlite3.Error, ValueError, TypeError):
             return _failure_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
@@ -765,6 +1125,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._registry = None
         self._service = None
         self._connection_provider = None
+        self._write_connection_provider = None
         self._metadata_overlay = None
         self._artifact_sink = None
         self._completed_replay_authenticator = None
@@ -775,6 +1136,236 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     @property
     def closed(self):
         return self._closed
+
+
+def _ensure_candidate_workflow_owner(connection, authority, *, now):
+    account_id, environment, principal_id, session_id, profile_id = (
+        authority.candidate_workflow_authority()
+    )
+    if environment != "private_beta":
+        raise local_product.ActionError(
+            "Candidate workflow is unavailable for this account.",
+            HTTPStatus.FORBIDDEN,
+        )
+    timestamp = _trusted_utc(now).replace(microsecond=0).isoformat()
+    authorized = connection.execute(
+        """
+        SELECT 1
+        FROM account_sessions AS session
+        JOIN users AS account ON account.user_id = session.user_id
+        JOIN product_principals AS principal
+          ON principal.principal_id = ?
+         AND principal.environment_namespace = ?
+        JOIN principal_account_bindings AS binding
+          ON binding.principal_id = principal.principal_id
+         AND binding.user_id = account.user_id
+         AND binding.environment_namespace = principal.environment_namespace
+        JOIN current_product_profiles AS profile
+          ON profile.profile_id = ?
+         AND profile.principal_id = principal.principal_id
+         AND profile.environment_namespace = principal.environment_namespace
+        WHERE session.session_id = ?
+          AND session.user_id = ?
+          AND session.revoked_at IS NULL
+          AND session.rotated_at IS NULL
+          AND julianday(session.idle_expires_at) > julianday(?)
+          AND julianday(session.absolute_expires_at) > julianday(?)
+          AND account.lifecycle_status = 'active'
+          AND principal.principal_type = 'account_native'
+          AND principal.lifecycle_status = 'active'
+          AND principal.claim_policy = 'account_native'
+          AND binding.binding_role = 'owner'
+          AND binding.binding_status = 'active'
+          AND profile.lifecycle_status = 'active'
+        LIMIT 1
+        """,
+        (
+            principal_id,
+            environment,
+            profile_id,
+            session_id,
+            account_id,
+            timestamp,
+            timestamp,
+        ),
+    ).fetchone()
+    if authorized is None:
+        raise local_product.ActionError(
+            "Candidate workflow authorization expired. Sign in again.",
+            HTTPStatus.UNAUTHORIZED,
+        )
+
+    compatibility = connection.execute(
+        "SELECT user_id, is_sample FROM user_profiles WHERE profile_id = ?",
+        (profile_id,),
+    ).fetchone()
+    if compatibility is None:
+        connection.execute(
+            """
+            INSERT INTO user_profiles (user_id, profile_id, display_name, is_sample)
+            VALUES (?, ?, 'Authenticated profile', 0)
+            """,
+            (account_id, profile_id),
+        )
+        compatibility = connection.execute(
+            "SELECT user_id, is_sample FROM user_profiles WHERE profile_id = ?",
+            (profile_id,),
+        ).fetchone()
+    if compatibility is None or (
+        compatibility["user_id"] != account_id or compatibility["is_sample"] != 0
+    ):
+        raise local_product.ActionError(
+            "Candidate workflow ownership could not be verified.",
+            HTTPStatus.FORBIDDEN,
+        )
+
+
+def _perform_authenticated_pipeline_action(
+    connection,
+    *,
+    form,
+    run,
+    owner_profile_id,
+    now,
+):
+    action = local_product.action_form_value(form, "action")
+    pipeline_id = local_product.action_form_value(
+        form,
+        "pipeline_item_id",
+        allow_empty=True,
+    )
+    idempotency_key = local_product.action_form_value(form, "idempotency_key")
+    call = {
+        "action": action,
+        "owner_profile_id": owner_profile_id,
+        "idempotency_key": idempotency_key,
+        "match_run_id": run.match_run_id,
+        "note": local_product.action_note(action),
+    }
+    if action == "remind_later":
+        reminder_date = (_trusted_utc(now).date() + timedelta(days=7)).isoformat()
+        call["reminder_at"] = f"{reminder_date}T00:00:00+00:00"
+    try:
+        pipeline_records.require_pipeline_state_schema(connection)
+        local_product.require_browser_pipeline_ready(connection)
+        if pipeline_id:
+            persisted = connection.execute(
+                "SELECT profile_id FROM user_pipeline_items WHERE pipeline_item_id = ?",
+                (pipeline_id,),
+            ).fetchone()
+            if persisted is None:
+                raise local_product.ActionError(
+                    "That tracker item was not found.",
+                    HTTPStatus.NOT_FOUND,
+                )
+            if persisted["profile_id"] != owner_profile_id:
+                raise local_product.ActionError(
+                    "That tracker item is unavailable for this profile.",
+                    HTTPStatus.FORBIDDEN,
+                )
+            record = local_product.normalized_browser_record(
+                pipeline_records.load_pipeline_record(
+                    connection,
+                    pipeline_id,
+                    owner_profile_id=owner_profile_id,
+                    mutation_grade=True,
+                )
+            )
+            requested_opportunity = local_product.optional_action_form_value(
+                form,
+                "opportunity_key",
+                allow_empty=True,
+            )
+            if requested_opportunity:
+                opportunity = local_product.resolve_run_opportunity(
+                    run,
+                    requested_opportunity,
+                )
+                if not local_product.same_record_opportunity(record, opportunity):
+                    raise local_product.ActionError(
+                        "That action does not match this opportunity.",
+                        HTTPStatus.FORBIDDEN,
+                    )
+            call.update(
+                action=local_product.normalized_browser_action(action, form, record),
+                pipeline_item_id=pipeline_id,
+                expected_version=local_product.required_expected_version(form),
+            )
+        else:
+            if "expected_version" in form:
+                raise local_product.ActionError(
+                    "A new opportunity must not submit a state version."
+                )
+            if action not in {"save", "applied", "not_interested"}:
+                raise local_product.ActionError(
+                    "That action requires a tracked opportunity."
+                )
+            opportunity = local_product.resolve_run_opportunity(
+                run,
+                local_product.action_form_value(form, "opportunity_key"),
+            )
+            call.update(
+                source=opportunity["source"],
+                title=opportunity["title"],
+                url=opportunity["url"],
+            )
+        operation = pipeline_actions.perform_pipeline_action(connection, **call)
+        loaded = pipeline_records.load_pipeline_record(
+            connection,
+            operation.pipeline_item["pipeline_item_id"],
+            owner_profile_id=owner_profile_id,
+            mutation_grade=True,
+        )
+        record = local_product.normalized_browser_record(loaded)
+        all_records = [
+            local_product.normalized_browser_record(current)
+            for current in pipeline_records.list_pipeline_records(
+                connection,
+                owner_profile_id,
+                mutation_grade=True,
+            )
+        ]
+    except local_product.ActionError:
+        raise
+    except pipeline_state.OwnershipError as exc:
+        raise local_product.ActionError(
+            "That tracker item is unavailable for this profile.",
+            HTTPStatus.FORBIDDEN,
+        ) from exc
+    except (pipeline_state.StaleStateVersion, pipeline_state.IdempotencyConflict) as exc:
+        message = (
+            "This item changed since the page was loaded. Refresh and try again."
+            if isinstance(exc, pipeline_state.StaleStateVersion)
+            else "This action conflicts with an earlier request. Refresh and try again."
+        )
+        raise local_product.ActionError(message, HTTPStatus.CONFLICT) from exc
+    except (pipeline_actions.UnresolvedLegacyWorkflow, pipeline_state.InvalidTransition) as exc:
+        raise local_product.ActionError(str(exc), HTTPStatus.CONFLICT) from exc
+    except (
+        pipeline_records.PipelineRecordInvariant,
+        pipeline_actions.PipelineInvariantError,
+        pipeline_state.ProjectionNotInitialized,
+    ) as exc:
+        raise local_product.ActionError(
+            "Pipeline state needs reconciliation before this action can continue.",
+            HTTPStatus.SERVICE_UNAVAILABLE,
+        ) from exc
+    except pipeline_actions.PipelineActionValidationError as exc:
+        raise local_product.ActionError(str(exc), HTTPStatus.BAD_REQUEST) from exc
+
+    return {
+        "message": (
+            local_product.reminder_success_message(record["reminder_date"])
+            if action == "remind_later"
+            else local_product.action_success_message(action)
+        ),
+        "item": record,
+        "source": record["source"],
+        "title": record["title"],
+        "url": record["url"],
+        "replayed": operation.replayed,
+        "all_records": all_records,
+    }
 
 
 def _authority_binding(
@@ -842,11 +1433,14 @@ def _parse_target(target, *, method):
     if (
         parsed.scheme
         or parsed.netloc
-        or parsed.path != AUTHENTICATED_MATCHES_ROUTE
+        or parsed.path not in AUTHENTICATED_CANDIDATE_ROUTES
         or parsed.fragment
-        or (method == "POST" and parsed.query)
+        or (parsed.path == AUTHENTICATED_ACTION_ROUTE and parsed.query)
+        or (method == "POST" and parsed.path != AUTHENTICATED_MATCHES_ROUTE and parsed.query)
     ):
         return None
+    if parsed.path == AUTHENTICATED_ACTION_ROUTE:
+        return parsed.path, {}
     try:
         raw = (
             parse_qs(
@@ -863,8 +1457,22 @@ def _parse_target(target, *, method):
     if any(type(values) is not list or len(values) != 1 for values in raw.values()):
         return None
     params = {key: values[0] for key, values in raw.items()}
+    if parsed.path == AUTHENTICATED_TRACKER_ROUTE:
+        if set(params) - {"run", "view"}:
+            return None
+        run_id = params.get("run")
+        if run_id is not None and (
+            type(run_id) is not str
+            or _MATCH_RUN_REFERENCE.fullmatch(run_id) is None
+        ):
+            return None
+        view = params.get("view", "all")
+        if view != local_product.normalize_tracker_view(view):
+            return None
+        params["view"] = view
+        return parsed.path, params
     if not params:
-        return {}
+        return parsed.path, {}
     if set(params) - {"run", "review", "edit_text"}:
         return None
     run_id = params.get("run")
@@ -875,7 +1483,7 @@ def _parse_target(target, *, method):
         return None
     if not modes:
         params["review"] = "1"
-    return params
+    return parsed.path, params
 
 
 def _validated_header_items(headers):
@@ -1067,7 +1675,13 @@ def _render_candidate_review(run):
     return _page("Review your profile", body)
 
 
-def _render_match_results(context, *, inventory_count):
+def _render_match_results(
+    context,
+    *,
+    inventory_count,
+    tracked=None,
+    match_run_id=None,
+):
     matches = local_product.build_browser_presentation_matches(
         context,
         limit=MATCH_PRESENTATION_LIMIT,
@@ -1079,8 +1693,29 @@ def _render_match_results(context, *, inventory_count):
             continue
         reason = profile_preview.user_fit_reason(match)
         caution = local_product.product_caution_note(match)
+        record = (
+            local_product.demo.tracked_record_for_match(match, tracked)
+            if tracked is not None
+            else None
+        )
+        controls = (
+            local_product.render_preview_card_actions(
+                match,
+                record,
+                match_run_id,
+                match["presentation_source_section"],
+                "ranked-" + local_product.match_opportunity_key(match),
+            )
+            if match_run_id is not None
+            else ""
+        )
+        status = (
+            local_product.readable_status(record["status"])
+            if record is not None
+            else ""
+        )
         cards.append(
-            "<article class='match-card'>"
+            "<article class='match-card' data-action-card>"
             f"<p class='source'>{_safe(match.get('source') or 'Opportunity')}</p>"
             f"<h3>{_safe(match.get('display_title') or match.get('title') or 'Opportunity')}</h3>"
             f"<p class='muted'>{_safe(match.get('location') or 'Location not listed')}</p>"
@@ -1090,9 +1725,15 @@ def _render_match_results(context, *, inventory_count):
                 if caution
                 else ""
             )
+            + (
+                f"<p class='pill card-status js-card-status'>{_safe(status)}</p>"
+                if status
+                else "<p class='pill card-status js-card-status'></p>"
+            )
             + f"<p><a class='button' href='{_safe(url)}' target='_blank' "
             "rel='noopener noreferrer'>View opportunity</a></p>"
-            "</article>"
+            + (f"<div class='js-card-controls'>{controls}</div>" if controls else "")
+            + "</article>"
         )
     if cards:
         count = len(cards)
@@ -1116,27 +1757,70 @@ def _render_match_results(context, *, inventory_count):
             "</section>"
         )
     body = f"""
-    {_navigation()}
+    {_navigation(match_run_id=match_run_id)}
     <header class='intro'>
       <p class='eyebrow'>Matches</p>
       <h1>Your current matches</h1>
       <p>Regenerated from your saved account profile and the configured opportunity inventory.</p>
     </header>
+    <div id='action-feedback' aria-live='polite'></div>
     {content}
     """
-    return _page("Your matches", body)
+    return _page("Your matches", body, workflow=match_run_id is not None)
 
 
-def _navigation():
+def _render_authenticated_tracker(
+    records,
+    match_run_id,
+    tracker_view,
+    *,
+    current_matches_available,
+):
+    body = (
+        _navigation(
+            match_run_id=match_run_id,
+            show_current_matches=current_matches_available,
+        )
+        + local_product.render_lightweight_tracker_header(records)
+        + "<div id='action-feedback' aria-live='polite'></div>"
+        + local_product.render_my_jobs_workspace(
+            records,
+            match_run_id,
+            tracker_view,
+        )
+    )
+    return _page("My Jobs", body, workflow=True)
+
+
+def _navigation(*, match_run_id=None, show_current_matches=False):
+    tracker = ""
+    current_matches = ""
+    if match_run_id is not None:
+        tracker = (
+            "<a href='/tracker?"
+            + urlencode({"run": match_run_id})
+            + "'>My Jobs</a>"
+        )
+        if show_current_matches:
+            current_matches = (
+                "<a href='/find-matches?"
+                + urlencode({"run": match_run_id})
+                + "'>Current matches</a>"
+            )
+    profile_target = "/account/profile"
+    if match_run_id is not None:
+        profile_target += "?" + urlencode({"run": match_run_id})
     return (
         "<nav class='account-nav' aria-label='Account'>"
-        "<a href='/account/profile'>My profile</a>"
-        "<a href='/logout'>Sign out</a>"
-        "</nav>"
+        f"<a href='{profile_target}'>My profile</a>"
+        + current_matches
+        + tracker
+        + "<a href='/logout'>Sign out</a>"
+        + "</nav>"
     )
 
 
-def _page(title, body):
+def _page(title, body, *, workflow=False):
     return f"""<!doctype html>
 <html lang='en'>
 <head>
@@ -1165,6 +1849,7 @@ def _page(title, body):
     .muted {{ color: #5b6861; }}
     .caution {{ color: #7a3b24; }}
     @media (max-width: 680px) {{ .review-grid, .language-review-row {{ grid-template-columns: 1fr; }} }}
+    {local_product.CSS if workflow else ''}
   </style>
 </head>
 <body><main>{body}</main></body>
@@ -1223,6 +1908,53 @@ def _redirect_response(location):
     )
 
 
+def _json_response(status, document):
+    payload = json.dumps(
+        document,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(payload) > MAX_MATCHES_RESPONSE_BYTES:
+        return _failure_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Candidate workflow unavailable",
+            "The response could not be returned safely.",
+        )
+    return AuthenticatedMatchesBrowserResponse(
+        int(status),
+        payload,
+        (
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Content-Length", str(len(payload))),
+            *_SECURITY_HEADERS,
+            ("Referrer-Policy", _NO_REFERRER_POLICY),
+        ),
+    )
+
+
+def _workflow_failure(status, message, header_items, *, wants_json=None):
+    if wants_json is None:
+        wants_json = bool(
+            any(
+                "application/json" in value.lower()
+                for value in _header_values(header_items, "accept")
+            )
+            or _header_values(
+                header_items,
+                local_product.INLINE_ACTION_HEADER.lower(),
+            )
+            == ("1",)
+        )
+    if wants_json:
+        return _json_response(status, {"error": str(message), "ok": False})
+    return _failure_response(
+        status,
+        "Candidate action unavailable",
+        str(message),
+    )
+
+
 def _failure_response(status, title, message, *, extra_headers=()):
     return _html_response(
         status,
@@ -1272,7 +2004,10 @@ def _safe(value):
 
 
 __all__ = [
+    "AUTHENTICATED_ACTION_ROUTE",
+    "AUTHENTICATED_CANDIDATE_ROUTES",
     "AUTHENTICATED_MATCHES_ROUTE",
+    "AUTHENTICATED_TRACKER_ROUTE",
     "AuthenticatedMatchesBrowserResponse",
     "AuthenticatedProfileMatchesBrowserIntegration",
     "AuthenticatedProfileMatchesService",

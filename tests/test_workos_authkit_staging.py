@@ -179,6 +179,8 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
                 "/logout",
                 "/account/profile",
                 "/find-matches",
+                "/tracker",
+                "/action",
             ):
                 self.assertTrue(runtime.browser_integration.matches_route(route))
             self.assertFalse(runtime.browser_integration.matches_route("/auth/google/start"))

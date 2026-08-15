@@ -48,6 +48,7 @@ SESSION_CSRF_COOKIE_NAME = "__Host-wahojobs_session_csrf"
 
 _CURSOR = re.compile(r"^[1-9][0-9]{0,9}$")
 _OPAQUE_CREDENTIAL = re.compile(r"^[A-Za-z0-9_-]{43}$")
+_MATCH_RUN_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 _CONTENT_LENGTH = re.compile(r"^(?:0|[1-9][0-9]{0,3})$")
 _CORRECTION_CONTENT_LENGTH = re.compile(r"^(?:0|[1-9][0-9]{0,5})$")
 _HTTP_TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
@@ -289,9 +290,13 @@ class PersistentProfileBrowserIntegration:
     ):
         if self._closed:
             return _create_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
-        if _request_target_path(target) == FIND_MATCHES_ROUTE:
+        request_path = _request_target_path(target)
+        if request_path != PERSISTENT_PROFILE_ROUTE:
             matches_integration = self._matches_integration
-            if matches_integration is None:
+            if (
+                matches_integration is None
+                or matches_integration.matches_route(request_path) is not True
+            ):
                 return _response(
                     HTTPStatus.NOT_FOUND,
                     _generic_page("Page not found", "This page is not available."),
@@ -339,12 +344,23 @@ class PersistentProfileBrowserIntegration:
                 correction_target,
                 authentication_input,
             )
-        cursor, request_valid = _parse_request_target(target)
+        cursor, current_run_id, request_valid = _parse_request_target(target)
         if not request_valid:
             return _response(
                 HTTPStatus.BAD_REQUEST,
                 _generic_page("Profile request unavailable", "This profile request is not valid."),
             )
+        current_matches_target = None
+        if current_run_id is not None:
+            matches_integration = self._matches_integration
+            if matches_integration is not None:
+                try:
+                    current_matches_target = matches_integration.current_matches_target(
+                        current_run_id,
+                        authentication_input,
+                    )
+                except Exception:
+                    current_matches_target = None
         try:
             result = self._service.read_my_profile(
                 BrowserRequestContext(
@@ -357,6 +373,7 @@ class PersistentProfileBrowserIntegration:
             content, status = render_persistent_profile_page(
                 result,
                 correction_enabled=self._correction_service is not None,
+                current_matches_target=current_matches_target,
             )
         except Exception:
             content = _generic_page(
@@ -1326,6 +1343,11 @@ def _require_matches_integration(matches_integration):
         matches_route = getattr(matches_integration, "matches_route", None)
         handle_matches = getattr(matches_integration, "handle", None)
         close_matches = getattr(matches_integration, "close", None)
+        current_matches_target = getattr(
+            matches_integration,
+            "current_matches_target",
+            None,
+        )
         matches_closed = getattr(matches_integration, "closed", None)
         matches_route_owned = (
             callable(matches_route)
@@ -1339,15 +1361,16 @@ def _require_matches_integration(matches_integration):
         not matches_route_owned
         or not callable(handle_matches)
         or not callable(close_matches)
+        or not callable(current_matches_target)
         or type(matches_closed) is not bool
         or matches_closed
     ):
         raise ValueError("invalid_persistent_profile_browser_configuration")
 
 
-def _parse_request_target(target: str) -> tuple[int | None, bool]:
+def _parse_request_target(target: str) -> tuple[int | None, str | None, bool]:
     if type(target) is not str or len(target.encode("utf-8", errors="ignore")) > MAX_PROFILE_QUERY_BYTES:
-        return None, False
+        return None, None, False
     try:
         parsed = urlsplit(target)
         if (
@@ -1356,7 +1379,7 @@ def _parse_request_target(target: str) -> tuple[int | None, bool]:
             or parsed.path != PERSISTENT_PROFILE_ROUTE
             or parsed.fragment
         ):
-            return None, False
+            return None, None, False
         params = parse_qs(
             parsed.query,
             keep_blank_values=True,
@@ -1364,18 +1387,26 @@ def _parse_request_target(target: str) -> tuple[int | None, bool]:
             max_num_fields=4,
         ) if parsed.query else {}
     except (UnicodeError, ValueError):
-        return None, False
-    if set(params) - {"before"}:
-        return None, False
+        return None, None, False
+    if set(params) - {"before", "run"}:
+        return None, None, False
     if not params:
-        return None, True
-    values = params.get("before", ())
-    if len(values) != 1 or _CURSOR.fullmatch(values[0]) is None:
-        return None, False
-    cursor = int(values[0])
-    if cursor > MAX_BROWSER_CURSOR:
-        return None, False
-    return cursor, True
+        return None, None, True
+    cursor = None
+    if "before" in params:
+        values = params["before"]
+        if len(values) != 1 or _CURSOR.fullmatch(values[0]) is None:
+            return None, None, False
+        cursor = int(values[0])
+        if cursor > MAX_BROWSER_CURSOR:
+            return None, None, False
+    current_run_id = None
+    if "run" in params:
+        values = params["run"]
+        if len(values) != 1 or _MATCH_RUN_REFERENCE.fullmatch(values[0]) is None:
+            return None, None, False
+        current_run_id = values[0]
+    return cursor, current_run_id, True
 
 
 def _request_target_path(target: str) -> str | None:
@@ -1394,10 +1425,18 @@ def render_persistent_profile_page(
     result: PersistentProfilePageResult,
     *,
     correction_enabled=False,
+    current_matches_target=None,
 ) -> tuple[str, HTTPStatus]:
     if (
         type(result) is not PersistentProfilePageResult
         or type(correction_enabled) is not bool
+        or (
+            current_matches_target is not None
+            and (
+                type(current_matches_target) is not str
+                or not current_matches_target.startswith(FIND_MATCHES_ROUTE + "?run=")
+            )
+        )
     ):
         raise ValueError("invalid_persistent_profile_page_result")
     if result.state == "authentication_required":
@@ -1456,6 +1495,7 @@ def render_persistent_profile_page(
     return _render_available(
         result,
         correction_enabled=correction_enabled,
+        current_matches_target=current_matches_target,
     ), HTTPStatus.OK
 
 
@@ -1463,6 +1503,7 @@ def _render_available(
     result: PersistentProfilePageResult,
     *,
     correction_enabled=False,
+    current_matches_target=None,
 ) -> str:
     profile = result.profile
     lifecycle_note = {
@@ -1493,12 +1534,14 @@ def _render_available(
         if correction_enabled and result.state == "active"
         else ""
     )
+    matches_target = current_matches_target or FIND_MATCHES_ROUTE
+    matches_label = "Current matches" if current_matches_target else "Find matches"
     body = f"""
     <header class='profile-header'>
       <p class='eyebrow'>Account profile</p>
       <h1>{title}</h1>
       <p>{_safe_text(lifecycle_note)}</p>
-      <p class='profile-actions'><a class='primary-link' href='{FIND_MATCHES_ROUTE}'>Find matches</a>{update_link}</p>
+      <p class='profile-actions'><a class='primary-link' href='{_safe_text(matches_target)}'>{matches_label}</a>{update_link}</p>
       <dl class='meta'>
         <div><dt>Status</dt><dd>{_safe_text(_humanize(profile.lifecycle_status))}</dd></div>
         <div><dt>Last accepted update</dt><dd>{_safe_text(profile.updated_at)}</dd></div>

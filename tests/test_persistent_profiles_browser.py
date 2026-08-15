@@ -90,7 +90,7 @@ class FakeMatchesIntegration:
 
     @staticmethod
     def matches_route(path):
-        return path == FIND_MATCHES_ROUTE
+        return path in {FIND_MATCHES_ROUTE, "/tracker", "/action"}
 
     def handle(
         self,
@@ -103,6 +103,12 @@ class FakeMatchesIntegration:
             (method, target, authentication_input, body_stream)
         )
         return self.response
+
+    def current_matches_target(self, run_id, authentication_input=None):
+        self.calls.append(("CURRENT", run_id, authentication_input, None))
+        if run_id == "r" * 24:
+            return FIND_MATCHES_ROUTE + "?run=" + run_id
+        return None
 
     def close(self):
         self.close_calls += 1
@@ -267,13 +273,23 @@ class PersistentProfileBrowserTests(unittest.TestCase):
                 )
             ],
         )
+        for method, route in (("GET", "/tracker"), ("POST", "/action")):
+            self.assertTrue(integration.matches_route(route))
+            response = integration.handle(
+                method,
+                route,
+                request_headers,
+                body_stream,
+            )
+            self.assertIs(response, matches.response)
+            self.assertEqual(matches.calls[-1][0:2], (method, route))
 
         self.assertTrue(integration.close())
         self.assertTrue(integration.closed)
         self.assertEqual(matches.close_calls, 1)
         unavailable = integration.handle("GET", FIND_MATCHES_ROUTE)
         self.assertEqual(unavailable.status, 503)
-        self.assertEqual(len(matches.calls), 1)
+        self.assertEqual(len(matches.calls), 3)
 
     def test_absent_matches_integration_fails_closed(self):
         integration = self.integration()
@@ -425,6 +441,36 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             "source_payload",
         ):
             self.assertNotIn(secret, text)
+
+    def test_profile_preserves_only_an_authorized_current_match_run(self):
+        self.create_profile()
+        matches = FakeMatchesIntegration()
+        integration = self.integration(matches_integration=matches)
+        run_id = "r" * 24
+        request_headers = {"Host": "app.test", "Cookie": "session=opaque"}
+
+        status, _headers, body = self.request(
+            "GET",
+            f"/account/profile?run={run_id}",
+            integration=integration,
+            headers=request_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(
+            f"href='/find-matches?run={run_id}'>Current matches</a>".encode(),
+            body,
+        )
+        self.assertEqual(matches.calls[-1], ("CURRENT", run_id, mock.ANY, None))
+
+        status, _headers, body = self.request(
+            "GET",
+            "/account/profile?run=" + "x" * 24,
+            integration=integration,
+            headers=request_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(b"href='/find-matches'>Find matches</a>", body)
+        self.assertNotIn(b"Current matches", body)
 
     def test_archived_and_deletion_requested_presentation(self):
         created = self.create_profile()

@@ -659,6 +659,7 @@ def _build_profile_integration(connections, configuration, clock):
     matches_integration = AuthenticatedProfileMatchesBrowserIntegration(
         matches_service,
         connection_provider=connections.read_only_connection_provider,
+        write_connection_provider=connections.writable_connection_provider,
         metadata_overlay=load_overlay(path=DEFAULT_OVERLAY_PATH, required=False),
         confirmed_profile_artifact_sink=integration.issue_confirmed_artifact,
         completed_profile_confirmation_authenticator=(

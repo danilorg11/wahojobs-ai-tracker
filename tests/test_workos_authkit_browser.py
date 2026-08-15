@@ -42,7 +42,12 @@ class _ProfileIntegration:
         self.response = object()
 
     def matches_route(self, path):
-        return path in {AUTHENTICATED_DESTINATION, "/find-matches"}
+        return path in {
+            AUTHENTICATED_DESTINATION,
+            "/find-matches",
+            "/tracker",
+            "/action",
+        }
 
     def handle(self, method, target, headers, body_stream=None):
         self.calls.append((method, target, tuple(headers), body_stream))
@@ -279,6 +284,8 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
             LOGOUT_ROUTE,
             AUTHENTICATED_DESTINATION,
             "/find-matches",
+            "/tracker",
+            "/action",
         ):
             self.assertTrue(self.browser.matches_route(route))
         self.assertFalse(self.browser.matches_route("/auth/google/start"))
@@ -291,6 +298,21 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
         )
         self.assertIs(delegated, self.profile.response)
         self.assertEqual(self.profile.calls[0][0:2], ("GET", AUTHENTICATED_DESTINATION))
+
+        for route in ("/find-matches", "/tracker"):
+            delegated = self.browser.handle("GET", route, self._get_headers())
+            self.assertIs(delegated, self.profile.response)
+            self.assertEqual(self.profile.calls[-1][0:2], ("GET", route))
+
+        payload = b"action=save"
+        delegated = self.browser.handle(
+            "POST",
+            "/action",
+            self._post_headers(payload, cookie="wahojobs_session=test"),
+            BytesIO(payload),
+        )
+        self.assertIs(delegated, self.profile.response)
+        self.assertEqual(self.profile.calls[-1][0:2], ("POST", "/action"))
 
         rejected = self.browser.handle(
             "GET",
