@@ -1,8 +1,9 @@
 import json
+from hashlib import sha256
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, ProviderOutcome
 
 
 REQUEST_HEADERS = {
@@ -20,31 +21,195 @@ REQUEST_BODY = {
     },
 }
 
+PAYLOAD_SHAPE = "micro1-job-portal:v1:paginated-object"
+SOURCE_TYPE = "micro1-marketplace"
+PAGE_LIMIT = 100
+
 
 def fetch_micro1_jobs(api_url):
+    return list(fetch_micro1_snapshot(api_url).jobs)
+
+
+def fetch_micro1_snapshot(api_url):
     jobs = []
+    raw_records = []
+    page_payloads = []
+    seen_external_ids = set()
     total = None
     page = 1
-    limit = 100
+    rejected_count = 0
 
-    while total is None or len(jobs) < total:
-        data = fetch_page(api_url, page, limit)
-        total = int(data.get("total") or 0)
+    while total is None or len(raw_records) < total:
+        data = fetch_page(api_url, page, PAGE_LIMIT)
+        page_payloads.append(data)
+        page_total = validated_total(data)
+        if total is None:
+            total = page_total
+        elif page_total != total:
+            return build_snapshot_result(
+                api_url,
+                jobs,
+                raw_records,
+                page_payloads,
+                rejected_count,
+                outcome=ProviderOutcome.CONTRACT_DRIFT,
+                warning=(
+                    "micro1 reported a changing total across pages; "
+                    "the snapshot was not applied."
+                ),
+            )
+
         page_jobs = data.get("data") or []
         if not isinstance(page_jobs, list):
             raise ValueError("micro1 response data was not a job list.")
+        raw_records.extend(page_jobs)
 
-        jobs.extend(
-            parse_micro1_job(job)
-            for job in page_jobs
-            if should_include_job(job)
-        )
+        for job in page_jobs:
+            if not should_include_job(job):
+                rejected_count += 1
+                continue
+            candidate = parse_micro1_job(job)
+            if candidate.external_id in seen_external_ids:
+                return build_snapshot_result(
+                    api_url,
+                    jobs,
+                    raw_records,
+                    page_payloads,
+                    rejected_count,
+                    outcome=ProviderOutcome.CONTRACT_DRIFT,
+                    warning=(
+                        "micro1 returned a duplicate job identifier; "
+                        "the snapshot was not applied."
+                    ),
+                )
+            seen_external_ids.add(candidate.external_id)
+            jobs.append(candidate)
+
+        if len(raw_records) > total:
+            return build_snapshot_result(
+                api_url,
+                jobs,
+                raw_records,
+                page_payloads,
+                rejected_count,
+                outcome=ProviderOutcome.CONTRACT_DRIFT,
+                warning=(
+                    "micro1 returned more records than its reported total; "
+                    "the snapshot was not applied."
+                ),
+            )
+
+        if len(raw_records) == total:
+            break
 
         if not page_jobs:
-            break
+            return build_snapshot_result(
+                api_url,
+                jobs,
+                raw_records,
+                page_payloads,
+                rejected_count,
+                outcome=ProviderOutcome.PARTIAL,
+                warning=(
+                    "micro1 pagination ended before the reported total; "
+                    "removals were skipped."
+                ),
+            )
         page += 1
 
-    return jobs
+    if rejected_count:
+        return build_snapshot_result(
+            api_url,
+            jobs,
+            raw_records,
+            page_payloads,
+            rejected_count,
+            outcome=ProviderOutcome.CONTRACT_DRIFT,
+            warning=(
+                "micro1 returned records missing required job fields; "
+                "the snapshot was not applied."
+            ),
+        )
+
+    return build_snapshot_result(
+        api_url,
+        jobs,
+        raw_records,
+        page_payloads,
+        rejected_count,
+        outcome=ProviderOutcome.SUCCESS,
+        snapshot_complete=True,
+        pagination_complete=True,
+        empty_snapshot_validated=total == 0,
+    )
+
+
+def validated_total(data):
+    total = data.get("total")
+    if isinstance(total, bool):
+        raise ValueError("micro1 response total was not a non-negative integer.")
+    try:
+        total = int(total)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "micro1 response total was not a non-negative integer."
+        ) from None
+    if total < 0:
+        raise ValueError("micro1 response total was not a non-negative integer.")
+    return total
+
+
+def build_snapshot_result(
+    api_url,
+    jobs,
+    raw_records,
+    page_payloads,
+    rejected_count,
+    *,
+    outcome,
+    snapshot_complete=False,
+    pagination_complete=False,
+    empty_snapshot_validated=False,
+    warning=None,
+):
+    return CompanyCrawlResult(
+        jobs=list(jobs),
+        used_sample_data=False,
+        source_type=SOURCE_TYPE,
+        source_message=(
+            f"Fetched live micro1 expert opportunities from API: {api_url}"
+        ),
+        outcome=outcome,
+        snapshot_complete=snapshot_complete,
+        pagination_complete=pagination_complete,
+        empty_snapshot_validated=empty_snapshot_validated,
+        payload_shape=PAYLOAD_SHAPE,
+        raw_record_count=len(raw_records),
+        normalized_record_count=len(jobs),
+        rejected_record_count=rejected_count,
+        warnings=(warning,) if warning else (),
+        schema_fingerprint=micro1_schema_fingerprint(page_payloads, raw_records),
+    )
+
+
+def micro1_schema_fingerprint(page_payloads, raw_records):
+    shape = {
+        "top_level_keys": sorted(
+            {key for payload in page_payloads for key in payload.keys()}
+        ),
+        "record_keys": sorted(
+            {
+                key
+                for record in raw_records
+                if isinstance(record, dict)
+                for key in record.keys()
+            }
+        ),
+    }
+    digest = sha256(
+        json.dumps(shape, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"micro1-job-portal-v1:sha256:{digest}"
 
 
 def fetch_page(api_url, page, limit):
