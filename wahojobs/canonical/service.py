@@ -1,3 +1,5 @@
+import re
+
 from wahojobs.canonical.alignerr import canonicalize_job
 from wahojobs.canonical.dataforce import canonicalize_job as canonicalize_dataforce_job
 from wahojobs.canonical.meridial import canonicalize_job as canonicalize_meridial_job
@@ -40,6 +42,42 @@ def sync_welocalize_canonical_opportunities(conn, company_id):
     sync_canonical_opportunities(conn, company_id, canonicalize_welocalize_job)
 
 
+def sync_fallback_canonical_opportunities(conn, company_id):
+    """Give otherwise-unlinked jobs a stable one-job canonical identity.
+
+    Provider-specific canonicalizers remain authoritative.  This fallback only
+    touches rows that are still unlinked and deliberately performs no semantic
+    grouping across source records.
+    """
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM jobs
+        WHERE company_id = ?
+          AND canonical_opportunity_id IS NULL
+          AND title NOT LIKE '[SIMULATION]%'
+        ORDER BY first_seen_at ASC, id ASC
+        """,
+        (company_id,),
+    ).fetchall()
+
+    for row in rows:
+        canonical = canonicalize_fallback_row(row)
+        canonical_id = upsert_canonical_opportunity(conn, company_id, canonical, row)
+        conn.execute(
+            """
+            UPDATE jobs
+            SET canonical_opportunity_id = ?
+            WHERE id = ?
+              AND canonical_opportunity_id IS NULL
+            """,
+            (canonical_id, row["id"]),
+        )
+
+    refresh_canonical_rollups(conn, company_id)
+    return len(rows)
+
+
 def sync_canonical_opportunities(conn, company_id, canonicalizer):
     rows = conn.execute(
         """
@@ -70,6 +108,24 @@ def sync_canonical_opportunities(conn, company_id, canonicalizer):
 def canonicalize_alignerr_row(row):
     source_category = row["expertise"] or row["department"] or "Unknown"
     return canonicalize_job(row["title"], source_category)
+
+
+def canonicalize_fallback_row(row):
+    title = normalize_fallback_text(row["title"]) or "Unknown opportunity"
+    return {
+        "canonical_key": f"raw::{row['source_hash']}",
+        "canonical_title": title,
+        "normalized_title": title.casefold(),
+        "source_category": normalize_fallback_text(
+            row["expertise"] or row["department"] or "Unknown"
+        ),
+        "language": None,
+        "language_locale": None,
+    }
+
+
+def normalize_fallback_text(value):
+    return re.sub(r"\s+", " ", str(value or "").strip())
 
 
 def upsert_canonical_opportunity(conn, company_id, canonical, job):

@@ -13,6 +13,12 @@ import hmac
 import json
 import sqlite3
 
+from wahojobs.opportunity_enrichment_schema import (
+    OPPORTUNITY_ENRICHMENT_SCHEMA_OBJECTS,
+    OpportunityEnrichmentSchemaError,
+    attest_opportunity_enrichment_schema_extension,
+)
+
 
 CURRENT_CLOSED_SCHEMA_MIGRATION = "007_closed_schema_convergence"
 CURRENT_CLOSED_SCHEMA_MARKERS = (
@@ -69,13 +75,19 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
     try:
         cursor = connection.cursor()
         cursor.row_factory = None
+        attest_opportunity_enrichment_schema_extension(cursor)
+        extension_placeholders = ",".join(
+            "?" for _ in OPPORTUNITY_ENRICHMENT_SCHEMA_OBJECTS
+        )
         cursor.execute(
             "SELECT CAST(type AS BLOB), CAST(name AS BLOB), "
             "CAST(tbl_name AS BLOB), CAST(sql AS BLOB) "
             "FROM main.sqlite_schema "
             "WHERE type IN ('table','index','trigger','view') "
+            "AND name NOT IN (" + extension_placeholders + ") "
             "ORDER BY type, name, tbl_name "
-            f"LIMIT {CURRENT_CLOSED_SCHEMA_OBJECT_COUNT + 1}"
+            f"LIMIT {CURRENT_CLOSED_SCHEMA_OBJECT_COUNT + 1}",
+            OPPORTUNITY_ENRICHMENT_SCHEMA_OBJECTS,
         )
         for raw in cursor.fetchall():
             if (
@@ -119,6 +131,8 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
             raise ClosedSchemaAttestationError()
     except ClosedSchemaAttestationError:
         raise
+    except OpportunityEnrichmentSchemaError:
+        raise ClosedSchemaAttestationError() from None
     except (AttributeError, TypeError, UnicodeError, ValueError, sqlite3.Error):
         raise ClosedSchemaAttestationError() from None
     finally:

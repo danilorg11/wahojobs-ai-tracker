@@ -1,6 +1,7 @@
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
+    sync_fallback_canonical_opportunities,
     sync_meridial_canonical_opportunities,
     sync_micro1_canonical_opportunities,
     sync_mindrift_canonical_opportunities,
@@ -24,6 +25,7 @@ from wahojobs.db.repository import (
     mark_missing_jobs_inactive,
     update_seen_job,
 )
+from wahojobs.opportunity_enrichment import enrich_company_opportunities
 from wahojobs.tracking.normalize import with_source_hash
 
 
@@ -106,6 +108,11 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         sync_turing_canonical_opportunities(conn, company_id)
     elif company["slug"] == "welocalize":
         sync_welocalize_canonical_opportunities(conn, company_id)
+
+    # Preserve every provider-specific canonicalization above, then give only
+    # the remaining non-simulation jobs conservative one-job identities.
+    sync_fallback_canonical_opportunities(conn, company_id)
+    enrich_company_opportunities(conn, company_id)
 
     active_jobs_total = count_active_jobs(conn, company_id)
 

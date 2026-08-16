@@ -23,6 +23,7 @@ from wahojobs.config import DB_PATH
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
+    sync_fallback_canonical_opportunities,
     sync_meridial_canonical_opportunities,
     sync_micro1_canonical_opportunities,
     sync_mindrift_canonical_opportunities,
@@ -31,6 +32,9 @@ from wahojobs.canonical.service import (
     sync_welocalize_canonical_opportunities,
 )
 from wahojobs.db.connection import get_connection
+from wahojobs.opportunity_enrichment_schema import (
+    OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS,
+)
 
 
 OUTLIER_SEED = {
@@ -206,6 +210,8 @@ def initialize_database(db_path=DB_PATH):
         welocalize = get_company_by_slug(conn, "welocalize")
         if welocalize is not None:
             sync_welocalize_canonical_opportunities(conn, welocalize["id"])
+        for company in conn.execute("SELECT id FROM companies ORDER BY id").fetchall():
+            sync_fallback_canonical_opportunities(conn, company["id"])
 
 
 def install_base_schema(conn):
@@ -217,6 +223,7 @@ def install_base_schema(conn):
     ensure_job_optional_columns(conn)
     ensure_job_classification_columns(conn)
     ensure_canonical_schema(conn)
+    ensure_opportunity_enrichment_schema(conn)
 
 
 def with_source_classification_defaults(seed):
@@ -369,6 +376,11 @@ def ensure_canonical_schema(conn):
         ON canonical_opportunities(company_id, is_active)
         """
     )
+
+
+def ensure_opportunity_enrichment_schema(conn):
+    for statement in OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS:
+        conn.execute(statement)
 
 
 def get_company_by_slug(conn, slug):

@@ -59,6 +59,46 @@ CREATE TABLE IF NOT EXISTS canonical_opportunities (
   UNIQUE (company_id, canonical_key)
 );
 
+CREATE TABLE IF NOT EXISTS opportunity_enrichments (
+  canonical_opportunity_id INTEGER PRIMARY KEY,
+  schema_version TEXT NOT NULL,
+  taxonomy_version TEXT NOT NULL,
+  extractor_version TEXT NOT NULL,
+  input_sha256 TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('complete', 'partial', 'failed')),
+  automatic_document_json TEXT NOT NULL,
+  model_provider TEXT,
+  model_name TEXT,
+  prompt_version TEXT,
+  generated_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
+    ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_enrichment_overrides (
+  canonical_opportunity_id INTEGER NOT NULL,
+  field_path TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK (operation IN ('set', 'set_unknown')),
+  value_json TEXT,
+  actor TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  provenance_json TEXT NOT NULL DEFAULT '{}',
+  automatic_input_sha256_at_override TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
+    ON DELETE CASCADE,
+  PRIMARY KEY (canonical_opportunity_id, field_path),
+  CHECK (
+    (operation = 'set' AND value_json IS NOT NULL)
+    OR (operation = 'set_unknown' AND value_json IS NULL)
+  )
+);
+
 CREATE TABLE IF NOT EXISTS crawl_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   company_id INTEGER NOT NULL,
@@ -155,6 +195,12 @@ ON jobs(company_id, is_active);
 
 CREATE INDEX IF NOT EXISTS idx_canonical_opportunities_company_active
 ON canonical_opportunities(company_id, is_active);
+
+CREATE INDEX IF NOT EXISTS idx_opportunity_enrichments_status
+ON opportunity_enrichments(status);
+
+CREATE INDEX IF NOT EXISTS idx_opportunity_enrichment_overrides_canonical
+ON opportunity_enrichment_overrides(canonical_opportunity_id);
 
 CREATE INDEX IF NOT EXISTS idx_jobs_first_seen_at
 ON jobs(first_seen_at);
