@@ -33,6 +33,22 @@ class JobCandidate:
     availability_basis: str | None = None
     include_in_live_market_estimate: bool | None = None
     source_hash: str = ""
+    source_body: str | None = None
+    source_body_format: str | None = None
+    source_metadata: dict | None = None
+    source_updated_at: str | None = None
+
+    def __post_init__(self):
+        if self.source_body is None and self.source_body_format is not None:
+            raise ValueError("source_body_format requires source_body.")
+        if self.source_body is not None and self.source_body_format not in {
+            "text/plain",
+            "text/html",
+            "text/markdown",
+        }:
+            raise ValueError("source_body requires a supported source_body_format.")
+        if self.source_metadata is not None and type(self.source_metadata) is not dict:
+            raise ValueError("source_metadata must be a dictionary or None.")
 
 
 @dataclass(frozen=True)

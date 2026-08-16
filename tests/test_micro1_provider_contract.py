@@ -11,6 +11,8 @@ def job(external_id, *, include_required_fields=True):
         "job_name": f"Role {external_id}",
         "apply_url": f"https://jobs.micro1.ai/post/{external_id}",
         "location_type": "Remote",
+        "job_description": "Review model answers and explain technical defects.",
+        "skills": ["Python", "Code review"],
     }
     if not include_required_fields:
         record.pop("apply_url")
@@ -42,6 +44,11 @@ class Micro1ProviderContractTests(unittest.TestCase):
         self.assertEqual(result.raw_record_count, 101)
         self.assertEqual(result.normalized_record_count, 101)
         self.assertEqual(result.rejected_record_count, 0)
+        self.assertEqual(
+            result.jobs[0].source_body,
+            "Review model answers and explain technical defects.",
+        )
+        self.assertEqual(result.jobs[0].source_metadata["skills"], ["Python", "Code review"])
         self.assertTrue(authorization.authorized)
 
     @patch("wahojobs.crawler.providers.micro1.fetch_page")

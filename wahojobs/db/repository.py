@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 
 from wahojobs.classification import (
@@ -536,6 +538,94 @@ def update_seen_job(conn, job_id, candidate, now):
             job_id,
         ),
     )
+
+
+def upsert_job_source_content(
+    conn,
+    job_id,
+    provider,
+    source_type,
+    candidate,
+    now,
+):
+    """Persist the provider-faithful current source snapshot for one job."""
+
+    body = _normalize_source_body(candidate.source_body)
+    body_format = candidate.source_body_format if body is not None else None
+    if body is not None and body_format not in {
+        "text/plain",
+        "text/html",
+        "text/markdown",
+    }:
+        raise ValueError("Unsupported source body format.")
+    metadata = candidate.source_metadata or {}
+    if type(metadata) is not dict:
+        raise ValueError("Source metadata must be a dictionary.")
+    try:
+        metadata_json = json.dumps(
+            metadata,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Source metadata must be JSON serializable.") from exc
+    material_payload = json.dumps(
+        {
+            "body": body,
+            "body_format": body_format,
+            "metadata": metadata,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    material_hash = hashlib.sha256(material_payload.encode("utf-8")).hexdigest()
+    conn.execute(
+        """
+        INSERT INTO job_source_contents (
+          job_id, provider, source_type, source_url, external_id,
+          body, body_format, metadata_json, material_content_sha256,
+          source_updated_at, first_captured_at, last_captured_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+          provider = excluded.provider,
+          source_type = excluded.source_type,
+          source_url = excluded.source_url,
+          external_id = excluded.external_id,
+          body = excluded.body,
+          body_format = excluded.body_format,
+          metadata_json = excluded.metadata_json,
+          material_content_sha256 = excluded.material_content_sha256,
+          source_updated_at = excluded.source_updated_at,
+          last_captured_at = excluded.last_captured_at,
+          updated_at = excluded.updated_at
+        """,
+        (
+            job_id,
+            str(provider or "").strip(),
+            str(source_type or "").strip(),
+            candidate.url,
+            candidate.external_id,
+            body,
+            body_format,
+            metadata_json,
+            material_hash,
+            candidate.source_updated_at,
+            now,
+            now,
+            now,
+        ),
+    )
+    return material_hash
+
+
+def _normalize_source_body(value):
+    if value is None:
+        return None
+    value = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    return value or None
 
 
 def resolve_job_classification(conn, company_id, candidate):

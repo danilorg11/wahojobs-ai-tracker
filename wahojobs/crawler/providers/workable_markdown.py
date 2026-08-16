@@ -4,6 +4,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
 
 
 REQUEST_HEADERS = {
@@ -97,6 +98,7 @@ def parse_workable_row(account_slug, row):
     department = "; ".join(departments) if departments else "Unknown"
     location = format_location(row)
     commitment = format_commitment(row)
+    source_body = first_text(row, ("description", "descriptionPlain", "description_text"))
 
     return JobCandidate(
         external_id=shortcode,
@@ -106,6 +108,23 @@ def parse_workable_row(account_slug, row):
         department=department,
         expertise=department,
         commitment=commitment,
+        source_body=source_body,
+        source_body_format="text/plain" if source_body else None,
+        source_metadata=nonempty_metadata(
+            selected_metadata(
+                row,
+                (
+                    "department",
+                    "location",
+                    "type",
+                    "workplace",
+                    "remote",
+                    "requirements",
+                    "skills",
+                ),
+            )
+        ),
+        source_updated_at=clean_value(row.get("updated")),
     )
 
 

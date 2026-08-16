@@ -216,6 +216,9 @@ def parse_workforce_detail(record, html_text):
         opportunity_kind=OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
         availability_basis=AVAILABILITY_BASIS_PUBLIC_PAGE,
         include_in_live_market_estimate=False,
+        source_body=text or None,
+        source_body_format="text/plain" if text else None,
+        source_metadata=fields or None,
     )
 
 
@@ -238,6 +241,8 @@ def parse_fellowship_page(url, html_text):
         opportunity_kind=OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
         availability_basis=AVAILABILITY_BASIS_PUBLIC_PAGE,
         include_in_live_market_estimate=False,
+        source_body=text or None,
+        source_body_format="text/plain" if text else None,
     )
 
 

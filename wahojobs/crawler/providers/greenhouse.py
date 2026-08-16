@@ -403,6 +403,10 @@ def parse_inventory_record(record, config):
         department=department,
         expertise=extract_expertise(department),
         commitment=None,
+        source_body=greenhouse_source_body(record),
+        source_body_format=("text/html" if greenhouse_source_body(record) else None),
+        source_metadata=greenhouse_source_metadata(record),
+        source_updated_at=updated_at,
     )
     return (
         ParsedInventoryJob(
@@ -812,6 +816,10 @@ def enrich_candidates(parsed_by_id, tree):
                 department=department,
                 expertise=extract_expertise(department),
                 commitment=None,
+                source_body=parsed.candidate.source_body,
+                source_body_format=parsed.candidate.source_body_format,
+                source_metadata=parsed.candidate.source_metadata,
+                source_updated_at=parsed.candidate.source_updated_at,
             )
         )
     return jobs
@@ -819,6 +827,24 @@ def enrich_candidates(parsed_by_id, tree):
 
 def source_records_from(parsed_by_id):
     return tuple(item.source_record for item in parsed_by_id.values())
+
+
+def greenhouse_source_metadata(record):
+    excluded = {
+        "absolute_url",
+        "content",
+        "id",
+        "location",
+        "title",
+        "updated_at",
+    }
+    metadata = {key: value for key, value in record.items() if key not in excluded}
+    return metadata or None
+
+
+def greenhouse_source_body(record):
+    value = record.get("content")
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def validate_job_url(url, job_id, config):
@@ -1029,6 +1055,10 @@ def parse_greenhouse_job(job, department_path=None):
         department=clean_value(department),
         expertise=clean_value(extract_expertise(department)),
         commitment=None,
+        source_body=greenhouse_source_body(job),
+        source_body_format=("text/html" if greenhouse_source_body(job) else None),
+        source_metadata=greenhouse_source_metadata(job),
+        source_updated_at=strict_text(job.get("updated_at")),
     )
 
 

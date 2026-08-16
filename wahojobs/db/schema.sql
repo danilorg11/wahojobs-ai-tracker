@@ -59,6 +59,31 @@ CREATE TABLE IF NOT EXISTS canonical_opportunities (
   UNIQUE (company_id, canonical_key)
 );
 
+CREATE TABLE IF NOT EXISTS job_source_contents (
+  job_id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  external_id TEXT,
+  body TEXT,
+  body_format TEXT CHECK (
+    body_format IS NULL
+    OR body_format IN ('text/plain', 'text/html', 'text/markdown')
+  ),
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  material_content_sha256 TEXT NOT NULL,
+  source_updated_at TEXT,
+  first_captured_at TEXT NOT NULL,
+  last_captured_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CHECK (
+    (body IS NULL AND body_format IS NULL)
+    OR (body IS NOT NULL AND body_format IS NOT NULL)
+  )
+);
+
 CREATE TABLE IF NOT EXISTS opportunity_enrichments (
   canonical_opportunity_id INTEGER PRIMARY KEY,
   schema_version TEXT NOT NULL,
@@ -97,6 +122,39 @@ CREATE TABLE IF NOT EXISTS opportunity_enrichment_overrides (
     (operation = 'set' AND value_json IS NOT NULL)
     OR (operation = 'set_unknown' AND value_json IS NULL)
   )
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_enrichment_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  canonical_opportunity_id INTEGER NOT NULL,
+  input_sha256 TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed')),
+  model_provider TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  response_id TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+  output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+  total_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
+  estimated_cost_usd REAL CHECK (
+    estimated_cost_usd IS NULL OR estimated_cost_usd >= 0
+  ),
+  error_type TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
+    ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_enrichment_run_diagnostics (
+  run_id INTEGER PRIMARY KEY,
+  diagnostic_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (run_id) REFERENCES opportunity_enrichment_runs(id)
+    ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS crawl_runs (
@@ -201,6 +259,12 @@ ON opportunity_enrichments(status);
 
 CREATE INDEX IF NOT EXISTS idx_opportunity_enrichment_overrides_canonical
 ON opportunity_enrichment_overrides(canonical_opportunity_id);
+
+CREATE INDEX IF NOT EXISTS idx_job_source_contents_material_hash
+ON job_source_contents(material_content_sha256);
+
+CREATE INDEX IF NOT EXISTS idx_opportunity_enrichment_runs_canonical
+ON opportunity_enrichment_runs(canonical_opportunity_id, id);
 
 CREATE INDEX IF NOT EXISTS idx_jobs_first_seen_at
 ON jobs(first_seen_at);

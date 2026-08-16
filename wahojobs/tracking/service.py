@@ -19,13 +19,16 @@ from wahojobs.crawler.types import (
 from wahojobs.db.repository import (
     count_active_jobs,
     create_job_event,
+    ensure_opportunity_enrichment_schema,
     get_missing_active_jobs,
     get_job_by_hash,
     insert_job,
     mark_missing_jobs_inactive,
+    upsert_job_source_content,
     update_seen_job,
 )
 from wahojobs.opportunity_enrichment import enrich_company_opportunities
+from wahojobs.opportunity_llm import tracking_openai_client
 from wahojobs.tracking.normalize import with_source_hash
 
 
@@ -35,6 +38,7 @@ MINDRIFT_BASELINE_SUCCESS_RUNS = 3
 
 
 def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCrawlResult, now):
+    ensure_opportunity_enrichment_schema(conn)
     company = conn.execute(
         "SELECT slug FROM companies WHERE id = ?",
         (company_id,),
@@ -74,6 +78,14 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
 
         if existing is None:
             job_id = insert_job(conn, company_id, candidate, now)
+            upsert_job_source_content(
+                conn,
+                job_id,
+                company["slug"],
+                crawl_result.source_type,
+                candidate,
+                now,
+            )
             create_job_event(conn, job_id, crawl_run_id, "discovered", now)
             jobs_new += 1
             continue
@@ -84,6 +96,14 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         else:
             jobs_updated += 1
         update_seen_job(conn, existing["id"], candidate, now)
+        upsert_job_source_content(
+            conn,
+            existing["id"],
+            company["slug"],
+            crawl_result.source_type,
+            candidate,
+            now,
+        )
 
     jobs_removed = 0
     if removal_authorization.authorized:
@@ -112,7 +132,11 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     # Preserve every provider-specific canonicalization above, then give only
     # the remaining non-simulation jobs conservative one-job identities.
     sync_fallback_canonical_opportunities(conn, company_id)
-    enrich_company_opportunities(conn, company_id)
+    enrich_company_opportunities(
+        conn,
+        company_id,
+        llm_client=tracking_openai_client(),
+    )
 
     active_jobs_total = count_active_jobs(conn, company_id)
 

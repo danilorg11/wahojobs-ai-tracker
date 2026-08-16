@@ -1,4 +1,8 @@
-from wahojobs.crawler.providers.lever import clean_value, fetch_lever_postings
+from wahojobs.crawler.providers.lever import (
+    clean_value,
+    fetch_lever_postings,
+    lever_source_fields,
+)
 from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate
 
 
@@ -43,4 +47,5 @@ def parse_welocalize_posting(posting):
         department=category,
         expertise=category,
         commitment=clean_value(categories.get("commitment")),
+        **lever_source_fields(posting),
     )

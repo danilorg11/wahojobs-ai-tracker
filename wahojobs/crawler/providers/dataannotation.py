@@ -174,6 +174,8 @@ def parse_domain_page(domain, url, text):
         opportunity_kind=OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
         availability_basis=AVAILABILITY_BASIS_EVERGREEN_PAGE,
         include_in_live_market_estimate=False,
+        source_body=text if text.strip() else None,
+        source_body_format="text/html" if text.strip() else None,
     )
 
 

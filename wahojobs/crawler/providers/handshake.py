@@ -171,6 +171,11 @@ def parse_opportunity_record(record, subject_labels, degree_labels):
         opportunity_kind=OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
         availability_basis=AVAILABILITY_BASIS_PUBLIC_CMS,
         include_in_live_market_estimate=False,
+        source_metadata={
+            "salary": record.get(FIELD_SALARY),
+            "subjects": subjects,
+            "degrees": degrees,
+        },
     )
 
 

@@ -87,6 +87,9 @@ def parse_job_block(block, page_url):
         department=category,
         expertise=category,
         commitment=commitment,
+        source_body=clean_html_text(block),
+        source_body_format="text/plain" if clean_html_text(block) else None,
+        source_metadata=fields or None,
     )
 
 

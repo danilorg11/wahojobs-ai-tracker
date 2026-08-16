@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, ProviderOutcome
+from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
 
 
 REQUEST_HEADERS = {
@@ -244,6 +245,10 @@ def parse_micro1_job(job):
     domain = clean_value(job.get("domain_slug"))
     role_type = clean_value(job.get("role_type"))
     category = domain or role_type or fallback_category(job) or "Unknown"
+    source_body = first_text(
+        job,
+        ("job_description", "description", "description_text", "jobDescription"),
+    )
 
     return JobCandidate(
         external_id=clean_value(job.get("job_id")),
@@ -253,6 +258,27 @@ def parse_micro1_job(job):
         department=category,
         expertise=category,
         commitment=clean_value(job.get("engagement_type")),
+        source_body=source_body,
+        source_body_format="text/plain" if source_body else None,
+        source_metadata=nonempty_metadata(
+            selected_metadata(
+                job,
+                (
+                    "skills",
+                    "job_tags",
+                    "role_type",
+                    "domain_slug",
+                    "location_type",
+                    "engagement_type",
+                    "responsibilities",
+                    "requirements",
+                    "qualifications",
+                ),
+            )
+        ),
+        source_updated_at=clean_value(
+            job.get("updated_at") or job.get("updatedAt")
+        ),
     )
 
 

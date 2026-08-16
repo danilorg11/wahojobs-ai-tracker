@@ -2,6 +2,7 @@ import json
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
 
 
 REQUEST_HEADERS = {
@@ -48,6 +49,10 @@ def parse_outlier_job(job):
     job_id = clean_value(job.get("id"))
     skill_names = clean_list(job.get("skillNames"))
     pod_group = clean_value(job.get("pod_group"))
+    source_body = first_text(
+        job,
+        ("description", "jobDescription", "descriptionText", "details"),
+    )
 
     return JobCandidate(
         external_id=job_id,
@@ -57,6 +62,22 @@ def parse_outlier_job(job):
         or f"https://app.outlier.ai/en/expert/opportunities/{job_id}",
         department=pod_group,
         expertise=", ".join(skill_names) if skill_names else None,
+        source_body=source_body,
+        source_body_format="text/plain" if source_body else None,
+        source_metadata=nonempty_metadata(
+            selected_metadata(
+                job,
+                (
+                    "skillNames",
+                    "pod_group",
+                    "responsibilities",
+                    "requirements",
+                    "qualifications",
+                    "pay",
+                ),
+            )
+        ),
+        source_updated_at=clean_value(job.get("updatedAt")),
     )
 
 

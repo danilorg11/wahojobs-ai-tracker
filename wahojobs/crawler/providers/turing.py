@@ -3,6 +3,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
 
 
 REQUEST_HEADERS = {
@@ -77,6 +78,10 @@ def parse_turing_job(job):
     external_id = clean_value(job.get("jobCode")) or clean_value(job.get("id"))
     job_id = clean_value(job.get("id"))
     role_group = clean_value(job.get("roleGroup")) or "Unknown"
+    source_body = first_text(
+        job,
+        ("description", "jobDescription", "descriptionText", "details"),
+    )
 
     return JobCandidate(
         external_id=external_id,
@@ -86,6 +91,23 @@ def parse_turing_job(job):
         department=role_group,
         expertise=role_group,
         commitment=format_commitment(job),
+        source_body=source_body,
+        source_body_format="text/plain" if source_body else None,
+        source_metadata=nonempty_metadata(
+            selected_metadata(
+                job,
+                (
+                    "roleGroup",
+                    "contract",
+                    "skills",
+                    "techStack",
+                    "responsibilities",
+                    "requirements",
+                    "qualifications",
+                ),
+            )
+        ),
+        source_updated_at=clean_value(job.get("updatedAt")),
     )
 
 

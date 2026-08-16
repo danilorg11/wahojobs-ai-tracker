@@ -8,6 +8,7 @@ from wahojobs.crawler.types import (
     JobCandidate,
     ProviderOutcome,
 )
+from wahojobs.crawler.source_content import nonempty_metadata, selected_metadata
 
 
 REQUEST_HEADERS = {
@@ -452,6 +453,13 @@ def parse_v2_record(record):
             department=values["category"],
             expertise=values["category"],
             commitment=None,
+            source_body=clean_value(record.get("description")),
+            source_body_format=(
+                "text/plain" if clean_value(record.get("description")) else None
+            ),
+            source_metadata=nonempty_metadata(
+                selected_metadata(record, ("originalCategory", "pay"))
+            ),
         ),
         None,
     )

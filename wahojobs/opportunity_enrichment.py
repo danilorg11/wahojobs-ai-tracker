@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import copy
+import html
 import hashlib
 import json
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 
 from wahojobs.matching.domains import detect_role_domains
@@ -27,7 +29,7 @@ from wahojobs.matching.taxonomy import OCCUPATIONAL_FAMILIES
 
 SCHEMA_VERSION = "opportunity_enrichment_v2"
 TAXONOMY_VERSION = "opportunity_taxonomy_v2_2026_08"
-EXTRACTOR_VERSION = "deterministic_v1"
+EXTRACTOR_VERSION = "deterministic_plus_structured_llm_v1"
 
 STATUS_COMPLETE = "complete"
 STATUS_PARTIAL = "partial"
@@ -96,8 +98,18 @@ COMPENSATION_PERIODS = frozenset(
 COMPENSATION_AMOUNT_TYPES = frozenset(
     {"unknown", "exact", "range", "from", "up_to"}
 )
-EVIDENCE_BASES = frozenset({"source_explicit", "deterministic_parse", "deterministic_classification"})
+EVIDENCE_BASES = frozenset(
+    {
+        "source_explicit",
+        "deterministic_parse",
+        "deterministic_classification",
+        "llm_source_evidence",
+    }
+)
 CONFIDENCE_VALUES = frozenset({"low", "medium", "high"})
+MIN_LLM_BODY_CHARACTERS = 400
+MIN_LLM_MATERIAL_CHARACTERS = 800
+MAX_LLM_SOURCE_CHARACTERS = 40_000
 
 
 class EnrichmentValidationError(ValueError):
@@ -272,13 +284,19 @@ def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
     rows = conn.execute(
         """
         SELECT
-          title, location, department, expertise, commitment, url,
-          opportunity_kind, availability_basis, include_in_live_market_estimate,
-          is_active
-        FROM jobs
-        WHERE canonical_opportunity_id = ?
-          AND title NOT LIKE '[SIMULATION]%'
-        ORDER BY source_hash ASC, id ASC
+          j.title, j.location, j.department, j.expertise, j.commitment, j.url,
+          j.external_id, j.source_hash, j.opportunity_kind, j.availability_basis,
+          j.include_in_live_market_estimate, j.is_active,
+          sc.provider AS rich_provider, sc.source_type AS rich_source_type,
+          sc.source_url AS rich_source_url, sc.external_id AS rich_external_id,
+          sc.body AS rich_body, sc.body_format AS rich_body_format,
+          sc.metadata_json AS rich_metadata_json,
+          sc.material_content_sha256, sc.source_updated_at
+        FROM jobs j
+        LEFT JOIN job_source_contents sc ON sc.job_id = j.id
+        WHERE j.canonical_opportunity_id = ?
+          AND j.title NOT LIKE '[SIMULATION]%'
+        ORDER BY j.source_hash ASC, j.id ASC
         """,
         (canonical_opportunity_id,),
     ).fetchall()
@@ -307,6 +325,35 @@ def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
         variants.append(variant)
     variants.sort(key=canonical_json)
 
+    rich_content = []
+    for row in selected:
+        if row["material_content_sha256"] is None:
+            continue
+        try:
+            metadata = json.loads(row["rich_metadata_json"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise EnrichmentValidationError(
+                "Persisted source metadata is not valid JSON."
+            ) from exc
+        if type(metadata) is not dict:
+            raise EnrichmentValidationError(
+                "Persisted source metadata must be a JSON object."
+            )
+        rich_content.append(
+            {
+                "source_ref": f"source_hash:{row['source_hash']}",
+                "provider": row["rich_provider"],
+                "source_type": row["rich_source_type"],
+                "source_url": row["rich_source_url"],
+                "external_id": row["rich_external_id"],
+                "body": row["rich_body"],
+                "body_format": row["rich_body_format"],
+                "metadata": metadata,
+                "material_content_sha256": row["material_content_sha256"],
+            }
+        )
+    rich_content.sort(key=canonical_json)
+
     source_fields = {}
     for field in ("title", "location", "department", "expertise", "commitment"):
         source_fields[field] = unique_strings(
@@ -331,6 +378,7 @@ def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
         },
         "source_fields": source_fields,
         "variants": variants,
+        "rich_content": rich_content,
     }
 
 
@@ -636,11 +684,557 @@ def extract_application(target: dict, evidence: list[dict], semantic_input: dict
         add_evidence(evidence, "attributes.application.login_required", "availability_basis", "login_gated_after_apply", "source_explicit", "high")
 
 
+class _SourceHTMLTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.ignored_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.casefold()
+        if tag in {"script", "style", "noscript"}:
+            self.ignored_depth += 1
+        elif not self.ignored_depth and tag == "br":
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        tag = tag.casefold()
+        if tag in {"script", "style", "noscript"} and self.ignored_depth:
+            self.ignored_depth -= 1
+        elif not self.ignored_depth and tag in {
+            "p",
+            "li",
+            "div",
+            "section",
+            "article",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+        }:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self.ignored_depth and data.strip():
+            self.parts.append(data)
+
+
+def source_body_text(body, body_format) -> str:
+    if not body:
+        return ""
+    if body_format != "text/html":
+        return clean(body)
+    parser = _SourceHTMLTextParser()
+    try:
+        parser.feed(html.unescape(str(body)))
+        parser.close()
+    except (ValueError, TypeError):
+        return clean(html.unescape(re.sub(r"<[^>]+>", " ", str(body))))
+    return clean(" ".join(parser.parts))
+
+
+def source_body_paragraphs(body, body_format) -> list[str]:
+    if not body:
+        return []
+    if body_format == "text/html":
+        parser = _SourceHTMLTextParser()
+        try:
+            parser.feed(html.unescape(str(body)))
+            parser.close()
+            raw = "".join(parser.parts)
+        except (ValueError, TypeError):
+            raw = re.sub(
+                r"(?i)</?(?:p|li|div|section|article|h[1-6]|br)[^>]*>",
+                "\n",
+                html.unescape(str(body)),
+            )
+            raw = re.sub(r"<[^>]+>", " ", raw)
+        candidates = re.split(r"\n+", raw)
+    else:
+        candidates = re.split(r"(?:\r?\n\s*){2,}", str(body))
+    return [paragraph for paragraph in (clean(item) for item in candidates) if paragraph]
+
+
+def explicit_source_fields(value, path=()):
+    if type(value) is dict:
+        for key in sorted(value):
+            yield from explicit_source_fields(value[key], (*path, str(key)))
+        return
+    if type(value) is list:
+        for index, item in enumerate(value):
+            yield from explicit_source_fields(item, (*path, str(index)))
+        return
+    if value is None:
+        return
+    rendered = clean(value) if type(value) is str else canonical_json(value)
+    if rendered:
+        yield ".".join(path), rendered
+
+
+def evidence_block_id(source_ref, kind, label, content) -> str:
+    identity = {
+        "source_ref": source_ref,
+        "kind": kind,
+        "content": content,
+    }
+    if kind != "body_paragraph":
+        identity["label"] = label
+    digest = hashlib.sha256(
+        canonical_json(identity).encode("utf-8")
+    ).hexdigest()[:24]
+    return f"{source_ref}:{kind}:{digest}"
+
+
+def llm_source_packet(semantic_input: dict) -> tuple[dict, dict[str, dict]]:
+    evidence_blocks = {}
+    remaining = MAX_LLM_SOURCE_CHARACTERS
+
+    def add_block(source_ref, kind, label, value):
+        nonlocal remaining
+        value = clean(value)
+        if not value or remaining <= 0:
+            return
+        value = value[:remaining]
+        if not value:
+            return
+        block_id = evidence_block_id(source_ref, kind, label, value)
+        evidence_blocks.setdefault(
+            block_id,
+            {
+                "evidence_block_id": block_id,
+                "source_ref": source_ref,
+                "kind": kind,
+                "label": label,
+                "content": value,
+            },
+        )
+        remaining -= len(value)
+
+    for item in semantic_input.get("rich_content") or []:
+        source_ref = item["source_ref"]
+        for index, paragraph in enumerate(
+            source_body_paragraphs(item.get("body"), item.get("body_format")),
+            start=1,
+        ):
+            add_block(
+                source_ref,
+                "body_paragraph",
+                f"body paragraph {index}",
+                paragraph,
+            )
+        for path, value in explicit_source_fields(item.get("metadata") or {}):
+            label = f"metadata.{path}"
+            add_block(source_ref, "metadata_field", label, f"{label}: {value}")
+
+    for variant in semantic_input.get("variants") or []:
+        for path, value in explicit_source_fields(variant):
+            label = f"listing.{path}"
+            add_block("listing_fields", "listing_field", label, f"{label}: {value}")
+
+    packet = {
+        "company": semantic_input["company"],
+        "canonical": semantic_input["canonical"],
+        "evidence_blocks": [evidence_blocks[key] for key in sorted(evidence_blocks)],
+    }
+    return packet, evidence_blocks
+
+
+def has_sufficient_llm_source_content(semantic_input: dict) -> bool:
+    body_characters = 0
+    material_characters = 0
+    seen_hashes = set()
+    for item in semantic_input.get("rich_content") or []:
+        material_hash = item.get("material_content_sha256")
+        if material_hash in seen_hashes:
+            continue
+        seen_hashes.add(material_hash)
+        body = source_body_text(item.get("body"), item.get("body_format"))
+        metadata = canonical_json(item.get("metadata") or {})
+        body_characters += len(body)
+        material_characters += len(body) + (len(metadata) if metadata != "{}" else 0)
+    return (
+        body_characters >= MIN_LLM_BODY_CHARACTERS
+        or material_characters >= MIN_LLM_MATERIAL_CHARACTERS
+    )
+
+
+def normalize_llm_list_fields(payload: dict, evidence_blocks: dict[str, dict]) -> dict:
+    normalized = copy.deepcopy(payload)
+    if type(payload) is not dict:
+        return normalized
+
+    list_fields = (
+        ("professional_domains", PROFESSIONAL_DOMAINS),
+        ("work_activities", WORK_ACTIVITIES),
+        ("skills_required", None),
+        ("skills_preferred", None),
+        ("responsibilities", None),
+        ("caveats", None),
+    )
+    for field, allowed in list_fields:
+        if field not in payload:
+            continue
+        path = f"llm_payload.{field}"
+        validate_llm_list(
+            payload[field],
+            path,
+            evidence_blocks,
+            allowed=allowed,
+            reject_duplicate_facts=False,
+        )
+        items = []
+        items_by_value = {}
+        for item in payload[field]:
+            value_key = normalize_text(item["value"])
+            existing = items_by_value.get(value_key)
+            if existing is None:
+                existing = {
+                    "value": item["value"],
+                    "evidence": list(item["evidence"]),
+                }
+                items_by_value[value_key] = existing
+                items.append(existing)
+                continue
+            seen_evidence = set(existing["evidence"])
+            for block_id in item["evidence"]:
+                if block_id not in seen_evidence:
+                    existing["evidence"].append(block_id)
+                    seen_evidence.add(block_id)
+        normalized[field] = items
+    return normalized
+
+
+def validate_llm_payload(payload: dict, evidence_blocks: dict[str, dict]) -> None:
+    expected = {
+        "role_family",
+        "professional_domains",
+        "work_activities",
+        "skills_required",
+        "skills_preferred",
+        "responsibilities",
+        "candidate_profile",
+        "quick_take",
+        "caveats",
+    }
+    require_exact_keys(payload, expected, "llm_payload")
+    validate_llm_scalar(
+        payload["role_family"],
+        "llm_payload.role_family",
+        evidence_blocks,
+        allowed=ROLE_FAMILIES,
+    )
+    validate_llm_list(
+        payload["professional_domains"],
+        "llm_payload.professional_domains",
+        evidence_blocks,
+        allowed=PROFESSIONAL_DOMAINS,
+    )
+    validate_llm_list(
+        payload["work_activities"],
+        "llm_payload.work_activities",
+        evidence_blocks,
+        allowed=WORK_ACTIVITIES,
+    )
+    for field in (
+        "skills_required",
+        "skills_preferred",
+        "responsibilities",
+        "caveats",
+    ):
+        validate_llm_list(
+            payload[field],
+            f"llm_payload.{field}",
+            evidence_blocks,
+        )
+    for field in ("candidate_profile", "quick_take"):
+        validate_llm_scalar(
+            payload[field],
+            f"llm_payload.{field}",
+            evidence_blocks,
+        )
+
+
+def validate_llm_scalar(value, path, evidence_blocks, *, allowed=None):
+    require_exact_keys(value, {"value", "evidence"}, path)
+    fact = value["value"]
+    if fact is None:
+        if value["evidence"] != []:
+            raise EnrichmentValidationError(f"{path}.evidence must be empty for null.")
+        return
+    if type(fact) is not str or not fact.strip():
+        raise EnrichmentValidationError(f"{path}.value must be non-empty text or null.")
+    if allowed is not None and fact not in allowed:
+        raise EnrichmentValidationError(f"{path}.value is unsupported.")
+    validate_llm_evidence(value["evidence"], path, evidence_blocks)
+
+
+def validate_llm_list(
+    value,
+    path,
+    evidence_blocks,
+    *,
+    allowed=None,
+    reject_duplicate_facts=True,
+):
+    if type(value) is not list:
+        raise EnrichmentValidationError(f"{path} must be a list.")
+    facts = []
+    for index, item in enumerate(value):
+        item_path = f"{path}[{index}]"
+        require_exact_keys(item, {"value", "evidence"}, item_path)
+        fact = item["value"]
+        if type(fact) is not str or not fact.strip():
+            raise EnrichmentValidationError(f"{item_path}.value must be non-empty text.")
+        if allowed is not None and fact not in allowed:
+            raise EnrichmentValidationError(f"{item_path}.value is unsupported.")
+        validate_llm_evidence(item["evidence"], item_path, evidence_blocks)
+        facts.append(fact.casefold())
+    if reject_duplicate_facts and len(facts) != len(set(facts)):
+        raise EnrichmentValidationError(f"{path} contains duplicate facts.")
+
+
+def validate_llm_evidence(value, path, evidence_blocks):
+    if type(value) is not list or not value:
+        raise EnrichmentValidationError(f"{path}.evidence must not be empty.")
+    if len(value) != len(set(value)):
+        raise EnrichmentValidationError(f"{path}.evidence contains duplicate IDs.")
+    for index, block_id in enumerate(value):
+        if type(block_id) is not str or block_id not in evidence_blocks:
+            raise EnrichmentValidationError(
+                f"{path}.evidence[{index}] references an unknown evidence block ID."
+            )
+
+
+def merge_llm_payload(document: dict, payload: dict, evidence_blocks: dict[str, dict]) -> dict:
+    document = copy.deepcopy(document)
+    role = document["attributes"]["role"]
+    requirements = document["attributes"]["requirements"]
+    content = document["attributes"]["content"]
+
+    role_family = payload["role_family"]
+    if role_family["value"] is not None:
+        role["role_family"] = role_family["value"]
+        add_llm_evidence(
+            document, "attributes.role.role_family", role_family, evidence_blocks
+        )
+
+    for payload_field, document_field in (
+        ("professional_domains", "professional_domains"),
+        ("work_activities", "work_activities"),
+    ):
+        values = [item["value"] for item in payload[payload_field]]
+        role[document_field] = sorted(
+            set([*role[document_field], *values]),
+            key=str.casefold,
+        )
+        for item in payload[payload_field]:
+            add_llm_evidence(
+                document,
+                f"attributes.role.{document_field}",
+                item,
+                evidence_blocks,
+            )
+
+    for payload_field, document_field in (
+        ("skills_required", "skills_required"),
+        ("skills_preferred", "skills_preferred"),
+    ):
+        requirements[document_field] = sorted(
+            {clean(item["value"]) for item in payload[payload_field]},
+            key=str.casefold,
+        )
+        for item in payload[payload_field]:
+            add_llm_evidence(
+                document,
+                f"attributes.requirements.{document_field}",
+                item,
+                evidence_blocks,
+            )
+
+    for payload_field, document_field in (
+        ("responsibilities", "responsibilities"),
+        ("caveats", "caveats"),
+    ):
+        content[document_field] = sorted(
+            {clean(item["value"]) for item in payload[payload_field]},
+            key=str.casefold,
+        )
+        for item in payload[payload_field]:
+            add_llm_evidence(
+                document,
+                f"attributes.content.{document_field}",
+                item,
+                evidence_blocks,
+            )
+
+    for payload_field, document_field in (
+        ("candidate_profile", "candidate_profile"),
+        ("quick_take", "quick_take"),
+    ):
+        item = payload[payload_field]
+        if item["value"] is not None:
+            content[document_field] = clean(item["value"])
+            add_llm_evidence(
+                document,
+                f"attributes.content.{document_field}",
+                item,
+                evidence_blocks,
+            )
+
+    document["unknown_fields"] = sorted(
+        path
+        for path, default in FIELD_DEFAULTS.items()
+        if field_is_unknown(get_path(document, path), default)
+    )
+    document["field_evidence"] = sorted(
+        document["field_evidence"],
+        key=lambda item: (
+            item["field_path"],
+            item["source_ref"],
+            item["evidence_text"],
+        ),
+    )
+    validate_enrichment_document(document)
+    return document
+
+
+def add_llm_evidence(document, field_path, item, evidence_blocks):
+    for block_id in item["evidence"]:
+        block = evidence_blocks[block_id]
+        add_evidence(
+            document["field_evidence"],
+            field_path,
+            block["source_ref"],
+            block["content"],
+            "llm_source_evidence",
+            "high",
+        )
+
+
 def build_enrichment(semantic_input: dict) -> tuple[str, dict, str]:
     input_sha256 = semantic_input_sha256(semantic_input)
     document = extract_deterministic_document(semantic_input)
     status = STATUS_PARTIAL if document["unknown_fields"] else STATUS_COMPLETE
     return input_sha256, document, status
+
+
+def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client) -> bool:
+    return (
+        conn.execute(
+            """
+            SELECT 1
+            FROM opportunity_enrichment_runs
+            WHERE canonical_opportunity_id = ?
+              AND input_sha256 = ?
+              AND model_provider = ?
+              AND model_name = ?
+              AND prompt_version = ?
+            LIMIT 1
+            """,
+            (
+                canonical_opportunity_id,
+                input_sha256,
+                llm_client.provider,
+                llm_client.model,
+                llm_client.prompt_version,
+            ),
+        ).fetchone()
+        is not None
+    )
+
+
+def record_llm_run(
+    conn,
+    canonical_opportunity_id,
+    input_sha256,
+    llm_client,
+    outcome,
+    started_at,
+    finished_at,
+    *,
+    result=None,
+    error_type=None,
+    diagnostic=None,
+):
+    cursor = conn.execute(
+        """
+        INSERT INTO opportunity_enrichment_runs (
+          canonical_opportunity_id, input_sha256, outcome,
+          model_provider, model_name, prompt_version, response_id,
+          input_tokens, output_tokens, total_tokens, estimated_cost_usd,
+          error_type, started_at, finished_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            canonical_opportunity_id,
+            input_sha256,
+            outcome,
+            llm_client.provider,
+            llm_client.model,
+            llm_client.prompt_version,
+            getattr(result, "response_id", None),
+            int(getattr(result, "input_tokens", 0) or 0),
+            int(getattr(result, "output_tokens", 0) or 0),
+            int(getattr(result, "total_tokens", 0) or 0),
+            getattr(result, "estimated_cost_usd", None),
+            error_type,
+            started_at,
+            finished_at,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO opportunity_enrichment_run_diagnostics (
+          run_id, diagnostic_json
+        )
+        VALUES (?, ?)
+        """,
+        (cursor.lastrowid, canonical_json(diagnostic or {})),
+    )
+
+
+def llm_failure_diagnostic(exc):
+    diagnostic = getattr(exc, "diagnostic", None)
+    if type(diagnostic) is dict:
+        return diagnostic
+
+    from wahojobs.opportunity_llm import diagnostic_record, sanitize_diagnostic_text
+
+    if isinstance(exc, EnrichmentValidationError):
+        message = str(exc)
+        lowered = message.casefold()
+        evidence_failure = any(
+            marker in lowered
+            for marker in (
+                ".evidence",
+                ".quote",
+                "source content",
+                "source_ref",
+            )
+        )
+        diagnostic = diagnostic_record(
+            "evidence_validation" if evidence_failure else "schema_validation"
+        )
+        diagnostic["validation_error_type"] = type(exc).__name__[:100]
+        diagnostic["validation_message"] = sanitize_diagnostic_text(message)
+        return diagnostic
+
+    diagnostic = diagnostic_record("runtime_error")
+    diagnostic["runtime_error_type"] = type(exc).__name__[:100]
+    return diagnostic
+
+
+def llm_success_diagnostic(result):
+    from wahojobs.opportunity_llm import diagnostic_record
+
+    return diagnostic_record(
+        "succeeded",
+        http_status=getattr(result, "http_status", None),
+        response_status=getattr(result, "response_status", None),
+    )
 
 
 def enrich_canonical_opportunity(
@@ -649,6 +1243,7 @@ def enrich_canonical_opportunity(
     *,
     now: str | None = None,
     ensure_schema: bool = True,
+    llm_client=None,
 ) -> dict:
     from wahojobs.db.repository import ensure_opportunity_enrichment_schema
 
@@ -656,26 +1251,109 @@ def enrich_canonical_opportunity(
         ensure_opportunity_enrichment_schema(conn)
     semantic_input = load_semantic_input(conn, canonical_opportunity_id)
     input_sha256, document, status = build_enrichment(semantic_input)
+    llm_eligible = has_sufficient_llm_source_content(semantic_input)
     existing = conn.execute(
         "SELECT * FROM opportunity_enrichments WHERE canonical_opportunity_id = ?",
         (canonical_opportunity_id,),
     ).fetchone()
-    if (
+    same_automatic_input = (
         existing is not None
         and existing["input_sha256"] == input_sha256
         and existing["schema_version"] == SCHEMA_VERSION
         and existing["taxonomy_version"] == TAXONOMY_VERSION
         and existing["extractor_version"] == EXTRACTOR_VERSION
-    ):
-        return {
-            "canonical_opportunity_id": canonical_opportunity_id,
-            "outcome": "unchanged",
-            "status": existing["status"],
-            "input_sha256": input_sha256,
-            "document": json.loads(existing["automatic_document_json"]),
-        }
+    )
+    should_attempt_llm = llm_client is not None and llm_eligible
+    if same_automatic_input:
+        prior_model = existing["model_provider"] is not None
+        already_attempted = should_attempt_llm and has_llm_attempt(
+            conn,
+            canonical_opportunity_id,
+            input_sha256,
+            llm_client,
+        )
+        if not should_attempt_llm or prior_model or already_attempted:
+            if not llm_eligible:
+                llm_outcome = "not_eligible"
+            elif llm_client is None:
+                llm_outcome = "not_requested"
+            elif prior_model:
+                llm_outcome = "already_enriched"
+            else:
+                llm_outcome = "already_attempted"
+            stored_document = json.loads(existing["automatic_document_json"])
+            validate_enrichment_document(stored_document)
+            return {
+                "canonical_opportunity_id": canonical_opportunity_id,
+                "outcome": "unchanged",
+                "status": existing["status"],
+                "input_sha256": input_sha256,
+                "document": stored_document,
+                "llm": {
+                    "eligible": llm_eligible,
+                    "called": False,
+                    "outcome": llm_outcome,
+                    "model_provider": existing["model_provider"],
+                    "model_name": existing["model_name"],
+                    "prompt_version": existing["prompt_version"],
+                },
+            }
 
     generated_at = now or utc_now()
+    model_provider = None
+    model_name = None
+    prompt_version = None
+    llm_result = None
+    llm_outcome = "not_eligible" if not llm_eligible else "not_requested"
+    if should_attempt_llm:
+        packet, evidence_blocks = llm_source_packet(semantic_input)
+        started_at = generated_at
+        try:
+            llm_result = llm_client.enrich(packet)
+            normalized_payload = normalize_llm_list_fields(
+                llm_result.payload,
+                evidence_blocks,
+            )
+            validate_llm_payload(normalized_payload, evidence_blocks)
+            document = merge_llm_payload(
+                document,
+                normalized_payload,
+                evidence_blocks,
+            )
+            status = STATUS_PARTIAL if document["unknown_fields"] else STATUS_COMPLETE
+        except Exception as exc:
+            llm_outcome = "failed"
+            failure_result = getattr(exc, "response_metadata", None) or llm_result
+            record_llm_run(
+                conn,
+                canonical_opportunity_id,
+                input_sha256,
+                llm_client,
+                "failed",
+                started_at,
+                now or utc_now(),
+                result=failure_result,
+                error_type=type(exc).__name__[:100],
+                diagnostic=llm_failure_diagnostic(exc),
+            )
+            llm_result = failure_result
+        else:
+            llm_outcome = "succeeded"
+            model_provider = llm_client.provider
+            model_name = llm_client.model
+            prompt_version = llm_client.prompt_version
+            record_llm_run(
+                conn,
+                canonical_opportunity_id,
+                input_sha256,
+                llm_client,
+                "succeeded",
+                started_at,
+                now or utc_now(),
+                result=llm_result,
+                diagnostic=llm_success_diagnostic(llm_result),
+            )
+
     document_json = canonical_json(document)
     outcome = "created" if existing is None else "updated"
     conn.execute(
@@ -685,7 +1363,7 @@ def enrich_canonical_opportunity(
           extractor_version, input_sha256, status, automatic_document_json,
           model_provider, model_name, prompt_version, generated_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(canonical_opportunity_id) DO UPDATE SET
           schema_version = excluded.schema_version,
           taxonomy_version = excluded.taxonomy_version,
@@ -693,9 +1371,9 @@ def enrich_canonical_opportunity(
           input_sha256 = excluded.input_sha256,
           status = excluded.status,
           automatic_document_json = excluded.automatic_document_json,
-          model_provider = NULL,
-          model_name = NULL,
-          prompt_version = NULL,
+          model_provider = excluded.model_provider,
+          model_name = excluded.model_name,
+          prompt_version = excluded.prompt_version,
           generated_at = excluded.generated_at,
           updated_at = excluded.updated_at
         """,
@@ -707,6 +1385,9 @@ def enrich_canonical_opportunity(
             input_sha256,
             status,
             document_json,
+            model_provider,
+            model_name,
+            prompt_version,
             generated_at,
             generated_at,
         ),
@@ -717,10 +1398,22 @@ def enrich_canonical_opportunity(
         "status": status,
         "input_sha256": input_sha256,
         "document": document,
+        "llm": {
+            "eligible": llm_eligible,
+            "called": should_attempt_llm,
+            "outcome": llm_outcome,
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "prompt_version": prompt_version,
+            "input_tokens": int(getattr(llm_result, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(llm_result, "output_tokens", 0) or 0),
+            "total_tokens": int(getattr(llm_result, "total_tokens", 0) or 0),
+            "estimated_cost_usd": getattr(llm_result, "estimated_cost_usd", None),
+        },
     }
 
 
-def enrich_company_opportunities(conn, company_id: int) -> dict:
+def enrich_company_opportunities(conn, company_id: int, *, llm_client=None) -> dict:
     from wahojobs.db.repository import ensure_opportunity_enrichment_schema
 
     ensure_opportunity_enrichment_schema(conn)
@@ -738,13 +1431,18 @@ def enrich_company_opportunities(conn, company_id: int) -> dict:
     ]
     return summarize_enrichment_results(
         [
-            enrich_canonical_opportunity(conn, item, ensure_schema=False)
+            enrich_canonical_opportunity(
+                conn,
+                item,
+                ensure_schema=False,
+                llm_client=llm_client,
+            )
             for item in ids
         ]
     )
 
 
-def enrich_all_opportunities(conn) -> dict:
+def enrich_all_opportunities(conn, *, llm_client=None) -> dict:
     from wahojobs.db.repository import ensure_opportunity_enrichment_schema
 
     ensure_opportunity_enrichment_schema(conn)
@@ -756,7 +1454,12 @@ def enrich_all_opportunities(conn) -> dict:
     ]
     return summarize_enrichment_results(
         [
-            enrich_canonical_opportunity(conn, item, ensure_schema=False)
+            enrich_canonical_opportunity(
+                conn,
+                item,
+                ensure_schema=False,
+                llm_client=llm_client,
+            )
             for item in ids
         ]
     )
@@ -770,6 +1473,10 @@ def summarize_enrichment_results(results: list[dict]) -> dict:
         for result in results
         for path in result["document"].get("unknown_fields", [])
     )
+    llm_outcomes = Counter(
+        result.get("llm", {}).get("outcome", "not_requested")
+        for result in results
+    )
     return {
         "total": len(results),
         "created": outcomes["created"],
@@ -778,6 +1485,29 @@ def summarize_enrichment_results(results: list[dict]) -> dict:
         "complete": statuses[STATUS_COMPLETE],
         "partial": statuses[STATUS_PARTIAL],
         "failed": statuses[STATUS_FAILED],
+        "llm_eligible": sum(
+            bool(result.get("llm", {}).get("eligible")) for result in results
+        ),
+        "llm_calls": sum(
+            bool(result.get("llm", {}).get("called")) for result in results
+        ),
+        "llm_succeeded": llm_outcomes["succeeded"],
+        "llm_failed": llm_outcomes["failed"],
+        "llm_input_tokens": sum(
+            int(result.get("llm", {}).get("input_tokens") or 0)
+            for result in results
+        ),
+        "llm_output_tokens": sum(
+            int(result.get("llm", {}).get("output_tokens") or 0)
+            for result in results
+        ),
+        "llm_estimated_cost_usd": round(
+            sum(
+                float(result.get("llm", {}).get("estimated_cost_usd") or 0)
+                for result in results
+            ),
+            8,
+        ),
         "unknown_field_counts": dict(sorted(unknown_fields.items())),
     }
 
@@ -811,6 +1541,27 @@ def canonical_coverage(conn) -> dict:
         JOIN canonical_opportunities co ON co.id = oe.canonical_opportunity_id
         """
     ).fetchone()
+    rich = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS rich_source_jobs,
+          COUNT(DISTINCT j.canonical_opportunity_id) AS rich_source_canonical_total
+        FROM job_source_contents sc
+        JOIN jobs j ON j.id = sc.job_id
+        WHERE j.canonical_opportunity_id IS NOT NULL
+          AND (
+            COALESCE(LENGTH(TRIM(sc.body)), 0) > 0
+            OR sc.metadata_json != '{}'
+          )
+        """
+    ).fetchone()
+    llm = conn.execute(
+        """
+        SELECT COUNT(*) AS llm_enriched_total
+        FROM opportunity_enrichments
+        WHERE model_provider IS NOT NULL
+        """
+    ).fetchone()
     return {
         "jobs_total": int(row["jobs_total"] or 0),
         "jobs_canonicalized": int(row["jobs_canonicalized"] or 0),
@@ -820,6 +1571,59 @@ def canonical_coverage(conn) -> dict:
         "active_canonical_total": int(canonical["active_canonical_total"] or 0),
         "enriched_total": int(enriched["enriched_total"] or 0),
         "active_enriched_total": int(enriched["active_enriched_total"] or 0),
+        "rich_source_jobs": int(rich["rich_source_jobs"] or 0),
+        "rich_source_canonical_total": int(
+            rich["rich_source_canonical_total"] or 0
+        ),
+        "without_rich_source_canonical_total": max(
+            0,
+            int(canonical["canonical_total"] or 0)
+            - int(rich["rich_source_canonical_total"] or 0),
+        ),
+        "llm_enriched_total": int(llm["llm_enriched_total"] or 0),
+    }
+
+
+def llm_usage_observability(conn) -> dict:
+    row = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS calls,
+          SUM(outcome = 'succeeded') AS succeeded,
+          SUM(outcome = 'failed') AS failed,
+          SUM(input_tokens) AS input_tokens,
+          SUM(output_tokens) AS output_tokens,
+          SUM(total_tokens) AS total_tokens,
+          SUM(estimated_cost_usd) AS estimated_cost_usd
+        FROM opportunity_enrichment_runs
+        """
+    ).fetchone()
+    by_model = [
+        dict(item)
+        for item in conn.execute(
+            """
+            SELECT
+              model_provider, model_name, prompt_version,
+              COUNT(*) AS calls,
+              SUM(input_tokens) AS input_tokens,
+              SUM(output_tokens) AS output_tokens,
+              SUM(total_tokens) AS total_tokens,
+              SUM(estimated_cost_usd) AS estimated_cost_usd
+            FROM opportunity_enrichment_runs
+            GROUP BY model_provider, model_name, prompt_version
+            ORDER BY model_provider, model_name, prompt_version
+            """
+        ).fetchall()
+    ]
+    return {
+        "calls": int(row["calls"] or 0),
+        "succeeded": int(row["succeeded"] or 0),
+        "failed": int(row["failed"] or 0),
+        "input_tokens": int(row["input_tokens"] or 0),
+        "output_tokens": int(row["output_tokens"] or 0),
+        "total_tokens": int(row["total_tokens"] or 0),
+        "estimated_cost_usd": round(float(row["estimated_cost_usd"] or 0), 8),
+        "by_model": by_model,
     }
 
 

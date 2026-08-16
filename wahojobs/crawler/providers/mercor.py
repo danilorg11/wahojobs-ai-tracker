@@ -2,6 +2,7 @@ import json
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
 
 
 REQUEST_HEADERS = {
@@ -43,6 +44,10 @@ def should_include_listing(listing):
 def parse_mercor_listing(listing):
     listing_id = clean_value(listing.get("listingId"))
     listing_domain = clean_value(listing.get("listingDomain")) or "Unknown"
+    source_body = first_text(
+        listing,
+        ("description", "jobDescription", "descriptionText", "details"),
+    )
     return JobCandidate(
         external_id=listing_id,
         title=clean_value(listing.get("title")),
@@ -51,6 +56,24 @@ def parse_mercor_listing(listing):
         department=listing_domain,
         expertise=listing_domain,
         commitment=clean_value(listing.get("commitment")),
+        source_body=source_body,
+        source_body_format="text/plain" if source_body else None,
+        source_metadata=nonempty_metadata(
+            selected_metadata(
+                listing,
+                (
+                    "listingDomain",
+                    "skills",
+                    "jobTypes",
+                    "responsibilities",
+                    "requirements",
+                    "qualifications",
+                    "payRate",
+                    "payRateFrequency",
+                ),
+            )
+        ),
+        source_updated_at=clean_value(listing.get("updatedAt")),
     )
 
 

@@ -84,6 +84,15 @@ def parse_oneforma_post(post):
     commitment = extract_commitment(job_tags)
     location = extract_location(job_tags)
     apply_rows = extract_apply_rows(post)
+    source_body = (post.get("content") or {}).get("rendered")
+    if not isinstance(source_body, str) or not source_body.strip():
+        source_body = None
+    source_metadata = {
+        "excerpt_html": (post.get("excerpt") or {}).get("rendered"),
+        "job_types": job_types,
+        "job_tags": job_tags,
+        "public_url": public_url,
+    }
 
     if not apply_rows:
         apply_rows = [{"language": None, "apply_url": None}]
@@ -96,6 +105,11 @@ def parse_oneforma_post(post):
         commitment=commitment,
         location=location,
         apply_rows=apply_rows,
+        source_body=source_body,
+        source_metadata=source_metadata,
+        source_updated_at=clean_value(
+            post.get("modified_gmt") or post.get("modified")
+        ),
     )
 
 
@@ -122,7 +136,18 @@ def has_audio_collection_signal(text):
     return any(keyword in normalized for keyword in AUDIO_COLLECTION_KEYWORDS)
 
 
-def build_variants(post_id, title, public_url, department, commitment, location, apply_rows):
+def build_variants(
+    post_id,
+    title,
+    public_url,
+    department,
+    commitment,
+    location,
+    apply_rows,
+    source_body=None,
+    source_metadata=None,
+    source_updated_at=None,
+):
     parsed_rows = []
     for index, row in enumerate(apply_rows, start=1):
         language = clean_value(row.get("language"))
@@ -162,6 +187,14 @@ def build_variants(post_id, title, public_url, department, commitment, location,
                 department=department,
                 expertise=department,
                 commitment=commitment,
+                source_body=source_body,
+                source_body_format="text/html" if source_body else None,
+                source_metadata={
+                    **(source_metadata or {}),
+                    "variant_language": row["language"],
+                    "variant_apply_url": row["apply_url"],
+                },
+                source_updated_at=source_updated_at,
             )
         )
     return jobs

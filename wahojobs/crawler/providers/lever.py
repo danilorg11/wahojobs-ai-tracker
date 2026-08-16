@@ -2,6 +2,7 @@ import json
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.source_content import nonempty_metadata, selected_metadata
 
 
 REQUEST_HEADERS = {
@@ -27,6 +28,7 @@ def fetch_lever_postings(api_url):
 
 def parse_lever_posting(posting):
     categories = posting.get("categories") or {}
+    source_body, source_body_format = lever_source_body(posting)
     return JobCandidate(
         external_id=clean_value(posting.get("id")),
         title=clean_value(posting.get("text")),
@@ -34,7 +36,55 @@ def parse_lever_posting(posting):
         url=clean_value(posting.get("hostedUrl")),
         department=clean_value(categories.get("department")),
         commitment=clean_value(categories.get("commitment")),
+        source_body=source_body,
+        source_body_format=source_body_format,
+        source_metadata=nonempty_metadata(
+            selected_metadata(
+                posting,
+                (
+                    "additionalPlain",
+                    "lists",
+                    "categories",
+                    "workplaceType",
+                    "salaryRange",
+                    "country",
+                ),
+            )
+        ),
+        source_updated_at=clean_value(posting.get("updatedAt")),
     )
+
+
+def lever_source_body(posting):
+    plain = posting.get("descriptionPlain")
+    if isinstance(plain, str) and plain.strip():
+        return plain, "text/plain"
+    markup = posting.get("description")
+    if isinstance(markup, str) and markup.strip():
+        return markup, "text/html"
+    return None, None
+
+
+def lever_source_fields(posting):
+    source_body, source_body_format = lever_source_body(posting)
+    return {
+        "source_body": source_body,
+        "source_body_format": source_body_format,
+        "source_metadata": nonempty_metadata(
+            selected_metadata(
+                posting,
+                (
+                    "additionalPlain",
+                    "lists",
+                    "categories",
+                    "workplaceType",
+                    "salaryRange",
+                    "country",
+                ),
+            )
+        ),
+        "source_updated_at": clean_value(posting.get("updatedAt")),
+    }
 
 
 def clean_value(value):

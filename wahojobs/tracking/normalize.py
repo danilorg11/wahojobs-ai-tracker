@@ -30,4 +30,8 @@ def with_source_hash(company_slug, candidate):
         availability_basis=candidate.availability_basis,
         include_in_live_market_estimate=candidate.include_in_live_market_estimate,
         source_hash=source_hash,
+        source_body=candidate.source_body,
+        source_body_format=candidate.source_body_format,
+        source_metadata=candidate.source_metadata,
+        source_updated_at=candidate.source_updated_at,
     )

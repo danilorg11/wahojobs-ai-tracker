@@ -116,6 +116,7 @@ class GreenhouseProviderContractTests(unittest.TestCase):
 
         records = {record.external_id: record for record in result.source_records}
         record = records["1001"]
+        candidate = next(job for job in result.jobs if job.external_id == "1001")
         self.assertEqual(record.source_name, "Meridial")
         self.assertEqual(record.company_id, "meridial")
         self.assertEqual(record.board_token, "agency")
@@ -140,6 +141,14 @@ class GreenhouseProviderContractTests(unittest.TestCase):
         )
         self.assertEqual(record.departments[0].name, "Engineering & Technology")
         self.assertEqual(record.offices[0].name, "Worldwide - Remote")
+        self.assertEqual(candidate.source_body, "<p>Python role description</p>")
+        self.assertEqual(candidate.source_body_format, "text/html")
+        self.assertEqual(candidate.source_updated_at, record.updated_at)
+        self.assertEqual(candidate.source_metadata["requisition_id"], "REQ-1001")
+        self.assertEqual(
+            candidate.source_metadata["unknown_public_field"]["nested"],
+            [1, True, None],
+        )
 
         second, _ = self.fetch()
         jobs_again = copy.deepcopy(jobs)
