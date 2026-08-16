@@ -543,19 +543,16 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                     body,
                 )
                 self.assertIn(
-                    "href='https://jobs.example.test/distinctive-bilingual-reviewer'",
+                    "href='/job/configured-production-7003'",
                     body,
                 )
-                self.assertIn(
-                    "target='_blank' rel='noopener noreferrer'",
-                    body,
-                )
+                self.assertNotIn("href='https://jobs.example.test/distinctive-bilingual-reviewer'", body)
                 self.assertEqual(
                     re.findall(r"href='([^']+)'", body),
                     [
                         "/account/profile",
                         "/logout",
-                        "https://jobs.example.test/distinctive-bilingual-reviewer",
+                        "/job/configured-production-7003",
                     ],
                 )
                 self.assertNotIn(state.profile_id, body)
@@ -651,8 +648,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         )
         self.assertNotIn(self.profile_v2["identity"]["profile_id"], body)
         self.assertIn("Distinctive Python Backend AI Coding Evaluator", body)
-        self.assertIn("href='https://jobs.example.test/distinctive-python'", body)
-        self.assertIn("target='_blank' rel='noopener noreferrer'", body)
+        self.assertIn("href='/job/configured-901'", body)
+        self.assertNotIn("href='https://jobs.example.test/distinctive-python'", body)
         self.assertNotIn("javascript:", body)
         self.assertNotIn("Unsafe Protocol Python Evaluator", body)
         self.assertEqual(
@@ -660,7 +657,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             [
                 "/account/profile",
                 "/logout",
-                "https://jobs.example.test/distinctive-python",
+                "/job/configured-901",
             ],
         )
         for forbidden in ("My Jobs", "/action", "tracker", "demo persona"):

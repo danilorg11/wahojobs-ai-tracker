@@ -3288,7 +3288,12 @@ def resolve_run_opportunity(run, requested_key):
         raise ActionError("Missing opportunity reference.")
     for match in iter_match_run_opportunities(run):
         if match_opportunity_key(match) == requested_key:
-            if browser_match_rejection_reasons(match):
+            rejection_reasons = (
+                public_job_workflow_rejection_reasons(match)
+                if match.get("_public_job_workflow") is True
+                else browser_match_rejection_reasons(match)
+            )
+            if rejection_reasons:
                 raise ActionError(
                     "That opportunity is not safe to open or track from this match run.",
                     HTTPStatus.FORBIDDEN,
@@ -3302,6 +3307,19 @@ def resolve_run_opportunity(run, requested_key):
         "That opportunity is not available in this match run.",
         HTTPStatus.FORBIDDEN,
     )
+
+
+def public_job_workflow_rejection_reasons(match):
+    reasons = []
+    if stable_opportunity_identity(match) is None:
+        reasons.append("invalid_stable_identity")
+    if safe_job_url(match.get("url")) is None:
+        reasons.append("invalid_job_url")
+    if match.get("job_is_active") is not True:
+        reasons.append("inactive_job")
+    if match.get("canonical_is_active") is not True:
+        reasons.append("inactive_canonical_opportunity")
+    return tuple(reasons)
 
 
 def handle_action(form, run):
@@ -5880,6 +5898,8 @@ def action_json_payload(result, run, form):
 def record_remains_in_browser_view(record, *, section, tracker_view):
     if section == "tracker":
         return bool(tracker_records_for_view([record], tracker_view))
+    if section == "public_job":
+        return True
     return record["status"] not in MAIN_RECOMMENDATION_EXCLUDED_STATUSES
 
 
@@ -6194,6 +6214,7 @@ def validate_action_form(form):
         "dashboard",
         "explore",
         "tracker",
+        "public_job",
     }
     if section not in valid_sections:
         raise MalformedActionRequest()

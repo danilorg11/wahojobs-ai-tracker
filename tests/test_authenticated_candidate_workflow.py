@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -385,6 +386,81 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
                 self._headers(second),
             )
         )
+
+    def test_public_job_page_reuses_authenticated_pipeline_and_returns_to_job(self):
+        from tests.test_public_job_page import JOB_PATH, seed_public_job
+
+        seed_public_job(self.connection)
+        logged_out = self.integration.handle(
+            "GET",
+            JOB_PATH,
+            (("Host", "app.test"),),
+        )
+        logged_out_page = logged_out.body.decode("utf-8")
+        self.assertEqual(logged_out.status, 200, logged_out_page)
+        self.assertIn("Create a profile or sign in", logged_out_page)
+        self.assertNotIn("name=\"action\"", logged_out_page)
+
+        authenticated = self.integration.handle(
+            "GET",
+            JOB_PATH,
+            self._headers(self.first),
+        )
+        page = authenticated.body.decode("utf-8")
+        self.assertEqual(authenticated.status, 200, page)
+        self.assertEqual(dict(authenticated.headers)["Cache-Control"], "no-store")
+        self.assertIn("Your Wahojobs workflow", page)
+        self.assertIn("href='/find-matches'>Matches</a>", page)
+        self.assertIn("href='/tracker'>My Jobs</a>", page)
+        self.assertIn(">Save</button>", page)
+        self.assertIn(">Mark as applied</button>", page)
+        self.assertIn(">Not interested</button>", page)
+        self.assertNotIn("Create a profile or sign in", page)
+
+        save_form = re.search(
+            r'<form[^>]+action-form-save[^>]*>(.*?)</form>',
+            page,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(save_form)
+        form = dict(
+            re.findall(
+                r'<input[^>]+name="([^"]+)"[^>]+value="([^"]*)"',
+                save_form.group(1),
+            )
+        )
+        saved = self._post(
+            self.first,
+            self.first,
+            form,
+            accept_json=False,
+        )
+        self.assertEqual(saved.status, 303, saved.body)
+        self.assertEqual(dict(saved.headers)["Location"], JOB_PATH)
+        self.assertEqual(
+            self.connection.execute(
+                "SELECT COUNT(*) FROM user_pipeline_items WHERE profile_id = ?",
+                (self.first["profile_id"],),
+            ).fetchone()[0],
+            1,
+        )
+
+        reloaded = self.integration.handle(
+            "GET",
+            JOB_PATH,
+            self._headers(self.first),
+        ).body.decode("utf-8")
+        self.assertIn("aria-label='Current status: Saved'>Saved</p>", reloaded)
+        self.assertIn(">Remind me in 7 days</button>", reloaded)
+        self.assertIn(">Mark as applied</button>", reloaded)
+        self.assertIn(">Not interested</button>", reloaded)
+
+        tracker = self.integration.handle(
+            "GET",
+            "/tracker",
+            self._headers(self.first),
+        ).body.decode("utf-8")
+        self.assertIn("Applied AI Engineer — Model Evaluation", tracker)
 
     def test_rejects_browser_identity_isolates_owners_and_detects_stale_versions(self):
         sealed = self._authority(self.first).authorized_state()

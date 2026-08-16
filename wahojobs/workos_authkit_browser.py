@@ -309,7 +309,10 @@ class WorkOSAuthKitBrowserIntegration:
 
     def matches_route(self, path):
         self._require_open()
-        return path in _AUTH_ROUTES
+        return (
+            path in _AUTH_ROUTES
+            or self._profile_integration.matches_route(path) is True
+        )
 
     def handle(self, method, target, headers, body_stream=None):
         self._require_open()
@@ -318,11 +321,18 @@ class WorkOSAuthKitBrowserIntegration:
         if parsed is None or header_items is None:
             return _failure(HTTPStatus.BAD_REQUEST, "Request unavailable")
         path, raw_query = parsed
-        if path not in _AUTH_ROUTES:
+        delegated = (
+            path in _DELEGATED_ROUTES
+            or self._profile_integration.matches_route(path) is True
+        )
+        if path not in _AUTH_ROUTES and not delegated:
             return _failure(HTTPStatus.NOT_FOUND, "Page not found")
-        if not self._trusted_headers(header_items, profile_post=(path in _DELEGATED_ROUTES and method == "POST")):
+        if not self._trusted_headers(
+            header_items,
+            profile_post=(delegated and method == "POST"),
+        ):
             return _failure(HTTPStatus.BAD_REQUEST, "Request unavailable")
-        if path in _DELEGATED_ROUTES:
+        if delegated:
             return self._profile_integration.handle(
                 method,
                 target,

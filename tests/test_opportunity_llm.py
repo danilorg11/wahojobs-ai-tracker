@@ -9,6 +9,7 @@ from wahojobs.opportunity_llm import (
     OpenAIEnrichmentError,
     OpenAIStructuredEnrichmentClient,
     structured_output_schema,
+    system_prompt,
 )
 
 
@@ -112,6 +113,20 @@ class OpportunityLLMTests(unittest.TestCase):
         self.assertEqual(result.http_status, 200)
         self.assertEqual(result.total_tokens, 2_500)
         self.assertEqual(result.estimated_cost_usd, 0.0015)
+
+    def test_quick_take_contract_is_plain_english_candidate_oriented_and_grounded(self):
+        prompt = system_prompt()
+        for requirement in (
+            "two or three short, natural sentences",
+            "what the person would do",
+            "plain English",
+            "concrete verbs",
+            "unnecessary acronyms",
+            "marketing language",
+            "strictly grounded",
+        ):
+            self.assertIn(requirement, prompt)
+        self.assertEqual(PROMPT_VERSION, "opportunity_semantic_v3")
 
     def assert_diagnostic(self, response, expected_category):
         client = OpenAIStructuredEnrichmentClient(

@@ -1265,19 +1265,24 @@ def enrich_canonical_opportunity(
     )
     should_attempt_llm = llm_client is not None and llm_eligible
     if same_automatic_input:
-        prior_model = existing["model_provider"] is not None
+        prior_model_is_current = (
+            should_attempt_llm
+            and existing["model_provider"] == llm_client.provider
+            and existing["model_name"] == llm_client.model
+            and existing["prompt_version"] == llm_client.prompt_version
+        )
         already_attempted = should_attempt_llm and has_llm_attempt(
             conn,
             canonical_opportunity_id,
             input_sha256,
             llm_client,
         )
-        if not should_attempt_llm or prior_model or already_attempted:
+        if not should_attempt_llm or prior_model_is_current or already_attempted:
             if not llm_eligible:
                 llm_outcome = "not_eligible"
             elif llm_client is None:
                 llm_outcome = "not_requested"
-            elif prior_model:
+            elif prior_model_is_current:
                 llm_outcome = "already_enriched"
             else:
                 llm_outcome = "already_attempted"

@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from scripts import local_product_app as local_product
 from scripts import profile_to_matches_preview as profile_preview
-from wahojobs import pipeline_actions, pipeline_records, pipeline_state
+from wahojobs import pipeline_actions, pipeline_records, pipeline_state, public_job_page
 from wahojobs.accounts import SessionUnavailable, resolve_session, validate_session_csrf
 from wahojobs.browser_session_authentication import (
     BrowserSessionAuthenticationUnavailable,
@@ -94,7 +94,6 @@ _SECURITY_HEADERS = (
         "form-action 'self'; frame-ancestors 'none'",
     ),
     ("X-Content-Type-Options", "nosniff"),
-    ("Cache-Control", "no-store"),
 )
 _NO_REFERRER_POLICY = "no-referrer"
 _SAME_ORIGIN_REFERRER_POLICY = "same-origin"
@@ -543,7 +542,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             return False
         if path == AUTHENTICATED_TRACKER_ROUTE and self._write_connection_provider is None:
             return False
-        return path in AUTHENTICATED_CANDIDATE_ROUTES
+        return (
+            path in AUTHENTICATED_CANDIDATE_ROUTES
+            or public_job_page.parse_public_job_path(path) is not None
+        )
 
     def handle(self, method, target, authentication_input=None, body_stream=None):
         if self._closed:
@@ -578,6 +580,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "This matches request is not valid.",
             )
         route = parsed_target[0]
+        if public_job_page.parse_public_job_path(route) is not None:
+            if method not in {"GET", "HEAD"}:
+                return _failure_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "Method not allowed",
+                    "This public job page accepts GET and HEAD only.",
+                    extra_headers=(("Allow", "GET, HEAD"),),
+                )
+            return self._handle_public_job(route, header_items)
         if route != AUTHENTICATED_MATCHES_ROUTE and self._write_connection_provider is None:
             return _failure_response(HTTPStatus.NOT_FOUND, "Page not found", "This page is not available.")
         if method == "POST" and not _trusted_same_origin(
@@ -838,7 +849,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     HTTPStatus.OK,
                     local_product.action_json_payload(result, run, form),
                 )
-            if local_product.action_form_value(form, "section") == "tracker":
+            section = local_product.action_form_value(form, "section")
+            if section == "tracker":
                 location = AUTHENTICATED_TRACKER_ROUTE + "?" + urlencode(
                     {
                         "run": run.match_run_id,
@@ -850,6 +862,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         or "all",
                     }
                 )
+            elif section == "public_job":
+                location = local_product.action_form_value(form, "return_to")
+                if public_job_page.parse_public_job_path(location) is None:
+                    raise local_product.MalformedActionRequest()
             else:
                 location = AUTHENTICATED_MATCHES_ROUTE + "?" + urlencode(
                     {"run": run.match_run_id}
@@ -877,6 +893,112 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             status = HTTPStatus.SERVICE_UNAVAILABLE
             message = "The action could not be completed safely."
         return _workflow_failure(status, message, header_items, wants_json=wants_json)
+
+    def _handle_public_job(self, path, header_items):
+        try:
+            connection = None
+            with self._connection_provider() as connection:
+                if (
+                    not isinstance(connection, sqlite3.Connection)
+                    or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                    or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+                    or connection.in_transaction
+                ):
+                    raise ValueError("public_job_inventory_unavailable")
+                connection.execute("BEGIN")
+                try:
+                    job = public_job_page.load_public_job(connection, path)
+                finally:
+                    if connection.in_transaction:
+                        connection.rollback()
+            if job is None:
+                return _failure_response(
+                    HTTPStatus.NOT_FOUND,
+                    "Job not found",
+                    "This opportunity page is not available.",
+                )
+
+            authority = self._optional_public_authority(header_items)
+            authenticated = authority is not None and authority.state == "profile"
+            controls = ""
+            status = ""
+            if authenticated and self._write_connection_provider is not None:
+                records = self._load_pipeline_records(authority)
+                match = job["workflow_match"]
+                context = {"matches": {"do_these_first": [match]}}
+                run = self._registry.create(
+                    owner_profile_id=authority.candidate_workflow_authority()[4],
+                    raw_input="",
+                    input_style="short_paragraph",
+                    recommendation_context=context,
+                    profile_confirmed=True,
+                )
+                record = local_product.demo.tracked_record_for_match(
+                    match,
+                    local_product.demo.build_tracked_index(records),
+                )
+                controls = local_product.render_preview_full_forms(
+                    match,
+                    record,
+                    run.match_run_id,
+                    path,
+                    "public_job",
+                )
+                if record is not None:
+                    status = local_product.readable_status(record["status"])
+
+            content = public_job_page.render_public_job_page(
+                job,
+                public_origin=self._public_origin,
+                authenticated=authenticated,
+                navigation=_public_job_navigation(authenticated=authenticated),
+                workflow_controls=controls,
+                workflow_status=status,
+            )
+            return _html_response(
+                HTTPStatus.OK,
+                content,
+                referrer_policy=(
+                    _SAME_ORIGIN_REFERRER_POLICY
+                    if authenticated
+                    else _NO_REFERRER_POLICY
+                ),
+                cache_control=(
+                    "no-store"
+                    if authenticated
+                    else "public, max-age=300"
+                ),
+            )
+        except (sqlite3.Error, ValueError, TypeError):
+            return _failure_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Job temporarily unavailable",
+                "This opportunity page cannot be loaded safely right now.",
+            )
+        except Exception:
+            return _failure_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Job temporarily unavailable",
+                "This opportunity page cannot be loaded safely right now.",
+            )
+
+    def _optional_public_authority(self, header_items):
+        session_token, session_valid = _security_cookie(
+            header_items,
+            SESSION_COOKIE_NAME,
+            _OPAQUE_CREDENTIAL,
+        )
+        if not session_valid:
+            return None
+        result = self._service.resolve(
+            method="GET",
+            authentication_input=header_items,
+            session_token=session_token,
+            csrf_secret=None,
+        )
+        if result.state != "profile":
+            return None
+        return result.authorized_state()
 
     def _load_pipeline_records(self, authority):
         account_id, _environment, _principal_id, _session_id, profile_id = (
@@ -1433,12 +1555,17 @@ def _parse_target(target, *, method):
     if (
         parsed.scheme
         or parsed.netloc
-        or parsed.path not in AUTHENTICATED_CANDIDATE_ROUTES
+        or (
+            parsed.path not in AUTHENTICATED_CANDIDATE_ROUTES
+            and public_job_page.parse_public_job_path(parsed.path) is None
+        )
         or parsed.fragment
         or (parsed.path == AUTHENTICATED_ACTION_ROUTE and parsed.query)
         or (method == "POST" and parsed.path != AUTHENTICATED_MATCHES_ROUTE and parsed.query)
     ):
         return None
+    if public_job_page.parse_public_job_path(parsed.path) is not None:
+        return (parsed.path, {}) if not parsed.query else None
     if parsed.path == AUTHENTICATED_ACTION_ROUTE:
         return parsed.path, {}
     try:
@@ -1688,7 +1815,7 @@ def _render_match_results(
     )
     cards = []
     for match in matches:
-        url = local_product.safe_job_url(match.get("url"))
+        url = public_job_page.public_job_path_for_match(match)
         if url is None:
             continue
         reason = profile_preview.user_fit_reason(match)
@@ -1730,8 +1857,7 @@ def _render_match_results(
                 if status
                 else "<p class='pill card-status js-card-status'></p>"
             )
-            + f"<p><a class='button' href='{_safe(url)}' target='_blank' "
-            "rel='noopener noreferrer'>View opportunity</a></p>"
+            + f"<p><a class='button' href='{_safe(url)}'>View opportunity</a></p>"
             + (f"<div class='js-card-controls'>{controls}</div>" if controls else "")
             + "</article>"
         )
@@ -1820,6 +1946,24 @@ def _navigation(*, match_run_id=None, show_current_matches=False):
     )
 
 
+def _public_job_navigation(*, authenticated):
+    if not authenticated:
+        return (
+            "<nav class='account-nav' aria-label='Account'>"
+            "<a href='/find-matches'>Find matches</a>"
+            "<a href='/login'>Sign in</a>"
+            "</nav>"
+        )
+    return (
+        "<nav class='account-nav' aria-label='Account'>"
+        "<a href='/find-matches'>Matches</a>"
+        "<a href='/tracker'>My Jobs</a>"
+        "<a href='/account/profile'>My profile</a>"
+        "<a href='/logout'>Sign out</a>"
+        "</nav>"
+    )
+
+
 def _page(title, body, *, workflow=False):
     return f"""<!doctype html>
 <html lang='en'>
@@ -1862,6 +2006,7 @@ def _html_response(
     *,
     referrer_policy=_NO_REFERRER_POLICY,
     extra_headers=(),
+    cache_control="no-store",
 ):
     payload = content.encode("utf-8")
     if len(payload) > MAX_MATCHES_RESPONSE_BYTES:
@@ -1875,6 +2020,8 @@ def _html_response(
         _SAME_ORIGIN_REFERRER_POLICY,
     }:
         raise ValueError("invalid_authenticated_matches_response")
+    if cache_control not in {"no-store", "public, max-age=300"}:
+        raise ValueError("invalid_authenticated_matches_response")
     return AuthenticatedMatchesBrowserResponse(
         int(status),
         payload,
@@ -1882,6 +2029,7 @@ def _html_response(
             ("Content-Type", "text/html; charset=utf-8"),
             ("Content-Length", str(len(payload))),
             *_SECURITY_HEADERS,
+            ("Cache-Control", cache_control),
             ("Referrer-Policy", referrer_policy),
             *extra_headers,
         ),

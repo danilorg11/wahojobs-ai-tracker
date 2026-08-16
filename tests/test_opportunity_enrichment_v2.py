@@ -572,6 +572,38 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         ]
         self.assertEqual(len(llm_evidence), 2)
 
+    def test_new_prompt_version_reprocesses_unchanged_source_once(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.persist_rich_source(job_id)
+        original = FakeStructuredLLM()
+        first = enrich_canonical_opportunity(
+            self.conn,
+            canonical_id,
+            now=NOW,
+            llm_client=original,
+        )
+        revised = FakeStructuredLLM()
+        revised.prompt_version = "opportunity_semantic_next"
+        second = enrich_canonical_opportunity(
+            self.conn,
+            canonical_id,
+            now="2026-08-17T00:00:00+00:00",
+            llm_client=revised,
+        )
+        third = enrich_canonical_opportunity(
+            self.conn,
+            canonical_id,
+            now="2026-08-18T00:00:00+00:00",
+            llm_client=revised,
+        )
+
+        self.assertEqual(first["llm"]["outcome"], "succeeded")
+        self.assertEqual(second["llm"]["outcome"], "succeeded")
+        self.assertTrue(second["llm"]["called"])
+        self.assertEqual(len(revised.calls), 1)
+        self.assertEqual(third["llm"]["outcome"], "already_enriched")
+        self.assertFalse(third["llm"]["called"])
+
     def test_short_source_content_does_not_trigger_llm(self):
         job_id, canonical_id = self.fallback_enriched_job()
         self.persist_rich_source(job_id, "Short provider note.")

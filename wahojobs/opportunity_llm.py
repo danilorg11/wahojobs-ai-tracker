@@ -12,7 +12,7 @@ import requests
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 DEFAULT_MODEL = "gpt-5-mini"
-PROMPT_VERSION = "opportunity_semantic_v2"
+PROMPT_VERSION = "opportunity_semantic_v3"
 MAX_OUTPUT_TOKENS = 8_000
 REASONING_EFFORT = "low"
 MAX_DIAGNOSTIC_TEXT_LENGTH = 500
@@ -280,8 +280,15 @@ def system_prompt() -> str:
         "do not turn a descriptive mention into a requirement. Do not infer pay, geographic "
         "eligibility, degrees, licenses, credentials, hours, schedules, employment "
         "type, or any other factual constraint. Do not put those constraints into "
-        "summaries or caveats unless the schema explicitly asks for them; this schema "
-        "does not. Candidate profile may summarize only explicitly requested experience "
+        "candidate_profile or caveats unless the schema explicitly asks for them; this "
+        "schema does not. For quick_take, write two or three short, natural sentences for a "
+        "candidate. Explain in plain English what the person would do, using concrete "
+        "verbs and the most useful day-to-day responsibilities. Avoid compressed noun "
+        "phrases, unnecessary acronyms or technical and corporate jargon, superlatives, "
+        "and marketing language. When directly supported, the final sentence may briefly "
+        "state the work arrangement or engagement basis; never infer it. Every sentence "
+        "must remain strictly grounded in the cited evidence. Candidate profile may "
+        "summarize only explicitly requested experience "
         "and capabilities, never demographic traits. Role-family, domain, and activity "
         "values are classifications, but they still require direct evidence of the "
         "underlying work."
