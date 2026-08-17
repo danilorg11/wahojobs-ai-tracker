@@ -401,6 +401,22 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("Create a profile or sign in", logged_out_page)
         self.assertNotIn("name=\"action\"", logged_out_page)
 
+        authenticated_catalog = self.integration.handle(
+            "GET",
+            "/jobs",
+            self._headers(self.first),
+        )
+        catalog_page = authenticated_catalog.body.decode("utf-8")
+        self.assertEqual(authenticated_catalog.status, 200, catalog_page)
+        self.assertEqual(
+            dict(authenticated_catalog.headers)["Cache-Control"],
+            "no-store",
+        )
+        self.assertIn("href='/jobs' aria-current='page'>Jobs</a>", catalog_page)
+        self.assertIn("href='/find-matches'>Matches</a>", catalog_page)
+        self.assertIn("href='/tracker'>My Jobs</a>", catalog_page)
+        self.assertIn("href='/account/profile'>My profile</a>", catalog_page)
+
         authenticated = self.integration.handle(
             "GET",
             JOB_PATH,

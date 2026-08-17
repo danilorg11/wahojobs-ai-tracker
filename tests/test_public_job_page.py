@@ -317,6 +317,31 @@ class PublicJobPageTests(unittest.TestCase):
         self.assertNotIn("Visit Acme AI careers", page)
         self.assertNotIn("boards-api.greenhouse.io", page)
 
+    def test_api_source_urls_are_not_presented_as_application_or_original_listing_links(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE jobs SET url = ? WHERE id = 9003",
+                ("https://jobs-api.example.test/v1/jobs/9003",),
+            )
+            connection.execute(
+                "UPDATE job_source_contents SET source_url = ? WHERE job_id = 9003",
+                ("https://jobs-api.example.test/api/jobs/9003",),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        job = self.load()
+        self.assertIsNone(job["official_url"])
+        page = public_job_page.render_public_job_page(
+            job,
+            public_origin=ORIGIN,
+            authenticated=False,
+        )
+        self.assertNotIn("jobs-api.example.test", page)
+        self.assertNotIn("Apply on company site", page)
+
     def test_public_route_requires_no_session_and_uses_public_cache_policy(self):
         provider = ReadOnlyProvider(self.path)
         service = object.__new__(AuthenticatedProfileMatchesService)

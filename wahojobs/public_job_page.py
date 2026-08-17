@@ -12,7 +12,8 @@ import html
 import re
 from urllib.parse import urlsplit
 
-from wahojobs.opportunity_enrichment import resolve_effective_enrichment
+from wahojobs.matching.opportunity_trust import TRUSTED, assess_opportunity_trust
+from wahojobs.opportunity_enrichment import blank_document, resolve_effective_enrichment
 
 
 PUBLIC_JOB_PATH = re.compile(
@@ -50,7 +51,7 @@ def parse_public_job_path(path):
     return match.group("company"), int(match.group("job_id"))
 
 
-def load_public_job(connection, path):
+def load_public_job(connection, path, *, now=None):
     """Load one job variant plus canonical and effective enrichment facts."""
 
     identity = parse_public_job_path(path)
@@ -101,8 +102,21 @@ def load_public_job(connection, path):
           oe.model_provider,
           oe.model_name,
           oe.generated_at AS enrichment_generated_at,
-          (
-            SELECT COALESCE(cr.finished_at, cr.started_at)
+          source_run.id AS source_run_id,
+          source_run.started_at AS source_run_started_at,
+          COALESCE(source_run.finished_at, source_run.started_at)
+            AS latest_successful_source_run_at,
+          CASE WHEN source_run.id IS NULL THEN 0 ELSE 1 END
+            AS source_run_qualifies
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
+        LEFT JOIN opportunity_enrichments oe
+          ON oe.canonical_opportunity_id = co.id
+        LEFT JOIN job_source_contents sc ON sc.job_id = j.id
+        LEFT JOIN crawl_runs source_run
+          ON source_run.id = (
+            SELECT cr.id
             FROM crawl_runs cr
             WHERE cr.company_id = c.id
               AND cr.status = 'success'
@@ -110,13 +124,7 @@ def load_public_job(connection, path):
               AND cr.error_message IS NULL
             ORDER BY COALESCE(cr.finished_at, cr.started_at) DESC, cr.id DESC
             LIMIT 1
-          ) AS latest_successful_source_run_at
-        FROM jobs j
-        JOIN companies c ON c.id = j.company_id
-        JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
-        JOIN opportunity_enrichments oe
-          ON oe.canonical_opportunity_id = co.id
-        LEFT JOIN job_source_contents sc ON sc.job_id = j.id
+          )
         WHERE j.id = ?
           AND c.slug = ?
           AND j.title NOT LIKE '[SIMULATION]%'
@@ -126,24 +134,28 @@ def load_public_job(connection, path):
     if row is None:
         return None
 
+    result = dict(row)
+    if not public_opportunity_is_eligible(result, now=now):
+        return None
+
     effective = resolve_effective_enrichment(
         connection,
         int(row["canonical_opportunity_id"]),
     )
-    if effective is None:
-        return None
-    document = effective["document"]
-    official_url = first_safe_url(row["rich_source_url"], row["listing_url"])
+    document = effective["document"] if effective is not None else blank_document()
+    official_url = first_human_facing_url(
+        row["rich_source_url"],
+        row["listing_url"],
+    )
     careers_url = human_facing_company_url(row["careers_url"])
-    result = dict(row)
     result.update(
         path=path,
         official_url=official_url,
         careers_url=careers_url,
         enrichment=document,
-        enrichment_field_sources=effective["field_sources"],
-        overridden_fields=effective["overridden_fields"],
-        stale_override_fields=effective["stale_override_fields"],
+        enrichment_field_sources=(effective or {}).get("field_sources", {}),
+        overridden_fields=(effective or {}).get("overridden_fields", []),
+        stale_override_fields=(effective or {}).get("stale_override_fields", []),
     )
     result["workflow_match"] = {
         "source": result["company_name"],
@@ -160,6 +172,32 @@ def load_public_job(connection, path):
     return result
 
 
+def public_opportunity_is_eligible(row, *, now=None):
+    """Return whether one source variant is safe to present as a current job."""
+
+    if (
+        not bool(row.get("job_is_active"))
+        or not bool(row.get("canonical_is_active"))
+        or clean(row.get("source_tier")) == "experimental"
+        or not public_inventory_is_eligible(row)
+    ):
+        return False
+    trust = assess_opportunity_trust(row, "unknown", now=now)
+    return trust.status == TRUSTED
+
+
+def public_inventory_is_eligible(row):
+    policy = clean(row.get("market_count_policy"))
+    model = clean(row.get("inventory_model"))
+    if policy == "count_live":
+        return True
+    return policy != "count_live" and model in {
+        "evergreen_application",
+        "mixed",
+        "public_inventory",
+    }
+
+
 def render_public_job_page(
     job,
     *,
@@ -169,6 +207,7 @@ def render_public_job_page(
     workflow_controls="",
     workflow_status="",
     workflow_script="",
+    catalog_return_to=None,
 ):
     document = job["enrichment"]
     attributes = document["attributes"]
@@ -182,6 +221,17 @@ def render_public_job_page(
     canonical_url = public_origin.rstrip("/") + job["path"]
     page_title = clean(job["source_title"]) or clean(job["canonical_title"])
     company_name = clean(job["company_name"])
+    catalog_return_to = safe_catalog_return_target(catalog_return_to)
+    robots = (
+        "<meta name='robots' content='noindex,follow'>"
+        if catalog_return_to
+        else ""
+    )
+    back_to_jobs = (
+        f"<p class='back-to-jobs'><a href='{e(catalog_return_to)}'>← Back to jobs</a></p>"
+        if catalog_return_to
+        else ""
+    )
     quick_take = as_sentence(content["quick_take"])
     description = quick_take or (
         f"Explore {page_title} at {company_name}, including source details, "
@@ -311,7 +361,7 @@ def render_public_job_page(
 
     caveats = candidate_facing_caveats(content["caveats"])
 
-    source_url = job["official_url"] or first_safe_url(job["listing_url"])
+    source_url = job["official_url"]
     source_link = (
         f"<a href='{e(source_url)}' target='_blank' rel='noopener noreferrer nofollow'>"
         f"{e(company_name)} original listing</a>"
@@ -347,13 +397,6 @@ def render_public_job_page(
         </section>
         """
 
-    inactive_notice = ""
-    if not job["job_is_active"] or not job["canonical_is_active"]:
-        inactive_notice = (
-            "<div class='notice warning'><strong>This opportunity is no longer marked active.</strong> "
-            "Use the source link to confirm whether applications have reopened.</div>"
-        )
-
     return f"""<!doctype html>
 <html lang='en'>
 <head>
@@ -361,6 +404,7 @@ def render_public_job_page(
   <meta name='viewport' content='width=device-width, initial-scale=1'>
   <title>{e(page_title)} at {e(company_name)} | Wahojobs</title>
   <meta name='description' content='{e(description)}'>
+  {robots}
   <link rel='canonical' href='{e(canonical_url)}'>
   <meta property='og:type' content='website'>
   <meta property='og:title' content='{e(page_title)} at {e(company_name)}'>
@@ -370,19 +414,19 @@ def render_public_job_page(
 </head>
 <body>
   <header class='site-header'>
-    <a class='brand' href='/find-matches'>Wahojobs</a>
+    <a class='brand' href='/jobs'>Wahojobs</a>
     {navigation}
   </header>
   <main>
+    {back_to_jobs}
     <article>
       <header class='hero'>
         <div class='hero-copy'>
-          <p class='eyebrow'>Public job page</p>
+          <p class='eyebrow'>Job opportunity</p>
           <h1>{e(page_title)}</h1>
           <p class='company-line'>{e(company_name)}</p>
           {facts}
           {chips}
-          {inactive_notice}
           <div class='hero-actions'>{apply_action}</div>
         </div>
         {workflow}
@@ -732,6 +776,14 @@ def human_facing_company_url(value):
     return value
 
 
+def first_human_facing_url(*values):
+    for value in values:
+        safe = human_facing_company_url(value)
+        if safe:
+            return safe
+    return None
+
+
 def first_timestamp(*values):
     for value in values:
         value = clean(value)
@@ -770,6 +822,24 @@ def clean(value):
     return value or None
 
 
+def safe_catalog_return_target(value):
+    value = clean(value)
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or parsed.path != "/jobs"
+        or parsed.fragment
+    ):
+        return None
+    return value
+
+
 def e(value):
     return html.escape(str(value or ""), quote=True)
 
@@ -783,6 +853,7 @@ a { color: #146149; font-weight: 700; }
 .brand { color: #13271f; font-size: 1.25rem; text-decoration: none; }
 .account-nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; }
 main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 8px 0 48px; }
+.back-to-jobs { margin: 0 0 12px 2px; }
 .hero { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .75fr); gap: 24px; align-items: start; background: #fff; border: 1px solid #d9e2dd; border-radius: 18px; padding: clamp(24px, 5vw, 52px); box-shadow: 0 14px 40px rgba(28, 53, 42, .07); }
 .eyebrow { margin: 0 0 8px; color: #527064; font-size: .78rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 h1 { margin: 0; max-width: 780px; font-size: clamp(2rem, 5vw, 3.65rem); line-height: 1.04; letter-spacing: -.035em; }
@@ -835,6 +906,8 @@ __all__ = [
     "PUBLIC_JOB_PATH",
     "load_public_job",
     "parse_public_job_path",
+    "public_inventory_is_eligible",
+    "public_opportunity_is_eligible",
     "public_job_path",
     "public_job_path_for_match",
     "public_job_slug",
