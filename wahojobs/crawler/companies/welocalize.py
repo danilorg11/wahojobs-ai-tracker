@@ -3,17 +3,28 @@ from wahojobs.crawler.providers.lever import (
     fetch_lever_postings,
     lever_source_fields,
 )
-from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate
+from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, ProviderOutcome
 
 
 INCLUDED_DEPARTMENT = "Welo Data - AI Services"
 
 
 def crawl_welocalize(api_url):
+    postings = fetch_lever_postings(api_url)
     jobs = []
-    for posting in fetch_lever_postings(api_url):
+    seen_external_ids = set()
+    for posting in postings:
         candidate = parse_welocalize_posting(posting)
+        categories = posting.get("categories") or {}
+        is_in_scope = clean_value(categories.get("department")) == INCLUDED_DEPARTMENT
+        if is_in_scope and candidate is None:
+            raise ValueError(
+                "Welocalize returned an AI Services posting without required fields."
+            )
         if candidate is not None:
+            if candidate.external_id in seen_external_ids:
+                raise ValueError("Welocalize returned a duplicate posting identifier.")
+            seen_external_ids.add(candidate.external_id)
             jobs.append(candidate)
 
     return CompanyCrawlResult(
@@ -21,6 +32,11 @@ def crawl_welocalize(api_url):
         used_sample_data=False,
         source_type="lever",
         source_message=f"Fetched live Welocalize AI Services jobs from Lever API: {api_url}",
+        outcome=ProviderOutcome.SUCCESS,
+        snapshot_complete=True,
+        pagination_complete=True,
+        raw_record_count=len(postings),
+        normalized_record_count=len(jobs),
     )
 
 

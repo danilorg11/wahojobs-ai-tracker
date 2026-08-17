@@ -1,5 +1,5 @@
 from wahojobs.crawler.providers.dataforce import fetch_dataforce_jobs
-from wahojobs.crawler.types import CompanyCrawlResult
+from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
 
 
 def crawl_dataforce(projects_url):
@@ -9,4 +9,9 @@ def crawl_dataforce(projects_url):
         used_sample_data=False,
         source_type="dataforce-community-html",
         source_message=f"Fetched live DataForce Community opportunities from public projects pages: {projects_url}",
+        outcome=ProviderOutcome.SUCCESS,
+        snapshot_complete=True,
+        pagination_complete=True,
+        raw_record_count=len(jobs),
+        normalized_record_count=len(jobs),
     )

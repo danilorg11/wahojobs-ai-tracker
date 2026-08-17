@@ -1,5 +1,5 @@
 from wahojobs.crawler.providers.turing import fetch_turing_jobs
-from wahojobs.crawler.types import CompanyCrawlResult
+from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
 
 
 def crawl_turing(api_url):
@@ -9,4 +9,9 @@ def crawl_turing(api_url):
         used_sample_data=False,
         source_type="turing-talent-api",
         source_message=f"Fetched live Turing worker-facing opportunities from API: {api_url}",
+        outcome=ProviderOutcome.SUCCESS,
+        snapshot_complete=True,
+        pagination_complete=True,
+        raw_record_count=len(jobs),
+        normalized_record_count=len(jobs),
     )

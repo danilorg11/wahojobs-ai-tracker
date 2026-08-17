@@ -37,18 +37,47 @@ AUDIO_COLLECTION_KEYWORDS = (
 def fetch_oneforma_jobs(api_url):
     posts = fetch_all_posts(api_url)
     jobs = []
+    seen_external_ids = set()
     for post in posts:
-        jobs.extend(parse_oneforma_post(post))
+        candidates = parse_oneforma_post(post)
+        if not candidates:
+            raise ValueError("OneForma returned a job post without required fields.")
+        for candidate in candidates:
+            if candidate.external_id in seen_external_ids:
+                raise ValueError("OneForma returned a duplicate job variant identifier.")
+            seen_external_ids.add(candidate.external_id)
+            jobs.append(candidate)
     return jobs
 
 
 def fetch_all_posts(api_url):
     first_page, total_pages = fetch_page(api_url, 1)
     posts = list(first_page)
+    seen_post_ids = validated_post_ids(first_page)
     for page in range(2, total_pages + 1):
-        page_posts, _ = fetch_page(api_url, page)
+        page_posts, page_total_pages = fetch_page(api_url, page)
+        if page_total_pages != total_pages:
+            raise ValueError("OneForma total page count changed during pagination.")
+        if not page_posts:
+            raise ValueError("OneForma pagination ended before the final page.")
+        page_ids = validated_post_ids(page_posts)
+        if seen_post_ids.intersection(page_ids):
+            raise ValueError("OneForma returned a duplicate post identifier.")
+        seen_post_ids.update(page_ids)
         posts.extend(page_posts)
     return posts
+
+
+def validated_post_ids(posts):
+    post_ids = set()
+    for post in posts:
+        if not isinstance(post, dict) or not post.get("id"):
+            raise ValueError("OneForma returned a post without an identifier.")
+        post_id = str(post["id"])
+        if post_id in post_ids:
+            raise ValueError("OneForma returned a duplicate post identifier.")
+        post_ids.add(post_id)
+    return post_ids
 
 
 def fetch_page(api_url, page):
@@ -56,7 +85,16 @@ def fetch_page(api_url, page):
     with urlopen(request, timeout=60) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         payload = response.read().decode(charset, errors="replace")
-        total_pages = int(response.headers.get("X-WP-TotalPages") or "1")
+        total_pages_header = response.headers.get("X-WP-TotalPages")
+
+    if total_pages_header is None:
+        raise ValueError("OneForma response omitted X-WP-TotalPages.")
+    try:
+        total_pages = int(total_pages_header)
+    except (TypeError, ValueError):
+        raise ValueError("OneForma X-WP-TotalPages was invalid.") from None
+    if total_pages < 1:
+        raise ValueError("OneForma X-WP-TotalPages was invalid.")
 
     data = json.loads(payload)
     if not isinstance(data, list):

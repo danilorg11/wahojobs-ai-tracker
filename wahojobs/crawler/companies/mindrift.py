@@ -1,5 +1,5 @@
 from wahojobs.crawler.providers.workable_markdown import fetch_workable_jobs
-from wahojobs.crawler.types import CompanyCrawlResult
+from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
 
 
 ACCOUNT_SLUG = "toloka-ai"
@@ -12,4 +12,9 @@ def crawl_mindrift(api_url):
         used_sample_data=False,
         source_type="workable-careers-api",
         source_message=f"Fetched live Mindrift/Toloka AI jobs from Workable API: {api_url}",
+        outcome=ProviderOutcome.SUCCESS,
+        snapshot_complete=True,
+        pagination_complete=True,
+        raw_record_count=len(jobs),
+        normalized_record_count=len(jobs),
     )

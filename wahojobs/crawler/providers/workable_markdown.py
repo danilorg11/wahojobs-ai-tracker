@@ -21,10 +21,17 @@ def fetch_workable_jobs(api_url, account_slug):
     verify_public_markdown_feeds(account_slug)
     rows = fetch_all_api_rows(api_url)
     jobs = []
+    seen_external_ids = set()
     for row in rows:
         candidate = parse_workable_row(account_slug, row)
-        if candidate is not None:
-            jobs.append(candidate)
+        if candidate is None:
+            if row.get("state") != "published" or row.get("isInternal"):
+                continue
+            raise ValueError("Workable returned a published job without required fields.")
+        if candidate.external_id in seen_external_ids:
+            raise ValueError("Workable returned a duplicate job shortcode.")
+        seen_external_ids.add(candidate.external_id)
+        jobs.append(candidate)
     return jobs
 
 
@@ -41,23 +48,58 @@ def fetch_all_api_rows(api_url):
     rows = []
     token = None
     seen_tokens = set()
+    total = None
 
     while True:
         body = {"token": token} if token else {}
         data = fetch_api_page(api_url, body)
-        page_rows = data.get("results") or []
+        page_total = validated_total_count(data)
+        if total is None:
+            total = page_total
+        elif page_total != total:
+            raise ValueError("Workable total changed during pagination.")
+
+        page_rows = data.get("results")
         if not isinstance(page_rows, list):
             raise ValueError("Workable jobs response did not include a results list.")
+        if any(not isinstance(row, dict) for row in page_rows):
+            raise ValueError("Workable jobs response included a non-object result.")
 
-        rows.extend(row for row in page_rows if isinstance(row, dict))
+        rows.extend(page_rows)
+        if len(rows) > total:
+            raise ValueError("Workable returned more jobs than total declared.")
 
-        token = data.get("nextPage")
-        if not token or token in seen_tokens:
+        next_token = data.get("nextPage")
+        if len(rows) == total:
+            if next_token:
+                raise ValueError(
+                    "Workable returned a continuation token after reaching total."
+                )
             break
-        seen_tokens.add(token)
+        if not next_token:
+            raise ValueError("Workable pagination ended before total was reached.")
+        if next_token in seen_tokens:
+            raise ValueError("Workable returned a repeated continuation token.")
+        seen_tokens.add(next_token)
+        token = next_token
         time.sleep(PAGE_DELAY_SECONDS)
 
     return rows
+
+
+def validated_total_count(data):
+    total = data.get("total")
+    if isinstance(total, bool):
+        raise ValueError("Workable total was not a non-negative integer.")
+    try:
+        total = int(total)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Workable total was not a non-negative integer."
+        ) from None
+    if total < 0:
+        raise ValueError("Workable total was not a non-negative integer.")
+    return total
 
 
 def fetch_api_page(api_url, body):

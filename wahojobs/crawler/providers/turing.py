@@ -18,27 +18,55 @@ REQUEST_HEADERS = {
 def fetch_turing_jobs(api_url):
     jobs = []
     total = None
+    raw_record_count = 0
     page = 1
     page_size = 500
+    seen_external_ids = set()
 
-    while total is None or len(jobs) < total:
+    while total is None or raw_record_count < total:
         data = fetch_page(api_url, page, page_size)
-        total = int(data.get("totalCount") or 0)
-        page_jobs = data.get("jobs") or []
+        page_total = validated_total_count(data)
+        if total is None:
+            total = page_total
+        elif page_total != total:
+            raise ValueError("Turing totalCount changed during pagination.")
+
+        page_jobs = data.get("jobs")
         if not isinstance(page_jobs, list):
             raise ValueError("Turing response did not include a jobs list.")
+        if not page_jobs and raw_record_count < total:
+            raise ValueError("Turing pagination ended before totalCount was reached.")
 
-        jobs.extend(
-            parse_turing_job(job)
-            for job in page_jobs
-            if should_include_job(job)
-        )
+        for job in page_jobs:
+            raw_record_count += 1
+            if not should_include_job(job):
+                raise ValueError("Turing returned a job without required fields.")
+            candidate = parse_turing_job(job)
+            if candidate.external_id in seen_external_ids:
+                raise ValueError("Turing returned a duplicate job identifier.")
+            seen_external_ids.add(candidate.external_id)
+            jobs.append(candidate)
 
-        if not page_jobs:
-            break
+        if raw_record_count > total:
+            raise ValueError("Turing returned more jobs than totalCount declared.")
         page += 1
 
     return jobs
+
+
+def validated_total_count(data):
+    total = data.get("totalCount")
+    if isinstance(total, bool):
+        raise ValueError("Turing totalCount was not a non-negative integer.")
+    try:
+        total = int(total)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Turing totalCount was not a non-negative integer."
+        ) from None
+    if total < 0:
+        raise ValueError("Turing totalCount was not a non-negative integer.")
+    return total
 
 
 def fetch_page(api_url, page, page_size):

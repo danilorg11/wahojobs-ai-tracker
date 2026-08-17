@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
@@ -27,6 +29,7 @@ from wahojobs.db.repository import (
     upsert_job_source_content,
     update_seen_job,
 )
+from wahojobs.matching.opportunity_trust import LIVE_FEED_MAX_AGE_HOURS
 from wahojobs.opportunity_enrichment import enrich_company_opportunities
 from wahojobs.opportunity_llm import tracking_openai_client
 from wahojobs.tracking.normalize import with_source_hash
@@ -67,6 +70,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
             len(candidates),
             seen_hashes,
             crawl_result.used_sample_data,
+            now,
         )
 
     jobs_new = 0
@@ -222,8 +226,17 @@ def guard_suspicious_mindrift_partial_crawl(
     fetched_count,
     seen_hashes,
     used_sample_data,
+    now,
 ):
     if company_slug != "mindrift" or used_sample_data:
+        return
+
+    # A stale high-water mark is not a reliable anomaly baseline. Mindrift's
+    # provider contract now verifies the source-declared total and every
+    # continuation page before this guard runs, so allow that complete snapshot
+    # to recover freshness. Once a fresh success exists, sharp subsequent drops
+    # remain protected by the existing guard.
+    if not has_fresh_mindrift_guard_baseline(conn, company_id, now):
         return
 
     active_count = count_active_jobs(conn, company_id)
@@ -254,6 +267,46 @@ def guard_suspicious_mindrift_partial_crawl(
             f"({drop_percent}% drop), with {missing_count} active jobs missing. "
             "Failing this crawl as non-authoritative to avoid false removals."
         )
+
+
+def has_fresh_mindrift_guard_baseline(conn, company_id, now):
+    row = conn.execute(
+        """
+        SELECT COALESCE(finished_at, started_at) AS observed_at
+        FROM crawl_runs
+        WHERE company_id = ?
+          AND status = 'success'
+          AND used_sample_data = 0
+          AND error_message IS NULL
+        ORDER BY COALESCE(finished_at, started_at) DESC, id DESC
+        LIMIT 1
+        """,
+        (company_id,),
+    ).fetchone()
+    if row is None:
+        return False
+
+    observed_at = parse_utc_datetime(row["observed_at"])
+    evaluated_at = parse_utc_datetime(now)
+    if observed_at is None or evaluated_at is None:
+        return True
+    age_hours = max(
+        0.0,
+        (evaluated_at - observed_at).total_seconds() / 3600,
+    )
+    return age_hours <= LIVE_FEED_MAX_AGE_HOURS
+
+
+def parse_utc_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def get_recent_mindrift_success_high_water_mark(conn, company_id):

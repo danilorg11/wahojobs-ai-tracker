@@ -24,16 +24,15 @@ def fetch_dataforce_jobs(projects_url):
         if not page_jobs:
             break
 
-        new_jobs = []
         for job in page_jobs:
             if job.external_id in seen_external_ids:
-                continue
+                raise ValueError("DataForce returned a duplicate project identifier.")
             seen_external_ids.add(job.external_id)
-            new_jobs.append(job)
-
-        if not new_jobs:
-            break
-        jobs.extend(new_jobs)
+            jobs.append(job)
+    else:
+        raise RuntimeError(
+            "DataForce pagination reached the safety cap before an empty final page."
+        )
 
     return jobs
 
@@ -60,8 +59,9 @@ def parse_jobs_page(html_text, page_url):
     jobs = []
     for block in html_text.split('<div class="views-row">')[1:]:
         job = parse_job_block(block, page_url)
-        if job is not None:
-            jobs.append(job)
+        if job is None:
+            raise ValueError("DataForce returned a project row without required fields.")
+        jobs.append(job)
     return jobs
 
 
