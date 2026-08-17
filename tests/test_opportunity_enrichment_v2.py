@@ -1,5 +1,6 @@
 import copy
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,8 @@ from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import install_base_schema, upsert_job_source_content
 from wahojobs.opportunity_enrichment import (
     EnrichmentValidationError,
+    apply_llm_semantic_acceptance_guards,
+    blank_document,
     enrich_canonical_opportunity,
     import_reviewed_overlay,
     llm_source_packet,
@@ -18,6 +21,8 @@ from wahojobs.opportunity_enrichment import (
     normalize_llm_list_fields,
     resolve_effective_enrichment,
     save_override,
+    skill_is_task_description,
+    source_body_text,
     validate_llm_payload,
 )
 from wahojobs.opportunity_llm import PROMPT_VERSION, StructuredEnrichmentResult
@@ -331,6 +336,51 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             ],
         )
 
+    def test_duplicate_evidence_references_are_normalized_for_lists_and_scalars(self):
+        payload, evidence_blocks, block_ids = self.llm_payload_fixture()
+        payload["quick_take"]["evidence"] = [
+            block_ids[0],
+            block_ids[0],
+            block_ids[1],
+            block_ids[0],
+        ]
+        payload["responsibilities"][0]["evidence"] = [
+            block_ids[0],
+            block_ids[0],
+        ]
+
+        normalized = normalize_llm_list_fields(payload, evidence_blocks)
+
+        self.assertEqual(
+            normalized["quick_take"]["evidence"],
+            [block_ids[0], block_ids[1]],
+        )
+        self.assertEqual(
+            normalized["responsibilities"][0]["evidence"],
+            [block_ids[0]],
+        )
+        validate_llm_payload(normalized, evidence_blocks)
+
+    def test_unknown_evidence_survives_normalization_and_still_fails_validation(self):
+        payload, evidence_blocks, block_ids = self.llm_payload_fixture()
+        payload["quick_take"]["evidence"] = [
+            block_ids[0],
+            "E0000000000000000",
+            block_ids[0],
+        ]
+
+        normalized = normalize_llm_list_fields(payload, evidence_blocks)
+
+        self.assertEqual(
+            normalized["quick_take"]["evidence"],
+            [block_ids[0], "E0000000000000000"],
+        )
+        with self.assertRaisesRegex(
+            EnrichmentValidationError,
+            "unknown evidence block ID",
+        ):
+            validate_llm_payload(normalized, evidence_blocks)
+
     def test_duplicate_with_invalid_evidence_still_fails(self):
         payload, evidence_blocks, block_ids = self.llm_payload_fixture()
         payload["responsibilities"] = [
@@ -377,6 +427,9 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             {item["evidence_block_id"] for item in first_packet["evidence_blocks"]},
         )
         self.assertTrue(
+            all(re.fullmatch(r"E[0-9a-f]{16}", block_id) for block_id in first_blocks)
+        )
+        self.assertTrue(
             any(item["kind"] == "body_paragraph" for item in first_blocks.values())
         )
         self.assertTrue(
@@ -402,6 +455,261 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             if block["kind"] == "body_paragraph"
         }
         self.assertTrue(original_body_ids.issubset(changed_blocks))
+
+    def test_deterministic_activity_classification_ignores_incidental_categories(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.conn.execute(
+            """
+            UPDATE jobs
+            SET title = 'Frontend Developer',
+                department = 'Creator (Writer); Coding',
+                expertise = 'Coding'
+            WHERE id = ?
+            """,
+            (job_id,),
+        )
+        self.conn.execute(
+            """
+            UPDATE canonical_opportunities
+            SET canonical_title = 'Frontend Developer',
+                normalized_title = 'frontend developer'
+            WHERE id = ?
+            """,
+            (canonical_id,),
+        )
+
+        result = enrich_canonical_opportunity(
+            self.conn,
+            canonical_id,
+            now=NOW,
+        )
+
+        self.assertEqual(
+            result["document"]["attributes"]["role"]["work_activities"],
+            ["software_development"],
+        )
+
+    def test_deterministic_research_study_is_not_research_analysis_work(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.conn.execute(
+            "UPDATE jobs SET title = 'Colby Research Study Participant' WHERE id = ?",
+            (job_id,),
+        )
+        self.conn.execute(
+            """
+            UPDATE canonical_opportunities
+            SET canonical_title = 'Colby Research Study Participant',
+                normalized_title = 'colby research study participant'
+            WHERE id = ?
+            """,
+            (canonical_id,),
+        )
+
+        result = enrich_canonical_opportunity(self.conn, canonical_id, now=NOW)
+
+        self.assertNotIn(
+            "research_analysis",
+            result["document"]["attributes"]["role"]["work_activities"],
+        )
+
+    def test_semantic_guards_reject_domains_incidental_activities_and_constraints(self):
+        blocks = {
+            "E1": {
+                "kind": "metadata_field",
+                "label": "metadata.category",
+                "content": "metadata.category: Creator (Writer)",
+            },
+            "E2": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "Participate in a research study by recording videos.",
+            },
+            "E3": {
+                "kind": "metadata_field",
+                "label": "metadata.skills.0",
+                "content": "metadata.skills.0: legal research",
+            },
+            "E4": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": "Review footage before submission and tag every video.",
+            },
+            "E5": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 3",
+                "content": (
+                    "All household members must be age 5 or older. "
+                    "No children under 5 may live in the home."
+                ),
+            },
+        }
+        payload = {
+            "role_family": {"value": "data_collection", "evidence": ["E2"]},
+            "professional_domains": [
+                {"value": "technical", "evidence": ["E1"]},
+                {"value": "legal", "evidence": ["E3"]},
+            ],
+            "work_activities": [
+                {"value": "writing_editing", "evidence": ["E1"]},
+                {"value": "research_analysis", "evidence": ["E2"]},
+                {"value": "data_collection", "evidence": ["E2"]},
+            ],
+            "skills_required": [
+                {"value": "Review footage before submission", "evidence": ["E4"]},
+                {"value": "Reliable computer and internet connection", "evidence": ["E2"]},
+                {
+                    "value": "Ensure videos meet technical specifications",
+                    "evidence": ["E4"],
+                },
+                {
+                    "value": "Provide videos in accepted file formats",
+                    "evidence": ["E4"],
+                },
+                {
+                    "value": "capture video at specified technical standards",
+                    "evidence": ["E4"],
+                },
+                {
+                    "value": "recording or sourcing high-quality real-world video footage",
+                    "evidence": ["E4"],
+                },
+                {
+                    "value": "reviewing footage to ensure it meets project quality standards",
+                    "evidence": ["E4"],
+                },
+                {"value": "Python", "evidence": ["E2"]},
+            ],
+            "skills_preferred": [
+                {"value": "Legal research", "evidence": ["E3"]},
+            ],
+            "responsibilities": [
+                {"value": "Review footage before submission", "evidence": ["E4"]},
+            ],
+            "candidate_profile": {"value": None, "evidence": []},
+            "quick_take": {"value": None, "evidence": []},
+            "caveats": [
+                {"value": "Remote, flexible schedule at $20 per hour", "evidence": ["E2"]},
+                {"value": "You must sign an NDA and pass a test", "evidence": ["E2"]},
+                {"value": "Videos must not infringe privacy or copyright", "evidence": ["E2"]},
+            ],
+        }
+        document = blank_document()
+        document["attributes"]["role"]["professional_domains"] = ["legal"]
+        document["attributes"]["role"]["work_activities"] = ["data_collection"]
+
+        guarded = apply_llm_semantic_acceptance_guards(payload, blocks, document)
+
+        self.assertEqual(
+            [item["value"] for item in guarded["professional_domains"]],
+            ["legal"],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["work_activities"]],
+            ["data_collection"],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_required"]],
+            ["Python"],
+        )
+        self.assertEqual(guarded["skills_preferred"], [])
+        self.assertEqual(
+            [item["value"] for item in guarded["caveats"]],
+            [
+                "Videos must not infringe privacy or copyright",
+                "All household members must be 5 years or older; "
+                "no children under 5 may live in the home.",
+            ],
+        )
+        self.assertEqual(guarded["caveats"][1]["evidence"], ["E5"])
+
+    def test_skill_task_distinction_fixtures(self):
+        fixtures = {
+            "genuine skills": {
+                "Python": False,
+                "video editing": False,
+                "data collection": False,
+                "knowledge of H.264 encoding": False,
+                "proficiency with Adobe Premiere Pro": False,
+                "video recording expertise": False,
+            },
+            "responsibilities phrased as verbs": {
+                "Prepare video files in an accepted format": True,
+                "Review footage before submission": True,
+                "Tag each video with metadata": True,
+            },
+            "gerund tasks": {
+                "preparing video files in accepted formats": True,
+                "reviewing footage before submission": True,
+                "uploading recordings to the project portal": True,
+            },
+            "compound noun task phrases": {
+                "video recording and sourcing of real-world footage": True,
+                "footage review and submission of video files": True,
+                "preparation of video files": True,
+            },
+            "mixed phrases with real capabilities": {
+                "experience preparing video files in H.264": False,
+                "ability to record and source real-world footage": False,
+                "skilled in reviewing and tagging video submissions": False,
+            },
+        }
+
+        for category, examples in fixtures.items():
+            for value, expected in examples.items():
+                with self.subTest(category=category, value=value):
+                    self.assertEqual(skill_is_task_description(value), expected)
+
+    def test_semantic_guard_fails_closed_on_obvious_role_activity_conflict(self):
+        blocks = {
+            "E1": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "Evaluate AI model responses for quality.",
+            }
+        }
+        payload = {
+            "role_family": {"value": "administrative_support", "evidence": ["E1"]},
+            "professional_domains": [],
+            "work_activities": [],
+            "skills_required": [],
+            "skills_preferred": [],
+            "responsibilities": [],
+            "candidate_profile": {"value": None, "evidence": []},
+            "quick_take": {"value": None, "evidence": []},
+            "caveats": [],
+        }
+        document = blank_document()
+        document["source"]["canonical_title"] = (
+            "Ex-MBB Strategy Consultant - AI Training (Remote)"
+        )
+        document["attributes"]["role"]["role_family"] = "writing_editing"
+        document["attributes"]["role"]["work_activities"] = [
+            "ai_training_evaluation"
+        ]
+        document["field_evidence"] = [
+            {
+                "field_path": "attributes.role.role_family",
+                "source_ref": "title",
+                "evidence_text": "Creator (Writer)",
+                "basis": "deterministic_classification",
+                "confidence": "medium",
+            }
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(payload, blocks, document)
+
+        self.assertEqual(guarded["role_family"], {"value": None, "evidence": []})
+        self.assertIsNone(document["attributes"]["role"]["role_family"])
+        self.assertEqual(document["field_evidence"], [])
+
+    def test_source_text_preserves_valid_unicode_punctuation(self):
+        text = source_body_text(
+            "<p>Review the project’s 7–10 day recording period.</p>",
+            "text/html",
+        )
+
+        self.assertEqual(text, "Review the project’s 7–10 day recording period.")
+        self.assertNotIn("\ufffd", text)
 
     def test_fresh_and_existing_schema_install_enrichment_tables(self):
         for table in (
@@ -603,6 +911,80 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         self.assertEqual(len(revised.calls), 1)
         self.assertEqual(third["llm"]["outcome"], "already_enriched")
         self.assertFalse(third["llm"]["called"])
+
+    def test_failed_new_version_preserves_previous_successful_document(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.persist_rich_source(job_id)
+        successful = FakeStructuredLLM()
+        first = enrich_canonical_opportunity(
+            self.conn,
+            canonical_id,
+            now=NOW,
+            llm_client=successful,
+        )
+        stored_before = dict(
+            self.conn.execute(
+                """
+                SELECT automatic_document_json, model_provider, model_name,
+                       prompt_version, generated_at, updated_at
+                FROM opportunity_enrichments
+                WHERE canonical_opportunity_id = ?
+                """,
+                (canonical_id,),
+            ).fetchone()
+        )
+
+        failing = FakeStructuredLLM(unknown_evidence=True)
+        failing.prompt_version = "opportunity_semantic_failed_next"
+        second = enrich_canonical_opportunity(
+            self.conn,
+            canonical_id,
+            now="2026-08-17T00:00:00+00:00",
+            llm_client=failing,
+        )
+        stored_after = dict(
+            self.conn.execute(
+                """
+                SELECT automatic_document_json, model_provider, model_name,
+                       prompt_version, generated_at, updated_at
+                FROM opportunity_enrichments
+                WHERE canonical_opportunity_id = ?
+                """,
+                (canonical_id,),
+            ).fetchone()
+        )
+        third = enrich_canonical_opportunity(
+            self.conn,
+            canonical_id,
+            now="2026-08-18T00:00:00+00:00",
+            llm_client=failing,
+        )
+        runs = self.conn.execute(
+            """
+            SELECT prompt_version, outcome
+            FROM opportunity_enrichment_runs
+            WHERE canonical_opportunity_id = ?
+            ORDER BY id
+            """,
+            (canonical_id,),
+        ).fetchall()
+
+        self.assertEqual(first["llm"]["outcome"], "succeeded")
+        self.assertEqual(second["llm"]["outcome"], "failed")
+        self.assertTrue(second["llm"]["preserved_previous_success"])
+        self.assertEqual(second["outcome"], "unchanged")
+        self.assertEqual(second["document"], first["document"])
+        self.assertEqual(stored_after, stored_before)
+        self.assertEqual(third["llm"]["outcome"], "already_attempted")
+        self.assertFalse(third["llm"]["called"])
+        self.assertEqual(len(failing.calls), 1)
+        self.assertEqual(
+            [(row["prompt_version"], row["outcome"]) for row in runs],
+            [
+                (PROMPT_VERSION, "succeeded"),
+                ("opportunity_semantic_failed_next", "failed"),
+            ],
+        )
 
     def test_short_source_content_does_not_trigger_llm(self):
         job_id, canonical_id = self.fallback_enriched_job()

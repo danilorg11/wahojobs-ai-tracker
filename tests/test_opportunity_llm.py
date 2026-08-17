@@ -101,12 +101,23 @@ class OpportunityLLMTests(unittest.TestCase):
         output_format = request["json"]["text"]["format"]
         self.assertEqual(output_format["type"], "json_schema")
         self.assertTrue(output_format["strict"])
-        self.assertEqual(output_format["schema"], structured_output_schema())
+        allowed_alias = "source_hash:fixture:body_paragraph:abc"
+        self.assertEqual(
+            output_format["schema"],
+            structured_output_schema([allowed_alias]),
+        )
         evidence_schema = output_format["schema"]["properties"][
             "responsibilities"
         ]["items"]["properties"]["evidence"]
-        self.assertEqual(evidence_schema["items"], {"type": "string"})
+        self.assertEqual(
+            evidence_schema["items"],
+            {"$ref": "#/$defs/evidence_alias"},
+        )
         self.assertEqual(evidence_schema["minItems"], 1)
+        self.assertEqual(
+            output_format["schema"]["$defs"]["evidence_alias"],
+            {"type": "string", "enum": [allowed_alias]},
+        )
         self.assertEqual(client.prompt_version, PROMPT_VERSION)
         self.assertEqual(result.response_id, "resp_fixture")
         self.assertEqual(result.response_status, "completed")
@@ -119,14 +130,62 @@ class OpportunityLLMTests(unittest.TestCase):
         for requirement in (
             "two or three short, natural sentences",
             "what the person would do",
-            "plain English",
+            "candidate-facing prose in English",
             "concrete verbs",
             "unnecessary acronyms",
             "marketing language",
             "strictly grounded",
+            "actual domain expertise",
+            "generic fallback",
+            "substantive part of the job",
+            "Equipment",
+            "deliverable specifications",
+            "task is phrased as a gerund",
+            "something the candidate brings to the role",
+            "something the candidate will do in the role",
+            "gerund or compound noun phrase",
+            "genuine capability merely because its description contains an action word",
+            "legal agreements or NDAs",
+            "metadata list named skills",
+            "household-member age restrictions",
+            "Normal pay, schedule, remote status",
+            "Unsupported or ambiguous classifications",
+            "Role family must agree with the title and substantive work activities",
         ):
             self.assertIn(requirement, prompt)
-        self.assertEqual(PROMPT_VERSION, "opportunity_semantic_v3")
+        self.assertEqual(PROMPT_VERSION, "opportunity_semantic_v4_4")
+
+    def test_schema_reuses_allowed_aliases_and_enforces_scalar_evidence(self):
+        aliases = ["E2222222222222222", "E1111111111111111"]
+        schema = structured_output_schema(aliases)
+
+        self.assertEqual(
+            schema["$defs"]["evidence_alias"]["enum"], sorted(aliases)
+        )
+        serialized = json.dumps(schema, sort_keys=True)
+        for alias in aliases:
+            self.assertEqual(serialized.count(alias), 1)
+
+        for field in ("role_family", "candidate_profile", "quick_take"):
+            nonnull, null = schema["properties"][field]["anyOf"]
+            self.assertEqual(nonnull["properties"]["value"]["type"], "string")
+            self.assertEqual(
+                nonnull["properties"]["evidence"],
+                {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/evidence_alias"},
+                    "minItems": 1,
+                },
+            )
+            self.assertEqual(null["properties"]["value"], {"type": "null"})
+            self.assertEqual(
+                null["properties"]["evidence"],
+                {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/evidence_alias"},
+                    "maxItems": 0,
+                },
+            )
 
     def assert_diagnostic(self, response, expected_category):
         client = OpenAIStructuredEnrichmentClient(

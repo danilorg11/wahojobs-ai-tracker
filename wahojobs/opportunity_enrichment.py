@@ -260,6 +260,99 @@ WORK_ACTIVITY_RULES = (
     ("operations", ("operations", "project management", "program management")),
 )
 
+SUBSTANTIVE_ACTIVITY_PATTERNS = {
+    "ads_evaluation": (r"\b(?:ad|ads|advertisement)s?\b.*\b(?:evaluat|rat|review)",),
+    "ai_training_evaluation": (r"\b(?:ai|model|llm)\b.*\b(?:evaluat|train|review|rank)",),
+    "audio_speech": (r"\b(?:audio|speech|voice|recording)s?\b",),
+    "content_moderation": (r"\bmoderat(?:e|es|ing|ion)\b",),
+    "data_annotation": (r"\b(?:annotat|label|tag|categor|rat(?:e|es|ing))",),
+    "data_collection": (r"\b(?:collect|capture|record|gather)(?:s|ed|ing)?\b",),
+    "localization": (r"\blocali[sz](?:e|es|ed|ing|ation)\b",),
+    "operations": (r"\boperat(?:e|es|ed|ing|ions|ional)\b",),
+    "research_analysis": (
+        r"\b(?:analy[sz](?:e|es|ed|ing)|analysis|analyst|researcher|researching)\b",
+        r"\b(?:conduct|perform|carry out)\b.{0,30}\bresearch\b",
+    ),
+    "search_evaluation": (r"\bsearch(?: result| quality| engine)?.*\b(?:evaluat|rat|review)",),
+    "software_development": (r"\b(?:code|coding|program|develop|implement|build)(?:s|ed|ing)?\b",),
+    "software_testing": (r"\b(?:test|debug|qa|quality assurance)(?:s|ed|ing)?\b",),
+    "transcription": (r"\btranscri(?:be|bes|bed|bing|pt|ption)\b",),
+    "translation": (r"\btranslat(?:e|es|ed|ing|ion)\b",),
+    "writing_editing": (r"\b(?:write|writes|writing|edit|edits|editing|rewrite|draft|author)(?:s|ed|ing)?\b",),
+}
+
+TASK_LEADING_PATTERN = re.compile(
+    r"^(?:captur(?:e|ing)|collect(?:ing)?|complet(?:e|ing)|creat(?:e|ing)|"
+    r"design(?:ing)?|draft(?:ing)?|ensur(?:e|ing)|evaluat(?:e|ing)|follow(?:ing)?|"
+    r"identif(?:y|ying)|install(?:ing)?|log(?: in|ging in)|maintain(?:ing)?|"
+    r"manag(?:e|ing)|meet(?:ing)?|monitor(?:ing)?|perform(?:ing)?|provid(?:e|ing)|"
+    r"prepar(?:e|ing)|record(?:ing)?|review(?:ing)?|run(?:ning)?|"
+    r"set(?: up|ting up)|sourc(?:e|ing)|"
+    r"submit(?:ting)?|tag(?:ging)?|upload(?:ing)?|writ(?:e|ing))\b"
+)
+CANDIDATE_ATTRIBUTE_PATTERN = re.compile(
+    r"\b(?:abilit(?:y|ies)|capabilit(?:y|ies)|certification|competenc(?:e|y|ies)|"
+    r"experience|expertise|familiarity|fluency|knowledge|licen[cs]e|proficien(?:cy|t)|"
+    r"skills?|skilled)\b"
+)
+TASK_ACTION_PATTERN = re.compile(
+    r"\b(?:captur(?:e|ing)|collect(?:ion|ing)?|complet(?:e|ing)|creat(?:e|ing)|"
+    r"draft(?:ing)?|ensur(?:e|ing)|evaluat(?:e|ing)|follow(?:ing)?|"
+    r"identif(?:y|ying)|install(?:ation|ing)?|log(?: in|ging in)|maintain(?:ing)?|"
+    r"monitor(?:ing)?|perform(?:ing)?|prepar(?:ation|e|ing)|provid(?:e|ing)|"
+    r"record(?:ing)?|review(?:ing)?|run(?:ning)?|set(?: up|ting up)|sourc(?:e|ing)|"
+    r"submit(?:ting|ssion)?|tag(?:ging)?|upload(?:ing)?|writ(?:e|ing))\b"
+)
+TASK_OBJECT_PATTERN = re.compile(
+    r"\b(?:data|deliverables?|files?|footage|forms?|images?|media|metadata|"
+    r"recordings?|reports?|responses?|standards?|submissions?|tasks?|videos?)\b"
+)
+TASK_COMPOUND_PATTERN = re.compile(r"\b(?:and|or)\b")
+TASK_OBJECT_LINK_PATTERN = re.compile(r"\b(?:for|from|of|to)\b")
+DELIVERABLE_CONSTRAINT_PATTERN = re.compile(
+    r"\b(?:accept(?:ed|able)|format(?:s|ted)?|guidelines?|maximum|minimum|required|"
+    r"specifications?|specified|standards?|supported)\b"
+)
+SKILL_CONSTRAINT_PATTERN = re.compile(
+    r"\b(?:"
+    r"(?:own|reliable|secure|required) (?:computer|device|equipment)|"
+    r"internet (?:access|connection)|anti-?virus|headset|"
+    r"(?:sign|execute) (?:an? )?(?:nda|confidentiality agreement)|"
+    r"(?:pass|complete|take) (?:an? )?(?:test|assessment|screening|training)|"
+    r"(?:hours? per week|working hours?|schedule|time ?zone|overlap)|"
+    r"(?:pay|paid|rate|compensation|salary)|"
+    r"(?:remote|on-?site|hybrid|work arrangement|full-?time|part-?time|contractor|freelance)"
+    r")\b"
+)
+ROUTINE_CAVEAT_PATTERN = re.compile(
+    r"\b(?:"
+    r"schedule|working hours?|hours? per week|time ?zone|overlap|"
+    r"pay|paid|rate|compensation|salary|remote|on-?site|hybrid|"
+    r"work arrangement|full-?time|part-?time|contractor|freelance|"
+    r"nda|confidentiality agreement|screening|assessment|test|training program"
+    r")\b"
+)
+MATERIAL_EQUIPMENT_WARNING_PATTERN = re.compile(
+    r"\b(?:must|required to|need to)\b.{0,40}\b(?:own|provide|supply)\b.{0,40}"
+    r"\b(?:computer|device|equipment|internet)\b"
+)
+UNUSUAL_ELIGIBILITY_PATTERN = re.compile(
+    r"\b(?:"
+    r"(?:all|every|no) (?:members? of (?:your|the) )?(?:household|family|home)\b"
+    r".{0,140}\b(?:age|aged|older|younger|under)\b|"
+    r"(?:household|family) members?\b.{0,140}\b(?:age|aged|older|younger|under)\b|"
+    r"no children\b.{0,60}\b(?:under|younger than|below the age of)\b|"
+    r"(?:not eligible|ineligible|cannot participate|may not participate)\b"
+    r".{0,140}\b(?:household|family member|previously participated|current employee|"
+    r"former employee|employed by)\b"
+    r")"
+)
+HOUSEHOLD_AGE_RESTRICTION_PATTERN = re.compile(
+    r"\ball household members must be (?:age |at least )?"
+    r"(?P<minimum_age>\d{1,2}) (?:years? (?:of age )?)?or older\b"
+    r".{0,100}\bno children under (?P<child_age>\d{1,2})\b"
+)
+
 
 def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
     canonical = conn.execute(
@@ -441,7 +534,21 @@ def extract_deterministic_document(semantic_input: dict) -> dict:
         attributes["role"]["professional_domains"] = domains
         add_evidence(evidence, "attributes.role.professional_domains", "role_text", f"{title_text} | {category_text}".strip(" |"), "deterministic_classification", "medium")
 
-    activities = classify_many(role_text, WORK_ACTIVITY_RULES)
+    # Category labels can contain incidental capabilities (for example, a coding
+    # role grouped under "Creator (Writer)"). A title is a sufficiently direct
+    # deterministic signal; richer activity classification belongs to the
+    # evidence-grounded semantic pass.
+    normalized_title = normalize_text(title_text)
+    activities = classify_many(normalized_title, WORK_ACTIVITY_RULES)
+    if (
+        "research_analysis" in activities
+        and re.search(r"\bresearch (?:study|participant|project)\b", normalized_title)
+        and not any(
+            re.search(pattern, normalized_title)
+            for pattern in SUBSTANTIVE_ACTIVITY_PATTERNS["research_analysis"]
+        )
+    ):
+        activities.remove("research_analysis")
     if activities:
         attributes["role"]["work_activities"] = activities
         add_evidence(evidence, "attributes.role.work_activities", "role_text", f"{title_text} | {category_text}".strip(" |"), "deterministic_classification", "medium")
@@ -781,10 +888,8 @@ def evidence_block_id(source_ref, kind, label, content) -> str:
     }
     if kind != "body_paragraph":
         identity["label"] = label
-    digest = hashlib.sha256(
-        canonical_json(identity).encode("utf-8")
-    ).hexdigest()[:24]
-    return f"{source_ref}:{kind}:{digest}"
+    digest = hashlib.sha256(canonical_json(identity).encode("utf-8")).hexdigest()
+    return f"E{digest[:16]}"
 
 
 def llm_source_packet(semantic_input: dict) -> tuple[dict, dict[str, dict]]:
@@ -865,6 +970,25 @@ def normalize_llm_list_fields(payload: dict, evidence_blocks: dict[str, dict]) -
     if type(payload) is not dict:
         return normalized
 
+    def deduplicate_evidence(item):
+        if type(item) is not dict or "evidence" not in item:
+            return
+        evidence = item["evidence"]
+        if type(evidence) is not list:
+            return
+        unique = []
+        seen = set()
+        for block_id in evidence:
+            if type(block_id) is not str or block_id not in seen:
+                unique.append(block_id)
+            if type(block_id) is str:
+                seen.add(block_id)
+        item["evidence"] = unique
+
+    for field in ("role_family", "candidate_profile", "quick_take"):
+        if field in normalized:
+            deduplicate_evidence(normalized[field])
+
     list_fields = (
         ("professional_domains", PROFESSIONAL_DOMAINS),
         ("work_activities", WORK_ACTIVITIES),
@@ -877,8 +1001,11 @@ def normalize_llm_list_fields(payload: dict, evidence_blocks: dict[str, dict]) -
         if field not in payload:
             continue
         path = f"llm_payload.{field}"
+        if type(normalized[field]) is list:
+            for item in normalized[field]:
+                deduplicate_evidence(item)
         validate_llm_list(
-            payload[field],
+            normalized[field],
             path,
             evidence_blocks,
             allowed=allowed,
@@ -886,7 +1013,7 @@ def normalize_llm_list_fields(payload: dict, evidence_blocks: dict[str, dict]) -
         )
         items = []
         items_by_value = {}
-        for item in payload[field]:
+        for item in normalized[field]:
             value_key = normalize_text(item["value"])
             existing = items_by_value.get(value_key)
             if existing is None:
@@ -904,6 +1031,239 @@ def normalize_llm_list_fields(payload: dict, evidence_blocks: dict[str, dict]) -
                     seen_evidence.add(block_id)
         normalized[field] = items
     return normalized
+
+
+def apply_llm_semantic_acceptance_guards(
+    payload: dict,
+    evidence_blocks: dict[str, dict],
+    deterministic_document: dict,
+) -> dict:
+    guarded = copy.deepcopy(payload)
+    if type(payload) is not dict:
+        return guarded
+
+    established_domains = set(
+        deterministic_document["attributes"]["role"]["professional_domains"]
+    )
+    guarded["professional_domains"] = [
+        item
+        for item in guarded.get("professional_domains") or []
+        if item["value"] in established_domains
+    ]
+
+    established_activities = set(
+        deterministic_document["attributes"]["role"]["work_activities"]
+    )
+    guarded["work_activities"] = [
+        item
+        for item in guarded.get("work_activities") or []
+        if item["value"] in established_activities
+        or llm_activity_is_substantive(item, evidence_blocks)
+    ]
+
+    if llm_role_family_conflicts_with_substantive_work(
+        guarded.get("role_family") or {},
+        guarded["work_activities"],
+        deterministic_document,
+    ):
+        guarded["role_family"] = {"value": None, "evidence": []}
+        deterministic_document["attributes"]["role"]["role_family"] = None
+        deterministic_document["field_evidence"] = [
+            item
+            for item in deterministic_document["field_evidence"]
+            if item["field_path"] != "attributes.role.role_family"
+        ]
+
+    responsibilities = [
+        item["value"] for item in guarded.get("responsibilities") or []
+    ]
+    for field in ("skills_required", "skills_preferred"):
+        guarded[field] = [
+            item
+            for item in guarded.get(field) or []
+            if not skill_is_constraint(item["value"])
+            and not skill_is_task_description(item["value"])
+            and not skill_duplicates_responsibility(item["value"], responsibilities)
+            and not skill_is_unqualified_metadata_keyword(item, evidence_blocks)
+        ]
+
+    guarded["caveats"] = [
+        item
+        for item in guarded.get("caveats") or []
+        if caveat_is_candidate_warning(item["value"])
+    ]
+    for item in unusual_eligibility_caveats(evidence_blocks):
+        if not any(
+            caveats_materially_overlap(item, existing)
+            for existing in guarded["caveats"]
+        ):
+            guarded["caveats"].append(item)
+    return guarded
+
+
+def llm_activity_is_substantive(item: dict, evidence_blocks: dict[str, dict]) -> bool:
+    patterns = SUBSTANTIVE_ACTIVITY_PATTERNS.get(item["value"], ())
+    for block_id in item["evidence"]:
+        block = evidence_blocks[block_id]
+        content = normalize_text(block["content"])
+        if len(content) < 24:
+            continue
+        if any(re.search(pattern, content) for pattern in patterns):
+            return True
+    return False
+
+
+def skill_is_constraint(value: str) -> bool:
+    return SKILL_CONSTRAINT_PATTERN.search(normalize_text(value)) is not None
+
+
+def skill_is_task_description(value: str) -> bool:
+    normalized = normalize_text(value)
+    if CANDIDATE_ATTRIBUTE_PATTERN.search(normalized):
+        return False
+    if TASK_LEADING_PATTERN.search(normalized):
+        return True
+
+    actions = list(TASK_ACTION_PATTERN.finditer(normalized))
+    has_task_object = TASK_OBJECT_PATTERN.search(normalized) is not None
+    if not actions or not has_task_object:
+        return False
+
+    # A compact noun phrase can name a genuine method or competency (for example,
+    # "video editing" or "data collection"). It becomes a task description when
+    # its action is directed at a deliverable, or when multiple actions are joined
+    # into a description of what the worker will do.
+    if len(actions) >= 2 and TASK_COMPOUND_PATTERN.search(normalized):
+        return True
+    first_action_end = actions[0].end()
+    if TASK_OBJECT_LINK_PATTERN.search(normalized[first_action_end:]):
+        return True
+    return DELIVERABLE_CONSTRAINT_PATTERN.search(normalized) is not None
+
+
+def llm_role_family_conflicts_with_substantive_work(
+    role_family: dict,
+    work_activities: list[dict],
+    deterministic_document: dict,
+) -> bool:
+    proposed = role_family.get("value")
+    if not proposed:
+        return False
+    title_family = classify_role_family(
+        normalize_text(deterministic_document["source"]["canonical_title"])
+    )
+    activities = {
+        *deterministic_document["attributes"]["role"]["work_activities"],
+        *(item["value"] for item in work_activities),
+    }
+    if title_family == "ai_training" and activities == {"ai_training_evaluation"}:
+        return proposed not in {"ai_training", "expert_review"}
+    return False
+
+
+def fact_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9+#.]+", normalize_text(value))
+        if token not in {"a", "an", "and", "for", "of", "or", "the", "to", "with"}
+    }
+
+
+def skill_duplicates_responsibility(value: str, responsibilities: list[str]) -> bool:
+    normalized = normalize_text(value)
+    if not skill_is_task_description(normalized):
+        return False
+    skill_tokens = fact_tokens(normalized)
+    for responsibility in responsibilities:
+        responsibility_tokens = fact_tokens(responsibility)
+        if not skill_tokens or not responsibility_tokens:
+            continue
+        overlap = len(skill_tokens & responsibility_tokens) / min(
+            len(skill_tokens), len(responsibility_tokens)
+        )
+        if overlap >= 0.7:
+            return True
+    return False
+
+
+def skill_is_unqualified_metadata_keyword(
+    item: dict, evidence_blocks: dict[str, dict]
+) -> bool:
+    blocks = [evidence_blocks[block_id] for block_id in item["evidence"]]
+    if not blocks or not all(block["kind"] == "metadata_field" for block in blocks):
+        return False
+    if not all(".skills" in block["label"] for block in blocks):
+        return False
+    return not any(
+        re.search(r"\b(?:required|preferred|must|need|qualification)\b", block["content"], re.I)
+        for block in blocks
+    )
+
+
+def caveat_is_candidate_warning(value: str) -> bool:
+    normalized = normalize_text(value)
+    if MATERIAL_EQUIPMENT_WARNING_PATTERN.search(normalized):
+        return True
+    return ROUTINE_CAVEAT_PATTERN.search(normalized) is None
+
+
+def unusual_eligibility_caveats(evidence_blocks: dict[str, dict]) -> list[dict]:
+    caveats = []
+    for block_id in sorted(evidence_blocks):
+        block = evidence_blocks[block_id]
+        content = clean(block.get("content"))
+        if UNUSUAL_ELIGIBILITY_PATTERN.search(normalize_text(content)) is None:
+            continue
+        household_age = HOUSEHOLD_AGE_RESTRICTION_PATTERN.search(
+            normalize_text(content)
+        )
+        if household_age is not None:
+            caveats.append(
+                {
+                    "value": (
+                        "All household members must be "
+                        f"{household_age.group('minimum_age')} years or older; "
+                        f"no children under {household_age.group('child_age')} may live "
+                        "in the home."
+                    ),
+                    "evidence": [block_id],
+                }
+            )
+            continue
+        sentences = [
+            clean(sentence)
+            for sentence in re.split(r"(?<=[.!?])\s+|\s*[•|]\s*", content)
+            if clean(sentence)
+        ]
+        matching_sentences = [
+            sentence
+            for sentence in sentences
+            if UNUSUAL_ELIGIBILITY_PATTERN.search(normalize_text(sentence))
+        ]
+        if not matching_sentences:
+            matching_sentences = [content]
+        value = clean(" ".join(matching_sentences))
+        value = re.sub(
+            r"^(?:(?:metadata|listing)\.[^:]+|eligibility|requirements?):\s*",
+            "",
+            value,
+            flags=re.I,
+        )
+        if not value or len(value) > 500:
+            continue
+        caveats.append({"value": value, "evidence": [block_id]})
+    return caveats
+
+
+def caveats_materially_overlap(left: dict, right: dict) -> bool:
+    if normalize_text(left["value"]) == normalize_text(right["value"]):
+        return True
+    left_tokens = fact_tokens(left["value"])
+    right_tokens = fact_tokens(right["value"])
+    if not left_tokens or not right_tokens:
+        return False
+    overlap = len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens))
+    return overlap >= 0.6
 
 
 def validate_llm_payload(payload: dict, evidence_blocks: dict[str, dict]) -> None:
@@ -1319,6 +1679,11 @@ def enrich_canonical_opportunity(
                 llm_result.payload,
                 evidence_blocks,
             )
+            normalized_payload = apply_llm_semantic_acceptance_guards(
+                normalized_payload,
+                evidence_blocks,
+                document,
+            )
             validate_llm_payload(normalized_payload, evidence_blocks)
             document = merge_llm_payload(
                 document,
@@ -1358,6 +1723,39 @@ def enrich_canonical_opportunity(
                 result=llm_result,
                 diagnostic=llm_success_diagnostic(llm_result),
             )
+
+    preserve_previous_success = (
+        llm_outcome == "failed"
+        and same_automatic_input
+        and existing["model_provider"] is not None
+        and existing["model_name"] is not None
+        and existing["prompt_version"] is not None
+    )
+    if preserve_previous_success:
+        stored_document = json.loads(existing["automatic_document_json"])
+        validate_enrichment_document(stored_document)
+        return {
+            "canonical_opportunity_id": canonical_opportunity_id,
+            "outcome": "unchanged",
+            "status": existing["status"],
+            "input_sha256": input_sha256,
+            "document": stored_document,
+            "llm": {
+                "eligible": llm_eligible,
+                "called": True,
+                "outcome": llm_outcome,
+                "model_provider": llm_client.provider,
+                "model_name": llm_client.model,
+                "prompt_version": llm_client.prompt_version,
+                "preserved_previous_success": True,
+                "input_tokens": int(getattr(llm_result, "input_tokens", 0) or 0),
+                "output_tokens": int(getattr(llm_result, "output_tokens", 0) or 0),
+                "total_tokens": int(getattr(llm_result, "total_tokens", 0) or 0),
+                "estimated_cost_usd": getattr(
+                    llm_result, "estimated_cost_usd", None
+                ),
+            },
+        }
 
     document_json = canonical_json(document)
     outcome = "created" if existing is None else "updated"
@@ -1410,6 +1808,7 @@ def enrich_canonical_opportunity(
             "model_provider": model_provider,
             "model_name": model_name,
             "prompt_version": prompt_version,
+            "preserved_previous_success": False,
             "input_tokens": int(getattr(llm_result, "input_tokens", 0) or 0),
             "output_tokens": int(getattr(llm_result, "output_tokens", 0) or 0),
             "total_tokens": int(getattr(llm_result, "total_tokens", 0) or 0),
