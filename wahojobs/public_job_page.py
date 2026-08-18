@@ -35,6 +35,7 @@ PUBLIC_JOB_PATH = re.compile(
 PUBLIC_JOB_SLUG = re.compile(
     r"^(?P<company>[a-z0-9]+(?:-[a-z0-9]+)*)-(?P<job_id>[1-9][0-9]*)$"
 )
+PUBLIC_COMPANY_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def public_job_slug(company_slug, job_id):
@@ -47,6 +48,11 @@ def public_job_slug(company_slug, job_id):
 def public_job_path(company_slug, job_id):
     slug = public_job_slug(company_slug, job_id)
     return f"/job/{slug}" if slug is not None else None
+
+
+def public_company_path(company_slug):
+    slug = str(company_slug or "")
+    return f"/company/{slug}" if PUBLIC_COMPANY_SLUG.fullmatch(slug) else None
 
 
 def public_job_path_for_match(match):
@@ -164,6 +170,7 @@ def load_public_job(connection, path, *, now=None):
     careers_url = human_facing_company_url(row["careers_url"])
     result.update(
         path=path,
+        company_path=public_company_path(row["company_slug"]),
         official_url=official_url,
         careers_url=careers_url,
         enrichment=document,
@@ -425,14 +432,27 @@ def render_public_job_page(
     </footer>
     """
 
+    company_path = job.get("company_path")
+    company_link = (
+        f"<a href='{e(company_path)}'>{e(company_name)}</a>"
+        if company_path
+        else e(company_name)
+    )
+
     company_section = ""
     company_url = human_facing_company_url(job["careers_url"])
-    if company_url:
+    if company_path:
+        official_company_link = (
+            f"<a href='{e(company_url)}' target='_blank' "
+            f"rel='noopener noreferrer nofollow'>Visit {e(company_name)} careers</a>"
+            if company_url
+            else ""
+        )
         company_section = f"""
         <section class='company-strip'>
           <h2>More from {e(company_name)}</h2>
-          <p>Learn more about the company and its current openings on its own careers site.</p>
-          <a href='{e(company_url)}' target='_blank' rel='noopener noreferrer nofollow'>Visit {e(company_name)} careers</a>
+          <p><a href='{e(company_path)}'>See current {e(company_name)} opportunities on Wahojobs</a></p>
+          {official_company_link}
         </section>
         """
 
@@ -463,7 +483,7 @@ def render_public_job_page(
         <div class='hero-copy'>
           <p class='eyebrow'>Job opportunity</p>
           <h1>{e(page_title)}</h1>
-          <p class='company-line'>{e(company_name)}</p>
+          <p class='company-line'>{company_link}</p>
           {facts}
           {eligibility_details}
           {chips}
@@ -1153,6 +1173,7 @@ __all__ = [
     "PUBLIC_JOB_PATH",
     "load_public_job",
     "parse_public_job_path",
+    "public_company_path",
     "public_inventory_is_eligible",
     "public_opportunity_is_eligible",
     "public_job_path",

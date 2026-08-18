@@ -313,7 +313,8 @@ class PublicJobPageTests(unittest.TestCase):
             public_origin=ORIGIN,
             authenticated=False,
         )
-        self.assertNotIn("<section class='company-strip'>", page)
+        self.assertIn("href='/company/acme-ai'", page)
+        self.assertIn("See current Acme AI opportunities on Wahojobs", page)
         self.assertNotIn("Visit Acme AI careers", page)
         self.assertNotIn("boards-api.greenhouse.io", page)
 

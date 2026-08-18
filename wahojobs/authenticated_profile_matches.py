@@ -28,6 +28,7 @@ from wahojobs import (
     pipeline_actions,
     pipeline_records,
     pipeline_state,
+    public_company_page,
     public_job_page,
     public_jobs_catalog,
 )
@@ -561,6 +562,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         return (
             path in AUTHENTICATED_CANDIDATE_ROUTES
             or path == public_jobs_catalog.PUBLIC_JOBS_ROUTE
+            or public_company_page.parse_public_company_path(path) is not None
             or public_job_page.parse_public_job_path(path) is not None
         )
 
@@ -606,6 +608,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     extra_headers=(("Allow", "GET, HEAD"),),
                 )
             return self._handle_public_jobs(params, header_items)
+        if public_company_page.parse_public_company_path(route) is not None:
+            if method not in {"GET", "HEAD"}:
+                return _failure_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "Method not allowed",
+                    "This public company page accepts GET and HEAD only.",
+                    extra_headers=(("Allow", "GET, HEAD"),),
+                )
+            return self._handle_public_company(route, params, header_items)
         if public_job_page.parse_public_job_path(route) is not None:
             if method not in {"GET", "HEAD"}:
                 return _failure_response(
@@ -1059,6 +1070,55 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Jobs temporarily unavailable",
                 "The current jobs catalog cannot be loaded safely right now.",
+            )
+
+    def _handle_public_company(self, path, params, header_items):
+        try:
+            company = public_company_page.build_public_company(
+                self._load_public_jobs_inventory(),
+                path,
+                page=params["page"],
+            )
+            if company is None:
+                return _failure_response(
+                    HTTPStatus.NOT_FOUND,
+                    "Company not found",
+                    "This company page is not available.",
+                )
+            authority = self._optional_public_authority(header_items)
+            authenticated = authority is not None and authority.state == "profile"
+            content = public_company_page.render_public_company_page(
+                company,
+                public_origin=self._public_origin,
+                navigation=_public_navigation(
+                    authenticated=authenticated,
+                    current="company",
+                ),
+                authenticated=authenticated,
+                query_present=params["query_present"],
+            )
+            return _html_response(
+                HTTPStatus.OK,
+                content,
+                referrer_policy=(
+                    _SAME_ORIGIN_REFERRER_POLICY
+                    if authenticated
+                    else _NO_REFERRER_POLICY
+                ),
+                cache_control=("no-store" if authenticated else "public, max-age=300"),
+                max_bytes=MAX_PUBLIC_JOBS_RESPONSE_BYTES,
+            )
+        except (sqlite3.Error, ValueError, TypeError):
+            return _failure_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Company temporarily unavailable",
+                "This company page cannot be loaded safely right now.",
+            )
+        except Exception:
+            return _failure_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Company temporarily unavailable",
+                "This company page cannot be loaded safely right now.",
             )
 
     def _load_public_jobs_inventory(self):
@@ -1677,6 +1737,7 @@ def _parse_target(target, *, method):
         or (
             parsed.path not in AUTHENTICATED_CANDIDATE_ROUTES
             and parsed.path != public_jobs_catalog.PUBLIC_JOBS_ROUTE
+            and public_company_page.parse_public_company_path(parsed.path) is None
             and public_job_page.parse_public_job_path(parsed.path) is None
         )
         or parsed.fragment
@@ -1684,6 +1745,9 @@ def _parse_target(target, *, method):
         or (method == "POST" and parsed.path != AUTHENTICATED_MATCHES_ROUTE and parsed.query)
     ):
         return None
+    if public_company_page.parse_public_company_path(parsed.path) is not None:
+        params = public_company_page.parse_company_query(parsed.query)
+        return (parsed.path, params) if params is not None else None
     if public_job_page.parse_public_job_path(parsed.path) is not None:
         if not parsed.query:
             return parsed.path, {}

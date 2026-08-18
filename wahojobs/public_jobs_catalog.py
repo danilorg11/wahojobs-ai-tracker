@@ -640,7 +640,11 @@ def render_job_card(job, *, return_to):
         if attributes
         else ""
     )
-    detail_target = job["path"] + "?" + urlencode({"return_to": return_to})
+    detail_target = (
+        job["path"] + "?" + urlencode({"return_to": return_to})
+        if return_to
+        else job["path"]
+    )
     return f"""
     <article class='job-card'>
       <div class='job-card-copy'>
@@ -1032,6 +1036,7 @@ __all__ = [
     "catalog_target",
     "load_public_jobs",
     "parse_catalog_query",
+    "render_job_card",
     "render_public_jobs_page",
     "validate_catalog_return_target",
 ]
