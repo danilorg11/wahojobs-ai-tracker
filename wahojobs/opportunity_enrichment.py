@@ -2130,11 +2130,6 @@ def resolve_effective_enrichment(conn, canonical_opportunity_id: int) -> dict | 
     ).fetchone()
     if enrichment is None:
         return None
-    document = json.loads(enrichment["automatic_document_json"])
-    validate_enrichment_document(document)
-    sources = {path: "automatic" for path in OVERRIDABLE_FIELDS}
-    applied = []
-    stale = []
     overrides = conn.execute(
         """
         SELECT * FROM opportunity_enrichment_overrides
@@ -2143,6 +2138,54 @@ def resolve_effective_enrichment(conn, canonical_opportunity_id: int) -> dict | 
         """,
         (canonical_opportunity_id,),
     ).fetchall()
+    return _resolve_effective_enrichment_rows(enrichment, overrides)
+
+
+def resolve_effective_enrichments(
+    conn,
+    canonical_opportunity_ids,
+) -> dict[int, dict]:
+    """Resolve effective enrichment for many canonicals without per-row queries."""
+
+    canonical_ids = sorted({int(value) for value in canonical_opportunity_ids})
+    if not canonical_ids:
+        return {}
+
+    enrichments = {}
+    overrides = defaultdict(list)
+    chunk_size = 500
+    for offset in range(0, len(canonical_ids), chunk_size):
+        chunk = canonical_ids[offset : offset + chunk_size]
+        placeholders = ",".join("?" for _value in chunk)
+        for row in conn.execute(
+            "SELECT * FROM opportunity_enrichments "
+            f"WHERE canonical_opportunity_id IN ({placeholders})",
+            chunk,
+        ).fetchall():
+            enrichments[int(row["canonical_opportunity_id"])] = row
+        for row in conn.execute(
+            "SELECT * FROM opportunity_enrichment_overrides "
+            f"WHERE canonical_opportunity_id IN ({placeholders}) "
+            "ORDER BY canonical_opportunity_id, field_path",
+            chunk,
+        ).fetchall():
+            overrides[int(row["canonical_opportunity_id"])].append(row)
+
+    return {
+        canonical_id: _resolve_effective_enrichment_rows(
+            enrichment,
+            overrides.get(canonical_id, ()),
+        )
+        for canonical_id, enrichment in enrichments.items()
+    }
+
+
+def _resolve_effective_enrichment_rows(enrichment, overrides) -> dict:
+    document = json.loads(enrichment["automatic_document_json"])
+    validate_enrichment_document(document)
+    sources = {path: "automatic" for path in OVERRIDABLE_FIELDS}
+    applied = []
+    stale = []
     for row in overrides:
         value = json.loads(row["value_json"]) if row["operation"] == "set" else None
         apply_override_value(document, row["field_path"], row["operation"], value)
@@ -2150,7 +2193,8 @@ def resolve_effective_enrichment(conn, canonical_opportunity_id: int) -> dict | 
         applied.append(row["field_path"])
         if row["automatic_input_sha256_at_override"] != enrichment["input_sha256"]:
             stale.append(row["field_path"])
-    validate_enrichment_document(document)
+    if applied:
+        validate_enrichment_document(document)
     return {
         "document": document,
         "field_sources": sources,

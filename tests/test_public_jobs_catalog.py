@@ -24,9 +24,11 @@ NOW = datetime.fromisoformat(OBSERVED_AT)
 class ReadOnlyProvider:
     def __init__(self, path):
         self.path = Path(path)
+        self.calls = 0
 
     @contextmanager
     def __call__(self):
+        self.calls += 1
         connection = sqlite3.connect(
             f"file:{self.path.as_posix()}?mode=ro",
             uri=True,
@@ -60,11 +62,12 @@ class PublicJobsCatalogTests(unittest.TestCase):
         finally:
             connection.close()
 
-    def integration(self):
+    def integration(self, *, connection_provider=None, now=None):
         service = object.__new__(AuthenticatedProfileMatchesService)
+        connection_provider = connection_provider or ReadOnlyProvider(self.path)
         integration = AuthenticatedProfileMatchesBrowserIntegration(
             service,
-            connection_provider=ReadOnlyProvider(self.path),
+            connection_provider=connection_provider,
             metadata_overlay=OpportunityMetadataOverlay(
                 path=self.path.with_suffix(".overlay.json"),
                 records_by_key={},
@@ -72,10 +75,34 @@ class PublicJobsCatalogTests(unittest.TestCase):
             confirmed_profile_artifact_sink=lambda _artifact: None,
             completed_profile_confirmation_authenticator=lambda _request: None,
             public_origin=ORIGIN,
-            now=lambda: NOW,
+            now=now or (lambda: NOW),
         )
         self.addCleanup(integration.close)
         return integration
+
+    def test_catalog_snapshot_makes_immediate_pagination_and_back_requests_reuse_inventory(self):
+        provider = ReadOnlyProvider(self.path)
+        current = [NOW]
+        integration = self.integration(
+            connection_provider=provider,
+            now=lambda: current[0],
+        )
+
+        first = integration.handle("GET", "/jobs", (("Host", "app.test"),))
+        next_page = integration.handle(
+            "GET",
+            "/jobs?page=2",
+            (("Host", "app.test"),),
+        )
+        back = integration.handle("GET", "/jobs", (("Host", "app.test"),))
+
+        self.assertEqual([first.status, next_page.status, back.status], [200, 200, 200])
+        self.assertEqual(provider.calls, 1)
+
+        current[0] += timedelta(seconds=301)
+        refreshed = integration.handle("GET", "/jobs", (("Host", "app.test"),))
+        self.assertEqual(refreshed.status, 200)
+        self.assertEqual(provider.calls, 2)
 
     def test_inventory_is_canonical_deduplicated_and_links_to_stable_internal_page(self):
         connection = sqlite3.connect(self.path)
@@ -110,6 +137,10 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertEqual(catalog["inventory_count"], 1)
         self.assertIn(
             "Brazil",
+            {item["value"] for item in catalog["facets"]["location"]},
+        )
+        self.assertNotIn(
+            "Remote",
             {item["value"] for item in catalog["facets"]["location"]},
         )
         self.assertIn(
@@ -177,11 +208,12 @@ class PublicJobsCatalogTests(unittest.TestCase):
             public_origin=ORIGIN,
         )
         self.assertIn("Applied AI Engineer — Model Evaluation", page)
-        self.assertIn("Remote — Brazil", page)
+        self.assertIn("Eligible in Brazil", page)
         self.assertNotIn(">Unknown<", page)
         self.assertNotIn("enrichment", page.casefold())
         self.assertIn("name='work'", page)
         self.assertIn("name='field'", page)
+        self.assertNotIn("name='arrangement'", page)
         self.assertGreaterEqual(page.count("placeholder='Not available yet'"), 2)
 
         connection = sqlite3.connect(self.path)
@@ -274,6 +306,11 @@ class PublicJobsCatalogTests(unittest.TestCase):
             public_jobs_catalog.facet_value_key("Brazil"),
             worldwide["_catalog_filter_values"]["location"],
         )
+        self.assertEqual(worldwide["catalog_location"], "Work from anywhere")
+        self.assertNotIn(
+            "Remote",
+            {item["label"] for item in brazil_catalog["facets"]["location"]},
+        )
         self.assertEqual(
             public_jobs_catalog.build_catalog(
                 jobs,
@@ -332,6 +369,10 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertIn("rel='canonical' href='https://app.test/jobs'", filtered_body)
         self.assertIn("Showing 1–1 of 1 current opportunities", filtered_body)
         self.assertIn("<datalist id='jobs-location-options'>", filtered_body)
+        self.assertIn("<span>Where can you work from?</span>", filtered_body)
+        self.assertIn("placeholder='Country or region'", filtered_body)
+        self.assertNotIn("<span>Work arrangement</span>", filtered_body)
+        self.assertNotIn("name='arrangement'", filtered_body)
         self.assertNotIn("<select", filtered_body)
 
         rejected = integration.handle("POST", "/jobs", (("Host", "app.test"),))
@@ -492,6 +533,106 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertNotIn("language-english", page)
         self.assertIn("<span>Type of work</span>", page)
         self.assertIn("<span>Professional field</span>", page)
+
+    def test_cards_summarize_broad_eligibility_and_omit_unknown_values(self):
+        job = deepcopy(self.load()[0])
+        arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+        arrangement.update(
+            location_scope="remote_restricted",
+            eligible_countries=[
+                "Argentina",
+                "Brazil",
+                "Chile",
+                "Colombia",
+                "Peru",
+            ],
+            eligible_regions=[],
+            eligible_locations=[],
+        )
+        job["source_location"] = "Remote — Argentina, Brazil, Chile, Colombia, Peru"
+        requirements = job["enrichment"]["attributes"]["requirements"]
+        requirements["languages"] = [
+            {"language": "Unknown", "locale": None, "requirement_mode": "unknown"}
+        ]
+        job["canonical_language"] = "Unknown"
+        job["enrichment"]["attributes"]["content"]["quick_take"] = "Unknown"
+        public_jobs_catalog.prepare_catalog_presentation(job)
+
+        card = public_jobs_catalog.render_job_card(job, return_to="/jobs")
+        self.assertIn("Eligible in 5 countries", card)
+        self.assertNotIn("Remote — Argentina", card)
+        self.assertNotIn("Unknown", card)
+        self.assertLessEqual(card.count("<li>"), 3)
+
+    def test_oneforma_card_uses_job_variant_instead_of_project_language_packet(self):
+        job = deepcopy(self.load()[0])
+        job.update(
+            source_location="Remote; Selected Locations",
+            rich_source_type="oneforma-wordpress-marketplace",
+            rich_metadata_json='{"variant_language":"Arabic - Saudi Arabia"}',
+        )
+        arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+        arrangement.update(
+            workplace_mode="remote",
+            location_scope="remote_restricted",
+            eligible_countries=[],
+            eligible_regions=[],
+            eligible_locations=["Remote; Selected Locations"],
+        )
+        job["enrichment"]["attributes"]["requirements"]["languages"] = [
+            {"language": language, "locale": None, "requirement_mode": "ambiguous"}
+            for language in ("arabic", "chinese", "danish", "english")
+        ]
+
+        public_jobs_catalog.prepare_catalog_presentation(job)
+        catalog = public_jobs_catalog.build_catalog([job])
+        card = public_jobs_catalog.render_job_card(job, return_to="/jobs")
+
+        self.assertEqual(job["catalog_location"], "Eligible in Saudi Arabia")
+        self.assertEqual(
+            {item["label"] for item in catalog["facets"]["location"]},
+            {"Saudi Arabia"},
+        )
+        self.assertEqual(
+            {item["label"] for item in catalog["facets"]["language"]},
+            {"Arabic"},
+        )
+        self.assertIn("Eligible in Saudi Arabia", card)
+        self.assertIn(">Arabic<", card)
+        self.assertNotIn("Selected Locations", card)
+        self.assertNotIn("Ambiguous", card)
+        self.assertNotIn(">Chinese<", card)
+
+    def test_location_facet_count_resolves_each_option_once(self):
+        base = self.load()[0]
+        jobs = []
+        for index, country in enumerate(("Brazil", "Portugal", "United States")):
+            job = deepcopy(base)
+            job["job_id"] = 70_000 + index
+            job["path"] = f"/job/acme-ai-{70_000 + index}"
+            arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+            arrangement.update(
+                location_scope="remote_restricted",
+                eligible_countries=[country],
+                eligible_regions=[],
+                eligible_locations=[],
+            )
+            public_jobs_catalog.prepare_catalog_presentation(job)
+            jobs.append(job)
+
+        calls = []
+        original = public_jobs_catalog.location_filter_identity
+
+        def counted(value):
+            calls.append(value)
+            return original(value)
+
+        public_jobs_catalog.location_filter_identity = counted
+        try:
+            catalog = public_jobs_catalog.build_catalog(jobs)
+        finally:
+            public_jobs_catalog.location_filter_identity = original
+        self.assertEqual(len(calls), len(catalog["facets"]["location"]))
 
     def test_work_fields_and_languages_each_support_multiple_labels(self):
         job = deepcopy(self.load()[0])

@@ -19,6 +19,7 @@ import json
 import re
 import secrets
 import sqlite3
+import threading
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from scripts import local_product_app as local_product
@@ -492,6 +493,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_metadata_overlay",
         "_now",
         "_public_authority",
+        "_public_jobs_cache",
+        "_public_jobs_cache_lock",
         "_public_origin",
         "_registry",
         "_service",
@@ -543,6 +546,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         )
         self._public_origin = origin
         self._public_authority = authority
+        self._public_jobs_cache = None
+        self._public_jobs_cache_lock = threading.Lock()
         self._now = now
         self._ephemeral_identity_factory = ephemeral_identity_factory
         self._registry = registry
@@ -1018,24 +1023,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     def _handle_public_jobs(self, params, header_items):
         try:
             query_present = bool(params.pop("_query_present", False))
-            connection = None
-            with self._connection_provider() as connection:
-                if (
-                    not isinstance(connection, sqlite3.Connection)
-                    or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
-                    or connection.execute("PRAGMA query_only").fetchone()[0] != 1
-                    or connection.in_transaction
-                ):
-                    raise ValueError("public_jobs_inventory_unavailable")
-                connection.execute("BEGIN")
-                try:
-                    jobs = public_jobs_catalog.load_public_jobs(
-                        connection,
-                        now=self._now(),
-                    )
-                finally:
-                    if connection.in_transaction:
-                        connection.rollback()
+            jobs = self._load_public_jobs_inventory()
 
             authority = self._optional_public_authority(header_items)
             authenticated = authority is not None and authority.state == "profile"
@@ -1072,6 +1060,44 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Jobs temporarily unavailable",
                 "The current jobs catalog cannot be loaded safely right now.",
             )
+
+    def _load_public_jobs_inventory(self):
+        now = _trusted_utc(self._now())
+        with self._public_jobs_cache_lock:
+            cached = self._public_jobs_cache
+            if (
+                cached is not None
+                and cached[0] <= now
+                and now < cached[1]
+            ):
+                return cached[2]
+
+            connection = None
+            with self._connection_provider() as connection:
+                if (
+                    not isinstance(connection, sqlite3.Connection)
+                    or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                    or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+                    or connection.in_transaction
+                ):
+                    raise ValueError("public_jobs_inventory_unavailable")
+                connection.execute("BEGIN")
+                try:
+                    jobs = public_jobs_catalog.load_public_jobs(
+                        connection,
+                        now=now,
+                    )
+                finally:
+                    if connection.in_transaction:
+                        connection.rollback()
+
+            snapshot = tuple(jobs)
+            self._public_jobs_cache = (
+                now,
+                public_jobs_catalog.catalog_cache_deadline(snapshot, now),
+                snapshot,
+            )
+            return snapshot
 
     def _optional_public_authority(self, header_items):
         session_token, session_valid = _security_cookie(
@@ -1343,6 +1369,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._artifact_sink = None
         self._completed_replay_authenticator = None
         self._ephemeral_identity_factory = None
+        self._public_jobs_cache = None
+        self._public_jobs_cache_lock = None
         self._now = None
         return True
 

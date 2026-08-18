@@ -317,6 +317,157 @@ class PublicJobPageTests(unittest.TestCase):
         self.assertNotIn("Visit Acme AI careers", page)
         self.assertNotIn("boards-api.greenhouse.io", page)
 
+    def test_multi_country_eligibility_is_consistent_and_readable(self):
+        job = self.load()
+        job["source_location"] = "Brazil"
+        arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+        arrangement.update(
+            workplace_mode="unknown",
+            location_scope="onsite_or_hybrid_restricted",
+            eligible_countries=["Brazil", "Germany", "Italy"],
+            eligible_regions=[],
+            eligible_locations=["Berlin, Germany | Brazil | Italy"],
+        )
+
+        presentation = public_job_page.candidate_eligibility(
+            arrangement,
+            job["source_location"],
+        )
+        page = public_job_page.render_public_job_page(job, public_origin=ORIGIN)
+
+        self.assertEqual(
+            presentation["summary"],
+            "Eligible in Brazil, Germany, and Italy",
+        )
+        self.assertIn("Where you can work from", page)
+        self.assertIn("Brazil, Germany, and Italy", page)
+        self.assertNotIn("Remote eligibility", page)
+        self.assertNotIn("Berlin, Germany | Brazil | Italy", page)
+        self.assertNotIn("class='eligibility-details'", page)
+
+    def test_four_countries_are_named_and_long_lists_are_collapsed(self):
+        four_country_job = self.load()
+        four_country_job["source_location"] = "Brazil"
+        four_country_arrangement = four_country_job["enrichment"]["attributes"][
+            "work_arrangement"
+        ]
+        four_country_arrangement.update(
+            workplace_mode="unknown",
+            location_scope="onsite_or_hybrid_restricted",
+            eligible_countries=["Austria", "Brazil", "Germany", "Spain"],
+            eligible_regions=[],
+            eligible_locations=["Austria | Brazil | Germany | Spain"],
+        )
+        four_country_page = public_job_page.render_public_job_page(
+            four_country_job,
+            public_origin=ORIGIN,
+        )
+        self.assertIn("Austria, Brazil, Germany, and Spain", four_country_page)
+        self.assertNotIn("class='eligibility-details'", four_country_page)
+
+        many_country_job = self.load()
+        many_country_job["source_location"] = "United States (Remote)"
+        many_country_arrangement = many_country_job["enrichment"]["attributes"][
+            "work_arrangement"
+        ]
+        countries = [
+            "Argentina",
+            "Australia",
+            "Brazil",
+            "Canada",
+            "France",
+            "Germany",
+            "India",
+            "Japan",
+            "United Kingdom",
+            "United States",
+        ]
+        many_country_arrangement.update(
+            workplace_mode="remote",
+            location_scope="remote_restricted",
+            eligible_countries=countries,
+            eligible_regions=[],
+            eligible_locations=[" | ".join(f"{country} (Remote)" for country in countries)],
+        )
+        many_country_page = public_job_page.render_public_job_page(
+            many_country_job,
+            public_origin=ORIGIN,
+        )
+        self.assertIn(">10 countries<", many_country_page)
+        self.assertIn("See all 10 eligible countries", many_country_page)
+        self.assertIn("<li>Argentina</li>", many_country_page)
+        self.assertIn("<li>United States</li>", many_country_page)
+        self.assertNotIn("Argentina (Remote) |", many_country_page)
+
+    def test_oneforma_variant_scopes_location_and_languages_to_this_job(self):
+        job = self.load()
+        job.update(
+            source_location="Remote; Selected Locations",
+            rich_source_type="oneforma-wordpress-marketplace",
+            rich_metadata_json=json.dumps(
+                {"variant_language": "Arabic - Saudi Arabia"}
+            ),
+        )
+        arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+        arrangement.update(
+            workplace_mode="remote",
+            location_scope="remote_restricted",
+            eligible_countries=[],
+            eligible_regions=[],
+            eligible_locations=["Remote; Selected Locations"],
+        )
+        requirements = job["enrichment"]["attributes"]["requirements"]
+        requirements["languages"] = [
+            {"language": language, "locale": None, "requirement_mode": "ambiguous"}
+            for language in ("arabic", "chinese", "danish", "english")
+        ]
+
+        page = public_job_page.render_public_job_page(job, public_origin=ORIGIN)
+
+        self.assertIn("Where you can work from", page)
+        self.assertIn(">Saudi Arabia<", page)
+        self.assertIn("<li>Arabic</li>", page)
+        self.assertNotIn("Selected Locations", page)
+        self.assertNotIn("Ambiguous", page)
+        self.assertNotIn("<li>Chinese", page)
+
+    def test_selected_locations_without_a_resolved_variant_uses_natural_fallback(self):
+        job = self.load()
+        job.update(
+            source_location="Remote; Selected Locations",
+            rich_source_type="oneforma-wordpress-marketplace",
+            rich_metadata_json="{}",
+        )
+        arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+        arrangement.update(
+            workplace_mode="remote",
+            location_scope="remote_restricted",
+            eligible_countries=[],
+            eligible_regions=[],
+            eligible_locations=["Remote; Selected Locations"],
+        )
+
+        page = public_job_page.render_public_job_page(job, public_origin=ORIGIN)
+
+        self.assertIn("Available in selected locations", page)
+        self.assertNotIn("; Selected Locations", page)
+        self.assertNotIn(">Selected Locations<", page)
+
+    def test_missing_location_does_not_break_candidate_eligibility(self):
+        presentation = public_job_page.candidate_eligibility(
+            {
+                "workplace_mode": "unknown",
+                "location_scope": "unknown",
+                "eligible_countries": [],
+                "eligible_regions": [],
+                "eligible_locations": [],
+            },
+            None,
+        )
+
+        self.assertIsNone(presentation["summary"])
+        self.assertIsNone(presentation["fact"])
+
     def test_api_source_urls_are_not_presented_as_application_or_original_listing_links(self):
         connection = sqlite3.connect(self.path)
         try:

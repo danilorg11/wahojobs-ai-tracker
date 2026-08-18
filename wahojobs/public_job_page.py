@@ -9,9 +9,22 @@ from __future__ import annotations
 
 from datetime import datetime
 import html
+import json
 import re
 from urllib.parse import urlsplit
 
+from wahojobs.matching.locations import (
+    LOCATION_SCOPE_REMOTE_RESTRICTED,
+    LOCATION_SCOPE_REMOTE_WORLDWIDE,
+    REGION_AMERICAS,
+    REGION_APAC,
+    REGION_EMEA,
+    canonical_country_from_text,
+    classify_job_location,
+    countries_in_location,
+    regions_in_location,
+)
+from wahojobs.matching.languages import find_language_mentions
 from wahojobs.matching.opportunity_trust import TRUSTED, assess_opportunity_trust
 from wahojobs.opportunity_enrichment import blank_document, resolve_effective_enrichment
 
@@ -95,6 +108,7 @@ def load_public_job(connection, path, *, now=None):
           sc.source_type AS rich_source_type,
           sc.source_url AS rich_source_url,
           sc.external_id AS rich_external_id,
+          sc.metadata_json AS rich_metadata_json,
           sc.source_updated_at,
           sc.first_captured_at,
           sc.last_captured_at,
@@ -240,15 +254,33 @@ def render_public_job_page(
     if len(description) > 220:
         description = description[:217].rstrip() + "..."
 
-    source_location = clean(job["source_location"])
-    remote_label = remote_eligibility(arrangement)
+    raw_source_location = candidate_text(job["source_location"])
+    variant_label = source_variant_label(job)
+    eligibility = candidate_eligibility(
+        arrangement,
+        raw_source_location,
+        variant_label=variant_label,
+    )
+    source_location = candidate_source_location(raw_source_location)
+    eligibility_adds_information = candidate_eligibility_adds_information(
+        source_location,
+        eligibility,
+    )
+    eligibility_fact = (
+        eligibility["fact"] if eligibility_adds_information else None
+    )
+    eligibility_details = (
+        render_eligibility_details(eligibility)
+        if eligibility_adds_information
+        else ""
+    )
     workplace_label = enum_label(arrangement["workplace_mode"])
     fact_items = unique_pairs_by_value(compact_pairs(
         (
             ("Location", source_location),
             (
-                "Remote eligibility",
-                remote_label if remote_adds_information(source_location, remote_label) else None,
+                "Where you can work from",
+                eligibility_fact,
             ),
             ("Compensation", compensation_label(compensation)),
             (
@@ -259,7 +291,11 @@ def render_public_job_page(
             (
                 "Work arrangement",
                 workplace_label
-                if workplace_adds_information(source_location, remote_label, workplace_label)
+                if workplace_adds_information(
+                    source_location,
+                    eligibility["summary"],
+                    workplace_label,
+                )
                 else None,
             ),
             ("Schedule", enum_label(arrangement["schedule_type"])),
@@ -322,7 +358,10 @@ def render_public_job_page(
     requirement_blocks.extend(
         render_labeled_list("Preferred skills", requirements["skills_preferred"]),
     )
-    languages = [language_label(item) for item in requirements["languages"]]
+    languages = [
+        language_label(item)
+        for item in candidate_language_requirements(job, requirements)
+    ]
     requirement_blocks.extend(render_labeled_list("Languages", languages))
     education = requirements["education"]
     education_values = []
@@ -426,6 +465,7 @@ def render_public_job_page(
           <h1>{e(page_title)}</h1>
           <p class='company-line'>{e(company_name)}</p>
           {facts}
+          {eligibility_details}
           {chips}
           <div class='hero-actions'>{apply_action}</div>
         </div>
@@ -535,45 +575,245 @@ def render_labeled_list(label, values):
     return [f"<div class='requirement-group'><h3>{e(label)}</h3><ul>{rendered}</ul></div>"]
 
 
-def remote_eligibility(arrangement):
-    mode = arrangement.get("workplace_mode")
-    scope = arrangement.get("location_scope")
-    locations = unique_text(
-        [
-            *(arrangement.get("eligible_countries") or []),
-            *(arrangement.get("eligible_regions") or []),
-            *(arrangement.get("eligible_locations") or []),
-        ]
+def candidate_eligibility(arrangement, source_location=None, *, variant_label=None):
+    """Build one concise candidate-facing eligibility presentation."""
+
+    source_location = candidate_text(source_location)
+    source_scope, source_mode, _requirements, _restriction = classify_job_location(
+        source_location
     )
-    if scope == "remote_worldwide":
-        return "Remote worldwide"
-    if scope == "remote_restricted":
-        return "Remote — " + (", ".join(locations) if locations else "location restrictions apply")
-    if mode == "remote":
-        return "Remote"
-    if mode in {"hybrid", "onsite"}:
-        return enum_label(mode)
-    return None
+    mode = clean(arrangement.get("workplace_mode"))
+    scope = clean(arrangement.get("location_scope"))
+    if not mode or mode == "unknown":
+        mode = source_mode
+    if not scope or scope == "unknown":
+        scope = source_scope
+
+    countries = canonical_candidate_countries(
+        arrangement.get("eligible_countries") or []
+    )
+    regions = canonical_candidate_regions(
+        arrangement.get("eligible_regions") or []
+    )
+    if not countries:
+        countries = set(countries_in_location(source_location))
+    if not regions:
+        regions = set(regions_in_location(source_location))
+    if not countries:
+        countries = set(countries_in_location(candidate_text(variant_label)))
+    if not regions:
+        regions = set(regions_in_location(candidate_text(variant_label)))
+
+    countries = tuple(sorted(countries, key=str.casefold))
+    regions = tuple(sorted(regions, key=str.casefold))
+    if scope == LOCATION_SCOPE_REMOTE_WORLDWIDE:
+        summary = "Work from anywhere"
+        fact = "Worldwide"
+    elif regions:
+        region_list = natural_join(regions)
+        summary = "Eligible across " + region_list
+        fact = region_list
+    elif len(countries) == 1:
+        summary = "Eligible in " + countries[0]
+        fact = countries[0]
+    elif 1 < len(countries) <= 3:
+        country_list = natural_join(countries)
+        summary = "Eligible in " + country_list
+        fact = country_list
+    elif len(countries) == 4:
+        summary = f"Eligible in {len(countries)} countries"
+        fact = natural_join(countries)
+    elif len(countries) > 4:
+        summary = f"Eligible in {len(countries)} countries"
+        fact = f"{len(countries)} countries"
+    elif selected_locations_placeholder(source_location) or any(
+        selected_locations_placeholder(value)
+        for value in arrangement.get("eligible_locations") or []
+    ):
+        summary = "Available in selected locations"
+        fact = summary
+    else:
+        source_without_remote = re.sub(
+            r"^remote\s*(?:[-—:]\s*)?",
+            "",
+            source_location or "",
+            flags=re.IGNORECASE,
+        ).strip(" ;,|:-")
+        if source_without_remote and len(source_without_remote) <= 80:
+            summary = "Eligible in " + source_without_remote
+            fact = source_without_remote
+        elif scope == LOCATION_SCOPE_REMOTE_RESTRICTED:
+            summary = "Location restrictions apply"
+            fact = summary
+        else:
+            summary = None
+            fact = None
+
+    return {
+        "scope": scope,
+        "mode": mode,
+        "countries": countries,
+        "regions": regions,
+        "summary": summary,
+        "fact": fact,
+        "detail_countries": countries if len(countries) > 4 else (),
+    }
 
 
-def remote_adds_information(source_location, remote_label):
-    source = normalized_words(source_location)
-    remote = normalized_words(remote_label)
-    if not source or not remote:
-        return bool(remote)
-    if source == remote:
+def candidate_eligibility_adds_information(source_location, eligibility):
+    if not eligibility["summary"]:
         return False
-    source_is_worldwide_remote = "remote" in source and bool({"world", "worldwide"} & source)
-    remote_is_worldwide = "remote" in remote and "worldwide" in remote
-    return not (source_is_worldwide_remote and remote_is_worldwide)
+    source_location = candidate_text(source_location)
+    if not source_location:
+        return True
+    if eligibility["scope"] == LOCATION_SCOPE_REMOTE_WORLDWIDE:
+        words = normalized_words(source_location)
+        return not bool({"world", "worldwide", "anywhere"} & words)
+
+    source_countries = set(countries_in_location(source_location))
+    eligible_countries = set(eligibility["countries"])
+    if eligible_countries:
+        return eligible_countries != source_countries
+    source_regions = set(regions_in_location(source_location))
+    eligible_regions = set(eligibility["regions"])
+    if eligible_regions:
+        return eligible_regions != source_regions
+    return normalize_candidate_words(source_location) != normalize_candidate_words(
+        eligibility["summary"]
+    )
 
 
-def workplace_adds_information(source_location, remote_label, workplace_label):
+def candidate_source_location(value):
+    value = candidate_text(value)
+    return None if selected_locations_placeholder(value) else value
+
+
+def selected_locations_placeholder(value):
+    words = normalize_candidate_words(value)
+    return words == "selected locations" or words.endswith(" selected locations")
+
+
+def source_variant_label(job):
+    if clean(job.get("rich_source_type")) != "oneforma-wordpress-marketplace":
+        return None
+    raw = job.get("rich_metadata_json")
+    if isinstance(raw, dict):
+        metadata = raw
+    else:
+        try:
+            metadata = json.loads(raw or "{}")
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(metadata, dict):
+        return None
+    return candidate_text(metadata.get("variant_language"))
+
+
+def source_variant_language(job):
+    variant_label = source_variant_label(job)
+    mentions = find_language_mentions(variant_label or "")
+    return candidate_language_display(mentions[0]["language"]) if mentions else None
+
+
+def candidate_language_requirements(job, requirements):
+    variant_language = source_variant_language(job)
+    if variant_language:
+        return [
+            {
+                "language": variant_language,
+                "locale": None,
+                "requirement_mode": "single",
+            }
+        ]
+
+    result = []
+    seen = set()
+    for item in requirements.get("languages") or []:
+        if not isinstance(item, dict):
+            continue
+        mode = clean(item.get("requirement_mode")).casefold()
+        if mode in {"", "none", "ambiguous", "unknown"}:
+            continue
+        language = candidate_language_display(item.get("language"))
+        if not language or language.casefold() in seen:
+            continue
+        seen.add(language.casefold())
+        result.append(
+            {
+                "language": language,
+                "locale": candidate_text(item.get("locale")),
+                "requirement_mode": mode,
+            }
+        )
+    return result
+
+
+def candidate_language_display(value):
+    value = candidate_text(value)
+    if not value:
+        return None
+    return value.title() if value == value.casefold() else value
+
+
+def render_eligibility_details(eligibility):
+    countries = eligibility["detail_countries"]
+    if not countries:
+        return ""
+    count = len(countries)
+    items = "".join(f"<li>{e(country)}</li>" for country in countries)
+    return (
+        "<details class='eligibility-details'>"
+        f"<summary>See all {count} eligible countries</summary>"
+        f"<ul>{items}</ul>"
+        "</details>"
+    )
+
+
+def canonical_candidate_countries(values):
+    countries = set()
+    for value in values:
+        country = canonical_country_from_text(value)
+        if country:
+            countries.add(country)
+    return countries
+
+
+def canonical_candidate_regions(values):
+    known = {
+        value.casefold(): value
+        for value in (REGION_AMERICAS, REGION_EMEA, REGION_APAC)
+    }
+    return {
+        known[value.casefold()]
+        for raw in values
+        if (value := clean(raw)) and value.casefold() in known
+    }
+
+
+def natural_join(values):
+    values = list(values)
+    if len(values) < 2:
+        return "".join(values)
+    if len(values) == 2:
+        return values[0] + " and " + values[1]
+    return ", ".join(values[:-1]) + ", and " + values[-1]
+
+
+def candidate_text(value):
+    value = clean(value)
+    return None if not value or normalize_candidate_words(value) == "unknown" else value
+
+
+def normalize_candidate_words(value):
+    return " ".join(re.findall(r"[a-z0-9]+", (clean(value) or "").casefold()))
+
+
+def workplace_adds_information(source_location, eligibility_label, workplace_label):
     if not workplace_label:
         return False
     if workplace_label.casefold() != "remote":
         return True
-    return "remote" not in normalized_words(source_location) and not remote_label
+    return "remote" not in normalized_words(source_location) and not eligibility_label
 
 
 def normalized_words(value):
@@ -638,13 +878,17 @@ def hours_label(arrangement):
 def language_label(item):
     if not isinstance(item, dict):
         return None
-    language = clean(item.get("language"))
-    locale = clean(item.get("locale"))
-    mode = enum_label(item.get("requirement_mode"))
+    language = candidate_language_display(item.get("language"))
+    locale = candidate_text(item.get("locale"))
+    mode = clean(item.get("requirement_mode")).casefold()
     if not language:
         return None
     result = language + (f" ({locale})" if locale else "")
-    return result + (f" — {mode}" if mode and mode not in {"None", "Single"} else "")
+    mode_label = {
+        "all_required": "All required",
+        "any_supported": "Any supported",
+    }.get(mode)
+    return result + (f" — {mode_label}" if mode_label else "")
 
 
 def enum_label(value):
@@ -865,6 +1109,9 @@ p { margin: 0 0 14px; }
 .fact { background: #f5f8f6; border-radius: 10px; padding: 11px 13px; }
 .fact dt { color: #5c6d65; font-size: .78rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .fact dd { margin: 2px 0 0; font-weight: 700; }
+.eligibility-details { margin: -12px 0 24px; border: 1px solid #d6e3dc; border-radius: 10px; background: #fbfcfb; padding: 10px 13px; }
+.eligibility-details summary { color: #146149; font-weight: 750; cursor: pointer; }
+.eligibility-details ul { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 18px; margin: 10px 0 2px; padding-left: 20px; }
 .role-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 24px; padding: 0; list-style: none; }
 .role-chips li { border: 1px solid #d6e3dc; border-radius: 999px; background: #f7faf8; color: #355447; padding: 5px 10px; font-size: .86rem; font-weight: 700; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -898,7 +1145,7 @@ p { margin: 0 0 14px; }
 .notice.success, .action-feedback.success { background: #e2f4ea; color: #14543d; }
 .notice.error, .action-feedback.error { background: #fde8e5; color: #7a281d; }
 .action-feedback { margin-top: 12px; border-radius: 8px; padding: 10px; }
-@media (max-width: 780px) { .hero { grid-template-columns: 1fr; } .fact-grid { grid-template-columns: 1fr; } .company-strip { grid-template-columns: 1fr; gap: 8px; } .site-header { align-items: flex-start; padding: 18px 0; } }
+@media (max-width: 780px) { .hero { grid-template-columns: 1fr; } .fact-grid { grid-template-columns: 1fr; } .eligibility-details ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } .company-strip { grid-template-columns: 1fr; gap: 8px; } .site-header { align-items: flex-start; padding: 18px 0; } }
 """
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import math
 import re
 import unicodedata
@@ -21,11 +21,15 @@ from wahojobs.matching.locations import (
     REMOTE_STATUS_ONSITE,
     REMOTE_STATUS_REMOTE,
     canonical_country_from_text,
-    classify_job_location,
-    countries_in_location,
-    regions_in_location,
 )
-from wahojobs.opportunity_enrichment import blank_document, resolve_effective_enrichment
+from wahojobs.opportunity_enrichment import (
+    blank_document,
+    resolve_effective_enrichments,
+)
+from wahojobs.matching.opportunity_trust import (
+    freshness_max_age_hours,
+    parse_utc,
+)
 
 
 PUBLIC_JOBS_ROUTE = "/jobs"
@@ -35,6 +39,7 @@ CATALOG_FILTER_KEYS = frozenset(
 CATALOG_QUERY_KEYS = CATALOG_FILTER_KEYS | {"page"}
 CATALOG_FACET_KEYS = ("location", "work", "field", "language", "arrangement")
 PAGE_SIZE = 30
+CATALOG_CACHE_MAX_AGE_SECONDS = 300
 MAX_FILTER_VALUE_CHARACTERS = 100
 MAX_FILTER_VALUE_BYTES = 400
 MAX_PAGE = 99_999
@@ -108,6 +113,7 @@ def load_public_jobs(connection, *, now=None):
           sc.provider AS rich_provider,
           sc.source_type AS rich_source_type,
           sc.source_url AS rich_source_url,
+          sc.metadata_json AS rich_metadata_json,
           sc.source_updated_at,
           sc.first_captured_at,
           sc.last_captured_at,
@@ -148,19 +154,29 @@ def load_public_jobs(connection, *, now=None):
         row = dict(raw)
         if not public_job_page.public_opportunity_is_eligible(row, now=now):
             continue
+        row["_catalog_official_url"] = public_job_page.first_human_facing_url(
+            row.get("rich_source_url"),
+            row.get("listing_url"),
+        )
         grouped.setdefault(int(row["canonical_opportunity_id"]), []).append(row)
 
+    representatives = {
+        canonical_id: max(variants, key=representative_variant_rank)
+        for canonical_id, variants in grouped.items()
+    }
+    effective_by_canonical = resolve_effective_enrichments(
+        connection,
+        representatives,
+    )
+
     jobs = []
-    for canonical_id, variants in grouped.items():
-        row = max(variants, key=representative_variant_rank)
-        effective = resolve_effective_enrichment(connection, canonical_id)
+    for canonical_id, row in representatives.items():
+        effective = effective_by_canonical.get(canonical_id)
         document = effective["document"] if effective is not None else blank_document()
         job = dict(row)
         job.update(
             path=public_job_page.public_job_path(row["company_slug"], row["job_id"]),
-            official_url=public_job_page.first_human_facing_url(
-                row["rich_source_url"], row["listing_url"]
-            ),
+            official_url=row["_catalog_official_url"],
             careers_url=public_job_page.human_facing_company_url(row["careers_url"]),
             enrichment=document,
             enrichment_field_sources=(effective or {}).get("field_sources", {}),
@@ -176,7 +192,8 @@ def representative_variant_rank(row):
     return (
         bool(row.get("has_rich_content")),
         bool(
-            public_job_page.first_human_facing_url(
+            row.get("_catalog_official_url")
+            or public_job_page.first_human_facing_url(
                 row.get("rich_source_url"),
                 row.get("listing_url"),
             )
@@ -192,42 +209,18 @@ def prepare_catalog_presentation(job):
     arrangement = attributes["work_arrangement"]
     requirements = attributes["requirements"]
     content = attributes["content"]
-    source_location = public_job_page.clean(job.get("source_location"))
-    source_scope, source_mode, _requirements, _restriction = classify_job_location(
-        source_location
+    source_location = candidate_text(job.get("source_location"))
+    eligibility = public_job_page.candidate_eligibility(
+        arrangement,
+        source_location,
+        variant_label=public_job_page.source_variant_label(job),
     )
-
-    mode = public_job_page.clean(arrangement.get("workplace_mode"))
-    scope = public_job_page.clean(arrangement.get("location_scope"))
-    if not mode or mode == "unknown":
-        mode = source_mode
-    if not scope or scope == "unknown":
-        scope = source_scope
-    eligible_countries = canonical_location_countries(
-        arrangement.get("eligible_countries") or []
-    )
-    eligible_regions = canonical_location_regions(
-        arrangement.get("eligible_regions") or []
-    )
-    if not eligible_countries:
-        eligible_countries = set(countries_in_location(source_location))
-    if not eligible_regions:
-        eligible_regions = set(regions_in_location(source_location))
+    mode = eligibility["mode"]
+    scope = eligibility["scope"]
+    eligible_countries = set(eligibility["countries"])
+    eligible_regions = set(eligibility["regions"])
 
     location_labels = set(eligible_countries) | set(eligible_regions)
-    if mode == REMOTE_STATUS_REMOTE or scope in {
-        LOCATION_SCOPE_REMOTE_WORLDWIDE,
-        LOCATION_SCOPE_REMOTE_RESTRICTED,
-    }:
-        location_labels.add("Remote")
-    if scope == LOCATION_SCOPE_REMOTE_WORLDWIDE:
-        location_labels.add("Remote worldwide")
-    if scope == LOCATION_SCOPE_REMOTE_RESTRICTED:
-        location_labels.add("Remote with location limits")
-    if mode in {REMOTE_STATUS_HYBRID, REMOTE_STATUS_ONSITE}:
-        location_labels.add(
-            "Hybrid" if mode == REMOTE_STATUS_HYBRID else "On-site"
-        )
     job["_catalog_location_model"] = {
         "scope": scope,
         "mode": mode,
@@ -245,11 +238,14 @@ def prepare_catalog_presentation(job):
     )
 
     language_values = [
-        item.get("language")
-        for item in requirements.get("languages") or []
-        if isinstance(item, dict)
+        candidate_text(item.get("language"))
+        for item in public_job_page.candidate_language_requirements(
+            job,
+            requirements,
+        )
     ]
-    language_values.append(job.get("canonical_language"))
+    if not any(language_values):
+        language_values.append(candidate_text(job.get("canonical_language")))
     language_labels = public_job_page.unique_text(language_values)
 
     engagement = public_job_page.clean(arrangement.get("engagement_type"))
@@ -259,8 +255,8 @@ def prepare_catalog_presentation(job):
         [engagement_label(engagement)]
     )
 
-    remote = public_job_page.remote_eligibility(arrangement)
-    job["catalog_location"] = source_location or remote
+    remote = eligibility["summary"]
+    job["catalog_location"] = eligibility["summary"]
     job["catalog_summary"] = concise_summary(content.get("quick_take"))
     job["_catalog_engagement"] = engagement
     candidate_labels = {
@@ -276,7 +272,7 @@ def prepare_catalog_presentation(job):
         candidate_values = set()
         labels_by_key = {}
         for raw_label in labels:
-            label = public_job_page.clean(raw_label)
+            label = candidate_text(raw_label)
             if not label:
                 continue
             candidate_key = facet_value_key(label)
@@ -396,9 +392,14 @@ def catalog_facets(jobs):
             for token in job["_catalog_filter_values"][key]:
                 counters[key][token] += 1
             labels[key].update(job["_catalog_filter_labels"][key])
-    for candidate_key, label in labels["location"].items():
+    location_identities = {
+        candidate_key: location_filter_identity(label)
+        for candidate_key, label in labels["location"].items()
+    }
+    for candidate_key, identity in location_identities.items():
         counters["location"][candidate_key] = sum(
-            location_filter_matches(job, label) for job in jobs
+            location_model_matches(job["_catalog_location_model"], identity)
+            for job in jobs
         )
     return {
         key: [
@@ -519,11 +520,10 @@ def render_public_jobs_page(
                 filters.get(key, ""),
             )
             for key, label in (
-                ("location", "Location eligibility"),
+                ("location", "Where can you work from?"),
                 ("work", "Type of work"),
                 ("field", "Professional field"),
                 ("language", "Language"),
-                ("arrangement", "Work arrangement"),
             )
         )
     )
@@ -604,7 +604,13 @@ def render_filter_search(name, label, options, selected):
     list_id = "jobs-" + name + "-options"
     unavailable = not options and not selected
     disabled = " disabled aria-disabled='true'" if unavailable else ""
-    placeholder = "Not available yet" if unavailable else "Type to search"
+    placeholder = (
+        "Not available yet"
+        if unavailable
+        else "Country or region"
+        if name == "location"
+        else "Type to search"
+    )
     return (
         f"<label for='jobs-{public_job_page.e(name)}'><span>{public_job_page.e(label)}</span>"
         f"<input id='jobs-{public_job_page.e(name)}' name='{public_job_page.e(name)}' "
@@ -618,10 +624,10 @@ def render_filter_search(name, label, options, selected):
 
 
 def render_job_card(job, *, return_to):
-    title = public_job_page.clean(job.get("source_title")) or public_job_page.clean(
+    title = candidate_text(job.get("source_title")) or candidate_text(
         job.get("canonical_title")
     )
-    company = public_job_page.clean(job.get("company_name"))
+    company = candidate_text(job.get("company_name"))
     location = job.get("catalog_location")
     location_html = f"<p class='job-location'>{public_job_page.e(location)}</p>" if location else ""
     summary = job.get("catalog_summary")
@@ -638,7 +644,7 @@ def render_job_card(job, *, return_to):
     return f"""
     <article class='job-card'>
       <div class='job-card-copy'>
-        <p class='job-company'>{public_job_page.e(company)}</p>
+        {f"<p class='job-company'>{public_job_page.e(company)}</p>" if company else ""}
         <h2><a href='{public_job_page.e(detail_target)}'>{public_job_page.e(title)}</a></h2>
         {location_html}
         {chips}
@@ -680,33 +686,34 @@ def catalog_card_attributes(job):
     role = attributes["role"]
     arrangement = attributes["work_arrangement"]
     requirements = attributes["requirements"]
-    remote = public_job_page.remote_eligibility(arrangement)
     values = []
-    if public_job_page.remote_adds_information(job.get("source_location"), remote):
-        values.append(remote)
-    activities = [
-        public_job_page.activity_label(value)
+    activities = public_job_page.unique_text(
+        work_activity_label(value)
         for value in role.get("work_activities") or []
-    ]
-    values.append(
-        next(filter(None, activities), None)
-        or public_job_page.enum_label(
-            public_job_page.candidate_chip_value(job.get("source_category"))
-        )
     )
+    fields = public_job_page.unique_text(
+        professional_field_label(value)
+        for value in role.get("professional_domains") or []
+    )
+    values.append(next(iter(activities), None))
+    values.append(next(iter(fields), None))
     languages = [
-        item.get("language")
-        for item in requirements.get("languages") or []
-        if isinstance(item, dict)
+        candidate_text(item.get("language"))
+        for item in public_job_page.candidate_language_requirements(
+            job,
+            requirements,
+        )
     ]
-    languages.append(job.get("canonical_language"))
+    if not any(languages):
+        languages.append(candidate_text(job.get("canonical_language")))
     values.append(next(iter(public_job_page.unique_text(languages)), None))
     values.append(engagement_label(job.get("_catalog_engagement")))
-    values.append(public_job_page.enum_label(role.get("role_family")))
     return public_job_page.unique_text(values)
 
 
 def concise_summary(value, limit=240):
+    if not candidate_text(value):
+        return None
     value = public_job_page.as_sentence(value)
     if not value or len(value) <= limit:
         return value
@@ -838,6 +845,27 @@ def parsed_timestamp(value):
     return parsed.astimezone(timezone.utc).timestamp()
 
 
+def catalog_cache_deadline(jobs, loaded_at):
+    """Bound a snapshot by both response caching and the next trust expiry."""
+
+    deadline = loaded_at + timedelta(seconds=CATALOG_CACHE_MAX_AGE_SECONDS)
+    for job in jobs:
+        max_age_hours = freshness_max_age_hours(
+            public_job_page.clean(job.get("inventory_model")),
+            public_job_page.clean(job.get("market_count_policy")),
+        )
+        source_run_at = parse_utc(
+            public_job_page.clean(job.get("latest_successful_source_run_at"))
+        )
+        if max_age_hours is None or source_run_at is None:
+            continue
+        deadline = min(
+            deadline,
+            source_run_at + timedelta(hours=max_age_hours),
+        )
+    return deadline
+
+
 def catalog_target(filters, *, page=1):
     params = []
     for key in ("q", *CATALOG_FACET_KEYS):
@@ -850,15 +878,6 @@ def catalog_target(filters, *, page=1):
 
 
 def facet_sort_key(group, candidate_key, label):
-    if group == "location":
-        fixed = {
-            facet_value_key("Remote"): 0,
-            facet_value_key("Remote worldwide"): 1,
-            facet_value_key("Remote with location limits"): 2,
-            facet_value_key("Hybrid"): 3,
-            facet_value_key("On-site"): 4,
-        }
-        return (fixed.get(candidate_key, 10), label.casefold(), candidate_key)
     return (0, label.casefold(), candidate_key)
 
 
@@ -874,30 +893,17 @@ def facet_value_key(value):
     return normalize_search(value)
 
 
+def candidate_text(value):
+    value = public_job_page.clean(value)
+    return None if not value or normalize_search(value) == "unknown" else value
+
+
 def professional_field_label(value):
     return PROFESSIONAL_FIELD_LABELS.get(public_job_page.clean(value))
 
 
 def work_activity_label(value):
     return WORK_ACTIVITY_LABELS.get(public_job_page.clean(value))
-
-
-def canonical_location_countries(values):
-    countries = set()
-    for value in values:
-        country = canonical_country_from_text(value)
-        if country:
-            countries.add(country)
-    return countries
-
-
-def canonical_location_regions(values):
-    labels_by_key = {facet_value_key(value): value for value in LOCATION_REGIONS}
-    return {
-        labels_by_key[key]
-        for value in values
-        if (key := facet_value_key(value)) in labels_by_key
-    }
 
 
 def location_filter_identity(value):
@@ -925,10 +931,16 @@ def location_filter_identity(value):
 
 
 def location_filter_matches(job, selected):
-    kind, value = location_filter_identity(selected)
+    return location_model_matches(
+        job["_catalog_location_model"],
+        location_filter_identity(selected),
+    )
+
+
+def location_model_matches(model, identity):
+    kind, value = identity
     if kind is None:
         return False
-    model = job["_catalog_location_model"]
     scope = model["scope"]
     mode = model["mode"]
     if kind == "remote":
@@ -1016,6 +1028,7 @@ __all__ = [
     "PAGE_SIZE",
     "PUBLIC_JOBS_ROUTE",
     "build_catalog",
+    "catalog_cache_deadline",
     "catalog_target",
     "load_public_jobs",
     "parse_catalog_query",
