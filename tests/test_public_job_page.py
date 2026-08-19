@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -18,7 +19,7 @@ from wahojobs.opportunity_enrichment import blank_document, validate_enrichment_
 
 ORIGIN = "https://app.test"
 OBSERVED_AT = "2026-08-16T12:30:00+00:00"
-JOB_PATH = "/job/acme-ai-9003"
+JOB_PATH = "/job/opportunity-9002"
 
 
 def seed_public_job(connection):
@@ -228,9 +229,11 @@ class PublicJobPageTests(unittest.TestCase):
             connection.close()
 
     def test_stable_path_loads_canonical_source_and_effective_enrichment(self):
-        self.assertEqual(public_job_page.public_job_path("acme-ai", 9003), JOB_PATH)
-        self.assertEqual(public_job_page.parse_public_job_path(JOB_PATH), ("acme-ai", 9003))
+        self.assertEqual(public_job_page.public_job_path(9002), JOB_PATH)
+        self.assertIsNone(public_job_page.public_job_path(9_223_372_036_854_775_808))
+        self.assertEqual(public_job_page.parse_public_job_path(JOB_PATH), 9002)
         self.assertIsNone(public_job_page.parse_public_job_path("/job/acme-ai"))
+        self.assertIsNone(public_job_page.parse_public_job_path("/job/acme-ai-9003"))
 
         job = self.load()
         self.assertEqual(job["canonical_title"], "Applied AI Engineer")
@@ -274,7 +277,7 @@ class PublicJobPageTests(unittest.TestCase):
             "Visit Acme AI careers",
         ):
             self.assertIn(expected, page)
-        self.assertIn("rel='canonical' href='https://app.test/job/acme-ai-9003'", page)
+        self.assertIn(f"rel='canonical' href='{ORIGIN}{JOB_PATH}'", page)
         self.assertNotIn("application/ld+json", page)
         self.assertNotIn("JobPosting", page)
         self.assertNotIn(">Unknown<", page)
@@ -294,6 +297,209 @@ class PublicJobPageTests(unittest.TestCase):
         self.assertIn("| Wahojobs</title>", page)
         self.assertEqual(page.count("class='content-section"), 4)
         self.assertEqual(page.count(">Remote — Brazil<"), 1)
+
+    def test_truthful_greenhouse_posting_date_and_source_body_enable_json_ld(self):
+        source_body = (
+            "Review employer-provided evaluation tasks, document defects, and "
+            "explain every decision with source-grounded evidence. " * 8
+        ) + "Do not render </script> as markup."
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE job_source_contents SET source_type = ?, body = ?, "
+                "body_format = 'text/plain', metadata_json = ? WHERE job_id = 9003",
+                (
+                    "greenhouse-job-board-v1",
+                    source_body,
+                    json.dumps(
+                        {"first_published": "2026-08-01T09:15:00+00:00"},
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        job = self.load()
+        page = public_job_page.render_public_job_page(job, public_origin=ORIGIN)
+        match = re.search(
+            r"<script type='application/ld\+json'>(.*?)</script>",
+            page,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        document = json.loads(match.group(1))
+        self.assertEqual(document["@type"], "JobPosting")
+        self.assertEqual(document["datePosted"], "2026-08-01T09:15:00+00:00")
+        self.assertEqual(document["description"], source_body)
+        self.assertEqual(document["url"], ORIGIN + JOB_PATH)
+        self.assertEqual(document["jobLocationType"], "TELECOMMUTE")
+        self.assertEqual(document["employmentType"], "CONTRACTOR")
+        self.assertEqual(document["baseSalary"]["currency"], "USD")
+        self.assertEqual(document["baseSalary"]["value"]["unitText"], "HOUR")
+        self.assertEqual(document["baseSalary"]["value"]["minValue"], 35)
+        self.assertEqual(document["baseSalary"]["value"]["maxValue"], 50)
+        self.assertEqual(
+            document["hiringOrganization"]["sameAs"],
+            "https://careers.example.test/acme",
+        )
+        self.assertNotIn("validThrough", document)
+        self.assertEqual(
+            document["applicantLocationRequirements"],
+            [{"@type": "Country", "name": "Brazil"}],
+        )
+        self.assertIn("Source job description", page)
+        self.assertIn("Originally posted", page)
+        self.assertIn("August 1, 2026", page)
+        self.assertIn("Do not render &lt;/script&gt; as markup.", page)
+        self.assertEqual(page.count("</script>"), 1)
+
+    def test_json_ld_never_uses_first_seen_updated_or_derived_summary_as_proxies(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE job_source_contents SET source_type = ?, metadata_json = '{}' "
+                "WHERE job_id = 9003",
+                ("greenhouse-job-board-v1",),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        job = self.load()
+        page = public_job_page.render_public_job_page(job, public_origin=ORIGIN)
+        self.assertIsNone(job["jobposting_evidence"])
+        self.assertNotIn("application/ld+json", page)
+        self.assertNotIn("Source job description", page)
+        self.assertNotIn("Originally posted", page)
+
+    def test_json_ld_omits_future_dates_short_bodies_and_countryless_remote_jobs(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE job_source_contents SET source_type = ?, body = ?, "
+                "metadata_json = ? WHERE job_id = 9003",
+                (
+                    "greenhouse-job-board-v1",
+                    "Short employer description.",
+                    '{"first_published":"2099-01-01T00:00:00+00:00"}',
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        job = self.load()
+        self.assertIsNone(job["jobposting_evidence"])
+
+        substantive_body = "Substantive employer description. " * 30
+        job["rich_body"] = substantive_body
+        self.assertIsNone(
+            public_job_page.truthful_jobposting_evidence(
+                job,
+                now=matches_module.datetime.fromisoformat(OBSERVED_AT),
+            )
+        )
+
+        job["rich_metadata_json"] = (
+            '{"first_published":"2026-08-01T00:00:00+00:00"}'
+        )
+        job["rich_body"] = "Short employer description."
+        self.assertIsNone(
+            public_job_page.truthful_jobposting_evidence(
+                job,
+                now=matches_module.datetime.fromisoformat(OBSERVED_AT),
+            )
+        )
+
+        job["rich_body"] = substantive_body
+        job["rich_metadata_json"] = '{"first_published":"not-a-date"}'
+        self.assertIsNone(
+            public_job_page.truthful_jobposting_evidence(
+                job,
+                now=matches_module.datetime.fromisoformat(OBSERVED_AT),
+            )
+        )
+
+        job["rich_metadata_json"] = (
+            '{"first_published":"2026-08-01T00:00:00+00:00"}'
+        )
+        arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+        arrangement.update(
+            workplace_mode="remote",
+            location_scope="remote_worldwide",
+            eligible_countries=[],
+            eligible_regions=[],
+            eligible_locations=[],
+        )
+        job["source_location"] = "Remote worldwide"
+        self.assertIsNone(
+            public_job_page.truthful_jobposting_evidence(
+                job,
+                now=matches_module.datetime.fromisoformat(OBSERVED_AT),
+            )
+        )
+
+        job["source_location"] = "Remote — Brazil"
+        job["rich_source_type"] = "unsupported-provider-v1"
+        self.assertIsNone(
+            public_job_page.truthful_jobposting_evidence(
+                job,
+                now=matches_module.datetime.fromisoformat(OBSERVED_AT),
+            )
+        )
+
+        job["rich_source_type"] = "greenhouse-job-board-v1"
+        job["public_state"] = (
+            public_job_page.PUBLIC_JOB_STATE_TEMPORARILY_UNAVAILABLE
+        )
+        self.assertIsNone(
+            public_job_page.truthful_jobposting_evidence(
+                job,
+                now=matches_module.datetime.fromisoformat(OBSERVED_AT),
+            )
+        )
+
+    def test_json_ld_does_not_treat_inferred_enrichment_location_as_explicit(self):
+        job = self.load()
+        job["rich_source_type"] = "greenhouse-job-board-v1"
+        job["rich_body"] = "Complete employer-provided job description. " * 20
+        job["rich_body_format"] = "text/plain"
+        job["rich_metadata_json"] = (
+            '{"first_published":"2026-08-01T00:00:00+00:00"}'
+        )
+        job["source_location"] = "Remote"
+        arrangement = job["enrichment"]["attributes"]["work_arrangement"]
+        arrangement.update(
+            workplace_mode="remote",
+            location_scope="remote_restricted",
+            eligible_countries=["Brazil"],
+        )
+
+        self.assertIsNone(
+            public_job_page.truthful_jobposting_evidence(
+                job,
+                now=matches_module.datetime.fromisoformat(OBSERVED_AT),
+            )
+        )
+
+    def test_historical_public_evidence_fails_closed_for_unknown_classification(self):
+        job = self.load()
+        self.assertTrue(public_job_page.public_historical_inventory_is_eligible(job))
+        mutations = (
+            {"source_tier": "deferred"},
+            {"inventory_model": "unknown"},
+            {"opportunity_kind": "raw_variant"},
+            {"availability_basis": "unknown"},
+            {"include_in_live_market_estimate": 0},
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                candidate = dict(job)
+                candidate.update(mutation)
+                self.assertFalse(
+                    public_job_page.public_historical_inventory_is_eligible(candidate)
+                )
 
     def test_api_endpoint_is_not_exposed_as_company_link(self):
         connection = sqlite3.connect(self.path)

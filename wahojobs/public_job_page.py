@@ -7,18 +7,38 @@ V2 enrichment, then renders only facts that those records establish.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 import html
 import json
+import math
 import re
 from urllib.parse import urlsplit
 
+from wahojobs.classification import (
+    AVAILABILITY_BASIS_API_FEED,
+    AVAILABILITY_BASIS_EVERGREEN_PAGE,
+    AVAILABILITY_BASIS_LOGIN_GATED_AFTER_APPLY,
+    AVAILABILITY_BASIS_PUBLIC_CMS,
+    AVAILABILITY_BASIS_PUBLIC_FEED,
+    AVAILABILITY_BASIS_PUBLIC_PAGE,
+    INVENTORY_MODEL_EVERGREEN_APPLICATION,
+    INVENTORY_MODEL_LIVE_FEED,
+    INVENTORY_MODEL_MIXED,
+    INVENTORY_MODEL_PUBLIC_INVENTORY,
+    MARKET_COUNT_POLICY_COUNT_LIVE,
+    MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
+    MARKET_COUNT_POLICY_REPORT_SEPARATELY,
+    OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
+    OPPORTUNITY_KIND_LIVE_POSTING,
+    OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
+)
 from wahojobs.matching.locations import (
     LOCATION_SCOPE_REMOTE_RESTRICTED,
     LOCATION_SCOPE_REMOTE_WORLDWIDE,
     REGION_AMERICAS,
     REGION_APAC,
     REGION_EMEA,
+    REMOTE_STATUS_REMOTE,
     canonical_country_from_text,
     classify_job_location,
     countries_in_location,
@@ -26,27 +46,89 @@ from wahojobs.matching.locations import (
 )
 from wahojobs.matching.languages import find_language_mentions
 from wahojobs.matching.opportunity_trust import TRUSTED, assess_opportunity_trust
-from wahojobs.opportunity_enrichment import blank_document, resolve_effective_enrichment
+from wahojobs.opportunity_enrichment import (
+    MIN_LLM_BODY_CHARACTERS,
+    blank_document,
+    resolve_effective_enrichment,
+    source_body_paragraphs,
+    source_body_text,
+)
 
 
 PUBLIC_JOB_PATH = re.compile(
-    r"^/job/(?P<company>[a-z0-9]+(?:-[a-z0-9]+)*)-(?P<job_id>[1-9][0-9]*)$"
+    r"^/job/opportunity-(?P<canonical_opportunity_id>[1-9][0-9]*)$"
 )
 PUBLIC_JOB_SLUG = re.compile(
-    r"^(?P<company>[a-z0-9]+(?:-[a-z0-9]+)*)-(?P<job_id>[1-9][0-9]*)$"
+    r"^opportunity-(?P<canonical_opportunity_id>[1-9][0-9]*)$"
 )
 PUBLIC_COMPANY_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+PUBLIC_JOB_STATE_LIVE = "live"
+PUBLIC_JOB_STATE_TEMPORARILY_UNAVAILABLE = "temporarily_unavailable"
+PUBLIC_SOURCE_TIERS = frozenset({"core", "strategic"})
+PUBLIC_INVENTORY_POLICY_BY_MODEL = {
+    INVENTORY_MODEL_LIVE_FEED: frozenset({MARKET_COUNT_POLICY_COUNT_LIVE}),
+    INVENTORY_MODEL_EVERGREEN_APPLICATION: frozenset(
+        {
+            MARKET_COUNT_POLICY_REPORT_SEPARATELY,
+            MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
+        }
+    ),
+    INVENTORY_MODEL_MIXED: frozenset(
+        {
+            MARKET_COUNT_POLICY_REPORT_SEPARATELY,
+            MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
+        }
+    ),
+    INVENTORY_MODEL_PUBLIC_INVENTORY: frozenset(
+        {
+            MARKET_COUNT_POLICY_REPORT_SEPARATELY,
+            MARKET_COUNT_POLICY_EXCLUDE_LIVE_ESTIMATE,
+        }
+    ),
+}
+PUBLIC_OPPORTUNITY_KINDS_BY_MODEL = {
+    INVENTORY_MODEL_LIVE_FEED: frozenset({OPPORTUNITY_KIND_LIVE_POSTING}),
+    INVENTORY_MODEL_EVERGREEN_APPLICATION: frozenset(
+        {OPPORTUNITY_KIND_EVERGREEN_APPLICATION}
+    ),
+    INVENTORY_MODEL_PUBLIC_INVENTORY: frozenset(
+        {OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY}
+    ),
+    INVENTORY_MODEL_MIXED: frozenset(
+        {
+            OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
+            OPPORTUNITY_KIND_LIVE_POSTING,
+            OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
+        }
+    ),
+}
+PUBLIC_AVAILABILITY_BASES = frozenset(
+    {
+        AVAILABILITY_BASIS_API_FEED,
+        AVAILABILITY_BASIS_EVERGREEN_PAGE,
+        AVAILABILITY_BASIS_LOGIN_GATED_AFTER_APPLY,
+        AVAILABILITY_BASIS_PUBLIC_CMS,
+        AVAILABILITY_BASIS_PUBLIC_FEED,
+        AVAILABILITY_BASIS_PUBLIC_PAGE,
+    }
+)
+MAX_PUBLIC_JOB_PAGE_BYTES = 8_388_608
+MAX_SQLITE_INTEGER = 9_223_372_036_854_775_807
 
 
-def public_job_slug(company_slug, job_id):
-    company = str(company_slug or "")
-    identifier = str(job_id or "")
-    candidate = f"{company}-{identifier}"
-    return candidate if PUBLIC_JOB_SLUG.fullmatch(candidate) is not None else None
+def public_job_slug(canonical_opportunity_id):
+    identifier = str(canonical_opportunity_id or "")
+    candidate = f"opportunity-{identifier}"
+    return (
+        candidate
+        if PUBLIC_JOB_SLUG.fullmatch(candidate) is not None
+        and int(identifier) <= MAX_SQLITE_INTEGER
+        else None
+    )
 
 
-def public_job_path(company_slug, job_id):
-    slug = public_job_slug(company_slug, job_id)
+def public_job_path(canonical_opportunity_id):
+    slug = public_job_slug(canonical_opportunity_id)
     return f"/job/{slug}" if slug is not None else None
 
 
@@ -58,7 +140,7 @@ def public_company_path(company_slug):
 def public_job_path_for_match(match):
     if not isinstance(match, dict):
         return None
-    return public_job_path(match.get("source_slug"), match.get("job_id"))
+    return public_job_path(match.get("canonical_opportunity_id"))
 
 
 def parse_public_job_path(path):
@@ -67,17 +149,17 @@ def parse_public_job_path(path):
     match = PUBLIC_JOB_PATH.fullmatch(path)
     if match is None:
         return None
-    return match.group("company"), int(match.group("job_id"))
+    identifier = int(match.group("canonical_opportunity_id"))
+    return identifier if identifier <= MAX_SQLITE_INTEGER else None
 
 
 def load_public_job(connection, path, *, now=None):
-    """Load one job variant plus canonical and effective enrichment facts."""
+    """Load one durable canonical opportunity and its best source variant."""
 
-    identity = parse_public_job_path(path)
-    if identity is None:
+    canonical_opportunity_id = parse_public_job_path(path)
+    if canonical_opportunity_id is None:
         return None
-    company_slug, job_id = identity
-    row = connection.execute(
+    rows = connection.execute(
         """
         SELECT
           j.id AS job_id,
@@ -114,10 +196,14 @@ def load_public_job(connection, path, *, now=None):
           sc.source_type AS rich_source_type,
           sc.source_url AS rich_source_url,
           sc.external_id AS rich_external_id,
+          sc.body AS rich_body,
+          sc.body_format AS rich_body_format,
           sc.metadata_json AS rich_metadata_json,
+          sc.material_content_sha256,
           sc.source_updated_at,
           sc.first_captured_at,
           sc.last_captured_at,
+          CASE WHEN sc.job_id IS NULL THEN 0 ELSE 1 END AS has_rich_content,
           oe.status AS enrichment_status,
           oe.model_provider,
           oe.model_name,
@@ -145,38 +231,55 @@ def load_public_job(connection, path, *, now=None):
             ORDER BY COALESCE(cr.finished_at, cr.started_at) DESC, cr.id DESC
             LIMIT 1
           )
-        WHERE j.id = ?
-          AND c.slug = ?
+        WHERE co.id = ?
           AND j.title NOT LIKE '[SIMULATION]%'
+        ORDER BY j.id
         """,
-        (job_id, company_slug),
-    ).fetchone()
-    if row is None:
+        (canonical_opportunity_id,),
+    ).fetchall()
+    historical = [
+        dict(row)
+        for row in rows
+        if public_historical_inventory_is_eligible(dict(row))
+    ]
+    if not historical:
         return None
 
-    result = dict(row)
-    if not public_opportunity_is_eligible(result, now=now):
-        return None
+    current = [
+        row for row in historical if public_opportunity_is_eligible(row, now=now)
+    ]
+    result = max(current or historical, key=representative_variant_rank)
+    public_state = (
+        PUBLIC_JOB_STATE_LIVE
+        if current
+        else PUBLIC_JOB_STATE_TEMPORARILY_UNAVAILABLE
+    )
 
     effective = resolve_effective_enrichment(
         connection,
-        int(row["canonical_opportunity_id"]),
+        int(result["canonical_opportunity_id"]),
     )
     document = effective["document"] if effective is not None else blank_document()
     official_url = first_human_facing_url(
-        row["rich_source_url"],
-        row["listing_url"],
+        result["rich_source_url"],
+        result["listing_url"],
     )
-    careers_url = human_facing_company_url(row["careers_url"])
+    careers_url = human_facing_company_url(result["careers_url"])
     result.update(
-        path=path,
-        company_path=public_company_path(row["company_slug"]),
+        path=public_job_path(result["canonical_opportunity_id"]),
+        public_state=public_state,
+        company_path=public_company_path(result["company_slug"]),
         official_url=official_url,
         careers_url=careers_url,
         enrichment=document,
         enrichment_field_sources=(effective or {}).get("field_sources", {}),
         overridden_fields=(effective or {}).get("overridden_fields", []),
         stale_override_fields=(effective or {}).get("stale_override_fields", []),
+    )
+    result["jobposting_evidence"] = (
+        truthful_jobposting_evidence(result, now=now)
+        if public_state == PUBLIC_JOB_STATE_LIVE
+        else None
     )
     result["workflow_match"] = {
         "source": result["company_name"],
@@ -199,24 +302,292 @@ def public_opportunity_is_eligible(row, *, now=None):
     if (
         not bool(row.get("job_is_active"))
         or not bool(row.get("canonical_is_active"))
-        or clean(row.get("source_tier")) == "experimental"
-        or not public_inventory_is_eligible(row)
+        or not public_historical_inventory_is_eligible(row)
     ):
         return False
     trust = assess_opportunity_trust(row, "unknown", now=now)
     return trust.status == TRUSTED
 
 
+def public_historical_inventory_is_eligible(row):
+    return bool(
+        clean(row.get("source_tier")) in PUBLIC_SOURCE_TIERS
+        and public_inventory_is_eligible(row)
+        and public_job_classification_is_eligible(row)
+        and public_company_path(row.get("company_slug")) is not None
+        and public_job_path(row.get("canonical_opportunity_id")) is not None
+    )
+
+
 def public_inventory_is_eligible(row):
     policy = clean(row.get("market_count_policy"))
     model = clean(row.get("inventory_model"))
-    if policy == "count_live":
-        return True
-    return policy != "count_live" and model in {
-        "evergreen_application",
-        "mixed",
-        "public_inventory",
+    return policy in PUBLIC_INVENTORY_POLICY_BY_MODEL.get(model, ())
+
+
+def public_job_classification_is_eligible(row):
+    """Fail closed for unknown, teaser, signal, or mismatched job classes."""
+
+    model = clean(row.get("inventory_model"))
+    policy = clean(row.get("market_count_policy"))
+    kind = clean(row.get("opportunity_kind"))
+    availability = clean(row.get("availability_basis"))
+    if (
+        kind not in PUBLIC_OPPORTUNITY_KINDS_BY_MODEL.get(model, ())
+        or availability not in PUBLIC_AVAILABILITY_BASES
+    ):
+        return False
+    return bool(row.get("include_in_live_market_estimate")) if (
+        policy == MARKET_COUNT_POLICY_COUNT_LIVE
+    ) else True
+
+
+def representative_variant_rank(row):
+    return (
+        bool(row.get("has_rich_content")),
+        bool(
+            row.get("_catalog_official_url")
+            or first_human_facing_url(
+                row.get("rich_source_url"),
+                row.get("listing_url"),
+            )
+        ),
+        clean(row.get("job_last_seen_at")) or "",
+        -int(row["job_id"]),
+    )
+
+
+def truthful_jobposting_evidence(job, *, now=None):
+    """Return source-faithful evidence or None; never synthesize required facts."""
+
+    if (
+        job.get("public_state") != PUBLIC_JOB_STATE_LIVE
+        or clean(job.get("rich_source_type")) != "greenhouse-job-board-v1"
+        or not clean(job.get("source_title"))
+        or not clean(job.get("company_name"))
+        or not first_human_facing_url(job.get("official_url"))
+    ):
+        return None
+    try:
+        metadata = json.loads(job.get("rich_metadata_json") or "{}")
+    except (TypeError, ValueError):
+        return None
+    if type(metadata) is not dict:
+        return None
+    original_posted = truthful_original_posting_date(
+        metadata.get("first_published"),
+        now=now,
+    )
+    if original_posted is None:
+        return None
+
+    paragraphs = tuple(
+        source_body_paragraphs(
+            job.get("rich_body"),
+            job.get("rich_body_format"),
+        )
+    )
+    description = "\n\n".join(paragraphs)
+    if (
+        len(source_body_text(
+            job.get("rich_body"),
+            job.get("rich_body_format"),
+        )) < MIN_LLM_BODY_CHARACTERS
+        or len(description) < MIN_LLM_BODY_CHARACTERS
+    ):
+        return None
+
+    countries = supported_remote_source_countries(job.get("source_location"))
+    if not countries:
+        return None
+    return {
+        "original_posted": original_posted,
+        "paragraphs": paragraphs,
+        "description": description,
+        "countries": countries,
     }
+
+
+def supported_remote_source_countries(source_location):
+    """Return only countries explicitly present in a remote source location."""
+
+    source_location = candidate_text(source_location)
+    scope, mode, _requirements, _restriction = classify_job_location(source_location)
+    if mode != REMOTE_STATUS_REMOTE or scope != LOCATION_SCOPE_REMOTE_RESTRICTED:
+        return ()
+    return tuple(
+        sorted(set(countries_in_location(source_location)), key=str.casefold)
+    )
+
+
+def truthful_original_posting_date(value, *, now=None):
+    value = clean(value)
+    if not value or len(value) > 64:
+        return None
+    current = now if now is not None else datetime.now(timezone.utc)
+    if type(current) is not datetime or current.tzinfo is None:
+        return None
+    current = current.astimezone(timezone.utc)
+    try:
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+            parsed_date = date.fromisoformat(value)
+            return value if parsed_date <= current.date() else None
+        candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return value if parsed.astimezone(timezone.utc) <= current else None
+
+
+def jobposting_fragments(job, canonical_url):
+    evidence = job.get("jobposting_evidence")
+    if not isinstance(evidence, dict):
+        return "", "", None
+    paragraphs = evidence.get("paragraphs")
+    countries = evidence.get("countries")
+    if not paragraphs or not countries:
+        return "", "", None
+
+    organization = {
+        "@type": "Organization",
+        "name": clean(job.get("company_name")),
+    }
+    company_url = human_facing_company_url(job.get("careers_url"))
+    if company_url:
+        organization["sameAs"] = company_url
+    document = {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        "applicantLocationRequirements": [
+            {"@type": "Country", "name": country}
+            for country in countries
+        ],
+        "datePosted": evidence["original_posted"],
+        "description": evidence["description"],
+        "hiringOrganization": organization,
+        "identifier": {
+            "@type": "PropertyValue",
+            "name": clean(job.get("company_name")),
+            "value": f"wahojobs-opportunity-{int(job['canonical_opportunity_id'])}",
+        },
+        "jobLocationType": "TELECOMMUTE",
+        "title": clean(job.get("source_title")),
+        "url": canonical_url,
+    }
+    employment_type = {
+        "full_time": "FULL_TIME",
+        "part_time": "PART_TIME",
+        "contract": "CONTRACTOR",
+        "freelance": "CONTRACTOR",
+        "temporary": "TEMPORARY",
+        "internship": "INTERN",
+        "volunteer": "VOLUNTEER",
+    }.get(
+        clean(
+            job["enrichment"]["attributes"]["work_arrangement"].get(
+                "engagement_type"
+            )
+        )
+    )
+    if employment_type:
+        document["employmentType"] = employment_type
+    salary = schema_base_salary(job["enrichment"]["attributes"]["compensation"])
+    if salary is not None:
+        document["baseSalary"] = salary
+    deadline = source_supported_deadline(job["enrichment"])
+    if deadline is not None:
+        document["validThrough"] = deadline
+
+    serialized = json.dumps(
+        document,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).replace("<", "\\u003c")
+    script = f"<script type='application/ld+json'>{serialized}</script>"
+    visible = (
+        "<section class='content-section source-description' "
+        "aria-labelledby='source-job-description'>"
+        "<h2 id='source-job-description'>Source job description</h2>"
+        + "".join(f"<p>{e(paragraph)}</p>" for paragraph in paragraphs)
+        + "</section>"
+    )
+    return script, visible, evidence["original_posted"]
+
+
+def schema_base_salary(compensation):
+    if compensation.get("disclosed") is not True:
+        return None
+    currency = (clean(compensation.get("currency")) or "").upper()
+    period = {
+        "hour": "HOUR",
+        "day": "DAY",
+        "week": "WEEK",
+        "month": "MONTH",
+        "year": "YEAR",
+    }.get(clean(compensation.get("period")))
+    minimum = compensation.get("amount_min")
+    maximum = compensation.get("amount_max")
+    if (
+        re.fullmatch(r"[A-Z]{3}", currency) is None
+        or period is None
+        or (minimum is None and maximum is None)
+        or not schema_salary_number(minimum)
+        or not schema_salary_number(maximum)
+        or (
+            minimum is not None
+            and maximum is not None
+            and minimum > maximum
+        )
+    ):
+        return None
+    value = {"@type": "QuantitativeValue", "unitText": period}
+    if minimum is not None and maximum is not None and minimum == maximum:
+        value["value"] = minimum
+    else:
+        if minimum is not None:
+            value["minValue"] = minimum
+        if maximum is not None:
+            value["maxValue"] = maximum
+    return {"@type": "MonetaryAmount", "currency": currency, "value": value}
+
+
+def schema_salary_number(value):
+    return bool(
+        value is None
+        or (
+            type(value) in {int, float}
+            and math.isfinite(value)
+            and value >= 0
+        )
+    )
+
+
+def source_supported_deadline(document):
+    value = clean(document["attributes"]["application"].get("deadline"))
+    if not value:
+        return None
+    supported = any(
+        item.get("field_path") == "attributes.application.deadline"
+        and item.get("basis") in {"source_explicit", "deterministic_parse"}
+        for item in document.get("field_evidence") or []
+        if isinstance(item, dict)
+    )
+    if not supported:
+        return None
+    try:
+        if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+            date.fromisoformat(value)
+        else:
+            candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                return None
+    except ValueError:
+        return None
+    return value
 
 
 def render_public_job_page(
@@ -230,6 +601,13 @@ def render_public_job_page(
     workflow_script="",
     catalog_return_to=None,
 ):
+    if job.get("public_state") != PUBLIC_JOB_STATE_LIVE:
+        return render_unavailable_public_job_page(
+            job,
+            public_origin=public_origin,
+            navigation=navigation,
+            catalog_return_to=catalog_return_to,
+        )
     document = job["enrichment"]
     attributes = document["attributes"]
     role = attributes["role"]
@@ -240,6 +618,9 @@ def render_public_job_page(
     content = attributes["content"]
 
     canonical_url = public_origin.rstrip("/") + job["path"]
+    jobposting_script, source_description_section, original_posted = (
+        jobposting_fragments(job, canonical_url)
+    )
     page_title = clean(job["source_title"]) or clean(job["canonical_title"])
     company_name = clean(job["company_name"])
     catalog_return_to = safe_catalog_return_target(catalog_return_to)
@@ -248,10 +629,9 @@ def render_public_job_page(
         if catalog_return_to
         else ""
     )
+    return_target = catalog_return_to or "/jobs"
     back_to_jobs = (
-        f"<p class='back-to-jobs'><a href='{e(catalog_return_to)}'>← Back to jobs</a></p>"
-        if catalog_return_to
-        else ""
+        f"<p class='back-to-jobs'><a href='{e(return_target)}'>← Back to jobs</a></p>"
     )
     quick_take = as_sentence(content["quick_take"])
     description = quick_take or (
@@ -309,6 +689,10 @@ def render_public_job_page(
             ("Hours", hours_label(arrangement)),
             ("Duration", clean(arrangement["duration"])),
             ("Apply by", clean(application["deadline"])),
+            (
+                "Originally posted",
+                display_date(original_posted) if original_posted else None,
+            ),
             (
                 "Application process",
                 "Assessment required" if application["assessment_required"] is True else None,
@@ -456,7 +840,7 @@ def render_public_job_page(
         </section>
         """
 
-    return f"""<!doctype html>
+    page = f"""<!doctype html>
 <html lang='en'>
 <head>
   <meta charset='utf-8'>
@@ -469,6 +853,7 @@ def render_public_job_page(
   <meta property='og:title' content='{e(page_title)} at {e(company_name)}'>
   <meta property='og:description' content='{e(description)}'>
   <meta property='og:url' content='{e(canonical_url)}'>
+  {jobposting_script}
   <style>{PUBLIC_JOB_CSS}</style>
 </head>
 <body>
@@ -493,6 +878,7 @@ def render_public_job_page(
       </header>
       <div id='action-feedback' aria-live='polite'></div>
       <div class='job-description'>
+        {source_description_section}
         {about_section}
         {render_list_section("What you'll do", content['responsibilities'])}
         {requirements_section}
@@ -503,6 +889,71 @@ def render_public_job_page(
     </article>
   </main>
   {workflow_script if authenticated else ''}
+</body>
+</html>"""
+    if jobposting_script and len(page.encode("utf-8")) > MAX_PUBLIC_JOB_PAGE_BYTES:
+        without_jobposting = dict(job)
+        without_jobposting["jobposting_evidence"] = None
+        return render_public_job_page(
+            without_jobposting,
+            public_origin=public_origin,
+            authenticated=authenticated,
+            navigation=navigation,
+            workflow_controls=workflow_controls,
+            workflow_status=workflow_status,
+            workflow_script=workflow_script,
+            catalog_return_to=catalog_return_to,
+        )
+    return page
+
+
+def render_unavailable_public_job_page(
+    job,
+    *,
+    public_origin,
+    navigation="",
+    catalog_return_to=None,
+):
+    canonical_url = public_origin.rstrip("/") + job["path"]
+    title = clean(job.get("source_title")) or clean(job.get("canonical_title"))
+    company = clean(job.get("company_name"))
+    return_target = safe_catalog_return_target(catalog_return_to) or "/jobs"
+    company_path = job.get("company_path")
+    company_link = (
+        f"<a href='{e(company_path)}'>{e(company)}</a>"
+        if company_path
+        else e(company)
+    )
+    return f"""<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>{e(title)} at {e(company)} | Wahojobs</title>
+  <meta name='description' content='This opportunity is not currently available on Wahojobs.'>
+  <meta name='robots' content='noindex,follow'>
+  <link rel='canonical' href='{e(canonical_url)}'>
+  <style>{PUBLIC_JOB_CSS}</style>
+</head>
+<body>
+  <header class='site-header'>
+    <a class='brand' href='/jobs'>Wahojobs</a>
+    {navigation}
+  </header>
+  <main>
+    <p class='back-to-jobs'><a href='{e(return_target)}'>← Back to jobs</a></p>
+    <article>
+      <header class='hero'>
+        <div class='hero-copy'>
+          <p class='eyebrow'>Opportunity unavailable</p>
+          <h1>{e(title)}</h1>
+          <p class='company-line'>{company_link}</p>
+          <p>This opportunity is not currently available in trusted public inventory.</p>
+          <div class='hero-actions'><a class='button button-primary' href='/jobs'>Browse current jobs</a></div>
+        </div>
+      </header>
+    </article>
+  </main>
 </body>
 </html>"""
 
@@ -1171,13 +1622,18 @@ p { margin: 0 0 14px; }
 
 __all__ = [
     "PUBLIC_JOB_PATH",
+    "PUBLIC_JOB_STATE_LIVE",
+    "PUBLIC_JOB_STATE_TEMPORARILY_UNAVAILABLE",
     "load_public_job",
     "parse_public_job_path",
     "public_company_path",
+    "public_historical_inventory_is_eligible",
     "public_inventory_is_eligible",
+    "public_job_classification_is_eligible",
     "public_opportunity_is_eligible",
     "public_job_path",
     "public_job_path_for_match",
     "public_job_slug",
+    "representative_variant_rank",
     "render_public_job_page",
 ]

@@ -31,6 +31,7 @@ from wahojobs import (
     public_company_page,
     public_job_page,
     public_jobs_catalog,
+    public_seo,
 )
 from wahojobs.accounts import SessionUnavailable, resolve_session, validate_session_csrf
 from wahojobs.browser_session_authentication import (
@@ -497,6 +498,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_public_jobs_cache",
         "_public_jobs_cache_lock",
         "_public_origin",
+        "_public_seo_policy",
         "_registry",
         "_service",
     )
@@ -514,6 +516,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         now,
         ephemeral_identity_factory=None,
         registry=None,
+        public_seo_policy=None,
     ):
         origin, authority = _validated_public_origin(public_origin)
         if (
@@ -537,6 +540,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             registry = local_product.MatchRunRegistry()
         if type(registry) is not local_product.MatchRunRegistry:
             raise ValueError("invalid_authenticated_matches_browser_configuration")
+        if public_seo_policy is None:
+            public_seo_policy = public_seo.PublicSeoRoutePolicy.empty()
+        if type(public_seo_policy) is not public_seo.PublicSeoRoutePolicy:
+            raise ValueError("invalid_authenticated_matches_browser_configuration")
         self._service = service
         self._connection_provider = connection_provider
         self._write_connection_provider = write_connection_provider
@@ -547,6 +554,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         )
         self._public_origin = origin
         self._public_authority = authority
+        self._public_seo_policy = public_seo_policy
         self._public_jobs_cache = None
         self._public_jobs_cache_lock = threading.Lock()
         self._now = now
@@ -562,6 +570,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         return (
             path in AUTHENTICATED_CANDIDATE_ROUTES
             or path == public_jobs_catalog.PUBLIC_JOBS_ROUTE
+            or path in public_seo.PUBLIC_SEO_DOCUMENT_ROUTES
+            or self._public_seo_policy.owns_path(path)
             or public_company_page.parse_public_company_path(path) is not None
             or public_job_page.parse_public_job_path(path) is not None
         )
@@ -580,7 +590,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "This matches route does not accept that method.",
                 extra_headers=(("Allow", "GET, HEAD, POST"),),
             )
-        parsed_target = _parse_target(target, method=method)
+        parsed_target = _parse_target(
+            target,
+            method=method,
+            public_seo_policy=self._public_seo_policy,
+        )
         params = None if parsed_target is None else parsed_target[1]
         if params is None:
             return _failure_response(
@@ -599,6 +613,27 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "This matches request is not valid.",
             )
         route = parsed_target[0]
+        directive = self._public_seo_policy.resolve_path(route)
+        if directive is not None:
+            if method not in {"GET", "HEAD"}:
+                return _failure_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "Method not allowed",
+                    "This SEO route accepts GET and HEAD only.",
+                    extra_headers=(("Allow", "GET, HEAD"),),
+                )
+            if directive.kind == "redirect":
+                return _permanent_redirect_response(directive.location)
+            return _gone_response()
+        if route in public_seo.PUBLIC_SEO_DOCUMENT_ROUTES:
+            if method not in {"GET", "HEAD"}:
+                return _failure_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "Method not allowed",
+                    "This SEO document accepts GET and HEAD only.",
+                    extra_headers=(("Allow", "GET, HEAD"),),
+                )
+            return self._handle_public_seo_document(route)
         if route == public_jobs_catalog.PUBLIC_JOBS_ROUTE:
             if method not in {"GET", "HEAD"}:
                 return _failure_response(
@@ -967,7 +1002,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             authenticated = authority is not None and authority.state == "profile"
             controls = ""
             status = ""
-            if authenticated and self._write_connection_provider is not None:
+            if (
+                job["public_state"] == public_job_page.PUBLIC_JOB_STATE_LIVE
+                and authenticated
+                and self._write_connection_provider is not None
+            ):
                 records = self._load_pipeline_records(authority)
                 match = job["workflow_match"]
                 context = {"matches": {"do_these_first": [match]}}
@@ -1017,6 +1056,14 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     if authenticated
                     else "public, max-age=300"
                 ),
+                robots_directive=(
+                    "noindex, follow"
+                    if catalog_return_to
+                    or job["public_state"]
+                    != public_job_page.PUBLIC_JOB_STATE_LIVE
+                    else None
+                ),
+                max_bytes=MAX_PUBLIC_JOBS_RESPONSE_BYTES,
             )
         except (sqlite3.Error, ValueError, TypeError):
             return _failure_response(
@@ -1034,11 +1081,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     def _handle_public_jobs(self, params, header_items):
         try:
             query_present = bool(params.pop("_query_present", False))
+            raw_query = params.pop("_raw_query", "")
+            raw_query_present = bool(params.pop("_raw_query_present", False))
             jobs = self._load_public_jobs_inventory()
 
             authority = self._optional_public_authority(header_items)
             authenticated = authority is not None and authority.state == "profile"
             catalog = public_jobs_catalog.build_catalog(jobs, params)
+            request_target = public_jobs_catalog.PUBLIC_JOBS_ROUTE + (
+                "?" + raw_query if raw_query or raw_query_present else ""
+            )
+            if request_target != catalog["normalized_target"]:
+                return _permanent_redirect_response(catalog["normalized_target"])
             content = public_jobs_catalog.render_public_jobs_page(
                 catalog,
                 public_origin=self._public_origin,
@@ -1058,6 +1112,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 ),
                 cache_control=("no-store" if authenticated else "public, max-age=300"),
                 max_bytes=MAX_PUBLIC_JOBS_RESPONSE_BYTES,
+                robots_directive=(
+                    "noindex, follow" if catalog["filters"] else None
+                ),
+            )
+        except public_jobs_catalog.CatalogPageOutOfRange:
+            return _failure_response(
+                HTTPStatus.NOT_FOUND,
+                "Jobs page not found",
+                "This jobs page is not available.",
             )
         except (sqlite3.Error, ValueError, TypeError):
             return _failure_response(
@@ -1074,10 +1137,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
 
     def _handle_public_company(self, path, params, header_items):
         try:
+            jobs = self._load_public_jobs_inventory()
+            known_company = None
+            if not any(job.get("company_slug") == path.rsplit("/", 1)[-1] for job in jobs):
+                known_company = self._load_public_company_identity(path)
             company = public_company_page.build_public_company(
-                self._load_public_jobs_inventory(),
+                jobs,
                 path,
                 page=params["page"],
+                known_company=known_company,
             )
             if company is None:
                 return _failure_response(
@@ -1085,6 +1153,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     "Company not found",
                     "This company page is not available.",
                 )
+            raw_query = params.get("raw_query", "")
+            request_target = path + (
+                "?" + raw_query
+                if raw_query or params.get("raw_query_present")
+                else ""
+            )
+            normalized_target = public_company_page.company_page_target(
+                path,
+                company["catalog"]["page"],
+            )
+            if request_target != normalized_target:
+                return _permanent_redirect_response(normalized_target)
             authority = self._optional_public_authority(header_items)
             authenticated = authority is not None and authority.state == "profile"
             content = public_company_page.render_public_company_page(
@@ -1107,6 +1187,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 ),
                 cache_control=("no-store" if authenticated else "public, max-age=300"),
                 max_bytes=MAX_PUBLIC_JOBS_RESPONSE_BYTES,
+                robots_directive=(
+                    None if company["has_current_jobs"] else "noindex, follow"
+                ),
+            )
+        except public_jobs_catalog.CatalogPageOutOfRange:
+            return _failure_response(
+                HTTPStatus.NOT_FOUND,
+                "Company page not found",
+                "This company page is not available.",
             )
         except (sqlite3.Error, ValueError, TypeError):
             return _failure_response(
@@ -1119,6 +1208,86 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Company temporarily unavailable",
                 "This company page cannot be loaded safely right now.",
+            )
+
+    def _load_public_company_identity(self, path):
+        connection = None
+        with self._connection_provider() as connection:
+            if (
+                not isinstance(connection, sqlite3.Connection)
+                or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+                or connection.in_transaction
+            ):
+                raise ValueError("public_company_inventory_unavailable")
+            connection.execute("BEGIN")
+            try:
+                return public_company_page.load_public_company_identity(
+                    connection,
+                    path,
+                )
+            finally:
+                if connection.in_transaction:
+                    connection.rollback()
+
+    def _handle_public_seo_document(self, route):
+        try:
+            if route == public_seo.ROBOTS_ROUTE:
+                return _text_response(
+                    HTTPStatus.OK,
+                    public_seo.render_robots(self._public_origin),
+                    content_type="text/plain; charset=utf-8",
+                )
+            if route == public_seo.SITEMAP_INDEX_ROUTE:
+                content = public_seo.render_sitemap_index(self._public_origin)
+            else:
+                if route == public_seo.STATIC_SITEMAP_ROUTE:
+                    paths = (
+                        ()
+                        if self._public_seo_policy.resolve_path(
+                            public_jobs_catalog.PUBLIC_JOBS_ROUTE
+                        )
+                        is not None
+                        else (public_jobs_catalog.PUBLIC_JOBS_ROUTE,)
+                    )
+                else:
+                    jobs = self._load_public_jobs_inventory()
+                    if route == public_seo.JOBS_SITEMAP_ROUTE:
+                        paths = tuple(job["path"] for job in jobs)
+                    else:
+                        paths = tuple(
+                            sorted(
+                                {
+                                    public_job_page.public_company_path(
+                                        job["company_slug"]
+                                    )
+                                    for job in jobs
+                                    if self._public_seo_policy.resolve_path(
+                                        public_job_page.public_company_path(
+                                            job["company_slug"]
+                                        )
+                                    )
+                                    is None
+                                }
+                            )
+                        )
+                content = public_seo.render_urlset(self._public_origin, paths)
+            return _text_response(
+                HTTPStatus.OK,
+                content,
+                content_type="application/xml; charset=utf-8",
+            )
+        except (sqlite3.Error, ValueError, TypeError):
+            return _failure_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "SEO document temporarily unavailable",
+                "This SEO document cannot be generated safely right now.",
+            )
+        except Exception:
+            return _failure_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "SEO document temporarily unavailable",
+                "This SEO document cannot be generated safely right now.",
             )
 
     def _load_public_jobs_inventory(self):
@@ -1151,7 +1320,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     if connection.in_transaction:
                         connection.rollback()
 
-            snapshot = tuple(jobs)
+            snapshot = tuple(
+                job
+                for job in jobs
+                if self._public_seo_policy.resolve_path(job["path"]) is None
+            )
             self._public_jobs_cache = (
                 now,
                 public_jobs_catalog.catalog_cache_deadline(snapshot, now),
@@ -1722,7 +1895,11 @@ def _validated_public_origin(value):
     return value.rstrip("/"), parsed.netloc
 
 
-def _parse_target(target, *, method):
+def _parse_target(target, *, method, public_seo_policy=None):
+    if public_seo_policy is None:
+        public_seo_policy = public_seo.PublicSeoRoutePolicy.empty()
+    if type(public_seo_policy) is not public_seo.PublicSeoRoutePolicy:
+        return None
     if type(target) is not str:
         return None
     try:
@@ -1737,16 +1914,34 @@ def _parse_target(target, *, method):
         or (
             parsed.path not in AUTHENTICATED_CANDIDATE_ROUTES
             and parsed.path != public_jobs_catalog.PUBLIC_JOBS_ROUTE
+            and parsed.path not in public_seo.PUBLIC_SEO_DOCUMENT_ROUTES
+            and not public_seo_policy.owns_path(parsed.path)
             and public_company_page.parse_public_company_path(parsed.path) is None
             and public_job_page.parse_public_job_path(parsed.path) is None
         )
         or parsed.fragment
+        or not public_jobs_catalog.valid_query_encoding(parsed.query)
+        or (
+            parsed.path in public_seo.PUBLIC_SEO_DOCUMENT_ROUTES
+            and parsed.query
+        )
         or (parsed.path == AUTHENTICATED_ACTION_ROUTE and parsed.query)
-        or (method == "POST" and parsed.path != AUTHENTICATED_MATCHES_ROUTE and parsed.query)
+        or (
+            method == "POST"
+            and parsed.path != AUTHENTICATED_MATCHES_ROUTE
+            and parsed.query
+            and not public_seo_policy.owns_path(parsed.path)
+        )
     ):
         return None
+    if public_seo_policy.owns_path(parsed.path):
+        return parsed.path, {}
+    if parsed.path in public_seo.PUBLIC_SEO_DOCUMENT_ROUTES:
+        return parsed.path, {}
     if public_company_page.parse_public_company_path(parsed.path) is not None:
         params = public_company_page.parse_company_query(parsed.query)
+        if params is not None:
+            params["raw_query_present"] = "?" in target
         return (parsed.path, params) if params is not None else None
     if public_job_page.parse_public_job_path(parsed.path) is not None:
         if not parsed.query:
@@ -1772,6 +1967,8 @@ def _parse_target(target, *, method):
         )
     if parsed.path == public_jobs_catalog.PUBLIC_JOBS_ROUTE:
         params = public_jobs_catalog.parse_catalog_query(parsed.query)
+        if params is not None:
+            params["_raw_query_present"] = "?" in target
         return (parsed.path, params) if params is not None else None
     if parsed.path == AUTHENTICATED_ACTION_ROUTE:
         return parsed.path, {}
@@ -2222,6 +2419,7 @@ def _html_response(
     extra_headers=(),
     cache_control="no-store",
     max_bytes=MAX_MATCHES_RESPONSE_BYTES,
+    robots_directive="noindex, nofollow",
 ):
     payload = content.encode("utf-8")
     if (
@@ -2241,6 +2439,13 @@ def _html_response(
         raise ValueError("invalid_authenticated_matches_response")
     if cache_control not in {"no-store", "public, max-age=300"}:
         raise ValueError("invalid_authenticated_matches_response")
+    if robots_directive not in {None, "noindex, nofollow", "noindex, follow"}:
+        raise ValueError("invalid_authenticated_matches_response")
+    robots_header = (
+        (("X-Robots-Tag", robots_directive),)
+        if robots_directive is not None
+        else ()
+    )
     return AuthenticatedMatchesBrowserResponse(
         int(status),
         payload,
@@ -2250,6 +2455,7 @@ def _html_response(
             *_SECURITY_HEADERS,
             ("Cache-Control", cache_control),
             ("Referrer-Policy", referrer_policy),
+            *robots_header,
             *extra_headers,
         ),
     )
@@ -2296,7 +2502,56 @@ def _json_response(status, document):
             ("Content-Length", str(len(payload))),
             *_SECURITY_HEADERS,
             ("Referrer-Policy", _NO_REFERRER_POLICY),
+            ("Cache-Control", "no-store"),
+            ("X-Robots-Tag", "noindex, nofollow"),
         ),
+    )
+
+
+def _text_response(status, content, *, content_type):
+    if type(content) is not str or content_type not in {
+        "text/plain; charset=utf-8",
+        "application/xml; charset=utf-8",
+    }:
+        raise ValueError("invalid_public_seo_response")
+    payload = content.encode("utf-8")
+    if len(payload) > MAX_PUBLIC_JOBS_RESPONSE_BYTES:
+        return _failure_response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "SEO document temporarily unavailable",
+            "This SEO document cannot be generated safely right now.",
+        )
+    return AuthenticatedMatchesBrowserResponse(
+        int(status),
+        payload,
+        (
+            ("Content-Type", content_type),
+            ("Content-Length", str(len(payload))),
+            *_SECURITY_HEADERS,
+            ("Cache-Control", "public, max-age=300"),
+            ("Referrer-Policy", _NO_REFERRER_POLICY),
+        ),
+    )
+
+
+def _permanent_redirect_response(location):
+    return _html_response(
+        HTTPStatus.MOVED_PERMANENTLY,
+        _page(
+            "Moved permanently",
+            "<section class='panel'><h1>Moved permanently</h1>"
+            "<p>This public URL has moved.</p></section>",
+        ),
+        extra_headers=(("Location", location),),
+        cache_control="public, max-age=300",
+    )
+
+
+def _gone_response():
+    return _failure_response(
+        HTTPStatus.GONE,
+        "Opportunity removed",
+        "This public URL has been permanently removed.",
     )
 
 

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import re
 import unicodedata
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, unquote_to_bytes, urlencode, urlsplit
 
 from wahojobs import public_job_page
 from wahojobs.matching.locations import (
@@ -44,6 +44,7 @@ MAX_FILTER_VALUE_CHARACTERS = 100
 MAX_FILTER_VALUE_BYTES = 400
 MAX_PAGE = 99_999
 PAGE_VALUE = re.compile(r"^[1-9][0-9]{0,4}$")
+INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 PROFESSIONAL_FIELD_LABELS = {
     "biology": "Biology",
     "chemistry": "Chemistry",
@@ -73,6 +74,10 @@ WORK_ACTIVITY_LABELS = {
     "writing_editing": "Writing & editing",
 }
 LOCATION_REGIONS = frozenset({REGION_AMERICAS, REGION_EMEA, REGION_APAC})
+
+
+class CatalogPageOutOfRange(ValueError):
+    pass
 
 
 def load_public_jobs(connection, *, now=None):
@@ -175,7 +180,7 @@ def load_public_jobs(connection, *, now=None):
         document = effective["document"] if effective is not None else blank_document()
         job = dict(row)
         job.update(
-            path=public_job_page.public_job_path(row["company_slug"], row["job_id"]),
+            path=public_job_page.public_job_path(canonical_id),
             official_url=row["_catalog_official_url"],
             careers_url=public_job_page.human_facing_company_url(row["careers_url"]),
             enrichment=document,
@@ -189,18 +194,7 @@ def load_public_jobs(connection, *, now=None):
 
 
 def representative_variant_rank(row):
-    return (
-        bool(row.get("has_rich_content")),
-        bool(
-            row.get("_catalog_official_url")
-            or public_job_page.first_human_facing_url(
-                row.get("rich_source_url"),
-                row.get("listing_url"),
-            )
-        ),
-        public_job_page.clean(row.get("job_last_seen_at")) or "",
-        -int(row["job_id"]),
-    )
+    return public_job_page.representative_variant_rank(row)
 
 
 def prepare_catalog_presentation(job):
@@ -313,7 +307,9 @@ def build_catalog(jobs, params=None):
     result_count = len(visible)
     total_pages = max(1, math.ceil(result_count / PAGE_SIZE))
     requested_page = requested.get("page", 1)
-    page = min(requested_page, total_pages)
+    if requested_page > total_pages:
+        raise CatalogPageOutOfRange("catalog_page_out_of_range")
+    page = requested_page
     first_index = (page - 1) * PAGE_SIZE
     page_jobs = visible[first_index : first_index + PAGE_SIZE]
     return {
@@ -328,7 +324,7 @@ def build_catalog(jobs, params=None):
         "total_pages": total_pages,
         "facets": facets,
         "filters": filters,
-        "return_to": catalog_target(filters, page=page),
+        "normalized_target": catalog_target(filters, page=page),
     }
 
 
@@ -424,6 +420,8 @@ def catalog_facets(jobs):
 
 
 def parse_catalog_query(query):
+    if not valid_query_encoding(query):
+        return None
     try:
         raw = (
             parse_qs(
@@ -462,7 +460,18 @@ def parse_catalog_query(query):
     ):
         return None
     params["_query_present"] = bool(query)
+    params["_raw_query"] = query
     return params
+
+
+def valid_query_encoding(query):
+    if type(query) is not str or INVALID_PERCENT_ESCAPE.search(query):
+        return False
+    try:
+        unquote_to_bytes(query).decode("utf-8")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return False
+    return True
 
 
 def validate_catalog_return_target(value):
@@ -483,6 +492,7 @@ def validate_catalog_return_target(value):
     if params is None:
         return None
     params.pop("_query_present", None)
+    params.pop("_raw_query", None)
     normalized = normalize_catalog_params(params)
     return catalog_target(
         {key: value for key, value in normalized.items() if key != "page"},
@@ -507,9 +517,23 @@ def render_public_jobs_page(
     navigation="",
     query_present=False,
 ):
-    canonical_url = public_origin.rstrip("/") + PUBLIC_JOBS_ROUTE
-    robots = "<meta name='robots' content='noindex,follow'>" if query_present else ""
     filters = catalog["filters"]
+    filters_present = bool(filters)
+    canonical_url = (
+        public_origin.rstrip("/") + catalog_target({}, page=catalog["page"])
+        if not filters_present
+        else None
+    )
+    robots = (
+        "<meta name='robots' content='noindex,follow'>"
+        if filters_present
+        else ""
+    )
+    canonical = (
+        f"<link rel='canonical' href='{public_job_page.e(canonical_url)}'>"
+        if canonical_url
+        else ""
+    )
     q = filters.get("q", "")
     filter_controls = "".join(
         (
@@ -529,11 +553,11 @@ def render_public_jobs_page(
     )
     clear = (
         f"<a class='clear-filters' href='{PUBLIC_JOBS_ROUTE}'>Clear filters</a>"
-        if query_present
+        if filters_present
         else ""
     )
     cards = "".join(
-        render_job_card(job, return_to=catalog["return_to"])
+        render_job_card(job, return_to=None)
         for job in catalog["jobs"]
     )
     if cards:
@@ -551,16 +575,18 @@ def render_public_jobs_page(
     else:
         count_label = "No current opportunities match"
     pagination = render_pagination(catalog)
+    page_suffix = f" — Page {catalog['page']}" if catalog["page"] > 1 else ""
+    description_suffix = f" Page {catalog['page']}." if catalog["page"] > 1 else ""
 
     return f"""<!doctype html>
 <html lang='en'>
 <head>
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>Browse jobs | Wahojobs</title>
-  <meta name='description' content='Browse and search current Wahojobs opportunities.'>
+  <title>Browse jobs{public_job_page.e(page_suffix)} | Wahojobs</title>
+  <meta name='description' content='Browse and search current Wahojobs opportunities.{public_job_page.e(description_suffix)}'>
   {robots}
-  <link rel='canonical' href='{public_job_page.e(canonical_url)}'>
+  {canonical}
   <style>{public_job_page.PUBLIC_JOB_CSS}{PUBLIC_JOBS_CSS}</style>
 </head>
 <body>
@@ -640,11 +666,7 @@ def render_job_card(job, *, return_to):
         if attributes
         else ""
     )
-    detail_target = (
-        job["path"] + "?" + urlencode({"return_to": return_to})
-        if return_to
-        else job["path"]
-    )
+    detail_target = job["path"]
     return f"""
     <article class='job-card'>
       <div class='job-card-copy'>
@@ -1027,6 +1049,7 @@ PUBLIC_JOBS_CSS = """
 
 
 __all__ = [
+    "CatalogPageOutOfRange",
     "CATALOG_FILTER_KEYS",
     "CATALOG_QUERY_KEYS",
     "PAGE_SIZE",
@@ -1038,5 +1061,6 @@ __all__ = [
     "parse_catalog_query",
     "render_job_card",
     "render_public_jobs_page",
+    "valid_query_encoding",
     "validate_catalog_return_target",
 ]

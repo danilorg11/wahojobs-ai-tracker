@@ -5097,11 +5097,11 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                         matches.body,
                     )
                     self.assertIn(
-                        b"href='https://jobs.example.test/distinctive-invited-python'",
+                        b"href='/job/opportunity-901'",
                         matches.body,
                     )
-                    self.assertIn(
-                        b"target='_blank' rel='noopener noreferrer'",
+                    self.assertNotIn(
+                        b"href='https://jobs.example.test/distinctive-invited-python'",
                         matches.body,
                     )
                     stored = https_request(

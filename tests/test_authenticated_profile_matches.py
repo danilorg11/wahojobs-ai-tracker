@@ -543,7 +543,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                     body,
                 )
                 self.assertIn(
-                    "href='/job/configured-production-7003'",
+                    "href='/job/opportunity-7002'",
                     body,
                 )
                 self.assertNotIn("href='https://jobs.example.test/distinctive-bilingual-reviewer'", body)
@@ -552,7 +552,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                     [
                         "/account/profile",
                         "/logout",
-                        "/job/configured-production-7003",
+                        "/job/opportunity-7002",
                     ],
                 )
                 self.assertNotIn(state.profile_id, body)
@@ -637,6 +637,10 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
 
         body = self._body(response)
         self.assertEqual(response.status, 200)
+        self.assertEqual(
+            dict(response.headers)["X-Robots-Tag"],
+            "noindex, nofollow",
+        )
         self.assertEqual(self.provider.calls, 1)
         self.assertEqual(len(query_calls), 1)
         resolve.assert_called_once()
@@ -648,7 +652,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         )
         self.assertNotIn(self.profile_v2["identity"]["profile_id"], body)
         self.assertIn("Distinctive Python Backend AI Coding Evaluator", body)
-        self.assertIn("href='/job/configured-901'", body)
+        self.assertIn("href='/job/opportunity-901'", body)
         self.assertNotIn("href='https://jobs.example.test/distinctive-python'", body)
         self.assertNotIn("javascript:", body)
         self.assertNotIn("Unsafe Protocol Python Evaluator", body)
@@ -657,7 +661,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             [
                 "/account/profile",
                 "/logout",
-                "/job/configured-901",
+                "/job/opportunity-901",
             ],
         )
         for forbidden in ("My Jobs", "/action", "tracker", "demo persona"):

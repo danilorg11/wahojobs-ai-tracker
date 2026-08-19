@@ -221,6 +221,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         self.assertIn(b"href='/logout'", get_body)
         self.assertEqual(get_headers["Content-Type"], "text/html; charset=utf-8")
         self.assertEqual(get_headers["Cache-Control"], "no-store")
+        self.assertEqual(get_headers["X-Robots-Tag"], "noindex, nofollow")
         self.assertEqual(
             get_headers["Content-Security-Policy"],
             "default-src 'none'; style-src 'unsafe-inline'; "

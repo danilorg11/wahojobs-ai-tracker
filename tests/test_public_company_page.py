@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from wahojobs import authenticated_profile_matches as matches_module
-from wahojobs import public_company_page, public_jobs_catalog
+from wahojobs import public_company_page, public_jobs_catalog, public_seo
 from wahojobs.authenticated_profile_matches import (
     AuthenticatedProfileMatchesBrowserIntegration,
     AuthenticatedProfileMatchesService,
@@ -150,7 +150,7 @@ class PublicCompanyPageTests(unittest.TestCase):
         for index in range(31):
             job = deepcopy(base)
             job["job_id"] = 20_000 + index
-            job["path"] = f"/job/acme-ai-{20_000 + index}"
+            job["path"] = f"/job/opportunity-{20_000 + index}"
             job["source_title"] = f"Role {index:02d}"
             public_jobs_catalog.prepare_catalog_presentation(job)
             jobs.append(job)
@@ -170,7 +170,11 @@ class PublicCompanyPageTests(unittest.TestCase):
         self.assertIn("Showing 31–31 of 31 current opportunities", page)
         self.assertIn("Page 2 of 2", page)
         self.assertIn(f"href='{COMPANY_PATH}'>Previous</a>", page)
-        self.assertIn("<meta name='robots' content='noindex,follow'>", page)
+        self.assertNotIn("<meta name='robots'", page)
+        self.assertIn(
+            "rel='canonical' href='https://app.test/company/acme-ai?page=2'",
+            page,
+        )
         self.assertNotIn("return_to=", page)
 
     def test_route_is_public_and_rejects_bad_methods_or_queries(self):
@@ -201,6 +205,100 @@ class PublicCompanyPageTests(unittest.TestCase):
             (("Host", "app.test"),),
         )
         self.assertEqual(malformed.status, 400)
+        invalid_encoding = integration.handle(
+            "GET",
+            COMPANY_PATH + "?page=%FF",
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(invalid_encoding.status, 400)
+
+    def test_page_one_query_redirects_to_clean_company_url(self):
+        integration = self.integration()
+        response = integration.handle(
+            "GET",
+            COMPANY_PATH + "?page=1",
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(response.status, 301)
+        self.assertEqual(dict(response.headers)["Location"], COMPANY_PATH)
+        empty = integration.handle(
+            "GET",
+            COMPANY_PATH + "?",
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(empty.status, 301)
+        self.assertEqual(dict(empty.headers)["Location"], COMPANY_PATH)
+
+    def test_zero_job_known_company_continues_noindex_and_leaves_sitemap(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute("UPDATE jobs SET is_active = 0 WHERE id = 9003")
+            connection.commit()
+        finally:
+            connection.close()
+
+        integration = self.integration()
+        response = integration.handle(
+            "GET",
+            COMPANY_PATH,
+            (("Host", "app.test"),),
+        )
+        body = response.body.decode("utf-8")
+        self.assertEqual(response.status, 200, body)
+        self.assertEqual(
+            dict(response.headers)["X-Robots-Tag"],
+            "noindex, follow",
+        )
+        self.assertIn("No current opportunities", body)
+        self.assertIn(
+            f"rel='canonical' href='{ORIGIN}{COMPANY_PATH}'",
+            body,
+        )
+        sitemap = integration.handle(
+            "GET",
+            public_seo.COMPANIES_SITEMAP_ROUTE,
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(sitemap.status, 200)
+        self.assertNotIn(COMPANY_PATH, sitemap.body.decode("utf-8"))
+
+    def test_experimental_company_with_history_remains_unowned_public_content(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE companies SET source_tier = 'experimental' WHERE id = 9001"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        integration = self.integration()
+        response = integration.handle(
+            "GET",
+            COMPANY_PATH,
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(response.status, 404)
+        self.assertEqual(
+            dict(response.headers)["X-Robots-Tag"],
+            "noindex, nofollow",
+        )
+
+    def test_unknown_historical_job_classification_does_not_preserve_company(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE jobs SET is_active = 0, opportunity_kind = 'raw_variant' "
+                "WHERE id = 9003"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        response = self.integration().handle(
+            "GET",
+            COMPANY_PATH,
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(response.status, 404)
 
 
 if __name__ == "__main__":

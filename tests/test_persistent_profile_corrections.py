@@ -1331,6 +1331,10 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         self.assertEqual(after_matches.status, 200)
         self.assertIn("Distinctive Portuguese Data Annotation Reviewer", after_body)
         self.assertIn(
+            "href='/job/opportunity-8102'",
+            after_body,
+        )
+        self.assertNotIn(
             "href='https://jobs.example.test/portuguese-reviewer'",
             after_body,
         )

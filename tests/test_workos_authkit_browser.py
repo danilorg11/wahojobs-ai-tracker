@@ -47,7 +47,7 @@ class _ProfileIntegration:
             "/find-matches",
             "/tracker",
             "/action",
-        } or path == "/job/acme-ai-9003"
+        } or path == "/job/opportunity-9002"
 
     def handle(self, method, target, headers, body_stream=None):
         self.calls.append((method, target, tuple(headers), body_stream))
@@ -182,6 +182,11 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(_header_values(response, "Referrer-Policy"), ["same-origin"])
         self.assertEqual(
+            _header_values(response, "X-Robots-Tag"),
+            ["noindex, nofollow"],
+        )
+        self.assertEqual(_header_values(response, "Cache-Control"), ["no-store"])
+        self.assertEqual(
             _header_values(response, "Content-Security-Policy"),
             [
                 "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
@@ -286,7 +291,7 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
             "/find-matches",
             "/tracker",
             "/action",
-            "/job/acme-ai-9003",
+            "/job/opportunity-9002",
         ):
             self.assertTrue(self.browser.matches_route(route))
         self.assertFalse(self.browser.matches_route("/auth/google/start"))
@@ -300,7 +305,7 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
         self.assertIs(delegated, self.profile.response)
         self.assertEqual(self.profile.calls[0][0:2], ("GET", AUTHENTICATED_DESTINATION))
 
-        for route in ("/find-matches", "/tracker", "/job/acme-ai-9003"):
+        for route in ("/find-matches", "/tracker", "/job/opportunity-9002"):
             delegated = self.browser.handle("GET", route, self._get_headers())
             self.assertIs(delegated, self.profile.response)
             self.assertEqual(self.profile.calls[-1][0:2], ("GET", route))

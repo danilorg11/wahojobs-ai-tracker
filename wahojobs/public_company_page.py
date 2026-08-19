@@ -22,6 +22,8 @@ def parse_public_company_path(path):
 
 
 def parse_company_query(query):
+    if not public_jobs_catalog.valid_query_encoding(query):
+        return None
     try:
         raw = (
             parse_qs(
@@ -38,25 +40,79 @@ def parse_company_query(query):
     if set(raw) - {"page"} or any(len(values) != 1 for values in raw.values()):
         return None
     if not raw:
-        return {"page": 1, "query_present": False}
+        return {"page": 1, "query_present": False, "raw_query": ""}
     page = raw["page"][0]
     if PAGE_VALUE.fullmatch(page) is None:
         return None
-    return {"page": int(page), "query_present": True}
+    return {"page": int(page), "query_present": True, "raw_query": query}
 
 
-def build_public_company(jobs, path, *, page=1):
-    """Build one company view only when trusted public jobs support it."""
+def load_public_company_identity(connection, path):
+    """Load a company only when repository history proves public eligibility."""
+
+    slug = parse_public_company_path(path)
+    if slug is None:
+        return None
+    rows = connection.execute(
+        """
+        SELECT
+          c.id AS company_id,
+          c.name AS company_name,
+          c.slug AS company_slug,
+          c.careers_url,
+          c.source_tier,
+          c.inventory_model,
+          c.market_count_policy,
+          j.canonical_opportunity_id,
+          j.opportunity_kind,
+          j.availability_basis,
+          j.include_in_live_market_estimate
+        FROM companies c
+        JOIN jobs j ON j.company_id = c.id
+        JOIN canonical_opportunities co
+          ON co.id = j.canonical_opportunity_id
+        WHERE c.slug = ?
+          AND j.title NOT LIKE '[SIMULATION]%'
+        ORDER BY j.id
+        """,
+        (slug,),
+    ).fetchall()
+    eligible = next(
+        (
+            dict(row)
+            for row in rows
+            if public_job_page.public_historical_inventory_is_eligible(dict(row))
+        ),
+        None,
+    )
+    if eligible is None:
+        return None
+    return {
+        key: eligible[key]
+        for key in (
+            "company_id",
+            "company_name",
+            "company_slug",
+            "careers_url",
+            "source_tier",
+            "inventory_model",
+            "market_count_policy",
+        )
+    }
+
+
+def build_public_company(jobs, path, *, page=1, known_company=None):
+    """Build one current or historically public-eligible company view."""
 
     slug = parse_public_company_path(path)
     if slug is None:
         return None
     company_jobs = tuple(job for job in jobs if job.get("company_slug") == slug)
-    if not company_jobs:
+    if not company_jobs and not isinstance(known_company, dict):
         return None
 
     catalog = public_jobs_catalog.build_catalog(company_jobs, {"page": page})
-    first = company_jobs[0]
+    first = company_jobs[0] if company_jobs else known_company
     return {
         "path": path,
         "slug": slug,
@@ -65,6 +121,7 @@ def build_public_company(jobs, path, *, page=1):
             first.get("careers_url")
         ),
         "opportunity_count": len(company_jobs),
+        "has_current_jobs": bool(company_jobs),
         "catalog": catalog,
     }
 
@@ -81,11 +138,16 @@ def render_public_company_page(
     path = company["path"]
     catalog = company["catalog"]
     count = company["opportunity_count"]
+    has_current_jobs = company["has_current_jobs"]
     count_label = f"{count} current {'opportunity' if count == 1 else 'opportunities'}"
-    canonical_url = public_origin.rstrip("/") + path
+    canonical_path = path if catalog["page"] == 1 else company_page_target(
+        path,
+        catalog["page"],
+    )
+    canonical_url = public_origin.rstrip("/") + canonical_path
     robots = (
         "<meta name='robots' content='noindex,follow'>"
-        if query_present or catalog["page"] > 1
+        if not has_current_jobs
         else ""
     )
     official_link = (
@@ -97,6 +159,10 @@ def render_public_company_page(
     cards = "".join(
         public_jobs_catalog.render_job_card(job, return_to=None)
         for job in catalog["jobs"]
+    ) or (
+        "<section class='empty-results'><h3>No current opportunities</h3>"
+        "<p>This company does not currently have a trusted public opportunity "
+        "on Wahojobs. Check back later or browse all jobs.</p></section>"
     )
     pagination = render_company_pagination(company)
     workflow = (
@@ -109,9 +175,20 @@ def render_public_company_page(
     first_number = catalog["first_result_number"]
     last_number = catalog["last_result_number"]
     visible_label = (
-        count_label
-        if catalog["total_pages"] == 1
-        else f"Showing {first_number}–{last_number} of {count_label}"
+        count_label if has_current_jobs else "No current opportunities"
+    ) if catalog["total_pages"] == 1 else (
+        f"Showing {first_number}–{last_number} of {count_label}"
+    )
+    page_suffix = f" — Page {catalog['page']}" if catalog["page"] > 1 else ""
+    meta_description = (
+        f"Browse current {name} opportunities available on Wahojobs."
+        if has_current_jobs
+        else f"View {name} on Wahojobs and check for current opportunities."
+    )
+    hero_description = (
+        f"Explore current {name} opportunities available through Wahojobs."
+        if has_current_jobs
+        else f"View {name} on Wahojobs and check back for future opportunities."
     )
 
     return f"""<!doctype html>
@@ -119,8 +196,8 @@ def render_public_company_page(
 <head>
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>{public_job_page.e(name)} jobs | Wahojobs</title>
-  <meta name='description' content='Browse current {public_job_page.e(name)} opportunities available on Wahojobs.'>
+  <title>{public_job_page.e(name)} jobs{public_job_page.e(page_suffix)} | Wahojobs</title>
+  <meta name='description' content='{public_job_page.e(meta_description)}'>
   {robots}
   <link rel='canonical' href='{public_job_page.e(canonical_url)}'>
   <style>{public_job_page.PUBLIC_JOB_CSS}{public_jobs_catalog.PUBLIC_JOBS_CSS}{PUBLIC_COMPANY_CSS}</style>
@@ -135,7 +212,7 @@ def render_public_company_page(
     <header class='company-hero'>
       <p class='eyebrow'>Company</p>
       <h1>{public_job_page.e(name)}</h1>
-      <p>Explore current {public_job_page.e(name)} opportunities available through Wahojobs.</p>
+      <p>{public_job_page.e(hero_description)}</p>
       <div class='company-actions'>{official_link}</div>
     </header>
     <section class='company-opportunities' aria-labelledby='current-opportunities'>
@@ -187,8 +264,12 @@ def render_company_pagination(company):
 
 
 def company_page_link(path, page, label):
-    target = path if page == 1 else path + "?" + urlencode({"page": page})
+    target = company_page_target(path, page)
     return f"<a href='{public_job_page.e(target)}'>{public_job_page.e(label)}</a>"
+
+
+def company_page_target(path, page):
+    return path if page == 1 else path + "?" + urlencode({"page": page})
 
 
 PUBLIC_COMPANY_CSS = """
@@ -209,6 +290,8 @@ PUBLIC_COMPANY_CSS = """
 __all__ = [
     "PUBLIC_COMPANY_PATH",
     "build_public_company",
+    "company_page_target",
+    "load_public_company_identity",
     "parse_company_query",
     "parse_public_company_path",
     "render_public_company_page",

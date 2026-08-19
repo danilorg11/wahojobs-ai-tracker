@@ -272,6 +272,10 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         save = self._new_action(run, match, "save", "save-0001")
         response = self._post(self.first, self.first, save)
         self.assertEqual(response.status, 200, response.body)
+        self.assertEqual(
+            dict(response.headers)["X-Robots-Tag"],
+            "noindex, nofollow",
+        )
         saved_payload = json.loads(response.body)
         self.assertFalse(saved_payload["replayed"])
         self.assertEqual(saved_payload["status"], "saved")
@@ -294,6 +298,10 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         self.assertEqual(
             dict(native_replay.headers)["Location"],
             f"/find-matches?run={run.match_run_id}",
+        )
+        self.assertEqual(
+            dict(native_replay.headers)["X-Robots-Tag"],
+            "noindex, nofollow",
         )
         self.assertEqual(
             self.connection.execute(
@@ -343,6 +351,10 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         page = tracker.body.decode("utf-8")
         self.assertEqual(tracker.status, 200)
         self.assertEqual(dict(tracker.headers)["Referrer-Policy"], "same-origin")
+        self.assertEqual(
+            dict(tracker.headers)["X-Robots-Tag"],
+            "noindex, nofollow",
+        )
         self.assertIn("My Jobs", page)
         self.assertIn("Backend Engineer 101", page)
         self.assertIn("Applied", page)

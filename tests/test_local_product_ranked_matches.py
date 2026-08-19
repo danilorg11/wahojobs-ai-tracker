@@ -12,6 +12,7 @@ def make_match(title, source="Fixture Source"):
         "display_title": title,
         "title": title,
         "url": f"https://example.test/{title.lower().replace(' ', '-')}",
+        "canonical_opportunity_id": 1,
         "location": "Remote",
         "expertise": "AI evaluation",
         "score": 30,

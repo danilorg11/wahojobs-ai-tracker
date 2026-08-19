@@ -96,7 +96,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         )
         back = integration.handle("GET", "/jobs", (("Host", "app.test"),))
 
-        self.assertEqual([first.status, next_page.status, back.status], [200, 200, 200])
+        self.assertEqual([first.status, next_page.status, back.status], [200, 404, 200])
         self.assertEqual(provider.calls, 1)
 
         current[0] += timedelta(seconds=301)
@@ -131,9 +131,66 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertEqual(jobs[0]["job_id"], 9003)
         self.assertEqual(jobs[0]["path"], JOB_PATH)
 
+    def test_representative_source_changes_do_not_change_public_identity(self):
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute(
+                """
+                INSERT INTO jobs (
+                  id, company_id, canonical_opportunity_id, external_id, title,
+                  location, url, source_hash, opportunity_kind, availability_basis,
+                  include_in_live_market_estimate, first_seen_at, last_seen_at, is_active
+                ) VALUES (
+                  9005, 9001, 9002, 'acme-9005', 'Updated representative variant',
+                  'Remote — Brazil', 'https://apply.example.test/acme-9005',
+                  'source-hash-9005', 'live_posting', 'api_feed', 1, ?, ?, 1
+                )
+                """,
+                (OBSERVED_AT, "2026-08-16T12:31:00+00:00"),
+            )
+            body = "Employer source description for the updated representative. " * 10
+            connection.execute(
+                """
+                INSERT INTO job_source_contents (
+                  job_id, provider, source_type, source_url, external_id, body,
+                  body_format, metadata_json, material_content_sha256,
+                  source_updated_at, first_captured_at, last_captured_at
+                ) VALUES (9005, 'acme', 'official-job-detail-v1', ?, 'acme-9005',
+                  ?, 'text/plain', '{}', ?, ?, ?, ?)
+                """,
+                (
+                    "https://apply.example.test/acme-9005",
+                    body,
+                    "b" * 64,
+                    OBSERVED_AT,
+                    OBSERVED_AT,
+                    OBSERVED_AT,
+                ),
+            )
+            connection.commit()
+
+            catalog_job = public_jobs_catalog.load_public_jobs(connection, now=NOW)[0]
+            detail_job = public_job_page.load_public_job(connection, JOB_PATH, now=NOW)
+            self.assertEqual((catalog_job["job_id"], detail_job["job_id"]), (9005, 9005))
+            self.assertEqual((catalog_job["path"], detail_job["path"]), (JOB_PATH, JOB_PATH))
+
+            connection.execute("UPDATE jobs SET is_active = 0 WHERE id = 9005")
+            connection.commit()
+            restored_representative = public_job_page.load_public_job(
+                connection,
+                JOB_PATH,
+                now=NOW,
+            )
+            self.assertEqual(restored_representative["job_id"], 9003)
+            self.assertEqual(restored_representative["path"], JOB_PATH)
+        finally:
+            connection.close()
+
     def test_structured_filters_and_keyword_search_are_candidate_facing(self):
         jobs = self.load()
         catalog = public_jobs_catalog.build_catalog(jobs)
+        self.assertNotIn("return_to", catalog)
         self.assertEqual(catalog["inventory_count"], 1)
         self.assertIn(
             "Brazil",
@@ -235,7 +292,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         worldwide = deepcopy(brazil)
         worldwide.update(
             job_id=40_001,
-            path="/job/acme-ai-40001",
+            path="/job/opportunity-40001",
             source_location="Remote worldwide",
         )
         worldwide_arrangement = worldwide["enrichment"]["attributes"][
@@ -253,7 +310,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         americas = deepcopy(brazil)
         americas.update(
             job_id=40_002,
-            path="/job/acme-ai-40002",
+            path="/job/opportunity-40002",
             source_location="Remote — Americas",
         )
         americas_arrangement = americas["enrichment"]["attributes"][
@@ -271,7 +328,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         united_states = deepcopy(brazil)
         united_states.update(
             job_id=40_003,
-            path="/job/acme-ai-40003",
+            path="/job/opportunity-40003",
             source_location="Remote — United States",
         )
         us_arrangement = united_states["enrichment"]["attributes"][
@@ -326,7 +383,11 @@ class PublicJobsCatalogTests(unittest.TestCase):
             connection.execute("UPDATE jobs SET is_active=0 WHERE id=9003")
             connection.commit()
             self.assertEqual(public_jobs_catalog.load_public_jobs(connection, now=NOW), [])
-            self.assertIsNone(public_job_page.load_public_job(connection, JOB_PATH, now=NOW))
+            unavailable = public_job_page.load_public_job(connection, JOB_PATH, now=NOW)
+            self.assertEqual(
+                unavailable["public_state"],
+                public_job_page.PUBLIC_JOB_STATE_TEMPORARILY_UNAVAILABLE,
+            )
 
             connection.execute("UPDATE jobs SET is_active=1 WHERE id=9003")
             connection.execute("UPDATE canonical_opportunities SET is_active=0 WHERE id=9002")
@@ -337,11 +398,54 @@ class PublicJobsCatalogTests(unittest.TestCase):
             connection.commit()
             stale_now = NOW + timedelta(hours=73)
             self.assertEqual(public_jobs_catalog.load_public_jobs(connection, now=stale_now), [])
-            self.assertIsNone(
-                public_job_page.load_public_job(connection, JOB_PATH, now=stale_now)
+            self.assertEqual(
+                public_job_page.load_public_job(
+                    connection,
+                    JOB_PATH,
+                    now=stale_now,
+                )["public_state"],
+                public_job_page.PUBLIC_JOB_STATE_TEMPORARILY_UNAVAILABLE,
             )
         finally:
             connection.close()
+
+    def test_unavailable_job_is_noindex_nonactionable_and_restores_at_same_url(self):
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute("UPDATE jobs SET is_active = 0 WHERE id = 9003")
+            connection.commit()
+        finally:
+            connection.close()
+
+        integration = self.integration()
+        unavailable = integration.handle(
+            "GET",
+            JOB_PATH,
+            (("Host", "app.test"),),
+        )
+        unavailable_body = unavailable.body.decode("utf-8")
+        self.assertEqual(unavailable.status, 200)
+        self.assertEqual(
+            dict(unavailable.headers)["X-Robots-Tag"],
+            "noindex, follow",
+        )
+        self.assertIn("Opportunity unavailable", unavailable_body)
+        self.assertIn(f"rel='canonical' href='{ORIGIN}{JOB_PATH}'", unavailable_body)
+        self.assertIn("href='/jobs'>← Back to jobs</a>", unavailable_body)
+        self.assertNotIn("return_to=", unavailable_body)
+        self.assertNotIn("Apply on company site", unavailable_body)
+        self.assertNotIn("application/ld+json", unavailable_body)
+
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute("UPDATE jobs SET is_active = 1 WHERE id = 9003")
+            connection.commit()
+        finally:
+            connection.close()
+        restored = integration.handle("GET", JOB_PATH, (("Host", "app.test"),))
+        self.assertEqual(restored.status, 200)
+        self.assertNotIn("X-Robots-Tag", dict(restored.headers))
+        self.assertIn("Apply on company site", restored.body.decode("utf-8"))
 
     def test_catalog_route_is_public_searchable_and_filter_urls_are_noindex(self):
         integration = self.integration()
@@ -353,7 +457,8 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertEqual(dict(response.headers)["Cache-Control"], "public, max-age=300")
         self.assertIn("Browse current opportunities", body)
         self.assertIn("Showing 1–1 of 1 current opportunities", body)
-        self.assertIn(f"href='{JOB_PATH}?return_to=%2Fjobs'", body)
+        self.assertIn(f"href='{JOB_PATH}'", body)
+        self.assertNotIn("return_to=", body)
         self.assertNotIn("name='robots'", body)
         self.assertNotIn("href='/jobs?", body)
         self.assertEqual(body.count("class='jobs-list'"), 1)
@@ -366,7 +471,11 @@ class PublicJobsCatalogTests(unittest.TestCase):
         filtered_body = filtered.body.decode("utf-8")
         self.assertEqual(filtered.status, 200, filtered_body)
         self.assertIn("<meta name='robots' content='noindex,follow'>", filtered_body)
-        self.assertIn("rel='canonical' href='https://app.test/jobs'", filtered_body)
+        self.assertNotIn("rel='canonical'", filtered_body)
+        self.assertEqual(
+            dict(filtered.headers)["X-Robots-Tag"],
+            "noindex, follow",
+        )
         self.assertIn("Showing 1–1 of 1 current opportunities", filtered_body)
         self.assertIn("<datalist id='jobs-location-options'>", filtered_body)
         self.assertIn("<span>Where can you work from?</span>", filtered_body)
@@ -377,6 +486,78 @@ class PublicJobsCatalogTests(unittest.TestCase):
 
         rejected = integration.handle("POST", "/jobs", (("Host", "app.test"),))
         self.assertEqual(rejected.status, 405)
+        malformed = integration.handle(
+            "GET",
+            "/jobs?q=%FF",
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(malformed.status, 400)
+        self.assertEqual(
+            dict(malformed.headers)["X-Robots-Tag"],
+            "noindex, nofollow",
+        )
+
+    def test_query_normalization_redirects_without_false_filter_canonical(self):
+        integration = self.integration()
+        normalized = integration.handle(
+            "GET",
+            "/jobs?location=Brazil&q=%20Python%20&page=1",
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(normalized.status, 301)
+        self.assertEqual(
+            dict(normalized.headers)["Location"],
+            "/jobs?q=Python&location=Brazil",
+        )
+        page_one = integration.handle(
+            "GET",
+            "/jobs?page=1",
+            (("Host", "app.test"),),
+        )
+        self.assertEqual(page_one.status, 301)
+        self.assertEqual(dict(page_one.headers)["Location"], "/jobs")
+        for empty_target in ("/jobs?", "/jobs?q="):
+            with self.subTest(empty_target=empty_target):
+                empty = integration.handle(
+                    "GET",
+                    empty_target,
+                    (("Host", "app.test"),),
+                )
+                self.assertEqual(empty.status, 301)
+                self.assertEqual(dict(empty.headers)["Location"], "/jobs")
+
+        filtered = integration.handle(
+            "GET",
+            "/jobs?q=Python&location=Brazil",
+            (("Host", "app.test"),),
+        )
+        body = filtered.body.decode("utf-8")
+        self.assertEqual(filtered.status, 200)
+        self.assertIn("name='robots' content='noindex,follow'", body)
+        self.assertNotIn("rel='canonical'", body)
+
+    def test_unfiltered_pagination_is_indexable_and_self_canonical(self):
+        base = self.load()[0]
+        jobs = []
+        for index in range(31):
+            job = deepcopy(base)
+            job["job_id"] = 80_000 + index
+            job["canonical_opportunity_id"] = 80_000 + index
+            job["path"] = f"/job/opportunity-{80_000 + index}"
+            job["source_title"] = f"Role {index:02d}"
+            public_jobs_catalog.prepare_catalog_presentation(job)
+            jobs.append(job)
+        catalog = public_jobs_catalog.build_catalog(jobs, {"page": 2})
+        page = public_jobs_catalog.render_public_jobs_page(
+            catalog,
+            public_origin=ORIGIN,
+        )
+        self.assertNotIn("name='robots'", page)
+        self.assertIn(
+            "rel='canonical' href='https://app.test/jobs?page=2'",
+            page,
+        )
+        self.assertIn("Page 2", page)
 
     def test_catalog_paginates_and_preserves_search_and_filter_state(self):
         base = self.load()[0]
@@ -385,7 +566,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         for index in range(65):
             job = deepcopy(base)
             job["job_id"] = 10_000 + index
-            job["path"] = f"/job/acme-ai-{10_000 + index}"
+            job["path"] = f"/job/opportunity-{10_000 + index}"
             job["source_title"] = f"Python Engineer {index:02d}"
             job["source_updated_at"] = None
             job["job_first_seen_at"] = (first_seen + timedelta(days=index)).isoformat()
@@ -411,10 +592,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertIn("Page 2 of 3", page)
         self.assertIn("/jobs?q=Python&amp;location=Brazil", page)
         self.assertIn("/jobs?q=Python&amp;location=Brazil&amp;page=3", page)
-        self.assertIn(
-            "return_to=%2Fjobs%3Fq%3DPython%26location%3DBrazil%26page%3D2",
-            page,
-        )
+        self.assertNotIn("return_to=", page)
         self.assertEqual(page.count("class='job-card'"), public_jobs_catalog.PAGE_SIZE)
 
     def test_recency_uses_source_update_then_first_seen_and_search_uses_relevance(self):
@@ -422,7 +600,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         source_updated = deepcopy(base)
         source_updated.update(
             job_id=10_001,
-            path="/job/acme-ai-10001",
+            path="/job/opportunity-10001",
             source_title="Operations Specialist",
             source_expertise="Python workflows",
             source_updated_at="2026-04-01T00:00:00+00:00",
@@ -432,7 +610,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         title_match = deepcopy(base)
         title_match.update(
             job_id=10_002,
-            path="/job/acme-ai-10002",
+            path="/job/opportunity-10002",
             source_title="Python Engineer",
             source_expertise="",
             source_updated_at=None,
@@ -453,7 +631,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         alphabetical_first = deepcopy(base)
         alphabetical_first.update(
             job_id=20_001,
-            path="/job/acme-ai-20001",
+            path="/job/opportunity-20001",
             source_title="Aardvark Role",
             source_updated_at=None,
             job_first_seen_at="2026-02-01T00:00:00+00:00",
@@ -461,7 +639,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         later_identity = deepcopy(base)
         later_identity.update(
             job_id=20_002,
-            path="/job/acme-ai-20002",
+            path="/job/opportunity-20002",
             source_title="Zoology Role",
             source_updated_at=None,
             job_first_seen_at="2026-02-01T00:00:00+00:00",
@@ -609,7 +787,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         for index, country in enumerate(("Brazil", "Portugal", "United States")):
             job = deepcopy(base)
             job["job_id"] = 70_000 + index
-            job["path"] = f"/job/acme-ai-{70_000 + index}"
+            job["path"] = f"/job/opportunity-{70_000 + index}"
             arrangement = job["enrichment"]["attributes"]["work_arrangement"]
             arrangement.update(
                 location_scope="remote_restricted",
@@ -687,7 +865,9 @@ class PublicJobsCatalogTests(unittest.TestCase):
 
         direct = integration.handle("GET", JOB_PATH, (("Host", "app.test"),))
         self.assertEqual(direct.status, 200)
-        self.assertNotIn("← Back to jobs", direct.body.decode("utf-8"))
+        direct_body = direct.body.decode("utf-8")
+        self.assertIn("href='/jobs'>← Back to jobs</a>", direct_body)
+        self.assertNotIn("return_to=", direct_body)
 
         for unsafe in (
             "https://evil.test/jobs",

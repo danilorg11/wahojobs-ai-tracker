@@ -1570,6 +1570,7 @@ def _response(
         ("Content-Length", str(len(payload))),
         *_SECURITY_HEADERS,
         ("Referrer-Policy", referrer_policy),
+        ("X-Robots-Tag", "noindex, nofollow"),
         *extra_headers,
     )
     return PersistentProfileBrowserResponse(int(status), payload, tuple(headers))

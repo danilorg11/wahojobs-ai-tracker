@@ -871,11 +871,22 @@ def _response(status, content, *, extra_headers=(), delivery_lease=None, connect
     payload = content.encode("utf-8") if type(content) is str else content
     if type(payload) is not bytes:
         raise ValueError("invalid_workos_authkit_browser_response")
+    extra_header_names = {
+        str(name).casefold()
+        for name, _value in extra_headers
+        if type(name) is str
+    }
+    robots_header = (
+        ()
+        if "x-robots-tag" in extra_header_names
+        else (("X-Robots-Tag", "noindex, nofollow"),)
+    )
     headers = (
         ("Content-Type", "text/html; charset=utf-8"),
         ("Content-Length", str(len(payload))),
         ("Content-Security-Policy", _CONTENT_SECURITY_POLICY),
         *_SECURITY_HEADERS,
+        *robots_header,
         *extra_headers,
     )
     return WorkOSAuthKitBrowserResponse(
