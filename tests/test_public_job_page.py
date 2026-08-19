@@ -19,6 +19,7 @@ from wahojobs.opportunity_enrichment import blank_document, validate_enrichment_
 
 ORIGIN = "https://app.test"
 OBSERVED_AT = "2026-08-16T12:30:00+00:00"
+TEST_NOW = matches_module.datetime.fromisoformat(OBSERVED_AT)
 JOB_PATH = "/job/opportunity-9002"
 
 
@@ -224,7 +225,11 @@ class PublicJobPageTests(unittest.TestCase):
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         try:
-            return public_job_page.load_public_job(connection, JOB_PATH)
+            return public_job_page.load_public_job(
+                connection,
+                JOB_PATH,
+                now=TEST_NOW,
+            )
         finally:
             connection.close()
 
@@ -334,6 +339,14 @@ class PublicJobPageTests(unittest.TestCase):
         self.assertEqual(document["datePosted"], "2026-08-01T09:15:00+00:00")
         self.assertEqual(document["description"], source_body)
         self.assertEqual(document["url"], ORIGIN + JOB_PATH)
+        self.assertEqual(
+            document["identifier"],
+            {
+                "@type": "PropertyValue",
+                "name": "Acme AI",
+                "value": "acme-9003",
+            },
+        )
         self.assertEqual(document["jobLocationType"], "TELECOMMUTE")
         self.assertEqual(document["employmentType"], "CONTRACTOR")
         self.assertEqual(document["baseSalary"]["currency"], "USD")
@@ -354,6 +367,87 @@ class PublicJobPageTests(unittest.TestCase):
         self.assertIn("August 1, 2026", page)
         self.assertIn("Do not render &lt;/script&gt; as markup.", page)
         self.assertEqual(page.count("</script>"), 1)
+
+    def test_public_path_and_source_identifier_remain_independent_in_json_ld(self):
+        source_body = "Employer-authored role description with useful detail. " * 20
+        connection = sqlite3.connect(self.path)
+        try:
+            connection.execute(
+                "UPDATE job_source_contents SET source_type = ?, body = ?, "
+                "body_format = 'text/plain', metadata_json = ? WHERE job_id = 9003",
+                (
+                    "greenhouse-job-board-v1",
+                    source_body,
+                    '{"first_published":"2026-08-01T09:15:00+00:00"}',
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        job = self.load()
+        public_job_id = "j0123456789abcdef0123456789abcdef"
+        permanent_path = "/job/acme-ai-evaluation-engineer-" + public_job_id
+        job["public_job_id"] = public_job_id
+        job["path"] = permanent_path
+        page = public_job_page.render_public_job_page(job, public_origin=ORIGIN)
+        match = re.search(
+            r"<script type='application/ld\+json'>(.*?)</script>",
+            page,
+            re.DOTALL,
+        )
+        document = json.loads(match.group(1))
+        self.assertEqual(document["url"], ORIGIN + permanent_path)
+        self.assertEqual(document["identifier"]["value"], "acme-9003")
+        self.assertNotIn(public_job_id, json.dumps(document["identifier"]))
+        self.assertNotIn("9002", json.dumps(document["identifier"]))
+
+        job["external_id"] = "conflicting-repository-copy"
+        conflicted_page = public_job_page.render_public_job_page(
+            job, public_origin=ORIGIN
+        )
+        conflicted_match = re.search(
+            r"<script type='application/ld\+json'>(.*?)</script>",
+            conflicted_page,
+            re.DOTALL,
+        )
+        conflicted_document = json.loads(conflicted_match.group(1))
+        self.assertEqual(conflicted_document["url"], ORIGIN + permanent_path)
+        self.assertNotIn("identifier", conflicted_document)
+
+    def test_jobposting_identifier_is_omitted_without_agreed_source_evidence(self):
+        job = self.load()
+        job["rich_source_type"] = "greenhouse-job-board-v1"
+        job["public_job_id"] = "j0123456789abcdef0123456789abcdef"
+        self.assertEqual(
+            public_job_page.truthful_jobposting_identifier(job),
+            {
+                "@type": "PropertyValue",
+                "name": "Acme AI",
+                "value": "acme-9003",
+            },
+        )
+        mutations = (
+            {"rich_external_id": None},
+            {"external_id": None},
+            {"external_id": "different-source-copy"},
+            {"external_id": "unknown", "rich_external_id": "unknown"},
+            {"rich_source_type": "unsupported-source-contract-v1"},
+            {
+                "rich_external_id": None,
+                "external_id": None,
+                "canonical_key": "acme-9003",
+                "canonical_opportunity_id": 9002,
+                "job_id": 9003,
+            },
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                candidate = dict(job)
+                candidate.update(mutation)
+                self.assertIsNone(
+                    public_job_page.truthful_jobposting_identifier(candidate)
+                )
 
     def test_json_ld_never_uses_first_seen_updated_or_derived_summary_as_proxies(self):
         connection = sqlite3.connect(self.path)

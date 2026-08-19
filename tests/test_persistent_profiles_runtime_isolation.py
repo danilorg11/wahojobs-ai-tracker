@@ -450,6 +450,7 @@ print(
                 "006_google_oidc_authorization_transactions.sql",
                 "007_closed_schema_convergence.sql",
                 "008_workos_authkit_provider.sql",
+                "009_public_job_identity.sql",
             ],
         )
 

@@ -408,6 +408,58 @@ def truthful_jobposting_evidence(job, *, now=None):
     }
 
 
+def truthful_jobposting_identifier(job):
+    """Return only a corroborated source-owned Schema.org identifier."""
+
+    if (
+        job.get("public_state") != PUBLIC_JOB_STATE_LIVE
+        or clean(job.get("rich_source_type")) != "greenhouse-job-board-v1"
+    ):
+        return None
+    rich_identifier = source_identifier_text(job.get("rich_external_id"))
+    repository_copy = source_identifier_text(job.get("external_id"))
+    company_name = clean(job.get("company_name"))
+    if (
+        rich_identifier is None
+        or repository_copy is None
+        or rich_identifier != repository_copy
+        or not company_name
+    ):
+        return None
+    return {
+        "@type": "PropertyValue",
+        "name": company_name,
+        "value": rich_identifier,
+    }
+
+
+def source_identifier_text(value):
+    if (
+        type(value) is not str
+        or not 1 <= len(value) <= 512
+        or value != value.strip()
+    ):
+        return None
+    if any(
+        ord(character) < 32 or 127 <= ord(character) <= 159
+        for character in value
+    ):
+        return None
+    if value.casefold() in {
+        "id",
+        "job",
+        "jobs",
+        "n/a",
+        "na",
+        "none",
+        "not available",
+        "null",
+        "unknown",
+    }:
+        return None
+    return value
+
+
 def supported_remote_source_countries(source_location):
     """Return only countries explicitly present in a remote source location."""
 
@@ -467,15 +519,13 @@ def jobposting_fragments(job, canonical_url):
         "datePosted": evidence["original_posted"],
         "description": evidence["description"],
         "hiringOrganization": organization,
-        "identifier": {
-            "@type": "PropertyValue",
-            "name": clean(job.get("company_name")),
-            "value": f"wahojobs-opportunity-{int(job['canonical_opportunity_id'])}",
-        },
         "jobLocationType": "TELECOMMUTE",
         "title": clean(job.get("source_title")),
         "url": canonical_url,
     }
+    identifier = truthful_jobposting_identifier(job)
+    if identifier is not None:
+        document["identifier"] = identifier
     employment_type = {
         "full_time": "FULL_TIME",
         "part_time": "PART_TIME",

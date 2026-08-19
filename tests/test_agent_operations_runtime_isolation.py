@@ -223,7 +223,7 @@ print(operations._is_trusted_approval(approval))
                 result = self.run_python(script)
                 self.assertEqual(result.stdout.strip(), "True")
 
-    def test_no_migration_schema_cli_route_or_background_entrypoint_was_added(self):
+    def test_agent_module_adds_no_schema_cli_route_or_background_entrypoint(self):
         source = MODULE.read_text(encoding="utf-8")
         self.assertNotIn("CREATE TABLE", source.upper())
         self.assertNotIn("argparse", source)
@@ -239,12 +239,13 @@ print(operations._is_trusted_approval(approval))
             "006_google_oidc_authorization_transactions.sql",
             "007_closed_schema_convergence.sql",
             "008_workos_authkit_provider.sql",
+            "009_public_job_identity.sql",
         ]
         self.assertEqual([path.name for path in migrations], accepted_migrations)
         self.assertNotEqual(
             [
                 *accepted_migrations,
-                "009_unexpected_dormant_migration.sql",
+                "010_unexpected_dormant_migration.sql",
             ],
             accepted_migrations,
         )
