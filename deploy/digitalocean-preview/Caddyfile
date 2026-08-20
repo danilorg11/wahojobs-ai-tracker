@@ -1,0 +1,41 @@
+{
+	admin 127.0.0.1:2019
+}
+
+{$WAHOJOBS_ORIGIN_HOST} {
+	encode gzip
+
+	@trusted_jobs {
+		path /jobs
+		method GET HEAD
+		header X-Wahojobs-Origin-Auth {$WAHOJOBS_ORIGIN_AUTH_TOKEN}
+	}
+	handle @trusted_jobs {
+		reverse_proxy 127.0.0.1:{$WAHOJOBS_ORIGIN_PORT} {
+			header_up Host {$WAHOJOBS_PUBLIC_AUTHORITY}
+			header_up -Cookie
+			header_up -Authorization
+			header_up -Origin
+			header_up X-Wahojobs-Origin-Auth {$WAHOJOBS_ORIGIN_AUTH_TOKEN}
+		}
+	}
+
+	@trusted_operator {
+		path /__origin/live /__origin/ready /__origin/metrics
+		method GET HEAD
+		header X-Wahojobs-Origin-Auth {$WAHOJOBS_ORIGIN_AUTH_TOKEN}
+	}
+	handle @trusted_operator {
+		reverse_proxy 127.0.0.1:{$WAHOJOBS_ORIGIN_PORT} {
+			header_up Host {$WAHOJOBS_PUBLIC_AUTHORITY}
+			header_up -Cookie
+			header_up -Authorization
+			header_up -Origin
+			header_up X-Wahojobs-Origin-Auth {$WAHOJOBS_ORIGIN_AUTH_TOKEN}
+		}
+	}
+
+	@protected path /jobs /__origin/live /__origin/ready /__origin/metrics
+	respond @protected 403
+	respond 404
+}

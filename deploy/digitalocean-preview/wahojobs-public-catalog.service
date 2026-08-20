@@ -1,0 +1,39 @@
+[Unit]
+Description=Wahojobs guest-only public catalog preview origin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wahojobs-preview
+Group=wahojobs-preview
+WorkingDirectory=/opt/wahojobs-preview/current
+EnvironmentFile=/etc/wahojobs-preview/origin.env
+ExecStart=/opt/wahojobs-preview/venv/bin/python -B scripts/public_catalog_origin_app.py --configuration /etc/wahojobs-preview/origin.json
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=30
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ReadOnlyPaths=/opt/wahojobs-preview/current /etc/wahojobs-preview
+ReadWritePaths=/var/lib/wahojobs-preview
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

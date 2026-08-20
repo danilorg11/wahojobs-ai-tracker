@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/jobs.mjs": {
+      "maxDuration": 10
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/jobs",
+      "destination": "/api/jobs"
+    },
+    {
+      "source": "/:path*",
+      "destination": "https://www.wahojobs.com/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/jobs",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    }
+  ]
+}
