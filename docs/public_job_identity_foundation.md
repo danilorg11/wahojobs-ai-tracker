@@ -84,8 +84,11 @@ separate decision and uses the page's primary public path at route cutover.
 The staging runtime accepts either exact M008 or exact, reconciled M009. Its
 public-ID canary routing gate is an explicit exact-ID allowlist and is empty by
 default in staging composition. An empty gate does not inspect M009 routing
-tables and preserves every temporary `/job/opportunity-<id>` route. No current
-configuration field activates the gate.
+tables and preserves every temporary `/job/opportunity-<id>` route. No path,
+slug, canonical-ID, job-ID, wildcard, or request value can activate the gate.
+The optional external `public_job_canary_ids` field accepts only exact public
+IDs; omission or an empty array keeps the gate disabled, while a non-empty array
+requires exact, reconciled M009 before startup.
 
 Permanent route cutover requires the separately reviewed legacy evidence set.
 Ambiguous mappings, historical reuse, case collisions, and unproven routes must

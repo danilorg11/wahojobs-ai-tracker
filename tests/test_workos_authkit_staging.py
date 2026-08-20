@@ -36,6 +36,7 @@ from wahojobs.public_job_identity import PublicJobIdAllocator, allocate_public_j
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT_ID = "client_0123456789abcdef"
+CANARY_PUBLIC_JOB_ID = "j" + "33" * 16
 
 
 class WorkOSAuthKitStagingTests(unittest.TestCase):
@@ -92,6 +93,11 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
         self.assertEqual(configuration.environment_namespace, "private_beta")
         self.assertEqual(configuration.session_idle_ttl, timedelta(hours=1))
         self.assertEqual(configuration.session_absolute_ttl, timedelta(hours=8))
+        self.assertFalse(configuration.public_job_canary_gate.enabled)
+        self.assertEqual(
+            configuration.public_job_canary_gate.public_job_ids,
+            frozenset(),
+        )
         self.assertNotIn(self.api_key, rendered)
         self.assertNotIn(base64.b64encode(self.invitation_key).decode("ascii"), rendered)
         configuration.clear_secrets()
@@ -119,6 +125,18 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
         missing = self._document()
         missing.pop("database_path")
         invalid_documents.append(missing)
+        for invalid_allowlist in (
+            None,
+            "*",
+            ["*"],
+            ["/job/dormant-m009-canary"],
+            [9902],
+            [CANARY_PUBLIC_JOB_ID, CANARY_PUBLIC_JOB_ID],
+            {"public_job_id": CANARY_PUBLIC_JOB_ID},
+        ):
+            document = self._document()
+            document["public_job_canary_ids"] = invalid_allowlist
+            invalid_documents.append(document)
 
         for document in invalid_documents:
             with self.subTest(fields=tuple(document)):
@@ -132,6 +150,50 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
             load_workos_authkit_staging_configuration(str(self.config_path))
         with self.assertRaises(WorkOSAuthKitStagingError):
             load_workos_authkit_staging_configuration("relative.json")
+
+    def test_explicit_empty_or_exact_id_canary_allowlist_loads_strictly(self):
+        empty = self._document()
+        empty["public_job_canary_ids"] = []
+        self._write_configuration(empty)
+        configuration = load_workos_authkit_staging_configuration(
+            str(self.config_path)
+        )
+        self.assertFalse(configuration.public_job_canary_gate.enabled)
+        configuration.clear_secrets()
+
+        enabled = self._document()
+        enabled["public_job_canary_ids"] = [CANARY_PUBLIC_JOB_ID]
+        self._write_configuration(enabled)
+        configuration = load_workos_authkit_staging_configuration(
+            str(self.config_path)
+        )
+        self.assertTrue(configuration.public_job_canary_gate.enabled)
+        self.assertEqual(
+            configuration.public_job_canary_gate.public_job_ids,
+            frozenset({CANARY_PUBLIC_JOB_ID}),
+        )
+        configuration.clear_secrets()
+
+    def test_nonempty_canary_allowlist_requires_exact_m009_before_provider(self):
+        document = self._document()
+        document["public_job_canary_ids"] = [CANARY_PUBLIC_JOB_ID]
+        self._write_configuration(document)
+        configuration = load_workos_authkit_staging_configuration(
+            str(self.config_path)
+        )
+        provider_calls = []
+
+        def forbidden_provider(**_kwargs):
+            provider_calls.append(True)
+            raise AssertionError("provider_must_not_be_constructed")
+
+        with self.assertRaises(WorkOSAuthKitStagingError) as caught:
+            build_workos_authkit_staging_runtime(
+                configuration,
+                sdk_boundary_factory=forbidden_provider,
+            )
+        self.assertEqual(caught.exception.code, "database_m008_required")
+        self.assertEqual(provider_calls, [])
 
     def test_runtime_rejects_m007_before_provider_construction(self):
         m007_path = self.root / "m007.sqlite3"
@@ -216,7 +278,7 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
                 "'disposable canary','Generalist','2026-08-20T00:00:00+00:00',"
                 "'2026-08-20T00:00:00+00:00',1,0)"
             )
-            allocate_public_job(
+            allocation = allocate_public_job(
                 connection,
                 allocator=PublicJobIdAllocator(
                     "disposable-staging-test",
@@ -228,6 +290,7 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
                 primary_path="/job/dormant-m009-canary",
                 now=datetime(2026, 8, 20, tzinfo=timezone.utc),
             )
+            connection.commit()
         finally:
             connection.close()
         configuration = load_workos_authkit_staging_configuration(
@@ -244,6 +307,25 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
             )
             self.assertFalse(
                 runtime.browser_integration.matches_route("/job/dormant-m009-canary")
+            )
+        finally:
+            self.assertTrue(runtime.close())
+
+        document = self._document()
+        document["public_job_canary_ids"] = [allocation.public_job_id]
+        self._write_configuration(document)
+        configuration = load_workos_authkit_staging_configuration(
+            str(self.config_path)
+        )
+        runtime = build_workos_authkit_staging_runtime(
+            configuration,
+            sdk_boundary_factory=lambda **_kwargs: FakeWorkOSBoundary(),
+        )
+        try:
+            self.assertTrue(
+                runtime.browser_integration.matches_route(
+                    "/job/dormant-m009-canary"
+                )
             )
         finally:
             self.assertTrue(runtime.close())

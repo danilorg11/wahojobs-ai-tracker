@@ -31,6 +31,7 @@ from wahojobs.database_lifetime_ownership import (
     release_database_lifetime_ownership,
     require_database_lifetime_ownership,
 )
+from wahojobs.public_job_canary import PublicJobCanaryRoutingGate
 from wahojobs.public_job_identity import reconcile_public_job_identity
 from wahojobs.public_job_identity_schema import attest_public_job_identity_schema
 from wahojobs.workos_authkit import (
@@ -74,6 +75,7 @@ _CONFIGURATION_FIELDS = frozenset(
         "session_absolute_ttl_seconds",
     }
 )
+_OPTIONAL_CONFIGURATION_FIELDS = frozenset({"public_job_canary_ids"})
 _ERROR_MESSAGES = {
     "configuration_file_unavailable": "The explicit Staging configuration file is unavailable.",
     "configuration_invalid": "The Staging configuration is invalid.",
@@ -122,6 +124,7 @@ class WorkOSAuthKitStagingConfiguration:
     invitation_lookup_key: bytearray | None
     session_idle_ttl: timedelta
     session_absolute_ttl: timedelta
+    public_job_canary_gate: PublicJobCanaryRoutingGate
 
     @property
     def bind_address(self):
@@ -305,7 +308,14 @@ def load_workos_authkit_staging_configuration(configuration_path):
             )
         except (UnicodeError, ValueError, TypeError):
             raise WorkOSAuthKitStagingError("configuration_invalid") from None
-        if type(document) is not dict or frozenset(document) != _CONFIGURATION_FIELDS:
+        fields = frozenset(document) if type(document) is dict else frozenset()
+        if (
+            type(document) is not dict
+            or not _CONFIGURATION_FIELDS.issubset(fields)
+            or not fields.issubset(
+                _CONFIGURATION_FIELDS | _OPTIONAL_CONFIGURATION_FIELDS
+            )
+        ):
             raise WorkOSAuthKitStagingError("configuration_invalid")
         if any(type(name) is not str for name in document):
             raise WorkOSAuthKitStagingError("configuration_invalid")
@@ -340,6 +350,15 @@ def load_workos_authkit_staging_configuration(configuration_path):
         )
         if idle > absolute:
             raise WorkOSAuthKitStagingError("configuration_invalid")
+        raw_public_job_canary_ids = document.get("public_job_canary_ids", [])
+        if type(raw_public_job_canary_ids) is not list:
+            raise WorkOSAuthKitStagingError("configuration_invalid")
+        try:
+            public_job_canary_gate = PublicJobCanaryRoutingGate(
+                raw_public_job_canary_ids
+            )
+        except (TypeError, ValueError):
+            raise WorkOSAuthKitStagingError("configuration_invalid") from None
         database_path = _validated_external_file(
             document["database_path"],
             database=True,
@@ -354,6 +373,7 @@ def load_workos_authkit_staging_configuration(configuration_path):
             invitation_lookup_key=invitation_key,
             session_idle_ttl=idle,
             session_absolute_ttl=absolute,
+            public_job_canary_gate=public_job_canary_gate,
         )
         invitation_key = None
         return configuration
@@ -371,11 +391,18 @@ def load_workos_authkit_staging_configuration(configuration_path):
         configuration_path = None
 
 
-def validate_workos_authkit_staging_database(connection):
+def validate_workos_authkit_staging_database(
+    connection,
+    *,
+    public_job_canary_gate=None,
+):
     """Require one writable, exact, internally consistent M008/M009 database."""
 
+    if public_job_canary_gate is None:
+        public_job_canary_gate = PublicJobCanaryRoutingGate.disabled()
     if (
         type(connection) is not sqlite3.Connection
+        or type(public_job_canary_gate) is not PublicJobCanaryRoutingGate
         or connection.in_transaction
         or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
         or connection.execute("PRAGMA query_only").fetchone()[0] != 0
@@ -386,7 +413,10 @@ def validate_workos_authkit_staging_database(connection):
     if public_identity_state not in {
         "public_job_identity_pending",
         "correctly_installed",
-    }:
+    } or (
+        public_job_canary_gate.enabled
+        and public_identity_state != "correctly_installed"
+    ):
         raise WorkOSAuthKitStagingError("database_m008_required")
     if (
         public_identity_state == "public_job_identity_pending"
@@ -459,7 +489,10 @@ def build_workos_authkit_staging_runtime(
         )
         connection = connections.open_writable_connection()
         try:
-            validate_workos_authkit_staging_database(connection)
+            validate_workos_authkit_staging_database(
+                connection,
+                public_job_canary_gate=configuration.public_job_canary_gate,
+            )
         finally:
             _close_connection(connection)
         _require_no_sqlite_sidecars(configuration.database_path)
@@ -626,7 +659,6 @@ def _build_profile_integration(connections, configuration, clock):
     from wahojobs.persistent_profiles_browser import (
         PersistentProfileBrowserIntegration,
     )
-    from wahojobs.public_job_canary import PublicJobCanaryRoutingGate
     import secrets
     import time
 
@@ -689,7 +721,7 @@ def _build_profile_integration(connections, configuration, clock):
         ),
         public_origin=configuration.public_origin,
         now=clock,
-        public_job_canary_gate=PublicJobCanaryRoutingGate.disabled(),
+        public_job_canary_gate=configuration.public_job_canary_gate,
     )
     if integration.attach_matches_integration(matches_integration) is not True:
         raise WorkOSAuthKitStagingError("runtime_unavailable")

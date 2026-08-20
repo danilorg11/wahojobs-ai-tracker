@@ -48,7 +48,8 @@ $template = @'
   "workos_api_key": "REPLACE_FROM_PASSWORD_MANAGER",
   "wahojobs_invitation_lookup_key_base64": "REPLACE_WITH_BASE64_OF_EXISTING_RAW_INVITATION_KEY",
   "session_idle_ttl_seconds": 3600,
-  "session_absolute_ttl_seconds": 28800
+  "session_absolute_ttl_seconds": 28800,
+  "public_job_canary_ids": []
 }
 '@
 [System.IO.File]::WriteAllText($configPath, $template, [System.Text.UTF8Encoding]::new($false))
@@ -60,6 +61,13 @@ Fill the WorkOS Client ID, WorkOS API key, invitation key, and explicit database
 path manually. The API key and invitation lookup key are secrets. The Client ID,
 database path, origins, namespace, and TTLs are nonsecret configuration (although
 the database contents remain sensitive).
+
+`public_job_canary_ids` is optional. Omission or an empty JSON array keeps public
+identity routing fully disabled and preserves exact M008 compatibility. A
+non-empty array accepts only exact `j` plus 32-lowercase-hex public IDs and
+requires an exact, reconciled M009 database before provider construction. It
+does not accept paths, slugs, canonical opportunity numbers, job numbers,
+wildcards, duplicates, or request-derived values.
 
 The invitation lookup key field is canonical standard Base64 of the existing raw
 M002 invitation HMAC key. Copy that value to the clipboard without printing it:
@@ -94,8 +102,9 @@ python -B scripts/workos_authkit_staging_migrate.py --database "C:\ABSOLUTE\EXTE
 
 The command is idempotent for exact M008 and fails closed for any other schema.
 There is no staging command that applies M009. M009 remains a separately
-reviewed offline operation, and the staging public-ID canary allowlist is empty
-by default even when exact M009 is present.
+reviewed offline operation. The staging public-ID canary allowlist is empty by
+default even when exact M009 is present, and a non-empty allowlist cannot start
+against M008.
 
 ## Start and stop
 
