@@ -7,6 +7,12 @@ of the base schema and must not be applied to the workspace database as part of
 this milestone. Current `/job/opportunity-<id>` staging routes remain unchanged.
 No real public identities, legacy mappings, redirects, or backfill are created.
 
+The code-only M009 operational closure adds exact M008-to-M009 schema
+attestation and an atomic callable apply boundary. The boundary accepts only an
+already-open exact M008 database, installs the empty authorities and
+`009_public_job_identity` marker in one transaction, and allocates nothing. No
+command-line or configured-database M009 apply surface exists.
+
 ## Authority boundaries
 
 Permanent public routing is separated into three authorities:
@@ -28,6 +34,12 @@ operating-system-random bytes. `allocate_public_job` requires an explicit
 `PublicJobIdAllocator` capability so production configuration has a visible
 single-authority boundary. Importing databases do not construct an allocator;
 they import the portable identity/path registry and create only local bindings.
+
+Portable exports have one canonical ASCII JSON serialization with a trailing
+line feed and a SHA-256 over those exact bytes. Bindings are absent. The
+disposable transfer verifier requires exact M009 source and target databases,
+imports into empty authorities, establishes an explicit complete set of local
+bindings, reconciles the target, and requires a byte-identical re-export.
 
 New paths use a one-time ASCII slug made from company slug plus canonical title,
 followed by the immutable ID. The readable slug is capped at 80 characters on a
@@ -68,6 +80,12 @@ repository's source copy. Otherwise it is omitted. `JobPosting.url` is a
 separate decision and uses the page's primary public path at route cutover.
 
 ## Deferred work
+
+The staging runtime accepts either exact M008 or exact, reconciled M009. Its
+public-ID canary routing gate is an explicit exact-ID allowlist and is empty by
+default in staging composition. An empty gate does not inspect M009 routing
+tables and preserves every temporary `/job/opportunity-<id>` route. No current
+configuration field activates the gate.
 
 Permanent route cutover requires the separately reviewed legacy evidence set.
 Ambiguous mappings, historical reuse, case collisions, and unproven routes must

@@ -75,13 +75,14 @@ Paste it into the JSON field, save, and clear the clipboard after use:
 Set-Clipboard -Value $null
 ```
 
-## M008 prerequisite
+## Exact M008/M009 prerequisite
 
 Startup opens only the explicit database in existing-file mode, acquires the
 existing durable-runtime lifetime ownership, rejects SQLite sidecars, requires a
-writable connection, and validates exact M008, closed-schema and Accounts
-attestation, quick integrity, and foreign keys. It never initializes, repairs, or
-migrates the database.
+writable connection, and validates exact M008 or exact M009, closed-schema and
+Accounts attestation, quick integrity, and foreign keys. An M009 database must
+also pass public-job identity reconciliation. Startup never initializes,
+repairs, or migrates the database.
 
 If the authorized external database is still exact M007, stop every runtime and
 apply the already accepted M008 migration explicitly under offline-operator
@@ -92,6 +93,9 @@ python -B scripts/workos_authkit_staging_migrate.py --database "C:\ABSOLUTE\EXTE
 ```
 
 The command is idempotent for exact M008 and fails closed for any other schema.
+There is no staging command that applies M009. M009 remains a separately
+reviewed offline operation, and the staging public-ID canary allowlist is empty
+by default even when exact M009 is present.
 
 ## Start and stop
 
@@ -114,7 +118,8 @@ self-signed local certificate outside the repository, and routes requests only
 through `WorkOSAuthKitBrowserIntegration`. The certificate covers `127.0.0.1`
 and `localhost`; the browser may require explicit acceptance for this local
 rehearsal. A port conflict, TLS failure, invalid secret/configuration, unavailable
-database, or non-M008 schema fails before serving.
+database, or schema other than exact M008/exact reconciled M009 fails before
+serving.
 
 Press Ctrl+C to stop. The listener waits for request threads to finish, closes the
 AuthKit browser/profile/gateway composition, clears pending process-local login

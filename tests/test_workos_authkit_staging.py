@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -14,6 +14,9 @@ import tempfile
 import unittest
 
 from scripts.workos_authkit_staging_app import run_staging_rehearsal
+from scripts.public_job_identity_migration import (
+    apply_public_job_identity_migration,
+)
 from tests.closed_schema_convergence_test_support import (
     apply_m007,
     build_fresh_m001_m006,
@@ -28,6 +31,7 @@ from wahojobs.workos_authkit_staging import (
     load_workos_authkit_staging_configuration,
 )
 from wahojobs.workos_authkit_schema import attest_workos_authkit_schema
+from wahojobs.public_job_identity import PublicJobIdAllocator, allocate_public_job
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -192,6 +196,58 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
             self.assertTrue(runtime.close())
         self.assertTrue(runtime.close())
 
+    def test_exact_m009_runtime_is_compatible_but_canary_gate_stays_disabled(self):
+        connection = sqlite3.connect(self.database_path)
+        connection.execute("PRAGMA foreign_keys = ON")
+        try:
+            apply_public_job_identity_migration(connection)
+            connection.execute(
+                "INSERT INTO companies "
+                "(id,name,slug,careers_url,source_tier,inventory_model,"
+                "market_count_policy) VALUES "
+                "(9901,'Disposable Canary','disposable-canary',"
+                "'https://example.test/','core','live_feed','count_live')"
+            )
+            connection.execute(
+                "INSERT INTO canonical_opportunities "
+                "(id,company_id,canonical_key,canonical_title,normalized_title,"
+                "source_category,first_seen_at,last_seen_at,is_active,variant_count) "
+                "VALUES (9902,9901,'disposable-canary','Disposable Canary',"
+                "'disposable canary','Generalist','2026-08-20T00:00:00+00:00',"
+                "'2026-08-20T00:00:00+00:00',1,0)"
+            )
+            allocate_public_job(
+                connection,
+                allocator=PublicJobIdAllocator(
+                    "disposable-staging-test",
+                    random_source=lambda size: bytes.fromhex("33" * size),
+                ),
+                company_slug="disposable-canary",
+                canonical_title="Disposable Canary",
+                canonical_opportunity_id=9902,
+                primary_path="/job/dormant-m009-canary",
+                now=datetime(2026, 8, 20, tzinfo=timezone.utc),
+            )
+        finally:
+            connection.close()
+        configuration = load_workos_authkit_staging_configuration(
+            str(self.config_path)
+        )
+        runtime = build_workos_authkit_staging_runtime(
+            configuration,
+            sdk_boundary_factory=lambda **_kwargs: FakeWorkOSBoundary(),
+        )
+        try:
+            self.assertTrue(runtime.browser_integration.matches_route("/find-matches"))
+            self.assertTrue(
+                runtime.browser_integration.matches_route("/job/opportunity-7002")
+            )
+            self.assertFalse(
+                runtime.browser_integration.matches_route("/job/dormant-m009-canary")
+            )
+        finally:
+            self.assertTrue(runtime.close())
+
     def test_launcher_owns_start_and_shutdown_without_network_or_provider(self):
         events = []
 
@@ -343,6 +399,9 @@ sys.modules["workos"] = provider
 
 before = set(Path.cwd().iterdir())
 import wahojobs.workos_authkit_staging
+import wahojobs.public_job_identity_schema
+import wahojobs.public_job_canary
+import scripts.public_job_identity_migration
 import scripts.workos_authkit_staging_app
 import scripts.workos_authkit_staging_migrate
 after = set(Path.cwd().iterdir())

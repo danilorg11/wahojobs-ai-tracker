@@ -12,7 +12,10 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import itertools
+import json
 import re
 import secrets
 import sqlite3
@@ -29,6 +32,7 @@ MAX_FROZEN_SLUG_CHARACTERS = 80
 MAX_NEW_PUBLIC_JOB_PATH_BYTES = 119
 MAX_PUBLIC_JOB_PATH_BYTES = 2_048
 PUBLIC_JOB_ID_COLLISION_RETRIES = 8
+MAX_PUBLIC_JOB_REGISTRY_ARTIFACT_BYTES = 32 * 1024 * 1024
 
 _URL_PATH_CHARACTERS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -104,6 +108,34 @@ class PublicJobIdentityFinding:
     public_job_id: str | None = None
     path: str | None = None
     detail: str | None = None
+
+
+@dataclass(frozen=True)
+class PublicJobRegistryArtifact:
+    canonical_json: bytes
+    sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.canonical_json) is not bytes
+            or not 1 <= len(self.canonical_json) <= MAX_PUBLIC_JOB_REGISTRY_ARTIFACT_BYTES
+            or type(self.sha256) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", self.sha256) is None
+            or not hmac.compare_digest(
+                hashlib.sha256(self.canonical_json).hexdigest(),
+                self.sha256,
+            )
+        ):
+            raise InvalidPublicJobIdentity("public job registry artifact is invalid")
+
+
+@dataclass(frozen=True)
+class PublicJobRegistryTransferVerification:
+    sha256: str
+    byte_size: int
+    identity_count: int
+    path_count: int
+    binding_count: int
 
 
 def generate_public_job_id(
@@ -622,6 +654,28 @@ def primary_public_job_path_for_canonical(
     return row[0] if row is not None else None
 
 
+def resolve_public_job_canonical(
+    connection: sqlite3.Connection,
+    canonical_opportunity_id: object,
+) -> PublicJobRouteDecision | None:
+    """Resolve a locally bound serving/gone identity by canonical row number."""
+
+    canonical_opportunity_id = _positive_integer(
+        canonical_opportunity_id, "canonical_opportunity_id"
+    )
+    row = connection.execute(
+        "SELECT path.path FROM public_job_bindings binding "
+        "JOIN public_job_identities identity "
+        "ON identity.public_job_id = binding.public_job_id "
+        "JOIN public_job_paths path ON path.public_job_id = binding.public_job_id "
+        "AND path.path_role = 'primary' "
+        "WHERE binding.canonical_opportunity_id = ? "
+        "AND identity.disposition IN ('serving', 'gone')",
+        (canonical_opportunity_id,),
+    ).fetchone()
+    return resolve_public_job_path(connection, row[0]) if row is not None else None
+
+
 def export_public_job_registry(connection: sqlite3.Connection) -> dict:
     """Export only portable identity/path state; local bindings are excluded."""
 
@@ -657,6 +711,96 @@ def export_public_job_registry(connection: sqlite3.Connection) -> dict:
         "identities": identities,
         "paths": paths,
     }
+
+
+def canonical_public_job_registry_json(payload: object) -> bytes:
+    """Return the unique ASCII JSON representation of one portable registry."""
+
+    identities, paths = _validated_registry_payload(payload)
+    canonical = {
+        "format": PUBLIC_JOB_REGISTRY_FORMAT,
+        "identities": sorted(identities, key=lambda item: item["public_job_id"]),
+        "paths": sorted(
+            paths,
+            key=lambda item: (item["normalized_path"], item["path"]),
+        ),
+    }
+    encoded = (
+        json.dumps(
+            canonical,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("ascii")
+    if len(encoded) > MAX_PUBLIC_JOB_REGISTRY_ARTIFACT_BYTES:
+        raise InvalidPublicJobIdentity("public job registry artifact is too large")
+    return encoded
+
+
+def public_job_registry_artifact(payload: object) -> PublicJobRegistryArtifact:
+    canonical_json = canonical_public_job_registry_json(payload)
+    return PublicJobRegistryArtifact(
+        canonical_json=canonical_json,
+        sha256=hashlib.sha256(canonical_json).hexdigest(),
+    )
+
+
+def export_public_job_registry_artifact(
+    connection: sqlite3.Connection,
+) -> PublicJobRegistryArtifact:
+    return public_job_registry_artifact(export_public_job_registry(connection))
+
+
+def decode_public_job_registry_artifact(
+    artifact: PublicJobRegistryArtifact,
+) -> dict:
+    """Verify digest, strict JSON, and canonical bytes before import."""
+
+    if type(artifact) is not PublicJobRegistryArtifact:
+        raise InvalidPublicJobIdentity("public job registry artifact is required")
+    canonical_json = artifact.canonical_json
+    sha256 = artifact.sha256
+    if (
+        type(canonical_json) is not bytes
+        or not 1 <= len(canonical_json) <= MAX_PUBLIC_JOB_REGISTRY_ARTIFACT_BYTES
+        or type(sha256) is not str
+        or re.fullmatch(r"[0-9a-f]{64}", sha256) is None
+        or not hmac.compare_digest(
+            hashlib.sha256(canonical_json).hexdigest(),
+            sha256,
+        )
+    ):
+        raise InvalidPublicJobIdentity(
+            "public job registry artifact digest is invalid"
+        )
+    try:
+        payload = json.loads(
+            canonical_json.decode("ascii", "strict"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeError, ValueError, TypeError):
+        raise InvalidPublicJobIdentity(
+            "public job registry artifact JSON is invalid"
+        ) from None
+    if canonical_public_job_registry_json(payload) != canonical_json:
+        raise InvalidPublicJobIdentity(
+            "public job registry artifact is not canonically serialized"
+        )
+    return payload
+
+
+def import_public_job_registry_artifact(
+    connection: sqlite3.Connection,
+    artifact: PublicJobRegistryArtifact,
+) -> None:
+    import_public_job_registry(
+        connection,
+        decode_public_job_registry_artifact(artifact),
+    )
 
 
 def import_public_job_registry(
@@ -705,6 +849,90 @@ def import_public_job_registry(
                     record["created_at"],
                 ),
             )
+
+
+def verify_disposable_public_job_registry_transfer(
+    source_connection: sqlite3.Connection,
+    target_connection: sqlite3.Connection,
+    *,
+    local_bindings: Mapping[str, int],
+    now: datetime | None = None,
+) -> PublicJobRegistryTransferVerification:
+    """Import and locally rebind an exact registry in a disposable target DB."""
+
+    if (
+        type(source_connection) is not sqlite3.Connection
+        or type(target_connection) is not sqlite3.Connection
+        or source_connection is target_connection
+        or not isinstance(local_bindings, Mapping)
+    ):
+        raise InvalidPublicJobIdentity(
+            "disposable registry verification inputs are invalid"
+        )
+    from wahojobs.public_job_identity_schema import (
+        attest_public_job_identity_schema,
+    )
+
+    if (
+        attest_public_job_identity_schema(source_connection)["state"]
+        != "correctly_installed"
+        or attest_public_job_identity_schema(target_connection)["state"]
+        != "correctly_installed"
+    ):
+        raise PublicJobIdentityInvariantError(
+            "disposable registry verification requires exact M009 databases"
+        )
+    assert_public_job_identity_consistent(source_connection)
+    artifact = export_public_job_registry_artifact(source_connection)
+    payload = decode_public_job_registry_artifact(artifact)
+    bindable = {
+        item["public_job_id"]
+        for item in payload["identities"]
+        if item["disposition"] in {"serving", "gone"}
+    }
+    normalized_bindings: dict[str, int] = {}
+    for raw_public_job_id, raw_canonical_id in local_bindings.items():
+        public_job_id = require_public_job_id(raw_public_job_id)
+        if public_job_id in normalized_bindings:
+            raise InvalidPublicJobIdentity("local binding repeats a public job ID")
+        normalized_bindings[public_job_id] = _positive_integer(
+            raw_canonical_id,
+            "canonical_opportunity_id",
+        )
+    if set(normalized_bindings) != bindable:
+        raise InvalidPublicJobIdentity(
+            "local bindings must cover every bindable imported identity exactly"
+        )
+
+    with _savepoint(target_connection):
+        import_public_job_registry_artifact(target_connection, artifact)
+        if target_connection.execute(
+            "SELECT COUNT(*) FROM public_job_bindings"
+        ).fetchone()[0] != 0:
+            raise PublicJobIdentityInvariantError(
+                "portable registry import unexpectedly included local bindings"
+            )
+        for public_job_id in sorted(normalized_bindings):
+            bind_imported_public_job(
+                target_connection,
+                public_job_id,
+                normalized_bindings[public_job_id],
+                now=now,
+            )
+        assert_public_job_identity_consistent(target_connection)
+        imported_artifact = export_public_job_registry_artifact(target_connection)
+        if imported_artifact != artifact:
+            raise PublicJobIdentityInvariantError(
+                "portable registry changed during disposable import and rebinding"
+            )
+
+    return PublicJobRegistryTransferVerification(
+        sha256=artifact.sha256,
+        byte_size=len(artifact.canonical_json),
+        identity_count=len(payload["identities"]),
+        path_count=len(payload["paths"]),
+        binding_count=len(normalized_bindings),
+    )
 
 
 def reconcile_public_job_identity(
@@ -990,6 +1218,7 @@ def _validated_registry_payload(payload: object) -> tuple[list[dict], list[dict]
     if (
         not isinstance(payload, Mapping)
         or payload.get("format") != PUBLIC_JOB_REGISTRY_FORMAT
+        or set(payload) != {"format", "identities", "paths"}
     ):
         raise InvalidPublicJobIdentity("unsupported public job registry format")
     raw_identities = payload.get("identities")
@@ -1004,7 +1233,13 @@ def _validated_registry_payload(payload: object) -> tuple[list[dict], list[dict]
     identities: list[dict] = []
     identity_ids: set[str] = set()
     for raw in raw_identities:
-        if not isinstance(raw, Mapping):
+        if not isinstance(raw, Mapping) or set(raw) != {
+            "public_job_id",
+            "disposition",
+            "redirect_target_public_job_id",
+            "created_at",
+            "updated_at",
+        }:
             raise InvalidPublicJobIdentity("registry identity must be an object")
         public_job_id = require_public_job_id(raw.get("public_job_id"))
         if public_job_id in identity_ids:
@@ -1051,7 +1286,13 @@ def _validated_registry_payload(payload: object) -> tuple[list[dict], list[dict]
     normalized_paths: set[str] = set()
     primary_counts: Counter[str] = Counter()
     for raw in raw_paths:
-        if not isinstance(raw, Mapping):
+        if not isinstance(raw, Mapping) or set(raw) != {
+            "path",
+            "normalized_path",
+            "public_job_id",
+            "path_role",
+            "created_at",
+        }:
             raise InvalidPublicJobIdentity("registry path must be an object")
         path = validate_public_job_path(raw.get("path"))
         normalized = normalized_public_job_path(path)
@@ -1083,6 +1324,19 @@ def _validated_registry_payload(payload: object) -> tuple[list[dict], list[dict]
             "every imported public identity must own exactly one primary path"
         )
     return identities, paths
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if type(key) is not str or key in result:
+            raise ValueError("duplicate_or_invalid_json_key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value):
+    raise ValueError("invalid_json_constant")
 
 
 def _ascii_words(value: object) -> tuple[str, ...]:

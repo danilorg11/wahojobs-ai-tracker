@@ -29,6 +29,7 @@ from wahojobs import (
     pipeline_records,
     pipeline_state,
     public_company_page,
+    public_job_canary,
     public_job_page,
     public_jobs_catalog,
     public_seo,
@@ -495,6 +496,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_metadata_overlay",
         "_now",
         "_public_authority",
+        "_public_job_canary_gate",
         "_public_jobs_cache",
         "_public_jobs_cache_lock",
         "_public_origin",
@@ -517,6 +519,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         ephemeral_identity_factory=None,
         registry=None,
         public_seo_policy=None,
+        public_job_canary_gate=None,
     ):
         origin, authority = _validated_public_origin(public_origin)
         if (
@@ -544,6 +547,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             public_seo_policy = public_seo.PublicSeoRoutePolicy.empty()
         if type(public_seo_policy) is not public_seo.PublicSeoRoutePolicy:
             raise ValueError("invalid_authenticated_matches_browser_configuration")
+        if public_job_canary_gate is None:
+            public_job_canary_gate = public_job_canary.PublicJobCanaryRoutingGate.disabled()
+        if type(public_job_canary_gate) is not public_job_canary.PublicJobCanaryRoutingGate:
+            raise ValueError("invalid_authenticated_matches_browser_configuration")
         self._service = service
         self._connection_provider = connection_provider
         self._write_connection_provider = write_connection_provider
@@ -555,6 +562,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._public_origin = origin
         self._public_authority = authority
         self._public_seo_policy = public_seo_policy
+        self._public_job_canary_gate = public_job_canary_gate
         self._public_jobs_cache = None
         self._public_jobs_cache_lock = threading.Lock()
         self._now = now
@@ -572,6 +580,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             or path == public_jobs_catalog.PUBLIC_JOBS_ROUTE
             or path in public_seo.PUBLIC_SEO_DOCUMENT_ROUTES
             or self._public_seo_policy.owns_path(path)
+            or self._public_job_canary_gate.owns_candidate_path(path)
             or public_company_page.parse_public_company_path(path) is not None
             or public_job_page.parse_public_job_path(path) is not None
         )
@@ -594,6 +603,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             target,
             method=method,
             public_seo_policy=self._public_seo_policy,
+            public_job_canary_gate=self._public_job_canary_gate,
         )
         params = None if parsed_target is None else parsed_target[1]
         if params is None:
@@ -652,7 +662,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     extra_headers=(("Allow", "GET, HEAD"),),
                 )
             return self._handle_public_company(route, params, header_items)
-        if public_job_page.parse_public_job_path(route) is not None:
+        if (
+            public_job_page.parse_public_job_path(route) is not None
+            or self._public_job_canary_gate.owns_candidate_path(route)
+        ):
             if method not in {"GET", "HEAD"}:
                 return _failure_response(
                     HTTPStatus.METHOD_NOT_ALLOWED,
@@ -940,7 +953,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 )
             elif section == "public_job":
                 location = local_product.action_form_value(form, "return_to")
-                if public_job_page.parse_public_job_path(location) is None:
+                if (
+                    public_job_page.parse_public_job_path(location) is None
+                    and not self._public_job_canary_gate.owns_candidate_path(location)
+                ):
                     raise local_product.MalformedActionRequest()
             else:
                 location = AUTHENTICATED_MATCHES_ROUTE + "?" + urlencode(
@@ -973,6 +989,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     def _handle_public_job(self, path, header_items, *, catalog_return_to=None):
         try:
             connection = None
+            route_decision = None
+            canonical_opportunity_id = public_job_page.parse_public_job_path(path)
             with self._connection_provider() as connection:
                 if (
                     not isinstance(connection, sqlite3.Connection)
@@ -983,14 +1001,52 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     raise ValueError("public_job_inventory_unavailable")
                 connection.execute("BEGIN")
                 try:
-                    job = public_job_page.load_public_job(
-                        connection,
-                        path,
-                        now=self._now(),
-                    )
+                    if canonical_opportunity_id is None:
+                        route_decision = (
+                            self._public_job_canary_gate.resolve_registered_path(
+                                connection,
+                                path,
+                            )
+                        )
+                        canonical_opportunity_id = (
+                            route_decision.canonical_opportunity_id
+                            if route_decision is not None
+                            and route_decision.kind == "serve"
+                            else None
+                        )
+                    elif self._public_job_canary_gate.enabled:
+                        route_decision = self._public_job_canary_gate.resolve_canonical(
+                            connection,
+                            canonical_opportunity_id,
+                        )
+
+                    if (
+                        public_job_page.parse_public_job_path(path) is not None
+                        and route_decision is not None
+                    ):
+                        job = None
+                    elif route_decision is not None and route_decision.kind != "serve":
+                        job = None
+                    elif canonical_opportunity_id is not None:
+                        job = public_job_page.load_public_job(
+                            connection,
+                            public_job_page.public_job_path(canonical_opportunity_id),
+                            now=self._now(),
+                        )
+                        if job is not None and route_decision is not None:
+                            job["path"] = route_decision.primary_path
+                    else:
+                        job = None
                 finally:
                     if connection.in_transaction:
                         connection.rollback()
+            if route_decision is not None:
+                if public_job_page.parse_public_job_path(path) is not None:
+                    return _permanent_redirect_response(route_decision.primary_path)
+                if route_decision.kind == "redirect":
+                    return _permanent_redirect_response(route_decision.location)
+                if route_decision.kind == "gone":
+                    return _gone_response()
             if job is None:
                 return _failure_response(
                     HTTPStatus.NOT_FOUND,
@@ -1895,10 +1951,20 @@ def _validated_public_origin(value):
     return value.rstrip("/"), parsed.netloc
 
 
-def _parse_target(target, *, method, public_seo_policy=None):
+def _parse_target(
+    target,
+    *,
+    method,
+    public_seo_policy=None,
+    public_job_canary_gate=None,
+):
     if public_seo_policy is None:
         public_seo_policy = public_seo.PublicSeoRoutePolicy.empty()
     if type(public_seo_policy) is not public_seo.PublicSeoRoutePolicy:
+        return None
+    if public_job_canary_gate is None:
+        public_job_canary_gate = public_job_canary.PublicJobCanaryRoutingGate.disabled()
+    if type(public_job_canary_gate) is not public_job_canary.PublicJobCanaryRoutingGate:
         return None
     if type(target) is not str:
         return None
@@ -1916,6 +1982,7 @@ def _parse_target(target, *, method, public_seo_policy=None):
             and parsed.path != public_jobs_catalog.PUBLIC_JOBS_ROUTE
             and parsed.path not in public_seo.PUBLIC_SEO_DOCUMENT_ROUTES
             and not public_seo_policy.owns_path(parsed.path)
+            and not public_job_canary_gate.owns_candidate_path(parsed.path)
             and public_company_page.parse_public_company_path(parsed.path) is None
             and public_job_page.parse_public_job_path(parsed.path) is None
         )
@@ -1943,7 +2010,10 @@ def _parse_target(target, *, method, public_seo_policy=None):
         if params is not None:
             params["raw_query_present"] = "?" in target
         return (parsed.path, params) if params is not None else None
-    if public_job_page.parse_public_job_path(parsed.path) is not None:
+    if (
+        public_job_page.parse_public_job_path(parsed.path) is not None
+        or public_job_canary_gate.owns_candidate_path(parsed.path)
+    ):
         if not parsed.query:
             return parsed.path, {}
         try:

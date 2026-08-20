@@ -31,6 +31,8 @@ from wahojobs.database_lifetime_ownership import (
     release_database_lifetime_ownership,
     require_database_lifetime_ownership,
 )
+from wahojobs.public_job_identity import reconcile_public_job_identity
+from wahojobs.public_job_identity_schema import attest_public_job_identity_schema
 from wahojobs.workos_authkit import (
     CALLBACK_PATH,
     WorkOSAuthKitConfiguration,
@@ -77,7 +79,9 @@ _ERROR_MESSAGES = {
     "configuration_invalid": "The Staging configuration is invalid.",
     "secret_invalid": "The Staging secret material is invalid.",
     "database_unavailable": "The explicit Staging database is unavailable.",
-    "database_m008_required": "The explicit Staging database must already have exact M008.",
+    "database_m008_required": (
+        "The explicit Staging database must already have exact M008 or exact M009."
+    ),
     "database_ownership_unavailable": (
         "The explicit Staging database is already owned or unavailable."
     ),
@@ -368,7 +372,7 @@ def load_workos_authkit_staging_configuration(configuration_path):
 
 
 def validate_workos_authkit_staging_database(connection):
-    """Require one writable, exact, internally consistent M008 database."""
+    """Require one writable, exact, internally consistent M008/M009 database."""
 
     if (
         type(connection) is not sqlite3.Connection
@@ -377,14 +381,31 @@ def validate_workos_authkit_staging_database(connection):
         or connection.execute("PRAGMA query_only").fetchone()[0] != 0
     ):
         raise WorkOSAuthKitStagingError("database_unavailable")
-    report = attest_workos_authkit_schema(connection)
-    if report.get("state") != "correctly_installed":
+    public_identity_report = attest_public_job_identity_schema(connection)
+    public_identity_state = public_identity_report.get("state")
+    if public_identity_state not in {
+        "public_job_identity_pending",
+        "correctly_installed",
+    }:
+        raise WorkOSAuthKitStagingError("database_m008_required")
+    if (
+        public_identity_state == "public_job_identity_pending"
+        and attest_workos_authkit_schema(connection).get("state")
+        != "correctly_installed"
+    ):
         raise WorkOSAuthKitStagingError("database_m008_required")
     try:
         exact = current_closed_schema_is_exact(connection)
     except Exception:
         exact = False
-    if not exact or not attest_account_schema(connection):
+    if (
+        not exact
+        or not attest_account_schema(connection)
+        or (
+            public_identity_state == "correctly_installed"
+            and bool(reconcile_public_job_identity(connection))
+        )
+    ):
         raise WorkOSAuthKitStagingError("database_m008_required")
     integrity = connection.execute("PRAGMA quick_check(1)").fetchone()
     if integrity is None or tuple(integrity) != ("ok",):
@@ -605,6 +626,7 @@ def _build_profile_integration(connections, configuration, clock):
     from wahojobs.persistent_profiles_browser import (
         PersistentProfileBrowserIntegration,
     )
+    from wahojobs.public_job_canary import PublicJobCanaryRoutingGate
     import secrets
     import time
 
@@ -667,6 +689,7 @@ def _build_profile_integration(connections, configuration, clock):
         ),
         public_origin=configuration.public_origin,
         now=clock,
+        public_job_canary_gate=PublicJobCanaryRoutingGate.disabled(),
     )
     if integration.attach_matches_integration(matches_integration) is not True:
         raise WorkOSAuthKitStagingError("runtime_unavailable")
