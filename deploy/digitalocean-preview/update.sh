@@ -142,6 +142,7 @@ systemctl restart wahojobs-public-catalog.service
 systemctl restart caddy.service
 
 curl --fail --silent --show-error \
+  --retry 20 --retry-delay 1 --retry-connrefused \
   -H "X-Wahojobs-Origin-Auth: ${WAHOJOBS_ORIGIN_AUTH_TOKEN}" \
   "http://127.0.0.1:${WAHOJOBS_ORIGIN_PORT}/__origin/ready" >/dev/null
 
