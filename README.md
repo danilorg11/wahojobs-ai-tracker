@@ -9,6 +9,6 @@ for the exact configuration, route, cookie, delivery-boundary, demo, and
 deployment limitations.
 
 The production-grade, guest-only origin and isolated Vercel preview proof for
-the public jobs catalog are documented in
-[Production-origin + preview-only `/jobs` proof](docs/production_origin_preview.md).
+the public jobs catalog and its exact registry-backed details are documented in
+[Preview-only public catalog and job-detail release](docs/production_origin_preview.md).
 They do not activate any route on `www.wahojobs.com`.
