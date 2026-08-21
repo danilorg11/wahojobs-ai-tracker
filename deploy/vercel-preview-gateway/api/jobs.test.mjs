@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import handler from './jobs.mjs';
 
 const TOKEN = 'T'.repeat(43);
+
+test('routing owns exact jobs and explicitly preserves the legacy homepage', async () => {
+  const configuration = JSON.parse(
+    await readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
+  );
+  assert.deepEqual(configuration.rewrites, [
+    { source: '/jobs', destination: '/api/jobs' },
+    { source: '/', destination: 'https://www.wahojobs.com/' },
+    {
+      source: '/:path*',
+      destination: 'https://www.wahojobs.com/:path*',
+    },
+  ]);
+});
 
 function responseHarness() {
   return {
@@ -65,6 +80,12 @@ test('preview-only exact jobs sends the origin secret and no browser credentials
   assert.equal(captured.options.headers.authorization, undefined);
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers.get('x-wahojobs-preview-owner'), 'new-origin');
+  assert.equal(
+    response.headers.get('cache-control'),
+    'private, no-store, max-age=0',
+  );
+  assert.equal(response.headers.get('cdn-cache-control'), 'no-store');
+  assert.equal(response.headers.get('vercel-cdn-cache-control'), 'no-store');
 });
 
 test('disabled or non-preview deployment falls through to current legacy jobs', async () => {
@@ -89,6 +110,10 @@ test('disabled or non-preview deployment falls through to current legacy jobs', 
     assert.equal(
       response.headers.get('x-wahojobs-preview-owner'),
       'legacy-fallback',
+    );
+    assert.equal(
+      response.headers.get('cache-control'),
+      'private, no-store, max-age=0',
     );
   }
 });

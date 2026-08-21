@@ -50,6 +50,11 @@ if [[ ! -x /opt/wahojobs-preview/venv/bin/python ]]; then
   /opt/wahojobs-preview/venv/bin/pip install --disable-pip-version-check --require-hashes -r "$release_target/requirements.lock"
 fi
 
+set -a
+source "$environment_source"
+set +a
+caddy validate --config "$release_target/deploy/digitalocean-preview/Caddyfile" --adapter caddyfile
+
 if [[ -e /var/lib/wahojobs-preview/catalog.sqlite3 ]]; then
   echo "persistent catalog database already exists; refusing replacement" >&2
   exit 4
@@ -64,15 +69,11 @@ install -o root -g root -m 0644 "$release_target/deploy/digitalocean-preview/wah
 ln -sfn "$release_target" /opt/wahojobs-preview/current.next
 mv -Tf /opt/wahojobs-preview/current.next /opt/wahojobs-preview/current
 
-caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl daemon-reload
 systemctl enable --now wahojobs-public-catalog.service
 systemctl enable caddy.service
 systemctl restart caddy.service
 
-set -a
-source /etc/wahojobs-preview/origin.env
-set +a
 curl --fail --silent --show-error \
   -H "X-Wahojobs-Origin-Auth: ${WAHOJOBS_ORIGIN_AUTH_TOKEN}" \
   "http://127.0.0.1:${WAHOJOBS_ORIGIN_PORT}/__origin/ready" >/dev/null

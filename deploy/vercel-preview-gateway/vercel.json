@@ -11,6 +11,10 @@
       "destination": "/api/jobs"
     },
     {
+      "source": "/",
+      "destination": "https://www.wahojobs.com/"
+    },
+    {
       "source": "/:path*",
       "destination": "https://www.wahojobs.com/:path*"
     }

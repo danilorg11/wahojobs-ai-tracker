@@ -171,8 +171,11 @@ def main(argv=None):
             )
     except (KeyboardInterrupt, SystemExit, GeneratorExit):
         raise
+    except PreviewProbeFailure as exc:
+        print(f"HYBRID_PREVIEW_PROBE_FAILED reason={exc}", file=sys.stderr)
+        return 1
     except Exception:
-        print("HYBRID_PREVIEW_PROBE_FAILED", file=sys.stderr)
+        print("HYBRID_PREVIEW_PROBE_FAILED reason=unexpected_error", file=sys.stderr)
         return 1
     print(
         json.dumps(

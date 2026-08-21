@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 const SAFE_RESPONSE_HEADERS = [
-  'cache-control',
   'content-language',
   'content-security-policy',
   'content-type',
@@ -34,6 +33,9 @@ function copyResponseHeaders(upstream, response) {
     const value = upstream.headers.get(name);
     if (value !== null) response.setHeader(name, value);
   }
+  response.setHeader('cache-control', 'private, no-store, max-age=0');
+  response.setHeader('cdn-cache-control', 'no-store');
+  response.setHeader('vercel-cdn-cache-control', 'no-store');
   response.setHeader('x-wahojobs-preview-gateway', '1');
   response.setHeader('x-wahojobs-preview-owner', 'new-origin');
 }

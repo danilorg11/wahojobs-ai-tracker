@@ -12,4 +12,12 @@ site. Exact `/jobs` uses the new origin only when all of the following are true:
 Production-environment deployments and disabled previews fetch legacy `/jobs`.
 No wildcard job/company, WorkOS, Karl, robots, sitemap, DNS, or custom-domain
 ownership exists here. The function strips browser cookies and authorization,
-sets an origin request ID, disables caching, and emits privacy-safe route logs.
+sets an origin request ID, forces browser and CDN `no-store`, and emits
+privacy-safe route logs. The homepage has its own explicit legacy rewrite
+because Vercel's catch-all pattern does not match the empty path.
+
+The proof project may retain Vercel Authentication. Use `vercel curl` for
+operator probes so protection is bypassed through the authenticated CLI without
+making the Preview public. Vercel assigns a first deployment to its production
+environment; the code deliberately makes that isolated bootstrap deployment a
+legacy fallback. Only later Preview deployments can reach the new origin.

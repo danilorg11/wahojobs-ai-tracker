@@ -171,6 +171,37 @@ class PublicCatalogOriginTests(unittest.TestCase):
         with self.assertRaises(PublicCatalogOriginConfigurationError):
             load_public_catalog_origin_configuration(str(second))
 
+    def test_configuration_accepts_a_linux_runtime_database_path_on_windows(self):
+        second = self.root / "linux-runtime.json"
+        create_configuration(
+            self.database,
+            second,
+            public_origin="https://wahojobs-proof-git-preview.vercel.app",
+            deployment_environment="preview",
+            bind_port=18081,
+            runtime_database_path="/var/lib/wahojobs-preview/catalog.sqlite3",
+        )
+        document = json.loads(second.read_text(encoding="utf-8"))
+        self.assertEqual(
+            document["database_path"],
+            "/var/lib/wahojobs-preview/catalog.sqlite3",
+        )
+
+    def test_configuration_rejects_a_relative_or_traversing_runtime_path(self):
+        for index, runtime_path in enumerate(
+            ("var/lib/catalog.sqlite3", "/var/lib/../private.sqlite3")
+        ):
+            with self.subTest(runtime_path=runtime_path):
+                with self.assertRaises(ValueError):
+                    create_configuration(
+                        self.database,
+                        self.root / f"invalid-runtime-{index}.json",
+                        public_origin="https://wahojobs-proof-git-preview.vercel.app",
+                        deployment_environment="preview",
+                        bind_port=18081,
+                        runtime_database_path=runtime_path,
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

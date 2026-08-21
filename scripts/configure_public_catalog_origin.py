@@ -6,7 +6,7 @@ import argparse
 from hashlib import sha256
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 from urllib.parse import urlsplit
 
@@ -52,20 +52,26 @@ def create_configuration(
     with database.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
-    runtime_database = (
-        Path(runtime_database_path)
-        if runtime_database_path is not None
-        else database
-    )
-    if not runtime_database.is_absolute():
-        raise ValueError("invalid_runtime_database_path")
+    if runtime_database_path is None:
+        runtime_database = str(database)
+    else:
+        if type(runtime_database_path) is not str:
+            raise ValueError("invalid_runtime_database_path")
+        runtime_path = PurePosixPath(runtime_database_path)
+        if (
+            not runtime_path.is_absolute()
+            or ".." in runtime_path.parts
+            or str(runtime_path) != runtime_database_path
+        ):
+            raise ValueError("invalid_runtime_database_path")
+        runtime_database = str(runtime_path)
     document = {
         "version": 1,
         "deployment_environment": deployment_environment,
         "bind_host": "127.0.0.1",
         "bind_port": bind_port,
         "public_origin": public_origin,
-        "database_path": str(runtime_database),
+        "database_path": runtime_database,
         "database_sha256": digest.hexdigest(),
     }
     descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
