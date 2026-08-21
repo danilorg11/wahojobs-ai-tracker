@@ -88,13 +88,14 @@ class, route class, status, and bounded duration.
 
 ## Live proof (2026-08-21)
 
-Final gateway deployment `dpl_7H7vy6SacymjYXdHn7L6QVmb7cCx` is assigned only
+Final gateway deployment `dpl_8TFev5Jaj351avRuSTmZ8qm2rkTa` is assigned only
 to `wahojobs-hybrid-preview-jobs.vercel.app`. The isolated project's original
 Vercel production deployment remains at
 `wahojobs-hybrid-preview-proof-m362d8eyo-danrgdy-projects.vercel.app` and stays
 hard-coded to legacy fallback. All aliases are `vercel.app`; no Wahojobs custom
 domain is attached.
 
+The gateway runs code commit `ae262b732895fe0017dc4fe1bba777c2fcd15dd3`.
 The dedicated origin runs code commit
 `dde3be92095903a6e2006c4b2b671fc3b370805e`. Both services are active and
 readiness is `200`.
@@ -119,6 +120,18 @@ Enabled routing proof:
 - With only the Python service stopped, all three exact routes returned
   uncached `503 new-origin`; an unknown job path still returned its legacy
   response. The service was restored and readiness reverified.
+
+The exact-path normalization audit is also closed in this deployment. The
+gateway extracts and checks the raw request path before constructing a URL,
+rejects literal, case-insensitive encoded, and mixed literal/encoded dot
+segments, and refuses ownership if later URL parsing changes the pathname.
+Focused tests cover the four reported attacks plus `.`/`%2E`, `.%2e`, `%2e.`,
+query, and non-dot lookalikes. All nine live attack spellings returned `404`
+without a gateway owner or new-origin marker because Vercel rejected them at
+the edge. Across those probes origin counters remained exactly `details=3`,
+`jobs=1`, and `rejected=0`. A subsequent preservation probe returned `200` with
+owner `new-origin` for `/jobs`, the strict canary, and Karl with the attested
+release; counters then changed by exactly `jobs=1` and `details=2`.
 
 Rollback proof:
 

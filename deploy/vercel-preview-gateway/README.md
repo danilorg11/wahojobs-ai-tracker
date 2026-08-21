@@ -10,12 +10,13 @@ origin only when all of the following are true:
 - `WAHOJOBS_NEW_ORIGIN_URL` is an exact HTTPS origin; and
 - `WAHOJOBS_ORIGIN_AUTH_TOKEN` is the matching 43-character secret.
 
-Both functions independently check the original request pathname before
-reading origin configuration or making any upstream request. Direct filesystem
-access at `/api/job` or `/api/jobs` therefore returns an uncached `404` with
-owner `rejected` and cannot reach either origin. Gateway and origin also require
-the same release ID. Tests live outside this Vercel project directory so they
-cannot be built as functions.
+Both functions independently extract the unnormalized request path before URL
+parsing, reject literal or encoded dot segments, and reject any later pathname
+normalization before checking exact ownership. Direct filesystem access at
+`/api/job` or `/api/jobs` therefore returns an uncached `404` with owner
+`rejected` and cannot reach either origin. Gateway and origin also require the
+same release ID. Tests live outside this Vercel project directory so they cannot
+be built as functions.
 
 Production-environment deployments and disabled previews fetch legacy for all
 three exact routes. There is no wildcard or pattern rewrite for `/job/*`:
