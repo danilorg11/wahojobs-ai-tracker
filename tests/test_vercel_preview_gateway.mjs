@@ -180,6 +180,71 @@ test('unowned, malformed, encoded, uppercase, and trailing detail paths stay leg
   }
 });
 
+test('raw literal and encoded dot segments fail closed before manifest ownership', async () => {
+  enablePreview();
+  const leaf = NEW.slice('/job/'.length);
+  const attacks = [
+    `/job/decoy/../${leaf}`,
+    `/job/decoy/%2e%2e/${leaf}`,
+    `/api/../job/${leaf}`,
+    `/api/%2e%2e/job/${leaf}`,
+    `/job/decoy/./${leaf}`,
+    `/job/decoy/%2E/${leaf}`,
+    `/job/decoy/.%2e/${leaf}`,
+    `/job/decoy/%2e./${leaf}`,
+    `/api/%2E%2e/job/${leaf}?from=attack`,
+  ];
+
+  for (const path of attacks) {
+    assert.notEqual(
+      new URL(path, 'https://preview.invalid').pathname,
+      path.split('?')[0],
+      `control: URL parsing should normalize ${path}`,
+    );
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('unexpected_upstream_request');
+    };
+    const response = responseHarness();
+    await quietly(() =>
+      detailHandler({ method: 'GET', url: path, headers: {} }, response),
+    );
+    assert.equal(fetchCalls, 0, path);
+    assert.equal(response.statusCode, 404, path);
+    assert.equal(response.body.toString('utf8'), 'Not found\n', path);
+    assert.equal(
+      response.headers.get('x-wahojobs-preview-owner'),
+      'rejected',
+      path,
+    );
+  }
+});
+
+test('non-dot legacy lookalikes do not become owned or get over-rejected', async () => {
+  enablePreview();
+  const leaf = NEW.slice('/job/'.length);
+  for (const path of [
+    `/job/decoy/.../${leaf}`,
+    `/job/decoy/%252e%252e/${leaf}`,
+  ]) {
+    const targets = [];
+    globalThis.fetch = async (target) => {
+      targets.push(String(target));
+      return new Response('legacy', { status: 404 });
+    };
+    const response = responseHarness();
+    await quietly(() =>
+      detailHandler({ method: 'GET', url: path, headers: {} }, response),
+    );
+    assert.deepEqual(targets, [`https://www.wahojobs.com${path}`]);
+    assert.equal(
+      response.headers.get('x-wahojobs-preview-owner'),
+      'legacy-fallback',
+    );
+  }
+});
+
 test('direct API function paths fail closed without any upstream traffic', async () => {
   enablePreview();
   for (const [handler, path] of [

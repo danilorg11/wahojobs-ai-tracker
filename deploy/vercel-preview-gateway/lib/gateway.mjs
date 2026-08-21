@@ -16,6 +16,9 @@ const SAFE_RESPONSE_HEADERS = [
   'x-wahojobs-release-id',
 ];
 
+const MAX_REQUEST_TARGET_BYTES = 8_192;
+const RAW_DOT_SEGMENT = /^(?:(?:\.)|(?:%2e)){1,2}$/i;
+
 function validatedOrigin(value) {
   const candidate = new URL(value);
   if (
@@ -31,9 +34,47 @@ function validatedOrigin(value) {
   return candidate;
 }
 
-function parseIncoming(request) {
+function parseRawRequestTarget(value) {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    Buffer.byteLength(value, 'utf8') > MAX_REQUEST_TARGET_BYTES ||
+    /[\0\r\n#]/.test(value)
+  ) {
+    return null;
+  }
+
+  let path;
+  let search;
+  if (value.startsWith('/')) {
+    const queryIndex = value.indexOf('?');
+    path = queryIndex === -1 ? value : value.slice(0, queryIndex);
+    search = queryIndex === -1 ? '' : value.slice(queryIndex);
+  } else {
+    const absolute = /^(?:https?):\/\/[^/?#]+(\/[^?#]*)?(\?[^#]*)?$/i.exec(
+      value,
+    );
+    if (absolute === null) return null;
+    path = absolute[1] || '/';
+    search = absolute[2] || '';
+  }
+
+  if (path.length === 0 || !path.startsWith('/') || path.startsWith('//')) {
+    return null;
+  }
+  return { path, search };
+}
+
+function hasRawDotSegment(path) {
+  return path.split('/').some((segment) => RAW_DOT_SEGMENT.test(segment));
+}
+
+function parseIncoming(rawTarget) {
   try {
-    return new URL(request.url, 'https://preview.invalid');
+    return new URL(
+      `${rawTarget.path}${rawTarget.search}`,
+      'https://preview.invalid',
+    );
   } catch (_error) {
     return null;
   }
@@ -118,15 +159,27 @@ export function createPreviewGatewayHandler({ routeClass, ownsPath }) {
     let route = routeClass;
     let status = 503;
     try {
-      const incoming = parseIncoming(request);
-      if (incoming === null || requestIsDirectFunctionPath(incoming.pathname)) {
+      const rawTarget = parseRawRequestTarget(request.url);
+      if (rawTarget === null || hasRawDotSegment(rawTarget.path)) {
         owner = 'rejected';
         route = 'rejected';
         status = 404;
         rejectDirectFunction(request, response);
         return;
       }
-      if (!ownsPath(incoming.pathname)) {
+      const incoming = parseIncoming(rawTarget);
+      if (
+        incoming === null ||
+        incoming.pathname !== rawTarget.path ||
+        requestIsDirectFunctionPath(rawTarget.path)
+      ) {
+        owner = 'rejected';
+        route = 'rejected';
+        status = 404;
+        rejectDirectFunction(request, response);
+        return;
+      }
+      if (!ownsPath(rawTarget.path)) {
         owner = 'legacy-fallback';
         route = 'legacy';
         status = await fetchLegacy(request, response, incoming);
