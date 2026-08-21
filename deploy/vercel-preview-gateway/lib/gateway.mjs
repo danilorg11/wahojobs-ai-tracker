@@ -99,6 +99,14 @@ function requestIsDirectFunctionPath(path) {
   return path === '/api/job' || path === '/api/jobs';
 }
 
+function originRequestTarget(incoming, origin) {
+  // Vercel presents query spaces to functions as %20. The catalog's existing
+  // canonical query encoder uses '+', so restore that equivalent spelling at
+  // this internal hop to avoid a self-redirect through the platform rewrite.
+  const search = incoming.search.replaceAll(/%20/gi, '+');
+  return new URL(incoming.pathname + search, origin);
+}
+
 export function createPreviewGatewayHandler({ routeClass, ownsPath }) {
   if (!['jobs', 'detail'].includes(routeClass) || typeof ownsPath !== 'function') {
     throw new Error('invalid_gateway_configuration');
@@ -141,7 +149,7 @@ export function createPreviewGatewayHandler({ routeClass, ownsPath }) {
       const token = process.env.WAHOJOBS_ORIGIN_AUTH_TOKEN || '';
       if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('missing_secret');
       const origin = validatedOrigin(process.env.WAHOJOBS_NEW_ORIGIN_URL || '');
-      const target = new URL(incoming.pathname + incoming.search, origin);
+      const target = originRequestTarget(incoming, origin);
       const upstream = await fetch(target, {
         method: request.method,
         redirect: 'manual',

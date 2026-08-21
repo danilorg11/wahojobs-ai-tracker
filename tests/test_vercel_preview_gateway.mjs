@@ -106,11 +106,11 @@ test('boundary owns only /jobs and the exact two attested manifest paths', async
 test('all three exact Preview routes send one release identity and no browser credentials', async () => {
   enablePreview();
   const cases = [
-    [jobsHandler, '/jobs?q=python'],
-    [detailHandler, `${NEW}?from=catalog`],
-    [detailHandler, KARL],
+    [jobsHandler, '/jobs?q=python%20engineer', '/jobs?q=python+engineer'],
+    [detailHandler, `${NEW}?from=catalog`, `${NEW}?from=catalog`],
+    [detailHandler, KARL, KARL],
   ];
-  for (const [handler, url] of cases) {
+  for (const [handler, url, originTarget] of cases) {
     let captured;
     globalThis.fetch = async (target, options) => {
       captured = { target: String(target), options };
@@ -131,7 +131,7 @@ test('all three exact Preview routes send one release identity and no browser cr
         response,
       ),
     );
-    assert.equal(captured.target, `https://origin.example.test${url}`);
+    assert.equal(captured.target, `https://origin.example.test${originTarget}`);
     assert.equal(captured.options.headers['x-wahojobs-origin-auth'], TOKEN);
     assert.equal(
       captured.options.headers['x-wahojobs-release-id'],
