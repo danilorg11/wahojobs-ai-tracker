@@ -50,7 +50,7 @@ def make_handler(integration):
             started = time.monotonic()
             response = None
             status = 503
-            route_class = _route_class(self.path)
+            route_class = integration.route_class(self.path)
             request_id = integration.request_id(self.headers) or secrets.token_urlsafe(18)
             try:
                 response = integration.handle(
@@ -98,15 +98,6 @@ def make_handler(integration):
             return
 
     return PublicCatalogOriginHandler
-
-
-def _route_class(target):
-    path = target.split("?", 1)[0] if isinstance(target, str) else ""
-    if path == "/jobs":
-        return "jobs"
-    if path in {"/__origin/live", "/__origin/ready", "/__origin/metrics"}:
-        return "health"
-    return "rejected"
 
 
 def _validated_status(response):

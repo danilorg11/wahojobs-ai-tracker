@@ -666,17 +666,33 @@ def render_job_card(job, *, return_to):
         if attributes
         else ""
     )
-    detail_target = job["path"]
+    detail_target = job.get("catalog_detail_target", job.get("path"))
+    if isinstance(detail_target, str) and detail_target.startswith("/"):
+        safe_target = detail_target
+    else:
+        safe_target = public_job_page.first_human_facing_url(detail_target)
+    title_markup = (
+        f"<a href='{public_job_page.e(safe_target)}'>{public_job_page.e(title)}</a>"
+        if safe_target
+        else public_job_page.e(title)
+    )
+    view_link = (
+        f"<a class='view-job' href='{public_job_page.e(safe_target)}' "
+        f"aria-label='View {public_job_page.e(title)} at {public_job_page.e(company)}'>"
+        "View job</a>"
+        if safe_target
+        else ""
+    )
     return f"""
     <article class='job-card'>
       <div class='job-card-copy'>
         {f"<p class='job-company'>{public_job_page.e(company)}</p>" if company else ""}
-        <h2><a href='{public_job_page.e(detail_target)}'>{public_job_page.e(title)}</a></h2>
+        <h2>{title_markup}</h2>
         {location_html}
         {chips}
         {summary_html}
       </div>
-      <a class='view-job' href='{public_job_page.e(detail_target)}' aria-label='View {public_job_page.e(title)} at {public_job_page.e(company)}'>View job</a>
+      {view_link}
     </article>
     """
 

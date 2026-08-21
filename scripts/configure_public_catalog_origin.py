@@ -11,6 +11,13 @@ import sys
 from urllib.parse import urlsplit
 
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from wahojobs.public_job_release import load_preview_release_manifest
+
+
 def create_configuration(
     database_path,
     output_path,
@@ -18,6 +25,7 @@ def create_configuration(
     public_origin,
     deployment_environment,
     bind_port,
+    release_manifest_path,
     runtime_database_path=None,
 ):
     database = Path(database_path).resolve(strict=True)
@@ -52,6 +60,10 @@ def create_configuration(
     with database.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
+    database_sha256 = digest.hexdigest()
+    release = load_preview_release_manifest(release_manifest_path)
+    if release.database_sha256 != database_sha256:
+        raise ValueError("release_projection_mismatch")
     if runtime_database_path is None:
         runtime_database = str(database)
     else:
@@ -66,13 +78,14 @@ def create_configuration(
             raise ValueError("invalid_runtime_database_path")
         runtime_database = str(runtime_path)
     document = {
-        "version": 1,
+        "version": 2,
         "deployment_environment": deployment_environment,
         "bind_host": "127.0.0.1",
         "bind_port": bind_port,
         "public_origin": public_origin,
         "database_path": runtime_database,
-        "database_sha256": digest.hexdigest(),
+        "database_sha256": database_sha256,
+        "release_manifest": release.as_dict(),
     }
     descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
@@ -90,6 +103,7 @@ def main(argv=None):
         "--deployment-environment", choices=("preview", "production"), required=True
     )
     parser.add_argument("--bind-port", type=int, default=8080)
+    parser.add_argument("--release-manifest", required=True)
     parser.add_argument("--runtime-database-path")
     arguments = parser.parse_args(argv)
     try:
@@ -99,6 +113,7 @@ def main(argv=None):
             public_origin=arguments.public_origin,
             deployment_environment=arguments.deployment_environment,
             bind_port=arguments.bind_port,
+            release_manifest_path=arguments.release_manifest,
             runtime_database_path=arguments.runtime_database_path,
         )
     except (KeyboardInterrupt, SystemExit, GeneratorExit):

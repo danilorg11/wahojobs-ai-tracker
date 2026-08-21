@@ -1,8 +1,9 @@
 """Production-grade, guest-only origin boundary for the public jobs catalog.
 
 This module is deliberately independent from the staging and WorkOS launchers.
-It exposes only ``/jobs`` plus loopback-only health targets, owns no login or
-job-detail route, and consumes a read-only public projection database.
+It exposes only ``/jobs``, the exact details in one attested Preview release,
+and loopback-only health targets. It owns no login route and consumes a
+read-only public projection database.
 """
 
 from __future__ import annotations
@@ -26,9 +27,18 @@ from wahojobs.authenticated_profile_matches import (
     AuthenticatedProfileMatchesService,
 )
 from wahojobs.matching.metadata_overlay import OpportunityMetadataOverlay
+from wahojobs import public_job_identity
+from wahojobs.public_job_canary import PublicJobCanaryRoutingGate
+from wahojobs.public_job_release import (
+    PublicJobBindingPublication,
+    PublicJobPreviewRelease,
+    PublicJobReleaseError,
+    build_preview_release,
+    validate_preview_release_manifest,
+)
 
 
-CONFIGURATION_VERSION = 1
+CONFIGURATION_VERSION = 2
 PUBLIC_CATALOG_ROUTE = "/jobs"
 LIVE_ROUTE = "/__origin/live"
 READY_ROUTE = "/__origin/ready"
@@ -44,6 +54,7 @@ _DATABASE_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{16,96}$")
 _AUTH_HEADER = "x-wahojobs-origin-auth"
 _REQUEST_ID_HEADER = "x-wahojobs-origin-request-id"
+_RELEASE_HEADER = "x-wahojobs-release-id"
 _PROXY_HEADER_NAMES = frozenset(
     {
         "forwarded",
@@ -56,8 +67,8 @@ _PROXY_HEADER_NAMES = frozenset(
 )
 
 # Only these tables may contain rows in the public projection.  Source bodies,
-# account/session/profile state, WorkOS state, and M009 public-route identities
-# are intentionally absent or empty.
+# account/session/profile state and WorkOS state are intentionally absent or
+# empty. The three M009 public route tables contain only the exact release.
 PUBLIC_DATA_TABLES = frozenset(
     {
         "companies",
@@ -65,6 +76,9 @@ PUBLIC_DATA_TABLES = frozenset(
         "jobs",
         "crawl_runs",
         "opportunity_enrichments",
+        "public_job_identities",
+        "public_job_paths",
+        "public_job_bindings",
     }
 )
 EXPECTED_EMPTY_TABLES = frozenset(
@@ -99,6 +113,7 @@ class PublicCatalogOriginConfiguration:
     public_authority: str
     database_path: Path
     database_sha256: str
+    release: PublicJobPreviewRelease
 
     @property
     def bind_address(self):
@@ -116,10 +131,15 @@ class PublicCatalogOriginConfiguration:
 @dataclass(frozen=True, slots=True)
 class PublicProjectionAttestation:
     database_sha256: str
+    release_id: str
+    registry_sha256: str
     company_count: int
     opportunity_count: int
     job_count: int
     enrichment_count: int
+    identity_count: int
+    path_count: int
+    binding_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +164,7 @@ def load_public_catalog_origin_configuration(path_value):
             "public_origin",
             "database_path",
             "database_sha256",
+            "release_manifest",
         }
         if type(document) is not dict or set(document) != required:
             raise ValueError
@@ -165,6 +186,9 @@ def load_public_catalog_origin_configuration(path_value):
         digest = document["database_sha256"]
         if type(digest) is not str or _DATABASE_DIGEST.fullmatch(digest) is None:
             raise ValueError
+        release = validate_preview_release_manifest(document["release_manifest"])
+        if not hmac.compare_digest(digest, release.database_sha256):
+            raise ValueError
         return PublicCatalogOriginConfiguration(
             deployment_environment=environment,
             bind_host=bind_host,
@@ -173,10 +197,18 @@ def load_public_catalog_origin_configuration(path_value):
             public_authority=authority,
             database_path=database_path,
             database_sha256=digest,
+            release=release,
         )
     except PublicCatalogOriginConfigurationError:
         raise
-    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError):
+    except (
+        OSError,
+        UnicodeError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+        PublicJobReleaseError,
+    ):
         raise PublicCatalogOriginConfigurationError() from None
 
 
@@ -223,16 +255,61 @@ def attest_public_projection(configuration):
                 raise ValueError
             if not counts["companies"] or not counts["canonical_opportunities"] or not counts["jobs"]:
                 raise ValueError
+            public_job_identity.assert_public_job_identity_consistent(connection)
+            registry_artifact = public_job_identity.export_public_job_registry_artifact(
+                connection
+            )
+            bindings = tuple(
+                PublicJobBindingPublication(
+                    item.public_job_id,
+                    item.canonical_key,
+                )
+                for item in configuration.release.published_details
+            )
+            rebuilt_release = build_preview_release(
+                database_sha256=actual_digest,
+                registry_artifact=registry_artifact,
+                bindings=bindings,
+            )
+            if rebuilt_release != configuration.release:
+                raise ValueError
+            rows = connection.execute(
+                "SELECT path.path, path.public_job_id, canonical.canonical_key "
+                "FROM public_job_paths path "
+                "JOIN public_job_bindings binding "
+                "ON binding.public_job_id = path.public_job_id "
+                "JOIN canonical_opportunities canonical "
+                "ON canonical.id = binding.canonical_opportunity_id "
+                "ORDER BY path.path"
+            ).fetchall()
+            expected_rows = tuple(
+                (item.path, item.public_job_id, item.canonical_key)
+                for item in configuration.release.published_details
+            )
+            if tuple(tuple(row) for row in rows) != expected_rows:
+                raise ValueError
         return PublicProjectionAttestation(
             database_sha256=actual_digest,
+            release_id=configuration.release.release_id,
+            registry_sha256=registry_artifact.sha256,
             company_count=counts["companies"],
             opportunity_count=counts["canonical_opportunities"],
             job_count=counts["jobs"],
             enrichment_count=counts["opportunity_enrichments"],
+            identity_count=counts["public_job_identities"],
+            path_count=counts["public_job_paths"],
+            binding_count=counts["public_job_bindings"],
         )
     except PublicCatalogOriginConfigurationError:
         raise
-    except (OSError, sqlite3.Error, ValueError, TypeError):
+    except (
+        OSError,
+        sqlite3.Error,
+        ValueError,
+        TypeError,
+        public_job_identity.PublicJobIdentityError,
+        PublicJobReleaseError,
+    ):
         raise PublicCatalogOriginConfigurationError("database_unavailable") from None
 
 
@@ -270,18 +347,33 @@ class PublicCatalogOriginIntegration:
             completed_profile_confirmation_authenticator=lambda _artifact: None,
             public_origin=configuration.public_origin,
             now=lambda: datetime.now(timezone.utc),
+            public_job_canary_gate=PublicJobCanaryRoutingGate(
+                configuration.release.public_job_ids
+            ),
         )
         self._configuration = configuration
         self._delegate = delegate
         self._origin_auth_token = origin_auth_token
         self._attestation = attestation
         self._closed = False
-        self._metrics = {"jobs": 0, "health": 0, "rejected": 0}
+        self._metrics = {"details": 0, "jobs": 0, "health": 0, "rejected": 0}
         self._metrics_lock = threading.Lock()
 
     @property
     def attestation(self):
         return self._attestation
+
+    def route_class(self, target):
+        parsed = _relative_target(target)
+        if parsed is None:
+            return "rejected"
+        if parsed.path == PUBLIC_CATALOG_ROUTE:
+            return "jobs"
+        if parsed.path in self._configuration.release.paths:
+            return "details"
+        if parsed.path in HEALTH_ROUTES:
+            return "health"
+        return "rejected"
 
     def close(self):
         if self._closed:
@@ -328,7 +420,8 @@ class PublicCatalogOriginIntegration:
                         HTTPStatus.SERVICE_UNAVAILABLE, b'{"ready":false}\n', json_body=True
                     )
             return _plain_response(HTTPStatus.OK, b'{"ready":true}\n', json_body=True)
-        if path != PUBLIC_CATALOG_ROUTE:
+        owned_detail = path in self._configuration.release.paths
+        if path != PUBLIC_CATALOG_ROUTE and not owned_detail:
             self._record("rejected")
             return _plain_response(HTTPStatus.NOT_FOUND, b"Not found\n")
         if method not in {"GET", "HEAD"}:
@@ -344,14 +437,20 @@ class PublicCatalogOriginIntegration:
         ):
             self._record("rejected")
             return _plain_response(HTTPStatus.BAD_REQUEST, b"Bad request\n")
-        self._record("jobs")
+        if not self._trusted_release(items):
+            self._record("rejected")
+            return _plain_response(HTTPStatus.CONFLICT, b"Release mismatch\n")
+        self._record("details" if owned_detail else "jobs")
         canonical_headers = (("Host", self._configuration.public_authority),)
         response = self._delegate.handle(method, target, canonical_headers, body_stream)
         return PublicCatalogOriginResponse(
             status=response.status,
             body=response.body,
             headers=response.headers
-            + (("X-Wahojobs-Origin", "public-catalog-preview"),),
+            + (
+                ("X-Wahojobs-Origin", "public-catalog-preview"),
+                ("X-Wahojobs-Release-Id", self._configuration.release.release_id),
+            ),
         )
 
     def request_id(self, headers):
@@ -372,6 +471,16 @@ class PublicCatalogOriginIntegration:
         except (AttributeError, UnicodeError):
             valid = False
         return valid
+
+    def _trusted_release(self, items):
+        values = tuple(value for name, value in items if name.lower() == _RELEASE_HEADER)
+        try:
+            return len(values) == 1 and hmac.compare_digest(
+                values[0].encode("ascii"),
+                self._configuration.release.release_id.encode("ascii"),
+            )
+        except (AttributeError, UnicodeError):
+            return False
 
     def _record(self, key):
         with self._metrics_lock:

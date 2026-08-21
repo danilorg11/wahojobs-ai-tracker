@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
+    "api/job.mjs": {
+      "maxDuration": 10
+    },
     "api/jobs.mjs": {
       "maxDuration": 10
     }
@@ -9,6 +12,14 @@
     {
       "source": "/jobs",
       "destination": "/api/jobs"
+    },
+    {
+      "source": "/job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f",
+      "destination": "/api/job"
+    },
+    {
+      "source": "/job/oneforma-karl-llm-1",
+      "destination": "/api/job"
     },
     {
       "source": "/",
@@ -22,6 +33,24 @@
   "headers": [
     {
       "source": "/jobs",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/job/oneforma-karl-llm-1",
       "headers": [
         {
           "key": "x-vercel-enable-rewrite-caching",

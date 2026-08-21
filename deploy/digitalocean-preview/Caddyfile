@@ -5,12 +5,12 @@
 {$WAHOJOBS_ORIGIN_HOST} {
 	encode gzip
 
-	@trusted_jobs {
-		path /jobs
+	@trusted_public {
+		path /jobs /job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f /job/oneforma-karl-llm-1
 		method GET HEAD
 		header X-Wahojobs-Origin-Auth {$WAHOJOBS_ORIGIN_AUTH_TOKEN}
 	}
-	handle @trusted_jobs {
+	handle @trusted_public {
 		reverse_proxy 127.0.0.1:{$WAHOJOBS_ORIGIN_PORT} {
 			header_up Host {$WAHOJOBS_PUBLIC_AUTHORITY}
 			header_up -Cookie
@@ -35,7 +35,7 @@
 		}
 	}
 
-	@protected path /jobs /__origin/live /__origin/ready /__origin/metrics
+	@protected path /jobs /job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f /job/oneforma-karl-llm-1 /__origin/live /__origin/ready /__origin/metrics
 	respond @protected 403
 	respond 404
 }

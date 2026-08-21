@@ -1372,6 +1372,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         connection,
                         now=now,
                     )
+                    if self._public_job_canary_gate.enabled:
+                        for job in jobs:
+                            decision = self._public_job_canary_gate.resolve_canonical(
+                                connection,
+                                job["canonical_opportunity_id"],
+                            )
+                            if decision is not None and decision.kind == "serve":
+                                job["catalog_detail_target"] = decision.primary_path
+                                job["catalog_detail_owner"] = "published"
+                            else:
+                                job["catalog_detail_target"] = job.get("official_url")
+                                job["catalog_detail_owner"] = "official"
                 finally:
                     if connection.in_transaction:
                         connection.rollback()

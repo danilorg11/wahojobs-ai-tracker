@@ -1,9 +1,16 @@
 {
-  "version": 1,
+  "version": 2,
   "deployment_environment": "preview",
   "bind_host": "127.0.0.1",
   "bind_port": 8080,
   "public_origin": "https://REPLACE_WITH_VERCEL_PREVIEW_HOST",
   "database_path": "/var/lib/wahojobs-preview/catalog.sqlite3",
-  "database_sha256": "REPLACE_WITH_64_LOWERCASE_HEX"
+  "database_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+  "release_manifest": {
+    "format": "wahojobs-public-job-preview-release-v1",
+    "release_id": "REPLACE_WITH_64_LOWERCASE_HEX",
+    "database_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+    "registry_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+    "published_details": []
+  }
 }
