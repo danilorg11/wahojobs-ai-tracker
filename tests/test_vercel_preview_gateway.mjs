@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 
-import handler from './jobs.mjs';
+import handler from '../deploy/vercel-preview-gateway/api/jobs.mjs';
 
 const TOKEN = 'T'.repeat(43);
 
 test('routing owns exact jobs and explicitly preserves the legacy homepage', async () => {
   const configuration = JSON.parse(
-    await readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
+    await readFile(
+      new URL('../deploy/vercel-preview-gateway/vercel.json', import.meta.url),
+      'utf8',
+    ),
   );
   assert.deepEqual(configuration.rewrites, [
     { source: '/jobs', destination: '/api/jobs' },
@@ -18,6 +21,14 @@ test('routing owns exact jobs and explicitly preserves the legacy homepage', asy
       destination: 'https://www.wahojobs.com/:path*',
     },
   ]);
+  assert.deepEqual(
+    (
+      await readdir(
+        new URL('../deploy/vercel-preview-gateway/api/', import.meta.url),
+      )
+    ).sort(),
+    ['jobs.mjs'],
+  );
 });
 
 function responseHarness() {
@@ -86,6 +97,30 @@ test('preview-only exact jobs sends the origin secret and no browser credentials
   );
   assert.equal(response.headers.get('cdn-cache-control'), 'no-store');
   assert.equal(response.headers.get('vercel-cdn-cache-control'), 'no-store');
+});
+
+test('direct API function path fails closed without origin traffic', async () => {
+  process.env.VERCEL_ENV = 'preview';
+  process.env.WAHOJOBS_PREVIEW_JOBS_ENABLED = '1';
+  process.env.WAHOJOBS_NEW_ORIGIN_URL = 'https://origin.example.test';
+  process.env.WAHOJOBS_ORIGIN_AUTH_TOKEN = TOKEN;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error('unexpected_origin_request');
+  };
+  const response = responseHarness();
+  await quietly(() =>
+    handler({ method: 'GET', url: '/api/jobs', headers: {} }, response),
+  );
+  assert.equal(fetchCalls, 0);
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.toString('utf8'), 'Not found\n');
+  assert.equal(response.headers.get('x-wahojobs-preview-owner'), 'rejected');
+  assert.equal(
+    response.headers.get('cache-control'),
+    'private, no-store, max-age=0',
+  );
 });
 
 test('disabled or non-preview deployment falls through to current legacy jobs', async () => {

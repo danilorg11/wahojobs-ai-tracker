@@ -66,12 +66,41 @@ async function fetchLegacy(request, response, requestId) {
   return upstream.status;
 }
 
+function rejectUnownedRoute(request, response) {
+  response.setHeader('cache-control', 'private, no-store, max-age=0');
+  response.setHeader('cdn-cache-control', 'no-store');
+  response.setHeader('vercel-cdn-cache-control', 'no-store');
+  response.setHeader('content-type', 'text/plain; charset=utf-8');
+  response.setHeader('x-wahojobs-preview-gateway', '1');
+  response.setHeader('x-wahojobs-preview-owner', 'rejected');
+  response.status(404);
+  if (request.method === 'HEAD') {
+    response.end();
+  } else {
+    response.send('Not found\n');
+  }
+}
+
 export default async function jobsPreviewGateway(request, response) {
   const started = Date.now();
   const requestId = randomUUID();
   let owner = 'new-origin';
+  let route = 'jobs';
   let status = 503;
   try {
+    let incoming;
+    try {
+      incoming = new URL(request.url, 'https://preview.invalid');
+    } catch (_error) {
+      incoming = null;
+    }
+    if (incoming === null || incoming.pathname !== '/jobs') {
+      owner = 'rejected';
+      route = 'rejected';
+      status = 404;
+      rejectUnownedRoute(request, response);
+      return;
+    }
     if (!['GET', 'HEAD'].includes(request.method)) {
       response.setHeader('allow', 'GET, HEAD');
       response.setHeader('cache-control', 'no-store');
@@ -90,7 +119,6 @@ export default async function jobsPreviewGateway(request, response) {
     const token = process.env.WAHOJOBS_ORIGIN_AUTH_TOKEN || '';
     if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('missing_secret');
     const origin = validatedOrigin(process.env.WAHOJOBS_NEW_ORIGIN_URL || '');
-    const incoming = new URL(request.url, 'https://preview.invalid');
     const target = new URL('/jobs' + incoming.search, origin);
     const upstream = await fetch(target, {
       method: request.method,
@@ -117,7 +145,7 @@ export default async function jobsPreviewGateway(request, response) {
         event: 'wahojobs_preview_route',
         request_id: requestId,
         method: ['GET', 'HEAD'].includes(request.method) ? request.method : 'other',
-        route: 'jobs',
+        route,
         owner,
         status,
         duration_ms: Math.max(0, Math.min(Date.now() - started, 3600000)),

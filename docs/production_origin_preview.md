@@ -109,3 +109,19 @@ No custom domain is attached to the preview gateway. Publishing `/jobs` on
 - Real `https://www.wahojobs.com/jobs` remained the legacy `307` to `/404`.
   No Wahojobs custom domain, DNS, WorkOS, Karl, wildcard route, robots, sitemap,
   or real production routing was changed.
+
+## Post-audit exact-path remediation (2026-08-21)
+
+The Preview gateway now validates the original request pathname inside the
+function before it reads origin configuration or performs a fetch. Exact
+`/jobs` remains eligible for the new origin; direct `/api/jobs` returns an
+uncached `404` with owner `rejected` and zero origin traffic. The Node test was
+moved to repository-level `tests/`, outside the Vercel project root.
+
+Preview deployment `dpl_3ETcHViYr7Cfij8SFjFWa7ysXEqy` built only
+`api/jobs`, and the dedicated preview alias points to that deployment. Live
+proof increased the origin jobs counter from three to four for `/jobs`; direct
+`/api/jobs`, legacy `/api/jobs.test`, homepage, job, company, online-jobs,
+static, and random probes left it at four with zero rejected-origin requests.
+Real `www.wahojobs.com/jobs` remained the legacy `307` to `/404` before and
+after the proof.

@@ -9,6 +9,12 @@ site. Exact `/jobs` uses the new origin only when all of the following are true:
 - `WAHOJOBS_NEW_ORIGIN_URL` is an exact HTTPS origin; and
 - `WAHOJOBS_ORIGIN_AUTH_TOKEN` is the matching 43-character secret.
 
+The function independently checks the original request pathname before reading
+origin configuration or making any upstream request. Direct filesystem access
+at `/api/jobs` therefore returns an uncached `404` with owner `rejected` and
+cannot reach either origin. Tests live outside this Vercel project directory so
+they cannot be built as functions.
+
 Production-environment deployments and disabled previews fetch legacy `/jobs`.
 No wildcard job/company, WorkOS, Karl, robots, sitemap, DNS, or custom-domain
 ownership exists here. The function strips browser cookies and authorization,
