@@ -33,6 +33,8 @@ from wahojobs.profile_intake import contracts
 from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
     AIProfileExtraction,
+    DocumentFormat,
+    DocumentKind,
     LanguageValue,
     ModelEvidencePacket,
     ProfileIntakeError,
@@ -47,7 +49,10 @@ from wahojobs.profile_intake.openai_adapter import (
 )
 from wahojobs.profile_intake.review_draft import (
     AIProfileReviewDraft,
-    build_profile_review_draft,
+    ReviewDraftSource,
+    ReviewSourceAttribution,
+    ValidatedProfileSource,
+    reconcile_profile_extractions,
 )
 
 
@@ -341,23 +346,56 @@ class EditableReviewFact:
     field_path: str
     review_field: str
     value: str | int | float | bool | LanguageValue
-    evidence_block_references: tuple[str, ...]
+    source_attributions: tuple[ReviewSourceAttribution, ...]
     suggested: bool
     decision: str
+    conflict_group: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class EditableProfileReview:
     schema_version: str
-    document_reference: str
+    sources: tuple[ReviewDraftSource, ...]
     facts: tuple[EditableReviewFact, ...]
     missing_user_fields: tuple[str, ...]
     user_inputs: tuple[tuple[str, str], ...]
     issue_count: int
 
+    @property
+    def document_reference(self):
+        return self.sources[0].document_reference if len(self.sources) == 1 else None
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ProfileIntakeDocumentInput:
+    document_bytes: bytes = field(repr=False)
+    document_kind: DocumentKind
+    document_format: DocumentFormat
+
+    def __post_init__(self):
+        if (
+            type(self.document_bytes) is not bytes
+            or not self.document_bytes
+            or type(self.document_kind) is not DocumentKind
+            or type(self.document_format) is not DocumentFormat
+            or (
+                self.document_kind is DocumentKind.LINKEDIN_PROFILE_EXPORT
+                and self.document_format is not DocumentFormat.PDF
+            )
+        ):
+            raise ProfileIntakeError("invalid_profile_intake_bundle")
+
+    def __repr__(self):
+        return (
+            "ProfileIntakeDocumentInput("
+            f"document_kind={self.document_kind!r}, "
+            f"document_format={self.document_format!r}, content=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class SafeDocumentMetadata:
+    document_reference: str
     origin: str
     format: str
     byte_size: int
@@ -365,9 +403,91 @@ class SafeDocumentMetadata:
     parser: str
     parser_version: str
 
+    def __post_init__(self):
+        try:
+            contracts._require_document_reference(self.document_reference)
+            origin = DocumentKind(self.origin)
+            document_format = DocumentFormat(self.format)
+        except (ProfileIntakeError, ValueError):
+            raise ProfileIntakeError("invalid_profile_intake_bundle_metadata") from None
+        if (
+            type(self.byte_size) is not int
+            or not 1 <= self.byte_size <= contracts.DEFAULT_DOCUMENT_LIMITS.max_upload_bytes
+            or (
+                document_format is DocumentFormat.PDF
+                and (
+                    type(self.page_count) is not int
+                    or not 1 <= self.page_count <= contracts.DEFAULT_DOCUMENT_LIMITS.max_pdf_pages
+                )
+            )
+            or (document_format is DocumentFormat.DOCX and self.page_count is not None)
+            or type(self.parser) is not str
+            or not self.parser
+            or type(self.parser_version) is not str
+            or not self.parser_version
+            or (
+                origin is DocumentKind.LINKEDIN_PROFILE_EXPORT
+                and document_format is not DocumentFormat.PDF
+            )
+        ):
+            raise ProfileIntakeError("invalid_profile_intake_bundle_metadata")
+
+    def __repr__(self):
+        return (
+            "SafeDocumentMetadata("
+            f"origin={self.origin!r}, format={self.format!r}, "
+            f"byte_size={self.byte_size!r}, page_count={self.page_count!r}, "
+            f"parser={self.parser!r}, parser_version={self.parser_version!r}, "
+            "document_reference=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SafeDocumentBundleMetadata:
+    documents: tuple[SafeDocumentMetadata, ...]
+
+    def __post_init__(self):
+        if (
+            type(self.documents) is not tuple
+            or not 1 <= len(self.documents) <= 2
+            or any(type(item) is not SafeDocumentMetadata for item in self.documents)
+            or len({item.origin for item in self.documents}) != len(self.documents)
+        ):
+            raise ProfileIntakeError("invalid_profile_intake_bundle_metadata")
+
+    @property
+    def origin(self):
+        return self.documents[0].origin if len(self.documents) == 1 else "bundle"
+
+    @property
+    def format(self):
+        return self.documents[0].format if len(self.documents) == 1 else "multiple"
+
+    @property
+    def byte_size(self):
+        return sum(item.byte_size for item in self.documents)
+
+    @property
+    def page_count(self):
+        if len(self.documents) == 1:
+            return self.documents[0].page_count
+        return None
+
+    @property
+    def parser(self):
+        return self.documents[0].parser if len(self.documents) == 1 else "multiple"
+
+    @property
+    def parser_version(self):
+        return self.documents[0].parser_version if len(self.documents) == 1 else "multiple"
+
+    def __repr__(self):
+        return f"SafeDocumentBundleMetadata(documents={self.documents!r})"
+
 
 @dataclass(frozen=True, slots=True)
 class SafeModelDiagnostics:
+    document_kind: str
     model: str
     prompt_version: str
     schema_version: str
@@ -382,8 +502,8 @@ class SafeModelDiagnostics:
 @dataclass(frozen=True, slots=True, repr=False)
 class IntakeDraftSnapshot:
     review: EditableProfileReview = field(repr=False)
-    document: SafeDocumentMetadata
-    diagnostics: SafeModelDiagnostics | None
+    document: SafeDocumentBundleMetadata
+    diagnostics: tuple[SafeModelDiagnostics, ...] | None
     created_at: str
     expires_at_monotonic: float
     version: int
@@ -450,10 +570,29 @@ class IntakeDraftVault:
         binding = _grant_binding(grant)
         if (
             type(review) is not EditableProfileReview
-            or type(document) is not SafeDocumentMetadata
-            or diagnostics is not None and type(diagnostics) is not SafeModelDiagnostics
+            or type(document) is not SafeDocumentBundleMetadata
+            or diagnostics is not None
+            and (
+                type(diagnostics) is not tuple
+                or not 1 <= len(diagnostics) <= 2
+                or any(type(item) is not SafeModelDiagnostics for item in diagnostics)
+            )
             or type(created_at) is not datetime
             or created_at.tzinfo is None
+        ):
+            raise _configuration_error()
+        review_sources = {
+            source.document_reference: source.document_kind.value
+            for source in review.sources
+        }
+        document_sources = {
+            item.document_reference: item.origin
+            for item in document.documents
+        }
+        if review_sources != document_sources or (
+            diagnostics is not None
+            and tuple(item.document_kind for item in diagnostics)
+            != tuple(item.origin for item in document.documents)
         ):
             raise _configuration_error()
         now = _monotonic(self._monotonic())
@@ -570,7 +709,30 @@ class ProfileIntakeProcessingService:
         return self._vault
 
     def process(self, grant, document_bytes, *, document_kind, document_format):
+        """Backward-compatible single-document bundle entry point."""
+
+        return self.process_bundle(
+            grant,
+            (
+                ProfileIntakeDocumentInput(
+                    document_bytes=document_bytes,
+                    document_kind=document_kind,
+                    document_format=document_format,
+                ),
+            ),
+        )
+
+    def process_bundle(self, grant, documents):
+        """Atomically create one draft from one or two independent sources."""
+
         binding = _grant_binding(grant)
+        if (
+            type(documents) is not tuple
+            or not 1 <= len(documents) <= 2
+            or any(type(item) is not ProfileIntakeDocumentInput for item in documents)
+            or len({item.document_kind for item in documents}) != len(documents)
+        ):
+            raise ProfileIntakeError("invalid_profile_intake_bundle")
         if self._adapter is None:
             raise ProfileIntakeError("profile_extraction_unavailable")
         with self._guard:
@@ -581,46 +743,72 @@ class ProfileIntakeProcessingService:
         raw_evidence = None
         model_evidence = None
         extraction = None
+        validated_sources = []
+        metadata_items = []
+        diagnostic_items = []
         try:
-            raw_document = extract_profile_document(
-                document_bytes,
-                document_reference=new_document_reference(),
-                document_kind=document_kind,
-                document_format=document_format,
+            ordered_documents = tuple(
+                sorted(
+                    documents,
+                    key=lambda item: (
+                        0
+                        if item.document_kind is DocumentKind.RESUME
+                        else 1
+                    ),
+                )
             )
-            raw_evidence = raw_document.evidence_packet()
-            model_evidence = minimize_evidence_packet(raw_evidence)
-            metadata = SafeDocumentMetadata(
-                origin=raw_document.document_kind.value,
-                format=raw_document.document_format.value,
-                byte_size=raw_document.original_byte_size,
-                page_count=raw_document.page_count,
-                parser=raw_document.parser.parser,
-                parser_version=raw_document.parser.version,
-            )
-            raw_evidence = None
-            raw_document = None
-            diagnostics = None
-            extractor = getattr(self._adapter, "extract_with_diagnostics", None)
-            if callable(extractor):
-                outcome = extractor(model_evidence)
-                if type(outcome) is not ProfileExtractionOutcome:
-                    raise ProfileIntakeError("invalid_profile_extraction")
-                extraction = outcome.extraction
-                diagnostics = _safe_diagnostics(outcome.diagnostics)
-            else:
-                extraction = self._adapter.extract(model_evidence)
-            extraction = validate_ai_profile_extraction(
-                _extraction_mapping(extraction),
-                model_evidence,
-            )
-            draft = build_profile_review_draft(extraction)
+            for item in ordered_documents:
+                raw_document = extract_profile_document(
+                    item.document_bytes,
+                    document_reference=new_document_reference(),
+                    document_kind=item.document_kind,
+                    document_format=item.document_format,
+                )
+                raw_evidence = raw_document.evidence_packet()
+                model_evidence = minimize_evidence_packet(raw_evidence)
+                metadata_items.append(
+                    SafeDocumentMetadata(
+                        document_reference=raw_document.document_reference,
+                        origin=raw_document.document_kind.value,
+                        format=raw_document.document_format.value,
+                        byte_size=raw_document.original_byte_size,
+                        page_count=raw_document.page_count,
+                        parser=raw_document.parser.parser,
+                        parser_version=raw_document.parser.version,
+                    )
+                )
+                raw_evidence = None
+                raw_document = None
+                extractor = getattr(self._adapter, "extract_with_diagnostics", None)
+                if callable(extractor):
+                    outcome = extractor(model_evidence)
+                    if type(outcome) is not ProfileExtractionOutcome:
+                        raise ProfileIntakeError("invalid_profile_extraction")
+                    extraction = outcome.extraction
+                    diagnostic_items.append(
+                        _safe_diagnostics(outcome.diagnostics, item.document_kind)
+                    )
+                else:
+                    extraction = self._adapter.extract(model_evidence)
+                extraction = validate_ai_profile_extraction(
+                    _extraction_mapping(extraction),
+                    model_evidence,
+                )
+                validated_sources.append(
+                    ValidatedProfileSource(
+                        document_kind=item.document_kind,
+                        extraction=extraction,
+                    )
+                )
+                extraction = None
+                model_evidence = None
+            draft = reconcile_profile_extractions(tuple(validated_sources))
             review = editable_profile_review(draft)
             return self._vault.issue(
                 grant,
                 review,
-                metadata,
-                diagnostics,
+                SafeDocumentBundleMetadata(tuple(metadata_items)),
+                tuple(diagnostic_items) if diagnostic_items else None,
                 created_at=self._clock(),
             )
         finally:
@@ -628,7 +816,10 @@ class ProfileIntakeProcessingService:
             model_evidence = None
             raw_evidence = None
             raw_document = None
-            document_bytes = None
+            validated_sources.clear()
+            metadata_items.clear()
+            diagnostic_items.clear()
+            documents = None
             with self._guard:
                 self._in_flight.discard(binding)
 
@@ -641,9 +832,10 @@ def editable_profile_review(draft):
             field_path=fact.field_path,
             review_field=fact.review_field,
             value=fact.value,
-            evidence_block_references=fact.evidence_block_references,
+            source_attributions=fact.source_attributions,
             suggested=suggested,
             decision="pending" if suggested else "keep",
+            conflict_group=fact.conflict_group,
         )
         for suggested, collection in (
             (False, draft.prefilled_facts),
@@ -653,7 +845,7 @@ def editable_profile_review(draft):
     )
     return EditableProfileReview(
         schema_version=draft.schema_version,
-        document_reference=draft.document_reference,
+        sources=draft.sources,
         facts=facts,
         missing_user_fields=draft.missing_user_fields,
         user_inputs=tuple((name, "") for name in draft.missing_user_fields),
@@ -681,6 +873,14 @@ def update_editable_review(review, values, decisions, user_inputs):
             raise ProfileIntakeError("invalid_review_submission")
         value = _parse_review_value(fact.field_path, raw_value)
         updated.append(replace(fact, value=value, decision=decision))
+    accepted_conflicts: dict[str, int] = {}
+    for fact in updated:
+        if fact.conflict_group is not None and fact.decision == "accept":
+            accepted_conflicts[fact.conflict_group] = (
+                accepted_conflicts.get(fact.conflict_group, 0) + 1
+            )
+    if any(count > 1 for count in accepted_conflicts.values()):
+        raise ProfileIntakeError("invalid_review_submission")
     normalized_inputs = []
     for name in review.missing_user_fields:
         normalized_inputs.append((name, _validate_user_input(name, user_inputs[name])))
@@ -781,10 +981,13 @@ def _extraction_mapping(extraction):
     }
 
 
-def _safe_diagnostics(value):
+def _safe_diagnostics(value, document_kind):
     if type(value) is not ProfileExtractionDiagnostics:
         raise ProfileIntakeError("invalid_profile_extraction_diagnostics")
+    if type(document_kind) is not DocumentKind:
+        raise ProfileIntakeError("invalid_profile_extraction_diagnostics")
     return SafeModelDiagnostics(
+        document_kind=document_kind.value,
         model=value.model,
         prompt_version=value.prompt_version,
         schema_version=value.schema_version,

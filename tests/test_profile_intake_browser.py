@@ -257,9 +257,9 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             )
 
         part(b'Content-Disposition: form-data; name="csrf"', csrf.encode())
-        part(b'Content-Disposition: form-data; name="document_origin"', kind.encode())
+        role = "linkedin_profile_export" if kind == "linkedin_profile_export" else "resume"
         file_headers = (
-            b'Content-Disposition: form-data; name="document"; filename="synthetic.bin"\r\n'
+            f'Content-Disposition: form-data; name="{role}"; filename="synthetic.bin"\r\n'.encode()
             + b"Content-Type: "
             + mime.encode()
         )
@@ -371,7 +371,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(headers["X-Robots-Tag"], "noindex, nofollow")
         self.assertIn(b"Create your profile faster", response.body)
         self.assertIn(b"href='/find-matches'", response.body)
-        self.assertIn(b"LinkedIn profile export (PDF only)", response.body)
+        self.assertIn(b"LinkedIn profile PDF exported by you", response.body)
         self.assertNotIn(self.session["account_id"].encode(), response.body)
 
         content, status = render_persistent_profile_page(

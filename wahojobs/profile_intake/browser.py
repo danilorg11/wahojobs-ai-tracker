@@ -33,6 +33,7 @@ from wahojobs.profile_intake.contracts import (
 from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_REVIEW_ROUTE,
     PROFILE_INTAKE_ROUTE,
+    ProfileIntakeDocumentInput,
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
     profile_intake_csrf_proof,
@@ -41,7 +42,7 @@ from wahojobs.profile_intake.runtime import (
 )
 
 
-MAX_MULTIPART_BODY_BYTES = DEFAULT_DOCUMENT_LIMITS.max_upload_bytes + 65_536
+MAX_MULTIPART_BODY_BYTES = (2 * DEFAULT_DOCUMENT_LIMITS.max_upload_bytes) + 65_536
 MAX_REVIEW_BODY_BYTES = 131_072
 MAX_REVIEW_FIELDS = 1_024
 MAX_MULTIPART_PARTS = 3
@@ -52,7 +53,11 @@ _OPAQUE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _CONTENT_LENGTH = re.compile(r"^(?:0|[1-9][0-9]{0,8})$")
 _FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _INVALID_PERCENT_ESCAPE = re.compile(rb"%(?![0-9A-Fa-f]{2})")
-_ALLOWED_MULTIPART_NAMES = frozenset({"csrf", "document_origin", "document"})
+_FILE_PARTS = {
+    "resume": DocumentKind.RESUME,
+    "linkedin_profile_export": DocumentKind.LINKEDIN_PROFILE_EXPORT,
+}
+_ALLOWED_MULTIPART_NAMES = frozenset({"csrf", *_FILE_PARTS})
 _MIME_PDF = b"application/pdf"
 _MIME_DOCX = b"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -213,7 +218,7 @@ class ProfileIntakeBrowserIntegration:
         parsed_upload = _parse_multipart_upload(headers, body_stream)
         if type(parsed_upload) is str:
             return _failure(parsed_upload)
-        proof, origin, document_bytes, document_format = parsed_upload
+        proof, documents = parsed_upload
         parsed_upload = None
         grant, failure = self._authorize(
             method="POST",
@@ -227,11 +232,9 @@ class ProfileIntakeBrowserIntegration:
         if failure is not None:
             return failure
         try:
-            reference, _snapshot = self._processing.process(
+            reference, _snapshot = self._processing.process_bundle(
                 grant,
-                document_bytes,
-                document_kind=origin,
-                document_format=document_format,
+                documents,
             )
         except ProfileIntakeError as exc:
             return _failure(_processing_error_code(exc.code))
@@ -240,7 +243,7 @@ class ProfileIntakeBrowserIntegration:
         except Exception:
             return _failure("extraction_unavailable")
         finally:
-            document_bytes = None
+            documents = None
         location = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
         return _response(
             HTTPStatus.SEE_OTHER,
@@ -371,33 +374,54 @@ def _parse_multipart_upload(headers, body_stream):
         return "malformed_upload"
     finally:
         body = None
-    if parts is None or set(parts) != _ALLOWED_MULTIPART_NAMES:
+    if (
+        parts is None
+        or "csrf" not in parts
+        or not 1 <= len(set(parts) & set(_FILE_PARTS)) <= 2
+        or not set(parts) <= _ALLOWED_MULTIPART_NAMES
+    ):
         return "malformed_upload"
     csrf = parts["csrf"][1]
-    origin_value = parts["document_origin"][1]
     if (
         type(csrf) is not bytes
-        or type(origin_value) is not bytes
         or len(csrf) > MAX_MULTIPART_METADATA_BYTES
-        or len(origin_value) > MAX_MULTIPART_METADATA_BYTES
     ):
         return "malformed_upload"
     try:
         proof = csrf.decode("ascii")
-        origin = DocumentKind(origin_value.decode("ascii"))
-    except (UnicodeError, ValueError):
+    except UnicodeError:
         return "malformed_upload"
-    file_headers, document = parts["document"]
-    if len(document) > DEFAULT_DOCUMENT_LIMITS.max_upload_bytes:
-        return "file_too_large"
-    declared = file_headers.get(b"content-type")
-    detected = _detect_format(document)
-    expected_mime = _MIME_PDF if detected is DocumentFormat.PDF else _MIME_DOCX if detected is DocumentFormat.DOCX else None
-    if detected is None or declared != expected_mime:
-        return "unsupported_format"
-    if origin is DocumentKind.LINKEDIN_PROFILE_EXPORT and detected is not DocumentFormat.PDF:
-        return "unsupported_format"
-    return proof, origin, document, detected
+    documents = []
+    for name, kind in _FILE_PARTS.items():
+        if name not in parts:
+            continue
+        file_headers, document = parts[name]
+        if len(document) > DEFAULT_DOCUMENT_LIMITS.max_upload_bytes:
+            return "file_too_large"
+        declared = file_headers.get(b"content-type")
+        detected = _detect_format(document)
+        expected_mime = (
+            _MIME_PDF
+            if detected is DocumentFormat.PDF
+            else _MIME_DOCX
+            if detected is DocumentFormat.DOCX
+            else None
+        )
+        if detected is None or declared != expected_mime:
+            return "unsupported_format"
+        if kind is DocumentKind.LINKEDIN_PROFILE_EXPORT and detected is not DocumentFormat.PDF:
+            return "unsupported_format"
+        try:
+            documents.append(
+                ProfileIntakeDocumentInput(
+                    document_bytes=document,
+                    document_kind=kind,
+                    document_format=detected,
+                )
+            )
+        except ProfileIntakeError:
+            return "malformed_upload"
+    return proof, tuple(documents)
 
 
 def _bounded_read(stream, length, hard_limit):
@@ -418,6 +442,7 @@ def _bounded_read(stream, length, hard_limit):
 
 def _multipart_parts(body, boundary):
     parts = {}
+    seen = set()
     current = {"header_name": bytearray(), "header_value": bytearray(), "headers": {}, "data": bytearray()}
     ended = {"value": False}
 
@@ -443,20 +468,35 @@ def _multipart_parts(body, boundary):
         current["header_value"] = bytearray()
 
     def part_data(data, start, end):
-        maximum = DEFAULT_DOCUMENT_LIMITS.max_upload_bytes if _part_name(current["headers"]) == "document" else MAX_MULTIPART_METADATA_BYTES
+        maximum = (
+            DEFAULT_DOCUMENT_LIMITS.max_upload_bytes
+            if _part_name(current["headers"]) in _FILE_PARTS
+            else MAX_MULTIPART_METADATA_BYTES
+        )
         append("data", data, start, end, maximum)
 
     def part_end():
         name = _part_name(current["headers"])
-        if name not in _ALLOWED_MULTIPART_NAMES or name in parts or len(parts) >= MAX_MULTIPART_PARTS:
+        if (
+            name not in _ALLOWED_MULTIPART_NAMES
+            or name in seen
+            or len(seen) >= MAX_MULTIPART_PARTS
+        ):
             raise ValueError("invalid_part")
+        seen.add(name)
         disposition, options = parse_options_header(current["headers"].get(b"content-disposition", b""))
         if disposition != b"form-data" or options.get(b"name") != name.encode("ascii"):
             raise ValueError("invalid_part")
         filename = options.get(b"filename")
-        if name == "document":
-            if type(filename) is not bytes or not filename or len(filename) > 255:
+        if name in _FILE_PARTS:
+            if type(filename) is not bytes or len(filename) > 255:
                 raise ValueError("invalid_file_part")
+            if not filename:
+                if current["data"] or current["headers"].get(
+                    b"content-type", b"application/octet-stream"
+                ) != b"application/octet-stream":
+                    raise ValueError("invalid_empty_file_part")
+                return
         elif filename is not None or b"content-type" in current["headers"]:
             raise ValueError("invalid_metadata_part")
         parts[name] = (dict(current["headers"]), bytes(current["data"]))
@@ -574,18 +614,13 @@ def _upload_page(proof):
     <section class='profile-header'>
       <p class='eyebrow'>Optional AI-assisted profile</p>
       <h1>Create your profile faster</h1>
-      <p>Upload one resume/CV, or a LinkedIn profile exported as a PDF. We do not scrape LinkedIn URLs.</p>
-      <ul><li>PDF or DOCX</li><li>Maximum 10 MiB</li><li>Text-based documents only</li><li>Scanned or image-only PDFs are not supported yet</li></ul>
+      <p>Upload either document or both. LinkedIn means a PDF you exported; we do not accept or scrape LinkedIn URLs.</p>
+      <ul><li>Maximum 10 MiB per document</li><li>Text-based documents only</li><li>Scanned or image-only PDFs are not supported yet</li></ul>
     </section>
     <form class='profile-review-form' method='post' enctype='multipart/form-data' action='{PROFILE_INTAKE_ROUTE}'>
       <input type='hidden' name='csrf' value='{_safe_text(proof)}'>
-      <label class='review-field'>Document type
-        <select name='document_origin'>
-          <option value='resume'>Resume or CV (PDF or DOCX)</option>
-          <option value='linkedin_profile_export'>LinkedIn profile export (PDF only)</option>
-        </select>
-      </label>
-      <label class='review-field'>Choose document<input required type='file' name='document' accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'></label>
+      <label class='review-field'>Resume or CV <span class='muted'>PDF or DOCX</span><input type='file' name='resume' accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'></label>
+      <label class='review-field'>LinkedIn profile <span class='muted'>LinkedIn profile PDF exported by you</span><input type='file' name='linkedin_profile_export' accept='.pdf,application/pdf'></label>
       <p class='review-actions'><button type='submit'>Build review draft</button><a href='/find-matches'>Create profile manually</a></p>
     </form>
     """
@@ -611,10 +646,14 @@ def _review_page(reference, snapshot, csrf_secret):
                 f"<option value='remove'{' selected' if fact.decision == 'remove' else ''}>Remove</option></select>"
             )
             badge = "Document-supported prefill"
-        fact_fields.append(
-            f"<div class='profile-group'><p class='eyebrow'>{_safe_text(badge)}</p>"
+        if fact.conflict_group is not None:
+            badge = "Sources disagree — please confirm"
+        source_label = _review_source_label(fact)
+        card = (
+            f"<div class='profile-group'><p class='eyebrow'>{_safe_text(badge)} · {_safe_text(source_label)}</p>"
             f"<label class='review-field'>{_safe_text(label)}<input name='fact_{index}_value' value='{value}' maxlength='512'></label>{choice}</div>"
         )
+        fact_fields.append((fact, card))
     missing = []
     existing_inputs = dict(snapshot.review.user_inputs)
     for name in snapshot.review.missing_user_fields:
@@ -648,8 +687,9 @@ def _review_page(reference, snapshot, csrf_secret):
     {issue_note}
     <form class='profile-review-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='update'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{update_proof}'>
-      <section class='review-section'><h2>Document-supported prefills</h2><div class='profile-grid'>{''.join(field for field, fact in zip(fact_fields, snapshot.review.facts) if not fact.suggested)}</div></section>
-      <section class='review-section'><h2>Suggestions requiring confirmation</h2><p class='muted'>These are suggestions, not facts or matcher decisions.</p><div class='profile-grid'>{''.join(field for field, fact in zip(fact_fields, snapshot.review.facts) if fact.suggested)}</div></section>
+      <section class='review-section'><h2>Document-supported prefills</h2><div class='profile-grid'>{''.join(card for fact, card in fact_fields if not fact.suggested and fact.conflict_group is None)}</div></section>
+      <section class='review-section'><h2>Suggestions requiring confirmation</h2><p class='muted'>These are suggestions, not facts or matcher decisions.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.suggested and fact.conflict_group is None)}</div></section>
+      <section class='review-section'><h2>Sources disagree — please confirm</h2><p class='muted'>Choose at most one value for each disagreement, edit it if needed, or reject the alternatives.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.conflict_group is not None)}</div></section>
       <section class='review-section'><h2>Information you still need to provide</h2><p class='muted'>Historical resume details are not treated as your current preferences.</p><div class='review-grid'>{''.join(missing)}</div></section>
       <p class='review-actions'><button type='submit'>Update temporary review</button><span class='muted'>Profile saving will be added in a future step.</span></p>
     </form>
@@ -658,6 +698,17 @@ def _review_page(reference, snapshot, csrf_secret):
     </form>
     """
     return _page("Review AI profile draft", body)
+
+
+def _review_source_label(fact):
+    kinds = {item.document_kind for item in fact.source_attributions}
+    if kinds == {DocumentKind.RESUME, DocumentKind.LINKEDIN_PROFILE_EXPORT}:
+        return "Found in both"
+    if kinds == {DocumentKind.RESUME}:
+        return "Found in your resume"
+    if kinds == {DocumentKind.LINKEDIN_PROFILE_EXPORT}:
+        return "Found in your LinkedIn profile"
+    return "Document source unavailable"
 
 
 def _processing_error_code(code):

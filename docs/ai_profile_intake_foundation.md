@@ -168,12 +168,13 @@ explicitly attached. The accepted flow is:
    current PB-OWN-1 ownership lineage, and environment namespace;
 2. validate trusted host and same-origin headers plus a purpose-specific CSRF
    proof;
-3. parse exactly one bounded document and small origin metadata;
-4. extract evidence, minimize PII, invoke the configured adapter, locally
-   validate the response, and create the review draft outside any database
-   transaction;
-5. issue an opaque server-generated draft handle and redirect with HTTP 303;
-6. revalidate the same authorities for every review read, update, or cancel.
+3. parse one resume/CV, one LinkedIn export, or one of each;
+4. independently extract evidence, minimize PII, invoke the configured adapter,
+   and locally validate each supplied source outside any database transaction;
+5. deterministically reconcile all validated sources into one atomic review
+   draft;
+6. issue one opaque server-generated draft handle and redirect with HTTP 303;
+7. revalidate the same authorities for every review read, update, or cancel.
 
 Account, principal, session, ownership-event, profile, revision, or source
 authority is never accepted from a form or query string. The runtime reuses the
@@ -184,20 +185,57 @@ captures the same exact PB-OWN-1 lineage used by create-once profile authority.
 
 The maintained `python-multipart` parser is used as the bounded
 multipart mechanism; the application does not implement a general parser. An
-available `Content-Length` above the 10 MiB document limit plus 64 KiB of
-strict multipart overhead is rejected before reading. The body is then read in
+available `Content-Length` above two 10 MiB document limits plus 64 KiB of
+strict multipart overhead is rejected before reading. Each document remains
+independently limited to 10 MiB. The body is then read in
 bounded 64 KiB chunks with an independent hard ceiling. Transfer encoding,
 malformed boundaries or headers, duplicate or unexpected parts, duplicate
-headers, oversized metadata, multiple documents, and incomplete bodies are
-rejected. The original filename is ignored and never retained or logged.
+headers, oversized metadata, more than one document in either role, more than
+two documents overall, and incomplete bodies are rejected. The original
+filename is ignored and never retained or logged.
 
 Declared MIME type is not trusted: it must agree with the detected PDF or DOCX
 container before extraction. `resume` accepts PDF or DOCX.
 `linkedin_profile_export` records only honest ephemeral importer metadata and
 accepts PDF only. It is not a Canonical V2 field, does not accept a LinkedIn
-URL, and performs no scraping or LinkedIn API call. V1 processes one source
-document per generated draft; document kind remains a seam for future
-pre-persistence multi-document combination.
+URL, and performs no scraping or LinkedIn API call. Valid bundles are resume
+only, LinkedIn PDF only, or resume plus LinkedIn PDF. Zero-file submissions,
+duplicate roles, and unknown roles fail closed.
+
+## Bundle processing and deterministic reconciliation
+
+One browser generation is one importer bundle regardless of whether it contains
+one source or two. Each source receives a separate server-generated opaque
+`doc_*` reference and independently passes deterministic parsing, raw
+`EvidencePacket` creation, PII minimization, model-safe `ModelEvidencePacket`
+creation, adapter extraction, and strict local response validation. The model
+never receives a concatenated bundle and is never asked to choose which source
+is more trustworthy. A combined import may therefore make two bounded adapter
+requests while remaining one user-visible import attempt.
+
+Only after every supplied source succeeds does the pure reconciliation layer
+create a review draft. Any parse, minimization, adapter, validation, or
+reconciliation failure aborts the bundle and creates no partial draft. Neither
+upload order nor document kind gives a fact precedence.
+
+Reconciliation groups facts by existing Canonical V2 review concepts. Equal
+normalized singleton or list values are deduplicated, with scoped source and
+evidence support merged. Explicit evidence wins only the presentation policy
+for the same value: an explicit fact plus the same inferred fact becomes one
+explicitly supported review fact. Complementary list values are unioned.
+Different singleton values become confirmation-required conflict alternatives;
+different qualifiers for the same language become a language-detail conflict.
+The review user may accept at most one alternative in a conflict group, edit
+the chosen value, or reject all alternatives. Historical behavior still cannot
+create a present preference, and sensitive-trait inference remains forbidden.
+
+Evidence block references are scoped by their source document reference, so
+`b001` in a resume and `b001` in a LinkedIn PDF are distinct internally. The UI
+renders only user-friendly source labels—resume, LinkedIn profile, both, or
+sources disagree—and never exposes opaque document references. No evidence text
+is retained for review. This source-aware ephemeral shape is versioned as
+`ai_profile_review_draft_v2`; the independent model-output contract remains
+`ai_profile_extraction_v1`.
 
 ## Process-local draft vault
 
@@ -214,8 +252,9 @@ expired, cross-account, cross-session, cross-principal, cross-environment, or
 lineage-mismatched access returns no record. Review mutations use an expected
 version and purpose-specific CSRF proof, so stale or replayed edits fail.
 
-The vault retains only the editable review draft, safe document metadata
-(origin, format, byte/page counts, parser name/version), content-free model
+The vault retains one entry per bundle containing only the editable reconciled
+review draft, safe metadata for at most two documents (opaque reference, origin,
+format, byte/page counts, parser name/version), content-free per-request model
 diagnostics when available, timestamps, and the mutation version. It does not
 retain upload bytes, an `EvidencePacket`, a `ModelEvidencePacket` or its text,
 unminimized contact PII, prompt text, raw provider output, original filename,
@@ -224,7 +263,9 @@ durable profile/revision/source IDs, entitlement state, or matcher signals.
 ## Review and browser behavior
 
 The private review page distinguishes document-supported prefills,
-confirmation-required suggestions, and fields the user still needs to provide.
+confirmation-required suggestions, source disagreements, and fields the user
+still needs to provide. Facts may be labeled as found in the resume, LinkedIn
+profile, or both without displaying internal source IDs.
 It does not display internal confidence numbers or turn old job behavior into
 present preferences. The user can edit or remove prefills, accept/reject or
 edit suggestions, and enter bounded values for existing review fields. All
@@ -260,3 +301,8 @@ network calls. No API key is required and committed fixtures contain only
 synthetic, non-personal data. This slice adds no profile/revision/entitlement
 write, migration, matching behavior, public route, deployment change, DNS,
 proxy, Vercel, DigitalOcean, WorkOS authority change, or old-site cutover.
+
+Future entitlement accounting must count the importer bundle—resume only,
+LinkedIn only, or resume plus LinkedIn—as exactly one import attempt. Internal
+adapter request count and advisory usage/cost diagnostics must never determine
+authorization, entitlement consumption, billing, or profile correctness.

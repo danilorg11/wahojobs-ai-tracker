@@ -50,7 +50,11 @@ from wahojobs.profile_intake.review_draft import (
     AIProfileReviewDraft,
     ReviewDraftFact,
     ReviewDraftIssue,
+    ReviewDraftSource,
+    ReviewSourceAttribution,
+    ValidatedProfileSource,
     build_profile_review_draft,
+    reconcile_profile_extractions,
 )
 
 __all__ = (
@@ -83,7 +87,10 @@ __all__ = (
     "REVIEW_DRAFT_SCHEMA_VERSION",
     "ReviewDraftFact",
     "ReviewDraftIssue",
+    "ReviewDraftSource",
+    "ReviewSourceAttribution",
     "SUPPORTED_EXTRACTION_FIELD_PATHS",
+    "ValidatedProfileSource",
     "build_profile_review_draft",
     "configured_openai_profile_adapter",
     "extract_profile_document",
@@ -92,6 +99,7 @@ __all__ = (
     "minimize_evidence_packet",
     "profile_extraction_structured_output_schema",
     "profile_extraction_system_prompt",
+    "reconcile_profile_extractions",
     "require_minimized_model_evidence",
     "validate_ai_profile_extraction",
 )
