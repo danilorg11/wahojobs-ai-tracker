@@ -269,6 +269,8 @@ class PublicCatalogOriginTests(unittest.TestCase):
         self.assertIn(
             b"https://jobs.example.test/unpublished-active", catalog.body
         )
+        self.assertIn(b"href='/find-matches'", catalog.body)
+        self.assertIn(b"href='/login'", catalog.body)
         headers = dict(catalog.headers)
         self.assertEqual(headers["X-Wahojobs-Origin"], "public-catalog-preview")
         self.assertEqual(
@@ -363,16 +365,8 @@ class PublicCatalogOriginTests(unittest.TestCase):
 
     def test_preview_configuration_cannot_target_real_production_origin(self):
         second = self.root / "forbidden.json"
-        create_configuration(
-            self.database,
-            second,
-            public_origin="https://www.wahojobs.com",
-            deployment_environment="production",
-            bind_port=18081,
-            release_manifest_path=self.release_manifest,
-        )
-        document = json.loads(second.read_text(encoding="utf-8"))
-        document["deployment_environment"] = "preview"
+        document = json.loads(self.configuration_path.read_text(encoding="utf-8"))
+        document["public_origin"] = "https://www.wahojobs.com"
         second.write_text(json.dumps(document), encoding="utf-8")
         with self.assertRaises(PublicCatalogOriginConfigurationError):
             load_public_catalog_origin_configuration(str(second))

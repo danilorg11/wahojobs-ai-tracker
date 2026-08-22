@@ -5,6 +5,10 @@ data/*.sqlite
 data/*.sqlite-*
 /data/wahojobs.sqlite.wahojobs-lifetime.lock
 
+# Offline production release output. The public-only database is regenerated
+# from the reviewed source and attested by the checked-in release manifest.
+/deploy/public-job-production/catalog.sqlite3
+
 .env
 .venv/
 .vscode/

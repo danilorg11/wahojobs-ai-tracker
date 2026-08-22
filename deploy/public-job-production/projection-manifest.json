@@ -1,0 +1,31 @@
+{
+  "binding_count": 1,
+  "cache_policy": "no-store",
+  "catalog_job_count": 171,
+  "company_count": 3,
+  "database_sha256": "2c2e23add5534e1bfc2739ad49b06e26be79740214cb5d88181c2c653086340c",
+  "enrichment_count": 171,
+  "excluded_data_families": [
+    "accounts",
+    "sessions",
+    "profiles",
+    "invitations",
+    "workos",
+    "source_bodies"
+  ],
+  "format": "wahojobs-public-catalog-production-projection-v1",
+  "identity_count": 1,
+  "job_count": 171,
+  "observed_at": "2026-08-21T15:35:26+00:00",
+  "opportunity_count": 171,
+  "owned_routes": [
+    "/jobs",
+    "/job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f"
+  ],
+  "path_count": 1,
+  "public_origin": "https://www.wahojobs.com",
+  "published_detail_count": 1,
+  "registry_sha256": "8b7dbe8c2efa544bacf03b6276424a31c0eb7ef34512ad761fa49470a12fe2ed",
+  "release_id": "37628b5cab1ce9a6b7508ca04e3f75d8885b957ebd4f167007c791fae2656ab9",
+  "source_database_sha256": "47a6ad1fe41b3bc220385d7c40f89eb1487fa74a16c50eb524736f8977cdcf67"
+}

@@ -15,7 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wahojobs.public_job_release import load_preview_release_manifest
+from wahojobs.public_job_release import (
+    load_preview_release_manifest,
+    load_production_release_manifest,
+)
 
 
 def create_configuration(
@@ -56,12 +59,21 @@ def create_configuration(
         "www.wahojobs.com",
     }:
         raise ValueError("production_origin_forbidden_in_preview")
+    if (
+        deployment_environment == "production"
+        and public_origin != "https://www.wahojobs.com"
+    ):
+        raise ValueError("invalid_production_public_origin")
     digest = sha256()
     with database.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     database_sha256 = digest.hexdigest()
-    release = load_preview_release_manifest(release_manifest_path)
+    release = (
+        load_preview_release_manifest(release_manifest_path)
+        if deployment_environment == "preview"
+        else load_production_release_manifest(release_manifest_path)
+    )
     if release.database_sha256 != database_sha256:
         raise ValueError("release_projection_mismatch")
     if runtime_database_path is None:

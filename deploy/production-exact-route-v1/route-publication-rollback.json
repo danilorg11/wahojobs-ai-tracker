@@ -1,0 +1,25 @@
+{
+  "format": "wahojobs-production-route-publication-v1",
+  "release_id": "37628b5cab1ce9a6b7508ca04e3f75d8885b957ebd4f167007c791fae2656ab9",
+  "state": "disabled",
+  "public_origin": "https://www.wahojobs.com",
+  "cache_policy": "no-store",
+  "routes": [],
+  "preservation_paths": [
+    "/",
+    "/job/oneforma-karl-llm-1",
+    "/job/freecash-multi-task-contributor-1",
+    "/job/oneforma-atlas-creator-1",
+    "/remote-companies",
+    "/company/oneforma",
+    "/online-jobs/ai-training",
+    "/blog",
+    "/blog/ai-training",
+    "/editorial-guidelines",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/sitemaps/static.xml",
+    "/sitemaps/jobs.xml",
+    "/sitemaps/companies.xml"
+  ]
+}

@@ -1,7 +1,7 @@
 """Production-grade, guest-only origin boundary for the public jobs catalog.
 
 This module is deliberately independent from the staging and WorkOS launchers.
-It exposes only ``/jobs``, the exact details in one attested Preview release,
+It exposes only ``/jobs``, the exact details in one attested public release,
 and loopback-only health targets. It owns no login route and consumes a
 read-only public projection database.
 """
@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
+from html.parser import HTMLParser
 from http import HTTPStatus
 import hmac
 import json
@@ -32,9 +33,12 @@ from wahojobs.public_job_canary import PublicJobCanaryRoutingGate
 from wahojobs.public_job_release import (
     PublicJobBindingPublication,
     PublicJobPreviewRelease,
+    PublicJobProductionRelease,
     PublicJobReleaseError,
     build_preview_release,
+    build_production_release,
     validate_preview_release_manifest,
+    validate_production_release_manifest,
 )
 
 
@@ -113,7 +117,7 @@ class PublicCatalogOriginConfiguration:
     public_authority: str
     database_path: Path
     database_sha256: str
-    release: PublicJobPreviewRelease
+    release: PublicJobPreviewRelease | PublicJobProductionRelease
 
     @property
     def bind_address(self):
@@ -180,13 +184,19 @@ def load_public_catalog_origin_configuration(path_value):
         origin, authority = _validated_public_origin(document["public_origin"])
         if environment == "preview" and authority in {"wahojobs.com", "www.wahojobs.com"}:
             raise ValueError
+        if environment == "production" and origin != "https://www.wahojobs.com":
+            raise ValueError
         database_path = _absolute_external_file(
             document["database_path"], "database_unavailable"
         )
         digest = document["database_sha256"]
         if type(digest) is not str or _DATABASE_DIGEST.fullmatch(digest) is None:
             raise ValueError
-        release = validate_preview_release_manifest(document["release_manifest"])
+        release = (
+            validate_preview_release_manifest(document["release_manifest"])
+            if environment == "preview"
+            else validate_production_release_manifest(document["release_manifest"])
+        )
         if not hmac.compare_digest(digest, release.database_sha256):
             raise ValueError
         return PublicCatalogOriginConfiguration(
@@ -266,7 +276,12 @@ def attest_public_projection(configuration):
                 )
                 for item in configuration.release.published_details
             )
-            rebuilt_release = build_preview_release(
+            release_builder = (
+                build_preview_release
+                if configuration.deployment_environment == "preview"
+                else build_production_release
+            )
+            rebuilt_release = release_builder(
                 database_sha256=actual_digest,
                 registry_artifact=registry_artifact,
                 bindings=bindings,
@@ -349,6 +364,9 @@ class PublicCatalogOriginIntegration:
             now=lambda: datetime.now(timezone.utc),
             public_job_canary_gate=PublicJobCanaryRoutingGate(
                 configuration.release.public_job_ids
+            ),
+            public_catalog_auth_routes_enabled=(
+                configuration.deployment_environment != "production"
             ),
         )
         self._configuration = configuration
@@ -443,12 +461,40 @@ class PublicCatalogOriginIntegration:
         self._record("details" if owned_detail else "jobs")
         canonical_headers = (("Host", self._configuration.public_authority),)
         response = self._delegate.handle(method, target, canonical_headers, body_stream)
+        if (
+            self._configuration.deployment_environment == "production"
+            and path == PUBLIC_CATALOG_ROUTE
+            and response.status == HTTPStatus.OK
+            and not _production_catalog_internal_hrefs_are_owned(
+                response.body,
+                self._configuration.public_origin,
+                frozenset({PUBLIC_CATALOG_ROUTE, *self._configuration.release.paths}),
+            )
+        ):
+            response = _plain_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                b"Unavailable\n",
+            )
+        response_headers = response.headers
+        marker = "public-catalog-preview"
+        if self._configuration.deployment_environment == "production":
+            response_headers = tuple(
+                header
+                for header in response_headers
+                if header[0].lower()
+                not in {"cache-control", "cdn-cache-control", "vercel-cdn-cache-control"}
+            ) + (
+                ("Cache-Control", "private, no-store, max-age=0"),
+                ("CDN-Cache-Control", "no-store"),
+                ("Vercel-CDN-Cache-Control", "no-store"),
+            )
+            marker = "public-catalog-production"
         return PublicCatalogOriginResponse(
             status=response.status,
             body=response.body,
-            headers=response.headers
+            headers=response_headers
             + (
-                ("X-Wahojobs-Origin", "public-catalog-preview"),
+                ("X-Wahojobs-Origin", marker),
                 ("X-Wahojobs-Release-Id", self._configuration.release.release_id),
             ),
         )
@@ -518,6 +564,106 @@ def _open_read_only(path):
         if connection.in_transaction:
             connection.rollback()
         connection.close()
+
+
+class _HrefCollector(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.hrefs = []
+
+    def handle_starttag(self, _tag, attributes):
+        for name, value in attributes:
+            if name.casefold() == "href" and value is not None:
+                self.hrefs.append(value)
+
+
+def _production_catalog_internal_hrefs_are_owned(body, public_origin, owned_paths):
+    try:
+        if type(body) is not bytes or type(owned_paths) is not frozenset:
+            return False
+        document = body.decode("utf-8", errors="strict")
+        collector = _HrefCollector()
+        collector.feed(document)
+        public = urlsplit(public_origin)
+        public_hostname = public.hostname
+        public_authority = public.netloc
+        if public_hostname is None or not public_authority:
+            return False
+        for href in collector.hrefs:
+            if not _production_catalog_href_is_allowed(
+                href,
+                public_hostname=public_hostname,
+                public_authority=public_authority,
+                owned_paths=owned_paths,
+            ):
+                return False
+        return True
+    except (TypeError, UnicodeError, ValueError):
+        return False
+
+
+def _production_catalog_href_is_allowed(
+    href,
+    *,
+    public_hostname,
+    public_authority,
+    owned_paths,
+):
+    if (
+        type(href) is not str
+        or not href
+        or href != href.strip()
+        or len(href) > 4096
+        or "\\" in href
+        or any(ord(character) <= 0x20 or ord(character) == 0x7F for character in href)
+    ):
+        return False
+    if href.startswith("/"):
+        if href.startswith("//"):
+            return False
+        parsed = urlsplit(href)
+        return bool(
+            not parsed.scheme
+            and not parsed.netloc
+            and parsed.path in owned_paths
+        )
+    if not href.startswith("https://"):
+        return False
+    parsed = urlsplit(href)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or not _canonical_https_authority(parsed)
+    ):
+        return False
+    if parsed.hostname == public_hostname:
+        return bool(
+            parsed.netloc == public_authority
+            and parsed.path in owned_paths
+        )
+    return True
+
+
+def _canonical_https_authority(parsed):
+    hostname = parsed.hostname
+    if hostname is None or not hostname.isascii() or hostname != hostname.lower():
+        return False
+    labels = hostname.split(".")
+    if not labels or any(
+        not label
+        or len(label) > 63
+        or re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) is None
+        for label in labels
+    ):
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    expected_authority = hostname if port is None else f"{hostname}:{port}"
+    return parsed.netloc == expected_authority
 
 
 def _plain_response(status, body, *, extra_headers=(), json_body=False):

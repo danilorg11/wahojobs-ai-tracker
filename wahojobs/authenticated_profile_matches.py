@@ -496,6 +496,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_metadata_overlay",
         "_now",
         "_public_authority",
+        "_public_catalog_auth_routes_enabled",
         "_public_job_canary_gate",
         "_public_jobs_cache",
         "_public_jobs_cache_lock",
@@ -520,6 +521,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         registry=None,
         public_seo_policy=None,
         public_job_canary_gate=None,
+        public_catalog_auth_routes_enabled=True,
     ):
         origin, authority = _validated_public_origin(public_origin)
         if (
@@ -533,6 +535,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             or not callable(confirmed_profile_artifact_sink)
             or not callable(completed_profile_confirmation_authenticator)
             or not callable(now)
+            or type(public_catalog_auth_routes_enabled) is not bool
         ):
             raise ValueError("invalid_authenticated_matches_browser_configuration")
         if ephemeral_identity_factory is None:
@@ -563,6 +566,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._public_authority = authority
         self._public_seo_policy = public_seo_policy
         self._public_job_canary_gate = public_job_canary_gate
+        self._public_catalog_auth_routes_enabled = (
+            public_catalog_auth_routes_enabled
+        )
         self._public_jobs_cache = None
         self._public_jobs_cache_lock = threading.Lock()
         self._now = now
@@ -1155,6 +1161,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 navigation=_public_navigation(
                     authenticated=authenticated,
                     current="jobs",
+                    auth_routes_enabled=(
+                        self._public_catalog_auth_routes_enabled
+                    ),
                 ),
                 query_present=query_present,
             )
@@ -2432,12 +2441,18 @@ def _navigation(*, match_run_id=None, show_current_matches=False):
     )
 
 
-def _public_navigation(*, authenticated, current):
+def _public_navigation(*, authenticated, current, auth_routes_enabled=True):
     jobs_link = (
         "<a href='/jobs' aria-current='page'>Jobs</a>"
         if current == "jobs"
         else "<a href='/jobs'>Jobs</a>"
     )
+    if not auth_routes_enabled:
+        return (
+            "<nav class='account-nav' aria-label='Account'>"
+            + jobs_link
+            + "</nav>"
+        )
     if not authenticated:
         return (
             "<nav class='account-nav' aria-label='Account'>"

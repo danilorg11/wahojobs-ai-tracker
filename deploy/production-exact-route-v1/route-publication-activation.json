@@ -1,0 +1,44 @@
+{
+  "format": "wahojobs-production-route-publication-v1",
+  "release_id": "37628b5cab1ce9a6b7508ca04e3f75d8885b957ebd4f167007c791fae2656ab9",
+  "state": "enabled",
+  "public_origin": "https://www.wahojobs.com",
+  "cache_policy": "no-store",
+  "routes": [
+    {
+      "source": "/jobs",
+      "destination": "production-gateway-deployment",
+      "destination_path": "/jobs",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    },
+    {
+      "source": "/job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f",
+      "destination": "production-gateway-deployment",
+      "destination_path": "/job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f",
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    }
+  ],
+  "preservation_paths": [
+    "/",
+    "/job/oneforma-karl-llm-1",
+    "/job/freecash-multi-task-contributor-1",
+    "/job/oneforma-atlas-creator-1",
+    "/remote-companies",
+    "/company/oneforma",
+    "/online-jobs/ai-training",
+    "/blog",
+    "/blog/ai-training",
+    "/editorial-guidelines",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/sitemaps/static.xml",
+    "/sitemaps/jobs.xml",
+    "/sitemaps/companies.xml"
+  ]
+}

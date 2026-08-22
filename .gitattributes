@@ -1,0 +1,6 @@
+deploy/public-job-preview/*.json text eol=lf
+deploy/public-job-production/*.json text eol=lf
+deploy/vercel-preview-gateway/*.json text eol=lf
+deploy/vercel-production-gateway/*.json text eol=lf
+deploy/production-exact-route-v1/*.json text eol=lf
+

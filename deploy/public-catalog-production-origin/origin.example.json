@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "deployment_environment": "production",
+  "bind_host": "127.0.0.1",
+  "bind_port": 8080,
+  "public_origin": "https://www.wahojobs.com",
+  "database_path": "/var/lib/wahojobs-production/catalog.sqlite3",
+  "database_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+  "release_manifest": {
+    "format": "wahojobs-public-job-production-release-v1",
+    "release_id": "REPLACE_WITH_64_LOWERCASE_HEX",
+    "database_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+    "registry_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+    "published_details": [
+      {
+        "path": "/job/handshake-ai-evaluation-specialist-j125e8ced56da8007c92ab964f58f9f0f",
+        "public_job_id": "j125e8ced56da8007c92ab964f58f9f0f",
+        "canonical_key": "raw::fb45713051f6db962b98c9ba2ef14ad27c795a231530eb4ba3e03c91e41e6109"
+      }
+    ]
+  }
+}
