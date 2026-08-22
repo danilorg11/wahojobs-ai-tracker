@@ -31,6 +31,7 @@ from wahojobs.profile_intake import (
     EvidencePacket,
     ProfileIntakeError,
     extract_resume_document,
+    minimize_evidence_packet,
     validate_ai_profile_extraction,
 )
 from wahojobs.profile_intake.documents import build_evidence_blocks
@@ -574,9 +575,10 @@ class ProfileIntakeSafetyTests(unittest.TestCase):
     def test_fake_adapter_is_deterministic_and_network_free(self):
         response = _envelope(_fact("skills.normalized", "Python"))
         adapter = DeterministicFakeProfileExtractionAdapter(response)
+        model_evidence = minimize_evidence_packet(_packet())
         with mock.patch.object(socket, "socket", side_effect=AssertionError("network attempted")):
-            first = adapter.extract(_packet())
-            second = adapter.extract(_packet())
+            first = adapter.extract(model_evidence)
+            second = adapter.extract(model_evidence)
         self.assertEqual(first, second)
         self.assertEqual(first.facts[0].value, "Python")
 

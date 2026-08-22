@@ -175,6 +175,66 @@ class EvidencePacket:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelEvidenceBlock:
+    """One PII-minimized block that is safe to cross the model boundary."""
+
+    reference: str
+    text: str
+
+    def __post_init__(self):
+        if type(self.reference) is not str or _EVIDENCE_REFERENCE.fullmatch(self.reference) is None:
+            raise ProfileIntakeError("invalid_model_evidence_reference")
+        if type(self.text) is not str or not self.text or "\x00" in self.text:
+            raise ProfileIntakeError("invalid_model_evidence_block")
+        if len(self.text) > DEFAULT_DOCUMENT_LIMITS.max_evidence_block_chars:
+            raise ProfileIntakeError("model_evidence_block_too_large")
+
+
+@dataclass(frozen=True, slots=True)
+class ModelEvidencePacket:
+    """Bounded, minimized evidence; intentionally distinct from raw evidence."""
+
+    document_reference: str
+    document_kind: DocumentKind
+    document_format: DocumentFormat
+    blocks: tuple[ModelEvidenceBlock, ...]
+    removed_block_references: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        _require_document_reference(self.document_reference)
+        if type(self.document_kind) is not DocumentKind:
+            raise ProfileIntakeError("invalid_document_kind")
+        if type(self.document_format) is not DocumentFormat:
+            raise ProfileIntakeError("invalid_document_format")
+        if type(self.blocks) is not tuple or any(
+            type(block) is not ModelEvidenceBlock for block in self.blocks
+        ):
+            raise ProfileIntakeError("invalid_model_evidence_blocks")
+        if type(self.removed_block_references) is not tuple or any(
+            type(reference) is not str
+            or _EVIDENCE_REFERENCE.fullmatch(reference) is None
+            for reference in self.removed_block_references
+        ):
+            raise ProfileIntakeError("invalid_removed_evidence_references")
+        if len(self.blocks) + len(self.removed_block_references) > DEFAULT_DOCUMENT_LIMITS.max_evidence_blocks:
+            raise ProfileIntakeError("model_evidence_block_limit_exceeded")
+        kept = tuple(block.reference for block in self.blocks)
+        removed = self.removed_block_references
+        if len(set(kept + removed)) != len(kept) + len(removed):
+            raise ProfileIntakeError("duplicate_model_evidence_reference")
+        if kept != tuple(sorted(kept)) or removed != tuple(sorted(removed)):
+            raise ProfileIntakeError("invalid_model_evidence_order")
+        all_references = tuple(sorted(kept + removed))
+        expected = tuple(f"b{index:03d}" for index in range(1, len(all_references) + 1))
+        if all_references != expected:
+            raise ProfileIntakeError("invalid_model_evidence_order")
+        total_characters = sum(len(block.text) for block in self.blocks)
+        total_characters += max(0, len(self.blocks) - 1) * 2
+        if total_characters > DEFAULT_DOCUMENT_LIMITS.max_normalized_text_chars:
+            raise ProfileIntakeError("model_evidence_too_large")
+
+
+@dataclass(frozen=True, slots=True)
 class ExtractedDocument:
     document_reference: str
     document_kind: DocumentKind
@@ -266,6 +326,8 @@ class ExtractedFact:
             raise ProfileIntakeError("invalid_explicit_flag")
         if spec.explicit_only and not self.explicit:
             raise ProfileIntakeError("inferred_sensitive_fact_forbidden")
+        if spec.inferred_only and self.explicit:
+            raise ProfileIntakeError("classification_must_be_inferred")
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,18 +366,20 @@ class _FieldSpec:
     multiple: bool = False
     allowed: frozenset[str] | None = None
     explicit_only: bool = False
+    inferred_only: bool = False
 
 
 def _strings(*, multiple=False, explicit_only=False):
     return _FieldSpec("string", multiple=multiple, explicit_only=explicit_only)
 
 
-def _enum(values, *, multiple=False, explicit_only=False):
+def _enum(values, *, multiple=False, explicit_only=False, inferred_only=False):
     return _FieldSpec(
         "enum",
         multiple=multiple,
         allowed=frozenset(values),
         explicit_only=explicit_only,
+        inferred_only=inferred_only,
     )
 
 
@@ -326,25 +390,25 @@ _FIELD_SPECS = {
     "location.region": _strings(explicit_only=True),
     "location.city": _strings(explicit_only=True),
     "location.residence": _strings(explicit_only=True),
-    "education.education_level": _enum(EDUCATION_LEVELS),
+    "education.education_level": _enum(EDUCATION_LEVELS, inferred_only=True),
     "education.degrees": _strings(multiple=True),
     "education.fields_or_domains": _strings(multiple=True),
     "education.institutions": _strings(multiple=True),
-    "education.completion_status": _enum(EDUCATION_COMPLETION_STATUSES),
+    "education.completion_status": _enum(EDUCATION_COMPLETION_STATUSES, inferred_only=True),
     "credentials.certifications": _strings(multiple=True),
     "credentials.licenses": _strings(multiple=True),
     "credentials.jurisdictions": _strings(multiple=True),
     "credentials.security_clearances": _strings(multiple=True),
-    "credentials.credential_status": _enum(CREDENTIAL_STATUSES),
+    "credentials.credential_status": _enum(CREDENTIAL_STATUSES, inferred_only=True),
     "experience.total_years": _FieldSpec("years"),
-    "experience.seniority": _enum(SENIORITY_LEVELS),
+    "experience.seniority": _enum(SENIORITY_LEVELS, inferred_only=True),
     "experience.recent_roles": _strings(multiple=True),
-    "experience.occupational_families": _strings(multiple=True),
+    "experience.occupational_families": _FieldSpec("string", multiple=True, inferred_only=True),
     "experience.job_titles": _strings(multiple=True),
-    "experience.professional_domains": _strings(multiple=True),
-    "experience.industries": _strings(multiple=True),
-    "experience.contribution_type": _enum(CONTRIBUTION_TYPES),
-    "experience.specialties": _strings(multiple=True),
+    "experience.professional_domains": _FieldSpec("string", multiple=True, inferred_only=True),
+    "experience.industries": _FieldSpec("string", multiple=True, inferred_only=True),
+    "experience.contribution_type": _enum(CONTRIBUTION_TYPES, inferred_only=True),
+    "experience.specialties": _FieldSpec("string", multiple=True, inferred_only=True),
     "skills.normalized": _strings(multiple=True),
     "preferences.remote": _FieldSpec("boolean", explicit_only=True),
     "preferences.flexible": _FieldSpec("boolean", explicit_only=True),
@@ -357,6 +421,14 @@ _FIELD_SPECS = {
     "preferences.preferred_task_types": _strings(multiple=True, explicit_only=True),
     "preferences.work_preferences": _strings(multiple=True, explicit_only=True),
 }
+
+SUPPORTED_EXTRACTION_FIELD_PATHS = frozenset(_FIELD_SPECS)
+EXPLICIT_ONLY_EXTRACTION_FIELD_PATHS = frozenset(
+    path for path, spec in _FIELD_SPECS.items() if spec.explicit_only
+)
+INFERRED_ONLY_EXTRACTION_FIELD_PATHS = frozenset(
+    path for path, spec in _FIELD_SPECS.items() if spec.inferred_only
+)
 
 _FORBIDDEN_AUTHORITY_KEYS = frozenset(
     {
@@ -481,11 +553,11 @@ def _value_identity(value: object) -> object:
 
 def validate_ai_profile_extraction(
     value: object,
-    evidence: EvidencePacket,
+    evidence: EvidencePacket | ModelEvidencePacket,
 ) -> AIProfileExtraction:
     """Validate untrusted future-adapter output against one evidence packet."""
 
-    if type(evidence) is not EvidencePacket:
+    if type(evidence) not in (EvidencePacket, ModelEvidencePacket):
         raise ProfileIntakeError("invalid_evidence_packet")
     value = _bounded_json_copy(value)
     if _contains_forbidden_authority(value):
@@ -528,11 +600,14 @@ def validate_ai_profile_extraction(
         if type(field_path) is not str or field_path not in _FIELD_SPECS:
             raise ProfileIntakeError("unsupported_extraction_field")
         spec = _FIELD_SPECS[field_path]
+        normalized_value = _validate_fact_value(item["value"], spec)
         explicit = item["explicit"]
         if type(explicit) is not bool:
             raise ProfileIntakeError("invalid_explicit_flag")
         if spec.explicit_only and not explicit:
             raise ProfileIntakeError("inferred_sensitive_fact_forbidden")
+        if spec.inferred_only and explicit:
+            raise ProfileIntakeError("classification_must_be_inferred")
         source_reference = item["source_document_reference"]
         if source_reference != evidence.document_reference:
             raise ProfileIntakeError("document_reference_mismatch")
@@ -554,7 +629,6 @@ def validate_ai_profile_extraction(
             or not 0 <= confidence <= 1
         ):
             raise ProfileIntakeError("invalid_confidence")
-        normalized_value = _validate_fact_value(item["value"], spec)
         if not spec.multiple:
             if field_path in singleton_fields:
                 raise ProfileIntakeError("duplicate_singleton_fact")
