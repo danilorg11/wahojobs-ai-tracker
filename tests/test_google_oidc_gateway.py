@@ -62,21 +62,23 @@ from wahojobs.google_oidc_gateway import (
 ROOT = Path(__file__).resolve().parents[1]
 GATEWAY_PATH = ROOT / "wahojobs" / "google_oidc_gateway.py"
 APPROVED_INPUT_HASH = (
-    "ad98ae0e20742519e9866531bb24f99a79cec9d100780107e0bae98d640e9c99"
+    "103693d27781cb5e45563b96c593b214f20d2c47ccd567f2df12b99cb6a8ac5f"
 )
 APPROVED_LOCK_HASH = (
-    "1fadebfc987a09fe5af62ae68f71b170ff91a9500d68e17f8917d1b920511ae9"
+    "5947dd40c7c22ca1a52f9755fe628c60b22bc73028f8ef2ae243c2dcd9b66d33"
 )
 APPROVED_LOCK_CANONICAL_LF_HASH = (
-    "482e87807668f764ec4e95311d8f205b7fc93bd3477fb293a0be62ab9e0e6f05"
+    "9e5f0dc82a10c3e9a0fa4d42230ec32ba1c1b8653c2cb9019c0c1547f5e404e9"
 )
-APPROVED_INPUT_BYTES = 83
-APPROVED_LOCK_CANONICAL_LF_BYTES = 23679
-APPROVED_LOCK_BYTES = 23998
+APPROVED_INPUT_BYTES = 116
+APPROVED_LOCK_CANONICAL_LF_BYTES = 39132
+APPROVED_LOCK_BYTES = 39639
 APPROVED_DIRECT = {
     "authlib": "1.7.2",
     "cryptography": "50.0.0",
     "joserfc": "1.7.4",
+    "pypdf": "6.16.1",
+    "python-docx": "1.2.0",
     "requests": "2.34.2",
     "workos": "10.2.0",
 }
@@ -92,8 +94,11 @@ APPROVED_CLOSURE = {
     "httpx": "0.28.1",
     "idna": "3.18",
     "joserfc": "1.7.4",
+    "lxml": "6.1.2",
     "pycparser": "3.0",
     "pyjwt": "2.13.0",
+    "pypdf": "6.16.1",
+    "python-docx": "1.2.0",
     "requests": "2.34.2",
     "typing-extensions": "4.16.0",
     "urllib3": "2.7.0",
@@ -321,6 +326,8 @@ class DependencyAndLockContractTests(unittest.TestCase):
                 b"Authlib==1.7.2",
                 b"cryptography==50.0.0",
                 b"joserfc==1.7.4",
+                b"pypdf==6.16.1",
+                b"python-docx==1.2.0",
                 b"requests==2.34.2",
                 b"workos==10.2.0",
                 b"",
