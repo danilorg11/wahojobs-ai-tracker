@@ -130,7 +130,10 @@ location/preferences, and any attempt to supply account, principal, profile,
 revision, durable-source, provenance, entitlement, or matcher-signal authority.
 Classification paths are required to use `explicit: false`. Provider failures,
 refusals, timeouts, malformed output, and local contract rejection map to stable
-content-free intake error codes.
+content-free intake error codes. Before validation, the OpenAI adapter
+conservatively demotes `explicit: true` to `false` only for inference-only paths
+derived from the authoritative field specifications. It never promotes an
+explicit-only field or rewrites fields whose explicitness may legitimately vary.
 
 Content-free diagnostics remain separate from profile data. They may include
 the configured model, prompt/schema versions, input/output token counts,

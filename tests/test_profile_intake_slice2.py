@@ -384,6 +384,104 @@ class OpenAIProfileAdapterTests(unittest.TestCase):
         self.assertIsNone(outcome.diagnostics.local_validation_code)
         self.assertEqual(observed, [outcome.diagnostics])
 
+    def test_all_inference_only_flags_are_canonicalized_from_authoritative_specs(self):
+        inference_only = {
+            path: spec
+            for path, spec in contracts._FIELD_SPECS.items()
+            if spec.inferred_only
+        }
+        self.assertEqual(
+            set(inference_only),
+            set(contracts.INFERRED_ONLY_EXTRACTION_FIELD_PATHS),
+        )
+        facts = []
+        for path, spec in sorted(inference_only.items()):
+            value = (
+                sorted(spec.allowed)[0]
+                if spec.kind == "enum"
+                else "Synthetic classification"
+            )
+            facts.append(_fact(path, value, explicit=True))
+
+        adapter = OpenAIProfileExtractionAdapter(
+            "sk-synthetic",
+            session=_FakeSession(_provider_response(_payload(*facts))),
+        )
+        outcome = adapter.extract_with_diagnostics(
+            _model_packet("Synthetic professional evidence")
+        )
+
+        self.assertEqual(
+            {fact.field_path for fact in outcome.extraction.facts},
+            set(inference_only),
+        )
+        self.assertTrue(all(not fact.explicit for fact in outcome.extraction.facts))
+        draft = build_profile_review_draft(outcome.extraction)
+        self.assertEqual(draft.prefilled_facts, ())
+        self.assertEqual(
+            {fact.field_path for fact in draft.suggested_facts},
+            set(inference_only),
+        )
+        self.assertTrue(
+            all(fact.requires_confirmation for fact in draft.suggested_facts)
+        )
+
+    def test_other_explicitness_policy_categories_are_preserved(self):
+        self.assertFalse(
+            contracts.INFERRED_ONLY_EXTRACTION_FIELD_PATHS
+            & contracts.EXPLICIT_ONLY_EXTRACTION_FIELD_PATHS
+        )
+        adapter = OpenAIProfileExtractionAdapter(
+            "sk-synthetic",
+            session=_FakeSession(
+                _provider_response(
+                    _payload(
+                        _fact("skills.normalized", "Python", explicit=True),
+                        _fact("skills.normalized", "SQL", explicit=False),
+                        _fact("preferences.remote", True, explicit=True),
+                    )
+                )
+            ),
+        )
+        outcome = adapter.extract_with_diagnostics(
+            _model_packet("Skills: Python and SQL. Current preference: remote work.")
+        )
+        by_value = {fact.value: fact for fact in outcome.extraction.facts}
+        self.assertIs(by_value["Python"].explicit, True)
+        self.assertIs(by_value["SQL"].explicit, False)
+        self.assertIs(by_value[True].explicit, True)
+
+        draft = build_profile_review_draft(outcome.extraction)
+        self.assertEqual(
+            {(fact.field_path, fact.value) for fact in draft.prefilled_facts},
+            {("skills.normalized", "Python")},
+        )
+        self.assertEqual(
+            {(fact.field_path, fact.value) for fact in draft.suggested_facts},
+            {
+                ("skills.normalized", "SQL"),
+                ("preferences.remote", True),
+            },
+        )
+
+        rejected = OpenAIProfileExtractionAdapter(
+            "sk-synthetic",
+            session=_FakeSession(
+                _provider_response(
+                    _payload(_fact("preferences.remote", True, explicit=False))
+                )
+            ),
+        )
+        with self.assertRaises(OpenAIProfileExtractionError) as raised:
+            rejected.extract(_model_packet("Worked remotely in a historical role."))
+        diagnostics = raised.exception.usage_diagnostics
+        self.assertEqual(diagnostics.failure_code, "openai_contract_rejected")
+        self.assertEqual(
+            diagnostics.local_validation_code,
+            "inferred_sensitive_fact_forbidden",
+        )
+        self.assertIs(diagnostics.local_validation_explicit, False)
+
     def test_request_uses_strict_profile_schema_and_disables_storage(self):
         session = _FakeSession(_provider_response(_payload()))
         adapter = OpenAIProfileExtractionAdapter("sk-synthetic", session=session)
@@ -640,14 +738,14 @@ class OpenAIProfileAdapterTests(unittest.TestCase):
             (
                 _payload(
                     _fact("skills.normalized", "Python"),
-                    _fact("experience.seniority", "senior", explicit=True),
+                    _fact("preferences.remote", True, explicit=False),
                 ),
                 {
-                    "code": "classification_must_be_inferred",
+                    "code": "inferred_sensitive_fact_forbidden",
                     "fact_index": 1,
-                    "field_path": "experience.seniority",
-                    "value_shape": "string",
-                    "explicit": True,
+                    "field_path": "preferences.remote",
+                    "value_shape": "boolean",
+                    "explicit": False,
                     "evidence_reference_count": 1,
                     "evidence_references_contain_duplicates": False,
                     "duplicate_prior_fact_index": None,

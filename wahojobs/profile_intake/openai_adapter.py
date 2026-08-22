@@ -81,6 +81,32 @@ class OpenAIProfileExtractionError(ProfileIntakeError):
         super().__init__(code)
 
 
+def _canonicalize_inference_only_explicitness(payload: object) -> object:
+    """Conservatively demote deterministic inference-only model flags."""
+
+    if type(payload) is not dict or type(payload.get("facts")) is not list:
+        return payload
+    normalized_facts = None
+    for index, fact in enumerate(payload["facts"]):
+        if (
+            type(fact) is not dict
+            or fact.get("field_path")
+            not in contracts.INFERRED_ONLY_EXTRACTION_FIELD_PATHS
+            or fact.get("explicit") is not True
+        ):
+            continue
+        if normalized_facts is None:
+            normalized_facts = list(payload["facts"])
+        normalized_fact = dict(fact)
+        normalized_fact["explicit"] = False
+        normalized_facts[index] = normalized_fact
+    if normalized_facts is None:
+        return payload
+    normalized_payload = dict(payload)
+    normalized_payload["facts"] = normalized_facts
+    return normalized_payload
+
+
 class OpenAIProfileExtractionAdapter:
     """Profile-specific Responses API adapter accepting minimized evidence only."""
 
@@ -204,6 +230,7 @@ class OpenAIProfileExtractionAdapter:
                 provider_request_id=provider_request_id,
                 usage=usage,
             )
+        payload = _canonicalize_inference_only_explicitness(payload)
         try:
             extraction = validate_ai_profile_extraction(payload, evidence)
         except ProfileIntakeError as exc:
