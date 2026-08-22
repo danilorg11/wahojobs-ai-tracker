@@ -659,6 +659,16 @@ def _build_profile_integration(connections, configuration, clock):
     from wahojobs.persistent_profiles_browser import (
         PersistentProfileBrowserIntegration,
     )
+    from wahojobs.profile_intake.browser import ProfileIntakeBrowserIntegration
+    from wahojobs.profile_intake.contracts import ProfileIntakeError
+    from wahojobs.profile_intake.openai_adapter import (
+        configured_openai_profile_adapter,
+    )
+    from wahojobs.profile_intake.runtime import (
+        IntakeDraftVault,
+        ProfileIntakeAuthorityService,
+        ProfileIntakeProcessingService,
+    )
     import secrets
     import time
 
@@ -697,10 +707,38 @@ def _build_profile_integration(connections, configuration, clock):
         token_factory=lambda: secrets.token_urlsafe(32),
         binding_secret=secrets.token_bytes(32),
     )
+    intake_authority = ProfileIntakeAuthorityService(
+        authentication_gateway=authentication_gateway,
+        authorization_gateway=authorization_gateway,
+        read_connection_provider=connections.read_only_connection_provider,
+        clock=clock,
+    )
+    try:
+        intake_adapter = configured_openai_profile_adapter(
+            enabled=(
+                os.environ.get("WAHOJOBS_PROFILE_INTAKE_OPENAI_ENABLED") == "1"
+            )
+        )
+    except ProfileIntakeError:
+        intake_adapter = None
+    intake_processing = ProfileIntakeProcessingService(
+        adapter=intake_adapter,
+        vault=IntakeDraftVault(
+            monotonic=time.monotonic,
+            token_factory=lambda: secrets.token_urlsafe(32),
+        ),
+        clock=clock,
+    )
+    intake_integration = ProfileIntakeBrowserIntegration(
+        intake_authority,
+        intake_processing,
+        public_origin=configuration.public_origin,
+    )
     integration = PersistentProfileBrowserIntegration(
         profile_service,
         creation_service=creation_service,
         correction_service=correction_service,
+        intake_integration=intake_integration,
         public_origin=configuration.public_origin,
     )
     matches_service = AuthenticatedProfileMatchesService(

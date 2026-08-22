@@ -137,6 +137,7 @@ def _finalize_document(
     *,
     document_bytes: bytes,
     document_reference: str,
+    document_kind: DocumentKind,
     document_format: DocumentFormat,
     page_count: int | None,
     parser_name: str,
@@ -156,7 +157,7 @@ def _finalize_document(
     blocks = build_evidence_blocks(normalized, limits=limits)
     return ExtractedDocument(
         document_reference=document_reference,
-        document_kind=DocumentKind.RESUME,
+        document_kind=document_kind,
         document_format=document_format,
         original_byte_size=len(document_bytes),
         normalized_text_chars=len(normalized),
@@ -170,6 +171,7 @@ def _extract_pdf(
     document_bytes: bytes,
     *,
     document_reference: str,
+    document_kind: DocumentKind,
     limits: DocumentLimits,
 ) -> ExtractedDocument:
     if _PDF_HEADER not in document_bytes[:1024]:
@@ -197,6 +199,7 @@ def _extract_pdf(
         return _finalize_document(
             document_bytes=document_bytes,
             document_reference=document_reference,
+            document_kind=document_kind,
             document_format=DocumentFormat.PDF,
             page_count=page_count,
             parser_name="pypdf",
@@ -395,6 +398,7 @@ def _extract_docx(
     document_bytes: bytes,
     *,
     document_reference: str,
+    document_kind: DocumentKind,
     limits: DocumentLimits,
 ) -> ExtractedDocument:
     _preflight_docx(document_bytes, limits)
@@ -422,6 +426,7 @@ def _extract_docx(
         return _finalize_document(
             document_bytes=document_bytes,
             document_reference=document_reference,
+            document_kind=document_kind,
             document_format=DocumentFormat.DOCX,
             page_count=None,
             parser_name="python-docx",
@@ -435,6 +440,43 @@ def _extract_docx(
         raise ProfileIntakeError("invalid_docx") from None
 
 
+def extract_profile_document(
+    document_bytes: object,
+    *,
+    document_reference: object,
+    document_kind: object,
+    document_format: object,
+    limits: DocumentLimits = DEFAULT_DOCUMENT_LIMITS,
+) -> ExtractedDocument:
+    """Extract one bounded profile document without retaining its bytes."""
+
+    content = _validate_input(document_bytes, document_reference, limits)
+    if type(document_kind) is not DocumentKind:
+        raise ProfileIntakeError("invalid_document_kind")
+    if type(document_format) is not DocumentFormat:
+        raise ProfileIntakeError("invalid_document_format")
+    if (
+        document_kind is DocumentKind.LINKEDIN_PROFILE_EXPORT
+        and document_format is not DocumentFormat.PDF
+    ):
+        raise ProfileIntakeError("unsupported_document_origin_format")
+    if document_format is DocumentFormat.PDF:
+        return _extract_pdf(
+            content,
+            document_reference=document_reference,
+            document_kind=document_kind,
+            limits=limits,
+        )
+    if document_format is DocumentFormat.DOCX:
+        return _extract_docx(
+            content,
+            document_reference=document_reference,
+            document_kind=document_kind,
+            limits=limits,
+        )
+    raise ProfileIntakeError("unsupported_document_format")
+
+
 def extract_resume_document(
     document_bytes: object,
     *,
@@ -442,13 +484,12 @@ def extract_resume_document(
     document_format: object,
     limits: DocumentLimits = DEFAULT_DOCUMENT_LIMITS,
 ) -> ExtractedDocument:
-    """Extract a bounded text resume without retaining the original document."""
+    """Backward-compatible resume-only extraction boundary."""
 
-    content = _validate_input(document_bytes, document_reference, limits)
-    if type(document_format) is not DocumentFormat:
-        raise ProfileIntakeError("invalid_document_format")
-    if document_format is DocumentFormat.PDF:
-        return _extract_pdf(content, document_reference=document_reference, limits=limits)
-    if document_format is DocumentFormat.DOCX:
-        return _extract_docx(content, document_reference=document_reference, limits=limits)
-    raise ProfileIntakeError("unsupported_document_format")
+    return extract_profile_document(
+        document_bytes,
+        document_reference=document_reference,
+        document_kind=DocumentKind.RESUME,
+        document_format=document_format,
+        limits=limits,
+    )

@@ -63,6 +63,7 @@ class ProfileIntakeError(ValueError):
 
 class DocumentKind(str, Enum):
     RESUME = "resume"
+    LINKEDIN_PROFILE_EXPORT = "linkedin_profile_export"
 
 
 class DocumentFormat(str, Enum):

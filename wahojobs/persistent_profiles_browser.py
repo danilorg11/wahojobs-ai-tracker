@@ -147,6 +147,7 @@ class PersistentProfileBrowserIntegration:
         "_correction_registry",
         "_correction_service",
         "_creation_service",
+        "_intake_integration",
         "_matches_integration",
         "_public_authority",
         "_public_origin",
@@ -161,6 +162,7 @@ class PersistentProfileBrowserIntegration:
         creation_service=None,
         correction_service=None,
         correction_registry=None,
+        intake_integration=None,
         matches_integration=None,
         public_origin=None,
     ):
@@ -175,13 +177,19 @@ class PersistentProfileBrowserIntegration:
                 and type(correction_service) is not PersistentProfileCorrectionService
             )
             or (
-                (creation_service is None and correction_service is None)
+                (
+                    creation_service is None
+                    and correction_service is None
+                    and intake_integration is None
+                )
                 != (public_origin is None)
             )
         ):
             raise ValueError("invalid_persistent_profile_browser_configuration")
         if matches_integration is not None:
             _require_matches_integration(matches_integration)
+        if intake_integration is not None:
+            _require_intake_integration(intake_integration)
         authority = None
         if public_origin is not None:
             try:
@@ -220,6 +228,7 @@ class PersistentProfileBrowserIntegration:
         self._service = service
         self._creation_service = creation_service
         self._correction_service = correction_service
+        self._intake_integration = intake_integration
         self._correction_registry = correction_registry
         self._review_support = review_support
         self._matches_integration = matches_integration
@@ -229,7 +238,9 @@ class PersistentProfileBrowserIntegration:
 
     def activate(self):
         if self._closed or (
-            self._creation_service is None and self._correction_service is None
+            self._creation_service is None
+            and self._correction_service is None
+            and self._intake_integration is None
         ):
             raise ConfirmedProfileArtifactUnavailable()
         if (
@@ -240,6 +251,11 @@ class PersistentProfileBrowserIntegration:
         if (
             self._correction_service is not None
             and self._correction_service.activate() is not True
+        ):
+            return False
+        if (
+            self._intake_integration is not None
+            and self._intake_integration.activate() is not True
         ):
             return False
         return True
@@ -253,6 +269,11 @@ class PersistentProfileBrowserIntegration:
 
     def matches_route(self, path: str) -> bool:
         if path == PERSISTENT_PROFILE_ROUTE:
+            return True
+        if (
+            self._intake_integration is not None
+            and self._intake_integration.matches_route(path) is True
+        ):
             return True
         matches_integration = self._matches_integration
         return (
@@ -292,6 +313,17 @@ class PersistentProfileBrowserIntegration:
             return _create_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
         request_path = _request_target_path(target)
         if request_path != PERSISTENT_PROFILE_ROUTE:
+            intake_integration = self._intake_integration
+            if (
+                intake_integration is not None
+                and intake_integration.matches_route(request_path) is True
+            ):
+                return intake_integration.handle(
+                    method,
+                    target,
+                    authentication_input,
+                    body_stream,
+                )
             matches_integration = self._matches_integration
             if (
                 matches_integration is None
@@ -373,6 +405,7 @@ class PersistentProfileBrowserIntegration:
             content, status = render_persistent_profile_page(
                 result,
                 correction_enabled=self._correction_service is not None,
+                intake_enabled=self._intake_integration is not None,
                 current_matches_target=current_matches_target,
             )
         except Exception:
@@ -954,6 +987,9 @@ class PersistentProfileBrowserIntegration:
         if self._correction_service is not None:
             if self._correction_service.close() is False:
                 return False
+        if self._intake_integration is not None:
+            if self._intake_integration.close() is False:
+                return False
         if self._matches_integration is not None:
             if self._matches_integration.close() is False:
                 return False
@@ -966,6 +1002,9 @@ class PersistentProfileBrowserIntegration:
             self._creation_service is None or self._creation_service.closed
         ) and (
             self._correction_service is None or self._correction_service.closed
+        ) and (
+            self._intake_integration is None
+            or self._intake_integration.closed is True
         ) and (
             self._matches_integration is None
             or self._matches_integration.closed is True
@@ -1368,6 +1407,24 @@ def _require_matches_integration(matches_integration):
         raise ValueError("invalid_persistent_profile_browser_configuration")
 
 
+def _require_intake_integration(intake_integration):
+    try:
+        from wahojobs.profile_intake.browser import ProfileIntakeBrowserIntegration
+
+        valid = (
+            type(intake_integration) is ProfileIntakeBrowserIntegration
+            and intake_integration.matches_route("/account/profile/intake") is True
+            and callable(getattr(intake_integration, "handle", None))
+            and callable(getattr(intake_integration, "activate", None))
+            and callable(getattr(intake_integration, "close", None))
+            and intake_integration.closed is False
+        )
+    except Exception:
+        valid = False
+    if not valid:
+        raise ValueError("invalid_persistent_profile_browser_configuration")
+
+
 def _parse_request_target(target: str) -> tuple[int | None, str | None, bool]:
     if type(target) is not str or len(target.encode("utf-8", errors="ignore")) > MAX_PROFILE_QUERY_BYTES:
         return None, None, False
@@ -1425,11 +1482,13 @@ def render_persistent_profile_page(
     result: PersistentProfilePageResult,
     *,
     correction_enabled=False,
+    intake_enabled=False,
     current_matches_target=None,
 ) -> tuple[str, HTTPStatus]:
     if (
         type(result) is not PersistentProfilePageResult
         or type(correction_enabled) is not bool
+        or type(intake_enabled) is not bool
         or (
             current_matches_target is not None
             and (
@@ -1456,6 +1515,12 @@ def render_persistent_profile_page(
             HTTPStatus.NOT_FOUND,
         )
     if result.state == "empty":
+        intake_action = (
+            "<p><a class='primary-link' href='/account/profile/intake'>"
+            "Create your profile faster with a document</a></p>"
+            if intake_enabled
+            else ""
+        )
         return (
             _page(
                 "My persistent profile",
@@ -1463,7 +1528,8 @@ def render_persistent_profile_page(
                 + "<section class='empty'><h1>No persistent profile yet</h1>"
                 "<p>Confirm your reviewed About You details to create this profile explicitly.</p>"
                 "<p>Reading this page does not create or change profile data.</p>"
-                f"<p><a class='primary-link' href='{FIND_MATCHES_ROUTE}'>"
+                + intake_action
+                + f"<p><a class='primary-link' href='{FIND_MATCHES_ROUTE}'>"
                 "Create profile</a></p></section>",
             ),
             HTTPStatus.OK,

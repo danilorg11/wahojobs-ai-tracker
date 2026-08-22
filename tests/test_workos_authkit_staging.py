@@ -244,6 +244,8 @@ class WorkOSAuthKitStagingTests(unittest.TestCase):
                 "/auth/workos/callback",
                 "/logout",
                 "/account/profile",
+                "/account/profile/intake",
+                "/account/profile/intake/review",
                 "/find-matches",
                 "/tracker",
                 "/action",

@@ -25,7 +25,10 @@ from wahojobs.profile_intake.contracts import (
     new_document_reference,
     validate_ai_profile_extraction,
 )
-from wahojobs.profile_intake.documents import extract_resume_document
+from wahojobs.profile_intake.documents import (
+    extract_profile_document,
+    extract_resume_document,
+)
 from wahojobs.profile_intake.minimization import (
     MODEL_EVIDENCE_SCHEMA_VERSION,
     minimize_evidence_packet,
@@ -83,6 +86,7 @@ __all__ = (
     "SUPPORTED_EXTRACTION_FIELD_PATHS",
     "build_profile_review_draft",
     "configured_openai_profile_adapter",
+    "extract_profile_document",
     "extract_resume_document",
     "new_document_reference",
     "minimize_evidence_packet",

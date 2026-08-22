@@ -7,11 +7,13 @@ minimizer creates a structurally distinct model-safe packet, which may be sent
 through the isolated profile-extraction adapter and transformed into an
 ephemeral review draft.
 
-This slice adds an OpenAI adapter but does **not** expose or invoke it through a
-production route. It does not accept browser uploads, persist a profile,
-document, evidence, extraction, or draft, create durable provenance, check an
-entitlement, or change matching. `Canonical Profile V2` remains the sole
-durable profile authority.
+The browser runtime is available only inside the explicitly composed,
+authenticated new-product staging application. It is not registered in the
+legacy/public runtime and does **not** create a production cutover. It accepts a
+bounded upload and retains a short-lived review draft, but does not persist a
+profile, document, evidence, extraction, or durable draft, create durable
+provenance, check an entitlement, or change matching. `Canonical Profile V2`
+remains the sole durable profile authority.
 
 ## Supported and unsupported documents
 
@@ -156,9 +158,105 @@ Canonical V2 currently has no employer fact path, so employer names are
 preserved in minimized evidence but are not invented as a new profile field in
 this slice. A later canonical-model decision would be required to add one.
 
-## Test and state guarantees
+## Authenticated browser flow
 
-Ordinary tests use injected deterministic transports and make zero real OpenAI
-or network calls. No API key is required. Slice 2 adds no draft vault, session
-state, database write, migration, browser route, production exposure, matching
-change, entitlement behavior, or deployment configuration.
+The optional “Create your profile faster” entry appears beside the existing
+manual create-profile path only when `ProfileIntakeBrowserIntegration` is
+explicitly attached. The accepted flow is:
+
+1. revalidate the durable session, exact account, account-native principal,
+   current PB-OWN-1 ownership lineage, and environment namespace;
+2. validate trusted host and same-origin headers plus a purpose-specific CSRF
+   proof;
+3. parse exactly one bounded document and small origin metadata;
+4. extract evidence, minimize PII, invoke the configured adapter, locally
+   validate the response, and create the review draft outside any database
+   transaction;
+5. issue an opaque server-generated draft handle and redirect with HTTP 303;
+6. revalidate the same authorities for every review read, update, or cancel.
+
+Account, principal, session, ownership-event, profile, revision, or source
+authority is never accepted from a form or query string. The runtime reuses the
+existing durable browser authentication and read-authorization gateways and
+captures the same exact PB-OWN-1 lineage used by create-once profile authority.
+
+## Multipart and document-origin boundary
+
+The maintained `python-multipart` parser is used as the bounded
+multipart mechanism; the application does not implement a general parser. An
+available `Content-Length` above the 10 MiB document limit plus 64 KiB of
+strict multipart overhead is rejected before reading. The body is then read in
+bounded 64 KiB chunks with an independent hard ceiling. Transfer encoding,
+malformed boundaries or headers, duplicate or unexpected parts, duplicate
+headers, oversized metadata, multiple documents, and incomplete bodies are
+rejected. The original filename is ignored and never retained or logged.
+
+Declared MIME type is not trusted: it must agree with the detected PDF or DOCX
+container before extraction. `resume` accepts PDF or DOCX.
+`linkedin_profile_export` records only honest ephemeral importer metadata and
+accepts PDF only. It is not a Canonical V2 field, does not accept a LinkedIn
+URL, and performs no scraping or LinkedIn API call. V1 processes one source
+document per generated draft; document kind remains a seam for future
+pre-persistence multi-document combination.
+
+## Process-local draft vault
+
+`IntakeDraftVault` is non-durable, process-local, and bounded to 64 live drafts
+with a ten-minute TTL. Opaque identifiers contain 256 bits of server-generated
+randomness. A new generation replaces the previous active draft for the same
+browser lineage, and a process-local in-flight guard prevents concurrent
+generation for that lineage.
+
+Every record is bound to account, browser session, environment, account-native
+principal, exact ownership binding/version/latest-event/lineage digest, and
+the dedicated `ai_profile_intake_review_v1` purpose. Unknown, malformed,
+expired, cross-account, cross-session, cross-principal, cross-environment, or
+lineage-mismatched access returns no record. Review mutations use an expected
+version and purpose-specific CSRF proof, so stale or replayed edits fail.
+
+The vault retains only the editable review draft, safe document metadata
+(origin, format, byte/page counts, parser name/version), content-free model
+diagnostics when available, timestamps, and the mutation version. It does not
+retain upload bytes, an `EvidencePacket`, a `ModelEvidencePacket` or its text,
+unminimized contact PII, prompt text, raw provider output, original filename,
+durable profile/revision/source IDs, entitlement state, or matcher signals.
+
+## Review and browser behavior
+
+The private review page distinguishes document-supported prefills,
+confirmation-required suggestions, and fields the user still needs to provide.
+It does not display internal confidence numbers or turn old job behavior into
+present preferences. The user can edit or remove prefills, accept/reject or
+edit suggestions, and enter bounded values for existing review fields. All
+values, decisions, field counts, enum values, types, lengths, expected version,
+and form shape are checked server-side. Browser indexes select only fields
+already present in the bound draft; they cannot select authority or arbitrary
+Canonical paths.
+
+Edits update only the process-local draft. There is intentionally no “Save
+profile” operation, repository call, Canonical V2 revision, matcher-signal
+generation, entitlement consumption, or fake persisted profile. Cancellation
+removes the bound draft and returns to profile creation. Expired drafts show a
+clear start-again response.
+
+Private responses use `Cache-Control: no-store`, noindex/nofollow, the existing
+closed CSP, `nosniff`, and a no-referrer or same-origin referrer policy. Stable
+user-facing messages distinguish malformed/oversized/unsupported/encrypted or
+text-free documents, unavailable extraction, expiry, and stale review state
+without exposing provider responses, document snippets, filenames, credentials,
+or authority identifiers.
+
+## Adapter activation and test guarantees
+
+The staging composition keeps extraction disabled unless
+`WAHOJOBS_PROFILE_INTAKE_OPENAI_ENABLED=1` is explicitly present. When enabled,
+it uses the existing Slice 2 `OPENAI_API_KEY` and
+`WAHOJOBS_OPENAI_PROFILE_MODEL` configuration. Missing or failed real extraction
+never falls back to fake output; the browser presents a safe actionable error
+and keeps the manual path available.
+
+Ordinary tests inject a deterministic adapter and make zero real OpenAI or
+network calls. No API key is required and committed fixtures contain only
+synthetic, non-personal data. This slice adds no profile/revision/entitlement
+write, migration, matching behavior, public route, deployment change, DNS,
+proxy, Vercel, DigitalOcean, WorkOS authority change, or old-site cutover.
