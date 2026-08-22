@@ -36,6 +36,9 @@ MODEL_PRICING_PER_MILLION = {
     "gpt-5-mini-2025-08-07": (0.25, 2.00),
 }
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
+_SAFE_VALUE_SHAPES = frozenset(
+    {"array", "boolean", "language_object", "null", "number", "object", "string"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +59,14 @@ class ProfileExtractionDiagnostics:
     failure_code: str | None
     provider_error_code: str | None
     provider_error_param: str | None
+    local_validation_code: str | None
+    local_validation_fact_index: int | None
+    local_validation_field_path: str | None
+    local_validation_value_shape: str | None
+    local_validation_explicit: bool | None
+    local_validation_evidence_reference_count: int | None
+    local_validation_evidence_references_contain_duplicates: bool | None
+    local_validation_duplicate_prior_fact_index: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,13 +206,14 @@ class OpenAIProfileExtractionAdapter:
             )
         try:
             extraction = validate_ai_profile_extraction(payload, evidence)
-        except ProfileIntakeError:
+        except ProfileIntakeError as exc:
             self._raise_failure(
                 "openai_contract_rejected",
                 started=started,
                 http_status=http_status,
                 provider_request_id=provider_request_id,
                 usage=usage,
+                local_validation_error=exc,
             )
 
         diagnostics = self._diagnostics(
@@ -225,6 +237,7 @@ class OpenAIProfileExtractionAdapter:
         usage: tuple[int, int, int] = (0, 0, 0),
         provider_error_code: str | None = None,
         provider_error_param: str | None = None,
+        local_validation_error: ProfileIntakeError | None = None,
     ) -> None:
         diagnostics = self._diagnostics(
             started=started,
@@ -235,6 +248,7 @@ class OpenAIProfileExtractionAdapter:
             failure_code=code,
             provider_error_code=provider_error_code,
             provider_error_param=provider_error_param,
+            local_validation_error=local_validation_error,
         )
         self._emit_diagnostics(diagnostics)
         raise OpenAIProfileExtractionError(code, diagnostics) from None
@@ -250,8 +264,10 @@ class OpenAIProfileExtractionAdapter:
         failure_code: str | None,
         provider_error_code: str | None = None,
         provider_error_param: str | None = None,
+        local_validation_error: ProfileIntakeError | None = None,
     ) -> ProfileExtractionDiagnostics:
         input_tokens, output_tokens, total_tokens = usage
+        local_validation = _local_validation_metadata(local_validation_error)
         prices = MODEL_PRICING_PER_MILLION.get(self.model)
         estimated_cost = None
         if prices is not None:
@@ -274,6 +290,20 @@ class OpenAIProfileExtractionAdapter:
             failure_code=failure_code,
             provider_error_code=provider_error_code,
             provider_error_param=provider_error_param,
+            local_validation_code=local_validation["code"],
+            local_validation_fact_index=local_validation["fact_index"],
+            local_validation_field_path=local_validation["field_path"],
+            local_validation_value_shape=local_validation["value_shape"],
+            local_validation_explicit=local_validation["explicit"],
+            local_validation_evidence_reference_count=local_validation[
+                "evidence_reference_count"
+            ],
+            local_validation_evidence_references_contain_duplicates=local_validation[
+                "evidence_references_contain_duplicates"
+            ],
+            local_validation_duplicate_prior_fact_index=local_validation[
+                "duplicate_prior_fact_index"
+            ],
         )
 
     def _emit_diagnostics(self, diagnostics: ProfileExtractionDiagnostics) -> None:
@@ -492,6 +522,62 @@ def _safe_identifier(value: object) -> str | None:
         return None
     value = value.strip()
     return value if _SAFE_IDENTIFIER.fullmatch(value) is not None else None
+
+
+def _safe_nonnegative_integer(value: object) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def _safe_diagnostic_boolean(value: object) -> bool | None:
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    return None
+
+
+def _local_validation_metadata(
+    error: ProfileIntakeError | None,
+) -> dict[str, str | int | bool | None]:
+    empty: dict[str, str | int | bool | None] = {
+        "code": None,
+        "fact_index": None,
+        "field_path": None,
+        "value_shape": None,
+        "explicit": None,
+        "evidence_reference_count": None,
+        "evidence_references_contain_duplicates": None,
+        "duplicate_prior_fact_index": None,
+    }
+    if not isinstance(error, ProfileIntakeError):
+        return empty
+
+    raw = error.diagnostics if type(error.diagnostics) is dict else {}
+    field_path = raw.get("field_path")
+    if (
+        type(field_path) is not str
+        or field_path not in contracts.SUPPORTED_EXTRACTION_FIELD_PATHS
+    ):
+        field_path = None
+    value_shape = raw.get("value_shape")
+    if type(value_shape) is not str or value_shape not in _SAFE_VALUE_SHAPES:
+        value_shape = None
+    return {
+        "code": _safe_identifier(error.code),
+        "fact_index": _safe_nonnegative_integer(raw.get("fact_index")),
+        "field_path": field_path,
+        "value_shape": value_shape,
+        "explicit": _safe_diagnostic_boolean(raw.get("explicit")),
+        "evidence_reference_count": _safe_nonnegative_integer(
+            raw.get("evidence_reference_count")
+        ),
+        "evidence_references_contain_duplicates": _safe_diagnostic_boolean(
+            raw.get("evidence_references_contain_duplicates")
+        ),
+        "duplicate_prior_fact_index": _safe_nonnegative_integer(
+            raw.get("duplicate_prior_fact_index")
+        ),
+    }
 
 
 def _provider_error_metadata(data: dict) -> tuple[str | None, str | None]:

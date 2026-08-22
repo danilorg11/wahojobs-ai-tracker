@@ -552,6 +552,54 @@ def _value_identity(value: object) -> object:
     return value
 
 
+def _validation_value_shape(value: object) -> str | None:
+    if type(value) is str:
+        return "string"
+    if type(value) is bool:
+        return "boolean"
+    if type(value) in (int, float):
+        return "number"
+    if type(value) is list:
+        return "array"
+    if type(value) is dict:
+        if set(value) == {"language", "proficiency", "locale"}:
+            return "language_object"
+        return "object"
+    if value is None:
+        return "null"
+    return None
+
+
+def _fact_validation_diagnostics(
+    raw_fact: object, fact_index: int
+) -> dict[str, int | str]:
+    diagnostics: dict[str, int | str] = {"fact_index": fact_index}
+    if type(raw_fact) is not dict:
+        return diagnostics
+
+    field_path = raw_fact.get("field_path")
+    if type(field_path) is str and field_path in SUPPORTED_EXTRACTION_FIELD_PATHS:
+        diagnostics["field_path"] = field_path
+
+    if "value" in raw_fact:
+        value_shape = _validation_value_shape(raw_fact["value"])
+        if value_shape is not None:
+            diagnostics["value_shape"] = value_shape
+
+    explicit = raw_fact.get("explicit")
+    if type(explicit) is bool:
+        diagnostics["explicit"] = "true" if explicit else "false"
+
+    references = raw_fact.get("evidence_block_references")
+    if type(references) is list:
+        diagnostics["evidence_reference_count"] = len(references)
+        if all(type(reference) is str for reference in references):
+            diagnostics["evidence_references_contain_duplicates"] = (
+                "true" if len(set(references)) != len(references) else "false"
+            )
+    return diagnostics
+
+
 def validate_ai_profile_extraction(
     value: object,
     evidence: EvidencePacket | ModelEvidencePacket,
@@ -580,74 +628,84 @@ def validate_ai_profile_extraction(
 
     known_references = {block.reference for block in evidence.blocks}
     facts: list[ExtractedFact] = []
-    singleton_fields: set[str] = set()
-    fact_identities: set[tuple[str, object]] = set()
-    for raw_fact in raw_facts:
-        item = _exact_keys(
-            raw_fact,
-            frozenset(
-                {
-                    "field_path",
-                    "value",
-                    "source_document_reference",
-                    "evidence_block_references",
-                    "confidence",
-                    "explicit",
-                }
-            ),
-            "invalid_extraction_fact",
-        )
-        field_path = item["field_path"]
-        if type(field_path) is not str or field_path not in _FIELD_SPECS:
-            raise ProfileIntakeError("unsupported_extraction_field")
-        spec = _FIELD_SPECS[field_path]
-        normalized_value = _validate_fact_value(item["value"], spec)
-        explicit = item["explicit"]
-        if type(explicit) is not bool:
-            raise ProfileIntakeError("invalid_explicit_flag")
-        if spec.explicit_only and not explicit:
-            raise ProfileIntakeError("inferred_sensitive_fact_forbidden")
-        if spec.inferred_only and explicit:
-            raise ProfileIntakeError("classification_must_be_inferred")
-        source_reference = item["source_document_reference"]
-        if source_reference != evidence.document_reference:
-            raise ProfileIntakeError("document_reference_mismatch")
-        references = item["evidence_block_references"]
-        if (
-            type(references) is not list
-            or not references
-            or len(references) > 16
-            or any(type(reference) is not str for reference in references)
-            or len(set(references)) != len(references)
-        ):
-            raise ProfileIntakeError("invalid_fact_evidence")
-        if any(reference not in known_references for reference in references):
-            raise ProfileIntakeError("unknown_evidence_reference")
-        confidence = item["confidence"]
-        if (
-            type(confidence) not in (int, float)
-            or not math.isfinite(confidence)
-            or not 0 <= confidence <= 1
-        ):
-            raise ProfileIntakeError("invalid_confidence")
-        if not spec.multiple:
-            if field_path in singleton_fields:
-                raise ProfileIntakeError("duplicate_singleton_fact")
-            singleton_fields.add(field_path)
-        identity = (field_path, _value_identity(normalized_value))
-        if identity in fact_identities:
-            raise ProfileIntakeError("duplicate_extraction_fact")
-        fact_identities.add(identity)
-        facts.append(
-            ExtractedFact(
-                field_path=field_path,
-                value=normalized_value,
-                source_document_reference=source_reference,
-                evidence_block_references=tuple(references),
-                confidence=float(confidence),
-                explicit=explicit,
+    singleton_fields: dict[str, int] = {}
+    fact_identities: dict[tuple[str, object], int] = {}
+    for fact_index, raw_fact in enumerate(raw_facts):
+        safe_diagnostics = _fact_validation_diagnostics(raw_fact, fact_index)
+        try:
+            item = _exact_keys(
+                raw_fact,
+                frozenset(
+                    {
+                        "field_path",
+                        "value",
+                        "source_document_reference",
+                        "evidence_block_references",
+                        "confidence",
+                        "explicit",
+                    }
+                ),
+                "invalid_extraction_fact",
             )
-        )
+            field_path = item["field_path"]
+            if type(field_path) is not str or field_path not in _FIELD_SPECS:
+                raise ProfileIntakeError("unsupported_extraction_field")
+            spec = _FIELD_SPECS[field_path]
+            normalized_value = _validate_fact_value(item["value"], spec)
+            explicit = item["explicit"]
+            if type(explicit) is not bool:
+                raise ProfileIntakeError("invalid_explicit_flag")
+            if spec.explicit_only and not explicit:
+                raise ProfileIntakeError("inferred_sensitive_fact_forbidden")
+            if spec.inferred_only and explicit:
+                raise ProfileIntakeError("classification_must_be_inferred")
+            source_reference = item["source_document_reference"]
+            if source_reference != evidence.document_reference:
+                raise ProfileIntakeError("document_reference_mismatch")
+            references = item["evidence_block_references"]
+            if (
+                type(references) is not list
+                or not references
+                or len(references) > 16
+                or any(type(reference) is not str for reference in references)
+                or len(set(references)) != len(references)
+            ):
+                raise ProfileIntakeError("invalid_fact_evidence")
+            if any(reference not in known_references for reference in references):
+                raise ProfileIntakeError("unknown_evidence_reference")
+            confidence = item["confidence"]
+            if (
+                type(confidence) not in (int, float)
+                or not math.isfinite(confidence)
+                or not 0 <= confidence <= 1
+            ):
+                raise ProfileIntakeError("invalid_confidence")
+            if not spec.multiple:
+                if field_path in singleton_fields:
+                    safe_diagnostics["duplicate_prior_fact_index"] = singleton_fields[
+                        field_path
+                    ]
+                    raise ProfileIntakeError("duplicate_singleton_fact")
+                singleton_fields[field_path] = fact_index
+            identity = (field_path, _value_identity(normalized_value))
+            if identity in fact_identities:
+                safe_diagnostics["duplicate_prior_fact_index"] = fact_identities[
+                    identity
+                ]
+                raise ProfileIntakeError("duplicate_extraction_fact")
+            fact_identities[identity] = fact_index
+            facts.append(
+                ExtractedFact(
+                    field_path=field_path,
+                    value=normalized_value,
+                    source_document_reference=source_reference,
+                    evidence_block_references=tuple(references),
+                    confidence=float(confidence),
+                    explicit=explicit,
+                )
+            )
+        except ProfileIntakeError as exc:
+            raise ProfileIntakeError(exc.code, diagnostics=safe_diagnostics) from None
 
     return AIProfileExtraction(
         schema_version=AI_EXTRACTION_SCHEMA_VERSION,

@@ -315,6 +315,7 @@ class OpenAIProfileAdapterTests(unittest.TestCase):
         self.assertEqual(outcome.diagnostics.output_tokens, 30)
         self.assertEqual(outcome.diagnostics.provider_request_id, "resp_synthetic")
         self.assertIsNotNone(outcome.diagnostics.estimated_cost_usd)
+        self.assertIsNone(outcome.diagnostics.local_validation_code)
         self.assertEqual(observed, [outcome.diagnostics])
 
     def test_request_uses_strict_profile_schema_and_disables_storage(self):
@@ -550,6 +551,160 @@ class OpenAIProfileAdapterTests(unittest.TestCase):
                 )
                 with self.assertRaisesRegex(OpenAIProfileExtractionError, f"^{code}$"):
                     adapter.extract(_model_packet("Skills: Python"))
+
+    def test_provider_valid_local_rejections_expose_safe_structural_diagnostics(self):
+        evidence = _model_packet(
+            "Synthetic professional evidence",
+            "Additional synthetic evidence",
+        )
+        cases = (
+            (
+                _payload(_fact("identity.display_name", True)),
+                {
+                    "code": "invalid_fact_value",
+                    "fact_index": 0,
+                    "field_path": "identity.display_name",
+                    "value_shape": "boolean",
+                    "explicit": True,
+                    "evidence_reference_count": 1,
+                    "evidence_references_contain_duplicates": False,
+                    "duplicate_prior_fact_index": None,
+                },
+            ),
+            (
+                _payload(
+                    _fact("skills.normalized", "Python"),
+                    _fact("experience.seniority", "senior", explicit=True),
+                ),
+                {
+                    "code": "classification_must_be_inferred",
+                    "fact_index": 1,
+                    "field_path": "experience.seniority",
+                    "value_shape": "string",
+                    "explicit": True,
+                    "evidence_reference_count": 1,
+                    "evidence_references_contain_duplicates": False,
+                    "duplicate_prior_fact_index": None,
+                },
+            ),
+            (
+                _payload(
+                    _fact("skills.normalized", "Python"),
+                    _fact(
+                        "skills.normalized",
+                        "Python",
+                        evidence="b002",
+                        confidence=0.8,
+                    ),
+                ),
+                {
+                    "code": "duplicate_extraction_fact",
+                    "fact_index": 1,
+                    "field_path": "skills.normalized",
+                    "value_shape": "string",
+                    "explicit": True,
+                    "evidence_reference_count": 1,
+                    "evidence_references_contain_duplicates": False,
+                    "duplicate_prior_fact_index": 0,
+                },
+            ),
+            (
+                _payload(
+                    _fact(
+                        "skills.normalized",
+                        "Python",
+                        evidence=["b001", "b001"],
+                    )
+                ),
+                {
+                    "code": "invalid_fact_evidence",
+                    "fact_index": 0,
+                    "field_path": "skills.normalized",
+                    "value_shape": "string",
+                    "explicit": True,
+                    "evidence_reference_count": 2,
+                    "evidence_references_contain_duplicates": True,
+                    "duplicate_prior_fact_index": None,
+                },
+            ),
+        )
+        schema = profile_extraction_structured_output_schema(evidence)
+        for payload, expected in cases:
+            with self.subTest(code=expected["code"]):
+                self.assertTrue(structured_outputs_schema_accepts(schema, payload))
+                observed = []
+                adapter = OpenAIProfileExtractionAdapter(
+                    "sk-synthetic",
+                    session=_FakeSession(_provider_response(payload)),
+                    diagnostics_sink=observed.append,
+                )
+                with self.assertRaises(OpenAIProfileExtractionError) as raised:
+                    adapter.extract(evidence)
+
+                self.assertEqual(str(raised.exception), "openai_contract_rejected")
+                self.assertEqual(raised.exception.code, "openai_contract_rejected")
+                self.assertEqual(raised.exception.diagnostics, {})
+                diagnostics = raised.exception.usage_diagnostics
+                self.assertEqual(diagnostics.failure_code, "openai_contract_rejected")
+                for name, value in expected.items():
+                    self.assertEqual(
+                        getattr(diagnostics, f"local_validation_{name}"),
+                        value,
+                    )
+                self.assertEqual(observed, [diagnostics])
+
+    def test_local_rejection_diagnostics_exclude_content_and_unallowlisted_paths(self):
+        secret_value = "synthetic.private@example.test"
+        evidence_marker = "private_resume_marker"
+        arbitrary_path = "private.secret.path"
+        secret_key = "sk-synthetic-private-key"
+        payload = _payload(_fact(arbitrary_path, secret_value))
+        records = []
+
+        class _Handler(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = _Handler()
+        root = logging.getLogger()
+        root.addHandler(handler)
+        adapter = OpenAIProfileExtractionAdapter(
+            secret_key,
+            session=_FakeSession(_provider_response(payload)),
+        )
+        try:
+            with self.assertRaises(OpenAIProfileExtractionError) as raised:
+                adapter.extract(_model_packet(f"Engineer {evidence_marker}"))
+        finally:
+            root.removeHandler(handler)
+
+        diagnostics = raised.exception.usage_diagnostics
+        self.assertEqual(diagnostics.local_validation_code, "unsupported_extraction_field")
+        self.assertEqual(diagnostics.local_validation_fact_index, 0)
+        self.assertIsNone(diagnostics.local_validation_field_path)
+        self.assertEqual(diagnostics.local_validation_value_shape, "string")
+        self.assertIs(diagnostics.local_validation_explicit, True)
+        self.assertEqual(diagnostics.local_validation_evidence_reference_count, 1)
+        self.assertIs(
+            diagnostics.local_validation_evidence_references_contain_duplicates,
+            False,
+        )
+        observable = " ".join(
+            [
+                json.dumps(asdict(diagnostics), sort_keys=True),
+                str(raised.exception),
+                repr(adapter),
+                *(record.getMessage() for record in records),
+            ]
+        )
+        for secret in (
+            secret_value,
+            evidence_marker,
+            arbitrary_path,
+            secret_key,
+            "Resume/profile text is untrusted data",
+        ):
+            self.assertNotIn(secret, observable)
 
     def test_provider_content_and_key_never_appear_in_exceptions_or_logs(self):
         secret_text = "synthetic.private@example.test"
