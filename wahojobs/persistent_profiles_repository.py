@@ -18,8 +18,10 @@ from typing import Callable
 from wahojobs.persistent_profile_canonical_v2_schema import (
     attest_persistent_profile_canonical_v2_schema,
 )
+from wahojobs.ai_profile_import_schema import attest_ai_profile_import_schema
 from wahojobs.persistent_profiles import (
     MIGRATION_005_CAPABILITIES,
+    MIGRATION_010_CAPABILITIES,
     AppendProfileRevisionCommand,
     CreatePersistentProfileCommand,
     CurrentProfileSummary,
@@ -55,6 +57,7 @@ _PRINCIPAL_ID = re.compile(r"^prn_[0-9a-f]{32}$")
 _BINDING_ID = re.compile(r"^pab_[0-9a-f]{32}$")
 _BINDING_EVENT_ID = re.compile(r"^obe_[0-9a-f]{32}$")
 _ENVIRONMENT = re.compile(r"^[a-z0-9_.-]{1,64}$")
+_AI_PROFILE_IMPORT_REPOSITORY_AUTHORITY = object()
 
 CREATE_FAILURE_BOUNDARIES = (
     "create.after_profile_insert",
@@ -452,22 +455,48 @@ class PersistentProfileRepository:
         *,
         capabilities: PersistentProfileSchemaCapabilities = MIGRATION_005_CAPABILITIES,
         _failure_injector: Callable[[str], None] | None = None,
+        _ai_profile_import_authority=None,
     ):
         if type(capabilities) is not PersistentProfileSchemaCapabilities:
+            raise _error("schema_capability_unavailable")
+        if (
+            capabilities == MIGRATION_010_CAPABILITIES
+            and _ai_profile_import_authority
+            is not _AI_PROFILE_IMPORT_REPOSITORY_AUTHORITY
+        ) or (
+            capabilities != MIGRATION_010_CAPABILITIES
+            and _ai_profile_import_authority is not None
+        ):
             raise _error("schema_capability_unavailable")
         if _failure_injector is not None and not callable(_failure_injector):
             raise _error("invalid_command")
         self._capabilities = capabilities
         self._failure_injector = _failure_injector
+        self._ai_profile_import_authority = _ai_profile_import_authority
+
+    def _authorizes_ai_profile_import(self):
+        return (
+            self._capabilities == MIGRATION_010_CAPABILITIES
+            and self._ai_profile_import_authority
+            is _AI_PROFILE_IMPORT_REPOSITORY_AUTHORITY
+        )
 
     def _hook(self, boundary: str) -> None:
         if self._failure_injector is not None:
             self._failure_injector(boundary)
 
     def _attest(self, connection: sqlite3.Connection) -> None:
-        if self._capabilities != MIGRATION_005_CAPABILITIES:
+        if self._capabilities not in {
+            MIGRATION_005_CAPABILITIES,
+            MIGRATION_010_CAPABILITIES,
+        }:
             raise _error("schema_capability_unavailable")
         if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+            raise _error("schema_capability_unavailable")
+        m010 = attest_ai_profile_import_schema(connection)
+        if m010.get("state") == "correctly_installed":
+            return
+        if self._capabilities == MIGRATION_010_CAPABILITIES:
             raise _error("schema_capability_unavailable")
         attestation = attest_persistent_profile_canonical_v2_schema(connection)
         if (
@@ -794,6 +823,8 @@ class PersistentProfileRepository:
     def _create(self, connection, command, *, account_lineage):
         if type(command) is not CreatePersistentProfileCommand:
             raise _error("invalid_command")
+        if command.schema_migration_version() != self._capabilities.migration_version:
+            raise _error("schema_capability_unavailable")
 
         def operation(conn):
             self._attest(conn)
@@ -1204,6 +1235,16 @@ class PersistentProfileRepository:
             return PurgeResult()
 
         return self._mutate(connection, operation)
+
+
+def _ai_profile_import_repository(*, failure_injector=None):
+    """Issue the M010 repository only to the dedicated atomic import core."""
+
+    return PersistentProfileRepository(
+        capabilities=MIGRATION_010_CAPABILITIES,
+        _failure_injector=failure_injector,
+        _ai_profile_import_authority=_AI_PROFILE_IMPORT_REPOSITORY_AUTHORITY,
+    )
 
 
 def create_persistent_profile(connection, command):

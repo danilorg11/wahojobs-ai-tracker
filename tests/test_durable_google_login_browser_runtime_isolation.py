@@ -12798,7 +12798,7 @@ print(
         result = self.run_python(source)
         self.assertEqual(result.stdout.strip(), "False False False")
 
-    def test_migration_inventory_still_ends_at_m009(self):
+    def test_migration_inventory_includes_dormant_m010(self):
         migrations = sorted(
             (ROOT / "wahojobs" / "db" / "migrations").glob("*.sql")
         )
@@ -12814,6 +12814,7 @@ print(
                 "007_closed_schema_convergence.sql",
                 "008_workos_authkit_provider.sql",
                 "009_public_job_identity.sql",
+                "010_ai_profile_import.sql",
             ],
         )
 

@@ -61,6 +61,18 @@ PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_FINGERPRINT = (
     "42c039abd1483123e1c067f6a85a8c6ae1f3dae420abdd6a198eed8e44f3be2c"
 )
 
+# M010 adds the dormant AI-import commit authority and widens only the existing
+# profile-source vocabulary.  It activates no browser or public route.
+AI_PROFILE_IMPORT_CLOSED_SCHEMA_MIGRATION = "010_ai_profile_import"
+AI_PROFILE_IMPORT_CLOSED_SCHEMA_MARKERS = (
+    *PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_MARKERS,
+    AI_PROFILE_IMPORT_CLOSED_SCHEMA_MIGRATION,
+)
+AI_PROFILE_IMPORT_CLOSED_SCHEMA_OBJECT_COUNT = 216
+AI_PROFILE_IMPORT_CLOSED_SCHEMA_FINGERPRINT = (
+    "d0924a37e03afd0b5939f2840fae5d684c867f0f91e57db8d141b2f932ce6d06"
+)
+
 _MAX_CLOSED_SCHEMA_SQL_BYTES = 1_048_576
 
 
@@ -99,7 +111,7 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
             "WHERE type IN ('table','index','trigger','view') "
             "AND name NOT IN (" + extension_placeholders + ") "
             "ORDER BY type, name, tbl_name "
-            f"LIMIT {PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_OBJECT_COUNT + 1}",
+            f"LIMIT {max(PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_OBJECT_COUNT, AI_PROFILE_IMPORT_CLOSED_SCHEMA_OBJECT_COUNT) + 1}",
             OPPORTUNITY_ENRICHMENT_SCHEMA_OBJECTS,
         )
         for raw in cursor.fetchall():
@@ -125,7 +137,7 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
             "SELECT CAST(version AS BLOB) "
             "FROM main.wahojobs_schema_migrations "
             "ORDER BY version "
-            f"LIMIT {len(PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_MARKERS) + 1}"
+            f"LIMIT {len(AI_PROFILE_IMPORT_CLOSED_SCHEMA_MARKERS) + 1}"
         ).fetchall()
         for raw in marker_rows:
             if type(raw) is not tuple or len(raw) != 1 or type(raw[0]) is not bytes:
@@ -169,7 +181,7 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
 
 
 def current_closed_schema_is_exact(connection) -> bool:
-    """Return exact ``True`` for either approved M007 or M008 closure."""
+    """Return exact ``True`` for any explicitly approved closed schema."""
 
     identity = capture_closed_schema_identity(connection)
     accepted = (
@@ -187,6 +199,11 @@ def current_closed_schema_is_exact(connection) -> bool:
             PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_OBJECT_COUNT,
             PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_FINGERPRINT,
             PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_MARKERS,
+        ),
+        (
+            AI_PROFILE_IMPORT_CLOSED_SCHEMA_OBJECT_COUNT,
+            AI_PROFILE_IMPORT_CLOSED_SCHEMA_FINGERPRINT,
+            AI_PROFILE_IMPORT_CLOSED_SCHEMA_MARKERS,
         ),
     )
     return identity.temporary_object_count == 0 and any(

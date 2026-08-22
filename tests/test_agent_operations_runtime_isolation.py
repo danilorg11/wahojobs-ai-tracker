@@ -240,12 +240,13 @@ print(operations._is_trusted_approval(approval))
             "007_closed_schema_convergence.sql",
             "008_workos_authkit_provider.sql",
             "009_public_job_identity.sql",
+            "010_ai_profile_import.sql",
         ]
         self.assertEqual([path.name for path in migrations], accepted_migrations)
         self.assertNotEqual(
             [
                 *accepted_migrations,
-                "010_unexpected_dormant_migration.sql",
+                "011_unexpected_dormant_migration.sql",
             ],
             accepted_migrations,
         )

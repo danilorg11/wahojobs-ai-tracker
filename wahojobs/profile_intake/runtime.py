@@ -138,6 +138,12 @@ class TrustedProfileIntakeGrant:
             PROFILE_INTAKE_PURPOSE,
         )
 
+    def principal_for_repository(self):
+        return self._principal
+
+    def lineage_for_repository(self):
+        return self._lineage
+
     def __setattr__(self, _name, _value):
         raise AttributeError("trusted_profile_intake_grant_is_immutable")
 

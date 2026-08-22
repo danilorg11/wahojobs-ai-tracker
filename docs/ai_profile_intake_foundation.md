@@ -298,11 +298,106 @@ and keeps the manual path available.
 
 Ordinary tests inject a deterministic adapter and make zero real OpenAI or
 network calls. No API key is required and committed fixtures contain only
-synthetic, non-personal data. This slice adds no profile/revision/entitlement
-write, migration, matching behavior, public route, deployment change, DNS,
-proxy, Vercel, DigitalOcean, WorkOS authority change, or old-site cutover.
+synthetic, non-personal data. The browser runtime still performs no durable
+save and invokes none of the Slice 4A commit authority described below. No
+matching behavior, public route, deployment change, DNS, proxy, Vercel,
+DigitalOcean, WorkOS authority change, or old-site cutover is introduced.
 
 Future entitlement accounting must count the importer bundle—resume only,
 LinkedIn only, or resume plus LinkedIn—as exactly one import attempt. Internal
 adapter request count and advisory usage/cost diagnostics must never determine
 authorization, entitlement consumption, billing, or profile correctness.
+
+## Slice 4A durable commit authority (not browser-wired)
+
+Migration `010_ai_profile_import` adds only the dormant durable core needed by
+a later final-confirmation browser slice. It widens the existing profile-source
+vocabulary with `user_confirmed_ai_import`, then adds one entitlement table and
+one content-free attempt table. It creates no durable draft, changes no
+Canonical V2 field or matching rule, and adds no route. The callable migration
+requires an exact M009 prerequisite, runs as one SQLite transaction, preserves
+existing profile/source rows, verifies foreign keys and exact closed-schema
+attestation before commit, and is not run automatically by an import or app
+startup.
+
+The durable AI source is still an existing `product_profile_sources` record,
+not a parallel provenance system. Its strict JSON content has exactly eight
+fields: source schema version, ordered bundle origins, document count, ordered
+parser versions, model identifier, prompt version, extraction schema version,
+and review schema version. The source records user-confirmed AI-assisted import
+provenance; it does not claim that Wahojobs independently verified a fact. Raw
+documents, filenames, text, evidence, contact data, prompts, raw model output,
+confidence, model usage, and ordinary document hashes are prohibited. Both the
+domain constructor and database trigger close the object to this exact bounded
+shape.
+
+### One-free-import entitlement and attempt
+
+The stable V1 entitlement code is `ai_profile_import_v1`. Its sole owner key is
+`(environment_namespace, canonical account_id, entitlement_code)`. It is not
+keyed by email, provider subject, session, principal, profile, document count,
+or model-call count. The entitlement has three states: `available`, `reserved`,
+and `consumed`. It is established lazily on the first eligible reservation.
+Only a successful user-confirmed initial profile commit consumes it; manual
+profile creation never reads or creates this entitlement.
+
+Each reservation creates one durable attempt and one cryptographically random
+`aip_*` attempt ID plus `air_*` reservation ID. Resume-only, LinkedIn-only, and
+resume-plus-LinkedIn bundles each create exactly one attempt. The combined
+bundle can have two internal adapter requests, but model calls and tokens are
+absent from entitlement accounting. The attempt retains only hashed
+idempotency authority, a request fingerprint, safe bundle/version metadata,
+authorized principal and exact PB-OWN-1 lineage facts, state/timestamps, and a
+content-free result code. A successful attempt additionally retains its result
+profile/revision IDs for exact replay. Those receipt identifiers are bounded,
+non-owning references, so they do not block the existing profile privacy-purge
+path; the consumed account entitlement remains durable.
+
+The centralized reservation lease is twelve minutes, modestly longer than the
+ten-minute process-local review TTL. `BEGIN IMMEDIATE` serializes competing
+reservations. An exact retry reuses the same attempt/reservation. A different
+active attempt receives a stable reserved response. Expiry deterministically
+marks the old attempt expired and restores availability before a new operation
+can reserve it. Explicit processing-failure, cancellation, draft-expiry, and
+abandonment release paths restore availability without consuming the import.
+No database transaction remains open while documents are parsed or a model is
+called.
+
+### Confirmed review mapping and atomic creation
+
+`prepare_confirmed_ai_profile_import` is the pure boundary from an already
+edited `ai_profile_review_draft_v2` to identity-free, user-confirmed Canonical
+V1 material used by the repository's existing deterministic V1-to-V2 path. It
+revalidates review values and decisions server-side, excludes removed/rejected
+facts, rejects pending decisions and multiply accepted conflicts, and requires
+the source origins to match the sealed bundle metadata. User-only fields come
+from the confirmed review inputs. The adapter cannot provide durable IDs,
+source authority, or matcher signals. Normalized skills/domains and all derived
+matcher signals are recomputed by the existing server normalizer and Canonical
+V2 conversion.
+
+`commit_confirmed_ai_profile_import` accepts only a sealed current intake grant,
+sealed reservation, and sealed confirmed artifact. Immediately before writing,
+it revalidates the active browser session, canonical account, environment,
+account-native principal, and exact current PB-OWN-1 lineage. In one outer
+`BEGIN IMMEDIATE` transaction it validates the live reservation, calls the
+existing account-native create-once repository through its nested-savepoint
+path, marks the attempt successful, transitions the entitlement to consumed,
+and records the replay result. Thus profile creation and entitlement
+consumption commit or roll back together.
+
+An exact post-success retry returns the original profile/revision result and
+creates no row. A different attempt after consumption fails. If manual
+create-once wins first, the AI attempt becomes a content-free failed attempt,
+the entitlement returns to available, and no AI source is written. If AI
+creation wins, the unchanged manual create-once path rejects a second profile.
+Fault boundaries before, during, and after profile creation, during attempt
+result update, after entitlement transition, and immediately before commit are
+tested to roll back the whole final transaction.
+
+Slice 4A deliberately does not connect the review page to reservation or final
+save. It performs no migration against a persistent environment, makes no real
+OpenAI request, implements no billing or paid re-import, and adds no durable AI
+correction/update path. Slice 4B must bind the existing private review artifact
+to this core without letting browser values select account, principal,
+ownership lineage, entitlement owner, attempt, or durable profile IDs.

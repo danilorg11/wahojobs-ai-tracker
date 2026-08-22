@@ -40,6 +40,7 @@ SOURCE_BUNDLE_HASH_VERSION = "persistent_profile_source_bundle_v1"
 REQUEST_FINGERPRINT_VERSION = "persistent_profile_request_v1"
 IDEMPOTENCY_SCOPE_VERSION = "persistent_profile_principal_scope_v1"
 LIFECYCLE_SOURCE_SCHEMA_VERSION = "confirmed_lifecycle_action_v1"
+AI_IMPORT_SOURCE_SCHEMA_VERSION = "user_confirmed_ai_import_v1"
 
 MAX_SOURCE_BYTES = 32_768
 MAX_SOURCES = 16
@@ -72,6 +73,7 @@ SOURCE_TYPES = frozenset(
         "confirmed_about_you_text",
         "user_confirmed_correction",
         "confirmed_lifecycle_action",
+        "user_confirmed_ai_import",
     }
 )
 
@@ -558,6 +560,19 @@ class PersistentProfileSchemaCapabilities:
 MIGRATION_005_CAPABILITIES = PersistentProfileSchemaCapabilities(
     migration_version=MIGRATION_VERSION,
     canonical_versions=frozenset({CANONICAL_PROFILE_V2}),
+    source_types=frozenset(
+        {
+            "confirmed_about_you_text",
+            "user_confirmed_correction",
+            "confirmed_lifecycle_action",
+        }
+    ),
+    lifecycle_source_schema_versions=frozenset({LIFECYCLE_SOURCE_SCHEMA_VERSION}),
+)
+
+MIGRATION_010_CAPABILITIES = PersistentProfileSchemaCapabilities(
+    migration_version="010_ai_profile_import",
+    canonical_versions=frozenset({CANONICAL_PROFILE_V2}),
     source_types=SOURCE_TYPES,
     lifecycle_source_schema_versions=frozenset({LIFECYCLE_SOURCE_SCHEMA_VERSION}),
 )
@@ -660,6 +675,97 @@ class UserConfirmedCorrectionSourceDraft:
 
 
 @dataclass(frozen=True, repr=False, init=False)
+class UserConfirmedAIImportSourceDraft:
+    """Strict privacy-safe provenance for a user-confirmed AI import."""
+
+    content: str = field(repr=False)
+    confirmed_at: str = field(repr=False)
+    source_schema_version: str = AI_IMPORT_SOURCE_SCHEMA_VERSION
+    parser_version: None = None
+    source_type: str = "user_confirmed_ai_import"
+    source_format: str = "application/json"
+
+    def __init__(self, *_args, **_kwargs):
+        _fail("invalid_command")
+
+    @classmethod
+    def from_metadata(cls, metadata, *, confirmed_at: datetime):
+        expected = {
+            "schema_version",
+            "bundle_origins",
+            "document_count",
+            "parser_versions",
+            "model",
+            "prompt_version",
+            "extraction_schema_version",
+            "review_schema_version",
+        }
+        if type(metadata) is not dict or set(metadata) != expected:
+            _fail("content_rejected")
+        origins = metadata.get("bundle_origins")
+        parser_versions = metadata.get("parser_versions")
+        safe_values = (
+            metadata.get("model"),
+            metadata.get("prompt_version"),
+            metadata.get("extraction_schema_version"),
+            metadata.get("review_schema_version"),
+        )
+        if (
+            metadata.get("schema_version") != AI_IMPORT_SOURCE_SCHEMA_VERSION
+            or type(origins) is not list
+            or origins not in (
+                ["resume"],
+                ["linkedin_profile_export"],
+                ["resume", "linkedin_profile_export"],
+            )
+            or type(metadata.get("document_count")) is not int
+            or metadata.get("document_count") != len(origins)
+            or type(parser_versions) is not list
+            or len(parser_versions) != len(origins)
+            or any(not _safe_ai_metadata_value(value) for value in parser_versions)
+            or any(not _safe_ai_metadata_value(value) for value in safe_values)
+        ):
+            _fail("content_rejected")
+        try:
+            content = json.dumps(
+                metadata,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        except (TypeError, ValueError, UnicodeError):
+            _fail("content_rejected")
+        _validate_source_content(content, require_json_object=True)
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "content", content)
+        object.__setattr__(instance, "confirmed_at", canonical_utc_timestamp(confirmed_at))
+        object.__setattr__(instance, "source_schema_version", AI_IMPORT_SOURCE_SCHEMA_VERSION)
+        object.__setattr__(instance, "parser_version", None)
+        object.__setattr__(instance, "source_type", "user_confirmed_ai_import")
+        object.__setattr__(instance, "source_format", "application/json")
+        return instance
+
+    @property
+    def content_bytes(self) -> bytes:
+        return self.content.encode("utf-8")
+
+    def public_dict(self) -> dict:
+        return _source_public_dict(self)
+
+    def __repr__(self) -> str:
+        return "UserConfirmedAIImportSourceDraft(content=<redacted>)"
+
+
+def _safe_ai_metadata_value(value):
+    return (
+        type(value) is str
+        and 1 <= len(value) <= 128
+        and re.fullmatch(r"[0-9A-Za-z._:/-]+", value) is not None
+    )
+
+
+@dataclass(frozen=True, repr=False, init=False)
 class LifecycleActionSourceDraft:
     action: str
     confirmed_at: str = field(repr=False)
@@ -707,6 +813,7 @@ class LifecycleActionSourceDraft:
 SourceDraft = (
     ConfirmedAboutYouTextSourceDraft
     | UserConfirmedCorrectionSourceDraft
+    | UserConfirmedAIImportSourceDraft
     | LifecycleActionSourceDraft
 )
 
@@ -736,6 +843,7 @@ def _validate_sources(sources, capabilities) -> tuple[SourceDraft, ...]:
         if type(source) not in {
             ConfirmedAboutYouTextSourceDraft,
             UserConfirmedCorrectionSourceDraft,
+            UserConfirmedAIImportSourceDraft,
             LifecycleActionSourceDraft,
         }:
             _fail("invalid_command")
@@ -747,6 +855,7 @@ def source_content_hash(source: SourceDraft) -> str:
     if type(source) not in {
         ConfirmedAboutYouTextSourceDraft,
         UserConfirmedCorrectionSourceDraft,
+        UserConfirmedAIImportSourceDraft,
         LifecycleActionSourceDraft,
     }:
         _fail("invalid_command")
@@ -781,7 +890,7 @@ def _semantic_profile_hash_from_bytes(profile_bytes: bytes) -> str:
 
 
 def source_bundle_manifest(sources) -> dict:
-    source_tuple = _validate_sources(sources, MIGRATION_005_CAPABILITIES)
+    source_tuple = _validate_sources(sources, MIGRATION_010_CAPABILITIES)
     return {
         "version": SOURCE_BUNDLE_HASH_VERSION,
         "sources": [
@@ -921,6 +1030,7 @@ class CreatePersistentProfileCommand:
     source_content_sha256s: tuple[str, ...]
     source_bundle_sha256: str
     request_fingerprint: str = field(repr=False)
+    _schema_migration_version: str = field(repr=False)
 
     @classmethod
     def prepare(
@@ -945,7 +1055,18 @@ class CreatePersistentProfileCommand:
         source_tuple = _validate_sources(sources, capabilities)
         if any(source.source_type == "confirmed_lifecycle_action" for source in source_tuple):
             _fail("invalid_command")
-        if not any(source.source_type == "confirmed_about_you_text" for source in source_tuple):
+        if not any(
+            source.source_type in {"confirmed_about_you_text", "user_confirmed_ai_import"}
+            for source in source_tuple
+        ):
+            _fail("invalid_command")
+        if any(
+            source.source_type == "user_confirmed_ai_import"
+            for source in source_tuple
+        ) and (
+            len(source_tuple) != 1
+            or type(source_tuple[0]) is not UserConfirmedAIImportSourceDraft
+        ):
             _fail("invalid_command")
         timestamp = canonical_utc_timestamp(accepted_at)
         if any(not _timestamp_not_after(source.confirmed_at, timestamp) for source in source_tuple):
@@ -1010,6 +1131,7 @@ class CreatePersistentProfileCommand:
             "source_content_sha256s": source_hashes,
             "source_bundle_sha256": bundle_hash,
             "request_fingerprint": _request_digest(payload),
+            "_schema_migration_version": capabilities.migration_version,
         }.items():
             object.__setattr__(instance, name, value)
         return instance
@@ -1035,6 +1157,9 @@ class CreatePersistentProfileCommand:
 
     def idempotency_scope(self) -> tuple[str, str]:
         return (self.principal.principal_id, self._idempotency_key)
+
+    def schema_migration_version(self) -> str:
+        return self._schema_migration_version
 
     def public_dict(self) -> dict:
         return {
@@ -1106,6 +1231,11 @@ class AppendProfileRevisionCommand:
             _fail("schema_capability_unavailable")
         capabilities.require_canonical_v2()
         source_tuple = _validate_sources(sources, capabilities)
+        if any(
+            type(source) is UserConfirmedAIImportSourceDraft
+            for source in source_tuple
+        ):
+            _fail("invalid_command")
         timestamp = canonical_utc_timestamp(accepted_at)
         if any(not _timestamp_not_after(source.confirmed_at, timestamp) for source in source_tuple):
             _fail("invalid_command")

@@ -1,0 +1,1164 @@
+"""Durable one-free-import authority and atomic AI profile-create core.
+
+This module has no browser route and opens no database.  Callers supply one
+already-open mutation connection and a sealed intake grant issued by the
+existing authenticated PB-OWN-1 authority.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
+import json
+import re
+import secrets
+import sqlite3
+
+from wahojobs.ai_profile_import_schema import attest_ai_profile_import_schema
+from wahojobs.persistent_profiles import (
+    AI_IMPORT_SOURCE_SCHEMA_VERSION,
+    MIGRATION_010_CAPABILITIES,
+    CreatePersistentProfileCommand,
+    IdentityFreeCanonicalProfileV1,
+    PersistentProfileDomainError,
+    TrustedPrincipalContext,
+    UserConfirmedAIImportSourceDraft,
+    _create_canonical_profile_v2_draft,
+    canonical_utc_timestamp,
+)
+from wahojobs.persistent_profiles_repository import (
+    PersistentProfileRepository,
+    TrustedProfileCreateLineage,
+    _ai_profile_import_repository,
+    capture_profile_create_lineage,
+)
+from wahojobs.profile_intake.contracts import DocumentKind, LanguageValue, ProfileIntakeError
+from wahojobs.profile_intake.review_draft import REVIEW_DRAFT_SCHEMA_VERSION
+from wahojobs.profile_intake.runtime import (
+    PROFILE_INTAKE_PURPOSE,
+    EditableProfileReview,
+    SafeDocumentBundleMetadata,
+    SafeModelDiagnostics,
+    TrustedProfileIntakeGrant,
+    review_value_for_form,
+    update_editable_review,
+)
+from wahojobs.profiles.canonical import (
+    PROFILE_SOURCE_USER_CONFIRMATION,
+    SCHEMA_VERSION as CANONICAL_PROFILE_V1,
+    UNKNOWN,
+    field_sources_for_profile,
+)
+from wahojobs.profiles.canonical_v2 import CanonicalProfileV2Error, convert_v1_to_v2
+from wahojobs.profiles.countries import normalize_country
+from wahojobs.profiles.normalizer import signals_for_domains, skills_block
+
+
+AI_PROFILE_IMPORT_ENTITLEMENT_CODE = "ai_profile_import_v1"
+AI_PROFILE_IMPORT_RESERVATION_LEASE = timedelta(minutes=12)
+AI_PROFILE_IMPORT_NORMALIZER_VERSION = "ai_profile_intake_v1"
+AI_PROFILE_IMPORT_REVIEWER_VERSION = REVIEW_DRAFT_SCHEMA_VERSION
+AI_PROFILE_IMPORT_REASON_CODE = "profile.ai_import"
+AI_PROFILE_IMPORT_ACTOR_TYPE = "authenticated_user"
+
+_ATTEMPT = re.compile(r"^aip_[0-9a-f]{32}$")
+_RESERVATION = re.compile(r"^air_[0-9a-f]{32}$")
+_IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{16,256}$")
+_AUTHORITY_ISSUER = object()
+_USER_LIST_FIELDS = frozenset(
+    {
+        "eligible_countries",
+        "geographic_restrictions",
+        "employment_types",
+        "schedule",
+        "target_opportunity_types",
+        "work_preferences",
+        "hard_constraints",
+        "soft_preferences",
+        "avoid_keywords",
+        "excluded_domains",
+        "accessibility_constraints",
+    }
+)
+_RELEASE_CODES = frozenset(
+    {"cancelled", "processing_failed", "draft_expired", "abandoned"}
+)
+_PUBLIC_CODES = frozenset(
+    {
+        "invalid_request",
+        "idempotency_conflict",
+        "entitlement_reserved",
+        "entitlement_consumed",
+        "reservation_expired",
+        "reservation_mismatch",
+        "attempt_released",
+        "attempt_failed",
+        "profile_already_exists",
+        "ownership_stale",
+        "review_unresolved",
+        "content_rejected",
+        "temporary_contention",
+        "schema_unavailable",
+        "internal_failure",
+    }
+)
+
+
+class AIProfileImportError(Exception):
+    """Stable content-free failure for the durable import core."""
+
+    __slots__ = ("code",)
+
+    def __init__(self, code):
+        self.code = (
+            code
+            if type(code) is str and code in _PUBLIC_CODES
+            else "internal_failure"
+        )
+        super().__init__(self.code)
+
+    def __repr__(self):
+        return f"AIProfileImportError(code={self.code!r})"
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class AIProfileImportSourceMetadata:
+    """Content-free bundle provenance shared by reservation and source row."""
+
+    canonical_json: str = field(repr=False)
+    _issuer: object = field(repr=False, compare=False)
+
+    def __init__(self, *_args, **_kwargs):
+        raise AIProfileImportError("invalid_request")
+
+    @classmethod
+    def from_runtime(cls, document, diagnostics):
+        if type(document) is not SafeDocumentBundleMetadata or (
+            diagnostics is not None
+            and (
+                type(diagnostics) is not tuple
+                or any(type(item) is not SafeModelDiagnostics for item in diagnostics)
+                or len(diagnostics) != len(document.documents)
+                or any(type(item.document_kind) is not str for item in diagnostics)
+                or any(
+                    type(value) is not str
+                    for item in diagnostics
+                    for value in (
+                        item.model,
+                        item.prompt_version,
+                        item.schema_version,
+                    )
+                )
+                or sorted(item.document_kind for item in diagnostics)
+                != sorted(item.origin for item in document.documents)
+                or any(
+                    item.success is not True or item.failure_code is not None
+                    for item in diagnostics
+                )
+            )
+        ):
+            raise AIProfileImportError("invalid_request")
+        ordered = tuple(
+            sorted(
+                document.documents,
+                key=lambda item: 0 if item.origin == "resume" else 1,
+            )
+        )
+        origins = [item.origin for item in ordered]
+        models = sorted({item.model for item in diagnostics or ()})
+        prompts = sorted({item.prompt_version for item in diagnostics or ()})
+        schemas = sorted({item.schema_version for item in diagnostics or ()})
+        payload = {
+            "schema_version": AI_IMPORT_SOURCE_SCHEMA_VERSION,
+            "bundle_origins": origins,
+            "document_count": len(origins),
+            "parser_versions": [
+                f"{item.parser}:{item.parser_version}" for item in ordered
+            ],
+            "model": models[0] if len(models) == 1 else "unavailable" if not models else "multiple",
+            "prompt_version": prompts[0] if len(prompts) == 1 else "unavailable" if not prompts else "multiple",
+            "extraction_schema_version": schemas[0] if len(schemas) == 1 else "ai_profile_extraction_v1",
+            "review_schema_version": REVIEW_DRAFT_SCHEMA_VERSION,
+        }
+        return cls._from_mapping(payload)
+
+    @classmethod
+    def _from_mapping(cls, payload):
+        try:
+            draft = UserConfirmedAIImportSourceDraft.from_metadata(
+                payload,
+                confirmed_at=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            )
+        except PersistentProfileDomainError:
+            raise AIProfileImportError("content_rejected") from None
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "canonical_json", draft.content)
+        object.__setattr__(instance, "_issuer", _AUTHORITY_ISSUER)
+        return instance
+
+    def to_mapping(self):
+        if getattr(self, "_issuer", None) is not _AUTHORITY_ISSUER:
+            raise AIProfileImportError("invalid_request")
+        try:
+            payload = json.loads(self.canonical_json)
+            draft = UserConfirmedAIImportSourceDraft.from_metadata(
+                payload,
+                confirmed_at=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            )
+        except (
+            json.JSONDecodeError,
+            UnicodeError,
+            TypeError,
+            ValueError,
+            PersistentProfileDomainError,
+        ):
+            raise AIProfileImportError("invalid_request") from None
+        if not hmac.compare_digest(draft.content, self.canonical_json):
+            raise AIProfileImportError("invalid_request")
+        return payload
+
+    @property
+    def origins(self):
+        return tuple(self.to_mapping()["bundle_origins"])
+
+    def __repr__(self):
+        return "AIProfileImportSourceMetadata(content=<redacted>)"
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("ai_profile_import_source_metadata_not_serializable")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class AIProfileImportReservationRequest:
+    idempotency_key: str = field(repr=False)
+    source_metadata: AIProfileImportSourceMetadata
+
+    def __post_init__(self):
+        if (
+            type(self.idempotency_key) is not str
+            or _IDEMPOTENCY.fullmatch(self.idempotency_key) is None
+            or type(self.source_metadata) is not AIProfileImportSourceMetadata
+            or getattr(self.source_metadata, "_issuer", None) is not _AUTHORITY_ISSUER
+        ):
+            raise AIProfileImportError("invalid_request")
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class AIProfileImportReservationAuthority:
+    attempt_id: str = field(repr=False)
+    reservation_id: str = field(repr=False)
+    environment_namespace: str = field(repr=False)
+    account_id: str = field(repr=False)
+    principal_id: str = field(repr=False)
+    request_fingerprint: str = field(repr=False)
+    lease_expires_at: str
+    _issuer: object = field(repr=False, compare=False)
+
+    def __init__(self, *_args, **_kwargs):
+        raise AIProfileImportError("invalid_request")
+
+    @classmethod
+    def _issue(cls, capability, **values):
+        if capability is not _AUTHORITY_ISSUER:
+            raise AIProfileImportError("invalid_request")
+        instance = object.__new__(cls)
+        for name, value in {**values, "_issuer": _AUTHORITY_ISSUER}.items():
+            object.__setattr__(instance, name, value)
+        if (
+            _ATTEMPT.fullmatch(instance.attempt_id) is None
+            or _RESERVATION.fullmatch(instance.reservation_id) is None
+            or len(set(instance.attempt_id[4:])) == 1
+            or len(set(instance.reservation_id[4:])) == 1
+            or len(instance.request_fingerprint) != 64
+        ):
+            raise AIProfileImportError("internal_failure")
+        return instance
+
+    def __repr__(self):
+        return "AIProfileImportReservationAuthority(<redacted>)"
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("ai_profile_import_reservation_not_serializable")
+
+
+@dataclass(frozen=True, slots=True)
+class AIProfileImportReservationResult:
+    state: str
+    authority: AIProfileImportReservationAuthority
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class ConfirmedAIProfileImport:
+    reviewed_profile: IdentityFreeCanonicalProfileV1 = field(repr=False)
+    source_metadata: AIProfileImportSourceMetadata
+    confirmation_fingerprint: str = field(repr=False)
+    _issuer: object = field(repr=False, compare=False)
+
+    def __init__(self, *_args, **_kwargs):
+        raise AIProfileImportError("invalid_request")
+
+    @classmethod
+    def _issue(cls, capability, reviewed_profile, source_metadata, fingerprint):
+        if (
+            capability is not _AUTHORITY_ISSUER
+            or type(reviewed_profile) is not IdentityFreeCanonicalProfileV1
+            or type(source_metadata) is not AIProfileImportSourceMetadata
+            or getattr(source_metadata, "_issuer", None) is not _AUTHORITY_ISSUER
+            or type(fingerprint) is not str
+            or len(fingerprint) != 64
+        ):
+            raise AIProfileImportError("invalid_request")
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "reviewed_profile", reviewed_profile)
+        object.__setattr__(instance, "source_metadata", source_metadata)
+        object.__setattr__(instance, "confirmation_fingerprint", fingerprint)
+        object.__setattr__(instance, "_issuer", _AUTHORITY_ISSUER)
+        return instance
+
+    def __repr__(self):
+        return "ConfirmedAIProfileImport(content=<redacted>)"
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("confirmed_ai_profile_import_not_serializable")
+
+
+@dataclass(frozen=True, slots=True)
+class AIProfileImportCommitResult:
+    profile_id: str
+    revision_id: str
+    replayed: bool
+
+
+class AIProfileImportService:
+    """Caller-connection reservation and atomic commit authority."""
+
+    __slots__ = ("_repository", "_token_hex", "_failure_injector")
+
+    def __init__(self, *, repository=None, token_hex=None, failure_injector=None):
+        self._repository = repository or _ai_profile_import_repository()
+        self._token_hex = token_hex or secrets.token_hex
+        self._failure_injector = failure_injector
+        if (
+            type(self._repository) is not PersistentProfileRepository
+            or not self._repository._authorizes_ai_profile_import()
+            or not callable(self._token_hex)
+        ):
+            raise AIProfileImportError("invalid_request")
+        if failure_injector is not None and not callable(failure_injector):
+            raise AIProfileImportError("invalid_request")
+
+    def reserve(self, connection, grant, request, *, now):
+        if type(request) is not AIProfileImportReservationRequest:
+            raise AIProfileImportError("invalid_request")
+        now = _trusted_time(now)
+        request.source_metadata.to_mapping()
+        metadata_json = request.source_metadata.canonical_json
+        key_hash = hashlib.sha256(request.idempotency_key.encode("ascii")).hexdigest()
+        result = None
+
+        def operation():
+            nonlocal result
+            _require_m010(connection)
+            authority = _grant_authority(connection, grant, now)
+            fingerprint = _request_fingerprint(authority, key_hash, metadata_json)
+            existing = connection.execute(
+                "SELECT attempt_id,reservation_id,state,request_fingerprint,lease_expires_at,"
+                "binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256 "
+                "FROM ai_profile_import_attempts WHERE environment_namespace=? AND account_id=? "
+                "AND entitlement_code=? AND idempotency_key_sha256=?",
+                (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, key_hash),
+            ).fetchone()
+            if existing is not None:
+                if not hmac.compare_digest(existing[3], fingerprint):
+                    raise AIProfileImportError("idempotency_conflict")
+                if existing[2] == "reserved" and existing[4] <= canonical_utc_timestamp(now):
+                    _expire_attempt(connection, existing[0], existing[1], authority, now)
+                    result = AIProfileImportError("reservation_expired")
+                    return
+                lineage = authority[4]
+                if tuple(existing[5:]) != (
+                    lineage.binding_id,
+                    lineage.binding_version,
+                    lineage.latest_event_version,
+                    lineage.latest_event_id,
+                    lineage.lineage_sha256,
+                ):
+                    raise AIProfileImportError("ownership_stale")
+                if existing[2] == "released":
+                    result = AIProfileImportError("attempt_released")
+                    return
+                if existing[2] in {"expired", "failed"}:
+                    result = AIProfileImportError("attempt_failed")
+                    return
+                result = AIProfileImportReservationResult(
+                    existing[2],
+                    _reservation_authority(existing[0], existing[1], authority, fingerprint, existing[4]),
+                    True,
+                )
+                return
+
+            entitlement = connection.execute(
+                "SELECT state,reservation_id,attempt_id,lease_expires_at FROM ai_profile_import_entitlements "
+                "WHERE environment_namespace=? AND account_id=? AND entitlement_code=?",
+                (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE),
+            ).fetchone()
+            timestamp = canonical_utc_timestamp(now)
+            if entitlement is None:
+                connection.execute(
+                    "INSERT INTO ai_profile_import_entitlements "
+                    "(environment_namespace,account_id,entitlement_code,state,reservation_id,attempt_id,lease_expires_at,consumed_at,created_at,updated_at) "
+                    "VALUES (?,?,?,'available',NULL,NULL,NULL,NULL,?,?)",
+                    (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, timestamp, timestamp),
+                )
+                entitlement = ("available", None, None, None)
+            if entitlement[0] == "consumed":
+                raise AIProfileImportError("entitlement_consumed")
+            if entitlement[0] == "reserved":
+                if entitlement[3] > timestamp:
+                    raise AIProfileImportError("entitlement_reserved")
+                _expire_attempt(connection, entitlement[2], entitlement[1], authority, now)
+
+            attempt_id = _new_id(connection, "aip", "ai_profile_import_attempts", "attempt_id", self._token_hex)
+            reservation_id = _new_id(connection, "air", "ai_profile_import_attempts", "reservation_id", self._token_hex)
+            lease = canonical_utc_timestamp(now + AI_PROFILE_IMPORT_RESERVATION_LEASE)
+            lineage = authority[4]
+            connection.execute(
+                "INSERT INTO ai_profile_import_attempts "
+                "(attempt_id,reservation_id,environment_namespace,account_id,principal_id,entitlement_code,state,"
+                "idempotency_key_sha256,request_fingerprint,confirmation_fingerprint,source_metadata_json,"
+                "binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256,lease_expires_at,"
+                "result_code,result_profile_id,result_revision_id,created_at,updated_at,completed_at) "
+                "VALUES (?,?,?,?,?,?,'reserved',?,?,NULL,?,?,?,?,?,?,?,NULL,NULL,NULL,?,?,NULL)",
+                (
+                    attempt_id, reservation_id, authority[2], authority[0], authority[3],
+                    AI_PROFILE_IMPORT_ENTITLEMENT_CODE, key_hash, fingerprint, metadata_json,
+                    lineage.binding_id, lineage.binding_version, lineage.latest_event_version,
+                    lineage.latest_event_id, lineage.lineage_sha256, lease, timestamp, timestamp,
+                ),
+            )
+            connection.execute(
+                "UPDATE ai_profile_import_entitlements SET state='reserved',reservation_id=?,attempt_id=?,"
+                "lease_expires_at=?,updated_at=? WHERE environment_namespace=? AND account_id=? AND entitlement_code=? AND state='available'",
+                (reservation_id, attempt_id, lease, timestamp, authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("entitlement_reserved")
+            result = AIProfileImportReservationResult(
+                "reserved",
+                _reservation_authority(attempt_id, reservation_id, authority, fingerprint, lease),
+                False,
+            )
+
+        _atomic(connection, operation)
+        if isinstance(result, AIProfileImportError):
+            raise result
+        return result
+
+    def release(self, connection, grant, reservation, *, outcome_code, now):
+        if type(outcome_code) is not str or outcome_code not in _RELEASE_CODES:
+            raise AIProfileImportError("invalid_request")
+        now = _trusted_time(now)
+        result = None
+
+        def operation():
+            nonlocal result
+            _require_m010(connection)
+            authority = _grant_authority(connection, grant, now)
+            _require_reservation_binding(reservation, authority)
+            row = _attempt_row(connection, reservation.attempt_id)
+            _require_attempt_match(row, reservation, authority)
+            if row[2] == "released" and row[9] == outcome_code:
+                result = True
+                return
+            if row[2] != "reserved":
+                raise AIProfileImportError("reservation_mismatch")
+            timestamp = canonical_utc_timestamp(now)
+            if row[7] <= timestamp:
+                _expire_attempt(
+                    connection,
+                    reservation.attempt_id,
+                    reservation.reservation_id,
+                    authority,
+                    now,
+                )
+                result = AIProfileImportError("reservation_expired")
+                return
+            connection.execute(
+                "UPDATE ai_profile_import_attempts SET state='released',result_code=?,updated_at=?,completed_at=? WHERE attempt_id=? AND state='reserved'",
+                (outcome_code, timestamp, timestamp, reservation.attempt_id),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("reservation_mismatch")
+            connection.execute(
+                "UPDATE ai_profile_import_entitlements SET state='available',reservation_id=NULL,attempt_id=NULL,lease_expires_at=NULL,updated_at=? "
+                "WHERE environment_namespace=? AND account_id=? AND entitlement_code=? AND state='reserved' AND attempt_id=? AND reservation_id=?",
+                (timestamp, authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, reservation.attempt_id, reservation.reservation_id),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("reservation_mismatch")
+            result = False
+
+        _atomic(connection, operation)
+        if isinstance(result, AIProfileImportError):
+            raise result
+        return {"released": True, "replayed": bool(result)}
+
+    def commit_confirmed_ai_profile_import(
+        self,
+        connection,
+        grant,
+        reservation,
+        confirmed,
+        *,
+        now,
+    ):
+        if (
+            type(confirmed) is not ConfirmedAIProfileImport
+            or getattr(confirmed, "_issuer", None) is not _AUTHORITY_ISSUER
+        ):
+            raise AIProfileImportError("invalid_request")
+        try:
+            expected_confirmation = hashlib.sha256(
+                b"ai-profile-confirmation-v1\x00"
+                + confirmed.reviewed_profile.canonical_bytes
+                + b"\x00"
+                + confirmed.source_metadata.canonical_json.encode("ascii")
+            ).hexdigest()
+            confirmed.source_metadata.to_mapping()
+        except (AttributeError, TypeError, UnicodeError):
+            raise AIProfileImportError("invalid_request") from None
+        if type(confirmed.confirmation_fingerprint) is not str or not hmac.compare_digest(
+            confirmed.confirmation_fingerprint,
+            expected_confirmation,
+        ):
+            raise AIProfileImportError("invalid_request")
+        now = _trusted_time(now)
+        prepared_authority = _grant_authority(connection, grant, now)
+        _require_reservation_binding(reservation, prepared_authority)
+        command = _create_command(
+            confirmed,
+            prepared_authority,
+            reservation,
+            now,
+        )
+        outcome = None
+
+        def operation():
+            nonlocal outcome
+            _require_m010(connection)
+            authority = _grant_authority(connection, grant, now)
+            if authority != prepared_authority:
+                raise AIProfileImportError("ownership_stale")
+            _require_reservation_binding(reservation, authority)
+            row = _attempt_row(connection, reservation.attempt_id)
+            _require_attempt_match(row, reservation, authority)
+            if row[2] == "succeeded":
+                if not hmac.compare_digest(row[8] or "", confirmed.confirmation_fingerprint):
+                    raise AIProfileImportError("idempotency_conflict")
+                outcome = AIProfileImportCommitResult(row[10], row[11], True)
+                return
+            if row[2] != "reserved":
+                raise AIProfileImportError("reservation_mismatch")
+            timestamp = canonical_utc_timestamp(now)
+            if row[7] <= timestamp:
+                _expire_attempt(connection, row[0], row[1], authority, now)
+                outcome = AIProfileImportError("reservation_expired")
+                return
+            if not hmac.compare_digest(row[6], confirmed.source_metadata.canonical_json):
+                raise AIProfileImportError("reservation_mismatch")
+            _hook(self._failure_injector, "before_profile_create")
+            try:
+                created = self._repository.create_account_native(
+                    connection,
+                    command,
+                    account_lineage=authority[4],
+                )
+            except PersistentProfileDomainError as exc:
+                if exc.reason_code != "profile_already_exists":
+                    raise
+                connection.execute(
+                    "UPDATE ai_profile_import_attempts SET state='failed',result_code='profile_already_exists',updated_at=?,completed_at=? "
+                    "WHERE attempt_id=? AND state='reserved'",
+                    (timestamp, timestamp, reservation.attempt_id),
+                )
+                if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                    raise AIProfileImportError("internal_failure")
+                connection.execute(
+                    "UPDATE ai_profile_import_entitlements SET state='available',reservation_id=NULL,attempt_id=NULL,lease_expires_at=NULL,updated_at=? "
+                    "WHERE environment_namespace=? AND account_id=? AND entitlement_code=? AND state='reserved' AND attempt_id=?",
+                    (timestamp, authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, reservation.attempt_id),
+                )
+                if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                    raise AIProfileImportError("internal_failure")
+                outcome = AIProfileImportError("profile_already_exists")
+                return
+            _hook(self._failure_injector, "after_profile_create")
+            _hook(self._failure_injector, "during_attempt_result_update")
+            connection.execute(
+                "UPDATE ai_profile_import_attempts SET state='succeeded',result_code='success',confirmation_fingerprint=?,"
+                "result_profile_id=?,result_revision_id=?,updated_at=?,completed_at=? WHERE attempt_id=? AND state='reserved'",
+                (
+                    confirmed.confirmation_fingerprint,
+                    created.profile_id,
+                    created.revision_id,
+                    timestamp,
+                    timestamp,
+                    reservation.attempt_id,
+                ),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("internal_failure")
+            connection.execute(
+                "UPDATE ai_profile_import_entitlements SET state='consumed',lease_expires_at=NULL,consumed_at=?,updated_at=? "
+                "WHERE environment_namespace=? AND account_id=? AND entitlement_code=? AND state='reserved' AND attempt_id=? AND reservation_id=?",
+                (timestamp, timestamp, authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, reservation.attempt_id, reservation.reservation_id),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("internal_failure")
+            _hook(self._failure_injector, "after_entitlement_transition")
+            outcome = AIProfileImportCommitResult(created.profile_id, created.revision_id, False)
+
+        _atomic(connection, operation, before_commit=lambda: _hook(self._failure_injector, "before_commit"))
+        if isinstance(outcome, AIProfileImportError):
+            raise outcome
+        return outcome
+
+
+def prepare_confirmed_ai_profile_import(review, source_metadata):
+    """Purely map a fully resolved temporary review to create-once material."""
+
+    if type(review) is not EditableProfileReview or (
+        type(source_metadata) is not AIProfileImportSourceMetadata
+        or getattr(source_metadata, "_issuer", None) is not _AUTHORITY_ISSUER
+    ):
+        raise AIProfileImportError("invalid_request")
+    try:
+        if (
+            review.schema_version != REVIEW_DRAFT_SCHEMA_VERSION
+            or tuple(source.document_kind.value for source in review.sources)
+            != source_metadata.origins
+        ):
+            raise AIProfileImportError("invalid_request")
+        accepted = []
+        conflict_accepts = {}
+        for fact in review.facts:
+            if fact.decision == "pending":
+                raise AIProfileImportError("review_unresolved")
+            included = fact.decision in {"keep", "accept"}
+            if fact.conflict_group is not None and included:
+                conflict_accepts[fact.conflict_group] = (
+                    conflict_accepts.get(fact.conflict_group, 0) + 1
+                )
+            if included:
+                accepted.append(fact)
+        if any(count > 1 for count in conflict_accepts.values()):
+            raise AIProfileImportError("review_unresolved")
+        user_inputs = dict(review.user_inputs)
+        if len(user_inputs) != len(review.user_inputs):
+            raise AIProfileImportError("content_rejected")
+        review = update_editable_review(
+            review,
+            tuple(review_value_for_form(fact.value) for fact in review.facts),
+            tuple(fact.decision for fact in review.facts),
+            user_inputs,
+        )
+        accepted = [
+            fact for fact in review.facts if fact.decision in {"keep", "accept"}
+        ]
+    except AIProfileImportError:
+        raise
+    except (ProfileIntakeError, AttributeError, TypeError, ValueError):
+        raise AIProfileImportError("content_rejected") from None
+    canonical = _confirmed_review_v1(review, tuple(accepted))
+    try:
+        reviewed = IdentityFreeCanonicalProfileV1.from_mapping(canonical)
+    except (PersistentProfileDomainError, CanonicalProfileV2Error, TypeError, ValueError):
+        raise AIProfileImportError("content_rejected") from None
+    fingerprint = hashlib.sha256(
+        b"ai-profile-confirmation-v1\x00"
+        + reviewed.canonical_bytes
+        + b"\x00"
+        + source_metadata.canonical_json.encode("ascii")
+    ).hexdigest()
+    return ConfirmedAIProfileImport._issue(
+        _AUTHORITY_ISSUER,
+        reviewed,
+        source_metadata,
+        fingerprint,
+    )
+
+
+def _confirmed_review_v1(review, facts):
+    values = {}
+    for fact in facts:
+        values.setdefault(fact.field_path, []).append(fact.value)
+    display_name = _singleton(values, "identity.display_name", "")
+    if not display_name:
+        raise AIProfileImportError("review_unresolved")
+    inputs = dict(review.user_inputs)
+    remaining_missing = [
+        name for name in review.missing_user_fields if not inputs.get(name)
+    ]
+    languages = []
+    for value in values.get("languages", []):
+        if type(value) is not LanguageValue:
+            raise AIProfileImportError("content_rejected")
+        languages.append(
+            {
+                "language": value.language,
+                "proficiency": value.proficiency or UNKNOWN,
+                "locale": value.locale or "",
+                "evidence": [],
+                "confidence": "high",
+                "proficiency_explicit": value.proficiency is not None,
+                "provenance": PROFILE_SOURCE_USER_CONFIRMATION,
+            }
+        )
+    languages.sort(key=lambda item: (item["language"].casefold(), item["locale"].casefold()))
+    country = _country(_singleton(values, "location.country", ""))
+    residence = _country(_singleton(values, "location.residence", "")) or country
+    eligible = [_country(item) for item in _user_list(inputs, "eligible_countries")]
+    remote = _preference_bool(values, inputs, "remote")
+    flexible = _preference_bool(values, inputs, "flexible")
+    employment = _combined_list(values, inputs, "preferences.employment_types", "employment_types")
+    schedule = _combined_list(values, inputs, "preferences.schedule", "schedule")
+    targets = _unique(
+        _combined_list(values, inputs, "preferences.target_opportunity_types", "target_opportunity_types")
+        + list(values.get("preferences.preferred_task_types", []))
+    )
+    work_preferences = _combined_list(values, inputs, "preferences.work_preferences", "work_preferences")
+    if remote and "remote" not in work_preferences:
+        work_preferences.append("remote")
+    if flexible and "flexible" not in work_preferences:
+        work_preferences.append("flexible")
+    domains = _unique(values.get("experience.professional_domains", []))
+    skills = _unique(values.get("skills.normalized", []))
+    signals = signals_for_domains(domains, skills, languages)
+    years = _singleton(values, "experience.total_years", None)
+    if years is not None and (type(years) not in {int, float} or float(years) != int(years)):
+        raise AIProfileImportError("content_rejected")
+    years = None if years is None else int(years)
+    canonical = {
+        "schema_version": CANONICAL_PROFILE_V1,
+        "identity": {"display_name": display_name, "source_inputs": [{"type": "ai_profile_import"}]},
+        "languages": languages,
+        "location": {
+            "country": country,
+            "region": _singleton(values, "location.region", ""),
+            "city": _singleton(values, "location.city", ""),
+            "timezone": "",
+            "residence": residence,
+            "work_authorization": inputs.get("work_authorization") or UNKNOWN,
+            "eligible_countries": eligible,
+            "remote_eligibility": "explicit" if remote else UNKNOWN,
+            "restrictions": _user_list(inputs, "geographic_restrictions"),
+            "geographic_work_restrictions": _user_list(inputs, "geographic_restrictions"),
+        },
+        "education": {
+            "education_level": _singleton(values, "education.education_level", "not_specified"),
+            "degrees": _unique(values.get("education.degrees", [])),
+            "fields_or_domains": _unique(values.get("education.fields_or_domains", [])),
+            "institutions": _unique(values.get("education.institutions", [])),
+            "graduation_years": [],
+            "completion_status": _singleton(values, "education.completion_status", UNKNOWN),
+        },
+        "credentials": {
+            "certifications": _unique(values.get("credentials.certifications", [])),
+            "licenses": _unique(values.get("credentials.licenses", [])),
+            "jurisdictions": _unique(values.get("credentials.jurisdictions", [])),
+            "security_clearances": _unique(values.get("credentials.security_clearances", [])),
+            "credential_status": _singleton(values, "credentials.credential_status", UNKNOWN),
+        },
+        "experience": {
+            "total_years": years,
+            "years_by_domain": {},
+            "seniority": _singleton(values, "experience.seniority", UNKNOWN),
+            "recent_roles": _unique(values.get("experience.recent_roles", [])),
+            "occupational_families": _unique(values.get("experience.occupational_families", [])),
+            "job_titles": _unique(values.get("experience.job_titles", [])),
+            "professional_domains": domains,
+            "industries": _unique(values.get("experience.industries", [])),
+            "contribution_type": _singleton(values, "experience.contribution_type", UNKNOWN),
+            "specialties": _unique(values.get("experience.specialties", [])),
+        },
+        "skills": skills_block(skills),
+        "preferences": {
+            "remote": remote,
+            "flexible": flexible,
+            "employment_types": employment,
+            "synchronous_preference": _preference_text(values, inputs, "preferences.synchronous_preference", "synchronous_preference"),
+            "phone_preference": _preference_text(values, inputs, "preferences.phone_preference", "phone_preference"),
+            "schedule": schedule,
+            "availability": _preference_text(values, inputs, "preferences.availability", "availability"),
+            "rate_pay_preference": "",
+            "target_opportunity_types": targets,
+            "preferred_task_types": targets,
+            "work_preferences": _unique(work_preferences),
+        },
+        "constraints": {
+            "hard_constraints": _user_list(inputs, "hard_constraints"),
+            "soft_preferences": _user_list(inputs, "soft_preferences"),
+            "avoid_keywords": _user_list(inputs, "avoid_keywords"),
+            "negative_constraints": [],
+            "excluded_domains": _user_list(inputs, "excluded_domains"),
+            "accessibility_constraints": _user_list(inputs, "accessibility_constraints"),
+        },
+        "derived_matcher_signals": {
+            "signals": signals,
+            "derived_domains": domains,
+            "derived_target_work_types": targets,
+            "avoid_keywords": _user_list(inputs, "avoid_keywords"),
+        },
+        "matcher_compatible_profile": {},
+        "provenance": {
+            "extracted_from": "user_confirmed_ai_import",
+            "evidence_snippets": [],
+            "confidence": "high",
+            "missing_fields": remaining_missing,
+            "ambiguous_fields": [],
+            "reviewed": True,
+            "field_sources": {},
+        },
+    }
+    canonical["provenance"]["field_sources"] = field_sources_for_profile(
+        canonical,
+        PROFILE_SOURCE_USER_CONFIRMATION,
+        explicit=True,
+    )
+    return canonical
+
+
+def _create_command(confirmed, authority, reservation, now):
+    source = UserConfirmedAIImportSourceDraft.from_metadata(
+        confirmed.source_metadata.to_mapping(),
+        confirmed_at=now,
+    )
+
+    def builder(profile_id):
+        return convert_v1_to_v2(
+            confirmed.reviewed_profile.bind_durable_profile_id(profile_id),
+            persistent_profile_id=profile_id,
+            source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
+        )
+
+    try:
+        return CreatePersistentProfileCommand.prepare(
+            principal=authority[5],
+            canonical_profile_v2=_create_canonical_profile_v2_draft(builder),
+            sources=(source,),
+            normalizer_version=AI_PROFILE_IMPORT_NORMALIZER_VERSION,
+            reviewer_version=AI_PROFILE_IMPORT_REVIEWER_VERSION,
+            actor_type=AI_PROFILE_IMPORT_ACTOR_TYPE,
+            reason_code=AI_PROFILE_IMPORT_REASON_CODE,
+            idempotency_key="ai-profile-import:" + reservation.attempt_id,
+            accepted_at=now,
+            capabilities=MIGRATION_010_CAPABILITIES,
+        )
+    except PersistentProfileDomainError:
+        raise AIProfileImportError("content_rejected") from None
+
+
+def _grant_authority(connection, grant, now):
+    if type(grant) is not TrustedProfileIntakeGrant:
+        raise AIProfileImportError("ownership_stale")
+    try:
+        binding = grant.artifact_binding()
+        principal = grant.principal_for_repository()
+        lineage = grant.lineage_for_repository()
+    except (AttributeError, TypeError, ValueError, PersistentProfileDomainError):
+        raise AIProfileImportError("ownership_stale") from None
+    if (
+        type(binding) is not tuple
+        or len(binding) != 10
+        or binding[-1] != PROFILE_INTAKE_PURPOSE
+        or type(lineage) is not TrustedProfileCreateLineage
+        or type(principal) is not TrustedPrincipalContext
+        or binding[0] != lineage.account_id
+        or binding[2] != lineage.environment_namespace
+        or binding[3] != lineage.principal_id
+        or principal.principal_id != lineage.principal_id
+    ):
+        raise AIProfileImportError("ownership_stale")
+    timestamp = canonical_utc_timestamp(now)
+    try:
+        row = connection.execute(
+            "SELECT session.user_id,account.lifecycle_status,session.revoked_at,session.idle_expires_at,session.absolute_expires_at "
+            "FROM account_sessions session JOIN users account ON account.user_id=session.user_id "
+            "WHERE session.session_id=?",
+            (binding[1],),
+        ).fetchone()
+    except (AttributeError, sqlite3.Error):
+        raise AIProfileImportError("schema_unavailable") from None
+    if (
+        row is None
+        or row[0] != binding[0]
+        or row[1] != "active"
+        or row[2] is not None
+        or not timestamp < row[3]
+        or not timestamp < row[4]
+    ):
+        raise AIProfileImportError("ownership_stale")
+    try:
+        current = capture_profile_create_lineage(
+            connection,
+            account_id=binding[0],
+            environment_namespace=binding[2],
+            principal_id=binding[3],
+        )
+    except PersistentProfileDomainError:
+        raise AIProfileImportError("ownership_stale") from None
+    except sqlite3.Error:
+        raise AIProfileImportError("schema_unavailable") from None
+    if current != lineage:
+        raise AIProfileImportError("ownership_stale")
+    return binding[0], binding[1], binding[2], binding[3], lineage, principal
+
+
+def _attempt_row(connection, attempt_id):
+    row = connection.execute(
+        "SELECT attempt_id,reservation_id,state,environment_namespace,account_id,principal_id,source_metadata_json,"
+        "lease_expires_at,confirmation_fingerprint,result_code,result_profile_id,result_revision_id,"
+        "request_fingerprint,binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256 "
+        "FROM ai_profile_import_attempts WHERE attempt_id=?",
+        (attempt_id,),
+    ).fetchone()
+    if row is None:
+        raise AIProfileImportError("reservation_mismatch")
+    return row
+
+
+def _require_attempt_match(row, reservation, authority):
+    lineage = authority[4]
+    if (
+        row[0] != reservation.attempt_id
+        or row[1] != reservation.reservation_id
+        or row[3] != authority[2]
+        or row[4] != authority[0]
+        or row[5] != authority[3]
+        or not hmac.compare_digest(row[12], reservation.request_fingerprint)
+        or tuple(row[13:])
+        != (
+            lineage.binding_id,
+            lineage.binding_version,
+            lineage.latest_event_version,
+            lineage.latest_event_id,
+            lineage.lineage_sha256,
+        )
+    ):
+        raise AIProfileImportError("reservation_mismatch")
+
+
+def _expire_attempt(connection, attempt_id, reservation_id, authority, now):
+    timestamp = canonical_utc_timestamp(now)
+    connection.execute(
+        "UPDATE ai_profile_import_attempts SET state='expired',result_code='reservation_expired',updated_at=?,completed_at=? "
+        "WHERE attempt_id=? AND reservation_id=? AND state='reserved'",
+        (timestamp, timestamp, attempt_id, reservation_id),
+    )
+    if connection.execute("SELECT changes()").fetchone()[0] != 1:
+        raise AIProfileImportError("reservation_mismatch")
+    connection.execute(
+        "UPDATE ai_profile_import_entitlements SET state='available',reservation_id=NULL,attempt_id=NULL,lease_expires_at=NULL,updated_at=? "
+        "WHERE environment_namespace=? AND account_id=? AND entitlement_code=? AND state='reserved' AND attempt_id=? AND reservation_id=?",
+        (timestamp, authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, attempt_id, reservation_id),
+    )
+    if connection.execute("SELECT changes()").fetchone()[0] != 1:
+        raise AIProfileImportError("reservation_mismatch")
+
+
+def _reservation_authority(attempt_id, reservation_id, authority, fingerprint, lease):
+    return AIProfileImportReservationAuthority._issue(
+        _AUTHORITY_ISSUER,
+        attempt_id=attempt_id,
+        reservation_id=reservation_id,
+        environment_namespace=authority[2],
+        account_id=authority[0],
+        principal_id=authority[3],
+        request_fingerprint=fingerprint,
+        lease_expires_at=lease,
+    )
+
+
+def _require_reservation_binding(reservation, authority):
+    if (
+        type(reservation) is not AIProfileImportReservationAuthority
+        or getattr(reservation, "_issuer", None) is not _AUTHORITY_ISSUER
+        or reservation.environment_namespace != authority[2]
+        or reservation.account_id != authority[0]
+        or reservation.principal_id != authority[3]
+    ):
+        raise AIProfileImportError("reservation_mismatch")
+
+
+def _request_fingerprint(authority, key_hash, metadata_json):
+    lineage = authority[4]
+    payload = {
+        "version": 1,
+        "environment_namespace": authority[2],
+        "account_id": authority[0],
+        "principal_id": authority[3],
+        "entitlement_code": AI_PROFILE_IMPORT_ENTITLEMENT_CODE,
+        "idempotency_key_sha256": key_hash,
+        "source_metadata": json.loads(metadata_json),
+        "ownership_lineage": {
+            "binding_id": lineage.binding_id,
+            "binding_version": lineage.binding_version,
+            "latest_event_version": lineage.latest_event_version,
+            "latest_event_id": lineage.latest_event_id,
+            "lineage_sha256": lineage.lineage_sha256,
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    ).hexdigest()
+
+
+def _new_id(connection, prefix, table, column, token_hex):
+    for _attempt in range(16):
+        token = token_hex(16)
+        candidate = f"{prefix}_{token}"
+        pattern = _ATTEMPT if prefix == "aip" else _RESERVATION
+        if type(token) is str and pattern.fullmatch(candidate) is not None and connection.execute(
+            f"SELECT 1 FROM {table} WHERE {column}=?", (candidate,)
+        ).fetchone() is None and len(set(candidate[4:])) > 1:
+            return candidate
+    raise AIProfileImportError("internal_failure")
+
+
+def _trusted_time(value):
+    if type(value) is not datetime or value.tzinfo is None:
+        raise AIProfileImportError("invalid_request")
+    try:
+        normalized = value.astimezone(timezone.utc).replace(microsecond=0)
+        canonical_utc_timestamp(normalized)
+    except (PersistentProfileDomainError, TypeError, ValueError, OverflowError, OSError):
+        raise AIProfileImportError("invalid_request") from None
+    return normalized
+
+
+def _require_m010(connection):
+    if attest_ai_profile_import_schema(connection).get("state") != "correctly_installed":
+        raise AIProfileImportError("schema_unavailable")
+
+
+def _atomic(connection, operation, *, before_commit=None):
+    if type(connection) is not sqlite3.Connection:
+        raise AIProfileImportError("schema_unavailable")
+    try:
+        invalid = (
+            connection.in_transaction
+            or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+            or connection.execute("PRAGMA query_only").fetchone()[0] != 0
+        )
+    except sqlite3.Error:
+        raise AIProfileImportError("schema_unavailable") from None
+    if invalid:
+        raise AIProfileImportError("schema_unavailable")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        operation()
+        if before_commit is not None:
+            before_commit()
+        connection.commit()
+    except AIProfileImportError:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+    except sqlite3.Error as exc:
+        if connection.in_transaction:
+            connection.rollback()
+        code = "temporary_contention" if getattr(exc, "sqlite_errorcode", None) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED} else "internal_failure"
+        _detach(exc)
+        raise AIProfileImportError(code) from None
+    except Exception as exc:
+        if connection.in_transaction:
+            connection.rollback()
+        _detach(exc)
+        raise AIProfileImportError("internal_failure") from None
+    except BaseException:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+
+
+def _hook(callback, point):
+    if callback is not None:
+        callback(point)
+
+
+def _detach(exc):
+    try:
+        exc.__traceback__ = None
+        exc.__cause__ = None
+        exc.__context__ = None
+    except (AttributeError, TypeError):
+        pass
+
+
+def _singleton(values, path, default):
+    items = values.get(path, [])
+    if len(items) > 1:
+        raise AIProfileImportError("review_unresolved")
+    return items[0] if items else default
+
+
+def _unique(values):
+    result = []
+    seen = set()
+    for value in values:
+        if type(value) is not str:
+            raise AIProfileImportError("content_rejected")
+        key = value.casefold()
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
+
+
+def _country(value):
+    if not value:
+        return ""
+    try:
+        return normalize_country(value)
+    except (TypeError, ValueError):
+        raise AIProfileImportError("content_rejected") from None
+
+
+def _user_list(inputs, name):
+    value = inputs.get(name, "")
+    if not value:
+        return []
+    return _unique([item.strip() for item in value.split(",") if item.strip()])
+
+
+def _combined_list(values, inputs, path, name):
+    return _unique(list(values.get(path, [])) + _user_list(inputs, name))
+
+
+def _preference_bool(values, inputs, name):
+    fact = _singleton(values, f"preferences.{name}", None)
+    if fact is not None:
+        return bool(fact)
+    return inputs.get(name) == "yes"
+
+
+def _preference_text(values, inputs, path, name):
+    return _singleton(values, path, inputs.get(name) or UNKNOWN)
+
+
+__all__ = (
+    "AI_PROFILE_IMPORT_ENTITLEMENT_CODE",
+    "AI_PROFILE_IMPORT_RESERVATION_LEASE",
+    "AIProfileImportCommitResult",
+    "AIProfileImportError",
+    "AIProfileImportReservationAuthority",
+    "AIProfileImportReservationRequest",
+    "AIProfileImportReservationResult",
+    "AIProfileImportService",
+    "AIProfileImportSourceMetadata",
+    "ConfirmedAIProfileImport",
+    "prepare_confirmed_ai_profile_import",
+)

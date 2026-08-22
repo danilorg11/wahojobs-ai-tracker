@@ -1756,6 +1756,7 @@ print(canonical_v2.SCHEMA_VERSION)
             sorted(references),
             sorted(
                 [
+                    "wahojobs/ai_profile_import.py",
                     "wahojobs/authenticated_profile_matches.py",
                     "wahojobs/closed_schema_authority.py",
                     "wahojobs/google_oidc_authorization_transaction_schema.py",

@@ -948,6 +948,7 @@ print(domain.MIGRATION_VERSION)
             [
                 "scripts/local_product_app.py",
                 "scripts/persistent_profiles_reconcile.py",
+                "wahojobs/ai_profile_import.py",
                 "wahojobs/authenticated_profile_matches.py",
                 "wahojobs/browser_session_authentication.py",
                 "wahojobs/persistent_profile_corrections.py",
@@ -957,6 +958,9 @@ print(domain.MIGRATION_VERSION)
                 "wahojobs/persistent_profiles_browser.py",
                 "wahojobs/persistent_profiles_reconciliation.py",
                 "wahojobs/persistent_profiles_repository.py",
+                "wahojobs/profile_intake/browser.py",
+                "wahojobs/profile_intake/runtime.py",
+                "wahojobs/workos_authkit_staging.py",
             ],
         )
 
