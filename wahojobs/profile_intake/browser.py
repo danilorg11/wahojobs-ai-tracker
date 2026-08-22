@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from http import HTTPStatus
+import json
 import re
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -213,6 +215,12 @@ class ProfileIntakeBrowserIntegration:
         if failure is not None:
             return failure
         if method in {"GET", "HEAD"}:
+            try:
+                preflight = self._processing.preflight(grant)
+            except ProfileIntakeError as exc:
+                return _failure(_processing_error_code(exc.code))
+            if preflight != "eligible":
+                return _failure(_preflight_error_code(preflight))
             proof = profile_intake_csrf_proof(csrf_secret, "upload")
             return _form_page_response(HTTPStatus.OK, _upload_page(proof))
         parsed_upload = _parse_multipart_upload(headers, body_stream)
@@ -267,13 +275,20 @@ class ProfileIntakeBrowserIntegration:
         )
         if failure is not None:
             return failure
-        snapshot = self._processing.vault.get(reference, grant)
-        if snapshot is None:
-            return _failure("expired_draft")
         if method in {"GET", "HEAD"}:
+            state, snapshot = self._processing.lookup(reference, grant)
+            if state == "completed":
+                return _matches_redirect()
+            if state != "active" or snapshot is None:
+                return _failure("expired_draft")
             return _form_page_response(
                 HTTPStatus.OK,
-                _review_page(reference, snapshot, csrf_secret),
+                _review_page(
+                    reference,
+                    snapshot,
+                    csrf_secret,
+                    save_enabled=self._processing.durable_save_enabled,
+                ),
             )
         form = _parse_review_form(headers, body_stream)
         if form is None:
@@ -281,7 +296,7 @@ class ProfileIntakeBrowserIntegration:
         action = _single(form, "action")
         raw_version = _single(form, "version")
         proof = _single(form, "csrf")
-        if action not in {"update", "cancel"} or raw_version is None or not raw_version.isdigit():
+        if action not in {"update", "cancel", "save"} or raw_version is None or not raw_version.isdigit():
             return _failure("invalid_review")
         version = int(raw_version)
         grant, failure = self._authorize(
@@ -297,10 +312,27 @@ class ProfileIntakeBrowserIntegration:
         )
         if failure is not None:
             return failure
+        request_digest = _review_request_digest(form) if action == "save" else None
+        if action == "save":
+            completion = self._processing.completion_matches(
+                reference,
+                grant,
+                expected_version=version,
+                request_digest=request_digest,
+            )
+            if completion == "completed":
+                return _matches_redirect()
+            if completion == "stale":
+                return _failure("stale_review")
+        state, snapshot = self._processing.lookup(reference, grant)
+        if state == "completed":
+            return _matches_redirect() if action == "save" else _failure("stale_review")
+        if state != "active" or snapshot is None:
+            return _failure("expired_draft")
         if action == "cancel":
             if set(form) != {"action", "version", "csrf"}:
                 return _failure("invalid_review")
-            state = self._processing.vault.cancel(reference, grant, expected_version=version)
+            state = self._processing.cancel(reference, grant, expected_version=version)
             if state == "stale":
                 return _failure("stale_review")
             if state != "cancelled":
@@ -314,6 +346,21 @@ class ProfileIntakeBrowserIntegration:
             review = _review_from_form(snapshot.review, form)
         except ProfileIntakeError:
             return _failure("invalid_review")
+        if action == "save":
+            try:
+                self._processing.save(
+                    reference,
+                    grant,
+                    expected_version=version,
+                    review=review,
+                    request_digest=request_digest,
+                )
+            except ProfileIntakeError as exc:
+                failure_code = _save_error_code(exc.code)
+                if failure_code == "existing_profile":
+                    return _matches_redirect()
+                return _failure(failure_code)
+            return _matches_redirect()
         state, _updated = self._processing.vault.update(
             reference,
             grant,
@@ -608,6 +655,26 @@ def _single(form, name):
     return values[0] if type(values) is list and len(values) == 1 else None
 
 
+def _review_request_digest(form):
+    if type(form) is not dict:
+        return ""
+    try:
+        payload = [
+            (name, values[0])
+            for name, values in sorted(form.items())
+            if name != "csrf" and type(values) is list and len(values) == 1
+        ]
+        return hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+        ).hexdigest()
+    except (AttributeError, TypeError, UnicodeError, ValueError):
+        return ""
+
+
 def _upload_page(proof):
     body = f"""
     {_authenticated_navigation()}
@@ -627,7 +694,7 @@ def _upload_page(proof):
     return _page("AI-assisted profile", body)
 
 
-def _review_page(reference, snapshot, csrf_secret):
+def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     fact_fields = []
     for index, fact in enumerate(snapshot.review.facts):
         label = fact.review_field.replace("_", " ").title()
@@ -635,8 +702,9 @@ def _review_page(reference, snapshot, csrf_secret):
         if fact.suggested:
             choice = (
                 f"<select name='fact_{index}_decision'>"
+                f"<option value='pending'{' selected' if fact.decision == 'pending' else ''}>Choose whether to use this suggestion</option>"
                 f"<option value='accept'{' selected' if fact.decision == 'accept' else ''}>Accept suggestion</option>"
-                f"<option value='reject'{' selected' if fact.decision in {'pending', 'reject'} else ''}>Do not use</option></select>"
+                f"<option value='reject'{' selected' if fact.decision == 'reject' else ''}>Do not use</option></select>"
             )
             badge = "Suggested from your document — please confirm"
         else:
@@ -661,9 +729,10 @@ def _review_page(reference, snapshot, csrf_secret):
             f"<label class='review-field'>{_safe_text(name.replace('_', ' ').title())}"
             f"<input name='missing_{_safe_text(name)}' value='{_safe_text(existing_inputs.get(name, ''))}' maxlength='512'></label>"
         )
-    update_proof = profile_intake_csrf_proof(
+    primary_action = "save" if save_enabled else "update"
+    primary_proof = profile_intake_csrf_proof(
         csrf_secret,
-        "update",
+        primary_action,
         draft_reference=reference,
         version=snapshot.version,
     )
@@ -680,18 +749,28 @@ def _review_page(reference, snapshot, csrf_secret):
         else ""
     )
     target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+    primary_label = (
+        "Save profile and find matches"
+        if save_enabled
+        else "Update temporary review"
+    )
+    persistence_note = (
+        "Your confirmed profile will be created only when this Save succeeds."
+        if save_enabled
+        else "Profile saving is not enabled in this runtime."
+    )
     body = f"""
     {_authenticated_navigation()}
     <section class='profile-header'><p class='eyebrow'>Private, temporary review</p><h1>Review your profile draft</h1>
       <p>Correct or remove prefills, and choose whether to use suggestions. Nothing on this page has been saved to your profile.</p></section>
     {issue_note}
     <form class='profile-review-form' method='post' action='{target}'>
-      <input type='hidden' name='action' value='update'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{update_proof}'>
+      <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'>
       <section class='review-section'><h2>Document-supported prefills</h2><div class='profile-grid'>{''.join(card for fact, card in fact_fields if not fact.suggested and fact.conflict_group is None)}</div></section>
       <section class='review-section'><h2>Suggestions requiring confirmation</h2><p class='muted'>These are suggestions, not facts or matcher decisions.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.suggested and fact.conflict_group is None)}</div></section>
       <section class='review-section'><h2>Sources disagree — please confirm</h2><p class='muted'>Choose at most one value for each disagreement, edit it if needed, or reject the alternatives.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.conflict_group is not None)}</div></section>
       <section class='review-section'><h2>Information you still need to provide</h2><p class='muted'>Historical resume details are not treated as your current preferences.</p><div class='review-grid'>{''.join(missing)}</div></section>
-      <p class='review-actions'><button type='submit'>Update temporary review</button><span class='muted'>Profile saving will be added in a future step.</span></p>
+      <p class='review-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></p>
     </form>
     <form class='profile-review-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button type='submit'>Cancel import</button>
@@ -721,7 +800,47 @@ def _processing_error_code(code):
         "unsafe_pdf": "malformed_document",
         "profile_extraction_unavailable": "extraction_unavailable",
         "profile_intake_in_flight": "in_flight",
+        "ai_import_profile_exists": "existing_profile",
+        "ai_import_entitlement_consumed": "existing_profile",
+        "ai_import_entitlement_reserved": "import_reserved",
+        "ai_import_schema_unavailable": "durable_unavailable",
+        "durable_intake_unavailable": "durable_unavailable",
     }.get(code, "extraction_unavailable")
+
+
+def _preflight_error_code(state):
+    return {
+        "profile_exists": "existing_profile",
+        "entitlement_consumed": "existing_profile",
+        "entitlement_reserved": "import_reserved",
+    }.get(state, "durable_unavailable")
+
+
+def _save_error_code(code):
+    return {
+        "stale_review": "stale_review",
+        "ai_import_review_unresolved": "unresolved_review",
+        "ai_import_review_invalid": "invalid_review",
+        "invalid_review_submission": "invalid_review",
+        "ai_import_reservation_expired": "expired_draft",
+        "ai_import_reservation_mismatch": "invalid_draft",
+        "ai_import_entitlement_consumed": "existing_profile",
+        "ai_import_profile_exists": "existing_profile",
+        "ai_import_ownership_stale": "authorization_denied",
+        "ai_import_idempotency_conflict": "stale_review",
+        "ai_import_temporary_contention": "unavailable",
+        "ai_import_schema_unavailable": "durable_unavailable",
+        "durable_intake_unavailable": "durable_unavailable",
+        "draft_expired": "expired_draft",
+    }.get(code, "unavailable")
+
+
+def _matches_redirect():
+    return _response(
+        HTTPStatus.SEE_OTHER,
+        _message_page("Profile ready", "Continue to your matches."),
+        extra_headers=(("Location", "/find-matches"),),
+    )
 
 
 def _failure(code):
@@ -736,6 +855,10 @@ def _failure(code):
         "invalid_draft": (400, "Draft request unavailable", "Start the import again."),
         "expired_draft": (410, "Draft expired", "This temporary draft has expired. Start again."),
         "stale_review": (409, "Review changed", "Reload the draft before submitting another change."),
+        "unresolved_review": (409, "Review needs confirmation", "Resolve every suggestion or source disagreement before saving."),
+        "existing_profile": (409, "Profile already exists", "Continue to your existing profile and matches."),
+        "import_reserved": (409, "Import already in progress", "Finish or cancel the current import before starting another."),
+        "durable_unavailable": (503, "Profile saving unavailable", "AI profile saving is not available in this environment. You can still create your profile manually."),
         "file_too_large": (413, "Document too large", "Choose a document no larger than 10 MiB."),
         "unsupported_format": (415, "Unsupported document", "Use a text-based PDF or DOCX. LinkedIn exports must be PDF."),
         "malformed_document": (422, "Document could not be read", "Export a fresh text-based PDF or DOCX and try again."),

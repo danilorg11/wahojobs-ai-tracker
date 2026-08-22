@@ -241,9 +241,9 @@ is retained for review. This source-aware ephemeral shape is versioned as
 
 `IntakeDraftVault` is non-durable, process-local, and bounded to 64 live drafts
 with a ten-minute TTL. Opaque identifiers contain 256 bits of server-generated
-randomness. A new generation replaces the previous active draft for the same
-browser lineage, and a process-local in-flight guard prevents concurrent
-generation for that lineage.
+randomness. A process-local in-flight guard prevents concurrent generation for
+one lineage, while the durable reservation prevents a second M010-backed flow
+for the same account from replacing the first.
 
 Every record is bound to account, browser session, environment, account-native
 principal, exact ownership binding/version/latest-event/lineage digest, and
@@ -255,10 +255,14 @@ version and purpose-specific CSRF proof, so stale or replayed edits fail.
 The vault retains one entry per bundle containing only the editable reconciled
 review draft, safe metadata for at most two documents (opaque reference, origin,
 format, byte/page counts, parser name/version), content-free per-request model
-diagnostics when available, timestamps, and the mutation version. It does not
-retain upload bytes, an `EvidencePacket`, a `ModelEvidencePacket` or its text,
-unminimized contact PII, prompt text, raw provider output, original filename,
-durable profile/revision/source IDs, entitlement state, or matcher signals.
+diagnostics when available, timestamps, the mutation version, and—in the Slice
+4B composition—the sealed server-only attempt/reservation capability plus safe
+source metadata needed by the atomic core. It does not retain upload bytes, an
+`EvidencePacket`, a `ModelEvidencePacket` or its text, unminimized contact PII,
+prompt text, raw provider output, original filename, durable
+profile/revision/source IDs, editable entitlement state, or matcher signals.
+After acknowledged success, the review and document metadata are discarded and
+only a short-lived content-free request digest remains for safe PRG replay.
 
 ## Review and browser behavior
 
@@ -274,11 +278,12 @@ and form shape are checked server-side. Browser indexes select only fields
 already present in the bound draft; they cannot select authority or arbitrary
 Canonical paths.
 
-Edits update only the process-local draft. There is intentionally no “Save
-profile” operation, repository call, Canonical V2 revision, matcher-signal
-generation, entitlement consumption, or fake persisted profile. Cancellation
-removes the bound draft and returns to profile creation. Expired drafts show a
-clear start-again response.
+Ordinary edits update only the process-local draft. In an M010-capable composed
+runtime, the explicit final Save described under Slice 4B is the sole durable
+transition; it revalidates the complete review and calls the Slice 4A atomic
+authority. Cancellation removes the bound draft, releases its active
+reservation where practical, and returns to profile creation. Expired drafts
+show a clear start-again response and do not consume the entitlement.
 
 Private responses use `Cache-Control: no-store`, noindex/nofollow, the existing
 closed CSP, `nosniff`, and a no-referrer or same-origin referrer policy. Stable
@@ -298,17 +303,17 @@ and keeps the manual path available.
 
 Ordinary tests inject a deterministic adapter and make zero real OpenAI or
 network calls. No API key is required and committed fixtures contain only
-synthetic, non-personal data. The browser runtime still performs no durable
-save and invokes none of the Slice 4A commit authority described below. No
-matching behavior, public route, deployment change, DNS, proxy, Vercel,
-DigitalOcean, WorkOS authority change, or old-site cutover is introduced.
+synthetic, non-personal data. Slice 4B exercises durable Save only against
+ephemeral M010 test databases. No matching behavior, public route, deployment
+change, DNS, proxy, Vercel, DigitalOcean, WorkOS authority change, or old-site
+cutover is introduced.
 
-Future entitlement accounting must count the importer bundle—resume only,
-LinkedIn only, or resume plus LinkedIn—as exactly one import attempt. Internal
+Entitlement accounting counts the importer bundle—resume only, LinkedIn only,
+or resume plus LinkedIn—as exactly one import attempt. Internal
 adapter request count and advisory usage/cost diagnostics must never determine
 authorization, entitlement consumption, billing, or profile correctness.
 
-## Slice 4A durable commit authority (not browser-wired)
+## Slice 4A durable commit authority
 
 Migration `010_ai_profile_import` adds only the dormant durable core needed by
 a later final-confirmation browser slice. It widens the existing profile-source
@@ -395,9 +400,76 @@ Fault boundaries before, during, and after profile creation, during attempt
 result update, after entitlement transition, and immediately before commit are
 tested to roll back the whole final transaction.
 
-Slice 4A deliberately does not connect the review page to reservation or final
-save. It performs no migration against a persistent environment, makes no real
-OpenAI request, implements no billing or paid re-import, and adds no durable AI
-correction/update path. Slice 4B must bind the existing private review artifact
-to this core without letting browser values select account, principal,
-ownership lineage, entitlement owner, attempt, or durable profile IDs.
+Slice 4A deliberately did not connect the review page to reservation or final
+save. Slice 4B supplies that browser binding as described below. Neither slice
+performs a migration against a persistent environment, makes a real OpenAI
+request during ordinary validation, implements billing or paid re-import, or
+adds a durable AI correction/update path.
+
+## Slice 4B authenticated final confirmation
+
+The authenticated intake page now performs a read-only durable eligibility
+preflight before document parsing or model work. The preflight attests M010,
+revalidates the trusted session/account/principal/PB-OWN-1 grant, checks for an
+existing profile, and reads any existing free-import state. It creates neither
+an entitlement nor an attempt and is only advisory: the later serialized
+reservation remains authoritative. An M009 or otherwise unsupported database
+returns a safe unavailable result. No browser request or application startup
+installs M010.
+
+Documents still pass independently through extraction, PII minimization,
+adapter extraction, strict local validation, and deterministic reconciliation
+with no database transaction held. Only after a complete valid review draft
+exists does the runtime acquire one Slice 4A attempt/reservation for the whole
+bundle. Resume-only, LinkedIn-only, and resume-plus-LinkedIn therefore each use
+one entitlement attempt regardless of internal adapter calls or tokens. A
+generation or reconciliation failure creates no reservation. If another
+session wins the reservation race, the losing generated draft is discarded and
+never becomes browser-accessible.
+
+The process-local vault retains the opaque durable reservation capability and
+the already-approved safe source metadata entirely server-side. Attempt and
+reservation IDs never enter a URL, form, HTML, editable field, or user-visible
+error. Effective review lifetime is the smaller of the normal ten-minute vault
+TTL and the actual twelve-minute reservation lease minus a conservative safety
+margin; a draft with less than one minute of safe review time is never issued.
+Cancellation releases the reservation without consumption. A targeted expired
+draft is released where practical, while correctness never depends on cleanup
+because the durable lease is independently reclaimable. Process loss creates
+no durable draft recovery and cannot consume the entitlement.
+
+The review form's final action is **Save profile and find matches**. It uses a
+save-specific CSRF proof, same-origin enforcement, the opaque draft handle, and
+the exact optimistic review version. All facts, suggestions, conflicts, and
+user-only inputs are revalidated server-side. Suggestions initially remain
+`pending`; Save cannot silently accept them. Rejected/removed facts are
+excluded, conflicting alternatives must be explicitly resolved or rejected,
+and matcher signals are recomputed by the existing canonical normalization
+path. Browser fields cannot choose account, environment, principal, ownership
+lineage, attempt, reservation, entitlement, profile/revision/source IDs, or
+matcher signals.
+
+Finalization calls `prepare_confirmed_ai_profile_import` and the existing Slice
+4A `commit_confirmed_ai_profile_import` authority. One outer transaction owns
+the existing Canonical V2 create-once write, `user_confirmed_ai_import` source,
+successful attempt receipt, and entitlement consumption. A successful POST
+returns HTTP 303 to the ordinary authenticated `/find-matches` route; it does
+not invoke a separate AI matcher.
+
+If the database commit succeeds but the response is lost, the vault keeps the
+same sealed review and confirmation fingerprint long enough for an exact retry
+to invoke Slice 4A's durable replay. Changed review content cannot reuse that
+success. Once success is acknowledged, the full review is replaced with a
+short-lived content-free request-digest receipt so refresh/retry remains safe
+without retaining profile content. Loss of all process-local state after a
+durable success does not damage the profile; ordinary account/profile and
+matches navigation recover from the database.
+
+An existing Canonical V2 profile makes initial AI import ineligible. A manual
+profile that wins after an AI draft is generated is preserved, the AI source is
+not written, the free entitlement remains available, and the browser continues
+to the existing profile/matches flow. Successful AI create consumes exactly one
+free import; failed generation, cancellation, expiry, abandonment, ownership
+failure, and a manual-create race consume zero. Manual creation remains entirely
+entitlement-free. Paid re-import, a second AI import, AI correction of an
+existing profile, and public/legacy rollout remain unimplemented.

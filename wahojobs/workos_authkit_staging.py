@@ -661,6 +661,9 @@ def _build_profile_integration(connections, configuration, clock):
     )
     from wahojobs.profile_intake.browser import ProfileIntakeBrowserIntegration
     from wahojobs.profile_intake.contracts import ProfileIntakeError
+    from wahojobs.profile_intake.finalization import (
+        ProfileIntakeFinalizationService,
+    )
     from wahojobs.profile_intake.openai_adapter import (
         configured_openai_profile_adapter,
     )
@@ -728,6 +731,11 @@ def _build_profile_integration(connections, configuration, clock):
             token_factory=lambda: secrets.token_urlsafe(32),
         ),
         clock=clock,
+        durable_finalizer=ProfileIntakeFinalizationService(
+            read_connection_provider=connections.read_only_connection_provider,
+            write_connection_provider=connections.writable_connection_provider,
+            clock=clock,
+        ),
     )
     intake_integration = ProfileIntakeBrowserIntegration(
         intake_authority,

@@ -1,8 +1,8 @@
-"""Authenticated, non-durable runtime primitives for AI profile intake.
+"""Authenticated process-local runtime primitives for AI profile intake.
 
-This module deliberately owns no database writer. Durable state is consulted only
-to revalidate the browser session, account-native principal, and exact PB-OWN-1
-lineage before process-local review state is accessed.
+The optional Slice 4B finalizer owns the explicit connection scopes.  This
+module still performs document/model work outside database transactions and
+retains durable authority only as an opaque server-side vault capability.
 """
 
 from __future__ import annotations
@@ -61,12 +61,14 @@ PROFILE_INTAKE_REVIEW_ROUTE = "/account/profile/intake/review"
 PROFILE_INTAKE_PURPOSE = "ai_profile_intake_review_v1"
 PROFILE_INTAKE_DRAFT_LIFETIME_SECONDS = 600
 PROFILE_INTAKE_DRAFT_CAPACITY = 64
+PROFILE_INTAKE_COMPLETION_RECEIPT_SECONDS = 120
+PROFILE_INTAKE_MIN_SAFE_REVIEW_SECONDS = 60
 PROFILE_INTAKE_CSRF_MESSAGE_PREFIX = b"wahojobs.profile-intake.v1\x00"
 MAX_REVIEW_VALUE_CHARS = 512
 MAX_REVIEW_USER_INPUT_CHARS = 512
 
 _OPAQUE_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
-_ACTIONS = frozenset({"upload", "update", "cancel"})
+_ACTIONS = frozenset({"upload", "update", "cancel", "save"})
 _REQUEST_ROUTES = frozenset({PROFILE_INTAKE_ROUTE, PROFILE_INTAKE_REVIEW_ROUTE})
 _GRANT_ISSUER = object()
 
@@ -524,7 +526,12 @@ class IntakeDraftSnapshot:
 @dataclass(frozen=True, slots=True, repr=False)
 class _DraftRecord:
     binding: tuple = field(repr=False)
-    snapshot: IntakeDraftSnapshot = field(repr=False)
+    snapshot: IntakeDraftSnapshot | None = field(repr=False)
+    durable_authority: object | None = field(default=None, repr=False)
+    state: str = "active"
+    confirmation_fingerprint: str | None = field(default=None, repr=False)
+    save_request_digest: str | None = field(default=None, repr=False)
+    completion_expires_at_monotonic: float | None = None
 
 
 class IntakeDraftVault:
@@ -572,7 +579,17 @@ class IntakeDraftVault:
         with self._lock:
             return self._closed
 
-    def issue(self, grant, review, document, diagnostics, *, created_at):
+    def issue(
+        self,
+        grant,
+        review,
+        document,
+        diagnostics,
+        *,
+        created_at,
+        durable_authority=None,
+        lifetime_seconds=None,
+    ):
         binding = _grant_binding(grant)
         if (
             type(review) is not EditableProfileReview
@@ -585,6 +602,12 @@ class IntakeDraftVault:
             )
             or type(created_at) is not datetime
             or created_at.tzinfo is None
+            or lifetime_seconds is not None
+            and (
+                type(lifetime_seconds) not in (int, float)
+                or not math.isfinite(lifetime_seconds)
+                or lifetime_seconds <= 0
+            )
         ):
             raise _configuration_error()
         review_sources = {
@@ -623,28 +646,61 @@ class IntakeDraftVault:
                     break
             if reference is None:
                 raise ProfileIntakeError("draft_vault_unavailable")
+            lifetime = self._ttl
+            if lifetime_seconds is not None:
+                lifetime = min(lifetime, float(lifetime_seconds))
             snapshot = IntakeDraftSnapshot(
                 review=review,
                 document=document,
                 diagnostics=diagnostics,
                 created_at=created_at.astimezone(timezone.utc).isoformat(),
-                expires_at_monotonic=now + self._ttl,
+                expires_at_monotonic=now + lifetime,
                 version=1,
             )
-            self._records[reference] = _DraftRecord(binding=binding, snapshot=snapshot)
+            self._records[reference] = _DraftRecord(
+                binding=binding,
+                snapshot=snapshot,
+                durable_authority=durable_authority,
+            )
             return reference, snapshot
 
     def get(self, reference, grant):
+        state, value = self.lookup(reference, grant)
+        return value if state == "active" else None
+
+    def lookup(self, reference, grant):
+        """Return active state, a minimal completion receipt, or an expiry."""
+
         binding = _grant_binding(grant)
         if type(reference) is not str or _OPAQUE_REFERENCE.fullmatch(reference) is None:
-            return None
+            return "gone", None
         now = _monotonic(self._monotonic())
         with self._lock:
-            self._purge_locked(now)
             record = self._records.get(reference)
             if record is None or record.binding != binding:
-                return None
-            return record.snapshot
+                self._purge_locked(now)
+                return "gone", None
+            if record.state == "completed":
+                if (
+                    record.completion_expires_at_monotonic is None
+                    or now >= record.completion_expires_at_monotonic
+                ):
+                    del self._records[reference]
+                    self._purge_locked(now)
+                    return "gone", None
+                self._purge_locked(now, skip_reference=reference)
+                return "completed", record
+            if record.snapshot is None:
+                del self._records[reference]
+                self._purge_locked(now)
+                return "gone", None
+            if now >= record.snapshot.expires_at_monotonic:
+                expired_authority = record.durable_authority
+                del self._records[reference]
+                self._purge_locked(now)
+                return "expired", expired_authority
+            self._purge_locked(now, skip_reference=reference)
+            return "active", record.snapshot
 
     def update(self, reference, grant, *, expected_version, review):
         binding = _grant_binding(grant)
@@ -662,6 +718,8 @@ class IntakeDraftVault:
             record = self._records.get(reference)
             if record is None or record.binding != binding:
                 return "gone", None
+            if record.state != "active" or record.snapshot is None:
+                return "stale", None
             if record.snapshot.version != expected_version:
                 return "stale", None
             snapshot = replace(
@@ -673,46 +731,258 @@ class IntakeDraftVault:
             return "updated", snapshot
 
     def cancel(self, reference, grant, *, expected_version):
+        state, _authority = self.cancel_bound(
+            reference,
+            grant,
+            expected_version=expected_version,
+        )
+        return state
+
+    def cancel_bound(self, reference, grant, *, expected_version):
         binding = _grant_binding(grant)
         if type(reference) is not str or _OPAQUE_REFERENCE.fullmatch(reference) is None:
-            return "gone"
+            return "gone", None
         now = _monotonic(self._monotonic())
         with self._lock:
             self._purge_locked(now)
             record = self._records.get(reference)
             if record is None or record.binding != binding:
-                return "gone"
+                return "gone", None
+            if record.state != "active" or record.snapshot is None:
+                return "stale", None
             if record.snapshot.version != expected_version:
-                return "stale"
+                return "stale", None
+            authority = record.durable_authority
             del self._records[reference]
-            return "cancelled"
+            return "cancelled", authority
 
-    def _purge_locked(self, now):
+    def begin_save(
+        self,
+        reference,
+        grant,
+        *,
+        expected_version,
+        review,
+        confirmation_fingerprint,
+        request_digest,
+    ):
+        binding = _grant_binding(grant)
+        if (
+            type(reference) is not str
+            or _OPAQUE_REFERENCE.fullmatch(reference) is None
+            or type(expected_version) is not int
+            or expected_version < 1
+            or type(review) is not EditableProfileReview
+            or not _is_sha256(confirmation_fingerprint)
+            or not _is_sha256(request_digest)
+        ):
+            return "gone", None
+        now = _monotonic(self._monotonic())
+        with self._lock:
+            self._purge_locked(now)
+            record = self._records.get(reference)
+            if record is None or record.binding != binding:
+                return "gone", None
+            if record.state == "completed":
+                if (
+                    record.save_request_digest == request_digest
+                    and record.confirmation_fingerprint == confirmation_fingerprint
+                ):
+                    return "completed", None
+                return "stale", None
+            if record.snapshot is None or record.snapshot.version != expected_version:
+                return "stale", None
+            if record.state == "committing":
+                if (
+                    record.save_request_digest == request_digest
+                    and record.confirmation_fingerprint == confirmation_fingerprint
+                ):
+                    return "replay", (record.snapshot, record.durable_authority)
+                return "stale", None
+            if record.state != "active":
+                return "stale", None
+            snapshot = replace(record.snapshot, review=review)
+            self._records[reference] = replace(
+                record,
+                snapshot=snapshot,
+                state="committing",
+                confirmation_fingerprint=confirmation_fingerprint,
+                save_request_digest=request_digest,
+            )
+            return "ready", (snapshot, record.durable_authority)
+
+    def save_authority(self, reference, grant, *, expected_version):
+        binding = _grant_binding(grant)
+        now = _monotonic(self._monotonic())
+        with self._lock:
+            self._purge_locked(now)
+            record = self._records.get(reference)
+            if (
+                record is None
+                or record.binding != binding
+                or record.snapshot is None
+                or record.snapshot.version != expected_version
+                or record.state not in {"active", "committing"}
+            ):
+                return None
+            return record.durable_authority
+
+    def complete_save(
+        self,
+        reference,
+        grant,
+        *,
+        confirmation_fingerprint,
+        request_digest,
+    ):
+        binding = _grant_binding(grant)
+        now = _monotonic(self._monotonic())
+        with self._lock:
+            record = self._records.get(reference)
+            if (
+                record is None
+                or record.binding != binding
+                or record.state != "committing"
+                or record.snapshot is None
+                or record.confirmation_fingerprint != confirmation_fingerprint
+                or record.save_request_digest != request_digest
+            ):
+                return False
+            receipt_lifetime = min(
+                PROFILE_INTAKE_COMPLETION_RECEIPT_SECONDS,
+                max(1.0, record.snapshot.expires_at_monotonic - now),
+            )
+            self._records[reference] = replace(
+                record,
+                snapshot=None,
+                durable_authority=None,
+                state="completed",
+                confirmation_fingerprint=None,
+                completion_expires_at_monotonic=now + receipt_lifetime,
+            )
+            return True
+
+    def completion_matches(self, reference, grant, *, expected_version, request_digest):
+        state, value = self.lookup(reference, grant)
+        if state != "completed" or value is None:
+            return state
+        if (
+            type(expected_version) is not int
+            or expected_version < 1
+            or not _is_sha256(request_digest)
+        ):
+            return "stale"
+        return (
+            "completed"
+            if value.save_request_digest == request_digest
+            else "stale"
+        )
+
+    def _purge_locked(self, now, *, skip_reference=None):
         for reference, record in tuple(self._records.items()):
-            if now >= record.snapshot.expires_at_monotonic:
+            if reference == skip_reference:
+                continue
+            expired = (
+                record.state == "completed"
+                and (
+                    record.completion_expires_at_monotonic is None
+                    or now >= record.completion_expires_at_monotonic
+                )
+            ) or (
+                record.state != "completed"
+                and (
+                    record.snapshot is None
+                    or now >= record.snapshot.expires_at_monotonic
+                )
+            )
+            if expired:
                 del self._records[reference]
 
 
 class ProfileIntakeProcessingService:
     """Run the ephemeral extraction pipeline outside every DB transaction."""
 
-    __slots__ = ("_adapter", "_clock", "_guard", "_in_flight", "_vault")
+    __slots__ = (
+        "_adapter",
+        "_clock",
+        "_durable",
+        "_guard",
+        "_in_flight",
+        "_save_failure_injector",
+        "_vault",
+    )
 
-    def __init__(self, *, adapter, vault, clock):
+    def __init__(
+        self,
+        *,
+        adapter,
+        vault,
+        clock,
+        durable_finalizer=None,
+        save_failure_injector=None,
+    ):
         if (
             adapter is not None
             and not callable(getattr(adapter, "extract", None))
-        ) or type(vault) is not IntakeDraftVault or not callable(clock):
+        ) or type(vault) is not IntakeDraftVault or not callable(clock) or (
+            durable_finalizer is not None
+            and not all(
+                callable(getattr(durable_finalizer, name, None))
+                for name in ("preflight", "reserve", "release", "prepare", "commit")
+            )
+        ) or (save_failure_injector is not None and not callable(save_failure_injector)):
             raise _configuration_error()
         self._adapter = adapter
         self._vault = vault
         self._clock = clock
+        self._durable = durable_finalizer
+        self._save_failure_injector = save_failure_injector
         self._guard = threading.Lock()
         self._in_flight = set()
 
     @property
     def vault(self):
         return self._vault
+
+    @property
+    def durable_save_enabled(self):
+        return self._durable is not None
+
+    def preflight(self, grant):
+        _grant_binding(grant)
+        if self._durable is None:
+            return "eligible"
+        return self._durable.preflight(grant)
+
+    def lookup(self, reference, grant):
+        state, value = self._vault.lookup(reference, grant)
+        if state == "expired" and value is not None and self._durable is not None:
+            try:
+                self._durable.release(grant, value, outcome_code="draft_expired")
+            except ProfileIntakeError:
+                pass
+        return ("gone", None) if state == "expired" else (state, value)
+
+    def cancel(self, reference, grant, *, expected_version):
+        state, authority = self._vault.cancel_bound(
+            reference,
+            grant,
+            expected_version=expected_version,
+        )
+        if state == "cancelled" and authority is not None and self._durable is not None:
+            try:
+                self._durable.release(grant, authority, outcome_code="cancelled")
+            except ProfileIntakeError:
+                pass
+        return state
+
+    def completion_matches(self, reference, grant, *, expected_version, request_digest):
+        return self._vault.completion_matches(
+            reference,
+            grant,
+            expected_version=expected_version,
+            request_digest=request_digest,
+        )
 
     def process(self, grant, document_bytes, *, document_kind, document_format):
         """Backward-compatible single-document bundle entry point."""
@@ -741,6 +1011,10 @@ class ProfileIntakeProcessingService:
             raise ProfileIntakeError("invalid_profile_intake_bundle")
         if self._adapter is None:
             raise ProfileIntakeError("profile_extraction_unavailable")
+        if self._durable is not None:
+            state = self._durable.preflight(grant)
+            if state != "eligible":
+                raise ProfileIntakeError("ai_import_" + state)
         with self._guard:
             if binding in self._in_flight:
                 raise ProfileIntakeError("profile_intake_in_flight")
@@ -752,6 +1026,7 @@ class ProfileIntakeProcessingService:
         validated_sources = []
         metadata_items = []
         diagnostic_items = []
+        durable_authority = None
         try:
             ordered_documents = tuple(
                 sorted(
@@ -810,13 +1085,52 @@ class ProfileIntakeProcessingService:
                 model_evidence = None
             draft = reconcile_profile_extractions(tuple(validated_sources))
             review = editable_profile_review(draft)
-            return self._vault.issue(
-                grant,
-                review,
-                SafeDocumentBundleMetadata(tuple(metadata_items)),
-                tuple(diagnostic_items) if diagnostic_items else None,
-                created_at=self._clock(),
-            )
+            document_metadata = SafeDocumentBundleMetadata(tuple(metadata_items))
+            diagnostics = tuple(diagnostic_items) if diagnostic_items else None
+            lifetime_seconds = None
+            if self._durable is not None:
+                durable_authority, lifetime_seconds = self._durable.reserve(
+                    grant,
+                    document_metadata,
+                    diagnostics,
+                )
+                if (
+                    type(lifetime_seconds) not in (int, float)
+                    or not math.isfinite(lifetime_seconds)
+                    or lifetime_seconds < PROFILE_INTAKE_MIN_SAFE_REVIEW_SECONDS
+                ):
+                    try:
+                        self._durable.release(
+                            grant,
+                            durable_authority,
+                            outcome_code="processing_failed",
+                        )
+                    finally:
+                        durable_authority = None
+                    raise ProfileIntakeError("ai_import_lease_unavailable")
+            try:
+                issued = self._vault.issue(
+                    grant,
+                    review,
+                    document_metadata,
+                    diagnostics,
+                    created_at=self._clock(),
+                    durable_authority=durable_authority,
+                    lifetime_seconds=lifetime_seconds,
+                )
+            except Exception:
+                if durable_authority is not None and self._durable is not None:
+                    try:
+                        self._durable.release(
+                            grant,
+                            durable_authority,
+                            outcome_code="processing_failed",
+                        )
+                    except ProfileIntakeError:
+                        pass
+                raise
+            durable_authority = None
+            return issued
         finally:
             extraction = None
             model_evidence = None
@@ -828,6 +1142,60 @@ class ProfileIntakeProcessingService:
             documents = None
             with self._guard:
                 self._in_flight.discard(binding)
+
+    def save(
+        self,
+        reference,
+        grant,
+        *,
+        expected_version,
+        review,
+        request_digest,
+    ):
+        if self._durable is None:
+            raise ProfileIntakeError("ai_import_schema_unavailable")
+        state, snapshot = self.lookup(reference, grant)
+        if state != "active" or snapshot is None:
+            raise ProfileIntakeError(
+                "ai_import_save_completed" if state == "completed" else "draft_expired"
+            )
+        if snapshot.version != expected_version:
+            raise ProfileIntakeError("stale_review")
+        authority = self._vault.save_authority(
+            reference,
+            grant,
+            expected_version=expected_version,
+        )
+        if authority is None:
+            raise ProfileIntakeError("invalid_durable_intake_authority")
+        confirmed = self._durable.prepare(review, authority)
+        confirmation_fingerprint = confirmed.confirmation_fingerprint
+        begin_state, commit_material = self._vault.begin_save(
+            reference,
+            grant,
+            expected_version=expected_version,
+            review=review,
+            confirmation_fingerprint=confirmation_fingerprint,
+            request_digest=request_digest,
+        )
+        if begin_state == "completed":
+            return "replayed", None
+        if begin_state != "ready" and begin_state != "replay":
+            raise ProfileIntakeError(
+                "stale_review" if begin_state == "stale" else "draft_expired"
+            )
+        _committed_snapshot, authority = commit_material
+        result = self._durable.commit(grant, authority, confirmed)
+        _save_hook(self._save_failure_injector, "after_durable_commit")
+        _save_hook(self._save_failure_injector, "before_vault_completion")
+        if not self._vault.complete_save(
+            reference,
+            grant,
+            confirmation_fingerprint=confirmation_fingerprint,
+            request_digest=request_digest,
+        ):
+            raise ProfileIntakeError("durable_intake_unavailable")
+        return "replayed" if result.replayed else "saved", result
 
 
 def editable_profile_review(draft):
@@ -874,7 +1242,7 @@ def update_editable_review(review, values, decisions, user_inputs):
         raise ProfileIntakeError("invalid_review_submission")
     updated = []
     for fact, raw_value, decision in zip(review.facts, values, decisions):
-        allowed = {"accept", "reject"} if fact.suggested else {"keep", "remove"}
+        allowed = {"pending", "accept", "reject"} if fact.suggested else {"keep", "remove"}
         if decision not in allowed:
             raise ProfileIntakeError("invalid_review_submission")
         value = _parse_review_value(fact.field_path, raw_value)
@@ -1019,3 +1387,15 @@ def _monotonic(value):
     if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
         raise _configuration_error()
     return float(value)
+
+
+def _is_sha256(value):
+    return (
+        type(value) is str
+        and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+    )
+
+
+def _save_hook(callback, boundary):
+    if callback is not None:
+        callback(boundary)

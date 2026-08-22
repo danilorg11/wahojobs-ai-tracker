@@ -290,6 +290,22 @@ class AIProfileImportReservationResult:
     replayed: bool
 
 
+@dataclass(frozen=True, slots=True)
+class AIProfileImportPreflightResult:
+    """Advisory, read-only eligibility state for the authenticated runtime."""
+
+    state: str
+
+    def __post_init__(self):
+        if self.state not in {
+            "eligible",
+            "profile_exists",
+            "entitlement_consumed",
+            "entitlement_reserved",
+        }:
+            raise AIProfileImportError("invalid_request")
+
+
 @dataclass(frozen=True, slots=True, repr=False, init=False)
 class ConfirmedAIProfileImport:
     reviewed_profile: IdentityFreeCanonicalProfileV1 = field(repr=False)
@@ -349,6 +365,48 @@ class AIProfileImportService:
             raise AIProfileImportError("invalid_request")
         if failure_injector is not None and not callable(failure_injector):
             raise AIProfileImportError("invalid_request")
+
+    def preflight(self, connection, grant, *, now):
+        """Read eligibility without creating an entitlement or reservation."""
+
+        now = _trusted_time(now)
+        try:
+            if (
+                type(connection) is not sqlite3.Connection
+                or connection.in_transaction
+                or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+            ):
+                raise AIProfileImportError("schema_unavailable")
+            _require_m010(connection)
+            authority = _grant_authority(connection, grant, now)
+            if connection.execute(
+                "SELECT 1 FROM product_profiles WHERE principal_id=? AND environment_namespace=?",
+                (authority[3], authority[2]),
+            ).fetchone() is not None:
+                return AIProfileImportPreflightResult("profile_exists")
+            entitlement = connection.execute(
+                "SELECT state,lease_expires_at FROM ai_profile_import_entitlements "
+                "WHERE environment_namespace=? AND account_id=? AND entitlement_code=?",
+                (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE),
+            ).fetchone()
+            if entitlement is None or entitlement[0] == "available":
+                return AIProfileImportPreflightResult("eligible")
+            if entitlement[0] == "consumed":
+                return AIProfileImportPreflightResult("entitlement_consumed")
+            if (
+                entitlement[0] == "reserved"
+                and entitlement[1] > canonical_utc_timestamp(now)
+            ):
+                return AIProfileImportPreflightResult("entitlement_reserved")
+            if entitlement[0] == "reserved":
+                return AIProfileImportPreflightResult("eligible")
+            raise AIProfileImportError("schema_unavailable")
+        except AIProfileImportError:
+            raise
+        except sqlite3.Error as exc:
+            _detach(exc)
+            raise AIProfileImportError("schema_unavailable") from None
 
     def reserve(self, connection, grant, request, *, now):
         if type(request) is not AIProfileImportReservationRequest:
@@ -1154,6 +1212,7 @@ __all__ = (
     "AI_PROFILE_IMPORT_RESERVATION_LEASE",
     "AIProfileImportCommitResult",
     "AIProfileImportError",
+    "AIProfileImportPreflightResult",
     "AIProfileImportReservationAuthority",
     "AIProfileImportReservationRequest",
     "AIProfileImportReservationResult",
