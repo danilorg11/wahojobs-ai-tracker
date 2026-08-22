@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict
 import json
 import logging
@@ -10,6 +11,11 @@ from unittest import mock
 
 import requests
 
+from tests.openai_structured_outputs_test_support import (
+    structured_outputs_schema_accepts,
+    validate_responses_request_contract,
+    validate_structured_outputs_schema,
+)
 from wahojobs.profile_intake import (
     AI_EXTRACTION_SCHEMA_VERSION,
     AIProfileReviewDraft,
@@ -23,6 +29,7 @@ from wahojobs.profile_intake import (
     OpenAIProfileExtractionError,
     PROFILE_EXTRACTION_PROMPT_VERSION,
     ProfileIntakeError,
+    SUPPORTED_EXTRACTION_FIELD_PATHS,
     build_profile_review_draft,
     configured_openai_profile_adapter,
     minimize_evidence_packet,
@@ -30,6 +37,7 @@ from wahojobs.profile_intake import (
     profile_extraction_system_prompt,
     validate_ai_profile_extraction,
 )
+from wahojobs.profile_intake.openai_adapter import OPENAI_RESPONSES_URL
 
 
 DOCUMENT_REFERENCE = "doc_0123456789abcdef0123456789abcdef"
@@ -56,7 +64,7 @@ def _fact(path: str, value, *, evidence="b001", confidence=0.95, explicit=True):
         "field_path": path,
         "value": value,
         "source_document_reference": DOCUMENT_REFERENCE,
-        "evidence_block_references": [evidence],
+        "evidence_block_references": evidence if type(evidence) is list else [evidence],
         "confidence": confidence,
         "explicit": explicit,
     }
@@ -93,6 +101,7 @@ class _FakeSession:
         self.calls.append((url, kwargs))
         if self.error is not None:
             raise self.error
+        validate_responses_request_contract(url, kwargs.get("json"))
         return self.response
 
 
@@ -323,22 +332,156 @@ class OpenAIProfileAdapterTests(unittest.TestCase):
         self.assertEqual(body["text"]["format"]["name"], "ai_profile_extraction_v1")
         schema = body["text"]["format"]["schema"]
         self.assertIs(schema["additionalProperties"], False)
-        self.assertEqual(schema["properties"]["document_reference"]["const"], DOCUMENT_REFERENCE)
+        self.assertEqual(
+            schema["properties"]["document_reference"]["enum"],
+            [DOCUMENT_REFERENCE],
+        )
+        metrics = validate_responses_request_contract(OPENAI_RESPONSES_URL, body)
+        self.assertEqual(metrics.object_property_count, 12)
+        self.assertEqual(metrics.maximum_object_nesting, 3)
+        self.assertEqual(metrics.unsupported_keyword_count, 0)
         serialized_request = json.dumps(body)
         self.assertNotIn("only@example.test", serialized_request)
 
-    def test_schema_has_no_authority_fields_and_requires_inferred_taxonomy(self):
+    def test_profile_request_matches_responses_api_contract(self):
+        session = _FakeSession(_provider_response(_payload()))
+        adapter = OpenAIProfileExtractionAdapter(
+            "sk-synthetic", model="gpt-5-mini", session=session
+        )
+        adapter.extract(_model_packet("Synthetic professional evidence"))
+        url, call = session.calls[0]
+        body = call["json"]
+        metrics = validate_responses_request_contract(url, body)
+        self.assertEqual(body["model"], "gpt-5-mini")
+        self.assertIs(body["store"], False)
+        self.assertEqual(body["tools"], [])
+        self.assertNotIn("response_format", body)
+        self.assertEqual(
+            [message["role"] for message in body["input"]],
+            ["system", "user"],
+        )
+        self.assertEqual(
+            [[item["type"] for item in message["content"]] for message in body["input"]],
+            [["input_text"], ["input_text"]],
+        )
+        self.assertEqual(body["text"]["format"]["type"], "json_schema")
+        self.assertEqual(body["text"]["format"]["name"], "ai_profile_extraction_v1")
+        self.assertIs(body["text"]["format"]["strict"], True)
+        self.assertLessEqual(metrics.object_property_count, 20)
+        self.assertEqual(metrics.unsupported_keyword_count, 0)
+
+    def test_schema_is_compact_supported_and_has_no_authority_fields(self):
         schema = profile_extraction_structured_output_schema(_model_packet("Senior Engineer"))
         serialized = json.dumps(schema, sort_keys=True)
         for forbidden in ("profile_id", "revision_id", "provenance", "matcher_signals"):
             self.assertNotIn(forbidden, serialized)
-        branches = schema["properties"]["facts"]["items"]["anyOf"]
-        seniority = next(
-            branch
-            for branch in branches
-            if branch["properties"]["field_path"].get("const") == "experience.seniority"
+        fact_schema = schema["properties"]["facts"]["items"]
+        self.assertEqual(
+            set(fact_schema["properties"]["field_path"]["enum"]),
+            SUPPORTED_EXTRACTION_FIELD_PATHS,
         )
-        self.assertIs(seniority["properties"]["explicit"]["const"], False)
+        self.assertEqual(len(fact_schema["properties"]["value"]["anyOf"]), 4)
+        metrics = validate_structured_outputs_schema(schema)
+        self.assertEqual(metrics.object_property_count, 12)
+        self.assertEqual(metrics.maximum_object_nesting, 3)
+        self.assertEqual(metrics.unsupported_keyword_count, 0)
+
+    def test_schema_compatibility_helper_rejects_provider_contract_regressions(self):
+        schema = profile_extraction_structured_output_schema(_model_packet("Engineer"))
+        unsupported = copy.deepcopy(schema)
+        unsupported["properties"]["facts"]["maxItems"] = 256
+        with self.assertRaisesRegex(AssertionError, "maxItems"):
+            validate_structured_outputs_schema(unsupported)
+
+        properties = {f"field_{index}": {"type": "string"} for index in range(101)}
+        oversized = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": properties,
+            "required": list(properties),
+        }
+        with self.assertRaisesRegex(AssertionError, "property limit exceeded"):
+            validate_structured_outputs_schema(oversized)
+
+    def test_compact_provider_schema_preserves_strict_local_authority(self):
+        evidence = _model_packet(
+            "Name: Synthetic Candidate\nSkills: Python, SQL\nExperience: 4 years"
+        )
+        schema = profile_extraction_structured_output_schema(evidence)
+        valid_payloads = (
+            _payload(_fact("identity.display_name", "Synthetic Candidate")),
+            _payload(_fact("experience.total_years", 4, explicit=False)),
+            _payload(
+                _fact("skills.normalized", "Python"),
+                _fact("skills.normalized", "SQL"),
+            ),
+        )
+        for payload in valid_payloads:
+            with self.subTest(valid=payload):
+                self.assertTrue(structured_outputs_schema_accepts(schema, payload))
+                validate_ai_profile_extraction(payload, evidence)
+
+        locally_invalid_but_provider_structural = (
+            (
+                _payload(_fact("identity.display_name", True)),
+                "invalid_fact_value",
+            ),
+            (
+                _payload(_fact("identity.display_name", "x" * 513)),
+                "fact_value_too_large",
+            ),
+            (
+                _payload(_fact("skills.normalized", "Python", confidence=1.5)),
+                "invalid_confidence",
+            ),
+            (
+                _payload(
+                    _fact("skills.normalized", "Python"),
+                    _fact("skills.normalized", "Python"),
+                ),
+                "duplicate_extraction_fact",
+            ),
+            (
+                _payload(_fact("experience.seniority", "senior", explicit=True)),
+                "classification_must_be_inferred",
+            ),
+            (
+                _payload(_fact("preferences.remote", True, explicit=False)),
+                "inferred_sensitive_fact_forbidden",
+            ),
+        )
+        for payload, code in locally_invalid_but_provider_structural:
+            with self.subTest(local_rejection=code):
+                self.assertTrue(structured_outputs_schema_accepts(schema, payload))
+                with self.assertRaisesRegex(ProfileIntakeError, f"^{code}$"):
+                    validate_ai_profile_extraction(payload, evidence)
+
+        many_evidence = _model_packet(*(f"Evidence block {index}" for index in range(17)))
+        many_schema = profile_extraction_structured_output_schema(many_evidence)
+        too_many_references = _payload(
+            _fact(
+                "skills.normalized",
+                "Python",
+                evidence=[f"b{index:03d}" for index in range(1, 18)],
+            )
+        )
+        self.assertTrue(
+            structured_outputs_schema_accepts(many_schema, too_many_references)
+        )
+        with self.assertRaisesRegex(ProfileIntakeError, "^invalid_fact_evidence$"):
+            validate_ai_profile_extraction(too_many_references, many_evidence)
+
+        invalid_reference = _payload(
+            _fact("skills.normalized", "Python", evidence="b999")
+        )
+        self.assertFalse(structured_outputs_schema_accepts(schema, invalid_reference))
+        with self.assertRaisesRegex(ProfileIntakeError, "^unknown_evidence_reference$"):
+            validate_ai_profile_extraction(invalid_reference, evidence)
+
+        forbidden_authority = {**_payload(), "profile_id": "profile_forbidden"}
+        self.assertFalse(structured_outputs_schema_accepts(schema, forbidden_authority))
+        with self.assertRaisesRegex(ProfileIntakeError, "^forbidden_importer_authority$"):
+            validate_ai_profile_extraction(forbidden_authority, evidence)
 
     def test_malformed_refusal_and_http_errors_map_to_stable_codes(self):
         cases = (
@@ -430,6 +573,44 @@ class OpenAIProfileAdapterTests(unittest.TestCase):
         observable = " ".join([str(raised.exception), repr(adapter), *(r.getMessage() for r in records)])
         self.assertNotIn(secret_text, observable)
         self.assertNotIn(secret_key, observable)
+
+    def test_http_error_retains_only_allowlisted_provider_metadata(self):
+        secret_text = "synthetic.private@example.test must never escape"
+        response = _FakeResponse(
+            {
+                "error": {
+                    "code": "invalid_json_schema",
+                    "param": "text.format.schema",
+                    "message": secret_text,
+                    "type": secret_text,
+                }
+            },
+            status_code=400,
+            headers={"x-request-id": "req_synthetic"},
+        )
+        adapter = OpenAIProfileExtractionAdapter(
+            "sk-synthetic-private-key", session=_FakeSession(response)
+        )
+        with self.assertRaises(OpenAIProfileExtractionError) as raised:
+            adapter.extract(_model_packet("Synthetic engineer evidence"))
+        diagnostics = raised.exception.usage_diagnostics
+        self.assertEqual(diagnostics.provider_error_code, "invalid_json_schema")
+        self.assertEqual(diagnostics.provider_error_param, "text.format.schema")
+        self.assertEqual(diagnostics.provider_request_id, "req_synthetic")
+        observable = json.dumps(asdict(diagnostics), sort_keys=True) + str(raised.exception)
+        self.assertNotIn(secret_text, observable)
+        self.assertNotIn("sk-synthetic-private-key", observable)
+
+        unsafe = _FakeResponse(
+            {"error": {"code": secret_text, "param": "schema[private]", "message": secret_text}},
+            status_code=400,
+        )
+        with self.assertRaises(OpenAIProfileExtractionError) as unsafe_raised:
+            OpenAIProfileExtractionAdapter(
+                "sk-synthetic", session=_FakeSession(unsafe)
+            ).extract(_model_packet("Synthetic engineer evidence"))
+        self.assertIsNone(unsafe_raised.exception.usage_diagnostics.provider_error_code)
+        self.assertIsNone(unsafe_raised.exception.usage_diagnostics.provider_error_param)
 
 
 class ReviewDraftTests(unittest.TestCase):

@@ -114,11 +114,13 @@ facts must be marked inferred rather than explicit.
 
 ## Structured output and local validation
 
-The OpenAI request uses strict Structured Outputs with a profile-specific JSON
-schema. Document and evidence references are request-defined constants, fields
-use the existing Canonical V2 paths and enums, and additional properties are
-closed. Structured Output is not considered a trust boundary: every response
-also passes the local `ai_profile_extraction_v1` validator.
+The OpenAI request uses strict Structured Outputs with a compact, provider-
+supported structural schema. It closes object shapes and constrains document
+references, evidence aliases, Canonical V2 field paths, and JSON value shapes
+without duplicating the detailed business contract in the provider schema.
+Structured Output is not considered a trust boundary: every response also
+passes the local `ai_profile_extraction_v1` validator, which remains authoritative
+for field/path coupling, bounds, cardinality, uniqueness, and policy rules.
 
 The strict validator rejects unknown fields and keys, missing evidence,
 non-finite values, invalid enums and types, oversized facts, inferred sensitive

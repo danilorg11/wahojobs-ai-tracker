@@ -54,6 +54,8 @@ class ProfileExtractionDiagnostics:
     http_status: int | None
     success: bool
     failure_code: str | None
+    provider_error_code: str | None
+    provider_error_param: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,12 +148,15 @@ class OpenAIProfileExtractionAdapter:
         provider_request_id = _safe_identifier(data.get("id")) or header_request_id
         usage = _usage(data)
         if not 200 <= http_status < 300:
+            provider_error_code, provider_error_param = _provider_error_metadata(data)
             self._raise_failure(
                 "openai_http_error",
                 started=started,
                 http_status=http_status,
                 provider_request_id=provider_request_id,
                 usage=usage,
+                provider_error_code=provider_error_code,
+                provider_error_param=provider_error_param,
             )
         if data.get("status") == "incomplete":
             self._raise_failure(
@@ -218,6 +223,8 @@ class OpenAIProfileExtractionAdapter:
         http_status: int | None = None,
         provider_request_id: str | None = None,
         usage: tuple[int, int, int] = (0, 0, 0),
+        provider_error_code: str | None = None,
+        provider_error_param: str | None = None,
     ) -> None:
         diagnostics = self._diagnostics(
             started=started,
@@ -226,6 +233,8 @@ class OpenAIProfileExtractionAdapter:
             usage=usage,
             success=False,
             failure_code=code,
+            provider_error_code=provider_error_code,
+            provider_error_param=provider_error_param,
         )
         self._emit_diagnostics(diagnostics)
         raise OpenAIProfileExtractionError(code, diagnostics) from None
@@ -239,6 +248,8 @@ class OpenAIProfileExtractionAdapter:
         usage: tuple[int, int, int],
         success: bool,
         failure_code: str | None,
+        provider_error_code: str | None = None,
+        provider_error_param: str | None = None,
     ) -> ProfileExtractionDiagnostics:
         input_tokens, output_tokens, total_tokens = usage
         prices = MODEL_PRICING_PER_MILLION.get(self.model)
@@ -261,6 +272,8 @@ class OpenAIProfileExtractionAdapter:
             http_status=http_status,
             success=success,
             failure_code=failure_code,
+            provider_error_code=provider_error_code,
+            provider_error_param=provider_error_param,
         )
 
     def _emit_diagnostics(self, diagnostics: ProfileExtractionDiagnostics) -> None:
@@ -313,73 +326,68 @@ def profile_extraction_structured_output_schema(evidence: ModelEvidencePacket) -
     if type(evidence) is not ModelEvidencePacket:
         raise ProfileIntakeError("invalid_model_evidence_packet")
     evidence_references = tuple(block.reference for block in evidence.blocks)
-    branches = []
-    for path in sorted(contracts.SUPPORTED_EXTRACTION_FIELD_PATHS):
-        spec = contracts._FIELD_SPECS[path]
-        if spec.kind == "string":
-            value_schema = {"type": "string", "minLength": 1, "maxLength": 512}
-        elif spec.kind == "enum":
-            value_schema = {"type": "string", "enum": sorted(spec.allowed or ())}
-        elif spec.kind == "years":
-            value_schema = {"type": "number", "minimum": 0, "maximum": 80}
-        elif spec.kind == "boolean":
-            value_schema = {"type": "boolean"}
-        elif spec.kind == "language":
-            value_schema = {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "language": {"type": "string", "minLength": 1, "maxLength": 512},
-                    "proficiency": {
-                        "type": ["string", "null"],
-                        "enum": sorted(contracts.LANGUAGE_PROFICIENCIES) + [None],
-                    },
-                    "locale": {"type": ["string", "null"], "maxLength": 512},
-                },
-                "required": ["language", "proficiency", "locale"],
-            }
-        else:
-            raise ProfileIntakeError("internal_profile_intake_error")
-        explicit_schema: dict = {"type": "boolean"}
-        if spec.explicit_only:
-            explicit_schema = {"const": True}
-        elif spec.inferred_only:
-            explicit_schema = {"const": False}
-        branches.append(
-            {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "field_path": {"const": path},
-                    "value": value_schema,
-                    "source_document_reference": {"const": evidence.document_reference},
-                    "evidence_block_references": {
-                        "type": "array",
-                        "items": {"type": "string", "enum": list(evidence_references)},
-                        "minItems": 1,
-                        "maxItems": 16,
-                        "uniqueItems": True,
-                    },
-                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                    "explicit": explicit_schema,
-                },
-                "required": [
-                    "field_path",
-                    "value",
-                    "source_document_reference",
-                    "evidence_block_references",
-                    "confidence",
-                    "explicit",
-                ],
-            }
-        )
+    language_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "language": {"type": "string"},
+            "proficiency": {
+                "type": ["string", "null"],
+                "enum": sorted(contracts.LANGUAGE_PROFICIENCIES) + [None],
+            },
+            "locale": {"type": ["string", "null"]},
+        },
+        "required": ["language", "proficiency", "locale"],
+    }
+    fact_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "field_path": {
+                "type": "string",
+                "enum": sorted(contracts.SUPPORTED_EXTRACTION_FIELD_PATHS),
+            },
+            "value": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "number"},
+                    {"type": "boolean"},
+                    language_schema,
+                ]
+            },
+            "source_document_reference": {
+                "type": "string",
+                "enum": [evidence.document_reference],
+            },
+            "evidence_block_references": {
+                "type": "array",
+                "items": {"type": "string", "enum": list(evidence_references)},
+            },
+            "confidence": {"type": "number"},
+            "explicit": {"type": "boolean"},
+        },
+        "required": [
+            "field_path",
+            "value",
+            "source_document_reference",
+            "evidence_block_references",
+            "confidence",
+            "explicit",
+        ],
+    }
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "schema_version": {"const": AI_EXTRACTION_SCHEMA_VERSION},
-            "document_reference": {"const": evidence.document_reference},
-            "facts": {"type": "array", "items": {"anyOf": branches}, "maxItems": 256},
+            "schema_version": {
+                "type": "string",
+                "enum": [AI_EXTRACTION_SCHEMA_VERSION],
+            },
+            "document_reference": {
+                "type": "string",
+                "enum": [evidence.document_reference],
+            },
+            "facts": {"type": "array", "items": fact_schema},
         },
         "required": ["schema_version", "document_reference", "facts"],
     }
@@ -484,6 +492,13 @@ def _safe_identifier(value: object) -> str | None:
         return None
     value = value.strip()
     return value if _SAFE_IDENTIFIER.fullmatch(value) is not None else None
+
+
+def _provider_error_metadata(data: dict) -> tuple[str | None, str | None]:
+    error = data.get("error")
+    if type(error) is not dict:
+        return None, None
+    return _safe_identifier(error.get("code")), _safe_identifier(error.get("param"))
 
 
 def _response_header_request_id(response) -> str | None:
