@@ -16,6 +16,7 @@ from tests.openai_structured_outputs_test_support import (
     validate_responses_request_contract,
     validate_structured_outputs_schema,
 )
+from wahojobs.profile_intake import contracts
 from wahojobs.profile_intake import (
     AI_EXTRACTION_SCHEMA_VERSION,
     AIProfileReviewDraft,
@@ -37,7 +38,10 @@ from wahojobs.profile_intake import (
     profile_extraction_system_prompt,
     validate_ai_profile_extraction,
 )
-from wahojobs.profile_intake.openai_adapter import OPENAI_RESPONSES_URL
+from wahojobs.profile_intake.openai_adapter import (
+    OPENAI_RESPONSES_URL,
+    _profile_extraction_enum_contract,
+)
 
 
 DOCUMENT_REFERENCE = "doc_0123456789abcdef0123456789abcdef"
@@ -223,7 +227,69 @@ class PromptSecurityContractTests(unittest.TestCase):
             "matcher signals",
         ):
             self.assertIn(phrase, prompt)
-        self.assertEqual(PROFILE_EXTRACTION_PROMPT_VERSION, "ai_profile_extraction_prompt_v1")
+        self.assertEqual(PROFILE_EXTRACTION_PROMPT_VERSION, "ai_profile_extraction_prompt_v2")
+
+    def test_prompt_exposes_exact_enum_contract_from_local_field_specs(self):
+        expected = {
+            path: {
+                "allowed_values": sorted(spec.allowed or ()),
+                "explicit_required": (
+                    True
+                    if spec.explicit_only
+                    else False
+                    if spec.inferred_only
+                    else None
+                ),
+            }
+            for path, spec in sorted(contracts._FIELD_SPECS.items())
+            if spec.kind == "enum"
+        }
+        self.assertEqual(_profile_extraction_enum_contract(), expected)
+        serialized = json.dumps(
+            expected,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.assertIn(f"Enum contract: {serialized}", profile_extraction_system_prompt())
+        self.assertEqual(
+            expected["education.completion_status"],
+            {
+                "allowed_values": [
+                    "completed",
+                    "in_progress",
+                    "not_specified",
+                    "unknown",
+                ],
+                "explicit_required": False,
+            },
+        )
+
+    def test_every_enum_prompt_constraint_matches_strict_local_validation(self):
+        evidence = _model_packet("Synthetic professional evidence")
+        schema = profile_extraction_structured_output_schema(evidence)
+        for path, constraint in _profile_extraction_enum_contract().items():
+            explicit = constraint["explicit_required"]
+            self.assertIs(type(explicit), bool)
+            for value in constraint["allowed_values"]:
+                with self.subTest(path=path, value=value):
+                    payload = _payload(_fact(path, value, explicit=explicit))
+                    self.assertTrue(
+                        structured_outputs_schema_accepts(schema, payload)
+                    )
+                    validate_ai_profile_extraction(payload, evidence)
+
+            invalid = _payload(
+                _fact(
+                    path,
+                    "provider-valid-invalid-enum",
+                    explicit=explicit,
+                )
+            )
+            with self.subTest(path=path, invalid=True):
+                self.assertTrue(structured_outputs_schema_accepts(schema, invalid))
+                with self.assertRaisesRegex(ProfileIntakeError, "^invalid_fact_enum$"):
+                    validate_ai_profile_extraction(invalid, evidence)
 
     def test_resume_instructions_remain_user_data_not_system_instructions(self):
         hostile = (
@@ -624,6 +690,25 @@ class OpenAIProfileAdapterTests(unittest.TestCase):
                     "explicit": True,
                     "evidence_reference_count": 2,
                     "evidence_references_contain_duplicates": True,
+                    "duplicate_prior_fact_index": None,
+                },
+            ),
+            (
+                _payload(
+                    _fact(
+                        "education.completion_status",
+                        "provider-valid-invalid-enum",
+                        explicit=False,
+                    )
+                ),
+                {
+                    "code": "invalid_fact_enum",
+                    "fact_index": 0,
+                    "field_path": "education.completion_status",
+                    "value_shape": "string",
+                    "explicit": False,
+                    "evidence_reference_count": 1,
+                    "evidence_references_contain_duplicates": False,
                     "duplicate_prior_fact_index": None,
                 },
             ),

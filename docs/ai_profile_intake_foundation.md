@@ -100,7 +100,7 @@ are never logged.
 
 Only a compact JSON serialization of `ModelEvidencePacket` crosses the model
 boundary. The profile prompt and schema are isolated from opportunity
-enrichment. They are versioned as `ai_profile_extraction_prompt_v1`,
+enrichment. They are versioned as `ai_profile_extraction_prompt_v2`,
 `model_evidence_packet_v1`, and `ai_profile_extraction_v1`.
 
 Resume text is declared untrusted data. Instructions inside it—including
@@ -110,7 +110,9 @@ inference; inference of language from name/location/nationality; inference of
 current residence from old jobs; inference of missing credentials from
 omission; and conversion of historical behavior into present preferences.
 Every fact must cite supplied evidence. Taxonomy, normalization, and calculated
-facts must be marked inferred rather than explicit.
+facts must be marked inferred rather than explicit. The prompt's enum values and
+explicitness requirements are generated from the authoritative local field
+specifications so model instructions cannot drift from local validation.
 
 ## Structured output and local validation
 
