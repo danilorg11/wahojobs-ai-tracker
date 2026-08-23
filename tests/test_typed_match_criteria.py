@@ -11,9 +11,11 @@ from wahojobs.matching.typed_criteria import (
     OpportunityCriteriaV1,
     OpportunityDimensionV1,
     ProfileCriterionV1,
+    aggregate_single_criterion_relaxations_v1,
     compare_compensation_criterion,
     evaluate_match_criteria_shadow,
     evaluate_primary_preference_admission_v1,
+    evaluate_single_criterion_relaxations_v1,
     match_criteria_v1_from_profile,
     project_opportunity_criteria_v1,
     run_typed_match_criteria_shadow,
@@ -207,6 +209,84 @@ def matcher_row(*, job_id=7002, title="Synthetic Data Annotation Role"):
         "language_locale": None,
         "required_languages": None,
     }
+
+
+def nonblocking_eligibility(*, failing_id=None, unknown_id=None):
+    specifications = (
+        ("eligibility.required_languages", "required_language_eligibility"),
+        ("eligibility.location", "location_eligibility"),
+        ("eligibility.credentials_licenses", "credential_eligibility"),
+        ("eligibility.professional_domain", "professional_domain_eligibility"),
+    )
+    return tuple(
+        CriterionOutcomeV1(
+            criterion_id=criterion_id,
+            criterion_class="eligibility",
+            dimension=dimension,
+            outcome=(
+                "fail"
+                if criterion_id == failing_id
+                else "unknown"
+                if criterion_id == unknown_id
+                else "not_applicable"
+            ),
+            reason_code="synthetic_eligibility",
+            potentially_relaxable=False,
+        )
+        for criterion_id, dimension in specifications
+    )
+
+
+def criteria_with_model(model):
+    return match_criteria_v1_from_profile(
+        validate_canonical_profile_v2(
+            with_preference_model(profile_v2(minimum_kind="none"), model)
+        )
+    )
+
+
+def opportunity_for_dimension(dimension, value, *, known=True):
+    unknown = OpportunityDimensionV1("unknown", (), "synthetic_unknown")
+    dimensions = {
+        "employment_relationships": unknown,
+        "workloads": unknown,
+        "engagement_terms": unknown,
+        "schedule_flexibility_modes": unknown,
+        "schedule_coordination_modes": unknown,
+        "schedule_time_windows": unknown,
+        "phone_voice_modes": unknown,
+        "job_interests": unknown,
+        "career_levels": unknown,
+    }
+    fields = {
+        "employment_relationship": "employment_relationships",
+        "workload": "workloads",
+        "engagement_term": "engagement_terms",
+        "schedule_flexibility": "schedule_flexibility_modes",
+        "schedule_coordination": "schedule_coordination_modes",
+        "schedule_time_window": "schedule_time_windows",
+        "phone_voice": "phone_voice_modes",
+        "job_interest": "job_interests",
+        "career_level": "career_levels",
+    }
+    dimensions[fields[dimension]] = (
+        OpportunityDimensionV1("known", (value,), "synthetic_known")
+        if known
+        else unknown
+    )
+    return OpportunityCriteriaV1(
+        **dimensions,
+        compensation=OpportunityCompensationV1(
+            status="unknown",
+            disclosed=None,
+            currency=None,
+            amount_min=None,
+            amount_max=None,
+            period=None,
+            amount_type="unknown",
+            reason_code="synthetic_unknown",
+        ),
+    )
 
 
 class TypedMatchCriteriaTests(unittest.TestCase):
@@ -609,6 +689,304 @@ class TypedMatchCriteriaTests(unittest.TestCase):
         self.assertEqual(
             (not_applicable.outcome, not_applicable.reason_code),
             ("not_applicable", "compensation_minimum_not_set"),
+        )
+
+    def test_every_supported_choice_relaxation_is_proven_by_reevaluation(self):
+        cases = (
+            ("preferences.employment_relationships", "employment_relationship", "employee", "independent_contractor", "add_employment_relationship"),
+            ("preferences.workloads", "workload", "full_time", "part_time", "add_workload"),
+            ("preferences.engagement_terms", "engagement_term", "permanent", "temporary", "add_engagement_term"),
+            ("preferences.schedule.flexibility_modes", "schedule_flexibility", "fixed", "flexible", "allow_schedule_flexibility"),
+            ("preferences.schedule.coordination_modes", "schedule_coordination", "asynchronous", "synchronous", "allow_schedule_coordination"),
+            ("preferences.schedule.time_windows", "schedule_time_window", "weekdays", "weekends", "allow_schedule_time_window"),
+            ("preferences.accepted_phone_voice_modes", "phone_voice", "non_phone", "phone", "allow_phone_voice_mode"),
+            ("preferences.job_interests", "job_interest", "data_annotation", "customer_support", "broaden_job_interests"),
+            ("preferences.accepted_career_levels", "career_level", "entry", "mid", "add_accepted_career_level"),
+        )
+        for criterion_id, dimension, current, proposed, relaxation_type in cases:
+            with self.subTest(dimension=dimension):
+                criterion = ProfileCriterionV1(
+                    criterion_id=criterion_id,
+                    criterion_class="soft_preference",
+                    dimension=dimension,
+                    operator="any_of",
+                    accepted_values=(current,),
+                )
+                criteria = MatchCriteriaV1(
+                    source_status="present",
+                    eligibility_criteria=(),
+                    strict_preference_criteria=(),
+                    soft_preference_criteria=(criterion,),
+                )
+                candidates = evaluate_single_criterion_relaxations_v1(
+                    criteria,
+                    opportunity_for_dimension(dimension, proposed),
+                    nonblocking_eligibility(),
+                    opportunity_reference="canonical:101",
+                    original_rank=7,
+                )
+
+                self.assertEqual(len(candidates), 1)
+                candidate = candidates[0]
+                self.assertEqual(candidate.relaxation_type, relaxation_type)
+                self.assertEqual(candidate.current_accepted_values, (current,))
+                self.assertEqual(candidate.proposed_value, proposed)
+                self.assertEqual(
+                    (candidate.blocking_reason_code, candidate.counterfactual_reason_code),
+                    ("accepted_value_absent", "accepted_value_present"),
+                )
+
+    def test_relaxation_requires_one_soft_failure_and_nonblocking_eligibility(self):
+        model = empty_profile_preferences_v1()
+        model["workloads"] = ["full_time"]
+        model["job_interests"] = ["data_annotation"]
+        two_failure_criteria = criteria_with_model(model)
+        two_failure_opportunity = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(
+                engagement_type="part_time",
+                role_family="customer_support",
+                work_activities=(),
+            )
+        )
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                two_failure_criteria,
+                two_failure_opportunity,
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:201",
+                original_rank=1,
+            ),
+            (),
+        )
+
+        model = empty_profile_preferences_v1()
+        model["employment_relationships"] = ["employee"]
+        model["workloads"] = ["full_time"]
+        one_failure_criteria = criteria_with_model(model)
+        one_failure_opportunity = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(engagement_type="part_time")
+        )
+        self.assertEqual(
+            len(
+                evaluate_single_criterion_relaxations_v1(
+                    one_failure_criteria,
+                    one_failure_opportunity,
+                    nonblocking_eligibility(),
+                    opportunity_reference="canonical:202",
+                    original_rank=2,
+                )
+            ),
+            1,
+        )
+        for eligibility in (
+            nonblocking_eligibility(failing_id="eligibility.location"),
+            nonblocking_eligibility(unknown_id="eligibility.location"),
+            nonblocking_eligibility()[:-1],
+        ):
+            with self.subTest(eligibility=eligibility):
+                self.assertEqual(
+                    evaluate_single_criterion_relaxations_v1(
+                        one_failure_criteria,
+                        one_failure_opportunity,
+                        eligibility,
+                        opportunity_reference="canonical:202",
+                        original_rank=2,
+                    ),
+                    (),
+                )
+
+    def test_strict_failure_and_unknown_soft_evidence_never_create_relaxations(self):
+        strict_model = empty_profile_preferences_v1()
+        strict_model["workloads"] = ["full_time"]
+        strict_model["compensation"] = {
+            "minimum_kind": "strict",
+            "amount": "30",
+            "currency": "USD",
+            "period": "hour",
+        }
+        strict_and_soft_failure = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(
+                engagement_type="part_time",
+                amount_min=22,
+                amount_max=22,
+                amount_type="exact",
+            )
+        )
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                criteria_with_model(strict_model),
+                strict_and_soft_failure,
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:301",
+                original_rank=3,
+            ),
+            (),
+        )
+        strict_only_model = empty_profile_preferences_v1()
+        strict_only_model["compensation"] = strict_model["compensation"]
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                criteria_with_model(strict_only_model),
+                strict_and_soft_failure,
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:303",
+                original_rank=3,
+            ),
+            (),
+        )
+
+        relationship = ProfileCriterionV1(
+            criterion_id="preferences.employment_relationships",
+            criterion_class="soft_preference",
+            dimension="employment_relationship",
+            operator="any_of",
+            accepted_values=("employee",),
+        )
+        unknown_criteria = MatchCriteriaV1(
+            source_status="present",
+            eligibility_criteria=(),
+            strict_preference_criteria=(),
+            soft_preference_criteria=(relationship,),
+        )
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                unknown_criteria,
+                opportunity_for_dimension(
+                    "employment_relationship",
+                    "independent_contractor",
+                    known=False,
+                ),
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:302",
+                original_rank=4,
+            ),
+            (),
+        )
+
+    def test_preferred_compensation_relaxes_only_to_a_guaranteed_comparable_floor(self):
+        model = empty_profile_preferences_v1()
+        model["compensation"] = {
+            "minimum_kind": "preferred",
+            "amount": "25",
+            "currency": "USD",
+            "period": "hour",
+        }
+        criteria = criteria_with_model(model)
+        exact = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(
+                amount_min=22,
+                amount_max=22,
+                amount_type="exact",
+            )
+        )
+        candidate = evaluate_single_criterion_relaxations_v1(
+            criteria,
+            exact,
+            nonblocking_eligibility(),
+            opportunity_reference="canonical:401",
+            original_rank=5,
+        )[0]
+        self.assertEqual(candidate.relaxation_type, "lower_preferred_compensation_minimum")
+        self.assertEqual(
+            (
+                candidate.current_minimum_amount,
+                candidate.proposed_minimum_amount,
+                candidate.currency,
+                candidate.period,
+            ),
+            ("25", "22", "USD", "hour"),
+        )
+
+        excluded = (
+            enrichment(
+                disclosed=False,
+                currency=None,
+                amount_min=None,
+                amount_max=None,
+                period="unknown",
+                amount_type="unknown",
+            ),
+            enrichment(amount_min=22, amount_max=22, period="project", amount_type="exact"),
+            enrichment(amount_min=22, amount_max=22, currency="BRL", amount_type="exact"),
+            enrichment(amount_min=None, amount_max=22, amount_type="up_to"),
+        )
+        for index, fixture in enumerate(excluded, start=1):
+            with self.subTest(case=index):
+                opportunity = project_opportunity_criteria_v1(
+                    effective_enrichment=fixture
+                )
+                self.assertEqual(
+                    evaluate_single_criterion_relaxations_v1(
+                        criteria,
+                        opportunity,
+                        nonblocking_eligibility(),
+                        opportunity_reference=f"canonical:{410 + index}",
+                        original_rank=5 + index,
+                    ),
+                    (),
+                )
+
+    def test_equivalent_relaxations_aggregate_in_existing_rank_order(self):
+        criterion = ProfileCriterionV1(
+            criterion_id="preferences.workloads",
+            criterion_class="soft_preference",
+            dimension="workload",
+            operator="any_of",
+            accepted_values=("full_time",),
+        )
+        criteria = MatchCriteriaV1(
+            source_status="present",
+            eligibility_criteria=(),
+            strict_preference_criteria=(),
+            soft_preference_criteria=(criterion,),
+        )
+        opportunity = opportunity_for_dimension("workload", "part_time")
+        later = evaluate_single_criterion_relaxations_v1(
+            criteria,
+            opportunity,
+            nonblocking_eligibility(),
+            opportunity_reference="canonical:502",
+            original_rank=9,
+        )[0]
+        earlier = evaluate_single_criterion_relaxations_v1(
+            criteria,
+            opportunity,
+            nonblocking_eligibility(),
+            opportunity_reference="canonical:501",
+            original_rank=2,
+        )[0]
+        scenario = aggregate_single_criterion_relaxations_v1(
+            (later, earlier, later)
+        )[0]
+        diagnostic = scenario.as_dict()
+
+        self.assertEqual(diagnostic["unlock_count"], 2)
+        self.assertEqual(
+            diagnostic["unlocked_opportunities"],
+            [
+                {"opportunity_reference": "canonical:501", "original_rank": 2},
+                {"opportunity_reference": "canonical:502", "original_rank": 9},
+            ],
+        )
+        self.assertEqual(diagnostic["current"], {"accepted_values": ["full_time"]})
+        self.assertEqual(diagnostic["proposed"], {"add_value": "part_time"})
+
+    def test_legacy_criteria_never_produce_relaxation_scenarios(self):
+        absent = MatchCriteriaV1(
+            source_status="absent",
+            eligibility_criteria=(),
+            strict_preference_criteria=(),
+            soft_preference_criteria=(),
+        )
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                absent,
+                opportunity_for_dimension("workload", "part_time"),
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:601",
+                original_rank=1,
+            ),
+            (),
         )
 
     def test_shadow_runner_is_deterministic_non_mutating_and_matcher_inert(self):

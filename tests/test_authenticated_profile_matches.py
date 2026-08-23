@@ -945,6 +945,76 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             "keep",
         )
 
+    def test_single_criterion_relaxations_are_internal_and_preserve_primary_results(self):
+        model = empty_profile_preferences_v1()
+        model["workloads"] = ["full_time"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1501, 1502, 1503])
+        for match in context["matches"][
+            local_product.ACTIONABLE_PRESENTATION_SECTIONS[0]
+        ]:
+            match.update(
+                {
+                    "eligible_for_personalized": True,
+                    "language_requirement_mode": "none",
+                    "location_eligibility_status": "not_applicable",
+                }
+            )
+        rows = []
+        for job_id, commitment in (
+            (1501, "Part-time"),
+            (1502, "Full-time"),
+            (1503, "Part-time"),
+        ):
+            row = self._row(job_id=job_id)
+            row["commitment"] = commitment
+            rows.append(row)
+
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            {},
+        )
+        diagnostic = enforced["_typed_preference_enforcement"]
+        scenarios = diagnostic["single_criterion_relaxations"]["scenarios"]
+
+        self.assertEqual(
+            [
+                match["job_id"]
+                for match in matches_module._primary_presentation_matches(enforced)
+            ],
+            [1502],
+        )
+        self.assertEqual(len(scenarios), 1)
+        self.assertEqual(scenarios[0]["criterion_id"], "preferences.workloads")
+        self.assertEqual(scenarios[0]["proposed"], {"add_value": "part_time"})
+        self.assertEqual(scenarios[0]["unlock_count"], 2)
+        self.assertEqual(
+            scenarios[0]["unlocked_opportunities"],
+            [
+                {"opportunity_reference": "canonical:1501", "original_rank": 1},
+                {"opportunity_reference": "canonical:1503", "original_rank": 3},
+            ],
+        )
+
+        without_counterfactuals = deepcopy(enforced)
+        without_counterfactuals["_typed_preference_enforcement"].pop(
+            "single_criterion_relaxations"
+        )
+        self.assertEqual(
+            matches_module._render_match_results(enforced, inventory_count=3),
+            matches_module._render_match_results(
+                without_counterfactuals,
+                inventory_count=3,
+            ),
+        )
+        body = matches_module._render_match_results(enforced, inventory_count=3)
+        self.assertNotIn("single_criterion_relaxation", body)
+        self.assertNotIn("preferences.workloads", body)
+
     def test_enforcement_pool_never_admits_existing_hard_gated_match(self):
         model = empty_profile_preferences_v1()
         model["workloads"] = ["full_time"]
@@ -963,7 +1033,9 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         rows = []
         for job_id in (1401, 1402):
             row = self._row(job_id=job_id)
-            row["commitment"] = "Full-time"
+            row["commitment"] = (
+                "Part-time" if job_id == 1401 else "Full-time"
+            )
             rows.append(row)
 
         enforced = matches_module._apply_typed_preference_enforcement_v1(
@@ -984,6 +1056,10 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             "canonical:1401",
             enforced["_typed_preference_enforcement"]["candidate_references"],
         )
+        relaxations = enforced["_typed_preference_enforcement"][
+            "single_criterion_relaxations"
+        ]
+        self.assertEqual(relaxations["scenarios"], [])
 
     def test_preferred_and_strict_compensation_apply_distinct_unknown_policy(self):
         job_ids = [1201, 1202, 1203]

@@ -45,9 +45,12 @@ from wahojobs.matching.metadata_overlay import (
     apply_overlay_to_rows,
 )
 from wahojobs.matching.typed_criteria import (
+    SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION,
+    aggregate_single_criterion_relaxations_v1,
     bridge_existing_matcher_eligibility,
     evaluate_match_criteria_shadow,
     evaluate_primary_preference_admission_v1,
+    evaluate_single_criterion_relaxations_v1,
     match_criteria_v1_from_profile,
     project_opportunity_criteria_v1,
     run_typed_match_criteria_shadow,
@@ -2430,12 +2433,15 @@ def _apply_typed_preference_enforcement_v1(
     candidate_references = []
     surviving_references = []
     evaluations = []
-    for match in ranked_pool:
+    relaxation_candidates = []
+    for original_rank, match in enumerate(ranked_pool, start=1):
         reference = _typed_presentation_reference(match)
         if reference is None:
             continue
         candidate_references.append(reference)
         outcomes = []
+        opportunity = None
+        eligibility_outcomes = ()
         preference_evaluation_status = "unavailable"
         job_id = _typed_match_job_id(match)
         row = rows_by_job_id.get(job_id)
@@ -2463,11 +2469,26 @@ def _apply_typed_preference_enforcement_v1(
                 # missing soft results remain unknown and therefore fail open.
                 preference_evaluation_status = "unavailable"
         try:
-            outcomes.extend(bridge_existing_matcher_eligibility(match))
+            eligibility_outcomes = bridge_existing_matcher_eligibility(match)
+            outcomes.extend(eligibility_outcomes)
         except Exception:
             # The existing matcher result remains the eligibility authority.
             # A bridge diagnostic failure must not invent a new gate.
             pass
+        if opportunity is not None and eligibility_outcomes:
+            try:
+                relaxation_candidates.extend(
+                    evaluate_single_criterion_relaxations_v1(
+                        criteria,
+                        opportunity,
+                        eligibility_outcomes,
+                        opportunity_reference=reference,
+                        original_rank=original_rank,
+                    )
+                )
+            except Exception:
+                # Counterfactual diagnostics can never affect primary admission.
+                pass
         outcomes = tuple(sorted(outcomes, key=lambda item: item.criterion_id))
         admission = evaluate_primary_preference_admission_v1(
             criteria,
@@ -2484,6 +2505,13 @@ def _apply_typed_preference_enforcement_v1(
             }
         )
 
+    try:
+        relaxation_scenarios = aggregate_single_criterion_relaxations_v1(
+            tuple(relaxation_candidates)
+        )
+    except Exception:
+        # Bounded counterfactual aggregation is diagnostic-only.
+        relaxation_scenarios = ()
     updated = dict(context)
     updated["_typed_preference_enforcement"] = {
         "schema_version": TYPED_PREFERENCE_ENFORCEMENT_SCHEMA_VERSION,
@@ -2491,6 +2519,10 @@ def _apply_typed_preference_enforcement_v1(
         "candidate_references": candidate_references,
         "surviving_references": surviving_references,
         "evaluations": evaluations,
+        "single_criterion_relaxations": {
+            "schema_version": SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION,
+            "scenarios": [item.as_dict() for item in relaxation_scenarios],
+        },
     }
     return updated
 

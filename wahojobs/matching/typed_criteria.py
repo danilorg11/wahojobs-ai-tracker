@@ -40,6 +40,9 @@ SHADOW_DIAGNOSTIC_SCHEMA_VERSION = "match_criteria_shadow_diagnostic_v1"
 PRIMARY_PREFERENCE_ADMISSION_SCHEMA_VERSION = (
     "typed_preference_primary_admission_v1"
 )
+SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION = (
+    "single_criterion_relaxation_counterfactuals_v1"
+)
 
 CRITERION_CLASSES = frozenset(
     {"eligibility", "strict_preference", "soft_preference"}
@@ -194,6 +197,36 @@ _OPPORTUNITY_DIMENSION_FIELDS = {
     "job_interest": "job_interests",
     "career_level": "career_levels",
 }
+
+_CRITERION_IDS_BY_DIMENSION = {
+    dimension: criterion_id
+    for criterion_id, dimension, _path in _PROFILE_LIST_CRITERIA
+}
+_CRITERION_IDS_BY_DIMENSION["compensation_minimum"] = (
+    "preferences.compensation.minimum"
+)
+
+_RELAXATION_TYPES_BY_DIMENSION = {
+    "employment_relationship": "add_employment_relationship",
+    "workload": "add_workload",
+    "engagement_term": "add_engagement_term",
+    "schedule_flexibility": "allow_schedule_flexibility",
+    "schedule_coordination": "allow_schedule_coordination",
+    "schedule_time_window": "allow_schedule_time_window",
+    "phone_voice": "allow_phone_voice_mode",
+    "job_interest": "broaden_job_interests",
+    "career_level": "add_accepted_career_level",
+    "compensation_minimum": "lower_preferred_compensation_minimum",
+}
+
+_EXISTING_ELIGIBILITY_CRITERION_IDS = frozenset(
+    {
+        "eligibility.required_languages",
+        "eligibility.location",
+        "eligibility.credentials_licenses",
+        "eligibility.professional_domain",
+    }
+)
 
 
 class TypedCriteriaError(ValueError):
@@ -560,6 +593,228 @@ class PrimaryPreferenceAdmissionV1:
         }
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class SingleCriterionRelaxationCandidateV1:
+    """One proven one-change unlock for one already-ranked opportunity."""
+
+    criterion_id: str
+    dimension: str
+    relaxation_type: str
+    opportunity_reference: str
+    original_rank: int
+    blocking_reason_code: str
+    counterfactual_reason_code: str
+    current_accepted_values: tuple[str, ...] = ()
+    proposed_value: str | None = None
+    current_minimum_amount: str | None = None
+    proposed_minimum_amount: str | None = None
+    currency: str | None = None
+    period: str | None = None
+
+    def __post_init__(self):
+        if (
+            type(self.criterion_id) is not str
+            or not self.criterion_id
+            or len(self.criterion_id) > 128
+            or self.dimension not in _RELAXATION_TYPES_BY_DIMENSION
+            or self.criterion_id != _CRITERION_IDS_BY_DIMENSION[self.dimension]
+            or self.relaxation_type
+            != _RELAXATION_TYPES_BY_DIMENSION[self.dimension]
+            or not _valid_opportunity_reference(self.opportunity_reference)
+            or type(self.original_rank) is not int
+            or not 1 <= self.original_rank <= 1_000_000
+            or type(self.blocking_reason_code) is not str
+            or not self.blocking_reason_code
+            or len(self.blocking_reason_code) > 128
+            or type(self.counterfactual_reason_code) is not str
+            or not self.counterfactual_reason_code
+            or len(self.counterfactual_reason_code) > 128
+        ):
+            raise TypedCriteriaError("invalid_relaxation_candidate")
+        if self.dimension == "compensation_minimum":
+            current = _positive_decimal(self.current_minimum_amount)
+            proposed = _positive_decimal(self.proposed_minimum_amount)
+            if (
+                self.current_accepted_values
+                or self.proposed_value is not None
+                or current is None
+                or proposed is None
+                or proposed >= current
+                or self.currency not in ISO_4217_CURRENCIES
+                or self.period not in COMPENSATION_PERIODS
+                or self.blocking_reason_code
+                != "compensation_below_preferred_minimum"
+                or self.counterfactual_reason_code
+                != "compensation_preferred_minimum_guaranteed"
+            ):
+                raise TypedCriteriaError("invalid_relaxation_candidate")
+        else:
+            allowed = DIMENSION_ALLOWED_VALUES[self.dimension]
+            if (
+                not self.current_accepted_values
+                or tuple(sorted(self.current_accepted_values))
+                != self.current_accepted_values
+                or len(self.current_accepted_values)
+                != len(set(self.current_accepted_values))
+                or any(value not in allowed for value in self.current_accepted_values)
+                or self.proposed_value not in allowed
+                or self.proposed_value in self.current_accepted_values
+                or any(
+                    value is not None
+                    for value in (
+                        self.current_minimum_amount,
+                        self.proposed_minimum_amount,
+                        self.currency,
+                        self.period,
+                    )
+                )
+                or self.blocking_reason_code != "accepted_value_absent"
+                or self.counterfactual_reason_code != "accepted_value_present"
+            ):
+                raise TypedCriteriaError("invalid_relaxation_candidate")
+
+    def aggregation_key(self) -> tuple:
+        return (
+            self.criterion_id,
+            self.dimension,
+            self.relaxation_type,
+            self.current_accepted_values,
+            self.proposed_value,
+            self.current_minimum_amount,
+            self.proposed_minimum_amount,
+            self.currency,
+            self.period,
+            self.blocking_reason_code,
+            self.counterfactual_reason_code,
+        )
+
+    def __repr__(self):
+        return (
+            "SingleCriterionRelaxationCandidateV1("
+            f"criterion_id={self.criterion_id!r}, "
+            f"dimension={self.dimension!r}, "
+            f"opportunity_reference={self.opportunity_reference!r}, "
+            f"original_rank={self.original_rank}, change=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class SingleCriterionRelaxationScenarioV1:
+    """Equivalent one-change unlocks aggregated in matcher rank order."""
+
+    scenario_id: str
+    criterion_id: str
+    dimension: str
+    relaxation_type: str
+    blocking_reason_code: str
+    counterfactual_reason_code: str
+    unlocked_opportunities: tuple[tuple[str, int], ...]
+    current_accepted_values: tuple[str, ...] = ()
+    proposed_value: str | None = None
+    current_minimum_amount: str | None = None
+    proposed_minimum_amount: str | None = None
+    currency: str | None = None
+    period: str | None = None
+    schema_version: str = SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION
+
+    def __post_init__(self):
+        if (
+            self.schema_version != SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION
+            or type(self.scenario_id) is not str
+            or len(self.scenario_id) > 256
+            or self.scenario_id
+            != _relaxation_scenario_id(
+                self.criterion_id,
+                self.proposed_value,
+                self.proposed_minimum_amount,
+                self.currency,
+                self.period,
+            )
+            or type(self.unlocked_opportunities) is not tuple
+            or not self.unlocked_opportunities
+            or len(self.unlocked_opportunities) > 10_000
+        ):
+            raise TypedCriteriaError("invalid_relaxation_scenario")
+        references = []
+        ranks = []
+        for item in self.unlocked_opportunities:
+            if (
+                type(item) is not tuple
+                or len(item) != 2
+                or not _valid_opportunity_reference(item[0])
+                or type(item[1]) is not int
+                or not 1 <= item[1] <= 1_000_000
+            ):
+                raise TypedCriteriaError("invalid_relaxation_scenario")
+            references.append(item[0])
+            ranks.append(item[1])
+        if (
+            len(references) != len(set(references))
+            or len(ranks) != len(set(ranks))
+            or ranks != sorted(ranks)
+        ):
+            raise TypedCriteriaError("invalid_relaxation_scenario")
+        # Reuse the candidate's closed change-shape validation.
+        SingleCriterionRelaxationCandidateV1(
+            criterion_id=self.criterion_id,
+            dimension=self.dimension,
+            relaxation_type=self.relaxation_type,
+            opportunity_reference=references[0],
+            original_rank=ranks[0],
+            blocking_reason_code=self.blocking_reason_code,
+            counterfactual_reason_code=self.counterfactual_reason_code,
+            current_accepted_values=self.current_accepted_values,
+            proposed_value=self.proposed_value,
+            current_minimum_amount=self.current_minimum_amount,
+            proposed_minimum_amount=self.proposed_minimum_amount,
+            currency=self.currency,
+            period=self.period,
+        )
+
+    def as_dict(self) -> dict:
+        if self.dimension == "compensation_minimum":
+            current = {
+                "minimum_amount": self.current_minimum_amount,
+                "currency": self.currency,
+                "period": self.period,
+            }
+            proposed = {
+                "minimum_amount": self.proposed_minimum_amount,
+                "currency": self.currency,
+                "period": self.period,
+            }
+        else:
+            current = {"accepted_values": list(self.current_accepted_values)}
+            proposed = {"add_value": self.proposed_value}
+        return {
+            "schema_version": self.schema_version,
+            "scenario_id": self.scenario_id,
+            "criterion_id": self.criterion_id,
+            "dimension": self.dimension,
+            "relaxation_type": self.relaxation_type,
+            "current": current,
+            "proposed": proposed,
+            "blocking_reason_code": self.blocking_reason_code,
+            "counterfactual_reason_code": self.counterfactual_reason_code,
+            "unlock_count": len(self.unlocked_opportunities),
+            "unlocked_opportunities": [
+                {
+                    "opportunity_reference": reference,
+                    "original_rank": rank,
+                }
+                for reference, rank in self.unlocked_opportunities
+            ],
+        }
+
+    def __repr__(self):
+        return (
+            "SingleCriterionRelaxationScenarioV1("
+            f"scenario_id={self.scenario_id!r}, "
+            f"unlock_count={len(self.unlocked_opportunities)}, "
+            "change=<redacted>)"
+        )
+
+
 def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
     """Build typed criteria from optional authoritative profile preferences."""
     profile = validate_canonical_profile_v2(profile_v2)
@@ -806,6 +1061,325 @@ def evaluate_primary_preference_admission_v1(
     return PrimaryPreferenceAdmissionV1(
         "exclude" if exclusion_ids else "keep",
         exclusion_ids,
+    )
+
+
+def evaluate_single_criterion_relaxations_v1(
+    criteria: MatchCriteriaV1,
+    opportunity: OpportunityCriteriaV1,
+    eligibility_outcomes: tuple[CriterionOutcomeV1, ...],
+    *,
+    opportunity_reference: str,
+    original_rank: int,
+) -> tuple[SingleCriterionRelaxationCandidateV1, ...]:
+    """Prove every one-soft-criterion change that admits one opportunity.
+
+    Unknown eligibility, a non-passing strict criterion, multiple soft failures,
+    or unknown evidence returns no proposal. Each returned proposal is rebuilt as
+    typed criteria and evaluated through the normal admission policy.
+    """
+    if (
+        type(criteria) is not MatchCriteriaV1
+        or type(opportunity) is not OpportunityCriteriaV1
+        or type(eligibility_outcomes) is not tuple
+        or any(type(item) is not CriterionOutcomeV1 for item in eligibility_outcomes)
+        or any(item.criterion_class != "eligibility" for item in eligibility_outcomes)
+        or len({item.criterion_id for item in eligibility_outcomes})
+        != len(eligibility_outcomes)
+        or not _valid_opportunity_reference(opportunity_reference)
+        or type(original_rank) is not int
+        or not 1 <= original_rank <= 1_000_000
+    ):
+        raise TypedCriteriaError("invalid_relaxation_evaluation_input")
+    if criteria.source_status != "present":
+        return ()
+
+    eligibility_by_id = {
+        item.criterion_id: item for item in eligibility_outcomes
+    }
+    if (
+        not _EXISTING_ELIGIBILITY_CRITERION_IDS.issubset(eligibility_by_id)
+        or any(
+            item.outcome not in {"pass", "not_applicable"}
+            for item in eligibility_outcomes
+        )
+    ):
+        return ()
+
+    current_evaluation = evaluate_match_criteria_shadow(criteria, opportunity)
+    preference_by_id = {
+        item.criterion_id: item for item in current_evaluation.outcomes
+    }
+    if any(
+        preference_by_id.get(criterion.criterion_id) is None
+        or preference_by_id[criterion.criterion_id].outcome != "pass"
+        for criterion in criteria.strict_preference_criteria
+    ):
+        return ()
+
+    soft_failures = tuple(
+        preference_by_id[criterion.criterion_id]
+        for criterion in criteria.soft_preference_criteria
+        if preference_by_id[criterion.criterion_id].outcome == "fail"
+    )
+    if len(soft_failures) != 1:
+        return ()
+    failure = soft_failures[0]
+    if not failure.potentially_relaxable:
+        return ()
+
+    current_outcomes = tuple(
+        sorted(
+            current_evaluation.outcomes + eligibility_outcomes,
+            key=lambda item: item.criterion_id,
+        )
+    )
+    current_admission = evaluate_primary_preference_admission_v1(
+        criteria,
+        current_outcomes,
+    )
+    if current_admission.exclusion_criterion_ids != (failure.criterion_id,):
+        return ()
+
+    failing_criterion = next(
+        criterion
+        for criterion in criteria.soft_preference_criteria
+        if criterion.criterion_id == failure.criterion_id
+    )
+    proposed_criteria = _single_criterion_proposals(
+        failing_criterion,
+        opportunity,
+        failure,
+    )
+    candidates = []
+    for proposed in proposed_criteria:
+        counterfactual = _replace_soft_criterion(criteria, proposed)
+        counterfactual_evaluation = evaluate_match_criteria_shadow(
+            counterfactual,
+            opportunity,
+        )
+        counterfactual_by_id = {
+            item.criterion_id: item
+            for item in counterfactual_evaluation.outcomes
+        }
+        changed_result = counterfactual_by_id.get(failure.criterion_id)
+        if changed_result is None or changed_result.outcome != "pass":
+            continue
+        if any(
+            before.criterion_id != failure.criterion_id
+            and counterfactual_by_id.get(before.criterion_id) != before
+            for before in current_evaluation.outcomes
+        ):
+            continue
+        counterfactual_outcomes = tuple(
+            sorted(
+                counterfactual_evaluation.outcomes + eligibility_outcomes,
+                key=lambda item: item.criterion_id,
+            )
+        )
+        if evaluate_primary_preference_admission_v1(
+            counterfactual,
+            counterfactual_outcomes,
+        ).status != "keep":
+            continue
+        candidates.append(
+            _relaxation_candidate(
+                failing_criterion,
+                proposed,
+                failure,
+                changed_result,
+                opportunity_reference,
+                original_rank,
+            )
+        )
+    return tuple(
+        sorted(
+            candidates,
+            key=lambda item: (
+                item.criterion_id,
+                item.proposed_value or "",
+                item.proposed_minimum_amount or "",
+            ),
+        )
+    )
+
+
+def aggregate_single_criterion_relaxations_v1(
+    candidates: tuple[SingleCriterionRelaxationCandidateV1, ...],
+) -> tuple[SingleCriterionRelaxationScenarioV1, ...]:
+    """Aggregate equivalent proven changes while retaining matcher rank."""
+    if type(candidates) is not tuple or any(
+        type(item) is not SingleCriterionRelaxationCandidateV1
+        for item in candidates
+    ):
+        raise TypedCriteriaError("invalid_relaxation_aggregation_input")
+    grouped = {}
+    for candidate in candidates:
+        opportunities = grouped.setdefault(candidate.aggregation_key(), {})
+        previous = opportunities.get(candidate.opportunity_reference)
+        if previous is None or candidate.original_rank < previous.original_rank:
+            opportunities[candidate.opportunity_reference] = candidate
+
+    scenarios = []
+    for opportunities in grouped.values():
+        ranked = tuple(
+            sorted(
+                opportunities.values(),
+                key=lambda item: (item.original_rank, item.opportunity_reference),
+            )
+        )
+        first = ranked[0]
+        scenarios.append(
+            SingleCriterionRelaxationScenarioV1(
+                scenario_id=_relaxation_scenario_id(
+                    first.criterion_id,
+                    first.proposed_value,
+                    first.proposed_minimum_amount,
+                    first.currency,
+                    first.period,
+                ),
+                criterion_id=first.criterion_id,
+                dimension=first.dimension,
+                relaxation_type=first.relaxation_type,
+                blocking_reason_code=first.blocking_reason_code,
+                counterfactual_reason_code=first.counterfactual_reason_code,
+                unlocked_opportunities=tuple(
+                    (item.opportunity_reference, item.original_rank)
+                    for item in ranked
+                ),
+                current_accepted_values=first.current_accepted_values,
+                proposed_value=first.proposed_value,
+                current_minimum_amount=first.current_minimum_amount,
+                proposed_minimum_amount=first.proposed_minimum_amount,
+                currency=first.currency,
+                period=first.period,
+            )
+        )
+    return tuple(
+        sorted(
+            scenarios,
+            key=lambda item: (
+                item.unlocked_opportunities[0][1],
+                item.scenario_id,
+            ),
+        )
+    )
+
+
+def _single_criterion_proposals(criterion, opportunity, failure):
+    if criterion.operator == "any_of":
+        dimension = getattr(
+            opportunity,
+            _OPPORTUNITY_DIMENSION_FIELDS[criterion.dimension],
+        )
+        if (
+            dimension.status != "known"
+            or failure.reason_code != "accepted_value_absent"
+        ):
+            return ()
+        return tuple(
+            ProfileCriterionV1(
+                criterion_id=criterion.criterion_id,
+                criterion_class="soft_preference",
+                dimension=criterion.dimension,
+                operator="any_of",
+                accepted_values=tuple(
+                    sorted(set(criterion.accepted_values) | {value})
+                ),
+            )
+            for value in dimension.values
+            if value not in criterion.accepted_values
+        )
+
+    compensation = opportunity.compensation
+    if (
+        criterion.dimension != "compensation_minimum"
+        or criterion.criterion_class != "soft_preference"
+        or failure.reason_code != "compensation_below_preferred_minimum"
+        or compensation.status != "known"
+        or compensation.disclosed is not True
+        or compensation.currency != criterion.currency
+        or compensation.period != criterion.period
+        or compensation.period not in COMPENSATION_PERIODS
+        or compensation.amount_type not in {"exact", "range", "from"}
+    ):
+        return ()
+    if compensation.amount_type == "exact":
+        minimum = _nonnegative_decimal(compensation.amount_min)
+        maximum = _nonnegative_decimal(compensation.amount_max)
+        if minimum is not None and maximum is not None and minimum != maximum:
+            return ()
+        exact = compensation.amount_min if minimum is not None else compensation.amount_max
+        lower_bound = _canonical_positive_decimal(exact)
+    else:
+        lower_bound = _canonical_positive_decimal(compensation.amount_min)
+    current = _positive_decimal(criterion.minimum_amount)
+    proposed = _positive_decimal(lower_bound)
+    if current is None or proposed is None or proposed >= current:
+        return ()
+    if compensation.amount_type == "range":
+        maximum = _nonnegative_decimal(compensation.amount_max)
+        if maximum is None or proposed > maximum:
+            return ()
+    return (
+        ProfileCriterionV1(
+            criterion_id=criterion.criterion_id,
+            criterion_class="soft_preference",
+            dimension="compensation_minimum",
+            operator="minimum",
+            minimum_amount=lower_bound,
+            currency=criterion.currency,
+            period=criterion.period,
+        ),
+    )
+
+
+def _replace_soft_criterion(criteria, proposed):
+    return MatchCriteriaV1(
+        source_status="present",
+        eligibility_criteria=criteria.eligibility_criteria,
+        strict_preference_criteria=criteria.strict_preference_criteria,
+        soft_preference_criteria=tuple(
+            proposed if item.criterion_id == proposed.criterion_id else item
+            for item in criteria.soft_preference_criteria
+        ),
+    )
+
+
+def _relaxation_candidate(
+    current,
+    proposed,
+    failure,
+    counterfactual_result,
+    opportunity_reference,
+    original_rank,
+):
+    common = {
+        "criterion_id": current.criterion_id,
+        "dimension": current.dimension,
+        "relaxation_type": _RELAXATION_TYPES_BY_DIMENSION[current.dimension],
+        "opportunity_reference": opportunity_reference,
+        "original_rank": original_rank,
+        "blocking_reason_code": failure.reason_code,
+        "counterfactual_reason_code": counterfactual_result.reason_code,
+    }
+    if current.operator == "any_of":
+        added = tuple(
+            sorted(set(proposed.accepted_values) - set(current.accepted_values))
+        )
+        if len(added) != 1:
+            raise TypedCriteriaError("invalid_relaxation_proposal")
+        return SingleCriterionRelaxationCandidateV1(
+            **common,
+            current_accepted_values=current.accepted_values,
+            proposed_value=added[0],
+        )
+    return SingleCriterionRelaxationCandidateV1(
+        **common,
+        current_minimum_amount=current.minimum_amount,
+        proposed_minimum_amount=proposed.minimum_amount,
+        currency=current.currency,
+        period=current.period,
     )
 
 
@@ -1478,6 +2052,38 @@ def _decimal_from_number(value):
     if not decimal.is_finite() or decimal < 0:
         return None
     return format(decimal.normalize(), "f")
+
+
+def _canonical_positive_decimal(value):
+    decimal = _positive_decimal(value)
+    return format(decimal.normalize(), "f") if decimal is not None else None
+
+
+def _valid_opportunity_reference(value):
+    if type(value) is not str or len(value) > 64 or ":" not in value:
+        return False
+    kind, identifier = value.split(":", 1)
+    return (
+        kind in {"canonical", "job"}
+        and len(identifier) <= 20
+        and identifier.isascii()
+        and identifier.isdigit()
+        and int(identifier) > 0
+    )
+
+
+def _relaxation_scenario_id(
+    criterion_id,
+    proposed_value,
+    proposed_minimum_amount,
+    currency,
+    period,
+):
+    if proposed_value is not None:
+        return f"{criterion_id}|add|{proposed_value}"
+    return (
+        f"{criterion_id}|lower|{proposed_minimum_amount}|{currency}|{period}"
+    )
 
 
 def _nested(value, path):

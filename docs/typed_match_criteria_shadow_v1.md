@@ -115,3 +115,29 @@ projection failure is treated as missing evidence: active strict criteria fail
 closed, while active soft criteria fail open. Existing scoring, ranking,
 thresholds, trust/freshness rules, matcher inputs, and public catalog behavior
 remain unchanged.
+
+## Single-criterion relaxation counterfactuals
+
+The authenticated boundary also evaluates excluded members of that same full
+ranked eligible pool for internal `single_criterion_relaxation_counterfactuals_v1`
+diagnostics. This does not alter the primary list and is not rendered. A
+scenario exists only when all bridged eligibility results are pass or not
+applicable, every strict preference passes, exactly one soft preference is a
+known failure, and every other soft result is non-blocking under the primary
+policy. Missing or unknown eligibility authority produces no scenario.
+
+For accepted-choice dimensions, the engine proposes adding an exact known
+opportunity value to the current accepted set. For preferred compensation, it
+can propose lowering the minimum only to a positive guaranteed lower bound
+from disclosed pay in the same currency and period. It does not use `up_to`,
+undisclosed, project/asset/source-word, incompatible-currency, or
+incompatible-period pay, and strict compensation is never relaxable.
+
+Every proposal is applied to a newly constructed `MatchCriteriaV1`, then the
+ordinary criterion evaluator and primary admission policy are run again. The
+scenario is retained only if the changed criterion passes and the whole
+opportunity becomes admissible with no other criterion changed. Equivalent
+changes aggregate stable internal opportunity references in the matcher's
+existing rank order. Eligibility, hard exclusions, trust/freshness, scores,
+thresholds, and ranking are not counterfactual inputs and cannot be suggested
+as relaxations.

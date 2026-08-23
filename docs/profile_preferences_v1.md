@@ -108,3 +108,6 @@ boundary now uses those same outcomes as a removal-only filter while retaining
 the broader shadow diagnostic. Its contracts and enforcement policy are
 documented in
 [`typed_match_criteria_shadow_v1.md`](typed_match_criteria_shadow_v1.md).
+The typed layer also computes internal, single-soft-criterion
+counterfactuals over excluded ranked opportunities. These diagnostics neither
+change the primary match list nor render candidate-facing relaxation claims.
