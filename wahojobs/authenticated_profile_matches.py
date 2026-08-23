@@ -1608,6 +1608,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 rows, overlay_status = self._load_inventory()
                 inventory_count = len(rows)
                 evaluated_at = _trusted_utc(self._now())
+                authoritative_matches = []
                 context = profile_preview.build_preview_context_from_canonical_rows(
                     projected,
                     inventory_rows=rows,
@@ -1617,8 +1618,13 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     normalization_warnings=[],
                     extraction_quality="reviewed",
                     evaluated_at=evaluated_at,
+                    evaluated_match_sink=authoritative_matches.append,
                 )
-                self._emit_criteria_shadow(profile_v2, rows)
+                self._emit_criteria_shadow(
+                    profile_v2,
+                    rows,
+                    authoritative_matches,
+                )
             if self._write_connection_provider is None:
                 content = _render_match_results(context, inventory_count=inventory_count)
             else:
@@ -1685,7 +1691,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         }
         return enriched, status
 
-    def _emit_criteria_shadow(self, profile_v2, rows):
+    def _emit_criteria_shadow(self, profile_v2, rows, authoritative_matches):
         """Best-effort diagnostics that cannot affect the visible match context."""
         try:
             preferences = profile_v2.get("preferences")
@@ -1704,6 +1710,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 profile_v2,
                 rows,
                 effective,
+                authoritative_matches=authoritative_matches,
                 diagnostic_sink=self._criteria_shadow_sink,
             )
         except Exception:

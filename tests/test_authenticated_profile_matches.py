@@ -667,6 +667,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(shadow.call_args.args[0], self.profile_v2)
         self.assertEqual(shadow.call_args.args[1], [safe, unsafe])
         self.assertEqual(shadow.call_args.args[2], {})
+        self.assertTrue(shadow.call_args.kwargs["authoritative_matches"])
         self.assertEqual(project.call_args.args[0], self.profile_v2)
         self.assertEqual(
             project.call_args.kwargs["matcher_profile_id"],
@@ -734,18 +735,29 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(len(query_calls), 1)
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0]["schema_version"], "match_criteria_shadow_diagnostic_v1")
+        outcomes = {
+            outcome["criterion_id"]: outcome
+            for outcome in captured[0]["outcomes"]
+        }
         self.assertEqual(
-            captured[0]["outcomes"],
-            [
-                {
-                    "criterion_id": "preferences.workloads",
-                    "criterion_class": "soft_preference",
-                    "dimension": "workload",
-                    "outcome": "pass",
-                    "reason_code": "accepted_value_present",
-                    "potentially_relaxable": False,
-                }
-            ],
+            outcomes["preferences.workloads"],
+            {
+                "criterion_id": "preferences.workloads",
+                "criterion_class": "soft_preference",
+                "dimension": "workload",
+                "outcome": "pass",
+                "reason_code": "accepted_value_present",
+                "potentially_relaxable": False,
+            },
+        )
+        eligibility = [
+            outcome
+            for outcome in outcomes.values()
+            if outcome["criterion_class"] == "eligibility"
+        ]
+        self.assertEqual(len(eligibility), 4)
+        self.assertTrue(
+            all(not outcome["potentially_relaxable"] for outcome in eligibility)
         )
         body = self._body(response)
         self.assertNotIn("match_criteria_shadow", body)

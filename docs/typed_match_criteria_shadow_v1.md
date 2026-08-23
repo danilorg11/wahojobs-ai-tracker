@@ -21,6 +21,36 @@ schedule facets, phone/voice modes, job interests, and accepted career levels.
 A preferred compensation minimum is soft and a strict compensation minimum is
 strict. Only failed soft criteria are marked potentially relaxable.
 
+## Existing eligibility bridge
+
+Opportunity-specific eligibility outcomes are translated from the existing
+post-guardrail matcher record. They are not rebuilt from profile or opportunity
+text. The profile-side `eligibility_criteria` collection remains empty; the
+bridge adds four stable `eligibility` results to the shadow evaluation:
+
+- `eligibility.required_languages` consumes the matcher's personalized
+  language decision and its existing confirmed/unconfirmed title-language
+  guardrails;
+- `eligibility.location` consumes the stored-location eligibility status and
+  existing location actionability guardrails;
+- `eligibility.credentials_licenses` consumes explicit credential conflicts
+  and already-produced credential fit evidence; an unconfirmed requirement
+  remains unknown;
+- `eligibility.professional_domain` consumes only the existing decisive
+  finance/legal professional-domain hard gate.
+
+Each result is `pass`, `fail`, `unknown`, or `not_applicable`, always has
+`potentially_relaxable: false`, and carries only closed enums, booleans, and
+bounded counts as context. It never copies location text, language names,
+credential labels, job text, or profile evidence into the diagnostic.
+
+The post-guardrail diagnostic sink receives a copy of every evaluated match
+before deduplication and display limits. Sink failures are ignored. Opportunity
+trust/freshness, affirmative-fit confidence, specialization caps, and ordinary
+score penalties are not candidate eligibility and are not bridged. Structured
+enrichment credentials/licenses are also not bridged yet because the current
+matcher does not use them as authoritative gates.
+
 ## Opportunity projection
 
 `opportunity_match_criteria_v1` represents each dimension as known values or

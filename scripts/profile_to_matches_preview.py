@@ -8,6 +8,7 @@ rows, fixtures, or product-state data.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import re
 import sys
@@ -430,6 +431,7 @@ def build_preview_context_from_canonical_rows(
     ambiguous_fields: list[str] | None = None,
     extraction_quality: str = "reviewed",
     evaluated_at: datetime | None = None,
+    evaluated_match_sink=None,
 ) -> dict:
     """Match a canonical profile against explicit, already-loaded inventory rows.
 
@@ -446,6 +448,7 @@ def build_preview_context_from_canonical_rows(
         rows,
         limit,
         evaluated_at=evaluated_at,
+        evaluated_match_sink=evaluated_match_sink,
     )
     canonical_summary = canonical_profile_debug_summary(canonical)
     normalization_warnings = list(normalization_warnings or [])
@@ -580,8 +583,11 @@ def build_grouped_matches_from_rows(
     limit: int,
     *,
     evaluated_at: datetime | None = None,
+    evaluated_match_sink=None,
 ) -> dict:
     """Score preloaded rows through the production preview projection."""
+    if evaluated_match_sink is not None and not callable(evaluated_match_sink):
+        raise ValueError("invalid_evaluated_match_sink")
     supported_specializations = specialization_evidence(profile)
     profile_fit_evidence = build_profile_fit_evidence(profile)
     evaluated_at = evaluated_at or datetime.now(timezone.utc)
@@ -596,6 +602,11 @@ def build_grouped_matches_from_rows(
             profile_fit_evidence=profile_fit_evidence,
             evaluated_at=evaluated_at,
         )
+        if evaluated_match_sink is not None:
+            try:
+                evaluated_match_sink(deepcopy(match))
+            except Exception:
+                pass
         scored.append(match)
 
     deduped = dedupe_matches(scored)

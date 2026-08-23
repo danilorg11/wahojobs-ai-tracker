@@ -45,6 +45,81 @@ CRITERION_OUTCOMES = frozenset({"pass", "fail", "unknown", "not_applicable"})
 DIMENSION_STATUSES = frozenset({"known", "unknown"})
 CRITERION_OPERATORS = frozenset({"any_of", "minimum"})
 
+_ELIGIBILITY_CONTEXT_SPEC = {
+    "authority": frozenset(
+        {
+            "matcher_language_eligibility",
+            "matcher_location_eligibility",
+            "preview_credential_guardrail",
+            "preview_professional_domain_gate",
+        }
+    ),
+    "requirement_mode": frozenset(
+        {"none", "single", "all_required", "any_supported", "ambiguous", "unknown"}
+    ),
+    "detected_count": int,
+    "matched_count": int,
+    "unsupported_count": int,
+    "gate_code": frozenset(
+        {
+            "none",
+            "personalized_eligibility_failed",
+            "unsupported_title_language_or_dialect",
+            "unconfirmed_language_requirement",
+            "unconfirmed_language_locale",
+            "location_actionability_cap",
+            "unconfirmed_location_restriction",
+            "incompatible_location",
+            "explicit_credential_incompatibility",
+            "absent_science_credentials",
+            "medical_credential_requirement",
+            "professional_domain_hard_gate",
+        }
+    ),
+    "authority_status": frozenset(
+        {"eligible", "incompatible", "unknown", "not_applicable"}
+    ),
+    "profile_location_status": frozenset({"known", "unknown"}),
+    "restriction_type": frozenset({"none", "concrete", "opaque"}),
+    "job_location_scope": frozenset(
+        {
+            "remote_worldwide",
+            "remote_restricted",
+            "onsite_or_hybrid_restricted",
+            "unknown",
+        }
+    ),
+    "job_remote_status": frozenset({"remote", "hybrid", "onsite", "unknown"}),
+    "actionability_cap_required": bool,
+    "actionability_cap_applied": bool,
+    "requirement_present": bool,
+    "supported_requirement_count": int,
+    "hard_gate_applied": bool,
+    "role_domain_count": int,
+    "matched_domain_count": int,
+    "missing_essential_count": int,
+}
+
+_LANGUAGE_FAIL_GATES = (
+    "personalized_eligibility_failed",
+    "unsupported_title_language_or_dialect",
+)
+_LANGUAGE_UNKNOWN_GATES = (
+    "unconfirmed_language_requirement",
+    "unconfirmed_language_locale",
+)
+_LOCATION_GATES = (
+    "incompatible_location",
+    "location_actionability_cap",
+    "unconfirmed_location_restriction",
+)
+_CREDENTIAL_FAIL_GATES = ("explicit_credential_incompatibility",)
+_CREDENTIAL_UNKNOWN_GATES = (
+    "absent_science_credentials",
+    "medical_credential_requirement",
+)
+_DECISIVE_PROFESSIONAL_DOMAINS = frozenset({"finance", "legal"})
+
 DIMENSION_ALLOWED_VALUES = {
     "employment_relationship": EMPLOYMENT_RELATIONSHIPS,
     "workload": WORKLOADS,
@@ -375,6 +450,7 @@ class CriterionOutcomeV1:
     outcome: str
     reason_code: str
     potentially_relaxable: bool
+    context: tuple[tuple[str, str | int | bool], ...] = ()
 
     def __post_init__(self):
         if (
@@ -389,11 +465,30 @@ class CriterionOutcomeV1:
             or type(self.potentially_relaxable) is not bool
             or self.potentially_relaxable
             != (self.criterion_class == "soft_preference" and self.outcome == "fail")
+            or type(self.context) is not tuple
+            or (self.context and self.criterion_class != "eligibility")
         ):
+            raise TypedCriteriaError("invalid_criterion_outcome")
+        context_keys = []
+        for item in self.context:
+            if type(item) is not tuple or len(item) != 2 or type(item[0]) is not str:
+                raise TypedCriteriaError("invalid_criterion_outcome")
+            key, value = item
+            spec = _ELIGIBILITY_CONTEXT_SPEC.get(key)
+            if spec is None:
+                raise TypedCriteriaError("invalid_criterion_outcome")
+            if type(spec) is type and type(value) is not spec:
+                raise TypedCriteriaError("invalid_criterion_outcome")
+            if type(spec) is frozenset and value not in spec:
+                raise TypedCriteriaError("invalid_criterion_outcome")
+            if type(value) is int and not 0 <= value <= 64:
+                raise TypedCriteriaError("invalid_criterion_outcome")
+            context_keys.append(key)
+        if context_keys != sorted(context_keys) or len(context_keys) != len(set(context_keys)):
             raise TypedCriteriaError("invalid_criterion_outcome")
 
     def as_dict(self) -> dict:
-        return {
+        result = {
             "criterion_id": self.criterion_id,
             "criterion_class": self.criterion_class,
             "dimension": self.dimension,
@@ -401,6 +496,9 @@ class CriterionOutcomeV1:
             "reason_code": self.reason_code,
             "potentially_relaxable": self.potentially_relaxable,
         }
+        if self.context:
+            result["context"] = dict(self.context)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,6 +513,7 @@ class ShadowCriteriaEvaluationV1:
             or any(type(item) is not CriterionOutcomeV1 for item in self.outcomes)
             or [item.criterion_id for item in self.outcomes]
             != sorted(item.criterion_id for item in self.outcomes)
+            or len({item.criterion_id for item in self.outcomes}) != len(self.outcomes)
         ):
             raise TypedCriteriaError("invalid_shadow_evaluation")
 
@@ -623,6 +722,210 @@ def evaluate_match_criteria_shadow(
     )
 
 
+def bridge_existing_matcher_eligibility(
+    authoritative_match: dict,
+) -> tuple[CriterionOutcomeV1, ...]:
+    """Translate existing matcher/guardrail decisions without re-evaluating them."""
+    if type(authoritative_match) is not dict:
+        raise TypedCriteriaError("invalid_eligibility_authority")
+    outcomes = (
+        _bridge_language_eligibility(authoritative_match),
+        _bridge_location_eligibility(authoritative_match),
+        _bridge_credential_eligibility(authoritative_match),
+        _bridge_professional_domain_eligibility(authoritative_match),
+    )
+    return tuple(sorted(outcomes, key=lambda item: item.criterion_id))
+
+
+def _bridge_language_eligibility(match):
+    cap_reasons = _recognized_cap_reasons(match)
+    mode = _closed_value(
+        match.get("language_requirement_mode"),
+        _ELIGIBILITY_CONTEXT_SPEC["requirement_mode"],
+        "unknown",
+    )
+    fail_gate = _first_gate(cap_reasons, _LANGUAGE_FAIL_GATES)
+    unknown_gate = _first_gate(cap_reasons, _LANGUAGE_UNKNOWN_GATES)
+    eligible = match.get("eligible_for_personalized")
+    if fail_gate or eligible is False:
+        outcome = "fail"
+        reason = "required_language_incompatible"
+    elif unknown_gate or type(eligible) is not bool or mode == "unknown":
+        outcome = "unknown"
+        reason = "required_language_unconfirmed"
+    elif mode == "none":
+        outcome = "not_applicable"
+        reason = "required_language_not_applicable"
+    else:
+        outcome = "pass"
+        reason = "required_language_satisfied"
+    return _eligibility_outcome(
+        "eligibility.required_languages",
+        "required_language_eligibility",
+        outcome,
+        reason,
+        {
+            "authority": "matcher_language_eligibility",
+            "requirement_mode": mode,
+            "detected_count": _bounded_count(match.get("detected_languages")),
+            "matched_count": _bounded_count(match.get("matched_languages")),
+            "unsupported_count": _bounded_count(match.get("unsupported_languages")),
+            "gate_code": fail_gate or unknown_gate or "none",
+        },
+    )
+
+
+def _bridge_location_eligibility(match):
+    cap_reasons = _recognized_cap_reasons(match)
+    status = _closed_value(
+        match.get("location_eligibility_status"),
+        _ELIGIBILITY_CONTEXT_SPEC["authority_status"],
+        "unknown",
+    )
+    gate = _first_gate(cap_reasons, _LOCATION_GATES)
+    if gate == "incompatible_location" or status == "incompatible":
+        outcome, reason = "fail", "location_eligibility_incompatible"
+    elif gate:
+        outcome, reason = "unknown", "location_eligibility_unconfirmed"
+    else:
+        outcome, reason = {
+            "eligible": ("pass", "location_eligibility_satisfied"),
+            "unknown": ("unknown", "location_eligibility_unconfirmed"),
+            "not_applicable": (
+                "not_applicable",
+                "location_eligibility_not_applicable",
+            ),
+        }[status]
+    return _eligibility_outcome(
+        "eligibility.location",
+        "location_eligibility",
+        outcome,
+        reason,
+        {
+            "authority": "matcher_location_eligibility",
+            "authority_status": status,
+            "profile_location_status": _closed_value(
+                match.get("profile_location_status"),
+                _ELIGIBILITY_CONTEXT_SPEC["profile_location_status"],
+                "unknown",
+            ),
+            "restriction_type": _closed_value(
+                match.get("location_restriction_type"),
+                _ELIGIBILITY_CONTEXT_SPEC["restriction_type"],
+                "none",
+            ),
+            "job_location_scope": _closed_value(
+                match.get("job_location_scope"),
+                _ELIGIBILITY_CONTEXT_SPEC["job_location_scope"],
+                "unknown",
+            ),
+            "job_remote_status": _closed_value(
+                match.get("job_remote_status"),
+                _ELIGIBILITY_CONTEXT_SPEC["job_remote_status"],
+                "unknown",
+            ),
+            "actionability_cap_required": (
+                match.get("location_actionability_cap_required") is True
+            ),
+            "actionability_cap_applied": (
+                match.get("location_actionability_cap_applied") is True
+            ),
+            "gate_code": gate or "none",
+        },
+    )
+
+
+def _bridge_credential_eligibility(match):
+    cap_reasons = _recognized_cap_reasons(match)
+    fail_gate = _first_gate(cap_reasons, _CREDENTIAL_FAIL_GATES)
+    unknown_gate = _first_gate(cap_reasons, _CREDENTIAL_UNKNOWN_GATES)
+    affirmative = match.get("affirmative_fit")
+    evidence = (
+        affirmative.get("supported_evidence")
+        if type(affirmative) is dict
+        else None
+    )
+    supported_count = sum(
+        1
+        for item in (evidence if type(evidence) in {list, tuple} else ())
+        if type(item) is dict and item.get("source") == "credential"
+    )
+    required_groups = (
+        affirmative.get("required_groups")
+        if type(affirmative) is dict
+        else None
+    )
+    affirmative_requirement = any(
+        type(item) is dict and item.get("source") == "title_credential"
+        for item in (
+            required_groups if type(required_groups) in {list, tuple} else ()
+        )
+    )
+    requirement_present = bool(match.get("preview_credential_requirement")) or bool(
+        fail_gate or unknown_gate or affirmative_requirement or supported_count
+    )
+    if fail_gate:
+        outcome = "fail"
+        reason = "credential_requirement_incompatible"
+    elif supported_count:
+        outcome = "pass"
+        reason = "credential_requirement_satisfied"
+    elif requirement_present:
+        outcome = "unknown"
+        reason = "credential_requirement_unconfirmed"
+    else:
+        outcome = "not_applicable"
+        reason = "credential_requirement_not_applicable"
+    return _eligibility_outcome(
+        "eligibility.credentials_licenses",
+        "credential_eligibility",
+        outcome,
+        reason,
+        {
+            "authority": "preview_credential_guardrail",
+            "requirement_present": requirement_present,
+            "supported_requirement_count": min(supported_count, 64),
+            "gate_code": fail_gate or unknown_gate or "none",
+        },
+    )
+
+
+def _bridge_professional_domain_eligibility(match):
+    role_domains = _closed_domain_set(match.get("core_role_domains"))
+    matched_domains = _closed_domain_set(match.get("matched_core_domains"))
+    missing_domains = _closed_domain_set(match.get("missing_essential_domains"))
+    decisive_role = role_domains & _DECISIVE_PROFESSIONAL_DOMAINS
+    decisive_matched = matched_domains & _DECISIVE_PROFESSIONAL_DOMAINS
+    decisive_missing = missing_domains & _DECISIVE_PROFESSIONAL_DOMAINS
+    hard_gate = match.get("professional_domain_hard_gate_applied") is True
+    if hard_gate:
+        outcome = "fail"
+        reason = "professional_domain_incompatible"
+    elif decisive_role and not decisive_missing:
+        outcome = "pass"
+        reason = "professional_domain_satisfied"
+    elif decisive_role:
+        outcome = "unknown"
+        reason = "professional_domain_authority_incomplete"
+    else:
+        outcome = "not_applicable"
+        reason = "professional_domain_not_applicable"
+    return _eligibility_outcome(
+        "eligibility.professional_domain",
+        "professional_domain_eligibility",
+        outcome,
+        reason,
+        {
+            "authority": "preview_professional_domain_gate",
+            "hard_gate_applied": hard_gate,
+            "role_domain_count": len(decisive_role),
+            "matched_domain_count": len(decisive_matched),
+            "missing_essential_count": len(decisive_missing),
+            "gate_code": "professional_domain_hard_gate" if hard_gate else "none",
+        },
+    )
+
+
 def compare_compensation_criterion(
     criterion: ProfileCriterionV1 | None,
     opportunity: OpportunityCompensationV1,
@@ -727,49 +1030,67 @@ def run_typed_match_criteria_shadow(
     inventory_rows,
     effective_enrichments: dict[int, dict] | None = None,
     *,
+    authoritative_matches: list[dict] | None = None,
     diagnostic_sink=None,
 ) -> tuple[dict, ...]:
     """Produce bounded diagnostics without mutating matcher inputs or outputs."""
     criteria = match_criteria_v1_from_profile(profile_v2)
-    if criteria.source_status == "absent":
-        return ()
     if type(inventory_rows) is not list or (
         effective_enrichments is not None and type(effective_enrichments) is not dict
+    ) or (
+        authoritative_matches is not None and type(authoritative_matches) is not list
     ):
         raise TypedCriteriaError("invalid_shadow_inventory")
     if diagnostic_sink is not None and not callable(diagnostic_sink):
         raise TypedCriteriaError("invalid_shadow_diagnostic_sink")
     effective_enrichments = effective_enrichments or {}
+    authority_by_job_id = _authoritative_match_index(authoritative_matches or [])
+    preference_criteria = criteria.all_criteria()
+    if not preference_criteria and not authority_by_job_id:
+        return ()
     records = []
     for row in inventory_rows:
+        outcomes = []
         canonical_id = _row_value(row, "canonical_opportunity_id")
         effective = (
             effective_enrichments.get(canonical_id)
             if type(canonical_id) is int
             else None
         )
-        try:
-            opportunity = project_opportunity_criteria_v1(
-                effective_enrichment=effective,
-                inventory_row=row,
-            )
-            evaluation = evaluate_match_criteria_shadow(criteria, opportunity)
-        except Exception:
-            evaluation = ShadowCriteriaEvaluationV1(
-                outcomes=tuple(
-                    sorted(
-                        (
-                            _outcome(
-                                criterion,
-                                "unknown",
-                                "opportunity_projection_failed",
-                            )
-                            for criterion in criteria.all_criteria()
-                        ),
-                        key=lambda item: item.criterion_id,
-                    )
+        if preference_criteria:
+            try:
+                opportunity = project_opportunity_criteria_v1(
+                    effective_enrichment=effective,
+                    inventory_row=row,
                 )
-            )
+                outcomes.extend(
+                    evaluate_match_criteria_shadow(criteria, opportunity).outcomes
+                )
+            except Exception:
+                outcomes.extend(
+                    _outcome(
+                        criterion,
+                        "unknown",
+                        "opportunity_projection_failed",
+                    )
+                    for criterion in preference_criteria
+                )
+        job_id = _row_value(row, "job_id")
+        authoritative_match = (
+            authority_by_job_id.get(job_id) if type(job_id) is int else None
+        )
+        if authoritative_match is not None:
+            try:
+                outcomes.extend(
+                    bridge_existing_matcher_eligibility(authoritative_match)
+                )
+            except Exception:
+                outcomes.extend(_unavailable_eligibility_outcomes())
+        if not outcomes:
+            continue
+        evaluation = ShadowCriteriaEvaluationV1(
+            outcomes=tuple(sorted(outcomes, key=lambda item: item.criterion_id))
+        )
         record = {
             "schema_version": SHADOW_DIAGNOSTIC_SCHEMA_VERSION,
             "opportunity_reference": _opportunity_reference(row),
@@ -922,6 +1243,101 @@ def _outcome(criterion, outcome, reason_code):
             criterion.criterion_class == "soft_preference" and outcome == "fail"
         ),
     )
+
+
+def _eligibility_outcome(criterion_id, dimension, outcome, reason_code, context):
+    return CriterionOutcomeV1(
+        criterion_id=criterion_id,
+        criterion_class="eligibility",
+        dimension=dimension,
+        outcome=outcome,
+        reason_code=reason_code,
+        potentially_relaxable=False,
+        context=tuple(sorted(context.items())),
+    )
+
+
+def _unavailable_eligibility_outcomes():
+    specifications = (
+        (
+            "eligibility.required_languages",
+            "required_language_eligibility",
+            "matcher_language_eligibility",
+        ),
+        (
+            "eligibility.location",
+            "location_eligibility",
+            "matcher_location_eligibility",
+        ),
+        (
+            "eligibility.credentials_licenses",
+            "credential_eligibility",
+            "preview_credential_guardrail",
+        ),
+        (
+            "eligibility.professional_domain",
+            "professional_domain_eligibility",
+            "preview_professional_domain_gate",
+        ),
+    )
+    return tuple(
+        _eligibility_outcome(
+            criterion_id,
+            dimension,
+            "unknown",
+            "eligibility_authority_unavailable",
+            {"authority": authority},
+        )
+        for criterion_id, dimension, authority in specifications
+    )
+
+
+def _authoritative_match_index(matches):
+    index = {}
+    duplicates = set()
+    for match in matches:
+        if type(match) is not dict:
+            raise TypedCriteriaError("invalid_eligibility_authority")
+        job_id = match.get("job_id")
+        if type(job_id) is not int or job_id < 0:
+            continue
+        if job_id in index:
+            duplicates.add(job_id)
+            continue
+        index[job_id] = match
+    for job_id in duplicates:
+        index.pop(job_id, None)
+    return index
+
+
+def _recognized_cap_reasons(match):
+    values = match.get("actionability_cap_reasons")
+    allowed = _ELIGIBILITY_CONTEXT_SPEC["gate_code"] - {"none"}
+    if type(values) not in {list, tuple}:
+        return frozenset()
+    return frozenset(value for value in values if value in allowed)
+
+
+def _first_gate(actual, ordered):
+    return next((gate for gate in ordered if gate in actual), None)
+
+
+def _closed_value(value, allowed, default):
+    return value if type(value) is str and value in allowed else default
+
+
+def _closed_domain_set(value):
+    if type(value) not in {list, tuple, set, frozenset}:
+        return frozenset()
+    return frozenset(
+        item for item in value if type(item) is str and item in _DECISIVE_PROFESSIONAL_DOMAINS
+    )
+
+
+def _bounded_count(value):
+    if type(value) not in {list, tuple, set, frozenset}:
+        return 0
+    return min(len(value), 64)
 
 
 def _known_dimension(values, reason):
