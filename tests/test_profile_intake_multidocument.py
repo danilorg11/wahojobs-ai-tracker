@@ -616,6 +616,62 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertEqual(cancelled.status, 303)
         self.assertEqual(len(integration._processing.vault._records), 0)
 
+    def test_review_groups_repeated_found_facts_without_changing_individual_fields(self):
+        adapter = _BundleAdapter(
+            {
+                DocumentKind.RESUME: (
+                    _raw_fact("experience.job_titles", "Support Specialist"),
+                    _raw_fact("experience.job_titles", "Search Evaluator"),
+                    _raw_fact("skills.normalized", "Zendesk"),
+                    _raw_fact("skills.normalized", "Data Annotation"),
+                    _raw_fact(
+                        "experience.occupational_families",
+                        "Customer Support",
+                        explicit=False,
+                    ),
+                    _raw_fact(
+                        "experience.professional_domains",
+                        "AI Training",
+                        explicit=False,
+                    ),
+                )
+            }
+        )
+        integration = self._build(adapter)
+        self.extra_integrations.append(integration)
+        response = self._upload((self._pdf_file("resume"),), integration=integration)
+        reference = self._reference(response)
+        target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        get_headers = tuple(
+            item
+            for item in self._headers(content_type="x", content_length=1)
+            if item[0]
+            not in {"Origin", "Sec-Fetch-Site", "Content-Type", "Content-Length"}
+        )
+        page = integration.handle("GET", target, get_headers)
+        self.assertEqual(page.status, 200)
+        self.assertEqual(page.body.count(b"class='profile-group fact-card fact-group-card'"), 2)
+        self.assertEqual(page.body.count(b"<h3>Job titles</h3>"), 1)
+        self.assertEqual(page.body.count(b"<h3>Skills</h3>"), 1)
+        self.assertEqual(page.body.count(b"<span>2 items</span>"), 2)
+        self.assertIn(b"Type of work", page.body)
+        self.assertIn(b"Areas of experience", page.body)
+        self.assertNotIn(b"Occupational Families", page.body)
+        self.assertNotIn(b"Professional Domains", page.body)
+
+        snapshot = integration._processing.vault.get(
+            reference, self._grant(integration)
+        )
+        grouped_indexes = [
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.review_field in {"job_titles", "skills"}
+        ]
+        self.assertEqual(len(grouped_indexes), 4)
+        for index in grouped_indexes:
+            self.assertIn(f"name='fact_{index}_value'".encode(), page.body)
+            self.assertIn(f"name='fact_{index}_decision'".encode(), page.body)
+
     def _profile_counts(self):
         connection = sqlite3.connect(self.path)
         try:

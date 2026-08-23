@@ -216,8 +216,8 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             "GET", "/account/profile", integration=integration
         )
         self.assertEqual(get_status, 200)
-        self.assertIn(b"No persistent profile yet", get_body)
-        self.assertIn(b"href='/find-matches'>Create profile</a>", get_body)
+        self.assertIn(b"Create your profile to find better matches", get_body)
+        self.assertIn(b"href='/find-matches'>Create profile manually</a>", get_body)
         self.assertIn(b"href='/logout'", get_body)
         self.assertEqual(get_headers["Content-Type"], "text/html; charset=utf-8")
         self.assertEqual(get_headers["Cache-Control"], "no-store")
@@ -384,7 +384,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 200)
-        self.assertIn(b"No persistent profile yet", body)
+        self.assertIn(b"Create your profile to find better matches", body)
         self.assertNotIn(token.encode(), body)
         self.assertNotIn(claimed_identity.encode(), body)
 
@@ -556,7 +556,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             "GET", "/account/profile", integration=integration
         )
         self.assertEqual(status, 200)
-        self.assertIn(b"No persistent profile yet", body)
+        self.assertIn(b"Create your profile to find better matches", body)
         self.assertNotIn(created.profile_id.encode(), body)
 
     def test_html_escapes_hostile_content_and_strips_bidi_controls(self):

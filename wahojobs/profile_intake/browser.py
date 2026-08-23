@@ -128,6 +128,17 @@ _CLASSIFICATION_DESCRIPTIONS = {
     "unavailable": "The candidate states they are currently unavailable.",
 }
 
+_REVIEW_FIELD_LABELS = {
+    "occupational_families": "Type of work",
+    "professional_domains": "Areas of experience",
+}
+_COMPACT_FOUND_REVIEW_FIELDS = {
+    "job_titles": "Job titles",
+    "languages": "Languages",
+    "skills": "Skills",
+}
+_INSUFFICIENT_CLASSIFICATION_VALUES = frozenset({"not_specified", "unknown"})
+
 _SKIP_SUGGESTION_VALUE = "__leave_suggestion_out__"
 _PRIMARY_CLASSIFICATION_CHOICES = {
     "education.education_level": (
@@ -973,7 +984,10 @@ def _upload_page(proof):
 def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     fact_fields = []
     for index, fact in enumerate(snapshot.review.facts):
-        label = fact.review_field.replace("_", " ").title()
+        label = _REVIEW_FIELD_LABELS.get(
+            fact.review_field,
+            fact.review_field.replace("_", " ").title(),
+        )
         raw_value = review_value_for_form(fact.value)
         source_label = _review_source_label(fact)
         if _uses_compact_suggestion_choice(fact):
@@ -1003,7 +1017,11 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
             f"<article class='profile-group fact-card'><p class='fact-meta'>{_safe_text(badge)}</p>"
             f"{value_control}{choice}</article>"
         )
-        fact_fields.append((fact, card))
+        compact_item = (
+            f"<div class='fact-group-item'><p class='fact-meta'>{_safe_text(badge)}</p>"
+            f"{value_control}{choice}</div>"
+        )
+        fact_fields.append((fact, card, compact_item))
     missing = []
     existing_inputs = dict(snapshot.review.user_inputs)
     for name in snapshot.review.missing_user_fields:
@@ -1046,14 +1064,10 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         if save_enabled
         else "You can update this preview, but it cannot be saved here."
     )
-    found_cards = "".join(
-        card
-        for fact, card in fact_fields
-        if not fact.suggested and fact.conflict_group is None
-    )
+    found_cards = _render_found_fact_cards(fact_fields)
     suggestion_cards = "".join(
         card
-        for fact, card in fact_fields
+        for fact, card, _compact_item in fact_fields
         if fact.suggested and fact.conflict_group is None
     )
     if not suggestion_cards:
@@ -1061,7 +1075,9 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
             "<p class='empty-inline'>No suggestions need your confirmation.</p>"
         )
     conflict_cards = "".join(
-        card for fact, card in fact_fields if fact.conflict_group is not None
+        card
+        for fact, card, _compact_item in fact_fields
+        if fact.conflict_group is not None
     )
     conflict_section = (
         "<div class='review-subsection'><h3>Sources disagree — please confirm</h3>"
@@ -1117,6 +1133,48 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     return _page("Review your profile", body)
 
 
+def _render_found_fact_cards(fact_fields):
+    grouped_counts = {}
+    for fact, _card, _compact_item in fact_fields:
+        if fact.suggested or fact.conflict_group is not None:
+            continue
+        if fact.review_field in _COMPACT_FOUND_REVIEW_FIELDS:
+            grouped_counts[fact.review_field] = (
+                grouped_counts.get(fact.review_field, 0) + 1
+            )
+
+    grouped_items = {}
+    ordered = []
+    for fact, card, compact_item in fact_fields:
+        if fact.suggested or fact.conflict_group is not None:
+            continue
+        if grouped_counts.get(fact.review_field, 0) < 2:
+            ordered.append(("card", card))
+            continue
+        if fact.review_field not in grouped_items:
+            grouped_items[fact.review_field] = []
+            ordered.append(("group", fact.review_field))
+        grouped_items[fact.review_field].append(compact_item)
+
+    rendered = []
+    for kind, value in ordered:
+        if kind == "card":
+            rendered.append(value)
+            continue
+        items = grouped_items[value]
+        label = _COMPACT_FOUND_REVIEW_FIELDS[value]
+        count_label = "1 item" if len(items) == 1 else f"{len(items)} items"
+        rendered.append(
+            "<article class='profile-group fact-card fact-group-card'>"
+            "<div class='fact-group-heading'>"
+            f"<h3>{_safe_text(label)}</h3><span>{_safe_text(count_label)}</span>"
+            "</div><div class='fact-group-items'>"
+            + "".join(items)
+            + "</div></article>"
+        )
+    return "".join(rendered)
+
+
 def _review_fact_value_control(index, fact, raw_value, label):
     spec = _FIELD_SPECS.get(fact.field_path)
     if spec is None or spec.kind != "enum" or spec.multiple:
@@ -1148,6 +1206,34 @@ def _review_fact_value_control(index, fact, raw_value, label):
                 raw_value, *(option for option in primary_values if option != raw_value)
             ]
         secondary_values = sorted(set(spec.allowed) - set(primary_values))
+        insufficient_choice = None
+        if _INSUFFICIENT_CLASSIFICATION_VALUES <= spec.allowed:
+            insufficient_in_primary = bool(
+                _INSUFFICIENT_CLASSIFICATION_VALUES.intersection(primary_values)
+            )
+            primary_values = [
+                option
+                for option in primary_values
+                if option not in _INSUFFICIENT_CLASSIFICATION_VALUES
+            ]
+            secondary_values = [
+                option
+                for option in secondary_values
+                if option not in _INSUFFICIENT_CLASSIFICATION_VALUES
+            ]
+            insufficient_choice = {
+                "value": (
+                    raw_value
+                    if raw_value in _INSUFFICIENT_CLASSIFICATION_VALUES
+                    else "not_specified"
+                ),
+                "values": tuple(sorted(_INSUFFICIENT_CLASSIFICATION_VALUES)),
+                "label": "Not enough information",
+                "description": (
+                    "Your documents do not support a more specific choice."
+                ),
+                "primary": insufficient_in_primary,
+            }
         primary = [
             {
                 "value": option,
@@ -1172,6 +1258,9 @@ def _review_fact_value_control(index, fact, raw_value, label):
             }
             for option in secondary_values
         ]
+        if insufficient_choice is not None:
+            target = primary if insufficient_choice.pop("primary") else secondary
+            target.append(insufficient_choice)
 
     def option_markup(choice):
         option = choice["value"]
@@ -1433,6 +1522,20 @@ def _matches_redirect():
 
 
 def _failure(code):
+    if code == "existing_profile":
+        return _response(
+            HTTPStatus.CONFLICT,
+            _page(
+                "Your profile is ready",
+                _authenticated_navigation()
+                + "<section class='empty'><p class='eyebrow'>Your Wahojobs profile</p>"
+                "<h1>Your profile is already set up</h1>"
+                "<p>Review your saved profile or continue to the matches chosen for you.</p>"
+                "<p><a class='primary-link' href='/account/profile'>View my profile</a></p>"
+                "<p><a class='secondary-link' href='/find-matches'>See my matches</a></p>"
+                "</section>",
+            ),
+        )
     status, title, message = {
         "invalid_request": (400, "Upload request unavailable", "This request is not valid."),
         "malformed_upload": (400, "Upload could not be read", "Choose one valid PDF or DOCX and try again."),
@@ -1445,7 +1548,6 @@ def _failure(code):
         "expired_draft": (410, "Draft expired", "This temporary draft has expired. Start again."),
         "stale_review": (409, "Review changed", "Reload the draft before submitting another change."),
         "unresolved_review": (409, "Review needs confirmation", "Resolve every suggestion or source disagreement before saving."),
-        "existing_profile": (409, "Profile already exists", "Continue to your existing profile and matches."),
         "import_reserved": (409, "Import already in progress", "Finish or cancel the current import before starting another."),
         "durable_unavailable": (503, "Profile saving unavailable", "AI profile saving is not available in this environment. You can still create your profile manually."),
         "file_too_large": (413, "Document too large", "Choose a document no larger than 10 MiB."),

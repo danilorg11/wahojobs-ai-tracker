@@ -974,7 +974,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         )
         absent_body = absent.body.decode("utf-8")
         self.assertEqual((absent.status, unavailable_correction.status), (200, 409))
-        self.assertIn("No persistent profile yet", absent_body)
+        self.assertIn("Create your profile to find better matches", absent_body)
         self.assertIn("Create profile", absent_body)
         self.assertNotIn("Update profile", absent_body)
         self.assertNotIn("correction=", absent_body)

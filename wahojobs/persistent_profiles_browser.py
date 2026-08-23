@@ -1517,21 +1517,28 @@ def render_persistent_profile_page(
         )
     if result.state == "empty":
         intake_action = (
-            "<p><a class='primary-link' href='/account/profile/intake'>"
-            "Create your profile faster with a document</a></p>"
+            "<a class='primary-link profile-entry-primary' href='/account/profile/intake'>"
+            "Build my profile from documents</a>"
             if intake_enabled
             else ""
         )
+        manual_class = (
+            "secondary-link"
+            if intake_enabled
+            else "primary-link profile-entry-primary"
+        )
         return (
             _page(
-                "My persistent profile",
+                "Create your profile",
                 _authenticated_navigation()
-                + "<section class='empty'><h1>No persistent profile yet</h1>"
-                "<p>Confirm your reviewed About You details to create this profile explicitly.</p>"
-                "<p>Reading this page does not create or change profile data.</p>"
+                + "<section class='empty'><p class='eyebrow'>Your Wahojobs profile</p>"
+                "<h1>Create your profile to find better matches</h1>"
+                "<p>Tell Wahojobs about your experience and what you want from your next role.</p>"
+                "<p>Start with your documents, or create your profile manually. You review everything before it is saved.</p>"
+                "<div class='profile-entry-actions'>"
                 + intake_action
-                + f"<p><a class='primary-link' href='{FIND_MATCHES_ROUTE}'>"
-                "Create profile</a></p></section>",
+                + f"<a class='{manual_class}' href='{FIND_MATCHES_ROUTE}'>"
+                "Create profile manually</a></div></section>",
             ),
             HTTPStatus.OK,
         )
@@ -1984,11 +1991,14 @@ def _page(title: str, body: str) -> str:
     .upload-choice input[type=file]::file-selector-button {{ background: white; border: 1px solid #9baca5; border-radius: 7px; color: #174d3b; cursor: pointer; font: inherit; font-weight: 700; margin-right: 10px; min-height: 42px; padding: 8px 12px; }}
     .file-guidance {{ border-top: 1px solid #e5ebe8; margin-top: 22px; padding-top: 14px; }}
     .file-guidance summary, .profile-review-form summary {{ border-radius: 6px; min-height: 44px; padding: 11px 4px; }}
-    .file-guidance summary:focus-visible, .profile-review-form summary:focus-visible, .review-progress a:focus-visible, .secondary-link:focus-visible, button:focus-visible {{ outline: 3px solid #8dc6b1; outline-offset: 3px; }}
+    .file-guidance summary:focus-visible, .profile-review-form summary:focus-visible, .review-progress a:focus-visible, .secondary-link:focus-visible, .profile-entry-primary:focus-visible, button:focus-visible {{ outline: 3px solid #8dc6b1; outline-offset: 3px; }}
     .file-guidance ul {{ color: #53605b; line-height: 1.6; margin-bottom: 0; }}
     .upload-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 18px; margin-top: 24px; }}
     .upload-actions button, .finish-actions button {{ border-radius: 9px; min-height: 48px; padding: 12px 22px; }}
     .secondary-link {{ color: #315d4d; font-weight: 700; padding: 12px 2px; }}
+    .profile-entry-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 10px 20px; margin-top: 24px; }}
+    .profile-entry-primary {{ background: #174d3b; border-radius: 9px; color: white !important; display: inline-block; min-height: 48px; padding: 13px 20px; text-decoration: none; }}
+    .profile-entry-primary:hover {{ background: #103f30; }}
     .intake-upload-form.is-processing {{ align-items: center; display: grid; min-height: 430px; }}
     .intake-upload-form .processing-state {{ background: transparent; border: 0; margin: 0 auto; max-width: 620px; padding: 28px 0; text-align: center; }}
     .processing-state:focus {{ outline: none; }}
@@ -2017,6 +2027,15 @@ def _page(title: str, body: str) -> str:
     .section-heading h2, .finish-panel h2 {{ font-size: clamp(25px, 3vw, 34px); letter-spacing: -.025em; margin-bottom: 10px; }}
     .section-heading p:not(.eyebrow), .finish-panel > p:not(.eyebrow) {{ color: #53605b; font-size: 16px; line-height: 1.55; }}
     .fact-card {{ background: #fbfcfb; border-color: #dfe7e3; border-radius: 12px; padding: 20px; }}
+    .fact-group-card {{ grid-column: 1 / -1; }}
+    .fact-group-heading {{ align-items: baseline; display: flex; justify-content: space-between; margin-bottom: 14px; }}
+    .fact-group-heading h3 {{ font-size: 18px; margin: 0; }}
+    .fact-group-heading span {{ color: #66716c; font-size: 13px; font-weight: 700; }}
+    .fact-group-items {{ display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    .fact-group-item {{ background: white; border: 1px solid #e2e9e6; border-radius: 9px; display: grid; gap: 10px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; }}
+    .fact-group-item .fact-meta {{ grid-column: 1 / -1; margin-bottom: 0; }}
+    .fact-group-item .review-field, .fact-group-item .decision-field {{ margin-bottom: 0; }}
+    .fact-group-item .decision-field {{ margin-top: 0; }}
     .fact-meta {{ color: #466257; font-size: 13px; font-weight: 750; line-height: 1.45; }}
     .decision-field {{ display: grid; font-size: 13px; font-weight: 750; gap: 6px; margin-top: 14px; }}
     .decision-field select {{ background: white; border: 1px solid #aebbb5; border-radius: 7px; font: inherit; min-height: 44px; padding: 9px; width: 100%; }}
@@ -2084,10 +2103,13 @@ def _page(title: str, body: str) -> str:
       .upload-choice-grid, .compensation-group .choice-grid {{ grid-template-columns: 1fr; }}
       .upload-choice {{ padding: 18px; }}
       .upload-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
+      .profile-entry-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
       .upload-actions button, .finish-actions button {{ width: 100%; }}
       .review-progress ol {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .intake-review-form .review-section {{ margin-top: 36px; padding-top: 36px; }}
       .intake-review-form .choice-grid, .profile-grid, .review-grid {{ grid-template-columns: 1fr; }}
+      .fact-group-items {{ grid-template-columns: 1fr; }}
+      .fact-group-item {{ gap: 8px; grid-template-columns: 1fr; padding: 12px; }}
       .intake-review-form .job-interest-group > .choice-grid,
       .intake-review-form .job-interest-more .choice-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .compensation-group {{ margin-left: -8px !important; margin-right: -8px !important; padding: 20px !important; }}

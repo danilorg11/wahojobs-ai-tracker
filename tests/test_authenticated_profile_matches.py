@@ -1014,7 +1014,9 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         )
         self.assertIn("Update my preferences", body)
         relaxation_markup = body[body.index("More opportunities if") :]
-        self.assertIn("href='/account/profile'", relaxation_markup)
+        self.assertIn(
+            "href='/account/profile?correction=start'", relaxation_markup
+        )
         self.assertNotIn("<form", relaxation_markup)
         self.assertIn("This preview does not save a change.", body)
         self.assertNotIn("single_criterion_relaxation", body)

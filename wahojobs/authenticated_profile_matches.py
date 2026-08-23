@@ -3171,7 +3171,7 @@ def _render_match_results(
         profile_target += "?" + urlencode({"run": match_run_id})
     relaxation_section = _render_relaxation_section(
         context,
-        profile_target=profile_target,
+        profile_target="/account/profile?correction=start",
     )
     if cards:
         count = len(cards)

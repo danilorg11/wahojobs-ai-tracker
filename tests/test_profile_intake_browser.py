@@ -8,6 +8,7 @@ import sqlite3
 import socket
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -38,6 +39,7 @@ from wahojobs.profile_intake.browser import (
     _SKIP_SUGGESTION_VALUE,
     _preference_form_values_for_model,
     _review_fact_value_control,
+    _failure,
 )
 from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
@@ -410,6 +412,30 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("/account/profile/intake", content)
         self.assertIn("/find-matches", content)
+        self.assertIn("Build my profile from documents", content)
+        self.assertIn("Create profile manually", content)
+        self.assertIn(
+            "class='primary-link profile-entry-primary' href='/account/profile/intake'",
+            content,
+        )
+        self.assertIn(
+            "class='secondary-link' href='/find-matches'",
+            content,
+        )
+        self.assertNotIn("persistent profile", content.lower())
+        self.assertLess(
+            content.index("Build my profile from documents"),
+            content.index("Create profile manually"),
+        )
+
+    def test_existing_profile_state_routes_to_profile_and_matches_without_restart_copy(self):
+        response = _failure("existing_profile")
+        self.assertEqual(response.status, 409)
+        self.assertIn(b"Your profile is already set up", response.body)
+        self.assertIn(b"href='/account/profile'>View my profile</a>", response.body)
+        self.assertIn(b"href='/find-matches'>See my matches</a>", response.body)
+        self.assertNotIn(b"Start again", response.body)
+        self.assertNotIn(b"Create manually", response.body)
 
     def test_every_single_choice_classification_has_accessible_definition(self):
         for field_path, spec in _FIELD_SPECS.items():
@@ -417,6 +443,29 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
                 continue
             with self.subTest(field_path=field_path):
                 self.assertLessEqual(spec.allowed, set(_CLASSIFICATION_DESCRIPTIONS))
+
+    def test_insufficient_classification_choice_is_clear_and_preserves_raw_value(self):
+        fact = SimpleNamespace(
+            field_path="education.completion_status",
+            suggested=True,
+            decision="pending",
+            conflict_group=None,
+        )
+        for raw_value in ("not_specified", "unknown"):
+            with self.subTest(raw_value=raw_value):
+                markup = _review_fact_value_control(
+                    7,
+                    fact,
+                    raw_value,
+                    "Education Status",
+                )
+                self.assertEqual(markup.count("<strong>Not enough information</strong>"), 1)
+                self.assertIn(
+                    f"name='fact_7_value' value='{raw_value}'",
+                    markup,
+                )
+                self.assertNotIn("<strong>Not Specified</strong>", markup)
+                self.assertNotIn("<strong>Unknown</strong>", markup)
 
     def test_classification_choice_confirms_or_leaves_out_without_contract_change(self):
         response = self._upload(
