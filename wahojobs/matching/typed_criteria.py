@@ -1,0 +1,1003 @@
+"""Typed profile/opportunity criteria and diagnostic-only shadow evaluation.
+
+This module is pure apart from an optional caller-supplied diagnostic sink. It
+does not score, filter, rank, persist, or render opportunities.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+import math
+
+from wahojobs.matching.taxonomy import CAREER_LEVELS
+from wahojobs.opportunity_enrichment import (
+    COMPENSATION_AMOUNT_TYPES as OPPORTUNITY_COMPENSATION_AMOUNT_TYPES,
+    COMPENSATION_PERIODS as OPPORTUNITY_COMPENSATION_PERIODS,
+    validate_enrichment_document,
+)
+from wahojobs.profiles.canonical_v2 import validate_canonical_profile_v2
+from wahojobs.profiles.preference_model import (
+    ACCEPTED_CAREER_LEVELS,
+    COMPENSATION_PERIODS,
+    EMPLOYMENT_RELATIONSHIPS,
+    ENGAGEMENT_TERMS,
+    ISO_4217_CURRENCIES,
+    JOB_INTEREST_CODES,
+    PHONE_VOICE_MODES,
+    SCHEDULE_COORDINATION_MODES,
+    SCHEDULE_FLEXIBILITY_MODES,
+    SCHEDULE_TIME_WINDOWS,
+    WORKLOADS,
+)
+
+
+MATCH_CRITERIA_SCHEMA_VERSION = "match_criteria_v1"
+OPPORTUNITY_CRITERIA_SCHEMA_VERSION = "opportunity_match_criteria_v1"
+SHADOW_EVALUATION_SCHEMA_VERSION = "match_criteria_shadow_evaluation_v1"
+SHADOW_DIAGNOSTIC_SCHEMA_VERSION = "match_criteria_shadow_diagnostic_v1"
+
+CRITERION_CLASSES = frozenset(
+    {"eligibility", "strict_preference", "soft_preference"}
+)
+CRITERION_OUTCOMES = frozenset({"pass", "fail", "unknown", "not_applicable"})
+DIMENSION_STATUSES = frozenset({"known", "unknown"})
+CRITERION_OPERATORS = frozenset({"any_of", "minimum"})
+
+DIMENSION_ALLOWED_VALUES = {
+    "employment_relationship": EMPLOYMENT_RELATIONSHIPS,
+    "workload": WORKLOADS,
+    "engagement_term": ENGAGEMENT_TERMS,
+    "schedule_flexibility": SCHEDULE_FLEXIBILITY_MODES,
+    "schedule_coordination": SCHEDULE_COORDINATION_MODES,
+    "schedule_time_window": SCHEDULE_TIME_WINDOWS,
+    "phone_voice": PHONE_VOICE_MODES,
+    "job_interest": JOB_INTEREST_CODES,
+    "career_level": ACCEPTED_CAREER_LEVELS,
+}
+
+_PROFILE_LIST_CRITERIA = (
+    (
+        "preferences.employment_relationships",
+        "employment_relationship",
+        ("employment_relationships",),
+    ),
+    (
+        "preferences.workloads",
+        "workload",
+        ("workloads",),
+    ),
+    (
+        "preferences.engagement_terms",
+        "engagement_term",
+        ("engagement_terms",),
+    ),
+    (
+        "preferences.schedule.flexibility_modes",
+        "schedule_flexibility",
+        ("schedule", "flexibility_modes"),
+    ),
+    (
+        "preferences.schedule.coordination_modes",
+        "schedule_coordination",
+        ("schedule", "coordination_modes"),
+    ),
+    (
+        "preferences.schedule.time_windows",
+        "schedule_time_window",
+        ("schedule", "time_windows"),
+    ),
+    (
+        "preferences.accepted_phone_voice_modes",
+        "phone_voice",
+        ("accepted_phone_voice_modes",),
+    ),
+    (
+        "preferences.job_interests",
+        "job_interest",
+        ("job_interests",),
+    ),
+    (
+        "preferences.accepted_career_levels",
+        "career_level",
+        ("accepted_career_levels",),
+    ),
+)
+
+_OPPORTUNITY_DIMENSION_FIELDS = {
+    "employment_relationship": "employment_relationships",
+    "workload": "workloads",
+    "engagement_term": "engagement_terms",
+    "schedule_flexibility": "schedule_flexibility_modes",
+    "schedule_coordination": "schedule_coordination_modes",
+    "schedule_time_window": "schedule_time_windows",
+    "phone_voice": "phone_voice_modes",
+    "job_interest": "job_interests",
+    "career_level": "career_levels",
+}
+
+
+class TypedCriteriaError(ValueError):
+    """A bounded typed-criteria failure that never includes profile/job values."""
+
+    def __init__(self, *reason_codes: str):
+        self.reason_codes = tuple(sorted(set(reason_codes or ("invalid_criteria",))))[:32]
+        super().__init__(
+            "typed_match_criteria rejected; reason_codes="
+            + ",".join(self.reason_codes)
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ProfileCriterionV1:
+    criterion_id: str
+    criterion_class: str
+    dimension: str
+    operator: str
+    accepted_values: tuple[str, ...] = ()
+    minimum_amount: str | None = None
+    currency: str | None = None
+    period: str | None = None
+
+    def __post_init__(self):
+        if (
+            type(self.criterion_id) is not str
+            or not self.criterion_id
+            or self.criterion_class not in CRITERION_CLASSES
+            or self.operator not in CRITERION_OPERATORS
+        ):
+            raise TypedCriteriaError("invalid_profile_criterion")
+        if self.operator == "any_of":
+            allowed = DIMENSION_ALLOWED_VALUES.get(self.dimension)
+            if (
+                allowed is None
+                or not self.accepted_values
+                or any(type(value) is not str for value in self.accepted_values)
+                or tuple(sorted(self.accepted_values)) != self.accepted_values
+                or len(self.accepted_values) != len(set(self.accepted_values))
+                or any(value not in allowed for value in self.accepted_values)
+                or any(
+                    value is not None
+                    for value in (self.minimum_amount, self.currency, self.period)
+                )
+            ):
+                raise TypedCriteriaError("invalid_profile_criterion")
+        elif (
+            self.dimension != "compensation_minimum"
+            or self.accepted_values
+            or _positive_decimal(self.minimum_amount) is None
+            or self.currency not in ISO_4217_CURRENCIES
+            or self.period not in COMPENSATION_PERIODS
+        ):
+            raise TypedCriteriaError("invalid_profile_criterion")
+
+    def __repr__(self):
+        return (
+            "ProfileCriterionV1("
+            f"criterion_id={self.criterion_id!r}, "
+            f"criterion_class={self.criterion_class!r}, "
+            f"dimension={self.dimension!r}, values=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class MatchCriteriaV1:
+    source_status: str
+    eligibility_criteria: tuple[ProfileCriterionV1, ...]
+    strict_preference_criteria: tuple[ProfileCriterionV1, ...]
+    soft_preference_criteria: tuple[ProfileCriterionV1, ...]
+    schema_version: str = MATCH_CRITERIA_SCHEMA_VERSION
+
+    def __post_init__(self):
+        if (
+            self.schema_version != MATCH_CRITERIA_SCHEMA_VERSION
+            or self.source_status not in {"present", "absent"}
+        ):
+            raise TypedCriteriaError("invalid_match_criteria")
+        groups = (
+            ("eligibility", self.eligibility_criteria),
+            ("strict_preference", self.strict_preference_criteria),
+            ("soft_preference", self.soft_preference_criteria),
+        )
+        ids = []
+        for expected_class, criteria in groups:
+            if type(criteria) is not tuple:
+                raise TypedCriteriaError("invalid_match_criteria")
+            for criterion in criteria:
+                if (
+                    type(criterion) is not ProfileCriterionV1
+                    or criterion.criterion_class != expected_class
+                ):
+                    raise TypedCriteriaError("invalid_match_criteria")
+                ids.append(criterion.criterion_id)
+            if [item.criterion_id for item in criteria] != sorted(
+                item.criterion_id for item in criteria
+            ):
+                raise TypedCriteriaError("invalid_match_criteria")
+        if len(ids) != len(set(ids)):
+            raise TypedCriteriaError("invalid_match_criteria")
+        if self.source_status == "absent" and ids:
+            raise TypedCriteriaError("invalid_match_criteria")
+
+    def all_criteria(self) -> tuple[ProfileCriterionV1, ...]:
+        return (
+            self.eligibility_criteria
+            + self.strict_preference_criteria
+            + self.soft_preference_criteria
+        )
+
+    def __repr__(self):
+        return (
+            "MatchCriteriaV1("
+            f"source_status={self.source_status!r}, "
+            f"criterion_count={len(self.all_criteria())}, values=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OpportunityDimensionV1:
+    status: str
+    values: tuple[str, ...]
+    reason_code: str
+
+    def __post_init__(self):
+        if (
+            self.status not in DIMENSION_STATUSES
+            or type(self.values) is not tuple
+            or any(type(value) is not str for value in self.values)
+            or tuple(sorted(self.values)) != self.values
+            or len(self.values) != len(set(self.values))
+            or type(self.reason_code) is not str
+            or not self.reason_code
+            or (self.status == "known" and not self.values)
+            or (self.status == "unknown" and self.values)
+        ):
+            raise TypedCriteriaError("invalid_opportunity_dimension")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class OpportunityCompensationV1:
+    status: str
+    disclosed: bool | None
+    currency: str | None
+    amount_min: str | None
+    amount_max: str | None
+    period: str | None
+    amount_type: str
+    reason_code: str
+
+    def __post_init__(self):
+        if (
+            self.status not in DIMENSION_STATUSES
+            or (
+                self.disclosed is not None
+                and type(self.disclosed) is not bool
+            )
+            or self.amount_type not in OPPORTUNITY_COMPENSATION_AMOUNT_TYPES
+            or type(self.reason_code) is not str
+            or not self.reason_code
+            or (
+                self.currency is not None
+                and (
+                    type(self.currency) is not str
+                    or self.currency != self.currency.upper()
+                )
+            )
+            or (
+                self.period is not None
+                and self.period not in OPPORTUNITY_COMPENSATION_PERIODS
+            )
+            or (self.amount_min is not None and _nonnegative_decimal(self.amount_min) is None)
+            or (self.amount_max is not None and _nonnegative_decimal(self.amount_max) is None)
+        ):
+            raise TypedCriteriaError("invalid_opportunity_compensation")
+        if self.status == "unknown" and any(
+            value is not None
+            for value in (
+                self.disclosed,
+                self.currency,
+                self.amount_min,
+                self.amount_max,
+                self.period,
+            )
+        ):
+            raise TypedCriteriaError("invalid_opportunity_compensation")
+        if self.status == "unknown" and self.amount_type != "unknown":
+            raise TypedCriteriaError("invalid_opportunity_compensation")
+        if self.status == "known" and self.disclosed is None:
+            raise TypedCriteriaError("invalid_opportunity_compensation")
+        if self.disclosed is False and (
+            any(
+                value is not None
+                for value in (
+                    self.currency,
+                    self.amount_min,
+                    self.amount_max,
+                    self.period,
+                )
+            )
+            or self.amount_type != "unknown"
+        ):
+            raise TypedCriteriaError("invalid_opportunity_compensation")
+        minimum = _nonnegative_decimal(self.amount_min)
+        maximum = _nonnegative_decimal(self.amount_max)
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise TypedCriteriaError("invalid_opportunity_compensation")
+
+    def __repr__(self):
+        return (
+            "OpportunityCompensationV1("
+            f"status={self.status!r}, disclosed={self.disclosed!r}, "
+            "values=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class OpportunityCriteriaV1:
+    employment_relationships: OpportunityDimensionV1
+    workloads: OpportunityDimensionV1
+    engagement_terms: OpportunityDimensionV1
+    schedule_flexibility_modes: OpportunityDimensionV1
+    schedule_coordination_modes: OpportunityDimensionV1
+    schedule_time_windows: OpportunityDimensionV1
+    phone_voice_modes: OpportunityDimensionV1
+    job_interests: OpportunityDimensionV1
+    career_levels: OpportunityDimensionV1
+    compensation: OpportunityCompensationV1
+    schema_version: str = OPPORTUNITY_CRITERIA_SCHEMA_VERSION
+
+    def __post_init__(self):
+        if self.schema_version != OPPORTUNITY_CRITERIA_SCHEMA_VERSION:
+            raise TypedCriteriaError("invalid_opportunity_criteria")
+        for dimension, field in _OPPORTUNITY_DIMENSION_FIELDS.items():
+            projected = getattr(self, field)
+            if (
+                type(projected) is not OpportunityDimensionV1
+                or any(
+                    value not in DIMENSION_ALLOWED_VALUES[dimension]
+                    for value in projected.values
+                )
+            ):
+                raise TypedCriteriaError("invalid_opportunity_criteria")
+        if type(self.compensation) is not OpportunityCompensationV1:
+            raise TypedCriteriaError("invalid_opportunity_criteria")
+
+    def __repr__(self):
+        return "OpportunityCriteriaV1(values=<redacted>)"
+
+
+@dataclass(frozen=True, slots=True)
+class CriterionOutcomeV1:
+    criterion_id: str
+    criterion_class: str
+    dimension: str
+    outcome: str
+    reason_code: str
+    potentially_relaxable: bool
+
+    def __post_init__(self):
+        if (
+            type(self.criterion_id) is not str
+            or not self.criterion_id
+            or self.criterion_class not in CRITERION_CLASSES
+            or type(self.dimension) is not str
+            or not self.dimension
+            or self.outcome not in CRITERION_OUTCOMES
+            or type(self.reason_code) is not str
+            or not self.reason_code
+            or type(self.potentially_relaxable) is not bool
+            or self.potentially_relaxable
+            != (self.criterion_class == "soft_preference" and self.outcome == "fail")
+        ):
+            raise TypedCriteriaError("invalid_criterion_outcome")
+
+    def as_dict(self) -> dict:
+        return {
+            "criterion_id": self.criterion_id,
+            "criterion_class": self.criterion_class,
+            "dimension": self.dimension,
+            "outcome": self.outcome,
+            "reason_code": self.reason_code,
+            "potentially_relaxable": self.potentially_relaxable,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowCriteriaEvaluationV1:
+    outcomes: tuple[CriterionOutcomeV1, ...]
+    schema_version: str = SHADOW_EVALUATION_SCHEMA_VERSION
+
+    def __post_init__(self):
+        if (
+            self.schema_version != SHADOW_EVALUATION_SCHEMA_VERSION
+            or type(self.outcomes) is not tuple
+            or any(type(item) is not CriterionOutcomeV1 for item in self.outcomes)
+            or [item.criterion_id for item in self.outcomes]
+            != sorted(item.criterion_id for item in self.outcomes)
+        ):
+            raise TypedCriteriaError("invalid_shadow_evaluation")
+
+    def as_dict(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "outcomes": [item.as_dict() for item in self.outcomes],
+        }
+
+
+def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
+    """Build typed criteria from optional authoritative profile preferences."""
+    profile = validate_canonical_profile_v2(profile_v2)
+    model = profile["preferences"].get("preference_model")
+    if model is None:
+        return MatchCriteriaV1(
+            source_status="absent",
+            eligibility_criteria=(),
+            strict_preference_criteria=(),
+            soft_preference_criteria=(),
+        )
+
+    strict: list[ProfileCriterionV1] = []
+    soft: list[ProfileCriterionV1] = []
+    for criterion_id, dimension, path in _PROFILE_LIST_CRITERIA:
+        values = _nested(model, path)
+        allowed = DIMENSION_ALLOWED_VALUES[dimension]
+        if not values or set(values) == set(allowed):
+            continue
+        criterion = ProfileCriterionV1(
+            criterion_id=criterion_id,
+            criterion_class="soft_preference",
+            dimension=dimension,
+            operator="any_of",
+            accepted_values=tuple(values),
+        )
+        soft.append(criterion)
+
+    compensation = model["compensation"]
+    if compensation["minimum_kind"] in {"preferred", "strict"}:
+        criterion_class = (
+            "strict_preference"
+            if compensation["minimum_kind"] == "strict"
+            else "soft_preference"
+        )
+        criterion = ProfileCriterionV1(
+            criterion_id="preferences.compensation.minimum",
+            criterion_class=criterion_class,
+            dimension="compensation_minimum",
+            operator="minimum",
+            minimum_amount=compensation["amount"],
+            currency=compensation["currency"],
+            period=compensation["period"],
+        )
+        (strict if criterion_class == "strict_preference" else soft).append(
+            criterion
+        )
+
+    return MatchCriteriaV1(
+        source_status="present",
+        eligibility_criteria=(),
+        strict_preference_criteria=tuple(sorted(strict, key=lambda item: item.criterion_id)),
+        soft_preference_criteria=tuple(sorted(soft, key=lambda item: item.criterion_id)),
+    )
+
+
+def project_opportunity_criteria_v1(
+    *,
+    effective_enrichment: dict | None = None,
+    inventory_row=None,
+) -> OpportunityCriteriaV1:
+    """Project only reliable structured opportunity facts; never parse free text."""
+    if effective_enrichment is None:
+        return _project_inventory_row(inventory_row)
+    if type(effective_enrichment) is not dict:
+        raise TypedCriteriaError("invalid_opportunity_enrichment")
+    document = effective_enrichment.get("document")
+    if type(document) is not dict:
+        raise TypedCriteriaError("invalid_opportunity_enrichment")
+    try:
+        validate_enrichment_document(deepcopy(document))
+    except Exception as exc:
+        raise TypedCriteriaError("invalid_opportunity_enrichment") from exc
+
+    field_sources = effective_enrichment.get("field_sources") or {}
+    stale_fields = set(effective_enrichment.get("stale_override_fields") or [])
+    if type(field_sources) is not dict or any(
+        value not in {"automatic", "human_override"}
+        for value in field_sources.values()
+    ):
+        raise TypedCriteriaError("invalid_opportunity_enrichment")
+    context = _EvidenceContext(document, field_sources, stale_fields)
+    attributes = document["attributes"]
+    role = attributes["role"]
+    arrangement = attributes["work_arrangement"]
+
+    engagement = (
+        arrangement["engagement_type"]
+        if context.reliable("attributes.work_arrangement.engagement_type")
+        else "unknown"
+    )
+    relationships = _unknown_dimension("employment_relationship_unknown")
+    workloads = _unknown_dimension("workload_unknown")
+    terms = _unknown_dimension("engagement_term_unknown")
+    if engagement == "freelance":
+        relationships = _known_dimension(
+            ("independent_contractor",), "engagement_type_freelance"
+        )
+    elif engagement == "full_time":
+        workloads = _known_dimension(("full_time",), "engagement_type_full_time")
+    elif engagement == "part_time":
+        workloads = _known_dimension(("part_time",), "engagement_type_part_time")
+    elif engagement in {"temporary", "internship"}:
+        terms = _known_dimension((engagement,), f"engagement_type_{engagement}")
+    elif engagement == "contract":
+        reason = "engagement_type_contract_ambiguous"
+        relationships = _unknown_dimension(reason)
+        terms = _unknown_dimension(reason)
+    elif engagement == "volunteer":
+        reason = "engagement_type_unsupported"
+        relationships = _unknown_dimension(reason)
+        workloads = _unknown_dimension(reason)
+        terms = _unknown_dimension(reason)
+
+    schedule_type = (
+        arrangement["schedule_type"]
+        if context.reliable("attributes.work_arrangement.schedule_type")
+        else "unknown"
+    )
+    schedule_flexibility = (
+        _known_dimension((schedule_type,), f"schedule_type_{schedule_type}")
+        if schedule_type in SCHEDULE_FLEXIBILITY_MODES
+        else _unknown_dimension("schedule_flexibility_unknown")
+    )
+
+    interests = set()
+    role_family_path = "attributes.role.role_family"
+    if context.reliable(role_family_path) and role["role_family"] in JOB_INTEREST_CODES:
+        interests.add(role["role_family"])
+    activities_path = "attributes.role.work_activities"
+    if context.reliable(activities_path):
+        interests.update(set(role["work_activities"]) & set(JOB_INTEREST_CODES))
+    job_interests = (
+        _known_dimension(tuple(sorted(interests)), "structured_job_taxonomy")
+        if interests
+        else _unknown_dimension("job_interest_unknown")
+    )
+
+    seniority_path = "attributes.role.seniority"
+    career_levels = (
+        _known_dimension((role["seniority"],), "structured_career_level")
+        if context.reliable(seniority_path) and role["seniority"] in CAREER_LEVELS
+        else _unknown_dimension("career_level_unknown")
+    )
+
+    return OpportunityCriteriaV1(
+        employment_relationships=relationships,
+        workloads=workloads,
+        engagement_terms=terms,
+        schedule_flexibility_modes=schedule_flexibility,
+        schedule_coordination_modes=_unknown_dimension(
+            "schedule_coordination_not_structured"
+        ),
+        schedule_time_windows=_unknown_dimension(
+            "schedule_time_window_not_structured"
+        ),
+        phone_voice_modes=_unknown_dimension("phone_voice_not_structured"),
+        job_interests=job_interests,
+        career_levels=career_levels,
+        compensation=_project_compensation(attributes["compensation"], context),
+    )
+
+
+def evaluate_match_criteria_shadow(
+    criteria: MatchCriteriaV1,
+    opportunity: OpportunityCriteriaV1,
+) -> ShadowCriteriaEvaluationV1:
+    """Evaluate each active criterion without feeding results to matching."""
+    if type(criteria) is not MatchCriteriaV1 or type(opportunity) is not OpportunityCriteriaV1:
+        raise TypedCriteriaError("invalid_shadow_evaluation_input")
+    outcomes = []
+    for criterion in criteria.all_criteria():
+        if criterion.operator == "minimum":
+            result = compare_compensation_criterion(
+                criterion,
+                opportunity.compensation,
+            )
+        else:
+            dimension = getattr(
+                opportunity,
+                _OPPORTUNITY_DIMENSION_FIELDS[criterion.dimension],
+            )
+            if dimension.status == "unknown":
+                result = _outcome(
+                    criterion,
+                    "unknown",
+                    dimension.reason_code,
+                )
+            elif set(criterion.accepted_values).intersection(dimension.values):
+                result = _outcome(criterion, "pass", "accepted_value_present")
+            else:
+                result = _outcome(criterion, "fail", "accepted_value_absent")
+        outcomes.append(result)
+    return ShadowCriteriaEvaluationV1(
+        outcomes=tuple(sorted(outcomes, key=lambda item: item.criterion_id))
+    )
+
+
+def compare_compensation_criterion(
+    criterion: ProfileCriterionV1 | None,
+    opportunity: OpportunityCompensationV1,
+) -> CriterionOutcomeV1:
+    """Compare only a guaranteed like-currency, like-period minimum."""
+    if criterion is None:
+        return CriterionOutcomeV1(
+            criterion_id="preferences.compensation.minimum",
+            criterion_class="soft_preference",
+            dimension="compensation_minimum",
+            outcome="not_applicable",
+            reason_code="compensation_minimum_not_set",
+            potentially_relaxable=False,
+        )
+    if (
+        type(criterion) is not ProfileCriterionV1
+        or criterion.operator != "minimum"
+        or type(opportunity) is not OpportunityCompensationV1
+    ):
+        raise TypedCriteriaError("invalid_compensation_comparison")
+    if opportunity.status == "unknown":
+        return _outcome(criterion, "unknown", opportunity.reason_code)
+    if opportunity.disclosed is False:
+        return _outcome(criterion, "unknown", "compensation_undisclosed")
+    if opportunity.disclosed is not True:
+        return _outcome(criterion, "unknown", "compensation_disclosure_unknown")
+    if opportunity.period not in COMPENSATION_PERIODS:
+        return _outcome(criterion, "unknown", "compensation_period_unsupported")
+    if opportunity.currency not in ISO_4217_CURRENCIES:
+        return _outcome(criterion, "unknown", "compensation_currency_unknown")
+    if opportunity.currency != criterion.currency:
+        return _outcome(criterion, "unknown", "compensation_currency_mismatch")
+    if opportunity.period != criterion.period:
+        return _outcome(criterion, "unknown", "compensation_period_mismatch")
+
+    threshold = _positive_decimal(criterion.minimum_amount)
+    if opportunity.amount_type not in {"exact", "range", "from", "up_to"}:
+        return _outcome(criterion, "unknown", "compensation_amount_type_unknown")
+    if threshold is None:
+        return _outcome(criterion, "unknown", "compensation_amount_incomplete")
+
+    minimum = _nonnegative_decimal(opportunity.amount_min)
+    maximum = _nonnegative_decimal(opportunity.amount_max)
+    lower_bound = None
+    upper_bound = None
+    if opportunity.amount_type == "exact":
+        if minimum is not None and maximum is not None and minimum != maximum:
+            return _outcome(
+                criterion,
+                "unknown",
+                "compensation_amount_inconsistent",
+            )
+        exact = minimum if minimum is not None else maximum
+        if exact is None:
+            return _outcome(criterion, "unknown", "compensation_amount_incomplete")
+        lower_bound = exact
+        upper_bound = exact
+    elif opportunity.amount_type == "range":
+        if minimum is None or maximum is None:
+            return _outcome(criterion, "unknown", "compensation_amount_incomplete")
+        lower_bound = minimum
+        upper_bound = maximum
+    elif opportunity.amount_type == "from":
+        if minimum is None:
+            return _outcome(criterion, "unknown", "compensation_amount_incomplete")
+        lower_bound = minimum
+        upper_bound = maximum
+    elif opportunity.amount_type == "up_to":
+        if maximum is None:
+            return _outcome(criterion, "unknown", "compensation_amount_incomplete")
+        upper_bound = maximum
+
+    if lower_bound is not None and lower_bound >= threshold:
+        reason = (
+            "compensation_strict_minimum_guaranteed"
+            if criterion.criterion_class == "strict_preference"
+            else "compensation_preferred_minimum_guaranteed"
+        )
+        return _outcome(criterion, "pass", reason)
+    if upper_bound is not None and upper_bound < threshold:
+        reason = (
+            "compensation_below_strict_minimum"
+            if criterion.criterion_class == "strict_preference"
+            else "compensation_below_preferred_minimum"
+        )
+        return _outcome(criterion, "fail", reason)
+    if criterion.criterion_class == "strict_preference":
+        return _outcome(
+            criterion,
+            "fail",
+            "compensation_strict_minimum_not_guaranteed",
+        )
+    return _outcome(
+        criterion,
+        "unknown",
+        "compensation_preferred_range_overlap",
+    )
+
+
+def run_typed_match_criteria_shadow(
+    profile_v2: dict,
+    inventory_rows,
+    effective_enrichments: dict[int, dict] | None = None,
+    *,
+    diagnostic_sink=None,
+) -> tuple[dict, ...]:
+    """Produce bounded diagnostics without mutating matcher inputs or outputs."""
+    criteria = match_criteria_v1_from_profile(profile_v2)
+    if criteria.source_status == "absent":
+        return ()
+    if type(inventory_rows) is not list or (
+        effective_enrichments is not None and type(effective_enrichments) is not dict
+    ):
+        raise TypedCriteriaError("invalid_shadow_inventory")
+    if diagnostic_sink is not None and not callable(diagnostic_sink):
+        raise TypedCriteriaError("invalid_shadow_diagnostic_sink")
+    effective_enrichments = effective_enrichments or {}
+    records = []
+    for row in inventory_rows:
+        canonical_id = _row_value(row, "canonical_opportunity_id")
+        effective = (
+            effective_enrichments.get(canonical_id)
+            if type(canonical_id) is int
+            else None
+        )
+        try:
+            opportunity = project_opportunity_criteria_v1(
+                effective_enrichment=effective,
+                inventory_row=row,
+            )
+            evaluation = evaluate_match_criteria_shadow(criteria, opportunity)
+        except Exception:
+            evaluation = ShadowCriteriaEvaluationV1(
+                outcomes=tuple(
+                    sorted(
+                        (
+                            _outcome(
+                                criterion,
+                                "unknown",
+                                "opportunity_projection_failed",
+                            )
+                            for criterion in criteria.all_criteria()
+                        ),
+                        key=lambda item: item.criterion_id,
+                    )
+                )
+            )
+        record = {
+            "schema_version": SHADOW_DIAGNOSTIC_SCHEMA_VERSION,
+            "opportunity_reference": _opportunity_reference(row),
+            "criteria_source_status": criteria.source_status,
+            "outcomes": [item.as_dict() for item in evaluation.outcomes],
+        }
+        records.append(record)
+        if diagnostic_sink is not None:
+            try:
+                diagnostic_sink(deepcopy(record))
+            except Exception:
+                pass
+    return tuple(deepcopy(records))
+
+
+class _EvidenceContext:
+    def __init__(self, document, field_sources, stale_fields):
+        self.document = document
+        self.field_sources = field_sources
+        self.stale_fields = stale_fields
+        self.unknown_fields = set(document.get("unknown_fields") or [])
+        self.high_evidence = {
+            item["field_path"]
+            for item in document.get("field_evidence") or []
+            if item.get("confidence") == "high"
+        }
+
+    def reliable(self, path):
+        if path in self.unknown_fields or path in self.stale_fields:
+            return False
+        return (
+            self.field_sources.get(path) == "human_override"
+            or path in self.high_evidence
+        )
+
+
+def _project_inventory_row(row) -> OpportunityCriteriaV1:
+    relationship = _unknown_dimension("employment_relationship_unknown")
+    workload = _unknown_dimension("workload_unknown")
+    term = _unknown_dimension("engagement_term_unknown")
+    commitment = str(_row_value(row, "commitment") or "").strip().casefold()
+    normalized = commitment.replace("-", "_").replace(" ", "_")
+    if normalized == "freelance":
+        relationship = _known_dimension(
+            ("independent_contractor",), "inventory_commitment_freelance"
+        )
+    elif normalized in WORKLOADS:
+        workload = _known_dimension((normalized,), f"inventory_commitment_{normalized}")
+    elif normalized in {"temporary", "internship"}:
+        term = _known_dimension((normalized,), f"inventory_commitment_{normalized}")
+    elif normalized == "contract":
+        reason = "inventory_contract_ambiguous"
+        relationship = _unknown_dimension(reason)
+        term = _unknown_dimension(reason)
+
+    category = str(_row_value(row, "source_category") or "").strip()
+    interests = (
+        _known_dimension((category,), "inventory_taxonomy_exact")
+        if category in JOB_INTEREST_CODES
+        else _unknown_dimension("job_interest_unknown")
+    )
+    return OpportunityCriteriaV1(
+        employment_relationships=relationship,
+        workloads=workload,
+        engagement_terms=term,
+        schedule_flexibility_modes=_unknown_dimension("schedule_flexibility_unknown"),
+        schedule_coordination_modes=_unknown_dimension(
+            "schedule_coordination_not_structured"
+        ),
+        schedule_time_windows=_unknown_dimension(
+            "schedule_time_window_not_structured"
+        ),
+        phone_voice_modes=_unknown_dimension("phone_voice_unknown"),
+        job_interests=interests,
+        career_levels=_unknown_dimension("career_level_unknown"),
+        compensation=_unknown_compensation("compensation_not_structured"),
+    )
+
+
+def _project_compensation(value, context):
+    paths = {
+        field: f"attributes.compensation.{field}"
+        for field in (
+            "disclosed",
+            "currency",
+            "amount_min",
+            "amount_max",
+            "period",
+            "amount_type",
+        )
+    }
+    if not context.reliable(paths["disclosed"]):
+        return _unknown_compensation("compensation_disclosure_unknown")
+    disclosed = value["disclosed"]
+    if disclosed is False:
+        return OpportunityCompensationV1(
+            status="known",
+            disclosed=False,
+            currency=None,
+            amount_min=None,
+            amount_max=None,
+            period=None,
+            amount_type="unknown",
+            reason_code="compensation_undisclosed",
+        )
+    if disclosed is not True:
+        return _unknown_compensation("compensation_disclosure_unknown")
+
+    currency = (
+        str(value["currency"]).upper()
+        if context.reliable(paths["currency"]) and value["currency"]
+        else None
+    )
+    period = value["period"] if context.reliable(paths["period"]) else None
+    amount_type = (
+        value["amount_type"]
+        if context.reliable(paths["amount_type"])
+        else "unknown"
+    )
+    minimum = (
+        _decimal_from_number(value["amount_min"])
+        if context.reliable(paths["amount_min"])
+        else None
+    )
+    maximum = (
+        _decimal_from_number(value["amount_max"])
+        if context.reliable(paths["amount_max"])
+        else None
+    )
+    return OpportunityCompensationV1(
+        status="known",
+        disclosed=True,
+        currency=currency,
+        amount_min=minimum,
+        amount_max=maximum,
+        period=period,
+        amount_type=amount_type,
+        reason_code="compensation_structured",
+    )
+
+
+def _outcome(criterion, outcome, reason_code):
+    return CriterionOutcomeV1(
+        criterion_id=criterion.criterion_id,
+        criterion_class=criterion.criterion_class,
+        dimension=criterion.dimension,
+        outcome=outcome,
+        reason_code=reason_code,
+        potentially_relaxable=(
+            criterion.criterion_class == "soft_preference" and outcome == "fail"
+        ),
+    )
+
+
+def _known_dimension(values, reason):
+    return OpportunityDimensionV1("known", tuple(sorted(set(values))), reason)
+
+
+def _unknown_dimension(reason):
+    return OpportunityDimensionV1("unknown", (), reason)
+
+
+def _unknown_compensation(reason):
+    return OpportunityCompensationV1(
+        status="unknown",
+        disclosed=None,
+        currency=None,
+        amount_min=None,
+        amount_max=None,
+        period=None,
+        amount_type="unknown",
+        reason_code=reason,
+    )
+
+
+def _positive_decimal(value):
+    decimal = _decimal(value)
+    return decimal if decimal is not None and decimal > 0 else None
+
+
+def _nonnegative_decimal(value):
+    decimal = _decimal(value)
+    return decimal if decimal is not None and decimal >= 0 else None
+
+
+def _decimal(value):
+    if type(value) is not str:
+        return None
+    try:
+        result = Decimal(value)
+    except InvalidOperation:
+        return None
+    return result if result.is_finite() else None
+
+
+def _decimal_from_number(value):
+    if type(value) not in {int, float} or (type(value) is float and not math.isfinite(value)):
+        return None
+    try:
+        decimal = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    if not decimal.is_finite() or decimal < 0:
+        return None
+    return format(decimal.normalize(), "f")
+
+
+def _nested(value, path):
+    result = value
+    for key in path:
+        result = result[key]
+    return result
+
+
+def _row_value(row, key):
+    if hasattr(row, "get"):
+        return row.get(key)
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def _opportunity_reference(row):
+    canonical = _row_value(row, "canonical_opportunity_id")
+    if type(canonical) is int and canonical >= 0:
+        return f"canonical:{canonical}"
+    job = _row_value(row, "job_id")
+    if type(job) is int and job >= 0:
+        return f"job:{job}"
+    return "unidentified"

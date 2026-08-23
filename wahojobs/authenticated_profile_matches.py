@@ -43,6 +43,8 @@ from wahojobs.matching.metadata_overlay import (
     OpportunityMetadataOverlay,
     apply_overlay_to_rows,
 )
+from wahojobs.matching.typed_criteria import run_typed_match_criteria_shadow
+from wahojobs.opportunity_enrichment import resolve_effective_enrichments
 from wahojobs.persistent_profile_read_authorization import (
     DurablePersistentProfileReadAuthorizationGateway,
     PersistentProfileReadAuthorizationDecision,
@@ -112,6 +114,10 @@ _SECURITY_HEADERS = (
 )
 _NO_REFERRER_POLICY = "no-referrer"
 _SAME_ORIGIN_REFERRER_POLICY = "same-origin"
+
+
+def _discard_criteria_shadow_diagnostic(_record):
+    return None
 
 
 class DurableMatchesRequestContext:
@@ -491,6 +497,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_closed",
         "_completed_replay_authenticator",
         "_connection_provider",
+        "_criteria_shadow_sink",
         "_write_connection_provider",
         "_ephemeral_identity_factory",
         "_metadata_overlay",
@@ -522,6 +529,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         public_seo_policy=None,
         public_job_canary_gate=None,
         public_catalog_auth_routes_enabled=True,
+        criteria_shadow_sink=None,
     ):
         origin, authority = _validated_public_origin(public_origin)
         if (
@@ -536,6 +544,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             or not callable(completed_profile_confirmation_authenticator)
             or not callable(now)
             or type(public_catalog_auth_routes_enabled) is not bool
+            or (
+                criteria_shadow_sink is not None
+                and not callable(criteria_shadow_sink)
+            )
         ):
             raise ValueError("invalid_authenticated_matches_browser_configuration")
         if ephemeral_identity_factory is None:
@@ -561,6 +573,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._artifact_sink = confirmed_profile_artifact_sink
         self._completed_replay_authenticator = (
             completed_profile_confirmation_authenticator
+        )
+        self._criteria_shadow_sink = (
+            criteria_shadow_sink
+            if criteria_shadow_sink is not None
+            else _discard_criteria_shadow_diagnostic
         )
         self._public_origin = origin
         self._public_authority = authority
@@ -1601,6 +1618,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     extraction_quality="reviewed",
                     evaluated_at=evaluated_at,
                 )
+                self._emit_criteria_shadow(profile_v2, rows)
             if self._write_connection_provider is None:
                 content = _render_match_results(context, inventory_count=inventory_count)
             else:
@@ -1667,6 +1685,59 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         }
         return enriched, status
 
+    def _emit_criteria_shadow(self, profile_v2, rows):
+        """Best-effort diagnostics that cannot affect the visible match context."""
+        try:
+            preferences = profile_v2.get("preferences")
+            preference_model = (
+                preferences.get("preference_model")
+                if type(preferences) is dict
+                else None
+            )
+            effective = {}
+            if type(preference_model) is dict:
+                try:
+                    effective = self._load_shadow_enrichments(rows)
+                except Exception:
+                    effective = {}
+            run_typed_match_criteria_shadow(
+                profile_v2,
+                rows,
+                effective,
+                diagnostic_sink=self._criteria_shadow_sink,
+            )
+        except Exception:
+            # Shadow diagnostics are strictly fail-open relative to the already
+            # completed production matcher evaluation.
+            return
+
+    def _load_shadow_enrichments(self, rows):
+        canonical_ids = {
+            row.get("canonical_opportunity_id")
+            for row in rows
+            if type(row.get("canonical_opportunity_id")) is int
+        }
+        if not canonical_ids:
+            return {}
+        connection = None
+        try:
+            with self._connection_provider() as connection:
+                if (
+                    not isinstance(connection, sqlite3.Connection)
+                    or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                    or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+                    or connection.in_transaction
+                ):
+                    raise ValueError("configured_inventory_unavailable")
+                connection.execute("BEGIN")
+                try:
+                    return resolve_effective_enrichments(connection, canonical_ids)
+                finally:
+                    if connection.in_transaction:
+                        connection.rollback()
+        finally:
+            connection = None
+
     def close(self):
         if self._closed:
             return True
@@ -1678,6 +1749,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._metadata_overlay = None
         self._artifact_sink = None
         self._completed_replay_authenticator = None
+        self._criteria_shadow_sink = None
         self._ephemeral_identity_factory = None
         self._public_jobs_cache = None
         self._public_jobs_cache_lock = None

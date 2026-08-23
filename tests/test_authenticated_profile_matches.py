@@ -19,6 +19,7 @@ from tests.test_canonical_profile_v2 import (
     ordinal_resolver,
     persistent_id,
 )
+from tests.test_profile_preference_model import with_preference_model
 from tests.durable_google_login_browser_test_support import (
     cookie_header,
     cookie_values,
@@ -45,7 +46,11 @@ from wahojobs.matching.metadata_overlay import OpportunityMetadataOverlay
 from wahojobs.persistent_profile_read_authorization import (
     DurablePersistentProfileReadAuthorizationGateway,
 )
-from wahojobs.profiles.canonical_v2 import convert_v1_to_v2
+from wahojobs.profiles.canonical_v2 import (
+    convert_v1_to_v2,
+    validate_canonical_profile_v2,
+)
+from wahojobs.profiles.preference_model import empty_profile_preferences_v1
 
 
 NOW = datetime(2026, 7, 25, 14, 0, 0, tzinfo=timezone.utc)
@@ -242,11 +247,18 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.artifacts = []
         self.replays = []
 
-    def _integration(self, *, ephemeral_identity_factory=None):
+    def _integration(
+        self,
+        *,
+        ephemeral_identity_factory=None,
+        criteria_shadow_sink=None,
+    ):
         service = object.__new__(AuthenticatedProfileMatchesService)
         options = {}
         if ephemeral_identity_factory is not None:
             options["ephemeral_identity_factory"] = ephemeral_identity_factory
+        if criteria_shadow_sink is not None:
+            options["criteria_shadow_sink"] = criteria_shadow_sink
         integration = AuthenticatedProfileMatchesBrowserIntegration(
             service,
             connection_provider=self.provider,
@@ -578,6 +590,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         query_calls = []
         authority = self._authority(profile_v2=self.profile_v2)
         real_projection = matches_module.project_v2_to_matcher_v1
+        real_shadow = matches_module.run_typed_match_criteria_shadow
         fallback_error = AssertionError("local/default inventory fallback used")
 
         with (
@@ -597,6 +610,11 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 "project_v2_to_matcher_v1",
                 wraps=real_projection,
             ) as project,
+            mock.patch.object(
+                matches_module,
+                "run_typed_match_criteria_shadow",
+                wraps=real_shadow,
+            ) as shadow,
             mock.patch.object(
                 profile_preview,
                 "load_preview_rows",
@@ -645,6 +663,10 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(len(query_calls), 1)
         resolve.assert_called_once()
         project.assert_called_once()
+        shadow.assert_called_once()
+        self.assertEqual(shadow.call_args.args[0], self.profile_v2)
+        self.assertEqual(shadow.call_args.args[1], [safe, unsafe])
+        self.assertEqual(shadow.call_args.args[2], {})
         self.assertEqual(project.call_args.args[0], self.profile_v2)
         self.assertEqual(
             project.call_args.kwargs["matcher_profile_id"],
@@ -675,6 +697,59 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             legacy_renderer,
         ):
             fallback.assert_not_called()
+
+    def test_typed_criteria_shadow_is_internal_and_fails_open_without_enrichment(self):
+        model = empty_profile_preferences_v1()
+        model["workloads"] = ["full_time"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        row = self._row()
+        row["commitment"] = "Full-time"
+        captured = []
+        query_calls = []
+        _service, integration = self._integration(
+            ephemeral_identity_factory=lambda: "ephemeral_matcher",
+            criteria_shadow_sink=captured.append,
+        )
+        with (
+            mock.patch.object(
+                AuthenticatedProfileMatchesService,
+                "resolve",
+                return_value=self._authority(profile_v2=authoritative),
+            ),
+            mock.patch.object(
+                profile_preview,
+                "query_preview_rows",
+                side_effect=self._query_rows([row], query_calls),
+            ),
+        ):
+            response = integration.handle(
+                "GET",
+                "/find-matches",
+                self._headers(),
+            )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(len(query_calls), 1)
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0]["schema_version"], "match_criteria_shadow_diagnostic_v1")
+        self.assertEqual(
+            captured[0]["outcomes"],
+            [
+                {
+                    "criterion_id": "preferences.workloads",
+                    "criterion_class": "soft_preference",
+                    "dimension": "workload",
+                    "outcome": "pass",
+                    "reason_code": "accepted_value_present",
+                    "potentially_relaxable": False,
+                }
+            ],
+        )
+        body = self._body(response)
+        self.assertNotIn("match_criteria_shadow", body)
+        self.assertNotIn("preferences.workloads", body)
 
     def test_empty_and_untrusted_configured_inventory_are_reported_honestly(self):
         stale = self._row(

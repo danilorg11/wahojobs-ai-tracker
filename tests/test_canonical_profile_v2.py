@@ -1760,6 +1760,7 @@ print(canonical_v2.SCHEMA_VERSION)
                     "wahojobs/authenticated_profile_matches.py",
                     "wahojobs/closed_schema_authority.py",
                     "wahojobs/google_oidc_authorization_transaction_schema.py",
+                    "wahojobs/matching/typed_criteria.py",
                     "wahojobs/persistent_profiles.py",
                     "wahojobs/persistent_profiles_reconciliation.py",
                     "wahojobs/persistent_profiles_repository.py",

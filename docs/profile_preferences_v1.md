@@ -49,8 +49,9 @@ sorted, and an empty array means unrestricted. The closed values are:
   `principal`, `manager`, shared with opportunity enrichment.
 
 `accepted_career_levels` describes target opportunities. It is not the
-candidate's `experience.seniority` fact. Job interests are intrinsically soft;
-V1 does not add a generic hard/preferred switch to other dimensions.
+candidate's `experience.seniority` fact. Every accepted-choice dimension is a
+soft preference in typed matching. Compensation alone carries an explicit
+preferred/strict strength in V1.
 
 Compensation uses `minimum_kind` values `none`, `preferred`, or `strict`.
 `none` requires the other three fields to be null. `preferred` and `strict`
@@ -87,3 +88,8 @@ for compatibility. It is not wired into current writers or matching. Canonical
 V2's active V1 review and matcher projections instead remove
 `preference_model` and retain the existing legacy shadow fields unchanged. As a
 result, adding the optional subdocument cannot change current match results.
+
+The next read-only layer projects this model and conservative opportunity
+evidence into criterion-by-criterion internal diagnostics. Its contracts and
+zero-visible-behavior boundary are documented in
+[`typed_match_criteria_shadow_v1.md`](typed_match_criteria_shadow_v1.md).
