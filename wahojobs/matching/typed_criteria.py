@@ -1,7 +1,7 @@
-"""Typed profile/opportunity criteria and diagnostic-only shadow evaluation.
+"""Typed profile/opportunity criteria, evaluation, and admission policy.
 
 This module is pure apart from an optional caller-supplied diagnostic sink. It
-does not score, filter, rank, persist, or render opportunities.
+does not score, reorder, persist, render, or mutate opportunity collections.
 """
 
 from __future__ import annotations
@@ -37,6 +37,9 @@ MATCH_CRITERIA_SCHEMA_VERSION = "match_criteria_v1"
 OPPORTUNITY_CRITERIA_SCHEMA_VERSION = "opportunity_match_criteria_v1"
 SHADOW_EVALUATION_SCHEMA_VERSION = "match_criteria_shadow_evaluation_v1"
 SHADOW_DIAGNOSTIC_SCHEMA_VERSION = "match_criteria_shadow_diagnostic_v1"
+PRIMARY_PREFERENCE_ADMISSION_SCHEMA_VERSION = (
+    "typed_preference_primary_admission_v1"
+)
 
 CRITERION_CLASSES = frozenset(
     {"eligibility", "strict_preference", "soft_preference"}
@@ -524,6 +527,39 @@ class ShadowCriteriaEvaluationV1:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class PrimaryPreferenceAdmissionV1:
+    """A removal-only admission decision over existing typed outcomes."""
+
+    status: str
+    exclusion_criterion_ids: tuple[str, ...]
+    schema_version: str = PRIMARY_PREFERENCE_ADMISSION_SCHEMA_VERSION
+
+    def __post_init__(self):
+        if (
+            self.schema_version != PRIMARY_PREFERENCE_ADMISSION_SCHEMA_VERSION
+            or self.status not in {"keep", "exclude"}
+            or type(self.exclusion_criterion_ids) is not tuple
+            or any(
+                type(criterion_id) is not str or not criterion_id
+                for criterion_id in self.exclusion_criterion_ids
+            )
+            or tuple(sorted(self.exclusion_criterion_ids))
+            != self.exclusion_criterion_ids
+            or len(self.exclusion_criterion_ids)
+            != len(set(self.exclusion_criterion_ids))
+            or (self.status == "keep") != (not self.exclusion_criterion_ids)
+        ):
+            raise TypedCriteriaError("invalid_primary_preference_admission")
+
+    def as_dict(self) -> dict:
+        return {
+            "schema_version": self.schema_version,
+            "status": self.status,
+            "exclusion_criterion_ids": list(self.exclusion_criterion_ids),
+        }
+
+
 def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
     """Build typed criteria from optional authoritative profile preferences."""
     profile = validate_canonical_profile_v2(profile_v2)
@@ -719,6 +755,57 @@ def evaluate_match_criteria_shadow(
         outcomes.append(result)
     return ShadowCriteriaEvaluationV1(
         outcomes=tuple(sorted(outcomes, key=lambda item: item.criterion_id))
+    )
+
+
+def evaluate_primary_preference_admission_v1(
+    criteria: MatchCriteriaV1,
+    outcomes: tuple[CriterionOutcomeV1, ...],
+) -> PrimaryPreferenceAdmissionV1:
+    """Apply V1 admission policy without scoring, ranking, or adding matches.
+
+    A missing strict result is treated like unknown and therefore excludes.
+    A missing soft result is treated like missing opportunity evidence and
+    therefore keeps the match. Existing eligibility failures are translated
+    by the bridge and can never be relaxed here.
+    """
+    if (
+        type(criteria) is not MatchCriteriaV1
+        or type(outcomes) is not tuple
+        or any(type(item) is not CriterionOutcomeV1 for item in outcomes)
+        or len({item.criterion_id for item in outcomes}) != len(outcomes)
+    ):
+        raise TypedCriteriaError("invalid_primary_preference_admission_input")
+    if criteria.source_status == "absent":
+        return PrimaryPreferenceAdmissionV1("keep", ())
+
+    outcome_by_id = {item.criterion_id: item for item in outcomes}
+    exclusions = {
+        item.criterion_id
+        for item in outcomes
+        if item.criterion_class == "eligibility" and item.outcome == "fail"
+    }
+    for criterion in criteria.strict_preference_criteria:
+        result = outcome_by_id.get(criterion.criterion_id)
+        if (
+            result is None
+            or result.criterion_class != "strict_preference"
+            or result.outcome != "pass"
+        ):
+            exclusions.add(criterion.criterion_id)
+    for criterion in criteria.soft_preference_criteria:
+        result = outcome_by_id.get(criterion.criterion_id)
+        if (
+            result is not None
+            and result.criterion_class == "soft_preference"
+            and result.outcome == "fail"
+        ):
+            exclusions.add(criterion.criterion_id)
+
+    exclusion_ids = tuple(sorted(exclusions))
+    return PrimaryPreferenceAdmissionV1(
+        "exclude" if exclusion_ids else "keep",
+        exclusion_ids,
     )
 
 

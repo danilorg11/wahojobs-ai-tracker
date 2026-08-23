@@ -44,7 +44,14 @@ from wahojobs.matching.metadata_overlay import (
     OpportunityMetadataOverlay,
     apply_overlay_to_rows,
 )
-from wahojobs.matching.typed_criteria import run_typed_match_criteria_shadow
+from wahojobs.matching.typed_criteria import (
+    bridge_existing_matcher_eligibility,
+    evaluate_match_criteria_shadow,
+    evaluate_primary_preference_admission_v1,
+    match_criteria_v1_from_profile,
+    project_opportunity_criteria_v1,
+    run_typed_match_criteria_shadow,
+)
 from wahojobs.opportunity_enrichment import resolve_effective_enrichments
 from wahojobs.persistent_profile_read_authorization import (
     DurablePersistentProfileReadAuthorizationGateway,
@@ -81,6 +88,9 @@ MAX_MATCHES_HEADERS = 64
 MAX_MATCHES_COOKIE_BYTES = 4_096
 MAX_MATCHES_COOKIES = 16
 MATCH_PRESENTATION_LIMIT = 10
+TYPED_PREFERENCE_ENFORCEMENT_SCHEMA_VERSION = (
+    "typed_preference_enforcement_v1"
+)
 
 SESSION_COOKIE_NAME = "wahojobs_session"
 SESSION_CSRF_COOKIE_NAME = "__Host-wahojobs_session_csrf"
@@ -119,6 +129,14 @@ _SAME_ORIGIN_REFERRER_POLICY = "same-origin"
 
 def _discard_criteria_shadow_diagnostic(_record):
     return None
+
+
+def _has_authoritative_preference_model(profile_v2):
+    preferences = profile_v2.get("preferences")
+    return (
+        type(preferences) is dict
+        and type(preferences.get("preference_model")) is dict
+    )
 
 
 class DurableMatchesRequestContext:
@@ -1621,11 +1639,25 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     evaluated_at=evaluated_at,
                     evaluated_match_sink=authoritative_matches.append,
                 )
+                effective_enrichments = {}
+                if _has_authoritative_preference_model(profile_v2):
+                    try:
+                        effective_enrichments = self._load_shadow_enrichments(rows)
+                    except Exception:
+                        effective_enrichments = {}
                 self._emit_criteria_shadow(
                     profile_v2,
                     rows,
                     authoritative_matches,
+                    effective_enrichments=effective_enrichments,
                 )
+                if _has_authoritative_preference_model(profile_v2):
+                    context = _apply_typed_preference_enforcement_v1(
+                        profile_v2,
+                        context,
+                        rows,
+                        effective_enrichments,
+                    )
             if self._write_connection_provider is None:
                 content = _render_match_results(context, inventory_count=inventory_count)
             else:
@@ -1692,17 +1724,23 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         }
         return enriched, status
 
-    def _emit_criteria_shadow(self, profile_v2, rows, authoritative_matches):
+    def _emit_criteria_shadow(
+        self,
+        profile_v2,
+        rows,
+        authoritative_matches,
+        *,
+        effective_enrichments=None,
+    ):
         """Best-effort diagnostics that cannot affect the visible match context."""
         try:
-            preferences = profile_v2.get("preferences")
-            preference_model = (
-                preferences.get("preference_model")
-                if type(preferences) is dict
-                else None
-            )
-            effective = {}
-            if type(preference_model) is dict:
+            if effective_enrichments is None:
+                effective = {}
+            else:
+                effective = effective_enrichments
+            if effective_enrichments is None and _has_authoritative_preference_model(
+                profile_v2
+            ):
                 try:
                     effective = self._load_shadow_enrichments(rows)
                 except Exception:
@@ -2377,6 +2415,180 @@ def _render_candidate_review(run):
     return _page("Review your profile", body)
 
 
+def _apply_typed_preference_enforcement_v1(
+    profile_v2,
+    context,
+    inventory_rows,
+    effective_enrichments,
+):
+    """Remove disallowed items before the ranked pool receives its UI limit."""
+    criteria = match_criteria_v1_from_profile(profile_v2)
+    if criteria.source_status != "present":
+        return context
+    ranked_pool = _ranked_presentation_eligible_pool(context)
+    rows_by_job_id = _unique_inventory_rows_by_job_id(inventory_rows)
+    candidate_references = []
+    surviving_references = []
+    evaluations = []
+    for match in ranked_pool:
+        reference = _typed_presentation_reference(match)
+        if reference is None:
+            continue
+        candidate_references.append(reference)
+        outcomes = []
+        preference_evaluation_status = "unavailable"
+        job_id = _typed_match_job_id(match)
+        row = rows_by_job_id.get(job_id)
+        if row is not None:
+            canonical_id = row.get("canonical_opportunity_id")
+            effective = (
+                effective_enrichments.get(canonical_id)
+                if type(canonical_id) is int
+                else None
+            )
+            try:
+                opportunity = project_opportunity_criteria_v1(
+                    effective_enrichment=effective,
+                    inventory_row=row,
+                )
+                outcomes.extend(
+                    evaluate_match_criteria_shadow(
+                        criteria,
+                        opportunity,
+                    ).outcomes
+                )
+                preference_evaluation_status = "complete"
+            except Exception:
+                # Missing strict results fail closed in the admission policy;
+                # missing soft results remain unknown and therefore fail open.
+                preference_evaluation_status = "unavailable"
+        try:
+            outcomes.extend(bridge_existing_matcher_eligibility(match))
+        except Exception:
+            # The existing matcher result remains the eligibility authority.
+            # A bridge diagnostic failure must not invent a new gate.
+            pass
+        outcomes = tuple(sorted(outcomes, key=lambda item: item.criterion_id))
+        admission = evaluate_primary_preference_admission_v1(
+            criteria,
+            outcomes,
+        )
+        if admission.status == "keep":
+            surviving_references.append(reference)
+        evaluations.append(
+            {
+                "opportunity_reference": reference,
+                "preference_evaluation_status": preference_evaluation_status,
+                "outcomes": [item.as_dict() for item in outcomes],
+                "admission": admission.as_dict(),
+            }
+        )
+
+    updated = dict(context)
+    updated["_typed_preference_enforcement"] = {
+        "schema_version": TYPED_PREFERENCE_ENFORCEMENT_SCHEMA_VERSION,
+        "criteria_source_status": criteria.source_status,
+        "candidate_references": candidate_references,
+        "surviving_references": surviving_references,
+        "evaluations": evaluations,
+    }
+    return updated
+
+
+def _unique_inventory_rows_by_job_id(rows):
+    result = {}
+    duplicates = set()
+    for row in rows:
+        if type(row) is not dict:
+            continue
+        job_id = row.get("job_id")
+        if type(job_id) is not int or job_id <= 0:
+            continue
+        if job_id in result:
+            duplicates.add(job_id)
+        else:
+            result[job_id] = row
+    for job_id in duplicates:
+        result.pop(job_id, None)
+    return result
+
+
+def _typed_match_job_id(match):
+    job_id = match.get("job_id")
+    if type(job_id) is int and job_id > 0:
+        return job_id
+    selected = (match.get("opportunity_trust") or {}).get(
+        "selected_variant_id"
+    )
+    return selected if type(selected) is int and selected > 0 else None
+
+
+def _typed_presentation_reference(match):
+    identity = local_product.stable_opportunity_identity(match)
+    if (
+        type(identity) is not tuple
+        or len(identity) != 2
+        or identity[0] not in {"canonical", "job"}
+        or type(identity[1]) is not int
+        or identity[1] <= 0
+    ):
+        return None
+    return f"{identity[0]}:{identity[1]}"
+
+
+def _ranked_presentation_eligible_pool(context):
+    matches_by_section = (context or {}).get("matches") or {}
+    pool_bound = sum(
+        len(values)
+        for values in matches_by_section.values()
+        if type(values) is list
+    )
+    if pool_bound <= 0:
+        return []
+    return local_product.build_browser_presentation_matches(
+        context,
+        limit=pool_bound,
+    )
+
+
+def _primary_presentation_matches(context):
+    enforcement = (context or {}).get("_typed_preference_enforcement")
+    if enforcement is None:
+        return local_product.build_browser_presentation_matches(
+            context,
+            limit=MATCH_PRESENTATION_LIMIT,
+        )
+    if (
+        type(enforcement) is not dict
+        or enforcement.get("schema_version")
+        != TYPED_PREFERENCE_ENFORCEMENT_SCHEMA_VERSION
+        or type(enforcement.get("candidate_references")) is not list
+        or type(enforcement.get("surviving_references")) is not list
+        or any(
+            type(value) is not str or not value
+            for value in (
+                enforcement.get("candidate_references", [])
+                + enforcement.get("surviving_references", [])
+            )
+        )
+    ):
+        return []
+    candidates = enforcement["candidate_references"]
+    survivors = enforcement["surviving_references"]
+    if (
+        len(candidates) != len(set(candidates))
+        or len(survivors) != len(set(survivors))
+        or not set(survivors).issubset(candidates)
+    ):
+        return []
+    survivor_set = set(survivors)
+    return [
+        match
+        for match in _ranked_presentation_eligible_pool(context)
+        if _typed_presentation_reference(match) in survivor_set
+    ][:MATCH_PRESENTATION_LIMIT]
+
+
 def _render_match_results(
     context,
     *,
@@ -2384,10 +2596,7 @@ def _render_match_results(
     tracked=None,
     match_run_id=None,
 ):
-    matches = local_product.build_browser_presentation_matches(
-        context,
-        limit=MATCH_PRESENTATION_LIMIT,
-    )
+    matches = _primary_presentation_matches(context)
     cards = []
     for match in matches:
         url = public_job_page.public_job_path_for_match(match)

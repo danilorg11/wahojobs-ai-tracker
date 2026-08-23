@@ -5,11 +5,15 @@ from scripts import profile_match_digest as matcher
 from tests.test_canonical_profile_v2 import load_cases, ordinal_resolver, persistent_id
 from tests.test_profile_preference_model import with_preference_model
 from wahojobs.matching.typed_criteria import (
+    CriterionOutcomeV1,
     MatchCriteriaV1,
     OpportunityCompensationV1,
+    OpportunityCriteriaV1,
+    OpportunityDimensionV1,
     ProfileCriterionV1,
     compare_compensation_criterion,
     evaluate_match_criteria_shadow,
+    evaluate_primary_preference_admission_v1,
     match_criteria_v1_from_profile,
     project_opportunity_criteria_v1,
     run_typed_match_criteria_shadow,
@@ -418,6 +422,161 @@ class TypedMatchCriteriaTests(unittest.TestCase):
                 "strict_preference": False,
                 "soft_preference": True,
             },
+        )
+
+    def test_primary_admission_applies_strict_soft_and_eligibility_policy(self):
+        strict = compensation_criterion()
+        soft = ProfileCriterionV1(
+            criterion_id="preferences.employment_relationships",
+            criterion_class="soft_preference",
+            dimension="employment_relationship",
+            operator="any_of",
+            accepted_values=("employee",),
+        )
+        criteria = MatchCriteriaV1(
+            source_status="present",
+            eligibility_criteria=(),
+            strict_preference_criteria=(strict,),
+            soft_preference_criteria=(soft,),
+        )
+
+        def result(criterion, outcome):
+            return CriterionOutcomeV1(
+                criterion_id=criterion.criterion_id,
+                criterion_class=criterion.criterion_class,
+                dimension=criterion.dimension,
+                outcome=outcome,
+                reason_code="synthetic_result",
+                potentially_relaxable=(
+                    criterion.criterion_class == "soft_preference"
+                    and outcome == "fail"
+                ),
+            )
+
+        strict_pass = result(strict, "pass")
+        soft_pass = result(soft, "pass")
+        for soft_outcome in ("pass", "unknown", "not_applicable"):
+            with self.subTest(soft_outcome=soft_outcome):
+                admission = evaluate_primary_preference_admission_v1(
+                    criteria,
+                    (strict_pass, result(soft, soft_outcome)),
+                )
+                self.assertEqual(admission.status, "keep")
+
+        soft_failure = evaluate_primary_preference_admission_v1(
+            criteria,
+            (strict_pass, result(soft, "fail")),
+        )
+        self.assertEqual(soft_failure.status, "exclude")
+        self.assertEqual(
+            soft_failure.exclusion_criterion_ids,
+            ("preferences.employment_relationships",),
+        )
+
+        for strict_outcome in ("fail", "unknown", "not_applicable"):
+            with self.subTest(strict_outcome=strict_outcome):
+                admission = evaluate_primary_preference_admission_v1(
+                    criteria,
+                    (result(strict, strict_outcome), soft_pass),
+                )
+                self.assertEqual(admission.status, "exclude")
+                self.assertEqual(
+                    admission.exclusion_criterion_ids,
+                    ("preferences.compensation.minimum",),
+                )
+        missing_strict = evaluate_primary_preference_admission_v1(
+            criteria,
+            (soft_pass,),
+        )
+        self.assertEqual(missing_strict.status, "exclude")
+        missing_soft = evaluate_primary_preference_admission_v1(
+            criteria,
+            (strict_pass,),
+        )
+        self.assertEqual(missing_soft.status, "keep")
+
+        eligibility_failure = CriterionOutcomeV1(
+            criterion_id="eligibility.location",
+            criterion_class="eligibility",
+            dimension="location_eligibility",
+            outcome="fail",
+            reason_code="location_eligibility_incompatible",
+            potentially_relaxable=False,
+        )
+        blocked = evaluate_primary_preference_admission_v1(
+            criteria,
+            (strict_pass, soft_pass, eligibility_failure),
+        )
+        self.assertEqual(blocked.status, "exclude")
+        self.assertEqual(
+            blocked.exclusion_criterion_ids,
+            ("eligibility.location",),
+        )
+
+    def test_multiple_accepted_choices_and_dimensions_evaluate_independently(self):
+        model = empty_profile_preferences_v1()
+        model["employment_relationships"] = ["employee"]
+        model["workloads"] = ["full_time"]
+        model["engagement_terms"] = ["fixed_term", "temporary"]
+        criteria = match_criteria_v1_from_profile(
+            validate_canonical_profile_v2(
+                with_preference_model(
+                    profile_v2(minimum_kind="none"),
+                    model,
+                )
+            )
+        )
+
+        known = lambda *values: OpportunityDimensionV1(
+            "known",
+            tuple(sorted(values)),
+            "synthetic_known",
+        )
+        unknown = OpportunityDimensionV1(
+            "unknown",
+            (),
+            "synthetic_unknown",
+        )
+        opportunity = OpportunityCriteriaV1(
+            employment_relationships=known("independent_contractor"),
+            workloads=known("full_time"),
+            engagement_terms=known("temporary"),
+            schedule_flexibility_modes=unknown,
+            schedule_coordination_modes=unknown,
+            schedule_time_windows=unknown,
+            phone_voice_modes=unknown,
+            job_interests=unknown,
+            career_levels=unknown,
+            compensation=OpportunityCompensationV1(
+                status="unknown",
+                disclosed=None,
+                currency=None,
+                amount_min=None,
+                amount_max=None,
+                period=None,
+                amount_type="unknown",
+                reason_code="synthetic_unknown",
+            ),
+        )
+        outcomes = {
+            item.criterion_id: item
+            for item in evaluate_match_criteria_shadow(
+                criteria,
+                opportunity,
+            ).outcomes
+        }
+
+        self.assertEqual(
+            outcomes["preferences.employment_relationships"].outcome,
+            "fail",
+        )
+        self.assertEqual(
+            outcomes["preferences.workloads"].outcome,
+            "pass",
+        )
+        self.assertEqual(
+            outcomes["preferences.engagement_terms"].outcome,
+            "pass",
         )
 
     def test_compensation_comparator_is_conservative_and_non_converting(self):

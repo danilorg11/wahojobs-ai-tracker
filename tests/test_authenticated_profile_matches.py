@@ -20,6 +20,7 @@ from tests.test_canonical_profile_v2 import (
     persistent_id,
 )
 from tests.test_profile_preference_model import with_preference_model
+from tests.test_typed_match_criteria import enrichment as typed_enrichment
 from tests.durable_google_login_browser_test_support import (
     cookie_header,
     cookie_values,
@@ -368,6 +369,42 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
     def _body(response):
         return response.body.decode("utf-8")
 
+    @staticmethod
+    def _presented_match(job_id, title):
+        return {
+            "job_id": job_id,
+            "canonical_opportunity_id": job_id,
+            "source": "Synthetic Inventory",
+            "display_title": title,
+            "title": title,
+            "url": f"https://jobs.example.test/{job_id}",
+            "location": "Remote",
+            "primary_recommendation_eligible": True,
+            "affirmative_fit_status": "supported",
+            "affirmative_fit_why": ["Supported synthetic fit evidence."],
+            "opportunity_trust_status": "trusted",
+            "opportunity_trust": {
+                "status": "trusted",
+                "selected_variant_id": job_id,
+            },
+            "actionability_cap_reasons": [],
+        }
+
+    @classmethod
+    def _presentation_context(cls, job_ids):
+        matches = [
+            cls._presented_match(job_id, f"Synthetic Role {job_id}")
+            for job_id in job_ids
+        ]
+        return {
+            "matches": {
+                section: matches if index == 0 else []
+                for index, section in enumerate(
+                    local_product.ACTIONABLE_PRESENTATION_SECTIONS
+                )
+            }
+        }
+
     def test_production_launcher_profile_action_regenerates_configured_matches_without_writes(self):
         with ExitStack() as stack:
             state = stack.enter_context(
@@ -617,6 +654,11 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 wraps=real_shadow,
             ) as shadow,
             mock.patch.object(
+                matches_module,
+                "_apply_typed_preference_enforcement_v1",
+                side_effect=AssertionError("legacy profile enforcement used"),
+            ) as legacy_enforcement,
+            mock.patch.object(
                 profile_preview,
                 "load_preview_rows",
                 side_effect=fallback_error,
@@ -665,6 +707,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         resolve.assert_called_once()
         project.assert_called_once()
         shadow.assert_called_once()
+        legacy_enforcement.assert_not_called()
         self.assertEqual(shadow.call_args.args[0], self.profile_v2)
         self.assertEqual(shadow.call_args.args[1], [safe, unsafe])
         self.assertEqual(shadow.call_args.args[2], {})
@@ -769,8 +812,279 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             all(not outcome["potentially_relaxable"] for outcome in eligibility)
         )
         body = self._body(response)
+        self.assertIn("Distinctive Python Backend AI Coding Evaluator", body)
         self.assertNotIn("match_criteria_shadow", body)
         self.assertNotIn("preferences.workloads", body)
+
+    def test_authenticated_route_enforces_known_soft_failure_and_keeps_unknown(self):
+        model = empty_profile_preferences_v1()
+        model["workloads"] = ["full_time"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        failed = self._row(
+            job_id=951,
+            title="Known Part-time Python Backend AI Coding Evaluator",
+            url="https://jobs.example.test/known-part-time",
+        )
+        failed["commitment"] = "Part-time"
+        unknown = self._row(
+            job_id=952,
+            title="Unknown Workload Python Backend AI Coding Evaluator",
+            url="https://jobs.example.test/unknown-workload",
+        )
+        unknown["commitment"] = "Not structured"
+        query_calls = []
+        _service, integration = self._integration(
+            ephemeral_identity_factory=lambda: "ephemeral_matcher"
+        )
+        with (
+            mock.patch.object(
+                AuthenticatedProfileMatchesService,
+                "resolve",
+                return_value=self._authority(profile_v2=authoritative),
+            ),
+            mock.patch.object(
+                profile_preview,
+                "query_preview_rows",
+                side_effect=self._query_rows([failed, unknown], query_calls),
+            ),
+        ):
+            response = integration.handle(
+                "GET",
+                "/find-matches",
+                self._headers(),
+            )
+
+        body = self._body(response)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(len(query_calls), 1)
+        self.assertNotIn(failed["title"], body)
+        self.assertIn(unknown["title"], body)
+        self.assertNotIn("typed_preference_enforcement", body)
+        self.assertNotIn("preferences.workloads", body)
+        self.assertIn(
+            "We found 1 opportunity that looks like a good fit right now.",
+            body,
+        )
+
+    def test_legacy_profile_presentation_is_byte_for_byte_unchanged(self):
+        context = self._presentation_context(range(1001, 1004))
+        rows = [self._row(job_id=job_id) for job_id in range(1001, 1004)]
+        before = matches_module._render_match_results(
+            context,
+            inventory_count=len(rows),
+        )
+        unchanged = matches_module._apply_typed_preference_enforcement_v1(
+            self.profile_v2,
+            context,
+            rows,
+            {},
+        )
+        after = matches_module._render_match_results(
+            unchanged,
+            inventory_count=len(rows),
+        )
+
+        self.assertIs(unchanged, context)
+        self.assertEqual(after, before)
+        self.assertNotIn("_typed_preference_enforcement", unchanged)
+
+    def test_soft_enforcement_filters_ranked_pool_then_backfills_display_limit(self):
+        model = empty_profile_preferences_v1()
+        model["workloads"] = ["full_time"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        job_ids = list(range(1101, 1113))
+        context = self._presentation_context(job_ids)
+        rows = []
+        for index, job_id in enumerate(job_ids):
+            row = self._row(job_id=job_id)
+            if index in {1, 4}:
+                row["commitment"] = "Part-time"
+            elif index == 2:
+                row["commitment"] = "Not structured"
+            else:
+                row["commitment"] = "Full-time"
+            rows.append(row)
+
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            {},
+        )
+        visible = matches_module._primary_presentation_matches(enforced)
+        visible_ids = [match["job_id"] for match in visible]
+
+        self.assertEqual(
+            visible_ids,
+            [1101, 1103, 1104, 1106, 1107, 1108, 1109, 1110, 1111, 1112],
+        )
+        self.assertNotIn(1102, visible_ids)
+        self.assertNotIn(1105, visible_ids)
+        records = {
+            item["opportunity_reference"]: item
+            for item in enforced["_typed_preference_enforcement"]["evaluations"]
+        }
+        self.assertEqual(
+            records["canonical:1102"]["admission"]["status"],
+            "exclude",
+        )
+        unknown = {
+            item["criterion_id"]: item
+            for item in records["canonical:1103"]["outcomes"]
+        }
+        self.assertEqual(
+            unknown["preferences.workloads"]["outcome"],
+            "unknown",
+        )
+        self.assertEqual(
+            records["canonical:1103"]["admission"]["status"],
+            "keep",
+        )
+
+    def test_enforcement_pool_never_admits_existing_hard_gated_match(self):
+        model = empty_profile_preferences_v1()
+        model["workloads"] = ["full_time"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1401, 1402])
+        hard_gated = context["matches"][
+            local_product.ACTIONABLE_PRESENTATION_SECTIONS[0]
+        ][0]
+        hard_gated["primary_recommendation_eligible"] = False
+        hard_gated["eligible_for_personalized"] = False
+        hard_gated["actionability_cap_reasons"] = [
+            "personalized_eligibility_failed"
+        ]
+        rows = []
+        for job_id in (1401, 1402):
+            row = self._row(job_id=job_id)
+            row["commitment"] = "Full-time"
+            rows.append(row)
+
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            {},
+        )
+
+        self.assertEqual(
+            [
+                match["job_id"]
+                for match in matches_module._primary_presentation_matches(enforced)
+            ],
+            [1402],
+        )
+        self.assertNotIn(
+            "canonical:1401",
+            enforced["_typed_preference_enforcement"]["candidate_references"],
+        )
+
+    def test_preferred_and_strict_compensation_apply_distinct_unknown_policy(self):
+        job_ids = [1201, 1202, 1203]
+        context = self._presentation_context(job_ids)
+        rows = [self._row(job_id=job_id) for job_id in job_ids]
+        enrichments = {
+            1201: typed_enrichment(
+                amount_min=22,
+                amount_max=22,
+                amount_type="exact",
+            ),
+            1202: typed_enrichment(
+                disclosed=False,
+                currency=None,
+                amount_min=None,
+                amount_max=None,
+                period=None,
+                amount_type="unknown",
+            ),
+            1203: typed_enrichment(
+                amount_min=30,
+                amount_max=30,
+                amount_type="exact",
+            ),
+        }
+
+        def profile(minimum_kind):
+            model = empty_profile_preferences_v1()
+            model["compensation"] = {
+                "minimum_kind": minimum_kind,
+                "amount": "25",
+                "currency": "USD",
+                "period": "hour",
+            }
+            return validate_canonical_profile_v2(
+                with_preference_model(self.profile_v2, model)
+            )
+
+        preferred = matches_module._apply_typed_preference_enforcement_v1(
+            profile("preferred"),
+            context,
+            rows,
+            enrichments,
+        )
+        strict = matches_module._apply_typed_preference_enforcement_v1(
+            profile("strict"),
+            context,
+            rows,
+            enrichments,
+        )
+
+        self.assertEqual(
+            [
+                match["job_id"]
+                for match in matches_module._primary_presentation_matches(preferred)
+            ],
+            [1202, 1203],
+        )
+        self.assertEqual(
+            [
+                match["job_id"]
+                for match in matches_module._primary_presentation_matches(strict)
+            ],
+            [1203],
+        )
+
+    def test_strict_unknown_can_truthfully_render_zero_results(self):
+        model = empty_profile_preferences_v1()
+        model["compensation"] = {
+            "minimum_kind": "strict",
+            "amount": "25",
+            "currency": "USD",
+            "period": "hour",
+        }
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1301])
+        row = self._row(job_id=1301)
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            [row],
+            {},
+        )
+        body = matches_module._render_match_results(
+            enforced,
+            inventory_count=1,
+        )
+
+        self.assertEqual(
+            matches_module._primary_presentation_matches(enforced),
+            [],
+        )
+        self.assertIn("No matches to show right now", body)
+        self.assertIn(
+            "None of the available opportunities is a clear fit for your profile right now.",
+            body,
+        )
+        self.assertIn("More opportunities if you're flexible", body)
+        self.assertNotIn("Synthetic Role 1301", body)
 
     def test_zero_result_states_are_helpful_and_hide_matcher_internals(self):
         stale = self._row(

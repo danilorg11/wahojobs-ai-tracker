@@ -5,7 +5,9 @@
 that legacy `employment_types` mixes together. New AI-assisted onboarding is
 the first production writer. It validates the model on the server and writes it
 only after explicit review confirmation. Manual profile writers do not emit
-it, no existing profile is backfilled, and typed matching remains shadow-only.
+it, and no existing profile is backfilled. Authenticated primary match results
+enforce typed preferences only when this authoritative model is present;
+profiles without it retain their prior behavior.
 
 ## Exact contract
 
@@ -100,7 +102,9 @@ project/task periods and generic strictness controls for other dimensions are
 not present. Legacy `contract` is never preselected or guessed: a user must
 explicitly choose the typed relationship and/or fixed-term controls.
 
-The next read-only layer projects this model and conservative opportunity
-evidence into criterion-by-criterion internal diagnostics. Its contracts and
-zero-visible-behavior boundary are documented in
+The typed layer projects this model and conservative opportunity evidence into
+criterion-by-criterion internal outcomes. The authenticated presentation
+boundary now uses those same outcomes as a removal-only filter while retaining
+the broader shadow diagnostic. Its contracts and enforcement policy are
+documented in
 [`typed_match_criteria_shadow_v1.md`](typed_match_criteria_shadow_v1.md).

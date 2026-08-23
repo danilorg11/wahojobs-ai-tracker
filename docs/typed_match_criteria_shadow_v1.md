@@ -1,9 +1,11 @@
-# Typed Match Criteria V1 (shadow)
+# Typed Match Criteria V1
 
 `match_criteria_v1` is an internal, read-only projection of the optional
 `canonical_profile_v2.preferences.preference_model`. It does not consume the
-legacy preference mirror. When the authoritative model is absent, there are no
-typed criteria and no shadow diagnostics.
+legacy preference mirror. When the authoritative model is absent, typed
+preference enforcement is inactive and authenticated match presentation is
+unchanged. The criterion diagnostics continue to run independently for the
+existing eligibility bridge.
 
 ## Profile criteria
 
@@ -89,12 +91,27 @@ a guaranteed lower bound passes, a proven upper bound below fails, and an
 overlapping range remains unknown. This preserves the distinction between a
 proven result and incomplete compensation evidence.
 
-## Shadow integration
+## Authenticated primary-result enforcement
 
 The authenticated matches path completes the existing projection, scoring,
-ranking, and visible context first. It then evaluates typed criteria and sends
-bounded criterion outcomes to an optional internal sink. Projection, lookup,
-or sink failure is fail-open relative to the existing matcher. Shadow outcomes
-are not placed in the browser context and cannot filter, reorder, score,
-suppress, or add visible matches. Existing profile writers, thresholds, and
-matcher inputs remain unchanged.
+ranking and hard gates first. Only a profile with the authoritative preference
+model activates enforcement. The integration obtains the full ranked pool that
+already satisfies current presentation eligibility, then evaluates it with the
+same typed projector, criterion evaluator, compensation comparator, and
+eligibility bridge. Preference failures are removed without rescoring. The
+existing display limit is applied afterward, so a lower-ranked surviving item
+can fill a vacancy while the relative order of every survivor remains unchanged.
+
+Strict preference `fail`, `unknown`, missing, and not-comparable results are
+excluded. A known soft-preference `fail` is excluded, while soft `unknown` and
+`not_applicable` results remain visible. Existing eligibility failures remain
+non-relaxable and excluded by their authoritative matcher gate. Bounded
+criterion outcomes and admission decisions stay in internal request/run state
+for later counterfactual work and are not rendered to the candidate.
+
+The all-inventory shadow diagnostic remains available to its optional internal
+sink. Diagnostic sink failure cannot affect presentation. Enrichment lookup or
+projection failure is treated as missing evidence: active strict criteria fail
+closed, while active soft criteria fail open. Existing scoring, ranking,
+thresholds, trust/freshness rules, matcher inputs, and public catalog behavior
+remain unchanged.
