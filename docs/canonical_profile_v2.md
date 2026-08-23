@@ -75,6 +75,14 @@ Confidence retains the existing V1 enum (`unknown`, `low`, `medium`, or `high`)
 so conversion does not invent a new confidence model. Evidence, snippets, raw
 content, source identity, and arbitrary signal metadata are not accepted.
 
+`preferences` may additionally contain the optional, authoritative
+`preference_model` subdocument documented in
+[`profile_preferences_v1.md`](profile_preferences_v1.md). This is additive V2
+read support: current V1 writers do not emit it, and both review and matcher V1
+projections remove it before legacy validation. The existing legacy preference
+fields therefore continue to determine current matching until the typed-matcher
+slice is separately approved.
+
 ## Provenance paths
 
 `provenance.field_sources` is an ordered array. Each record contains:

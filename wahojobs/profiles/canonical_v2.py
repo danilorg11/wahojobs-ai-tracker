@@ -33,6 +33,12 @@ from wahojobs.profiles.canonical import (
     field_sources_for_profile,
     validate_canonical_profile,
 )
+from wahojobs.profiles.preference_model import (
+    PREFERENCE_ENUM_LIST_PATHS,
+    ProfilePreferenceModelError,
+    canonical_decimal_string,
+    validate_profile_preferences_v1,
+)
 
 
 SCHEMA_VERSION = "canonical_profile_v2"
@@ -259,6 +265,7 @@ _SECTION_FIELDS = {
             "target_opportunity_types",
             "preferred_task_types",
             "work_preferences",
+            "preference_model",
         }
     ),
     "constraints": frozenset(
@@ -682,7 +689,7 @@ def project_v2_to_review_v1(v2: dict) -> dict:
         "credentials": deepcopy(profile_v2["credentials"]),
         "experience": experience,
         "skills": skills,
-        "preferences": deepcopy(profile_v2["preferences"]),
+        "preferences": _legacy_preferences(profile_v2["preferences"]),
         "constraints": deepcopy(profile_v2["constraints"]),
         "derived_matcher_signals": {
             **deepcopy(profile_v2["derived_matcher_signals"]),
@@ -1175,6 +1182,13 @@ def project_v2_to_matcher_v1(v2: dict, *, matcher_profile_id: str) -> dict:
     return deepcopy(projected)
 
 
+def _legacy_preferences(preferences: dict) -> dict:
+    """Remove V2-only authority before any Canonical V1 projection."""
+    projected = deepcopy(preferences)
+    projected.pop("preference_model", None)
+    return projected
+
+
 def _v2_to_v1(v2: dict, *, matcher_profile_id: str) -> dict:
     languages = []
     for item in v2["languages"]:
@@ -1206,7 +1220,7 @@ def _v2_to_v1(v2: dict, *, matcher_profile_id: str) -> dict:
         "credentials": deepcopy(v2["credentials"]),
         "experience": experience,
         "skills": skills,
-        "preferences": deepcopy(v2["preferences"]),
+        "preferences": _legacy_preferences(v2["preferences"]),
         "constraints": deepcopy(v2["constraints"]),
         "derived_matcher_signals": {
             **deepcopy(v2["derived_matcher_signals"]),
@@ -1545,6 +1559,41 @@ def _canonicalize_profile(profile):
                     lambda item: (normalize_comparison_label(item), item),
                 )
 
+    preferences = profile.get("preferences")
+    preference_model = (
+        preferences.get("preference_model")
+        if type(preferences) is dict
+        else None
+    )
+    if type(preference_model) is dict:
+        for path_parts in PREFERENCE_ENUM_LIST_PATHS:
+            parent = preference_model
+            for part in path_parts[:-1]:
+                if type(parent) is not dict:
+                    break
+                parent = parent.get(part)
+            else:
+                field = path_parts[-1]
+                values = parent.get(field) if type(parent) is dict else None
+                if type(values) is list and all(type(item) is str for item in values):
+                    full_path = "preferences.preference_model." + ".".join(path_parts)
+                    parent[field] = sort_indexed(
+                        full_path,
+                        values,
+                        lambda item: (item.casefold(), item),
+                    )
+        compensation = preference_model.get("compensation")
+        if type(compensation) is dict:
+            if type(compensation.get("currency")) is str:
+                compensation["currency"] = compensation["currency"].upper()
+            if type(compensation.get("amount")) is str:
+                try:
+                    compensation["amount"] = canonical_decimal_string(
+                        compensation["amount"]
+                    )
+                except ProfilePreferenceModelError:
+                    pass
+
     education = profile.get("education")
     if type(education) is dict:
         years = education.get("graduation_years")
@@ -1792,6 +1841,13 @@ def _validate_section(name, value, errors):
         _validate_domain_years(value.get("years_by_domain"), errors)
     if name == "skills":
         _validate_skill_entries(value.get("entries"), errors)
+    if name == "preferences" and "preference_model" in value:
+        try:
+            canonical = validate_profile_preferences_v1(value["preference_model"])
+            if canonical != value["preference_model"]:
+                errors.append("preference_model_not_canonical")
+        except ProfilePreferenceModelError as exc:
+            errors.extend(exc.reason_codes)
     if name == "derived_matcher_signals":
         _validate_signals(value.get("signals"), errors)
 
@@ -1972,6 +2028,8 @@ def _material_field_paths(profile):
     def visit(value, path):
         if type(value) is dict:
             for key, child in value.items():
+                if path == "preferences.preference_model" and key == "schema_version":
+                    continue
                 visit(child, f"{path}.{key}" if path else key)
             return
         if type(value) is list:

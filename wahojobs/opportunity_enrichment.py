@@ -24,7 +24,7 @@ from wahojobs.matching.locations import (
     regions_in_location,
 )
 from wahojobs.matching.specializations import specialization_requirements
-from wahojobs.matching.taxonomy import OCCUPATIONAL_FAMILIES
+from wahojobs.matching.taxonomy import CAREER_LEVELS, OCCUPATIONAL_FAMILIES
 
 
 SCHEMA_VERSION = "opportunity_enrichment_v2"
@@ -70,9 +70,7 @@ WORK_ACTIVITIES = frozenset(
         "writing_editing",
     }
 )
-SENIORITY_VALUES = frozenset(
-    {"unknown", "internship", "entry", "mid", "senior", "lead", "principal", "manager"}
-)
+SENIORITY_VALUES = frozenset({"unknown"}) | CAREER_LEVELS
 ENGAGEMENT_TYPES = frozenset(
     {"unknown", "full_time", "part_time", "contract", "freelance", "temporary", "internship", "volunteer"}
 )

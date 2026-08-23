@@ -29,3 +29,10 @@ OCCUPATIONAL_FAMILIES = frozenset(
         "writing_editing",
     }
 )
+
+
+# Shared by opportunity enrichment and the candidate's accepted target levels.
+# Candidate seniority remains a separate profile fact.
+CAREER_LEVELS = frozenset(
+    {"internship", "entry", "mid", "senior", "lead", "principal", "manager"}
+)
