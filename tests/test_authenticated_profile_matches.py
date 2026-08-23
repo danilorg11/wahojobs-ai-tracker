@@ -1000,20 +1000,234 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             ],
         )
 
-        without_counterfactuals = deepcopy(enforced)
-        without_counterfactuals["_typed_preference_enforcement"].pop(
-            "single_criterion_relaxations"
-        )
-        self.assertEqual(
-            matches_module._render_match_results(enforced, inventory_count=3),
-            matches_module._render_match_results(
-                without_counterfactuals,
-                inventory_count=3,
-            ),
-        )
+        before_render = deepcopy(enforced)
         body = matches_module._render_match_results(enforced, inventory_count=3)
+        self.assertEqual(enforced, before_render)
+        self.assertIn("More opportunities if you're flexible", body)
+        self.assertIn("Open to part-time work?", body)
+        self.assertIn("2 more opportunities", body)
+        self.assertIn("Synthetic Role 1501", body)
+        self.assertIn("Synthetic Role 1503", body)
+        self.assertLess(
+            body.index("Synthetic Role 1501"),
+            body.index("Synthetic Role 1503"),
+        )
+        self.assertIn("Update my preferences", body)
+        relaxation_markup = body[body.index("More opportunities if") :]
+        self.assertIn("href='/account/profile'", relaxation_markup)
+        self.assertNotIn("<form", relaxation_markup)
+        self.assertIn("This preview does not save a change.", body)
         self.assertNotIn("single_criterion_relaxation", body)
         self.assertNotIn("preferences.workloads", body)
+        self.assertNotIn("accepted_value_absent", body)
+
+    def test_preferred_compensation_relaxation_uses_truthful_same_unit_copy(self):
+        model = empty_profile_preferences_v1()
+        model["compensation"] = {
+            "minimum_kind": "preferred",
+            "amount": "25",
+            "currency": "USD",
+            "period": "hour",
+        }
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1601, 1602])
+        for match in context["matches"][
+            local_product.ACTIONABLE_PRESENTATION_SECTIONS[0]
+        ]:
+            match.update(
+                {
+                    "eligible_for_personalized": True,
+                    "language_requirement_mode": "none",
+                    "location_eligibility_status": "not_applicable",
+                }
+            )
+        rows = [self._row(job_id=1601), self._row(job_id=1602)]
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            {
+                1601: typed_enrichment(
+                    amount_min=22,
+                    amount_max=22,
+                    amount_type="exact",
+                ),
+                1602: typed_enrichment(
+                    amount_min=30,
+                    amount_max=30,
+                    amount_type="exact",
+                ),
+            },
+        )
+        body = matches_module._render_match_results(
+            enforced,
+            inventory_count=2,
+        )
+
+        self.assertEqual(
+            [
+                match["job_id"]
+                for match in matches_module._primary_presentation_matches(enforced)
+            ],
+            [1602],
+        )
+        self.assertIn("Lower your preferred pay to $22/hour", body)
+        self.assertIn("uses $22/hour instead of $25/hour", body)
+        self.assertIn("1 more opportunity", body)
+        self.assertIn("Synthetic Role 1601", body)
+        self.assertNotIn("currency mismatch", body.casefold())
+        self.assertNotIn("compensation_below", body)
+
+    def test_relaxation_renderer_rejects_non_engine_scenario_shapes(self):
+        model = empty_profile_preferences_v1()
+        model["workloads"] = ["full_time"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1651])
+        match = context["matches"][
+            local_product.ACTIONABLE_PRESENTATION_SECTIONS[0]
+        ][0]
+        match.update(
+            {
+                "eligible_for_personalized": True,
+                "language_requirement_mode": "none",
+                "location_eligibility_status": "not_applicable",
+            }
+        )
+        row = self._row(job_id=1651)
+        row["commitment"] = "Part-time"
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            [row],
+            {},
+        )
+        corrupted = deepcopy(enforced)
+        scenario = corrupted["_typed_preference_enforcement"][
+            "single_criterion_relaxations"
+        ]["scenarios"][0]
+        scenario["criterion_id"] = "eligibility.location"
+        body = matches_module._render_match_results(
+            corrupted,
+            inventory_count=1,
+        )
+
+        self.assertNotIn("More opportunities if", body)
+        self.assertNotIn("Synthetic Role 1651", body)
+        self.assertNotIn("eligibility.location", body)
+
+    def test_many_relaxations_use_progressive_disclosure_without_reranking(self):
+        model = empty_profile_preferences_v1()
+        model["employment_relationships"] = ["employee"]
+        model["workloads"] = ["full_time"]
+        model["engagement_terms"] = ["permanent"]
+        model["job_interests"] = ["data_annotation"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1701, 1702, 1703, 1704])
+        for match in context["matches"][
+            local_product.ACTIONABLE_PRESENTATION_SECTIONS[0]
+        ]:
+            match.update(
+                {
+                    "eligible_for_personalized": True,
+                    "language_requirement_mode": "none",
+                    "location_eligibility_status": "not_applicable",
+                }
+            )
+        rows = []
+        for job_id, commitment in (
+            (1701, "Freelance"),
+            (1702, "Part-time"),
+            (1703, "Temporary"),
+            (1704, "Not structured"),
+        ):
+            row = self._row(job_id=job_id)
+            row["commitment"] = commitment
+            if job_id == 1704:
+                row["source_category"] = "customer_support"
+            rows.append(row)
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            {},
+        )
+        body = matches_module._render_match_results(
+            enforced,
+            inventory_count=4,
+        )
+
+        self.assertEqual(matches_module._primary_presentation_matches(enforced), [])
+        self.assertEqual(body.count("class='relaxation-scenario'"), 4)
+        self.assertEqual(body.count("class='more-relaxations'"), 1)
+        self.assertIn("1 more way to broaden your search", body)
+        self.assertIn("Also consider freelance work", body)
+        self.assertIn("Open to part-time work?", body)
+        self.assertIn("Also consider temporary roles", body)
+        self.assertIn("Also consider customer support opportunities", body)
+        preview_positions = [
+            body.index(f"Synthetic Role {job_id}")
+            for job_id in (1701, 1702, 1703, 1704)
+        ]
+        self.assertEqual(preview_positions, sorted(preview_positions))
+        self.assertIn("<details class='relaxation-scenario'>", body)
+        self.assertIn("<summary>", body)
+        self.assertIn("@media (max-width: 680px)", body)
+        self.assertIn("min-height: 48px", body)
+
+    def test_relaxation_scenarios_rank_by_unlock_count_then_match_rank(self):
+        model = empty_profile_preferences_v1()
+        model["employment_relationships"] = ["employee"]
+        model["workloads"] = ["full_time"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1751, 1752, 1753])
+        for match in context["matches"][
+            local_product.ACTIONABLE_PRESENTATION_SECTIONS[0]
+        ]:
+            match.update(
+                {
+                    "eligible_for_personalized": True,
+                    "language_requirement_mode": "none",
+                    "location_eligibility_status": "not_applicable",
+                }
+            )
+        rows = []
+        for job_id, commitment in (
+            (1751, "Freelance"),
+            (1752, "Part-time"),
+            (1753, "Part-time"),
+        ):
+            row = self._row(job_id=job_id)
+            row["commitment"] = commitment
+            rows.append(row)
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            {},
+        )
+        body = matches_module._render_match_results(
+            enforced,
+            inventory_count=3,
+        )
+
+        self.assertIn("2 more opportunities", body)
+        self.assertIn("1 more opportunity", body)
+        self.assertLess(
+            body.index("Open to part-time work?"),
+            body.index("Also consider freelance work"),
+        )
+        self.assertLess(
+            body.index("Synthetic Role 1752"),
+            body.index("Synthetic Role 1753"),
+        )
 
     def test_enforcement_pool_never_admits_existing_hard_gated_match(self):
         model = empty_profile_preferences_v1()
@@ -1159,7 +1373,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             "None of the available opportunities is a clear fit for your profile right now.",
             body,
         )
-        self.assertIn("More opportunities if you're flexible", body)
+        self.assertNotIn("More opportunities if", body)
         self.assertNotIn("Synthetic Role 1301", body)
 
     def test_zero_result_states_are_helpful_and_hide_matcher_internals(self):
@@ -1210,7 +1424,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 self.assertIn(detail, body)
                 self.assertIn("Review my profile", body)
                 self.assertIn("Browse all jobs", body)
-                self.assertIn("More opportunities if you're flexible", body)
+                self.assertNotIn("More opportunities if", body)
                 self.assertNotIn("Review profile &amp; preferences", body)
                 self.assertNotIn("View job details", body)
                 visible = re.sub(r"<style>.*?</style>", "", body, flags=re.DOTALL)

@@ -11,6 +11,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 import hashlib
 import hmac
 import html
@@ -66,6 +67,7 @@ from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
     project_v2_to_matcher_v1,
 )
+from wahojobs.profiles.preference_model import profile_preference_control_catalog_v1
 
 
 AUTHENTICATED_MATCHES_ROUTE = "/find-matches"
@@ -94,6 +96,60 @@ MATCH_PRESENTATION_LIMIT = 10
 TYPED_PREFERENCE_ENFORCEMENT_SCHEMA_VERSION = (
     "typed_preference_enforcement_v1"
 )
+RELAXATION_PRESENTATION_INITIAL_LIMIT = 3
+
+_RELAXATION_PRESENTATION_SPEC = {
+    "preferences.employment_relationships": (
+        "employment_relationship",
+        "add_employment_relationship",
+        "employment_relationships",
+    ),
+    "preferences.workloads": (
+        "workload",
+        "add_workload",
+        "workloads",
+    ),
+    "preferences.engagement_terms": (
+        "engagement_term",
+        "add_engagement_term",
+        "engagement_terms",
+    ),
+    "preferences.schedule.flexibility_modes": (
+        "schedule_flexibility",
+        "allow_schedule_flexibility",
+        "schedule.flexibility_modes",
+    ),
+    "preferences.schedule.coordination_modes": (
+        "schedule_coordination",
+        "allow_schedule_coordination",
+        "schedule.coordination_modes",
+    ),
+    "preferences.schedule.time_windows": (
+        "schedule_time_window",
+        "allow_schedule_time_window",
+        "schedule.time_windows",
+    ),
+    "preferences.accepted_phone_voice_modes": (
+        "phone_voice",
+        "allow_phone_voice_mode",
+        "accepted_phone_voice_modes",
+    ),
+    "preferences.job_interests": (
+        "job_interest",
+        "broaden_job_interests",
+        "job_interests",
+    ),
+    "preferences.accepted_career_levels": (
+        "career_level",
+        "add_accepted_career_level",
+        "accepted_career_levels",
+    ),
+    "preferences.compensation.minimum": (
+        "compensation_minimum",
+        "lower_preferred_compensation_minimum",
+        None,
+    ),
+}
 
 SESSION_COOKIE_NAME = "wahojobs_session"
 SESSION_CSRF_COOKIE_NAME = "__Host-wahojobs_session_csrf"
@@ -2621,6 +2677,391 @@ def _primary_presentation_matches(context):
     ][:MATCH_PRESENTATION_LIMIT]
 
 
+def _presented_relaxation_scenarios(context):
+    """Validate and translate only committed-engine scenarios for rendering."""
+    enforcement = (context or {}).get("_typed_preference_enforcement")
+    if type(enforcement) is not dict:
+        return ()
+    relaxation_document = enforcement.get("single_criterion_relaxations")
+    if (
+        type(relaxation_document) is not dict
+        or set(relaxation_document) != {"schema_version", "scenarios"}
+        or relaxation_document.get("schema_version")
+        != SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION
+        or type(relaxation_document.get("scenarios")) is not list
+        or len(relaxation_document["scenarios"]) > 256
+    ):
+        return ()
+    catalog = profile_preference_control_catalog_v1()
+    labels_by_dimension = {
+        dimension["id"]: {
+            choice["code"]: choice["label"]
+            for choice in dimension["choices"]
+        }
+        for dimension in catalog["dimensions"]
+    }
+    currencies = set(catalog["compensation"]["currencies"])
+    periods = {
+        item["code"] for item in catalog["compensation"]["periods"]
+    }
+    ranked_pool = _ranked_presentation_eligible_pool(context)
+    candidate_references = enforcement.get("candidate_references")
+    surviving_references = enforcement.get("surviving_references")
+    if (
+        type(candidate_references) is not list
+        or type(surviving_references) is not list
+    ):
+        return ()
+    candidate_set = set(candidate_references)
+    survivor_set = set(surviving_references)
+    scenarios = []
+    for raw in relaxation_document["scenarios"]:
+        scenario = _presented_relaxation_scenario(
+            raw,
+            ranked_pool=ranked_pool,
+            candidate_references=candidate_set,
+            surviving_references=survivor_set,
+            labels_by_dimension=labels_by_dimension,
+            currencies=currencies,
+            periods=periods,
+        )
+        if scenario is not None:
+            scenarios.append(scenario)
+    return tuple(
+        sorted(
+            scenarios,
+            key=lambda item: (
+                -item["unlock_count"],
+                item["best_rank"],
+                item["headline"].casefold(),
+            ),
+        )
+    )
+
+
+def _presented_relaxation_scenario(
+    raw,
+    *,
+    ranked_pool,
+    candidate_references,
+    surviving_references,
+    labels_by_dimension,
+    currencies,
+    periods,
+):
+    required = {
+        "schema_version",
+        "scenario_id",
+        "criterion_id",
+        "dimension",
+        "relaxation_type",
+        "current",
+        "proposed",
+        "blocking_reason_code",
+        "counterfactual_reason_code",
+        "unlock_count",
+        "unlocked_opportunities",
+    }
+    if (
+        type(raw) is not dict
+        or set(raw) != required
+        or raw.get("schema_version")
+        != SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION
+        or raw.get("criterion_id") not in _RELAXATION_PRESENTATION_SPEC
+    ):
+        return None
+    criterion_id = raw["criterion_id"]
+    dimension, relaxation_type, catalog_id = _RELAXATION_PRESENTATION_SPEC[
+        criterion_id
+    ]
+    if (
+        raw.get("dimension") != dimension
+        or raw.get("relaxation_type") != relaxation_type
+        or type(raw.get("scenario_id")) is not str
+        or len(raw["scenario_id"]) > 256
+    ):
+        return None
+
+    if dimension == "compensation_minimum":
+        change = _presented_compensation_relaxation(
+            raw,
+            currencies=currencies,
+            periods=periods,
+        )
+    else:
+        change = _presented_choice_relaxation(
+            raw,
+            labels=labels_by_dimension.get(catalog_id, {}),
+        )
+    if change is None:
+        return None
+
+    unlocked = raw.get("unlocked_opportunities")
+    if (
+        type(raw.get("unlock_count")) is not int
+        or type(unlocked) is not list
+        or raw["unlock_count"] != len(unlocked)
+        or not 1 <= len(unlocked) <= 10_000
+    ):
+        return None
+    resolved = []
+    seen_references = set()
+    previous_rank = 0
+    for item in unlocked:
+        if (
+            type(item) is not dict
+            or set(item) != {"opportunity_reference", "original_rank"}
+            or type(item.get("opportunity_reference")) is not str
+            or type(item.get("original_rank")) is not int
+        ):
+            return None
+        reference = item["opportunity_reference"]
+        rank = item["original_rank"]
+        if (
+            reference in seen_references
+            or reference not in candidate_references
+            or reference in surviving_references
+            or not previous_rank < rank <= len(ranked_pool)
+            or _typed_presentation_reference(ranked_pool[rank - 1]) != reference
+            or public_job_page.public_job_path_for_match(ranked_pool[rank - 1])
+            is None
+        ):
+            return None
+        seen_references.add(reference)
+        previous_rank = rank
+        resolved.append(ranked_pool[rank - 1])
+    return {
+        "scenario_id": raw["scenario_id"],
+        "headline": change["headline"],
+        "explanation": change["explanation"],
+        "unlock_count": len(resolved),
+        "best_rank": unlocked[0]["original_rank"],
+        "matches": tuple(resolved),
+    }
+
+
+def _presented_choice_relaxation(raw, *, labels):
+    current = raw.get("current")
+    proposed = raw.get("proposed")
+    if (
+        type(current) is not dict
+        or set(current) != {"accepted_values"}
+        or type(current.get("accepted_values")) is not list
+        or not current["accepted_values"]
+        or any(value not in labels for value in current["accepted_values"])
+        or len(current["accepted_values"])
+        != len(set(current["accepted_values"]))
+        or current["accepted_values"] != sorted(current["accepted_values"])
+        or type(proposed) is not dict
+        or set(proposed) != {"add_value"}
+        or proposed.get("add_value") not in labels
+        or proposed["add_value"] in current["accepted_values"]
+        or raw.get("blocking_reason_code") != "accepted_value_absent"
+        or raw.get("counterfactual_reason_code") != "accepted_value_present"
+        or raw.get("scenario_id")
+        != f"{raw['criterion_id']}|add|{proposed.get('add_value')}"
+    ):
+        return None
+    label = labels[proposed["add_value"]]
+    headline = _relaxation_choice_headline(raw["relaxation_type"], label)
+    return {
+        "headline": headline,
+        "explanation": (
+            f"This preview also allows {label.casefold()} opportunities. "
+            "Your saved preferences stay unchanged."
+        ),
+    }
+
+
+def _presented_compensation_relaxation(raw, *, currencies, periods):
+    current = raw.get("current")
+    proposed = raw.get("proposed")
+    expected_fields = {"minimum_amount", "currency", "period"}
+    if (
+        type(current) is not dict
+        or set(current) != expected_fields
+        or type(proposed) is not dict
+        or set(proposed) != expected_fields
+        or current.get("currency") not in currencies
+        or current.get("period") not in periods
+        or proposed.get("currency") != current.get("currency")
+        or proposed.get("period") != current.get("period")
+        or raw.get("blocking_reason_code")
+        != "compensation_below_preferred_minimum"
+        or raw.get("counterfactual_reason_code")
+        != "compensation_preferred_minimum_guaranteed"
+    ):
+        return None
+    current_amount = _positive_presentation_decimal(current.get("minimum_amount"))
+    proposed_amount = _positive_presentation_decimal(
+        proposed.get("minimum_amount")
+    )
+    if current_amount is None or proposed_amount is None or proposed_amount >= current_amount:
+        return None
+    expected_id = (
+        f"{raw['criterion_id']}|lower|{proposed['minimum_amount']}|"
+        f"{proposed['currency']}|{proposed['period']}"
+    )
+    if raw.get("scenario_id") != expected_id:
+        return None
+    current_label = _relaxation_pay_label(
+        current["minimum_amount"], current["currency"], current["period"]
+    )
+    proposed_label = _relaxation_pay_label(
+        proposed["minimum_amount"], proposed["currency"], proposed["period"]
+    )
+    return {
+        "headline": f"Lower your preferred pay to {proposed_label}",
+        "explanation": (
+            f"This preview uses {proposed_label} instead of {current_label}. "
+            "Your saved preferred minimum stays unchanged."
+        ),
+    }
+
+
+def _positive_presentation_decimal(value):
+    if type(value) is not str or re.fullmatch(r"[0-9]{1,18}(?:\.[0-9]{1,2})?", value) is None:
+        return None
+    try:
+        decimal = Decimal(value)
+    except InvalidOperation:
+        return None
+    return decimal if decimal > 0 else None
+
+
+def _relaxation_choice_headline(relaxation_type, label):
+    if relaxation_type == "add_employment_relationship":
+        return (
+            "Also consider freelance work"
+            if label == "Independent contractor / freelance"
+            else f"Also consider {label.casefold()} roles"
+        )
+    if relaxation_type == "add_workload":
+        return (
+            "Open to part-time work?"
+            if label == "Part-time"
+            else f"Also consider {label.casefold()} work"
+        )
+    if relaxation_type == "add_engagement_term":
+        return f"Also consider {label.casefold()} roles"
+    if relaxation_type == "allow_schedule_flexibility":
+        return f"Open to {label.casefold()} schedules?"
+    if relaxation_type == "allow_schedule_coordination":
+        return f"Open to {label.casefold()} teamwork?"
+    if relaxation_type == "allow_schedule_time_window":
+        return f"Open to working {label.casefold()}?"
+    if relaxation_type == "allow_phone_voice_mode":
+        return (
+            "Open to phone or voice work?"
+            if label == "Phone"
+            else f"Also consider {label.casefold()} work"
+        )
+    if relaxation_type == "add_accepted_career_level":
+        return f"Also consider {label.casefold()} roles"
+    return f"Also consider {label.casefold()} opportunities"
+
+
+def _relaxation_pay_label(amount, currency, period):
+    symbols = {"USD": "$", "BRL": "R$", "EUR": "€", "GBP": "£"}
+    prefix = symbols.get(currency)
+    value = f"{prefix}{amount}" if prefix else f"{currency} {amount}"
+    return f"{value}/{period}"
+
+
+def _render_relaxation_section(context, *, profile_target):
+    scenarios = _presented_relaxation_scenarios(context)
+    if not scenarios:
+        return ""
+    initial = scenarios[:RELAXATION_PRESENTATION_INITIAL_LIMIT]
+    additional = scenarios[RELAXATION_PRESENTATION_INITIAL_LIMIT:]
+    initial_markup = "".join(
+        _render_relaxation_scenario(scenario, index, profile_target)
+        for index, scenario in enumerate(initial, start=1)
+    )
+    additional_markup = ""
+    if additional:
+        label = (
+            "1 more way to broaden your search"
+            if len(additional) == 1
+            else f"{len(additional)} more ways to broaden your search"
+        )
+        additional_markup = (
+            "<details class='more-relaxations'><summary>"
+            + _safe(label)
+            + "</summary><div class='more-relaxations-list'>"
+            + "".join(
+                _render_relaxation_scenario(
+                    scenario,
+                    index,
+                    profile_target,
+                )
+                for index, scenario in enumerate(
+                    additional,
+                    start=RELAXATION_PRESENTATION_INITIAL_LIMIT + 1,
+                )
+            )
+            + "</div></details>"
+        )
+    return (
+        "<section class='relaxation-section' aria-labelledby='flexibility-title'>"
+        "<p class='eyebrow'>Optional ways to broaden your search</p>"
+        "<h2 id='flexibility-title'>More opportunities if you're flexible</h2>"
+        "<p class='relaxation-intro'>Preview opportunities opened by changing "
+        "one preference at a time. Nothing changes in your profile unless you "
+        "choose to update it.</p>"
+        f"<div class='relaxation-list'>{initial_markup}</div>"
+        + additional_markup
+        + "</section>"
+    )
+
+
+def _render_relaxation_scenario(scenario, index, profile_target):
+    count = scenario["unlock_count"]
+    count_label = (
+        "1 more opportunity" if count == 1 else f"{count} more opportunities"
+    )
+    cards = "".join(
+        _render_relaxation_preview_card(match, index, item_index)
+        for item_index, match in enumerate(scenario["matches"], start=1)
+    )
+    return (
+        "<details class='relaxation-scenario'>"
+        "<summary><span class='relaxation-summary-copy'><strong>"
+        + _safe(scenario["headline"])
+        + "</strong><span>Preview this one change</span></span>"
+        "<span class='relaxation-count'>"
+        + _safe(count_label)
+        + "</span></summary>"
+        "<div class='relaxation-preview'>"
+        f"<p class='relaxation-change'>{_safe(scenario['explanation'])}</p>"
+        "<p class='relaxation-preview-note'>These opportunities keep every other "
+        "saved preference in place and appear in their existing match order.</p>"
+        f"<div class='relaxation-preview-list'>{cards}</div>"
+        "<div class='relaxation-actions'><a class='button' href='"
+        + _safe(profile_target)
+        + "'>Update my preferences</a><span>This preview does not save a change.</span>"
+        "</div></div></details>"
+    )
+
+
+def _render_relaxation_preview_card(match, scenario_index, item_index):
+    url = public_job_page.public_job_path_for_match(match)
+    title = match.get("display_title") or match.get("title") or "Opportunity"
+    location = _bounded_presentation_text(match.get("location"), 120) or "Location not listed"
+    compensation = _presented_match_compensation(match)["label"]
+    card_id = f"relaxation-{scenario_index}-opportunity-{item_index}"
+    return (
+        f"<article class='relaxation-preview-card' aria-labelledby='{card_id}-title'>"
+        "<div><p class='relaxation-preview-label'>Additional opportunity</p>"
+        f"<h3 id='{card_id}-title'>{_safe(title)}</h3>"
+        f"<p>{_safe(match.get('source') or 'Opportunity')}</p>"
+        "<ul aria-label='Job details'>"
+        f"<li>{_safe(location)}</li><li>{_safe(compensation)}</li>"
+        "</ul></div>"
+        f"<a href='{_safe(url)}'>View job details</a></article>"
+    )
+
+
 def _render_match_results(
     context,
     *,
@@ -2728,6 +3169,10 @@ def _render_match_results(
     profile_target = "/account/profile"
     if match_run_id is not None:
         profile_target += "?" + urlencode({"run": match_run_id})
+    relaxation_section = _render_relaxation_section(
+        context,
+        profile_target=profile_target,
+    )
     if cards:
         count = len(cards)
         summary = _visible_match_summary(count)
@@ -2743,6 +3188,7 @@ def _render_match_results(
             + "".join(cards)
             + "</section>"
             + low_result_note
+            + relaxation_section
         )
     else:
         summary = "We don't have a current match to show yet."
@@ -2761,11 +3207,7 @@ def _render_match_results(
             f"<a class='button' href='{_safe(profile_target)}'>Review my profile</a>"
             "<a class='secondary-action' href='/jobs'>Browse all jobs</a>"
             "</div></section>"
-            "<section class='flexibility-preview' aria-labelledby='flexibility-title'>"
-            "<p class='eyebrow'>A future way to broaden your search</p>"
-            "<h2 id='flexibility-title'>More opportunities if you're flexible</h2>"
-            "<p>When Wahojobs can show that a preference is limiting your results, you'll see the options here and what each change means. Requirements for whether you can apply will always stay separate.</p>"
-            "</section>"
+            + relaxation_section
         )
     profile_context = (
         "<aside class='matches-profile-context'>"
@@ -3097,9 +3539,35 @@ def _page(title, body, *, workflow=False):
     .matches-empty p:not(.eyebrow) {{ color: #536159; max-width: 65ch; }}
     .empty-actions {{ display: grid; gap: 12px; }}
     .secondary-action {{ min-height: 44px; padding: 10px; text-align: center; }}
-    .flexibility-preview {{ background: transparent; border: 1px dashed #b9c7c0; border-radius: 16px; margin: 24px 0 0; padding: 22px 24px; }}
-    .flexibility-preview h2 {{ font-size: 1.2rem; }}
-    .flexibility-preview p:last-child {{ color: #5b6861; margin-bottom: 0; max-width: 72ch; }}
+    .relaxation-section {{ border-top: 1px solid #dce4df; margin: 36px 0 0; padding: 32px 0 0; }}
+    .relaxation-section h2 {{ font-size: clamp(1.45rem, 3vw, 1.8rem); margin-bottom: 9px; }}
+    .relaxation-intro {{ color: #536159; line-height: 1.55; max-width: 68ch; }}
+    .relaxation-list, .more-relaxations-list {{ display: grid; gap: 12px; }}
+    .relaxation-scenario {{ background: #fff; border: 1px solid #dce4df; border-radius: 14px; overflow: clip; }}
+    .relaxation-scenario > summary {{ align-items: center; cursor: pointer; display: flex; gap: 18px; justify-content: space-between; list-style: none; min-height: 64px; padding: 15px 18px; }}
+    .relaxation-scenario > summary::-webkit-details-marker {{ display: none; }}
+    .relaxation-scenario > summary::after {{ color: #176b52; content: '+'; flex: 0 0 auto; font-size: 1.35rem; font-weight: 800; }}
+    .relaxation-scenario[open] > summary::after {{ content: '−'; }}
+    .relaxation-scenario > summary:focus-visible, .more-relaxations > summary:focus-visible {{ outline: 3px solid #2563eb; outline-offset: -3px; }}
+    .relaxation-summary-copy {{ display: grid; gap: 3px; min-width: 0; }}
+    .relaxation-summary-copy strong {{ color: #24352d; font-size: 1rem; }}
+    .relaxation-summary-copy span {{ color: #637168; font-size: .85rem; }}
+    .relaxation-count {{ color: #176b52; font-size: .9rem; font-weight: 800; margin-left: auto; white-space: nowrap; }}
+    .relaxation-preview {{ background: #f4f8f6; border-top: 1px solid #dce4df; padding: 20px; }}
+    .relaxation-change {{ color: #31453b; font-weight: 750; margin-bottom: 7px; }}
+    .relaxation-preview-note {{ color: #5a6961; font-size: .92rem; line-height: 1.5; }}
+    .relaxation-preview-list {{ display: grid; gap: 10px; margin: 18px 0; }}
+    .relaxation-preview-card {{ align-items: center; background: #fff; border: 1px solid #dce4df; border-left: 4px solid #8ab9a6; border-radius: 10px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) auto; padding: 15px 16px; }}
+    .relaxation-preview-card h3 {{ font-size: 1rem; margin: 0 0 3px; }}
+    .relaxation-preview-card p:not(.relaxation-preview-label) {{ color: #596860; font-size: .88rem; margin: 0; }}
+    .relaxation-preview-label {{ color: #176b52; font-size: .7rem; font-weight: 800; letter-spacing: .05em; margin: 0 0 5px; text-transform: uppercase; }}
+    .relaxation-preview-card ul {{ color: #536159; display: flex; flex-wrap: wrap; font-size: .82rem; gap: 6px 18px; list-style: none; margin: 8px 0 0; padding: 0; }}
+    .relaxation-preview-card a {{ min-height: 44px; padding: 11px 0; }}
+    .relaxation-actions {{ align-items: center; display: flex; gap: 16px; justify-content: space-between; }}
+    .relaxation-actions span {{ color: #5b6861; font-size: .86rem; }}
+    .more-relaxations {{ margin-top: 14px; }}
+    .more-relaxations > summary {{ color: #176b52; cursor: pointer; font-weight: 800; min-height: 44px; padding: 12px 4px; }}
+    .more-relaxations-list {{ padding-top: 8px; }}
     @media (max-width: 680px) {{
       main {{ width: min(100% - 24px, 960px); padding-top: 18px; }}
       .account-nav {{ flex-wrap: wrap; gap: 10px 16px; }}
@@ -3110,6 +3578,14 @@ def _page(title, body, *, workflow=False):
       .match-meta {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .match-meta-item:last-child:nth-child(odd) {{ grid-column: 1 / -1; }}
       .match-primary-action, .empty-actions .button, .secondary-action {{ align-items: center; display: flex; justify-content: center; min-height: 48px; }}
+      .relaxation-scenario > summary {{ align-items: flex-start; flex-wrap: wrap; gap: 7px 12px; padding: 15px; }}
+      .relaxation-count {{ margin-left: 0; order: 3; width: 100%; }}
+      .relaxation-scenario > summary::after {{ margin-left: auto; order: 2; }}
+      .relaxation-preview {{ padding: 16px; }}
+      .relaxation-preview-card {{ align-items: start; grid-template-columns: 1fr; }}
+      .relaxation-preview-card a {{ display: inline-flex; }}
+      .relaxation-actions {{ align-items: stretch; flex-direction: column; }}
+      .relaxation-actions .button {{ align-items: center; display: flex; justify-content: center; min-height: 48px; }}
       .review-grid, .language-review-row {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 410px) {{ .match-meta {{ grid-template-columns: 1fr; }} .match-meta-item:last-child:nth-child(odd) {{ grid-column: auto; }} }}

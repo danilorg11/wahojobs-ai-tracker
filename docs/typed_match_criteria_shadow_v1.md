@@ -141,3 +141,18 @@ changes aggregate stable internal opportunity references in the matcher's
 existing rank order. Eligibility, hard exclusions, trust/freshness, scores,
 thresholds, and ranking are not counterfactual inputs and cannot be suggested
 as relaxations.
+
+## Authenticated relaxation presentation
+
+`/find-matches` renders only validated scenarios emitted by this engine. It
+orders scenario summaries by unlock count, then the best existing opportunity
+rank, without rescoring. Opening a native disclosure previews exactly the
+scenario's proven opportunities in their existing order and keeps them
+visually separate from primary matches. The page never renders criterion IDs
+or internal reason codes.
+
+The preview is read-only. Its explicit `Update my preferences` action links to
+the existing profile flow; opening a disclosure does not submit a form or
+change stored preferences. Pages with no proven scenario omit the section,
+and additional scenarios beyond the first three stay behind an accessible
+progressive disclosure.
