@@ -15,6 +15,9 @@ from wahojobs.persistent_profiles_repository import (
     read_current_profile,
     read_profile_history,
 )
+from wahojobs.profiles.seniority_presentation import (
+    candidate_seniority_display_label,
+)
 
 
 PROFILE_HISTORY_PAGE_SIZE = 20
@@ -638,7 +641,9 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
     _append_group(groups, "Professional domains", domains)
     experience_values = []
     if experience.get("seniority") not in {None, "", "unknown"}:
-        experience_values.append(f"Seniority: {experience['seniority']}")
+        experience_values.append(
+            f"Seniority: {candidate_seniority_display_label(experience['seniority'])}"
+        )
     if type(experience.get("total_years")) in {int, float}:
         experience_values.append(f"Total experience: {experience['total_years']} years")
     experience_values.extend(experience.get("recent_roles", ()))

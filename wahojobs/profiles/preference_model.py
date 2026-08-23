@@ -17,6 +17,9 @@ from wahojobs.profiles.canonical import (
     UNKNOWN,
     validate_preferences,
 )
+from wahojobs.profiles.seniority_presentation import (
+    target_career_level_display_choices,
+)
 
 
 SCHEMA_VERSION = "profile_preferences_v1"
@@ -171,12 +174,6 @@ _CHOICE_DESCRIPTIONS = {
     "weekends": "Work on Saturday or Sunday.",
     "phone": "The role may include calls or other live voice communication.",
     "non_phone": "The role can be completed without phone or live voice work.",
-    "entry": "Entry-level work with limited prior experience expected.",
-    "mid": "Mid-level work requiring established independent experience.",
-    "senior": "Senior individual-contributor responsibility.",
-    "lead": "Technical or functional leadership responsibility.",
-    "principal": "High-scope expert individual-contributor responsibility.",
-    "manager": "People-management responsibility.",
 }
 
 _COMPENSATION_KIND_COPY = {
@@ -264,16 +261,19 @@ def profile_preference_control_catalog_v1() -> dict:
     for path in PREFERENCE_ENUM_LIST_PATHS:
         identifier = ".".join(path)
         title, help_text = _CONTROL_COPY[identifier]
-        choices = []
-        for code in sorted(allowed_by_path[path]):
-            label = _CHOICE_LABELS.get(code, code.replace("_", " ").title())
-            description = _CHOICE_DESCRIPTIONS.get(
-                code,
-                f"Include {label.casefold()} opportunities.",
-            )
-            choices.append(
-                {"code": code, "label": label, "description": description}
-            )
+        if path == ("accepted_career_levels",):
+            choices = list(target_career_level_display_choices())
+        else:
+            choices = []
+            for code in sorted(allowed_by_path[path]):
+                label = _CHOICE_LABELS.get(code, code.replace("_", " ").title())
+                description = _CHOICE_DESCRIPTIONS.get(
+                    code,
+                    f"Include {label.casefold()} opportunities.",
+                )
+                choices.append(
+                    {"code": code, "label": label, "description": description}
+                )
         dimensions.append(
             {
                 "id": identifier,

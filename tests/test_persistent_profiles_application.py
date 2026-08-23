@@ -7,6 +7,7 @@ import threading
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from tests.persistent_profiles_repository_test_support import (
@@ -25,6 +26,7 @@ from wahojobs.persistent_profiles_application import (
     PersistentProfilePageResult,
     _LEGACY_PROFILE_READ_GRANT_ISSUER,
     _TRUSTED_AUTHENTICATION_ACTOR_ISSUER,
+    _build_profile_view,
 )
 from wahojobs.persistent_profiles_repository import (
     append_profile_revision,
@@ -172,6 +174,27 @@ class PersistentProfileApplicationTests(unittest.TestCase):
         self.assertNotIn(self.principal.principal_id, rendered)
         self.assertFalse(hasattr(result, "connection"))
         self.assertFalse(hasattr(result.profile, "structured_profile"))
+
+    def test_candidate_seniority_uses_shared_display_group_without_rewriting_profile(self):
+        summary = SimpleNamespace(
+            lifecycle_status="active",
+            revision_number=1,
+            updated_at="2026-08-23T00:00:00Z",
+        )
+        for raw_value, expected in (
+            ("junior", "Seniority: Entry-level"),
+            ("mid-level", "Seniority: Mid-level"),
+            ("advanced", "Seniority: Advanced specialist"),
+            ("senior", "Seniority: Senior"),
+        ):
+            profile = canonical_fixture()
+            profile["experience"]["seniority"] = raw_value
+            view = _build_profile_view(summary, profile)
+            experience = next(
+                group for group in view.field_groups if group.label == "Experience"
+            )
+            self.assertIn(expected, experience.values)
+            self.assertEqual(profile["experience"]["seniority"], raw_value)
 
     def test_archived_and_deletion_requested_lifecycle_policies(self):
         created = self.create_profile()

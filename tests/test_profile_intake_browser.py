@@ -37,6 +37,7 @@ from wahojobs.profile_intake.browser import (
     _CLASSIFICATION_DESCRIPTIONS,
     _SKIP_SUGGESTION_VALUE,
     _preference_form_values_for_model,
+    _review_fact_value_control,
 )
 from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
@@ -445,15 +446,33 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"Leave this suggestion out", page.body)
         self.assertIn(b"More classifications", page.body)
         self.assertIn(b"class='suggestion-tag'>Suggested", page.body)
-        for allowed_value in _FIELD_SPECS["experience.seniority"].allowed:
-            self.assertEqual(
-                page.body.count(
-                    f"name='fact_{index}_value' value='{allowed_value}'".encode(
-                        "ascii"
-                    )
-                ),
-                1,
+        self.assertEqual(page.body.count(b"<strong>Entry-level</strong>"), 1)
+        self.assertEqual(page.body.count(b"<strong>Mid-level</strong>"), 1)
+        self.assertIn(b"<strong>Advanced specialist</strong>", page.body)
+        self.assertIn(b"<strong>Senior</strong>", page.body)
+        self.assertIn(
+            f"name='fact_{index}_value' value='entry-level'".encode(), page.body
+        )
+        self.assertNotIn(
+            f"name='fact_{index}_value' value='junior'".encode(), page.body
+        )
+        self.assertIn(f"name='fact_{index}_value' value='mid'".encode(), page.body)
+        self.assertNotIn(
+            f"name='fact_{index}_value' value='mid-level'".encode(), page.body
+        )
+
+        for legacy_value, expected_label in (
+            ("junior", "Entry-level"),
+            ("mid-level", "Mid-level"),
+        ):
+            grouped = _review_fact_value_control(
+                index, fact, legacy_value, "Seniority"
             )
+            self.assertEqual(grouped.count(f"<strong>{expected_label}</strong>"), 1)
+            self.assertIn(
+                f"name='fact_{index}_value' value='{legacy_value}'", grouped
+            )
+            self.assertIn("class='suggestion-tag'>Suggested", grouped)
 
         def submission(current, *, value, decision):
             form = {

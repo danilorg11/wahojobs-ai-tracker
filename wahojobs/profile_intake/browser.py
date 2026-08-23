@@ -50,6 +50,9 @@ from wahojobs.profiles.preference_model import (
     empty_profile_preferences_v1,
     profile_preference_control_catalog_v1,
 )
+from wahojobs.profiles.seniority_presentation import (
+    candidate_seniority_display_choices,
+)
 
 
 MAX_MULTIPART_BODY_BYTES = (2 * DEFAULT_DOCUMENT_LIMITS.max_upload_bytes) + 65_536
@@ -134,13 +137,6 @@ _PRIMARY_CLASSIFICATION_CHOICES = {
         "master",
         "doctorate",
         "not_specified",
-    ),
-    "experience.seniority": (
-        "entry-level",
-        "mid-level",
-        "senior",
-        "lead",
-        "executive",
     ),
     "experience.contribution_type": (
         "individual contributor",
@@ -1130,31 +1126,66 @@ def _review_fact_value_control(index, fact, raw_value, label):
         )
 
     compact_suggestion = _uses_compact_suggestion_choice(fact)
-    primary = [
-        option
-        for option in _PRIMARY_CLASSIFICATION_CHOICES.get(fact.field_path, ())
-        if option in spec.allowed
-    ]
-    if not primary:
-        primary = sorted(spec.allowed)[:7]
-    if compact_suggestion and raw_value in spec.allowed:
-        primary = [raw_value, *(option for option in primary if option != raw_value)]
-    secondary = sorted(set(spec.allowed) - set(primary))
+    if fact.field_path == "experience.seniority":
+        choices = list(candidate_seniority_display_choices(raw_value))
+        primary = [choice for choice in choices if choice["primary"]]
+        suggested = next(
+            (choice for choice in choices if raw_value in choice["values"]), None
+        )
+        if compact_suggestion and suggested is not None and suggested not in primary:
+            primary = [suggested, *primary]
+        secondary = [choice for choice in choices if choice not in primary]
+    else:
+        primary_values = [
+            option
+            for option in _PRIMARY_CLASSIFICATION_CHOICES.get(fact.field_path, ())
+            if option in spec.allowed
+        ]
+        if not primary_values:
+            primary_values = sorted(spec.allowed)[:7]
+        if compact_suggestion and raw_value in spec.allowed:
+            primary_values = [
+                raw_value, *(option for option in primary_values if option != raw_value)
+            ]
+        secondary_values = sorted(set(spec.allowed) - set(primary_values))
+        primary = [
+            {
+                "value": option,
+                "values": (option,),
+                "label": option.replace("_", " ").title(),
+                "description": _CLASSIFICATION_DESCRIPTIONS.get(
+                    option,
+                    f"Use the {option.replace('_', ' ').title()} classification.",
+                ),
+            }
+            for option in primary_values
+        ]
+        secondary = [
+            {
+                "value": option,
+                "values": (option,),
+                "label": option.replace("_", " ").title(),
+                "description": _CLASSIFICATION_DESCRIPTIONS.get(
+                    option,
+                    f"Use the {option.replace('_', ' ').title()} classification.",
+                ),
+            }
+            for option in secondary_values
+        ]
 
-    def option_markup(option):
+    def option_markup(choice):
+        option = choice["value"]
         option_slug = re.sub(r"[^a-z0-9]+", "-", option).strip("-")
         option_id = f"fact-{index}-{option_slug}"
-        option_label = option.replace("_", " ").title()
-        description = _CLASSIFICATION_DESCRIPTIONS.get(
-            option,
-            f"Use the {_safe_text(option_label)} classification.",
-        )
-        is_checked = option == raw_value and (
+        option_label = choice["label"]
+        description = choice["description"]
+        is_suggested = raw_value in choice["values"]
+        is_checked = is_suggested and (
             not compact_suggestion or fact.decision == "accept"
         )
         suggestion_badge = (
             "<span class='suggestion-tag'>Suggested</span>"
-            if compact_suggestion and option == raw_value
+            if compact_suggestion and is_suggested
             else ""
         )
         return (
@@ -1164,8 +1195,8 @@ def _review_fact_value_control(index, fact, raw_value, label):
             f"<span><strong>{_safe_text(option_label)}</strong>{suggestion_badge}<small>{_safe_text(description)}</small></span></label>"
         )
 
-    primary_choices = "".join(option_markup(option) for option in primary)
-    secondary_choices = "".join(option_markup(option) for option in secondary)
+    primary_choices = "".join(option_markup(choice) for choice in primary)
+    secondary_choices = "".join(option_markup(choice) for choice in secondary)
     skip_choice = ""
     if compact_suggestion:
         skip_choice = (
