@@ -438,7 +438,11 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             self._headers(origin=False),
         )
         self.assertEqual(page.status, 200)
-        self.assertIn(b"Save profile and find matches", page.body)
+        self.assertIn(b"<button type='submit'>Find my matches</button>", page.body)
+        self.assertIn(
+            b"Your profile is saved only when you choose Find my matches",
+            page.body,
+        )
         self.assertNotIn(row["attempt_id"].encode(), page.body)
         self.assertNotIn(row["reservation_id"].encode(), page.body)
         self.assertNotIn(b"private-sentinel", page.body)

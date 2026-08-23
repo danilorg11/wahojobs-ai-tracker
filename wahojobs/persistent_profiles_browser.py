@@ -1963,6 +1963,115 @@ def _page(title: str, body: str) -> str:
     .processing-state {{ background: #eef7f3; border: 1px solid #9bc8b7; border-radius: 8px; margin-top: 18px; padding: 18px; }}
     button {{ background: #174d3b; color: white; border: 0; border-radius: 5px; padding: 10px 16px; font: inherit; font-weight: 700; cursor: pointer; }}
     .muted {{ color: #66716c; }}
+    .intake-hero {{ border: 0; border-radius: 20px; box-shadow: 0 16px 45px rgba(23, 77, 59, .08); margin-bottom: 20px; padding: clamp(28px, 5vw, 52px); }}
+    .intake-hero h1 {{ font-size: clamp(34px, 5vw, 52px); letter-spacing: -.035em; line-height: 1.05; max-width: 720px; }}
+    .hero-lede {{ color: #46534e; font-size: clamp(17px, 2.2vw, 20px); line-height: 1.55; max-width: 700px; }}
+    .reassurance-line {{ align-items: center; color: #174d3b; display: flex; font-weight: 700; gap: 9px; margin-bottom: 0; }}
+    .reassurance-line span {{ align-items: center; background: #ddf2e8; border-radius: 50%; display: inline-flex; flex: 0 0 24px; height: 24px; justify-content: center; }}
+    .intake-upload-form {{ border: 0; border-radius: 20px; box-shadow: 0 16px 45px rgba(24, 45, 37, .07); padding: clamp(24px, 4vw, 40px); }}
+    .upload-heading {{ align-items: end; display: flex; gap: 24px; justify-content: space-between; margin-bottom: 20px; }}
+    .upload-heading h2 {{ font-size: 24px; margin-bottom: 0; }}
+    .selection-hint {{ background: #eef4f1; border-radius: 999px; color: #466257; display: inline-block; font-size: 13px; font-weight: 750; padding: 5px 10px; }}
+    .upload-choice-grid {{ display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    .upload-choice {{ border: 1.5px dashed #a7bab2; border-radius: 14px; cursor: pointer; display: grid; gap: 14px; min-width: 0; padding: 22px; transition: background-color .18s ease, border-color .18s ease, transform .18s ease; }}
+    .upload-choice:hover {{ background: #f7fbf9; border-color: #39745e; transform: translateY(-1px); }}
+    .upload-choice:focus-within {{ border-color: #174d3b; outline: 3px solid #b8dfcf; outline-offset: 3px; }}
+    .upload-choice-mark {{ align-items: center; background: #e6f3ed; border-radius: 10px; color: #174d3b; display: inline-flex; font-size: 14px; font-weight: 800; height: 42px; justify-content: center; width: 42px; }}
+    .upload-choice-copy {{ display: grid; gap: 5px; }}
+    .upload-choice-copy strong {{ font-size: 18px; }}
+    .upload-choice-copy small {{ color: #66716c; line-height: 1.4; }}
+    .upload-choice input[type=file] {{ color: #53605b; font: inherit; max-width: 100%; width: 100%; }}
+    .upload-choice input[type=file]::file-selector-button {{ background: white; border: 1px solid #9baca5; border-radius: 7px; color: #174d3b; cursor: pointer; font: inherit; font-weight: 700; margin-right: 10px; min-height: 42px; padding: 8px 12px; }}
+    .file-guidance {{ border-top: 1px solid #e5ebe8; margin-top: 22px; padding-top: 14px; }}
+    .file-guidance summary, .profile-review-form summary {{ border-radius: 6px; min-height: 44px; padding: 11px 4px; }}
+    .file-guidance summary:focus-visible, .profile-review-form summary:focus-visible, .review-progress a:focus-visible, .secondary-link:focus-visible, button:focus-visible {{ outline: 3px solid #8dc6b1; outline-offset: 3px; }}
+    .file-guidance ul {{ color: #53605b; line-height: 1.6; margin-bottom: 0; }}
+    .upload-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 18px; margin-top: 24px; }}
+    .upload-actions button, .finish-actions button {{ border-radius: 9px; min-height: 48px; padding: 12px 22px; }}
+    .secondary-link {{ color: #315d4d; font-weight: 700; padding: 12px 2px; }}
+    .intake-upload-form.is-processing {{ align-items: center; display: grid; min-height: 430px; }}
+    .intake-upload-form .processing-state {{ background: transparent; border: 0; margin: 0 auto; max-width: 620px; padding: 28px 0; text-align: center; }}
+    .processing-state:focus {{ outline: none; }}
+    .processing-state h2 {{ font-size: clamp(26px, 4vw, 38px); letter-spacing: -.025em; line-height: 1.15; }}
+    .processing-lede {{ color: #53605b; font-size: 17px; line-height: 1.55; }}
+    .processing-mark {{ display: flex; gap: 8px; justify-content: center; margin: 0 auto 24px; }}
+    .processing-mark span {{ animation: intake-pulse 1.5s ease-in-out infinite; background: #398066; border-radius: 50%; height: 10px; width: 10px; }}
+    .processing-mark span:nth-child(2) {{ animation-delay: .18s; }}
+    .processing-mark span:nth-child(3) {{ animation-delay: .36s; }}
+    .processing-steps {{ display: grid; gap: 0; list-style: none; margin: 26px auto; max-width: 390px; padding: 0; text-align: left; }}
+    .processing-steps li {{ border-left: 2px solid #c8ddd4; color: #46534e; padding: 8px 0 8px 26px; position: relative; }}
+    .processing-steps li::before {{ background: white; border: 2px solid #5d8f7b; border-radius: 50%; content: ''; height: 10px; left: -6px; position: absolute; top: 14px; width: 10px; }}
+    .processing-state .reassurance-line {{ justify-content: center; }}
+    @keyframes intake-pulse {{ 0%, 100% {{ opacity: .35; transform: scale(.82); }} 50% {{ opacity: 1; transform: scale(1); }} }}
+    .intake-review-hero {{ padding-bottom: 30px; }}
+    .review-progress {{ border-top: 1px solid #e2ebe7; margin-top: 30px; padding-top: 24px; }}
+    .review-progress ol {{ display: grid; gap: 10px; grid-template-columns: repeat(4, 1fr); list-style: none; margin: 0; padding: 0; }}
+    .review-progress a {{ align-items: center; border-radius: 8px; color: #46534e; display: flex; font-size: 13px; font-weight: 700; gap: 8px; min-height: 44px; padding: 5px; text-decoration: none; }}
+    .review-progress a:hover {{ background: #f1f7f4; color: #174d3b; }}
+    .review-progress span {{ align-items: center; background: #e6f3ed; border-radius: 50%; color: #174d3b; display: inline-flex; flex: 0 0 28px; height: 28px; justify-content: center; }}
+    .intake-review-form {{ border: 0; border-radius: 20px; box-shadow: 0 16px 45px rgba(24, 45, 37, .07); padding: clamp(26px, 5vw, 52px); }}
+    .intake-callout {{ background: #fff8e8; border-left: 4px solid #d2a13e; border-radius: 8px; color: #5b4a28; margin: 0 0 20px; padding: 14px 18px; }}
+    .intake-review-form .review-section {{ border-top-color: #dfe8e4; margin-top: 46px; padding-top: 46px; scroll-margin-top: 20px; }}
+    .intake-review-form .review-section:first-of-type {{ border-top: 0; margin-top: 0; padding-top: 0; }}
+    .section-heading {{ margin-bottom: 24px; max-width: 720px; }}
+    .section-heading h2, .finish-panel h2 {{ font-size: clamp(25px, 3vw, 34px); letter-spacing: -.025em; margin-bottom: 10px; }}
+    .section-heading p:not(.eyebrow), .finish-panel > p:not(.eyebrow) {{ color: #53605b; font-size: 16px; line-height: 1.55; }}
+    .fact-card {{ background: #fbfcfb; border-color: #dfe7e3; border-radius: 12px; padding: 20px; }}
+    .fact-meta {{ color: #466257; font-size: 12px; font-weight: 800; letter-spacing: .02em; line-height: 1.45; text-transform: uppercase; }}
+    .decision-field {{ display: grid; font-size: 13px; font-weight: 750; gap: 6px; margin-top: 14px; }}
+    .decision-field select {{ background: white; border: 1px solid #aebbb5; border-radius: 7px; font: inherit; min-height: 44px; padding: 9px; width: 100%; }}
+    .intake-review-form .review-field input, .intake-review-form .review-field select {{ background: white; border-radius: 7px; font: inherit; min-height: 44px; }}
+    .intake-review-form .choice-fieldset, .intake-review-form .preference-group {{ border: 0; border-top: 1px solid #e2e9e6; border-radius: 0; margin: 28px 0 0; padding: 28px 0 0; }}
+    .intake-review-form .choice-fieldset legend, .intake-review-form .preference-group legend {{ font-size: 18px; padding: 0; }}
+    .intake-review-form .selection-hint {{ margin: 8px 0 4px; }}
+    .intake-review-form .choice-grid {{ gap: 10px; margin: 14px 0; }}
+    .intake-review-form .choice-card {{ background: white; border-color: #c8d4cf; border-radius: 10px; min-height: 48px; padding: 13px; transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }}
+    .intake-review-form .choice-card:hover {{ border-color: #6e9686; }}
+    .intake-review-form .choice-card:has(input:checked) {{ background: #eaf6f0; border-color: #2f755b; box-shadow: inset 0 0 0 1px #2f755b; }}
+    .intake-review-form .choice-card input {{ accent-color: #174d3b; flex: 0 0 auto; height: 18px; width: 18px; }}
+    .intake-review-form .choice-card strong {{ line-height: 1.35; }}
+    .intake-review-form details {{ margin-top: 8px; }}
+    .intake-review-form details[open] {{ background: #f5f8f6; border-radius: 10px; padding: 0 12px 10px; }}
+    .choice-definitions {{ margin-bottom: 0; }}
+    .choice-definitions div {{ border-top: 1px solid #e1e8e5; padding-top: 10px; }}
+    .review-subsection {{ background: #f7f9f8; border-radius: 12px; margin-top: 28px; padding: 22px; }}
+    .review-subsection h3 {{ font-size: 18px; margin-top: 0; }}
+    .empty-inline {{ background: #f5f8f6; border-radius: 10px; color: #53605b; margin: 0; padding: 18px; }}
+    .user-details {{ margin-top: 34px; }}
+    .compensation-group {{ background: #f7faf8; border-radius: 14px !important; margin-top: 36px !important; padding: 24px !important; }}
+    .compensation-group .choice-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .compensation-guide {{ display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 16px 0 20px; }}
+    .compensation-guide p {{ background: white; border-left: 3px solid #77a995; border-radius: 6px; display: grid; gap: 4px; margin: 0; padding: 12px 14px; }}
+    .compensation-guide span {{ color: #5d6964; font-size: 13px; line-height: 1.45; }}
+    .finish-section {{ padding-bottom: 0; }}
+    .finish-panel {{ background: #eaf6f0; border-radius: 16px; padding: clamp(24px, 4vw, 36px); }}
+    .finish-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 14px 18px; margin-top: 22px; }}
+    .finish-actions .muted {{ font-size: 13px; max-width: 390px; }}
+    .intake-cancel-form {{ margin-top: 14px; text-align: center; }}
+    .button-quiet {{ background: transparent; color: #59645f; font-weight: 650; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }}
+    .button-quiet:hover {{ color: #202523; }}
+    button:disabled {{ cursor: wait; opacity: .65; }}
+    [hidden] {{ display: none !important; }}
+    @media (max-width: 700px) {{
+      main {{ width: min(100% - 20px, 960px); padding: 20px 0 44px; }}
+      .account-nav {{ margin: 0 6px 14px; }}
+      .intake-hero, .intake-upload-form, .intake-review-form {{ border-radius: 14px; }}
+      .intake-hero h1 {{ font-size: 36px; }}
+      .upload-heading {{ align-items: start; flex-direction: column; gap: 10px; }}
+      .upload-choice-grid, .compensation-group .choice-grid, .compensation-guide {{ grid-template-columns: 1fr; }}
+      .upload-choice {{ padding: 18px; }}
+      .upload-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
+      .upload-actions button, .finish-actions button {{ width: 100%; }}
+      .review-progress ol {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .intake-review-form .review-section {{ margin-top: 36px; padding-top: 36px; }}
+      .intake-review-form .choice-grid, .profile-grid, .review-grid {{ grid-template-columns: 1fr; }}
+      .compensation-group {{ margin-left: -8px !important; margin-right: -8px !important; padding: 20px !important; }}
+      .finish-actions {{ align-items: stretch; flex-direction: column; }}
+    }}
+    @media (prefers-reduced-motion: reduce) {{
+      .processing-mark span {{ animation: none; opacity: .75; }}
+      .upload-choice, .intake-review-form .choice-card {{ transition: none; }}
+    }}
   </style>
 </head>
 <body><main>{body}</main></body>

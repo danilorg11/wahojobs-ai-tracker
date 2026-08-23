@@ -125,7 +125,7 @@ _CLASSIFICATION_DESCRIPTIONS = {
     "unavailable": "The candidate states they are currently unavailable.",
 }
 
-_PROCESSING_SCRIPT = """(function(){var f=document.getElementById('profile-intake-upload');if(!f){return;}f.addEventListener('submit',function(){if(!f.checkValidity()){return;}var files=f.querySelectorAll('input[type=file]');if(!files[0].files.length&&!files[1].files.length){return;}var state=document.getElementById('profile-building-state');state.hidden=false;state.focus();f.querySelector('button[type=submit]').disabled=true;});}());"""
+_PROCESSING_SCRIPT = """(function(){var f=document.getElementById('profile-intake-upload');if(!f){return;}f.addEventListener('submit',function(){if(!f.checkValidity()){return;}var files=f.querySelectorAll('input[type=file]');if(!files[0].files.length&&!files[1].files.length){return;}var state=document.getElementById('profile-building-state');var content=document.getElementById('profile-upload-content');f.setAttribute('aria-busy','true');f.classList.add('is-processing');f.querySelector('button[type=submit]').disabled=true;content.hidden=true;state.hidden=false;state.focus();});}());"""
 _PROCESSING_SCRIPT_HASH = base64.b64encode(
     hashlib.sha256(_PROCESSING_SCRIPT.encode("utf-8")).digest()
 ).decode("ascii")
@@ -833,27 +833,56 @@ def _review_request_digest(form):
 def _upload_page(proof):
     body = f"""
     {_authenticated_navigation()}
-    <section class='profile-header'>
-      <p class='eyebrow'>Optional AI-assisted profile</p>
-      <h1>Create your profile faster</h1>
-      <p>Upload either document or both. We will build a draft, then you will review everything before anything is saved.</p>
-      <p>LinkedIn means a PDF you exported; we do not accept or scrape LinkedIn URLs.</p>
-      <ul><li>Maximum 10 MiB per document</li><li>Text-based documents only</li><li>Scanned or image-only PDFs are not supported yet</li></ul>
+    <section class='profile-header intake-hero'>
+      <p class='eyebrow'>Create your Wahojobs profile</p>
+      <h1>Start with what you already have</h1>
+      <p class='hero-lede'>Add a resume, a LinkedIn PDF, or both. Wahojobs will organize a profile draft for you to review.</p>
+      <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> You review every detail before anything is saved.</p>
     </section>
-    <form class='profile-review-form' id='profile-intake-upload' method='post' enctype='multipart/form-data' action='{PROFILE_INTAKE_ROUTE}'>
+    <form class='profile-review-form intake-upload-form' id='profile-intake-upload' method='post' enctype='multipart/form-data' action='{PROFILE_INTAKE_ROUTE}'>
       <input type='hidden' name='csrf' value='{_safe_text(proof)}'>
-      <label class='review-field'>Resume or CV <span class='muted'>PDF or DOCX</span><input type='file' name='resume' accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'></label>
-      <label class='review-field'>LinkedIn profile <span class='muted'>LinkedIn profile PDF exported by you</span><input type='file' name='linkedin_profile_export' accept='.pdf,application/pdf'></label>
-      <p class='review-actions'><button type='submit'>Build my profile for review</button><a href='/find-matches'>Create profile manually</a></p>
-      <section id='profile-building-state' class='processing-state' role='status' aria-live='polite' tabindex='-1' hidden>
+      <div id='profile-upload-content'>
+        <div class='upload-heading'>
+          <div><p class='eyebrow'>Your documents</p><h2>Choose one or add both</h2></div>
+          <p class='selection-hint'>Either option works on its own.</p>
+        </div>
+        <div class='upload-choice-grid' role='group' aria-label='Documents to use for your profile'>
+          <label class='upload-choice'>
+            <span class='upload-choice-mark' aria-hidden='true'>CV</span>
+            <span class='upload-choice-copy'><strong>Resume or CV</strong><small>PDF or DOCX, up to 10 MiB</small></span>
+            <input type='file' name='resume' accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'>
+          </label>
+          <label class='upload-choice'>
+            <span class='upload-choice-mark' aria-hidden='true'>in</span>
+            <span class='upload-choice-copy'><strong>LinkedIn profile PDF</strong><small>A PDF exported by you, up to 10 MiB</small></span>
+            <input type='file' name='linkedin_profile_export' accept='.pdf,application/pdf'>
+          </label>
+        </div>
+        <details class='file-guidance'>
+          <summary>File requirements</summary>
+          <ul><li>Use a text-based PDF or DOCX</li><li>Scanned or image-only PDFs are not supported yet</li><li>Wahojobs does not accept or visit LinkedIn profile links</li></ul>
+        </details>
+        <div class='upload-actions'>
+          <button type='submit'>Build my profile</button>
+          <a class='secondary-link' href='/find-matches'>Create it manually instead</a>
+        </div>
+      </div>
+      <section id='profile-building-state' class='processing-state' role='status' aria-live='polite' aria-atomic='true' tabindex='-1' hidden>
+        <div class='processing-mark' aria-hidden='true'><span></span><span></span><span></span></div>
         <p class='eyebrow'>Building your profile</p>
-        <h2>Reading your documents and organizing a review draft</h2>
-        <p>Keep this page open. You will review and confirm every detail before anything is saved.</p>
+        <h2>Preparing a draft that is easy to review</h2>
+        <p class='processing-lede'>Keep this page open while Wahojobs reads and organizes your documents.</p>
+        <ol class='processing-steps' aria-label='What Wahojobs is preparing'>
+          <li>Reading your documents</li>
+          <li>Organizing experience and skills</li>
+          <li>Preparing your review</li>
+        </ol>
+        <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> Nothing is saved before you review and confirm it.</p>
       </section>
     </form>
     <script>{_PROCESSING_SCRIPT}</script>
     """
-    return _page("AI-assisted profile", body)
+    return _page("Create your profile", body)
 
 
 def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
@@ -863,17 +892,17 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         raw_value = review_value_for_form(fact.value)
         if fact.suggested:
             choice = (
-                f"<select name='fact_{index}_decision'>"
+                f"<label class='decision-field'><span>Use this suggestion?</span><select name='fact_{index}_decision'>"
                 f"<option value='pending'{' selected' if fact.decision == 'pending' else ''}>Choose whether to use this suggestion</option>"
                 f"<option value='accept'{' selected' if fact.decision == 'accept' else ''}>Accept suggestion</option>"
-                f"<option value='reject'{' selected' if fact.decision == 'reject' else ''}>Do not use</option></select>"
+                f"<option value='reject'{' selected' if fact.decision == 'reject' else ''}>Do not use</option></select></label>"
             )
             badge = "Suggested from your document — please confirm"
         else:
             choice = (
-                f"<select name='fact_{index}_decision'>"
+                f"<label class='decision-field'><span>Keep this detail?</span><select name='fact_{index}_decision'>"
                 f"<option value='keep'{' selected' if fact.decision == 'keep' else ''}>Keep</option>"
-                f"<option value='remove'{' selected' if fact.decision == 'remove' else ''}>Remove</option></select>"
+                f"<option value='remove'{' selected' if fact.decision == 'remove' else ''}>Remove</option></select></label>"
             )
             badge = "Document-supported prefill"
         if fact.conflict_group is not None:
@@ -881,8 +910,8 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         source_label = _review_source_label(fact)
         value_control = _review_fact_value_control(index, fact, raw_value, label)
         card = (
-            f"<div class='profile-group'><p class='eyebrow'>{_safe_text(badge)} · {_safe_text(source_label)}</p>"
-            f"{value_control}{choice}</div>"
+            f"<article class='profile-group fact-card'><p class='fact-meta'>{_safe_text(badge)} · {_safe_text(source_label)}</p>"
+            f"{value_control}{choice}</article>"
         )
         fact_fields.append((fact, card))
     missing = []
@@ -906,41 +935,81 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         version=snapshot.version,
     )
     issue_note = (
-        "<p class='muted'>Some document details may be ambiguous or conflicting; "
+        "<p class='intake-callout'>Some document details may be ambiguous or conflicting; "
         "review them carefully.</p>"
         if snapshot.review.issue_count
         else ""
     )
     target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
     primary_label = (
-        "Save profile and find matches"
+        "Find my matches"
         if save_enabled
         else "Update temporary review"
     )
     persistence_note = (
-        "Your confirmed profile will be created only when this Save succeeds."
+        "Your profile is saved only when you choose Find my matches."
         if save_enabled
-        else "Profile saving is not enabled in this runtime."
+        else "You can update this preview, but it cannot be saved here."
+    )
+    found_cards = "".join(
+        card
+        for fact, card in fact_fields
+        if not fact.suggested and fact.conflict_group is None
+    )
+    suggestion_cards = "".join(
+        card
+        for fact, card in fact_fields
+        if fact.suggested and fact.conflict_group is None
+    )
+    if not suggestion_cards:
+        suggestion_cards = (
+            "<p class='empty-inline'>No suggestions need your confirmation.</p>"
+        )
+    conflict_cards = "".join(
+        card for fact, card in fact_fields if fact.conflict_group is not None
+    )
+    conflict_section = (
+        "<div class='review-subsection'><h3>Sources disagree — please confirm</h3>"
+        "<p class='muted'>Choose at most one value for each disagreement, edit it "
+        "if needed, or leave the alternatives out.</p>"
+        f"<div class='profile-grid'>{conflict_cards}</div></div>"
+        if conflict_cards
+        else ""
+    )
+    missing_section = (
+        "<div class='review-subsection user-details'><h3>Information you still need "
+        "to provide</h3><p class='muted'>These details need your answer and stay "
+        "separate from preferences you may choose to relax.</p>"
+        f"<div class='review-grid'>{''.join(missing)}</div></div>"
+        if missing
+        else ""
     )
     body = f"""
     {_authenticated_navigation()}
-    <section class='profile-header'><p class='eyebrow'>Private, temporary review</p><h1>Review your profile draft</h1>
-      <p>Correct or remove prefills, and choose whether to use suggestions. Nothing on this page has been saved to your profile.</p></section>
+    <section class='profile-header intake-hero intake-review-hero'><p class='eyebrow'>Your Wahojobs profile draft</p><h1>Review it and make it yours</h1>
+      <p class='hero-lede'>We organized what your documents say. You decide what belongs in your profile.</p>
+      <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> Nothing is saved until you finish.</p>
+      <nav class='review-progress' aria-label='Profile review steps'><ol>
+        <li><a href='#review-found'><span>1</span>What we found</a></li>
+        <li><a href='#review-suggestions'><span>2</span>Confirm suggestions</a></li>
+        <li><a href='#review-preferences'><span>3</span>What you want</a></li>
+        <li><a href='#review-finish'><span>4</span>Find matches</a></li>
+      </ol></nav>
+    </section>
     {issue_note}
-    <form class='profile-review-form' method='post' action='{target}'>
+    <form class='profile-review-form intake-review-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'>
-      <section class='review-section'><p class='eyebrow'>Step 1</p><h2>What we found</h2><div class='profile-grid'>{''.join(card for fact, card in fact_fields if not fact.suggested and fact.conflict_group is None)}</div></section>
-      <section class='review-section'><p class='eyebrow'>Step 2</p><h2>Confirm our suggestions</h2><p class='muted'>These are suggestions, not facts or matcher decisions. Available classification choices are shown directly.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.suggested and fact.conflict_group is None)}</div>
-        <h3>Sources disagree — please confirm</h3><p class='muted'>Choose at most one value for each disagreement, edit it if needed, or reject the alternatives.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.conflict_group is not None)}</div></section>
-      <section class='review-section'><p class='eyebrow'>Step 3</p><h2>What are you looking for?</h2><p>These choices describe roles you would accept. Unless compensation is marked strict, they are preferences that may later be relaxable.</p>{_render_preference_controls(snapshot.review.preference_model)}</section>
-      <section class='review-section'><h2>Information you still need to provide</h2><p class='muted'>Eligibility and other user-controlled details are kept separate from relaxable preferences.</p><div class='review-grid'>{''.join(missing)}</div></section>
-      <section class='review-section'><p class='eyebrow'>Step 4</p><h2>Review &amp; find matches</h2><p class='review-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></p></section>
+      <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>What we found</h2><p>Check the details taken directly from your documents. Edit or remove anything that is not right.</p></div><div class='profile-grid'>{found_cards}</div></section>
+      <section class='review-section' id='review-suggestions' aria-labelledby='review-suggestions-title'><div class='section-heading'><p class='eyebrow'>Step 2 of 4</p><h2 id='review-suggestions-title'>Confirm our suggestions</h2><p>These classifications can make your profile more useful. See every available choice and select what feels accurate.</p></div><div class='profile-grid'>{suggestion_cards}</div>{conflict_section}</section>
+      <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose all the options you would consider. Each group is separate, so choices such as freelance and full-time can work together.</p></div>{_render_preference_controls(snapshot.review.preference_model)}
+        {missing_section}</section>
+      <section class='review-section finish-section' id='review-finish' aria-labelledby='review-finish-title'><div class='finish-panel'><p class='eyebrow'>Step 4 of 4</p><h2 id='review-finish-title'>Review &amp; find matches</h2><p>When everything looks right, see the opportunities that fit the profile you confirmed. You can update your profile later.</p><div class='finish-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></div></div></section>
     </form>
-    <form class='profile-review-form' method='post' action='{target}'>
-      <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button type='submit'>Cancel import</button>
+    <form class='intake-cancel-form' method='post' action='{target}'>
+      <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button class='button-quiet' type='submit'>Discard this draft</button>
     </form>
     """
-    return _page("Review AI profile draft", body)
+    return _page("Review your profile", body)
 
 
 def _review_fact_value_control(index, fact, raw_value, label):
@@ -951,27 +1020,23 @@ def _review_fact_value_control(index, fact, raw_value, label):
             f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='512'></label>"
         )
     choices = []
-    definitions = []
     for option in sorted(spec.allowed):
         option_id = f"fact-{index}-{option}"
         option_label = option.replace("_", " ").title()
-        choices.append(
-            f"<label class='choice-card' for='{_safe_text(option_id)}'>"
-            f"<input id='{_safe_text(option_id)}' type='radio' name='fact_{index}_value' "
-            f"value='{_safe_text(option)}'{' checked' if option == raw_value else ''}>"
-            f"<span>{_safe_text(option_label)}</span></label>"
-        )
         description = _CLASSIFICATION_DESCRIPTIONS.get(
             option,
             f"Use the {_safe_text(option_label)} classification.",
         )
-        definitions.append(
-            f"<div><dt>{_safe_text(option_label)}</dt><dd>{_safe_text(description)}</dd></div>"
+        choices.append(
+            f"<label class='choice-card' for='{_safe_text(option_id)}'>"
+            f"<input id='{_safe_text(option_id)}' type='radio' name='fact_{index}_value' "
+            f"value='{_safe_text(option)}'{' checked' if option == raw_value else ''}>"
+            f"<span><strong>{_safe_text(option_label)}</strong><small>{_safe_text(description)}</small></span></label>"
         )
     return (
         f"<fieldset class='choice-fieldset'><legend>{_safe_text(label)}</legend>"
+        "<p class='selection-hint'>Choose one</p>"
         f"<div class='choice-grid'>{''.join(choices)}</div>"
-        f"<details><summary>What do these choices mean?</summary><dl class='choice-definitions'>{''.join(definitions)}</dl></details>"
         "</fieldset>"
     )
 
@@ -1005,8 +1070,8 @@ def _render_preference_controls(model):
         help_id = "preference-help-" + dimension["id"].replace(".", "-").replace("_", "-")
         sections.append(
             f"<fieldset class='preference-group' aria-describedby='{help_id}'>"
-            f"<legend>{_safe_text(dimension['title'])}</legend>"
-            f"<p class='muted' id='{help_id}'>{_safe_text(dimension['help'])} Empty means unrestricted.</p>"
+            f"<legend>{_safe_text(dimension['title'])}</legend><span class='selection-hint'>Choose all that apply</span>"
+            f"<p class='muted' id='{help_id}'>{_safe_text(dimension['help'])} Leave every option blank if you are open to all.</p>"
             f"<div class='choice-grid'>{''.join(choices)}</div>"
             f"<details><summary>Understand these choices</summary>"
             f"<dl class='choice-definitions'>{''.join(definitions)}</dl></details></fieldset>"
@@ -1033,9 +1098,13 @@ def _render_preference_controls(model):
             f"<option value='{period['code']}'{' selected' if period['code'] == compensation['period'] else ''}>{_safe_text(period['label'])}</option>"
         )
     sections.append(
-        "<fieldset class='preference-group'><legend>Expected compensation</legend>"
-        "<p class='muted'>Choose no minimum, a relaxable preferred minimum, or a non-relaxable strict minimum. We compare only the same currency and period.</p>"
+        "<fieldset class='preference-group compensation-group'><legend>Expected compensation</legend>"
+        "<p class='muted'>Set a minimum only if you have one. Amounts use the currency and time period you choose, with no automatic conversion.</p>"
         f"<div class='choice-grid'>{''.join(kind_choices)}</div>"
+        "<div class='compensation-guide' aria-label='Preferred and strict minimum explained'>"
+        "<p><strong>Preferred minimum</strong><span>Your target. You may choose to relax it to see more opportunities.</span></p>"
+        "<p><strong>Strict minimum</strong><span>Your firm floor. It will not be presented as something to relax.</span></p>"
+        "</div>"
         "<div class='review-grid'>"
         f"<label class='review-field'>Amount<input name='preference_compensation_amount' inputmode='decimal' pattern='[0-9]{{1,18}}(?:\\.[0-9]{{1,2}})?' value='{_safe_text(compensation['amount'] or '')}' maxlength='21'></label>"
         f"<label class='review-field'>Currency<select name='preference_compensation_currency'>{''.join(currency_options)}</select></label>"
