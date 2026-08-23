@@ -16,6 +16,7 @@ import hmac
 import html
 from http import HTTPStatus
 import json
+import math
 import re
 import secrets
 import sqlite3
@@ -2392,8 +2393,12 @@ def _render_match_results(
         url = public_job_page.public_job_path_for_match(match)
         if url is None:
             continue
-        reason = profile_preview.user_fit_reason(match)
-        caution = local_product.product_caution_note(match)
+        explanations = _candidate_match_explanations(match)
+        caution = _candidate_match_caution(match)
+        compensation = _presented_match_compensation(match)
+        description = _presented_match_description(match)
+        title = match.get("display_title") or match.get("title") or "Opportunity"
+        card_id = "match-" + str(len(cards) + 1)
         record = (
             local_product.demo.tracked_record_for_match(match, tracked)
             if tracked is not None
@@ -2415,14 +2420,57 @@ def _render_match_results(
             if record is not None
             else ""
         )
+        expertise = _bounded_presentation_text(match.get("expertise"), 80)
+        meta = [
+            (
+                "Location",
+                _bounded_presentation_text(match.get("location"), 120)
+                or "Location not listed",
+                "location",
+            )
+        ]
+        if expertise:
+            meta.append(("Work area", expertise, "work-area"))
+        meta.append(("Pay", compensation["label"], compensation["state"]))
+        meta_markup = "".join(
+            "<li class='match-meta-item match-meta-"
+            + _safe(state)
+            + "'><span>"
+            + _safe(label)
+            + "</span><strong>"
+            + _safe(value)
+            + "</strong></li>"
+            for label, value, state in meta
+        )
+        explanation_markup = "".join(
+            f"<li>{_safe(explanation)}</li>" for explanation in explanations
+        )
         cards.append(
-            "<article class='match-card' data-action-card>"
-            f"<p class='source'>{_safe(match.get('source') or 'Opportunity')}</p>"
-            f"<h3>{_safe(match.get('display_title') or match.get('title') or 'Opportunity')}</h3>"
-            f"<p class='muted'>{_safe(match.get('location') or 'Location not listed')}</p>"
-            f"<p><strong>Why it fits:</strong> {_safe(reason)}</p>"
+            f"<article class='match-card' data-action-card aria-labelledby='{card_id}-title'>"
+            "<div class='match-card-main'>"
+            f"<p class='match-rank-label'>Match {len(cards) + 1}</p>"
+            f"<h3 id='{card_id}-title'>{_safe(title)}</h3>"
+            f"<p class='match-company'>{_safe(match.get('source') or 'Opportunity')}</p>"
+            f"<ul class='match-meta' aria-label='Job details'>{meta_markup}</ul>"
+            + (f"<p class='match-description'>{_safe(description)}</p>" if description else "")
             + (
-                f"<p class='caution'><strong>Before applying:</strong> {_safe(caution)}</p>"
+                "<section class='why-match' aria-labelledby='"
+                + card_id
+                + "-why'><h4 id='"
+                + card_id
+                + "-why'>Why it matches you</h4><ul>"
+                + explanation_markup
+                + "</ul></section>"
+                if explanation_markup
+                else ""
+            )
+            + (
+                f"<p class='pay-note'>{_safe(compensation['note'])}</p>"
+                if compensation["note"]
+                else ""
+            )
+            + (
+                f"<p class='caution'><strong>Good to know:</strong> {_safe(caution)}</p>"
                 if caution
                 else ""
             )
@@ -2431,42 +2479,233 @@ def _render_match_results(
                 if status
                 else "<p class='pill card-status js-card-status'></p>"
             )
-            + f"<p><a class='button' href='{_safe(url)}'>View opportunity</a></p>"
+            + "</div><div class='match-card-actions'>"
+            + f"<a class='button match-primary-action' href='{_safe(url)}'>View job details</a>"
             + (f"<div class='js-card-controls'>{controls}</div>" if controls else "")
-            + "</article>"
+            + "</div></article>"
         )
+    profile_target = "/account/profile"
+    if match_run_id is not None:
+        profile_target += "?" + urlencode({"run": match_run_id})
     if cards:
         count = len(cards)
+        summary = _visible_match_summary(count)
+        low_result_note = (
+            "<aside class='low-result-note'><strong>A focused list is useful.</strong> "
+            "These are the opportunities that fit your profile right now. "
+            "New matches can appear as available jobs change.</aside>"
+            if count <= 3
+            else ""
+        )
         content = (
-            f"<p class='summary'><strong>{count} "
-            f"{'match' if count == 1 else 'matches'}</strong></p>"
-            "<section class='match-list' aria-label='Ranked matches'>"
+            "<section class='match-list' aria-label='Your ranked matches'>"
             + "".join(cards)
             + "</section>"
-        )
-    elif inventory_count == 0:
-        content = (
-            "<section class='panel empty'><h2>No current opportunities are available</h2>"
-            "<p>The configured opportunity inventory is empty. Please try again after it is refreshed.</p>"
-            "</section>"
+            + low_result_note
         )
     else:
+        summary = "We don't have a current match to show yet."
+        availability_copy = (
+            "There are no current opportunities available to compare with your profile."
+            if inventory_count == 0
+            else "None of the available opportunities is a clear fit for your profile right now."
+        )
         content = (
-            "<section class='panel empty'><h2>No sufficiently trusted matches are available</h2>"
-            "<p>The configured inventory may need a fresh successful source update. No alternate inventory was used.</p>"
+            "<section class='matches-empty' aria-labelledby='matches-empty-title'>"
+            "<div><p class='eyebrow'>Your search is up to date</p>"
+            "<h2 id='matches-empty-title'>No matches to show right now</h2>"
+            f"<p>{_safe(availability_copy)} Matches reflect your saved profile and the opportunities currently available.</p>"
+            "<p>New opportunities may appear as the market changes. You can also review your profile to make sure it reflects what you want.</p>"
+            "</div><div class='empty-actions'>"
+            f"<a class='button' href='{_safe(profile_target)}'>Review my profile</a>"
+            "<a class='secondary-action' href='/jobs'>Browse all jobs</a>"
+            "</div></section>"
+            "<section class='flexibility-preview' aria-labelledby='flexibility-title'>"
+            "<p class='eyebrow'>A future way to broaden your search</p>"
+            "<h2 id='flexibility-title'>More opportunities if you're flexible</h2>"
+            "<p>When Wahojobs can show that a preference is limiting your results, you'll see the options here and what each change means. Requirements for whether you can apply will always stay separate.</p>"
             "</section>"
         )
+    profile_context = (
+        "<aside class='matches-profile-context'>"
+        "<div><strong>Based on your saved profile</strong><span>Your details and preferences shape this list.</span></div>"
+        f"<a href='{_safe(profile_target)}'>Review profile &amp; preferences</a>"
+        "</aside>"
+        if cards
+        else ""
+    )
     body = f"""
     {_navigation(match_run_id=match_run_id)}
-    <header class='intro'>
-      <p class='eyebrow'>Matches</p>
-      <h1>Your current matches</h1>
-      <p>Regenerated from your saved account profile and the configured opportunity inventory.</p>
+    <header class='matches-hero'>
+      <p class='eyebrow'>Chosen for your profile</p>
+      <h1>Your matches</h1>
+      <p class='matches-summary'>{_safe(summary)}</p>
     </header>
+    {profile_context}
     <div id='action-feedback' aria-live='polite'></div>
     {content}
     """
     return _page("Your matches", body, workflow=match_run_id is not None)
+
+
+_INTERNAL_PRESENTATION_MARKERS = (
+    "hard gate",
+    "hard-gate",
+    "matcher",
+    "primary recommendation",
+    "threshold",
+    "trust suppression",
+    "explore only",
+    "capped to",
+)
+
+
+def _visible_match_summary(count):
+    if count == 1:
+        return "We found 1 opportunity that looks like a good fit right now."
+    return f"We found {count} opportunities that look like good fits right now."
+
+
+def _bounded_presentation_text(value, limit):
+    if type(value) is not str:
+        return ""
+    cleaned = " ".join(value.split())
+    return cleaned[:limit].rstrip() if cleaned else ""
+
+
+def _candidate_facing_evidence(value):
+    text = _bounded_presentation_text(value, 320)
+    lowered = text.casefold()
+    if not text or any(marker in lowered for marker in _INTERNAL_PRESENTATION_MARKERS):
+        return ""
+    return text
+
+
+def _candidate_match_explanations(match):
+    explanations = []
+    for field in ("affirmative_fit_why", "profile_explanation_evidence"):
+        values = match.get(field) or []
+        if type(values) not in {list, tuple}:
+            continue
+        for value in values:
+            explanation = _candidate_facing_evidence(value)
+            if explanation and explanation not in explanations:
+                explanations.append(explanation)
+            if len(explanations) == 2:
+                return tuple(explanations)
+        if explanations:
+            return tuple(explanations)
+    languages = [
+        _bounded_presentation_text(language, 40).title()
+        for language in (match.get("matched_languages") or [])
+        if _bounded_presentation_text(language, 40)
+    ]
+    if languages:
+        return ("Your listed languages match this role: " + ", ".join(languages[:3]) + ".",)
+    return ()
+
+
+def _candidate_match_caution(match):
+    return _candidate_facing_evidence(local_product.product_caution_note(match))
+
+
+def _presented_match_description(match):
+    for field in ("short_description", "description"):
+        description = _bounded_presentation_text(match.get(field), 320)
+        if description:
+            return description
+    return ""
+
+
+def _presented_match_compensation(match):
+    compensation = match.get("compensation")
+    if type(compensation) is not dict:
+        attributes = match.get("attributes")
+        compensation = (
+            attributes.get("compensation") if type(attributes) is dict else None
+        )
+    if type(compensation) is not dict or compensation.get("disclosed") is not True:
+        return {"label": "Pay not disclosed", "note": "", "state": "undisclosed"}
+
+    currency = compensation.get("currency")
+    period = compensation.get("period")
+    amount_type = compensation.get("amount_type")
+    minimum = compensation.get("amount_min")
+    maximum = compensation.get("amount_max")
+    if (
+        type(currency) is not str
+        or re.fullmatch(r"[A-Z]{3}", currency) is None
+        or period not in {"hour", "month", "year", "project", "task"}
+        or amount_type not in {"exact", "range", "from", "up_to"}
+        or not _valid_presentation_amount(minimum, optional=True)
+        or not _valid_presentation_amount(maximum, optional=True)
+    ):
+        return {
+            "label": "Pay disclosed — see job details",
+            "note": "The available pay details are not complete enough to summarize here.",
+            "state": "disclosed-unstructured",
+        }
+    if amount_type == "range" and (minimum is None or maximum is None):
+        return {
+            "label": "Pay disclosed — see job details",
+            "note": "The available pay range is incomplete.",
+            "state": "disclosed-unstructured",
+        }
+    if minimum is not None and maximum is not None and minimum > maximum:
+        return {
+            "label": "Pay disclosed — see job details",
+            "note": "The available pay range is inconsistent.",
+            "state": "disclosed-unstructured",
+        }
+    if amount_type == "exact" and (
+        minimum is None or maximum is None or minimum != maximum
+    ):
+        return {
+            "label": "Pay disclosed — see job details",
+            "note": "The available pay details are not complete enough to summarize here.",
+            "state": "disclosed-unstructured",
+        }
+    if amount_type == "from" and minimum is None:
+        return {
+            "label": "Pay disclosed — see job details",
+            "note": "The available pay details are not complete enough to summarize here.",
+            "state": "disclosed-unstructured",
+        }
+    if amount_type == "up_to" and maximum is None:
+        return {
+            "label": "Pay disclosed — see job details",
+            "note": "The available pay details are not complete enough to summarize here.",
+            "state": "disclosed-unstructured",
+        }
+    structured = {
+        "disclosed": True,
+        "currency": currency,
+        "amount_min": minimum,
+        "amount_max": maximum,
+        "period": period,
+        "amount_type": amount_type,
+        "notes": None,
+    }
+    label = public_job_page.compensation_label(structured)
+    if not label:
+        return {
+            "label": "Pay disclosed — see job details",
+            "note": "The available pay details are not complete enough to summarize here.",
+            "state": "disclosed-unstructured",
+        }
+    if period in {"project", "task"}:
+        return {
+            "label": label,
+            "note": "This pay format can't be compared directly with hourly, monthly, or yearly pay.",
+            "state": "not-directly-comparable",
+        }
+    return {"label": label, "note": "", "state": "disclosed"}
+
+
+def _valid_presentation_amount(value, *, optional):
+    if value is None:
+        return optional
+    return type(value) in {int, float} and math.isfinite(value) and value >= 0
 
 
 def _render_authenticated_tracker(
@@ -2572,6 +2811,7 @@ def _page(title, body, *, workflow=False):
     textarea, input, select {{ width: 100%; padding: 10px; border: 1px solid #aebbb4; border-radius: 6px; font: inherit; }}
     form {{ display: grid; gap: 14px; }}
     button, .button {{ display: inline-block; border: 0; border-radius: 6px; background: #176b52; color: #fff; padding: 10px 15px; font: inherit; font-weight: 750; cursor: pointer; text-decoration: none; }}
+    button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible {{ outline: 3px solid #2563eb; outline-offset: 3px; }}
     .review-grid, .language-review-row {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
     .review-checks {{ display: grid; gap: 8px; margin-top: 12px; }}
     .review-checkbox {{ display: flex; gap: 8px; font-weight: 600; }}
@@ -2579,8 +2819,60 @@ def _page(title, body, *, workflow=False):
     .review-actions {{ display: flex; align-items: center; gap: 14px; }}
     .muted {{ color: #5b6861; }}
     .caution {{ color: #7a3b24; }}
-    @media (max-width: 680px) {{ .review-grid, .language-review-row {{ grid-template-columns: 1fr; }} }}
     {local_product.CSS if workflow else ''}
+    .matches-hero {{ margin: 30px 0 24px; max-width: 760px; }}
+    .matches-hero h1 {{ font-size: clamp(2.35rem, 6vw, 4rem); letter-spacing: -.045em; line-height: 1.02; margin-bottom: 14px; }}
+    .matches-summary {{ color: #4d5e55; font-size: 1.16rem; line-height: 1.55; margin-bottom: 0; max-width: 650px; }}
+    .matches-profile-context {{ align-items: center; background: #eaf4ef; border-radius: 14px; display: flex; gap: 24px; justify-content: space-between; margin: 0 0 28px; padding: 16px 18px; }}
+    .matches-profile-context div {{ display: grid; gap: 2px; }}
+    .matches-profile-context span {{ color: #506058; font-size: .94rem; }}
+    .matches-profile-context a {{ align-items: center; display: flex; flex: 0 0 auto; min-height: 44px; }}
+    .match-list {{ display: grid; gap: 18px; margin: 0; }}
+    .match-card {{ align-items: start; border: 1px solid #dce4df; border-radius: 18px; box-shadow: 0 8px 26px rgba(32, 55, 44, .055); display: grid; gap: 26px; grid-template-columns: minmax(0, 1fr) 190px; margin: 0; padding: 28px; }}
+    .match-card-main {{ min-width: 0; }}
+    .match-rank-label {{ color: #176b52; font-size: .76rem; font-weight: 800; letter-spacing: .055em; margin-bottom: 8px; text-transform: uppercase; }}
+    .match-card h3 {{ font-size: clamp(1.3rem, 3vw, 1.65rem); line-height: 1.22; margin-bottom: 7px; }}
+    .match-company {{ color: #42534a; font-size: 1rem; font-weight: 700; margin-bottom: 18px; }}
+    .match-meta {{ display: flex; flex-wrap: wrap; gap: 9px; list-style: none; margin: 0 0 18px; padding: 0; }}
+    .match-meta-item {{ background: #f2f5f3; border-radius: 10px; display: grid; gap: 1px; min-width: 138px; padding: 9px 11px; }}
+    .match-meta-item span {{ color: #627068; font-size: .73rem; font-weight: 750; text-transform: uppercase; }}
+    .match-meta-item strong {{ color: #27372f; font-size: .91rem; overflow-wrap: anywhere; }}
+    .match-meta-disclosed {{ background: #eaf4ef; }}
+    .match-meta-not-directly-comparable, .match-meta-disclosed-unstructured {{ background: #fbf5e9; }}
+    .match-description {{ color: #536159; line-height: 1.6; max-width: 70ch; }}
+    .why-match {{ background: #f2f8f5; border-radius: 12px; margin: 20px 0 0; padding: 16px 18px; }}
+    .why-match h4 {{ font-size: .94rem; margin: 0 0 8px; }}
+    .why-match ul {{ display: grid; gap: 5px; margin: 0; padding-left: 20px; }}
+    .why-match li {{ line-height: 1.5; }}
+    .pay-note {{ color: #675227; font-size: .9rem; margin: 12px 0 0; }}
+    .match-card .caution {{ margin: 16px 0 0; }}
+    .match-card-actions {{ display: grid; gap: 10px; }}
+    .match-primary-action {{ min-height: 46px; text-align: center; width: 100%; }}
+    .match-card-actions .js-card-controls {{ display: grid; gap: 8px; }}
+    .match-card-actions form, .match-card-actions button {{ width: 100%; }}
+    .low-result-note {{ background: #fff; border-left: 3px solid #8ab9a6; border-radius: 0 10px 10px 0; color: #526158; margin: 22px 0 0; padding: 15px 18px; }}
+    .matches-empty {{ align-items: center; background: #fff; border: 1px solid #dce4df; border-radius: 18px; display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr) 190px; margin: 0; padding: 30px; }}
+    .matches-empty h2 {{ font-size: 1.55rem; }}
+    .matches-empty p:not(.eyebrow) {{ color: #536159; max-width: 65ch; }}
+    .empty-actions {{ display: grid; gap: 12px; }}
+    .secondary-action {{ min-height: 44px; padding: 10px; text-align: center; }}
+    .flexibility-preview {{ background: transparent; border: 1px dashed #b9c7c0; border-radius: 16px; margin: 24px 0 0; padding: 22px 24px; }}
+    .flexibility-preview h2 {{ font-size: 1.2rem; }}
+    .flexibility-preview p:last-child {{ color: #5b6861; margin-bottom: 0; max-width: 72ch; }}
+    @media (max-width: 680px) {{
+      main {{ width: min(100% - 24px, 960px); padding-top: 18px; }}
+      .account-nav {{ flex-wrap: wrap; gap: 10px 16px; }}
+      .matches-hero {{ margin-top: 22px; }}
+      .matches-hero h1 {{ font-size: 2.45rem; }}
+      .matches-profile-context {{ align-items: flex-start; flex-direction: column; gap: 10px; }}
+      .match-card, .matches-empty {{ gap: 20px; grid-template-columns: 1fr; padding: 21px; }}
+      .match-meta {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .match-meta-item:last-child:nth-child(odd) {{ grid-column: 1 / -1; }}
+      .match-primary-action, .empty-actions .button, .secondary-action {{ align-items: center; display: flex; justify-content: center; min-height: 48px; }}
+      .review-grid, .language-review-row {{ grid-template-columns: 1fr; }}
+    }}
+    @media (max-width: 410px) {{ .match-meta {{ grid-template-columns: 1fr; }} .match-meta-item:last-child:nth-child(odd) {{ grid-column: auto; }} }}
+    @media (prefers-reduced-motion: reduce) {{ html {{ scroll-behavior: auto; }} }}
   </style>
 </head>
 <body><main>{body}</main></body>

@@ -564,6 +564,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                     [
                         "/account/profile",
                         "/logout",
+                        "/account/profile",
                         "/job/opportunity-7002",
                     ],
                 )
@@ -684,9 +685,17 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             [
                 "/account/profile",
                 "/logout",
+                "/account/profile",
                 "/job/opportunity-901",
             ],
         )
+        self.assertIn("<h1>Your matches</h1>", body)
+        self.assertIn(
+            "We found 1 opportunity that looks like a good fit right now.", body
+        )
+        self.assertIn("Why it matches you", body)
+        self.assertIn("Pay not disclosed", body)
+        self.assertIn("View job details", body)
         for forbidden in ("My Jobs", "/action", "tracker", "demo persona"):
             self.assertNotIn(forbidden, body)
         for fallback in (
@@ -763,26 +772,24 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertNotIn("match_criteria_shadow", body)
         self.assertNotIn("preferences.workloads", body)
 
-    def test_empty_and_untrusted_configured_inventory_are_reported_honestly(self):
+    def test_zero_result_states_are_helpful_and_hide_matcher_internals(self):
         stale = self._row(
             observed_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
         )
         cases = (
             (
                 [],
-                "No current opportunities are available",
-                "configured opportunity inventory is empty",
+                "There are no current opportunities available to compare with your profile.",
             ),
             (
                 [stale],
-                "No sufficiently trusted matches are available",
-                "No alternate inventory was used",
+                "None of the available opportunities is a clear fit for your profile right now.",
             ),
         )
         authority = self._authority(profile_v2=self.profile_v2)
 
-        for rows, heading, detail in cases:
-            with self.subTest(heading=heading):
+        for rows, detail in cases:
+            with self.subTest(detail=detail):
                 query_calls = []
                 _service, integration = self._integration(
                     ephemeral_identity_factory=lambda: "ephemeral_matcher"
@@ -808,9 +815,178 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 body = self._body(response)
                 self.assertEqual(response.status, 200)
                 self.assertEqual(len(query_calls), 1)
-                self.assertIn(heading, body)
+                self.assertIn("<h1>Your matches</h1>", body)
+                self.assertIn("No matches to show right now", body)
                 self.assertIn(detail, body)
-                self.assertNotIn("View opportunity", body)
+                self.assertIn("Review my profile", body)
+                self.assertIn("Browse all jobs", body)
+                self.assertIn("More opportunities if you're flexible", body)
+                self.assertNotIn("Review profile &amp; preferences", body)
+                self.assertNotIn("View job details", body)
+                visible = re.sub(r"<style>.*?</style>", "", body, flags=re.DOTALL)
+                for forbidden in (
+                    "hard-gate survivors",
+                    "threshold",
+                    "trust suppression",
+                    "configured inventory",
+                    "source update",
+                    "alternate inventory",
+                    "matcher",
+                ):
+                    self.assertNotIn(forbidden, visible.casefold())
+
+    def test_match_polish_preserves_order_and_uses_only_supplied_explanations(self):
+        def presented(job_id, title, reason, compensation=None):
+            match = {
+                "job_id": job_id,
+                "canonical_opportunity_id": job_id,
+                "display_title": title,
+                "source": f"Synthetic Company {job_id}",
+                "location": "Remote — Brazil",
+                "expertise": "Customer Support",
+                "url": f"https://jobs.example.test/{job_id}",
+                "job_is_active": True,
+                "canonical_is_active": True,
+                "eligible_for_personalized": True,
+                "professional_domain_hard_gate_applied": False,
+                "location_eligibility_status": "eligible",
+                "affirmative_fit_status": "supported",
+                "affirmative_fit_why": [reason],
+                "profile_explanation_evidence": [],
+                "primary_recommendation_eligible": True,
+                "actionability_cap_reasons": [],
+                "opportunity_trust_status": "trusted",
+                "opportunity_trust": {
+                    "job_is_active": True,
+                    "canonical_is_active": True,
+                },
+            }
+            if compensation is not None:
+                match["compensation"] = compensation
+            return match
+
+        matches = [
+            presented(
+                9101,
+                "Bilingual Support Specialist",
+                "Your Portuguese and English match the languages requested for this role.",
+                {
+                    "disclosed": True,
+                    "currency": "USD",
+                    "amount_min": 25,
+                    "amount_max": 40,
+                    "period": "hour",
+                    "amount_type": "range",
+                },
+            ),
+            presented(
+                9102,
+                "Search Quality Reviewer",
+                "Your search-evaluation experience aligns with this work.",
+                {
+                    "disclosed": True,
+                    "currency": "USD",
+                    "amount_min": 500,
+                    "amount_max": 500,
+                    "period": "project",
+                    "amount_type": "exact",
+                },
+            ),
+            presented(
+                9103,
+                "Remote Customer Care Associate",
+                "Your customer-support background aligns with this role.",
+            ),
+        ]
+        context = {
+            "matches": {
+                section: matches if index == 0 else []
+                for index, section in enumerate(
+                    local_product.ACTIONABLE_PRESENTATION_SECTIONS
+                )
+            }
+        }
+
+        body = matches_module._render_match_results(
+            context,
+            inventory_count=len(matches),
+        )
+
+        self.assertEqual(
+            re.findall(r"<h3 id='[^']+'>([^<]+)</h3>", body),
+            [match["display_title"] for match in matches],
+        )
+        self.assertIn(
+            "We found 3 opportunities that look like good fits right now.", body
+        )
+        for match in matches:
+            self.assertIn(match["affirmative_fit_why"][0], body)
+        self.assertEqual(body.count("Why it matches you"), 3)
+        self.assertIn("USD 25–USD 40 per hour", body)
+        self.assertIn("USD 500 per project", body)
+        self.assertIn("Pay not disclosed", body)
+        self.assertIn("pay format can&#x27;t be compared directly", body)
+        for forbidden in (
+            "hard-gate survivors",
+            "threshold",
+            "trust suppression",
+            "presentation_source_section",
+            "matcher",
+        ):
+            self.assertNotIn(forbidden, body.casefold())
+        self.assertIn("aria-label='Your ranked matches'", body)
+        self.assertEqual(body.count("<article class='match-card'"), 3)
+        self.assertIn("button:focus-visible, a:focus-visible", body)
+        self.assertIn("@media (max-width: 680px)", body)
+        self.assertIn("min-height: 48px", body)
+
+        internal = dict(matches[0])
+        internal["affirmative_fit_why"] = [
+            "Hard-gate survivors crossed the matcher threshold."
+        ]
+        internal["profile_explanation_evidence"] = [
+            "Your listed language experience matches this role."
+        ]
+        self.assertEqual(
+            matches_module._candidate_match_explanations(internal),
+            ("Your listed language experience matches this role.",),
+        )
+
+    def test_compensation_summary_fails_closed_for_incomplete_or_inconsistent_data(self):
+        cases = (
+            (
+                {
+                    "disclosed": True,
+                    "currency": "USD",
+                    "amount_min": 40,
+                    "amount_max": 20,
+                    "period": "hour",
+                    "amount_type": "range",
+                },
+                "The available pay range is inconsistent.",
+            ),
+            (
+                {
+                    "disclosed": True,
+                    "currency": None,
+                    "amount_min": 25,
+                    "amount_max": 25,
+                    "period": "hour",
+                    "amount_type": "exact",
+                },
+                "The available pay details are not complete enough to summarize here.",
+            ),
+        )
+        for compensation, note in cases:
+            with self.subTest(compensation=compensation):
+                presented = matches_module._presented_match_compensation(
+                    {"compensation": compensation}
+                )
+                self.assertEqual(
+                    presented["label"], "Pay disclosed — see job details"
+                )
+                self.assertEqual(presented["note"], note)
+                self.assertEqual(presented["state"], "disclosed-unstructured")
 
     def test_persistent_get_and_head_leave_configured_database_byte_identical(self):
         rows = [self._row()]
