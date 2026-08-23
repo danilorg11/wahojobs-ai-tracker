@@ -32,7 +32,10 @@ from wahojobs.persistent_profile_read_authorization import (
     DurablePersistentProfileReadAuthorizationGateway,
 )
 from wahojobs.persistent_profiles_repository import PersistentProfileRepository
-from wahojobs.profile_intake.browser import ProfileIntakeBrowserIntegration
+from wahojobs.profile_intake.browser import (
+    ProfileIntakeBrowserIntegration,
+    _preference_form_values_for_model,
+)
 from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
     DocumentKind,
@@ -358,7 +361,8 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 "accept" if fact.suggested else "keep",
             )
         for name in snapshot.review.missing_user_fields:
-            form["missing_" + name] = "yes" if name == "remote" else ""
+            form["missing_" + name] = ""
+        form.update(_preference_form_values_for_model(snapshot.review.preference_model))
         return urlencode(form).encode()
 
     def _save(self, reference, body):

@@ -33,6 +33,8 @@ from wahojobs.persistent_profiles_browser import render_persistent_profile_page
 from wahojobs.profile_intake.browser import (
     MAX_MULTIPART_BODY_BYTES,
     ProfileIntakeBrowserIntegration,
+    _CLASSIFICATION_DESCRIPTIONS,
+    _preference_form_values_for_model,
 )
 from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
@@ -40,6 +42,7 @@ from wahojobs.profile_intake.contracts import (
     DocumentKind,
     ModelEvidencePacket,
     ProfileIntakeError,
+    _FIELD_SPECS,
     validate_ai_profile_extraction,
 )
 from wahojobs.profile_intake.runtime import (
@@ -51,6 +54,7 @@ from wahojobs.profile_intake.runtime import (
     profile_intake_csrf_proof,
     review_value_for_form,
 )
+from wahojobs.profiles.preference_model import empty_profile_preferences_v1
 
 
 PUBLIC_ORIGIN = "https://localhost:8443"
@@ -372,6 +376,10 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"Create your profile faster", response.body)
         self.assertIn(b"href='/find-matches'", response.body)
         self.assertIn(b"LinkedIn profile PDF exported by you", response.body)
+        self.assertIn(b"Building your profile", response.body)
+        self.assertIn(b"review everything before anything is saved", response.body)
+        self.assertIn(b"role='status'", response.body)
+        self.assertIn("script-src 'sha256-", headers["Content-Security-Policy"])
         self.assertNotIn(self.session["account_id"].encode(), response.body)
 
         content, status = render_persistent_profile_page(
@@ -381,6 +389,13 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("/account/profile/intake", content)
         self.assertIn("/find-matches", content)
+
+    def test_every_single_choice_classification_has_accessible_definition(self):
+        for field_path, spec in _FIELD_SPECS.items():
+            if spec.kind != "enum" or spec.multiple:
+                continue
+            with self.subTest(field_path=field_path):
+                self.assertLessEqual(spec.allowed, set(_CLASSIFICATION_DESCRIPTIONS))
 
     def test_oversized_content_length_is_rejected_before_body_read(self):
         headers = self._headers(
@@ -601,8 +616,8 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         review_target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
         page = self.integration.handle("GET", review_target, self._headers(origin=False))
         self.assertEqual(page.status, 200)
-        self.assertIn(b"Document-supported prefills", page.body)
-        self.assertIn(b"Suggestions requiring confirmation", page.body)
+        self.assertIn(b"Document-supported prefill", page.body)
+        self.assertIn(b"Confirm our suggestions", page.body)
         self.assertIn(b"Information you still need to provide", page.body)
         self.assertNotIn(b"confidence", page.body.lower())
         self.assertNotIn(b"Save profile", page.body)
@@ -622,7 +637,8 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             )
             form[f"fact_{index}_decision"] = "keep" if not fact.suggested else "accept"
         for name in snapshot.review.missing_user_fields:
-            form["missing_" + name] = "yes" if name == "remote" else ""
+            form["missing_" + name] = ""
+        form.update(_preference_form_values_for_model(snapshot.review.preference_model))
         encoded = urlencode(form).encode()
         headers = self._headers(
             content_type="application/x-www-form-urlencoded",
@@ -634,7 +650,11 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(new_snapshot.version, 2)
         self.assertEqual(new_snapshot.review.facts[0].value, "Platform Engineer")
         self.assertEqual(new_snapshot.review.facts[1].decision, "accept")
-        self.assertEqual(dict(new_snapshot.review.user_inputs)["remote"], "yes")
+        self.assertNotIn("remote", dict(new_snapshot.review.user_inputs))
+        self.assertEqual(
+            new_snapshot.review.preference_model["compensation"]["minimum_kind"],
+            "none",
+        )
         self.assertEqual(
             self.integration.handle("POST", review_target, headers, BytesIO(encoded)).status,
             409,
@@ -662,6 +682,119 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         )
         self.assertEqual(self._profile_counts(), before)
 
+    def test_structured_preferences_are_accessible_multiselect_and_fail_closed(self):
+        document = _docx_bytes(paragraphs=("Synthetic Software Engineer Example Systems",))
+        response = self._upload(document)
+        reference = self._reference(response)
+        target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        page = self.integration.handle("GET", target, self._headers(origin=False))
+        self.assertEqual(page.status, 200)
+        self.assertIn(b"What are you looking for?", page.body)
+        self.assertIn(b"type='checkbox'", page.body)
+        self.assertIn(b"type='radio'", page.body)
+        self.assertIn(b"<details><summary>", page.body)
+        self.assertIn(b"aria-describedby=", page.body)
+        self.assertIn(b"Independent contractor / freelance", page.body)
+        self.assertNotIn(b"missing_employment_types", page.body)
+        self.assertNotIn(b"onmouseover", page.body.lower())
+
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        model = empty_profile_preferences_v1()
+        model["employment_relationships"] = ["employee", "independent_contractor"]
+        model["workloads"] = ["full_time", "part_time"]
+        model["engagement_terms"] = ["fixed_term"]
+        model["schedule"]["coordination_modes"] = ["asynchronous", "synchronous"]
+        model["accepted_phone_voice_modes"] = ["non_phone", "phone"]
+        model["job_interests"] = ["customer_support", "software_engineering"]
+        model["accepted_career_levels"] = ["entry", "senior"]
+        model["compensation"] = {
+            "minimum_kind": "strict",
+            "amount": "5000.00",
+            "currency": "brl",
+            "period": "month",
+        }
+        form = {
+            "action": "update",
+            "version": str(snapshot.version),
+            "csrf": profile_intake_csrf_proof(
+                self.session["csrf_secret"],
+                "update",
+                draft_reference=reference,
+                version=snapshot.version,
+            ),
+        }
+        for index, fact in enumerate(snapshot.review.facts):
+            form[f"fact_{index}_value"] = review_value_for_form(fact.value)
+            form[f"fact_{index}_decision"] = "keep" if not fact.suggested else "accept"
+        for name in snapshot.review.missing_user_fields:
+            form["missing_" + name] = ""
+        form.update(_preference_form_values_for_model(model))
+        body = urlencode(form).encode()
+        updated = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(body),
+            ),
+            BytesIO(body),
+        )
+        self.assertEqual(updated.status, 303)
+        saved = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(
+            saved.review.preference_model["employment_relationships"],
+            ["employee", "independent_contractor"],
+        )
+        self.assertEqual(
+            saved.review.preference_model["workloads"],
+            ["full_time", "part_time"],
+        )
+        self.assertEqual(
+            saved.review.preference_model["compensation"],
+            {
+                "minimum_kind": "strict",
+                "amount": "5000",
+                "currency": "BRL",
+                "period": "month",
+            },
+        )
+
+        stale_form = dict(form)
+        stale_form["version"] = str(saved.version)
+        stale_form["csrf"] = profile_intake_csrf_proof(
+            self.session["csrf_secret"],
+            "update",
+            draft_reference=reference,
+            version=saved.version,
+        )
+        stale_form["preference_compensation_amount"] = ""
+        bad_body = urlencode(stale_form).encode()
+        rejected = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(bad_body),
+            ),
+            BytesIO(bad_body),
+        )
+        self.assertEqual(rejected.status, 400)
+
+        legacy_form = dict(stale_form)
+        legacy_form["preference_compensation_amount"] = "5000"
+        legacy_form["missing_employment_types"] = "freelance"
+        bad_body = urlencode(legacy_form).encode()
+        rejected = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(bad_body),
+            ),
+            BytesIO(bad_body),
+        )
+        self.assertEqual(rejected.status, 400)
+
     def test_review_rejects_invalid_values_and_never_places_content_in_url(self):
         document = _docx_bytes(paragraphs=("Synthetic Software Engineer Example Systems",))
         response = self._upload(document)
@@ -682,6 +815,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             form[f"fact_{index}_decision"] = "keep" if not fact.suggested else "accept"
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
+        form.update(_preference_form_values_for_model(snapshot.review.preference_model))
         body = urlencode(form).encode()
         response = self.integration.handle(
             "POST",

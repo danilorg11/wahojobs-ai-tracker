@@ -51,9 +51,18 @@ from wahojobs.profiles.canonical import (
     UNKNOWN,
     field_sources_for_profile,
 )
-from wahojobs.profiles.canonical_v2 import CanonicalProfileV2Error, convert_v1_to_v2
+from wahojobs.profiles.canonical_v2 import (
+    CanonicalProfileV2Error,
+    add_user_confirmed_preference_model_v1,
+    convert_v1_to_v2,
+)
 from wahojobs.profiles.countries import normalize_country
 from wahojobs.profiles.normalizer import signals_for_domains, skills_block
+from wahojobs.profiles.preference_model import (
+    ProfilePreferenceModelError,
+    canonicalize_profile_preferences_v1,
+    preference_model_to_legacy_preferences,
+)
 
 
 AI_PROFILE_IMPORT_ENTITLEMENT_CODE = "ai_profile_import_v1"
@@ -311,13 +320,21 @@ class ConfirmedAIProfileImport:
     reviewed_profile: IdentityFreeCanonicalProfileV1 = field(repr=False)
     source_metadata: AIProfileImportSourceMetadata
     confirmation_fingerprint: str = field(repr=False)
+    _preference_model_json: bytes = field(repr=False)
     _issuer: object = field(repr=False, compare=False)
 
     def __init__(self, *_args, **_kwargs):
         raise AIProfileImportError("invalid_request")
 
     @classmethod
-    def _issue(cls, capability, reviewed_profile, source_metadata, fingerprint):
+    def _issue(
+        cls,
+        capability,
+        reviewed_profile,
+        source_metadata,
+        fingerprint,
+        preference_model,
+    ):
         if (
             capability is not _AUTHORITY_ISSUER
             or type(reviewed_profile) is not IdentityFreeCanonicalProfileV1
@@ -327,12 +344,33 @@ class ConfirmedAIProfileImport:
             or len(fingerprint) != 64
         ):
             raise AIProfileImportError("invalid_request")
+        try:
+            preference_model = canonicalize_profile_preferences_v1(preference_model)
+            preference_json = json.dumps(
+                preference_model,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+        except (ProfilePreferenceModelError, TypeError, UnicodeError, ValueError):
+            raise AIProfileImportError("invalid_request") from None
         instance = object.__new__(cls)
         object.__setattr__(instance, "reviewed_profile", reviewed_profile)
         object.__setattr__(instance, "source_metadata", source_metadata)
         object.__setattr__(instance, "confirmation_fingerprint", fingerprint)
+        object.__setattr__(instance, "_preference_model_json", preference_json)
         object.__setattr__(instance, "_issuer", _AUTHORITY_ISSUER)
         return instance
+
+    def preference_model_for_service(self):
+        if getattr(self, "_issuer", None) is not _AUTHORITY_ISSUER:
+            raise AIProfileImportError("invalid_request")
+        try:
+            return canonicalize_profile_preferences_v1(
+                json.loads(self._preference_model_json.decode("ascii"))
+            )
+        except (ProfilePreferenceModelError, UnicodeError, ValueError, TypeError):
+            raise AIProfileImportError("invalid_request") from None
 
     def __repr__(self):
         return "ConfirmedAIProfileImport(content=<redacted>)"
@@ -579,9 +617,17 @@ class AIProfileImportService:
         ):
             raise AIProfileImportError("invalid_request")
         try:
+            preference_model_json = json.dumps(
+                confirmed.preference_model_for_service(),
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
             expected_confirmation = hashlib.sha256(
                 b"ai-profile-confirmation-v1\x00"
                 + confirmed.reviewed_profile.canonical_bytes
+                + b"\x00"
+                + preference_model_json
                 + b"\x00"
                 + confirmed.source_metadata.canonical_json.encode("ascii")
             ).hexdigest()
@@ -730,7 +776,8 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         raise
     except (ProfileIntakeError, AttributeError, TypeError, ValueError):
         raise AIProfileImportError("content_rejected") from None
-    canonical = _confirmed_review_v1(review, tuple(accepted))
+    preference_model = review.preference_model
+    canonical = _confirmed_review_v1(review, tuple(accepted), preference_model)
     try:
         reviewed = IdentityFreeCanonicalProfileV1.from_mapping(canonical)
     except (PersistentProfileDomainError, CanonicalProfileV2Error, TypeError, ValueError):
@@ -739,6 +786,13 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         b"ai-profile-confirmation-v1\x00"
         + reviewed.canonical_bytes
         + b"\x00"
+        + json.dumps(
+            preference_model,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\x00"
         + source_metadata.canonical_json.encode("ascii")
     ).hexdigest()
     return ConfirmedAIProfileImport._issue(
@@ -746,10 +800,11 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         reviewed,
         source_metadata,
         fingerprint,
+        preference_model,
     )
 
 
-def _confirmed_review_v1(review, facts):
+def _confirmed_review_v1(review, facts, preference_model):
     values = {}
     for fact in facts:
         values.setdefault(fact.field_path, []).append(fact.value)
@@ -779,19 +834,9 @@ def _confirmed_review_v1(review, facts):
     country = _country(_singleton(values, "location.country", ""))
     residence = _country(_singleton(values, "location.residence", "")) or country
     eligible = [_country(item) for item in _user_list(inputs, "eligible_countries")]
-    remote = _preference_bool(values, inputs, "remote")
-    flexible = _preference_bool(values, inputs, "flexible")
-    employment = _combined_list(values, inputs, "preferences.employment_types", "employment_types")
-    schedule = _combined_list(values, inputs, "preferences.schedule", "schedule")
-    targets = _unique(
-        _combined_list(values, inputs, "preferences.target_opportunity_types", "target_opportunity_types")
-        + list(values.get("preferences.preferred_task_types", []))
-    )
-    work_preferences = _combined_list(values, inputs, "preferences.work_preferences", "work_preferences")
-    if remote and "remote" not in work_preferences:
-        work_preferences.append("remote")
-    if flexible and "flexible" not in work_preferences:
-        work_preferences.append("flexible")
+    legacy_preferences = preference_model_to_legacy_preferences(preference_model)
+    remote = legacy_preferences["remote"]
+    targets = list(legacy_preferences["target_opportunity_types"])
     domains = _unique(values.get("experience.professional_domains", []))
     skills = _unique(values.get("skills.normalized", []))
     signals = signals_for_domains(domains, skills, languages)
@@ -843,19 +888,7 @@ def _confirmed_review_v1(review, facts):
             "specialties": _unique(values.get("experience.specialties", [])),
         },
         "skills": skills_block(skills),
-        "preferences": {
-            "remote": remote,
-            "flexible": flexible,
-            "employment_types": employment,
-            "synchronous_preference": _preference_text(values, inputs, "preferences.synchronous_preference", "synchronous_preference"),
-            "phone_preference": _preference_text(values, inputs, "preferences.phone_preference", "phone_preference"),
-            "schedule": schedule,
-            "availability": _preference_text(values, inputs, "preferences.availability", "availability"),
-            "rate_pay_preference": "",
-            "target_opportunity_types": targets,
-            "preferred_task_types": targets,
-            "work_preferences": _unique(work_preferences),
-        },
+        "preferences": legacy_preferences,
         "constraints": {
             "hard_constraints": _user_list(inputs, "hard_constraints"),
             "soft_preferences": _user_list(inputs, "soft_preferences"),
@@ -896,9 +929,14 @@ def _create_command(confirmed, authority, reservation, now):
     )
 
     def builder(profile_id):
-        return convert_v1_to_v2(
+        profile_v2 = convert_v1_to_v2(
             confirmed.reviewed_profile.bind_durable_profile_id(profile_id),
             persistent_profile_id=profile_id,
+            source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
+        )
+        return add_user_confirmed_preference_model_v1(
+            profile_v2,
+            confirmed.preference_model_for_service(),
             source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
         )
 
@@ -1190,21 +1228,6 @@ def _user_list(inputs, name):
     if not value:
         return []
     return _unique([item.strip() for item in value.split(",") if item.strip()])
-
-
-def _combined_list(values, inputs, path, name):
-    return _unique(list(values.get(path, [])) + _user_list(inputs, name))
-
-
-def _preference_bool(values, inputs, name):
-    fact = _singleton(values, f"preferences.{name}", None)
-    if fact is not None:
-        return bool(fact)
-    return inputs.get(name) == "yes"
-
-
-def _preference_text(values, inputs, path, name):
-    return _singleton(values, path, inputs.get(name) or UNKNOWN)
 
 
 __all__ = (

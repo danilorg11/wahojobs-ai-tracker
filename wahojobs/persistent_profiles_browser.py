@@ -69,6 +69,7 @@ _CORRECTION_GET_TARGET = re.compile(
     r"&draft=([A-Za-z0-9_-]{24})&token=([A-Za-z0-9_-]{43})$"
 )
 _INVALID_FORM_PERCENT_ESCAPE = re.compile(rb"%(?![0-9A-Fa-f]{2})")
+_CSP_SCRIPT_SHA256 = re.compile(r"^[A-Za-z0-9+/]{43}=$")
 _PROXY_HEADERS = frozenset(
     {
         "forwarded",
@@ -1624,6 +1625,7 @@ def _response(
     *,
     referrer_policy=_NO_REFERRER_POLICY,
     extra_headers=(),
+    script_sha256=None,
 ) -> PersistentProfileBrowserResponse:
     payload = content.encode("utf-8")
     if referrer_policy not in {
@@ -1631,10 +1633,26 @@ def _response(
         _SAME_ORIGIN_REFERRER_POLICY,
     }:
         raise ValueError("invalid_persistent_profile_browser_response")
+    if script_sha256 is not None and (
+        type(script_sha256) is not str
+        or _CSP_SCRIPT_SHA256.fullmatch(script_sha256) is None
+    ):
+        raise ValueError("invalid_persistent_profile_browser_response")
+    security_headers = _SECURITY_HEADERS
+    if script_sha256 is not None:
+        security_headers = (
+            (
+                "Content-Security-Policy",
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                f"script-src 'sha256-{script_sha256}'; base-uri 'none'; "
+                "form-action 'self'; frame-ancestors 'none'",
+            ),
+            *_SECURITY_HEADERS[1:],
+        )
     headers = (
         ("Content-Type", "text/html; charset=utf-8"),
         ("Content-Length", str(len(payload))),
-        *_SECURITY_HEADERS,
+        *security_headers,
         ("Referrer-Policy", referrer_policy),
         ("X-Robots-Tag", "noindex, nofollow"),
         *extra_headers,
@@ -1642,11 +1660,17 @@ def _response(
     return PersistentProfileBrowserResponse(int(status), payload, tuple(headers))
 
 
-def _form_page_response(status, content: str) -> PersistentProfileBrowserResponse:
+def _form_page_response(
+    status,
+    content: str,
+    *,
+    script_sha256=None,
+) -> PersistentProfileBrowserResponse:
     return _response(
         status,
         content,
         referrer_policy=_SAME_ORIGIN_REFERRER_POLICY,
+        script_sha256=script_sha256,
     )
 
 
@@ -1926,6 +1950,17 @@ def _page(title: str, body: str) -> str:
     .review-field {{ display: grid; gap: 5px; margin-bottom: 12px; }}
     .review-field input, .review-field select {{ width: 100%; padding: 9px; border: 1px solid #aebbb5; border-radius: 5px; }}
     .review-checks {{ display: grid; gap: 8px; margin: 12px 0; }}
+    .choice-fieldset, .preference-group {{ border: 1px solid #dce2df; border-radius: 8px; margin: 16px 0; padding: 16px; }}
+    .choice-fieldset legend, .preference-group legend {{ font-weight: 750; padding: 0 6px; }}
+    .choice-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 10px 0; }}
+    .choice-card {{ align-items: start; border: 1px solid #cbd5d0; border-radius: 7px; cursor: pointer; display: flex; gap: 9px; padding: 11px; }}
+    .choice-card:focus-within {{ outline: 3px solid #8dc6b1; outline-offset: 2px; }}
+    .choice-card input {{ margin-top: 3px; }}
+    .choice-card small {{ color: #66716c; display: block; font-weight: 400; margin-top: 4px; }}
+    .profile-review-form details {{ margin-top: 10px; }}
+    .profile-review-form summary {{ color: #174d3b; cursor: pointer; font-weight: 700; }}
+    .choice-definitions div {{ margin: 10px 0; }}
+    .processing-state {{ background: #eef7f3; border: 1px solid #9bc8b7; border-radius: 8px; margin-top: 18px; padding: 18px; }}
     button {{ background: #174d3b; color: white; border: 0; border-radius: 5px; padding: 10px 16px; font: inherit; font-weight: 700; cursor: pointer; }}
     .muted {{ color: #66716c; }}
   </style>

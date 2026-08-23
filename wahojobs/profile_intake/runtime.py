@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import base64
 import hashlib
 import hmac
+import json
 import math
 import re
 import secrets
@@ -54,6 +55,11 @@ from wahojobs.profile_intake.review_draft import (
     ValidatedProfileSource,
     reconcile_profile_extractions,
 )
+from wahojobs.profiles.preference_model import (
+    ProfilePreferenceModelError,
+    canonicalize_profile_preferences_v1,
+    empty_profile_preferences_v1,
+)
 
 
 PROFILE_INTAKE_ROUTE = "/account/profile/intake"
@@ -71,6 +77,19 @@ _OPAQUE_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _ACTIONS = frozenset({"upload", "update", "cancel", "save"})
 _REQUEST_ROUTES = frozenset({PROFILE_INTAKE_ROUTE, PROFILE_INTAKE_REVIEW_ROUTE})
 _GRANT_ISSUER = object()
+_TYPED_PREFERENCE_REPLACED_USER_FIELDS = frozenset(
+    {
+        "remote",
+        "flexible",
+        "employment_types",
+        "synchronous_preference",
+        "phone_preference",
+        "schedule",
+        "availability",
+        "target_opportunity_types",
+        "work_preferences",
+    }
+)
 
 
 def _configuration_error():
@@ -368,10 +387,21 @@ class EditableProfileReview:
     missing_user_fields: tuple[str, ...]
     user_inputs: tuple[tuple[str, str], ...]
     issue_count: int
+    _preference_model_json: bytes = field(repr=False)
 
     @property
     def document_reference(self):
         return self.sources[0].document_reference if len(self.sources) == 1 else None
+
+    @property
+    def preference_model(self):
+        """Return a defensive copy of the server-validated preference model."""
+
+        try:
+            value = json.loads(self._preference_model_json.decode("ascii"))
+            return canonicalize_profile_preferences_v1(value)
+        except (UnicodeError, ValueError, TypeError):
+            raise ProfileIntakeError("invalid_review_submission") from None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1217,17 +1247,30 @@ def editable_profile_review(draft):
         )
         for fact in collection
     )
+    missing_user_fields = tuple(
+        name
+        for name in draft.missing_user_fields
+        if name not in _TYPED_PREFERENCE_REPLACED_USER_FIELDS
+    )
+    preference_model = empty_profile_preferences_v1()
     return EditableProfileReview(
         schema_version=draft.schema_version,
         sources=draft.sources,
         facts=facts,
-        missing_user_fields=draft.missing_user_fields,
-        user_inputs=tuple((name, "") for name in draft.missing_user_fields),
+        missing_user_fields=missing_user_fields,
+        user_inputs=tuple((name, "") for name in missing_user_fields),
         issue_count=len(draft.issues),
+        _preference_model_json=_preference_model_json(preference_model),
     )
 
 
-def update_editable_review(review, values, decisions, user_inputs):
+def update_editable_review(
+    review,
+    values,
+    decisions,
+    user_inputs,
+    preference_model=None,
+):
     """Strict pure update; browser indexes never select authority or field paths."""
 
     if (
@@ -1258,11 +1301,28 @@ def update_editable_review(review, values, decisions, user_inputs):
     normalized_inputs = []
     for name in review.missing_user_fields:
         normalized_inputs.append((name, _validate_user_input(name, user_inputs[name])))
+    try:
+        canonical_preferences = canonicalize_profile_preferences_v1(
+            review.preference_model if preference_model is None else preference_model
+        )
+    except ProfilePreferenceModelError:
+        raise ProfileIntakeError("invalid_review_submission") from None
     return replace(
         review,
         facts=tuple(updated),
         user_inputs=tuple(normalized_inputs),
+        _preference_model_json=_preference_model_json(canonical_preferences),
     )
+
+
+def _preference_model_json(value):
+    canonical = canonicalize_profile_preferences_v1(value)
+    return json.dumps(
+        canonical,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
 
 
 def review_value_for_form(value):

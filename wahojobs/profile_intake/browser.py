@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 from http import HTTPStatus
 import json
@@ -31,6 +32,7 @@ from wahojobs.profile_intake.contracts import (
     DocumentFormat,
     DocumentKind,
     ProfileIntakeError,
+    _FIELD_SPECS,
 )
 from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_REVIEW_ROUTE,
@@ -41,6 +43,12 @@ from wahojobs.profile_intake.runtime import (
     profile_intake_csrf_proof,
     review_value_for_form,
     update_editable_review,
+)
+from wahojobs.profiles.preference_model import (
+    ProfilePreferenceModelError,
+    canonicalize_profile_preferences_v1,
+    empty_profile_preferences_v1,
+    profile_preference_control_catalog_v1,
 )
 
 
@@ -62,6 +70,65 @@ _FILE_PARTS = {
 _ALLOWED_MULTIPART_NAMES = frozenset({"csrf", *_FILE_PARTS})
 _MIME_PDF = b"application/pdf"
 _MIME_DOCX = b"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_PREFERENCE_COMPENSATION_FIELDS = (
+    "preference_compensation_minimum_kind",
+    "preference_compensation_amount",
+    "preference_compensation_currency",
+    "preference_compensation_period",
+)
+
+_CLASSIFICATION_DESCRIPTIONS = {
+    "advanced_degree": "A graduate or professional qualification beyond a bachelor's degree.",
+    "associate": "An associate-level college degree.",
+    "bachelor": "A bachelor's or equivalent undergraduate degree.",
+    "doctorate": "A doctoral-level academic or professional degree.",
+    "high_school": "Secondary-school completion without a higher degree.",
+    "master": "A master's or equivalent graduate degree.",
+    "no_degree": "No completed degree is stated or required.",
+    "not_specified": "The documents do not support a more specific classification.",
+    "phd": "A research doctorate (PhD or equivalent).",
+    "professional": "A profession-specific advanced qualification.",
+    "professional_degree": "A degree preparing for a regulated or specialized profession.",
+    "technical": "A technical, vocational, or trade qualification.",
+    "in_progress": "The education or credential is currently being completed.",
+    "completed": "The education or credential has been completed.",
+    "absent": "The document explicitly indicates that the credential is not held.",
+    "explicit": "The document explicitly states that the credential is held.",
+    "advanced": "Advanced specialist scope beyond typical senior responsibility.",
+    "entry-level": "Entry-level scope with limited prior experience expected.",
+    "executive": "Executive responsibility for an organization or major function.",
+    "junior": "Early-career scope with guidance expected.",
+    "entry": "Entry-level scope with limited prior experience expected.",
+    "mid": "Established independent contributor scope.",
+    "mid-level": "Established independent contributor scope.",
+    "senior": "Senior individual-contributor scope.",
+    "lead": "Technical or functional leadership scope.",
+    "principal": "High-scope expert individual-contributor work.",
+    "manager": "People-management responsibility.",
+    "student": "Student or pre-entry-career scope.",
+    "unknown": "The available evidence does not support a reliable classification.",
+    "individual contributor": "Work delivered without people-management authority.",
+    "management": "Work that includes managing people or a function.",
+    "asynchronous": "Work can be completed without continuous real-time overlap.",
+    "flexible": "Timing or coordination can vary within agreed expectations.",
+    "no preference": "No preference is asserted for this dimension.",
+    "synchronous": "Work includes real-time overlap with teammates or customers.",
+    "non-phone preferred": "Non-phone work is preferred, but phone work may be considered.",
+    "non-phone required": "Only work without phone or live voice duties is acceptable.",
+    "phone acceptable": "Phone and non-phone work are both acceptable.",
+    "phone preferred": "Phone work is preferred, but non-phone work may be considered.",
+    "available": "The candidate states that they are available.",
+    "full-time": "The candidate states full-time availability.",
+    "immediate": "The candidate states they can start immediately.",
+    "limited": "The candidate states limited availability.",
+    "part-time": "The candidate states part-time availability.",
+    "unavailable": "The candidate states they are currently unavailable.",
+}
+
+_PROCESSING_SCRIPT = """(function(){var f=document.getElementById('profile-intake-upload');if(!f){return;}f.addEventListener('submit',function(){if(!f.checkValidity()){return;}var files=f.querySelectorAll('input[type=file]');if(!files[0].files.length&&!files[1].files.length){return;}var state=document.getElementById('profile-building-state');state.hidden=false;state.focus();f.querySelector('button[type=submit]').disabled=true;});}());"""
+_PROCESSING_SCRIPT_HASH = base64.b64encode(
+    hashlib.sha256(_PROCESSING_SCRIPT.encode("utf-8")).digest()
+).decode("ascii")
 
 
 class _NoContentParserLogger:
@@ -222,7 +289,11 @@ class ProfileIntakeBrowserIntegration:
             if preflight != "eligible":
                 return _failure(_preflight_error_code(preflight))
             proof = profile_intake_csrf_proof(csrf_secret, "upload")
-            return _form_page_response(HTTPStatus.OK, _upload_page(proof))
+            return _form_page_response(
+                HTTPStatus.OK,
+                _upload_page(proof),
+                script_sha256=_PROCESSING_SCRIPT_HASH,
+            )
         parsed_upload = _parse_multipart_upload(headers, body_stream)
         if type(parsed_upload) is str:
             return _failure(parsed_upload)
@@ -645,9 +716,93 @@ def _review_from_form(review, form):
         if value is None:
             raise ProfileIntakeError("invalid_review_submission")
         user_inputs[name] = value
+    preference_model, preference_fields = _preference_model_from_form(form)
+    expected.update(preference_fields)
     if set(form) != expected:
         raise ProfileIntakeError("invalid_review_submission")
-    return update_editable_review(review, tuple(values), tuple(decisions), user_inputs)
+    return update_editable_review(
+        review,
+        tuple(values),
+        tuple(decisions),
+        user_inputs,
+        preference_model,
+    )
+
+
+def _preference_model_from_form(form):
+    """Build the sole authoritative model from closed server-owned controls."""
+
+    if type(form) is not dict:
+        raise ProfileIntakeError("invalid_review_submission")
+    catalog = profile_preference_control_catalog_v1()
+    model = empty_profile_preferences_v1()
+    allowed_checkbox_fields = {}
+    for dimension in catalog["dimensions"]:
+        path = dimension["path"]
+        for choice in dimension["choices"]:
+            field_name = _preference_choice_field(path, choice["code"])
+            allowed_checkbox_fields[field_name] = (path, choice["code"])
+
+    submitted = set(_PREFERENCE_COMPENSATION_FIELDS)
+    for field_name in _PREFERENCE_COMPENSATION_FIELDS:
+        if _single(form, field_name) is None:
+            raise ProfileIntakeError("invalid_review_submission")
+    for field_name, (path, code) in allowed_checkbox_fields.items():
+        if field_name not in form:
+            continue
+        if _single(form, field_name) != "selected":
+            raise ProfileIntakeError("invalid_review_submission")
+        parent = model
+        for part in path[:-1]:
+            parent = parent[part]
+        parent[path[-1]].append(code)
+        submitted.add(field_name)
+
+    kind = _single(form, "preference_compensation_minimum_kind")
+    amount = _single(form, "preference_compensation_amount")
+    currency = _single(form, "preference_compensation_currency")
+    period = _single(form, "preference_compensation_period")
+    model["compensation"] = {
+        "minimum_kind": kind,
+        "amount": amount or None,
+        "currency": currency or None,
+        "period": period or None,
+    }
+    try:
+        return canonicalize_profile_preferences_v1(model), submitted
+    except ProfilePreferenceModelError:
+        raise ProfileIntakeError("invalid_review_submission") from None
+
+
+def _preference_choice_field(path, code):
+    name = "preference_" + "_".join((*path, code))
+    if _FIELD_NAME.fullmatch(name) is None:
+        raise ProfileIntakeError("invalid_review_submission")
+    return name
+
+
+def _preference_form_values_for_model(model):
+    """Return the exact browser fields for tests and server-built replays."""
+
+    canonical = canonicalize_profile_preferences_v1(model)
+    fields = {}
+    for dimension in profile_preference_control_catalog_v1()["dimensions"]:
+        path = dimension["path"]
+        parent = canonical
+        for part in path:
+            parent = parent[part]
+        for code in parent:
+            fields[_preference_choice_field(path, code)] = "selected"
+    compensation = canonical["compensation"]
+    fields.update(
+        {
+            "preference_compensation_minimum_kind": compensation["minimum_kind"],
+            "preference_compensation_amount": compensation["amount"] or "",
+            "preference_compensation_currency": compensation["currency"] or "",
+            "preference_compensation_period": compensation["period"] or "",
+        }
+    )
+    return fields
 
 
 def _single(form, name):
@@ -681,15 +836,22 @@ def _upload_page(proof):
     <section class='profile-header'>
       <p class='eyebrow'>Optional AI-assisted profile</p>
       <h1>Create your profile faster</h1>
-      <p>Upload either document or both. LinkedIn means a PDF you exported; we do not accept or scrape LinkedIn URLs.</p>
+      <p>Upload either document or both. We will build a draft, then you will review everything before anything is saved.</p>
+      <p>LinkedIn means a PDF you exported; we do not accept or scrape LinkedIn URLs.</p>
       <ul><li>Maximum 10 MiB per document</li><li>Text-based documents only</li><li>Scanned or image-only PDFs are not supported yet</li></ul>
     </section>
-    <form class='profile-review-form' method='post' enctype='multipart/form-data' action='{PROFILE_INTAKE_ROUTE}'>
+    <form class='profile-review-form' id='profile-intake-upload' method='post' enctype='multipart/form-data' action='{PROFILE_INTAKE_ROUTE}'>
       <input type='hidden' name='csrf' value='{_safe_text(proof)}'>
       <label class='review-field'>Resume or CV <span class='muted'>PDF or DOCX</span><input type='file' name='resume' accept='.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'></label>
       <label class='review-field'>LinkedIn profile <span class='muted'>LinkedIn profile PDF exported by you</span><input type='file' name='linkedin_profile_export' accept='.pdf,application/pdf'></label>
-      <p class='review-actions'><button type='submit'>Build review draft</button><a href='/find-matches'>Create profile manually</a></p>
+      <p class='review-actions'><button type='submit'>Build my profile for review</button><a href='/find-matches'>Create profile manually</a></p>
+      <section id='profile-building-state' class='processing-state' role='status' aria-live='polite' tabindex='-1' hidden>
+        <p class='eyebrow'>Building your profile</p>
+        <h2>Reading your documents and organizing a review draft</h2>
+        <p>Keep this page open. You will review and confirm every detail before anything is saved.</p>
+      </section>
     </form>
+    <script>{_PROCESSING_SCRIPT}</script>
     """
     return _page("AI-assisted profile", body)
 
@@ -698,7 +860,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     fact_fields = []
     for index, fact in enumerate(snapshot.review.facts):
         label = fact.review_field.replace("_", " ").title()
-        value = _safe_text(review_value_for_form(fact.value))
+        raw_value = review_value_for_form(fact.value)
         if fact.suggested:
             choice = (
                 f"<select name='fact_{index}_decision'>"
@@ -717,9 +879,10 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         if fact.conflict_group is not None:
             badge = "Sources disagree — please confirm"
         source_label = _review_source_label(fact)
+        value_control = _review_fact_value_control(index, fact, raw_value, label)
         card = (
             f"<div class='profile-group'><p class='eyebrow'>{_safe_text(badge)} · {_safe_text(source_label)}</p>"
-            f"<label class='review-field'>{_safe_text(label)}<input name='fact_{index}_value' value='{value}' maxlength='512'></label>{choice}</div>"
+            f"{value_control}{choice}</div>"
         )
         fact_fields.append((fact, card))
     missing = []
@@ -766,17 +929,120 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     {issue_note}
     <form class='profile-review-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'>
-      <section class='review-section'><h2>Document-supported prefills</h2><div class='profile-grid'>{''.join(card for fact, card in fact_fields if not fact.suggested and fact.conflict_group is None)}</div></section>
-      <section class='review-section'><h2>Suggestions requiring confirmation</h2><p class='muted'>These are suggestions, not facts or matcher decisions.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.suggested and fact.conflict_group is None)}</div></section>
-      <section class='review-section'><h2>Sources disagree — please confirm</h2><p class='muted'>Choose at most one value for each disagreement, edit it if needed, or reject the alternatives.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.conflict_group is not None)}</div></section>
-      <section class='review-section'><h2>Information you still need to provide</h2><p class='muted'>Historical resume details are not treated as your current preferences.</p><div class='review-grid'>{''.join(missing)}</div></section>
-      <p class='review-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></p>
+      <section class='review-section'><p class='eyebrow'>Step 1</p><h2>What we found</h2><div class='profile-grid'>{''.join(card for fact, card in fact_fields if not fact.suggested and fact.conflict_group is None)}</div></section>
+      <section class='review-section'><p class='eyebrow'>Step 2</p><h2>Confirm our suggestions</h2><p class='muted'>These are suggestions, not facts or matcher decisions. Available classification choices are shown directly.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.suggested and fact.conflict_group is None)}</div>
+        <h3>Sources disagree — please confirm</h3><p class='muted'>Choose at most one value for each disagreement, edit it if needed, or reject the alternatives.</p><div class='profile-grid'>{''.join(card for fact, card in fact_fields if fact.conflict_group is not None)}</div></section>
+      <section class='review-section'><p class='eyebrow'>Step 3</p><h2>What are you looking for?</h2><p>These choices describe roles you would accept. Unless compensation is marked strict, they are preferences that may later be relaxable.</p>{_render_preference_controls(snapshot.review.preference_model)}</section>
+      <section class='review-section'><h2>Information you still need to provide</h2><p class='muted'>Eligibility and other user-controlled details are kept separate from relaxable preferences.</p><div class='review-grid'>{''.join(missing)}</div></section>
+      <section class='review-section'><p class='eyebrow'>Step 4</p><h2>Review &amp; find matches</h2><p class='review-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></p></section>
     </form>
     <form class='profile-review-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button type='submit'>Cancel import</button>
     </form>
     """
     return _page("Review AI profile draft", body)
+
+
+def _review_fact_value_control(index, fact, raw_value, label):
+    spec = _FIELD_SPECS.get(fact.field_path)
+    if spec is None or spec.kind != "enum" or spec.multiple:
+        return (
+            f"<label class='review-field'>{_safe_text(label)}"
+            f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='512'></label>"
+        )
+    choices = []
+    definitions = []
+    for option in sorted(spec.allowed):
+        option_id = f"fact-{index}-{option}"
+        option_label = option.replace("_", " ").title()
+        choices.append(
+            f"<label class='choice-card' for='{_safe_text(option_id)}'>"
+            f"<input id='{_safe_text(option_id)}' type='radio' name='fact_{index}_value' "
+            f"value='{_safe_text(option)}'{' checked' if option == raw_value else ''}>"
+            f"<span>{_safe_text(option_label)}</span></label>"
+        )
+        description = _CLASSIFICATION_DESCRIPTIONS.get(
+            option,
+            f"Use the {_safe_text(option_label)} classification.",
+        )
+        definitions.append(
+            f"<div><dt>{_safe_text(option_label)}</dt><dd>{_safe_text(description)}</dd></div>"
+        )
+    return (
+        f"<fieldset class='choice-fieldset'><legend>{_safe_text(label)}</legend>"
+        f"<div class='choice-grid'>{''.join(choices)}</div>"
+        f"<details><summary>What do these choices mean?</summary><dl class='choice-definitions'>{''.join(definitions)}</dl></details>"
+        "</fieldset>"
+    )
+
+
+def _render_preference_controls(model):
+    canonical = canonicalize_profile_preferences_v1(model)
+    catalog = profile_preference_control_catalog_v1()
+    sections = []
+    for dimension in catalog["dimensions"]:
+        parent = canonical
+        for part in dimension["path"]:
+            parent = parent[part]
+        selected = set(parent)
+        choices = []
+        definitions = []
+        for choice in dimension["choices"]:
+            field_name = _preference_choice_field(
+                dimension["path"], choice["code"]
+            )
+            choice_id = field_name.replace("_", "-")
+            choices.append(
+                f"<label class='choice-card' for='{choice_id}'>"
+                f"<input id='{choice_id}' type='checkbox' name='{field_name}' value='selected'"
+                f"{' checked' if choice['code'] in selected else ''}>"
+                f"<span>{_safe_text(choice['label'])}</span></label>"
+            )
+            definitions.append(
+                f"<div><dt>{_safe_text(choice['label'])}</dt>"
+                f"<dd>{_safe_text(choice['description'])}</dd></div>"
+            )
+        help_id = "preference-help-" + dimension["id"].replace(".", "-").replace("_", "-")
+        sections.append(
+            f"<fieldset class='preference-group' aria-describedby='{help_id}'>"
+            f"<legend>{_safe_text(dimension['title'])}</legend>"
+            f"<p class='muted' id='{help_id}'>{_safe_text(dimension['help'])} Empty means unrestricted.</p>"
+            f"<div class='choice-grid'>{''.join(choices)}</div>"
+            f"<details><summary>Understand these choices</summary>"
+            f"<dl class='choice-definitions'>{''.join(definitions)}</dl></details></fieldset>"
+        )
+
+    compensation = canonical["compensation"]
+    kind_choices = []
+    for choice in catalog["compensation"]["minimum_kinds"]:
+        choice_id = "compensation-kind-" + choice["code"]
+        kind_choices.append(
+            f"<label class='choice-card' for='{choice_id}'>"
+            f"<input id='{choice_id}' type='radio' name='preference_compensation_minimum_kind' "
+            f"value='{choice['code']}'{' checked' if choice['code'] == compensation['minimum_kind'] else ''}>"
+            f"<span><strong>{_safe_text(choice['label'])}</strong><small>{_safe_text(choice['description'])}</small></span></label>"
+        )
+    currency_options = ["<option value=''>Choose currency</option>"]
+    for currency in catalog["compensation"]["currencies"]:
+        currency_options.append(
+            f"<option value='{currency}'{' selected' if currency == compensation['currency'] else ''}>{currency}</option>"
+        )
+    period_options = ["<option value=''>Choose period</option>"]
+    for period in catalog["compensation"]["periods"]:
+        period_options.append(
+            f"<option value='{period['code']}'{' selected' if period['code'] == compensation['period'] else ''}>{_safe_text(period['label'])}</option>"
+        )
+    sections.append(
+        "<fieldset class='preference-group'><legend>Expected compensation</legend>"
+        "<p class='muted'>Choose no minimum, a relaxable preferred minimum, or a non-relaxable strict minimum. We compare only the same currency and period.</p>"
+        f"<div class='choice-grid'>{''.join(kind_choices)}</div>"
+        "<div class='review-grid'>"
+        f"<label class='review-field'>Amount<input name='preference_compensation_amount' inputmode='decimal' pattern='[0-9]{{1,18}}(?:\\.[0-9]{{1,2}})?' value='{_safe_text(compensation['amount'] or '')}' maxlength='21'></label>"
+        f"<label class='review-field'>Currency<select name='preference_compensation_currency'>{''.join(currency_options)}</select></label>"
+        f"<label class='review-field'>Period<select name='preference_compensation_period'>{''.join(period_options)}</select></label>"
+        "</div></fieldset>"
+    )
+    return "".join(sections)
 
 
 def _review_source_label(fact):

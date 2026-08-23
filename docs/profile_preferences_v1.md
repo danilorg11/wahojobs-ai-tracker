@@ -2,9 +2,10 @@
 
 `profile_preferences_v1` is an optional authoritative subdocument at
 `canonical_profile_v2.preferences.preference_model`. It separates concepts
-that legacy `employment_types` mixes together. This foundation is read-only in
-the current product: no production writer emits it, no existing profile is
-backfilled, and the current matcher does not consume it.
+that legacy `employment_types` mixes together. New AI-assisted onboarding is
+the first production writer. It validates the model on the server and writes it
+only after explicit review confirmation. Manual profile writers do not emit
+it, no existing profile is backfilled, and typed matching remains shadow-only.
 
 ## Exact contract
 
@@ -84,10 +85,20 @@ untyped free-text job interests, and free-text compensation also return bounded
 confirmation records without copying their values into diagnostics.
 
 The pure new-to-legacy adapter produces a valid, intentionally lossy V1 mirror
-for compatibility. It is not wired into current writers or matching. Canonical
-V2's active V1 review and matcher projections instead remove
-`preference_model` and retain the existing legacy shadow fields unchanged. As a
-result, adding the optional subdocument cannot change current match results.
+for compatibility. AI-assisted onboarding derives the complete legacy mirror
+from the validated model on the server; the browser cannot submit a second
+legacy representation. The durable V2 writer rejects any mismatch between the
+model and that mirror. Canonical V2's active matcher projection still removes
+`preference_model`, so current matching sees only those established legacy
+fields. Existing profiles retain their legacy fields unchanged.
+
+The AI review renders each accepted-choice dimension as an independent
+multi-select generated from this contract. Employee/freelance and
+full-time/part-time can therefore coexist. Compensation exposes `none`,
+`preferred`, and `strict` plus amount, currency, and hour/month/year period;
+project/task periods and generic strictness controls for other dimensions are
+not present. Legacy `contract` is never preselected or guessed: a user must
+explicitly choose the typed relationship and/or fixed-term controls.
 
 The next read-only layer projects this model and conservative opportunity
 evidence into criterion-by-criterion internal diagnostics. Its contracts and

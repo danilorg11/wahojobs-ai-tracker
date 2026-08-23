@@ -134,7 +134,12 @@ def intake_grant(path, session, *, now=NOW):
     return outcome.grant_for_service()
 
 
-def confirmed_review(*, origins=(DocumentKind.RESUME,), conflict=False):
+def confirmed_review(
+    *,
+    origins=(DocumentKind.RESUME,),
+    conflict=False,
+    preference_model=None,
+):
     sources = []
     for index, kind in enumerate(origins, start=1):
         reference = f"doc_{index:032x}"
@@ -203,8 +208,13 @@ def confirmed_review(*, origins=(DocumentKind.RESUME,), conflict=False):
         else:
             decisions.append("reject")
     user_inputs = {name: "" for name in review.missing_user_fields}
-    user_inputs["remote"] = "yes"
-    return update_editable_review(review, values, tuple(decisions), user_inputs)
+    return update_editable_review(
+        review,
+        values,
+        tuple(decisions),
+        user_inputs,
+        preference_model,
+    )
 
 
 def database_counts(connection):

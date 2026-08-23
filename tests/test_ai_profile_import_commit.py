@@ -49,6 +49,10 @@ from wahojobs.persistent_profiles_repository import (
 )
 from wahojobs.profile_intake.contracts import DocumentKind
 from wahojobs.profiles.normalizer import signals_for_domains
+from wahojobs.profiles.preference_model import (
+    empty_profile_preferences_v1,
+    preference_model_to_legacy_preferences,
+)
 
 
 class AIProfileImportCommitTests(unittest.TestCase):
@@ -74,9 +78,13 @@ class AIProfileImportCommitTests(unittest.TestCase):
             now=NOW,
         ).authority
 
-    def confirmed(self, *, conflict=False):
+    def confirmed(self, *, conflict=False, preference_model=None):
         return prepare_confirmed_ai_profile_import(
-            confirmed_review(conflict=conflict), self.metadata
+            confirmed_review(
+                conflict=conflict,
+                preference_model=preference_model,
+            ),
+            self.metadata,
         )
 
     def assert_code(self, code, callable_, *args, **kwargs):
@@ -279,7 +287,27 @@ class AIProfileImportCommitTests(unittest.TestCase):
 
     def test_confirmed_mapping_recomputes_server_signals_and_user_preferences(self):
         reservation = self.reserve()
-        confirmed = self.confirmed()
+        preference_model = empty_profile_preferences_v1()
+        preference_model["employment_relationships"] = [
+            "independent_contractor",
+            "employee",
+        ]
+        preference_model["workloads"] = ["part_time", "full_time"]
+        preference_model["engagement_terms"] = ["fixed_term"]
+        preference_model["schedule"]["flexibility_modes"] = ["flexible"]
+        preference_model["accepted_phone_voice_modes"] = ["non_phone"]
+        preference_model["job_interests"] = [
+            "software_engineering",
+            "data_annotation",
+        ]
+        preference_model["accepted_career_levels"] = ["senior", "mid"]
+        preference_model["compensation"] = {
+            "minimum_kind": "preferred",
+            "amount": "00025.00",
+            "currency": "brl",
+            "period": "hour",
+        }
+        confirmed = self.confirmed(preference_model=preference_model)
         result = self.service.commit_confirmed_ai_profile_import(
             self.connection, self.grant, reservation, confirmed, now=NOW
         )
@@ -289,7 +317,27 @@ class AIProfileImportCommitTests(unittest.TestCase):
                 (result.revision_id,),
             ).fetchone()[0]
         )
-        self.assertTrue(structured["preferences"]["remote"])
+        model = structured["preferences"]["preference_model"]
+        self.assertEqual(model["employment_relationships"], ["employee", "independent_contractor"])
+        self.assertEqual(model["workloads"], ["full_time", "part_time"])
+        self.assertEqual(
+            model["compensation"],
+            {
+                "minimum_kind": "preferred",
+                "amount": "25",
+                "currency": "BRL",
+                "period": "hour",
+            },
+        )
+        legacy = preference_model_to_legacy_preferences(model)
+        self.assertEqual(
+            {key: structured["preferences"][key] for key in legacy},
+            legacy,
+        )
+        self.assertIn("freelance", structured["preferences"]["employment_types"])
+        self.assertIn("full-time", structured["preferences"]["employment_types"])
+        self.assertIn("part-time", structured["preferences"]["employment_types"])
+        self.assertFalse(structured["preferences"]["remote"])
         expected = signals_for_domains([], ["Python"], [])
         self.assertEqual(
             confirmed.reviewed_profile.to_mapping()["derived_matcher_signals"]["signals"],
@@ -309,7 +357,14 @@ class AIProfileImportCommitTests(unittest.TestCase):
         self.assertEqual(structured["identity"]["display_name"], "Synthetic Candidate")
         self.assertEqual(structured["location"]["city"], "Lisbon")
         self.assertNotIn("remote", structured["provenance"]["missing_fields"])
-        self.assertIn("availability", structured["provenance"]["missing_fields"])
+        self.assertNotIn("availability", structured["provenance"]["missing_fields"])
+        preference_sources = [
+            item
+            for item in structured["provenance"]["field_sources"]
+            if item["field_path"].startswith("preferences.preference_model.")
+        ]
+        self.assertTrue(preference_sources)
+        self.assertTrue(all(item["explicit"] for item in preference_sources))
 
     def test_durable_rows_retain_only_bounded_content_free_metadata(self):
         sentinels = (

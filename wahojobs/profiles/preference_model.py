@@ -1,8 +1,9 @@
 """Typed profile preference contract and pure legacy compatibility adapters.
 
 This module does no I/O.  ``profile_preferences_v1`` is an optional Canonical
-Profile V2 subdocument; normal profile writers and the current matcher remain
-on the legacy preference fields until later, separately approved slices.
+Profile V2 subdocument.  AI-assisted onboarding is its first writer; manual
+profile writers and the current matcher remain on the legacy preference
+fields until later, separately approved slices.
 """
 
 from __future__ import annotations
@@ -93,6 +94,100 @@ PREFERENCE_ENUM_LIST_PATHS = (
     ("job_interests",),
     ("accepted_career_levels",),
 )
+
+_CONTROL_COPY = {
+    "employment_relationships": (
+        "Employment relationship",
+        "Select every relationship you would consider.",
+    ),
+    "workloads": (
+        "Workload",
+        "Full-time and part-time can both be acceptable.",
+    ),
+    "engagement_terms": (
+        "Engagement term",
+        "Select every duration or engagement type you would consider.",
+    ),
+    "schedule.flexibility_modes": (
+        "Schedule flexibility",
+        "Select fixed schedules, flexible schedules, or both.",
+    ),
+    "schedule.coordination_modes": (
+        "Team coordination",
+        "Choose whether you can work synchronously, asynchronously, or both.",
+    ),
+    "schedule.time_windows": (
+        "Working time windows",
+        "Select every time window you would consider.",
+    ),
+    "accepted_phone_voice_modes": (
+        "Phone and voice work",
+        "Select the kinds of communication work you would accept.",
+    ),
+    "job_interests": (
+        "Job interests",
+        "Select every area you would like to see in your matches.",
+    ),
+    "accepted_career_levels": (
+        "Target career levels",
+        "These are levels you would accept in a new role, not your current seniority.",
+    ),
+}
+
+_CHOICE_LABELS = {
+    "employee": "Employee",
+    "independent_contractor": "Independent contractor / freelance",
+    "full_time": "Full-time",
+    "part_time": "Part-time",
+    "fixed_term": "Fixed-term / contract",
+    "non_phone": "Non-phone / non-voice",
+    "business_hours": "Business hours",
+    "quality_assurance": "Quality assurance",
+    "ai_training": "AI training",
+}
+
+_CHOICE_DESCRIPTIONS = {
+    "employee": "You are employed by the organization offering the role.",
+    "independent_contractor": "You provide services independently, including freelance work.",
+    "full_time": "A full working load as defined by the employer or client.",
+    "part_time": "A working load below the organization's full-time schedule.",
+    "permanent": "An ongoing role with no planned end date.",
+    "fixed_term": "A contract or role with a defined duration or end date.",
+    "temporary": "Short-term work for a limited need.",
+    "seasonal": "Work tied to a recurring season or peak period.",
+    "internship": "A structured learning or early-career placement.",
+    "fixed": "Working times are set in advance.",
+    "flexible": "Working times can vary within agreed expectations.",
+    "synchronous": "You can overlap with teammates or customers in real time.",
+    "asynchronous": "Work can be completed without continuous real-time overlap.",
+    "business_hours": "Work during the organization's regular daytime hours.",
+    "weekdays": "Work Monday through Friday.",
+    "evenings": "Work during evening hours.",
+    "weekends": "Work on Saturday or Sunday.",
+    "phone": "The role may include calls or other live voice communication.",
+    "non_phone": "The role can be completed without phone or live voice work.",
+    "entry": "Entry-level work with limited prior experience expected.",
+    "mid": "Mid-level work requiring established independent experience.",
+    "senior": "Senior individual-contributor responsibility.",
+    "lead": "Technical or functional leadership responsibility.",
+    "principal": "High-scope expert individual-contributor responsibility.",
+    "manager": "People-management responsibility.",
+}
+
+_COMPENSATION_KIND_COPY = {
+    "none": (
+        "No minimum",
+        "Compensation does not set a minimum for matching.",
+    ),
+    "preferred": (
+        "Preferred minimum",
+        "A soft preference that may later be shown as relaxable.",
+    ),
+    "strict": (
+        "Strict minimum",
+        "A non-relaxable minimum; undisclosed or non-comparable pay cannot prove it.",
+    ),
+}
 _LEGACY_PREFERENCE_FIELDS = frozenset(
     {
         "remote",
@@ -142,6 +237,64 @@ def empty_profile_preferences_v1() -> dict:
             "amount": None,
             "currency": None,
             "period": None,
+        },
+    }
+
+
+def profile_preference_control_catalog_v1() -> dict:
+    """Return UI copy whose values are always derived from contract enums."""
+
+    allowed_by_path = {
+        ("employment_relationships",): EMPLOYMENT_RELATIONSHIPS,
+        ("workloads",): WORKLOADS,
+        ("engagement_terms",): ENGAGEMENT_TERMS,
+        ("schedule", "flexibility_modes"): SCHEDULE_FLEXIBILITY_MODES,
+        ("schedule", "coordination_modes"): SCHEDULE_COORDINATION_MODES,
+        ("schedule", "time_windows"): SCHEDULE_TIME_WINDOWS,
+        ("accepted_phone_voice_modes",): PHONE_VOICE_MODES,
+        ("job_interests",): JOB_INTEREST_CODES,
+        ("accepted_career_levels",): ACCEPTED_CAREER_LEVELS,
+    }
+    dimensions = []
+    for path in PREFERENCE_ENUM_LIST_PATHS:
+        identifier = ".".join(path)
+        title, help_text = _CONTROL_COPY[identifier]
+        choices = []
+        for code in sorted(allowed_by_path[path]):
+            label = _CHOICE_LABELS.get(code, code.replace("_", " ").title())
+            description = _CHOICE_DESCRIPTIONS.get(
+                code,
+                f"Include {label.casefold()} opportunities.",
+            )
+            choices.append(
+                {"code": code, "label": label, "description": description}
+            )
+        dimensions.append(
+            {
+                "id": identifier,
+                "path": path,
+                "title": title,
+                "help": help_text,
+                "choices": tuple(choices),
+            }
+        )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "dimensions": tuple(dimensions),
+        "compensation": {
+            "minimum_kinds": tuple(
+                {
+                    "code": code,
+                    "label": _COMPENSATION_KIND_COPY[code][0],
+                    "description": _COMPENSATION_KIND_COPY[code][1],
+                }
+                for code in ("none", "preferred", "strict")
+            ),
+            "currencies": tuple(sorted(ISO_4217_CURRENCIES)),
+            "periods": tuple(
+                {"code": code, "label": f"Per {code}"}
+                for code in ("hour", "month", "year")
+            ),
         },
     }
 

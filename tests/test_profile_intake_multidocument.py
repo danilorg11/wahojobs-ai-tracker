@@ -26,6 +26,7 @@ from wahojobs.persistent_profile_read_authorization import (
 from wahojobs.profile_intake.browser import (
     MAX_MULTIPART_BODY_BYTES,
     ProfileIntakeBrowserIntegration,
+    _preference_form_values_for_model,
 )
 from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
@@ -581,6 +582,7 @@ class MultiDocumentBrowserTests(unittest.TestCase):
                 form[f"fact_{index}_decision"] = "keep"
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
+        form.update(_preference_form_values_for_model(snapshot.review.preference_model))
         body = urlencode(form).encode()
         headers = self._headers(
             content_type="application/x-www-form-urlencoded",

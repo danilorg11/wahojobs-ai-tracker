@@ -37,6 +37,8 @@ from wahojobs.profiles.preference_model import (
     PREFERENCE_ENUM_LIST_PATHS,
     ProfilePreferenceModelError,
     canonical_decimal_string,
+    canonicalize_profile_preferences_v1,
+    preference_model_to_legacy_preferences,
     validate_profile_preferences_v1,
 )
 
@@ -571,6 +573,72 @@ def convert_v1_to_v2(
         persistent_profile_id=persistent_profile_id,
         source_ordinal_resolver=source_ordinal_resolver,
     )
+
+
+@_sanitized_public_boundary
+def add_user_confirmed_preference_model_v1(
+    v2: dict,
+    preference_model: dict,
+    *,
+    source_ordinal_resolver,
+) -> dict:
+    """Add the first authoritative preference model to a validated V2 draft.
+
+    The browser never supplies legacy preference shadows.  Callers must first
+    derive those shadows from ``preference_model`` before creating ``v2``;
+    this writer then adds the same validated authority and complete durable
+    provenance without changing any other profile content.
+    """
+
+    profile = validate_canonical_profile_v2(v2)
+    if "preference_model" in profile["preferences"]:
+        raise CanonicalProfileV2Error("preference_model_already_present")
+    if not callable(source_ordinal_resolver):
+        raise CanonicalProfileV2Error("invalid_source_resolver")
+    try:
+        model = canonicalize_profile_preferences_v1(preference_model)
+    except ProfilePreferenceModelError as exc:
+        raise CanonicalProfileV2Error(*exc.reason_codes) from None
+    projected_legacy = preference_model_to_legacy_preferences(model)
+    actual_legacy = {
+        key: deepcopy(profile["preferences"].get(key))
+        for key in projected_legacy
+    }
+    if actual_legacy != projected_legacy:
+        raise CanonicalProfileV2Error("preference_legacy_projection_mismatch")
+
+    profile["preferences"]["preference_model"] = model
+    prefix = "preferences.preference_model."
+    new_sources = []
+    for path in _material_field_paths(profile):
+        if not path.startswith(prefix):
+            continue
+        try:
+            ordinals = _validated_ordinals(
+                source_ordinal_resolver(
+                    path,
+                    PROFILE_SOURCE_USER_CONFIRMATION,
+                    True,
+                )
+            )
+        except CanonicalProfileV2Error:
+            raise
+        except Exception as exc:
+            raise CanonicalProfileV2Error("source_resolution_failed") from exc
+        new_sources.append(
+            {
+                "field_path": path,
+                "path_version": FIELD_PATH_VERSION,
+                "source_ordinals": ordinals,
+                "source_kind": PROFILE_SOURCE_USER_CONFIRMATION,
+                "explicit": True,
+            }
+        )
+    profile["provenance"]["field_sources"].extend(new_sources)
+    profile["provenance"]["field_sources"].sort(
+        key=lambda item: (item["field_path"].casefold(), item["field_path"])
+    )
+    return validate_canonical_profile_v2(profile)
 
 
 def _convert_validated_v1_to_v2(

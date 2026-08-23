@@ -10,9 +10,14 @@ from tests.test_canonical_profile_v2 import (
 )
 from wahojobs.matching.taxonomy import CAREER_LEVELS, OCCUPATIONAL_FAMILIES
 from wahojobs.opportunity_enrichment import SENIORITY_VALUES
-from wahojobs.profiles.canonical import validate_preferences
+from wahojobs.profiles.canonical import (
+    PROFILE_SOURCE_USER_CONFIRMATION,
+    field_sources_for_profile,
+    validate_preferences,
+)
 from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
+    add_user_confirmed_preference_model_v1,
     canonical_profile_v2_json_bytes,
     convert_v1_to_v2,
     parse_canonical_profile_v2_json,
@@ -22,13 +27,24 @@ from wahojobs.profiles.canonical_v2 import (
 )
 from wahojobs.profiles.preference_model import (
     ACCEPTED_CAREER_LEVELS,
+    COMPENSATION_MINIMUM_KINDS,
+    COMPENSATION_PERIODS,
+    EMPLOYMENT_RELATIONSHIPS,
+    ENGAGEMENT_TERMS,
+    ISO_4217_CURRENCIES,
     JOB_INTEREST_CODES,
+    PHONE_VOICE_MODES,
     ProfilePreferenceModelError,
+    SCHEDULE_COORDINATION_MODES,
+    SCHEDULE_FLEXIBILITY_MODES,
+    SCHEDULE_TIME_WINDOWS,
     SOFT_PREFERENCE_DIMENSIONS,
+    WORKLOADS,
     canonicalize_profile_preferences_v1,
     empty_profile_preferences_v1,
     legacy_preferences_to_preference_draft,
     preference_model_to_legacy_preferences,
+    profile_preference_control_catalog_v1,
 )
 
 
@@ -166,6 +182,46 @@ class ProfilePreferenceModelTests(unittest.TestCase):
         self.assertNotIn("unknown", ACCEPTED_CAREER_LEVELS)
         self.assertEqual(SOFT_PREFERENCE_DIMENSIONS, {"job_interests"})
 
+    def test_onboarding_control_catalog_is_derived_from_every_contract_enum(self):
+        catalog = profile_preference_control_catalog_v1()
+        self.assertEqual(catalog["schema_version"], "profile_preferences_v1")
+        expected = {
+            "employment_relationships": EMPLOYMENT_RELATIONSHIPS,
+            "workloads": WORKLOADS,
+            "engagement_terms": ENGAGEMENT_TERMS,
+            "schedule.flexibility_modes": SCHEDULE_FLEXIBILITY_MODES,
+            "schedule.coordination_modes": SCHEDULE_COORDINATION_MODES,
+            "schedule.time_windows": SCHEDULE_TIME_WINDOWS,
+            "accepted_phone_voice_modes": PHONE_VOICE_MODES,
+            "job_interests": JOB_INTEREST_CODES,
+            "accepted_career_levels": ACCEPTED_CAREER_LEVELS,
+        }
+        self.assertEqual(
+            {item["id"] for item in catalog["dimensions"]},
+            set(expected),
+        )
+        for dimension in catalog["dimensions"]:
+            with self.subTest(dimension=dimension["id"]):
+                self.assertEqual(
+                    {choice["code"] for choice in dimension["choices"]},
+                    expected[dimension["id"]],
+                )
+                self.assertTrue(
+                    all(choice["label"] and choice["description"] for choice in dimension["choices"])
+                )
+        self.assertEqual(
+            {item["code"] for item in catalog["compensation"]["minimum_kinds"]},
+            COMPENSATION_MINIMUM_KINDS,
+        )
+        self.assertEqual(
+            {item["code"] for item in catalog["compensation"]["periods"]},
+            COMPENSATION_PERIODS,
+        )
+        self.assertEqual(
+            set(catalog["compensation"]["currencies"]),
+            ISO_4217_CURRENCIES,
+        )
+
     def test_existing_v2_writer_output_is_byte_for_byte_unchanged(self):
         profile = self.base_v2()
         self.assertNotIn("preference_model", profile["preferences"])
@@ -173,6 +229,38 @@ class ProfilePreferenceModelTests(unittest.TestCase):
             hashlib.sha256(canonical_profile_v2_json_bytes(profile)).hexdigest(),
             BASELINE_V2_SHA256,
         )
+
+    def test_user_confirmed_writer_requires_exact_legacy_projection(self):
+        model = canonicalize_profile_preferences_v1(self.populated_model())
+        v1 = deepcopy(self.v1)
+        v1["preferences"] = preference_model_to_legacy_preferences(model)
+        v1["provenance"]["field_sources"] = {}
+        v1["provenance"]["field_sources"] = field_sources_for_profile(
+            v1,
+            PROFILE_SOURCE_USER_CONFIRMATION,
+            explicit=True,
+        )
+        base = convert_v1_to_v2(
+            v1,
+            persistent_profile_id=persistent_id(3),
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        written = add_user_confirmed_preference_model_v1(
+            base,
+            model,
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        self.assertEqual(written["preferences"]["preference_model"], model)
+        self.assertEqual(project_v2_to_matcher_v1(written, matcher_profile_id="writer"), project_v2_to_matcher_v1(base, matcher_profile_id="writer"))
+
+        divergent = self.base_v2()
+        with self.assertRaises(CanonicalProfileV2Error) as context:
+            add_user_confirmed_preference_model_v1(
+                divergent,
+                model,
+                source_ordinal_resolver=ordinal_resolver,
+            )
+        self.assertIn("preference_legacy_projection_mismatch", context.exception.reason_codes)
 
     def test_v2_reads_and_canonicalizes_optional_preference_model(self):
         candidate = with_preference_model(self.base_v2(), self.populated_model())

@@ -456,6 +456,21 @@ path. Browser fields cannot choose account, environment, principal, ownership
 lineage, attempt, reservation, entitlement, profile/revision/source IDs, or
 matcher signals.
 
+The review is presented in four practical steps: document-supported facts,
+suggestions requiring confirmation, structured job preferences, and final
+review/save. Closed classification suggestions show all allowed values and
+click/keyboard-operated definitions. The preference controls are generated
+from `profile_preferences_v1`; accepted-choice dimensions use checkboxes while
+compensation uses explicit minimum strength, amount, ISO currency, and
+hour/month/year period. Hover is not required for help. Legacy preference
+fields are not browser inputs: the server derives their current-matcher mirror
+from the authoritative model and the durable writer rejects divergence.
+
+Upload remains synchronous. A CSP-hashed, content-free enhancement immediately
+shows a **Building your profile** status after a valid document submission and
+reminds the user that review happens before saving. It adds no polling, durable
+processing job, new provider request, or background product state.
+
 Finalization calls `prepare_confirmed_ai_profile_import` and the existing Slice
 4A `commit_confirmed_ai_profile_import` authority. One outer transaction owns
 the existing Canonical V2 create-once write, `user_confirmed_ai_import` source,
