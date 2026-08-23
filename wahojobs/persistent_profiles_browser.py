@@ -2017,7 +2017,7 @@ def _page(title: str, body: str) -> str:
     .section-heading h2, .finish-panel h2 {{ font-size: clamp(25px, 3vw, 34px); letter-spacing: -.025em; margin-bottom: 10px; }}
     .section-heading p:not(.eyebrow), .finish-panel > p:not(.eyebrow) {{ color: #53605b; font-size: 16px; line-height: 1.55; }}
     .fact-card {{ background: #fbfcfb; border-color: #dfe7e3; border-radius: 12px; padding: 20px; }}
-    .fact-meta {{ color: #466257; font-size: 12px; font-weight: 800; letter-spacing: .02em; line-height: 1.45; text-transform: uppercase; }}
+    .fact-meta {{ color: #466257; font-size: 13px; font-weight: 750; line-height: 1.45; }}
     .decision-field {{ display: grid; font-size: 13px; font-weight: 750; gap: 6px; margin-top: 14px; }}
     .decision-field select {{ background: white; border: 1px solid #aebbb5; border-radius: 7px; font: inherit; min-height: 44px; padding: 9px; width: 100%; }}
     .intake-review-form .review-field input, .intake-review-form .review-field select {{ background: white; border-radius: 7px; font: inherit; min-height: 44px; }}
@@ -2032,6 +2032,32 @@ def _page(title: str, body: str) -> str:
     .intake-review-form .choice-card strong {{ line-height: 1.35; }}
     .intake-review-form details {{ margin-top: 8px; }}
     .intake-review-form details[open] {{ background: #f5f8f6; border-radius: 10px; padding: 0 12px 10px; }}
+    .preference-open-note {{ background: #f1f7f4; border-radius: 8px; color: #315d4d !important; display: inline-block; font-size: 14px !important; margin: 8px 0 0; padding: 8px 11px; }}
+    .selection-summary {{ background: #edf6f1; border-radius: 8px; color: #315d4d; font-size: 13px; line-height: 1.45; margin: 12px 0; padding: 9px 11px; }}
+    .suggestion-tag {{ background: #dff2e9; border-radius: 999px; color: #245b46; display: inline-block; font-size: 11px; font-weight: 800; margin: 0 0 0 8px; padding: 3px 7px; text-transform: uppercase; }}
+    .classification-help {{ margin: 10px 0 14px; }}
+    .classification-skip {{ border-style: dashed !important; color: #53605b; }}
+    .choice-more {{ border-top: 1px solid #e1e8e5; margin-top: 14px !important; padding-top: 4px; }}
+    .intake-review-form .choice-more[open] {{ background: transparent; border-radius: 0; padding: 4px 0 0; }}
+    .choice-more summary {{ align-items: center; display: flex; gap: 5px; min-height: 44px; }}
+    .choice-more summary span {{ color: #66716c; font-size: 13px; }}
+    .choice-more .choice-more-selected {{ display: none; margin-left: auto; }}
+    .job-interest-more:has(input:checked) .choice-more-selected {{ display: inline; }}
+    .choice-definitions-disclosure summary {{ min-height: 44px; }}
+    .preference-disclosure {{ border: 1px solid #dce6e1; border-radius: 12px; margin-top: 30px !important; overflow: hidden; }}
+    .preference-disclosure > summary {{ align-items: center; background: #f7faf8; display: flex; min-height: 64px; padding: 14px 18px !important; }}
+    .preference-disclosure > summary > span {{ display: grid; font-size: 17px; gap: 3px; }}
+    .preference-disclosure > summary small {{ color: #66716c; font-size: 13px; font-weight: 500; line-height: 1.4; }}
+    .preference-disclosure .disclosure-selection-state {{ display: none; }}
+    .more-preference-disclosure:has(input:checked) .disclosure-selection-state {{ display: block; }}
+    .more-preference-disclosure:has(input:checked) .disclosure-empty-state {{ display: none; }}
+    .intake-review-form .preference-disclosure[open] {{ background: transparent; border-radius: 12px; padding: 0; }}
+    .preference-disclosure[open] > summary {{ border-bottom: 1px solid #e2e9e6; }}
+    .disclosure-body {{ padding: 0 20px 22px; }}
+    .more-preference-disclosure .preference-group:first-child {{ border-top: 0; margin-top: 0; }}
+    .candidate-input {{ gap: 5px; }}
+    .candidate-input > span {{ font-weight: 700; }}
+    .candidate-input small, .field-help {{ color: #66716c; display: block; font-size: 12px; font-weight: 400; line-height: 1.45; }}
     .choice-definitions {{ margin-bottom: 0; }}
     .choice-definitions div {{ border-top: 1px solid #e1e8e5; padding-top: 10px; }}
     .review-subsection {{ background: #f7f9f8; border-radius: 12px; margin-top: 28px; padding: 22px; }}
@@ -2040,9 +2066,6 @@ def _page(title: str, body: str) -> str:
     .user-details {{ margin-top: 34px; }}
     .compensation-group {{ background: #f7faf8; border-radius: 14px !important; margin-top: 36px !important; padding: 24px !important; }}
     .compensation-group .choice-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
-    .compensation-guide {{ display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 16px 0 20px; }}
-    .compensation-guide p {{ background: white; border-left: 3px solid #77a995; border-radius: 6px; display: grid; gap: 4px; margin: 0; padding: 12px 14px; }}
-    .compensation-guide span {{ color: #5d6964; font-size: 13px; line-height: 1.45; }}
     .finish-section {{ padding-bottom: 0; }}
     .finish-panel {{ background: #eaf6f0; border-radius: 16px; padding: clamp(24px, 4vw, 36px); }}
     .finish-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 14px 18px; margin-top: 22px; }}
@@ -2058,14 +2081,19 @@ def _page(title: str, body: str) -> str:
       .intake-hero, .intake-upload-form, .intake-review-form {{ border-radius: 14px; }}
       .intake-hero h1 {{ font-size: 36px; }}
       .upload-heading {{ align-items: start; flex-direction: column; gap: 10px; }}
-      .upload-choice-grid, .compensation-group .choice-grid, .compensation-guide {{ grid-template-columns: 1fr; }}
+      .upload-choice-grid, .compensation-group .choice-grid {{ grid-template-columns: 1fr; }}
       .upload-choice {{ padding: 18px; }}
       .upload-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
       .upload-actions button, .finish-actions button {{ width: 100%; }}
       .review-progress ol {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .intake-review-form .review-section {{ margin-top: 36px; padding-top: 36px; }}
       .intake-review-form .choice-grid, .profile-grid, .review-grid {{ grid-template-columns: 1fr; }}
+      .intake-review-form .job-interest-group > .choice-grid,
+      .intake-review-form .job-interest-more .choice-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .compensation-group {{ margin-left: -8px !important; margin-right: -8px !important; padding: 20px !important; }}
+      .preference-disclosure > summary {{ padding: 13px 14px !important; }}
+      .disclosure-body {{ padding: 0 14px 18px; }}
+      .suggestion-tag {{ display: table; margin: 5px 0 0; }}
       .finish-actions {{ align-items: stretch; flex-direction: column; }}
     }}
     @media (prefers-reduced-motion: reduce) {{

@@ -125,6 +125,79 @@ _CLASSIFICATION_DESCRIPTIONS = {
     "unavailable": "The candidate states they are currently unavailable.",
 }
 
+_SKIP_SUGGESTION_VALUE = "__leave_suggestion_out__"
+_PRIMARY_CLASSIFICATION_CHOICES = {
+    "education.education_level": (
+        "no_degree",
+        "high_school",
+        "bachelor",
+        "master",
+        "doctorate",
+        "not_specified",
+    ),
+    "experience.seniority": (
+        "entry-level",
+        "mid-level",
+        "senior",
+        "lead",
+        "executive",
+    ),
+    "experience.contribution_type": (
+        "individual contributor",
+        "management",
+        "executive",
+        "unknown",
+    ),
+}
+_IMMEDIATE_PREFERENCE_DIMENSIONS = frozenset(
+    {"employment_relationships", "workloads", "job_interests"}
+)
+_COMMON_JOB_INTEREST_CODES = (
+    "customer_support",
+    "administrative_support",
+    "ai_training",
+    "data_annotation",
+    "search_evaluation",
+    "software_engineering",
+    "writing_editing",
+    "translation_localization",
+)
+_COMMON_CURRENCIES = ("USD", "EUR", "GBP", "BRL", "CAD", "AUD", "INR", "JPY")
+_MISSING_USER_FIELD_COPY = {
+    "work_authorization": (
+        "What work authorization do you have?",
+        "For example, citizenship, a work visa, or no current authorization.",
+    ),
+    "eligible_countries": (
+        "Where can you work?",
+        "List countries where you are allowed to work, separated by commas.",
+    ),
+    "geographic_restrictions": (
+        "Are there places where you cannot work?",
+        "Add any location limits that should be respected.",
+    ),
+    "hard_constraints": (
+        "Anything you cannot do?",
+        "Add firm limits that a job must respect.",
+    ),
+    "soft_preferences": (
+        "Anything you would rather avoid?",
+        "Add preferences you could reconsider for the right opportunity.",
+    ),
+    "avoid_keywords": (
+        "Words or topics you do not want in jobs",
+        "Separate multiple words or topics with commas.",
+    ),
+    "excluded_domains": (
+        "Job areas you do not want",
+        "List industries or kinds of work you want to leave out.",
+    ),
+    "accessibility_constraints": (
+        "Any accessibility needs?",
+        "Share only what a job must provide or avoid for you to participate.",
+    ),
+}
+
 _PROCESSING_SCRIPT = """(function(){var f=document.getElementById('profile-intake-upload');if(!f){return;}f.addEventListener('submit',function(){if(!f.checkValidity()){return;}var files=f.querySelectorAll('input[type=file]');if(!files[0].files.length&&!files[1].files.length){return;}var state=document.getElementById('profile-building-state');var content=document.getElementById('profile-upload-content');f.setAttribute('aria-busy','true');f.classList.add('is-processing');f.querySelector('button[type=submit]').disabled=true;content.hidden=true;state.hidden=false;state.focus();});}());"""
 _PROCESSING_SCRIPT_HASH = base64.b64encode(
     hashlib.sha256(_PROCESSING_SCRIPT.encode("utf-8")).digest()
@@ -698,7 +771,7 @@ def _review_from_form(review, form):
     expected = {"action", "version", "csrf"}
     values = []
     decisions = []
-    for index, _fact in enumerate(review.facts):
+    for index, fact in enumerate(review.facts):
         value_name = f"fact_{index}_value"
         decision_name = f"fact_{index}_decision"
         expected.update({value_name, decision_name})
@@ -706,6 +779,11 @@ def _review_from_form(review, form):
         decision = _single(form, decision_name)
         if value is None or decision is None:
             raise ProfileIntakeError("invalid_review_submission")
+        if value == _SKIP_SUGGESTION_VALUE:
+            if not _uses_compact_suggestion_choice(fact):
+                raise ProfileIntakeError("invalid_review_submission")
+            value = review_value_for_form(fact.value)
+            decision = "reject"
         values.append(value)
         decisions.append(decision)
     user_inputs = {}
@@ -726,6 +804,17 @@ def _review_from_form(review, form):
         tuple(decisions),
         user_inputs,
         preference_model,
+    )
+
+
+def _uses_compact_suggestion_choice(fact):
+    spec = _FIELD_SPECS.get(getattr(fact, "field_path", None))
+    return bool(
+        getattr(fact, "suggested", False)
+        and getattr(fact, "conflict_group", None) is None
+        and spec is not None
+        and spec.kind == "enum"
+        and not spec.multiple
     )
 
 
@@ -890,35 +979,45 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     for index, fact in enumerate(snapshot.review.facts):
         label = fact.review_field.replace("_", " ").title()
         raw_value = review_value_for_form(fact.value)
-        if fact.suggested:
+        source_label = _review_source_label(fact)
+        if _uses_compact_suggestion_choice(fact):
             choice = (
-                f"<label class='decision-field'><span>Use this suggestion?</span><select name='fact_{index}_decision'>"
-                f"<option value='pending'{' selected' if fact.decision == 'pending' else ''}>Choose whether to use this suggestion</option>"
-                f"<option value='accept'{' selected' if fact.decision == 'accept' else ''}>Accept suggestion</option>"
-                f"<option value='reject'{' selected' if fact.decision == 'reject' else ''}>Do not use</option></select></label>"
+                f"<input type='hidden' name='fact_{index}_decision' value='accept'>"
             )
-            badge = "Suggested from your document — please confirm"
+            badge = source_label.replace("Found in", "Suggested from", 1)
+        elif fact.suggested:
+            choice = (
+                f"<label class='decision-field'><span>Add this to your profile?</span><select name='fact_{index}_decision'>"
+                f"<option value='pending'{' selected' if fact.decision == 'pending' else ''}>Choose an option</option>"
+                f"<option value='accept'{' selected' if fact.decision == 'accept' else ''}>Add it</option>"
+                f"<option value='reject'{' selected' if fact.decision == 'reject' else ''}>Leave it out</option></select></label>"
+            )
+            badge = source_label.replace("Found in", "Suggested from", 1)
         else:
             choice = (
-                f"<label class='decision-field'><span>Keep this detail?</span><select name='fact_{index}_decision'>"
-                f"<option value='keep'{' selected' if fact.decision == 'keep' else ''}>Keep</option>"
-                f"<option value='remove'{' selected' if fact.decision == 'remove' else ''}>Remove</option></select></label>"
+                f"<label class='decision-field'><span>Include this in your profile?</span><select name='fact_{index}_decision'>"
+                f"<option value='keep'{' selected' if fact.decision == 'keep' else ''}>Include it</option>"
+                f"<option value='remove'{' selected' if fact.decision == 'remove' else ''}>Leave it out</option></select></label>"
             )
-            badge = "Document-supported prefill"
+            badge = source_label
         if fact.conflict_group is not None:
-            badge = "Sources disagree — please confirm"
-        source_label = _review_source_label(fact)
+            badge = f"{source_label} — conflicts with another document"
         value_control = _review_fact_value_control(index, fact, raw_value, label)
         card = (
-            f"<article class='profile-group fact-card'><p class='fact-meta'>{_safe_text(badge)} · {_safe_text(source_label)}</p>"
+            f"<article class='profile-group fact-card'><p class='fact-meta'>{_safe_text(badge)}</p>"
             f"{value_control}{choice}</article>"
         )
         fact_fields.append((fact, card))
     missing = []
     existing_inputs = dict(snapshot.review.user_inputs)
     for name in snapshot.review.missing_user_fields:
+        label, help_text = _MISSING_USER_FIELD_COPY.get(
+            name,
+            (name.replace("_", " ").title(), "Add this only if it matters to your search."),
+        )
         missing.append(
-            f"<label class='review-field'>{_safe_text(name.replace('_', ' ').title())}"
+            f"<label class='review-field candidate-input'><span>{_safe_text(label)}</span>"
+            f"<small>{_safe_text(help_text)}</small>"
             f"<input name='missing_{_safe_text(name)}' value='{_safe_text(existing_inputs.get(name, ''))}' maxlength='512'></label>"
         )
     primary_action = "save" if save_enabled else "update"
@@ -976,11 +1075,21 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         if conflict_cards
         else ""
     )
+    answered_user_fields = sum(
+        bool(existing_inputs.get(name, "").strip())
+        for name in snapshot.review.missing_user_fields
+    )
+    missing_summary = (
+        f"{answered_user_fields} answered"
+        if answered_user_fields
+        else "Optional details about where and how you can work"
+    )
     missing_section = (
-        "<div class='review-subsection user-details'><h3>Information you still need "
-        "to provide</h3><p class='muted'>These details need your answer and stay "
-        "separate from preferences you may choose to relax.</p>"
-        f"<div class='review-grid'>{''.join(missing)}</div></div>"
+        f"<details class='preference-disclosure user-details-disclosure'{' open' if answered_user_fields else ''}>"
+        "<summary><span>A few details only you can answer"
+        f"<small>{_safe_text(missing_summary)}</small></span></summary>"
+        "<div class='disclosure-body'><p class='muted'>Add anything that matters to your search. Leave a field blank if it does not apply.</p>"
+        f"<div class='review-grid'>{''.join(missing)}</div></div></details>"
         if missing
         else ""
     )
@@ -1001,7 +1110,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
       <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'>
       <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>What we found</h2><p>Check the details taken directly from your documents. Edit or remove anything that is not right.</p></div><div class='profile-grid'>{found_cards}</div></section>
       <section class='review-section' id='review-suggestions' aria-labelledby='review-suggestions-title'><div class='section-heading'><p class='eyebrow'>Step 2 of 4</p><h2 id='review-suggestions-title'>Confirm our suggestions</h2><p>These classifications can make your profile more useful. See every available choice and select what feels accurate.</p></div><div class='profile-grid'>{suggestion_cards}</div>{conflict_section}</section>
-      <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose all the options you would consider. Each group is separate, so choices such as freelance and full-time can work together.</p></div>{_render_preference_controls(snapshot.review.preference_model)}
+      <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose all the options you would consider. Each group is separate, so choices such as freelance and full-time can work together.</p><p class='preference-open-note'>Leave a group blank when you are open to all of its options.</p></div>{_render_preference_controls(snapshot.review.preference_model)}
         {missing_section}</section>
       <section class='review-section finish-section' id='review-finish' aria-labelledby='review-finish-title'><div class='finish-panel'><p class='eyebrow'>Step 4 of 4</p><h2 id='review-finish-title'>Review &amp; find matches</h2><p>When everything looks right, see the opportunities that fit the profile you confirmed. You can update your profile later.</p><div class='finish-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></div></div></section>
     </form>
@@ -1019,63 +1128,158 @@ def _review_fact_value_control(index, fact, raw_value, label):
             f"<label class='review-field'>{_safe_text(label)}"
             f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='512'></label>"
         )
-    choices = []
-    for option in sorted(spec.allowed):
-        option_id = f"fact-{index}-{option}"
+
+    compact_suggestion = _uses_compact_suggestion_choice(fact)
+    primary = [
+        option
+        for option in _PRIMARY_CLASSIFICATION_CHOICES.get(fact.field_path, ())
+        if option in spec.allowed
+    ]
+    if not primary:
+        primary = sorted(spec.allowed)[:7]
+    if compact_suggestion and raw_value in spec.allowed:
+        primary = [raw_value, *(option for option in primary if option != raw_value)]
+    secondary = sorted(set(spec.allowed) - set(primary))
+
+    def option_markup(option):
+        option_slug = re.sub(r"[^a-z0-9]+", "-", option).strip("-")
+        option_id = f"fact-{index}-{option_slug}"
         option_label = option.replace("_", " ").title()
         description = _CLASSIFICATION_DESCRIPTIONS.get(
             option,
             f"Use the {_safe_text(option_label)} classification.",
         )
-        choices.append(
+        is_checked = option == raw_value and (
+            not compact_suggestion or fact.decision == "accept"
+        )
+        suggestion_badge = (
+            "<span class='suggestion-tag'>Suggested</span>"
+            if compact_suggestion and option == raw_value
+            else ""
+        )
+        return (
             f"<label class='choice-card' for='{_safe_text(option_id)}'>"
             f"<input id='{_safe_text(option_id)}' type='radio' name='fact_{index}_value' "
-            f"value='{_safe_text(option)}'{' checked' if option == raw_value else ''}>"
-            f"<span><strong>{_safe_text(option_label)}</strong><small>{_safe_text(description)}</small></span></label>"
+            f"value='{_safe_text(option)}'{' checked' if is_checked else ''}{' required' if compact_suggestion else ''}>"
+            f"<span><strong>{_safe_text(option_label)}</strong>{suggestion_badge}<small>{_safe_text(description)}</small></span></label>"
         )
+
+    primary_choices = "".join(option_markup(option) for option in primary)
+    secondary_choices = "".join(option_markup(option) for option in secondary)
+    skip_choice = ""
+    if compact_suggestion:
+        skip_choice = (
+            f"<label class='choice-card classification-skip' for='fact-{index}-leave-out'>"
+            f"<input id='fact-{index}-leave-out' type='radio' name='fact_{index}_value' "
+            f"value='{_SKIP_SUGGESTION_VALUE}'{' checked' if fact.decision == 'reject' else ''} required>"
+            "<span><strong>Leave this suggestion out</strong><small>Do not add a classification for this item.</small></span></label>"
+        )
+    more_choices = (
+        "<details class='choice-more classification-more'><summary>More classifications "
+        f"<span>({len(secondary)})</span></summary><div class='choice-grid'>{secondary_choices}</div></details>"
+        if secondary
+        else ""
+    )
+    instruction = (
+        "Choose one to add it to your profile, or leave the suggestion out."
+        if compact_suggestion
+        else "Choose the classification that fits best."
+    )
     return (
-        f"<fieldset class='choice-fieldset'><legend>{_safe_text(label)}</legend>"
-        "<p class='selection-hint'>Choose one</p>"
-        f"<div class='choice-grid'>{''.join(choices)}</div>"
-        "</fieldset>"
+        f"<fieldset class='choice-fieldset classification-fieldset'><legend>{_safe_text(label)}</legend>"
+        f"<p class='muted classification-help'>{_safe_text(instruction)}</p>"
+        f"<div class='choice-grid'>{primary_choices}{skip_choice}</div>"
+        f"{more_choices}</fieldset>"
     )
 
 
 def _render_preference_controls(model):
     canonical = canonicalize_profile_preferences_v1(model)
     catalog = profile_preference_control_catalog_v1()
-    sections = []
+    immediate_sections = []
+    secondary_sections = []
+    secondary_selected_count = 0
     for dimension in catalog["dimensions"]:
         parent = canonical
         for part in dimension["path"]:
             parent = parent[part]
         selected = set(parent)
-        choices = []
-        definitions = []
-        for choice in dimension["choices"]:
+        choice_by_code = {choice["code"]: choice for choice in dimension["choices"]}
+        ordered_choices = tuple(dimension["choices"])
+        visible_choices = ordered_choices
+        more_choices = ()
+        if dimension["id"] == "job_interests":
+            visible_codes = [
+                code for code in _COMMON_JOB_INTEREST_CODES if code in choice_by_code
+            ]
+            visible_codes.extend(
+                choice["code"]
+                for choice in ordered_choices
+                if choice["code"] in selected and choice["code"] not in visible_codes
+            )
+            visible_choices = tuple(choice_by_code[code] for code in visible_codes)
+            visible_code_set = set(visible_codes)
+            more_choices = tuple(
+                choice
+                for choice in ordered_choices
+                if choice["code"] not in visible_code_set
+            )
+
+        def choice_markup(choice):
             field_name = _preference_choice_field(
                 dimension["path"], choice["code"]
             )
             choice_id = field_name.replace("_", "-")
-            choices.append(
+            return (
                 f"<label class='choice-card' for='{choice_id}'>"
                 f"<input id='{choice_id}' type='checkbox' name='{field_name}' value='selected'"
                 f"{' checked' if choice['code'] in selected else ''}>"
                 f"<span>{_safe_text(choice['label'])}</span></label>"
             )
+
+        definitions = []
+        for choice in ordered_choices:
             definitions.append(
                 f"<div><dt>{_safe_text(choice['label'])}</dt>"
                 f"<dd>{_safe_text(choice['description'])}</dd></div>"
             )
-        help_id = "preference-help-" + dimension["id"].replace(".", "-").replace("_", "-")
-        sections.append(
-            f"<fieldset class='preference-group' aria-describedby='{help_id}'>"
+        help_id = (
+            "preference-help-"
+            + dimension["id"].replace(".", "-").replace("_", "-")
+        )
+        selected_labels = [
+            choice["label"] for choice in ordered_choices if choice["code"] in selected
+        ]
+        compact_selected_labels = selected_labels[:4]
+        if len(selected_labels) > 4:
+            compact_selected_labels.append(f"+{len(selected_labels) - 4} more")
+        selection_summary = (
+            "<p class='selection-summary'><strong>Selected:</strong> "
+            f"{_safe_text(', '.join(compact_selected_labels))}</p>"
+            if selected_labels
+            else ""
+        )
+        more_markup = (
+            "<details class='choice-more job-interest-more'><summary>More job areas "
+            f"<span>({len(more_choices)})</span>"
+            "<span class='choice-more-selected'>Selections made</span></summary>"
+            f"<div class='choice-grid'>{''.join(choice_markup(choice) for choice in more_choices)}</div></details>"
+            if more_choices
+            else ""
+        )
+        section = (
+            f"<fieldset class='preference-group{' job-interest-group' if dimension['id'] == 'job_interests' else ''}' aria-describedby='{help_id}'>"
             f"<legend>{_safe_text(dimension['title'])}</legend><span class='selection-hint'>Choose all that apply</span>"
-            f"<p class='muted' id='{help_id}'>{_safe_text(dimension['help'])} Leave every option blank if you are open to all.</p>"
-            f"<div class='choice-grid'>{''.join(choices)}</div>"
-            f"<details><summary>Understand these choices</summary>"
+            f"<p class='muted' id='{help_id}'>{_safe_text(dimension['help'])}</p>"
+            f"{selection_summary}<div class='choice-grid'>{''.join(choice_markup(choice) for choice in visible_choices)}</div>"
+            f"{more_markup}<details class='choice-definitions-disclosure'><summary>What do these choices mean?</summary>"
             f"<dl class='choice-definitions'>{''.join(definitions)}</dl></details></fieldset>"
         )
+        if dimension["id"] in _IMMEDIATE_PREFERENCE_DIMENSIONS:
+            immediate_sections.append(section)
+        else:
+            secondary_sections.append(section)
+            secondary_selected_count += len(selected)
 
     compensation = canonical["compensation"]
     kind_choices = []
@@ -1087,31 +1291,50 @@ def _render_preference_controls(model):
             f"value='{choice['code']}'{' checked' if choice['code'] == compensation['minimum_kind'] else ''}>"
             f"<span><strong>{_safe_text(choice['label'])}</strong><small>{_safe_text(choice['description'])}</small></span></label>"
         )
-    currency_options = ["<option value=''>Choose currency</option>"]
-    for currency in catalog["compensation"]["currencies"]:
-        currency_options.append(
+    currencies = tuple(catalog["compensation"]["currencies"])
+    common_currencies = tuple(
+        currency for currency in _COMMON_CURRENCIES if currency in currencies
+    )
+    common_currency_set = set(common_currencies)
+    other_currencies = tuple(
+        currency for currency in currencies if currency not in common_currency_set
+    )
+
+    def options_for_currencies(values):
+        return "".join(
             f"<option value='{currency}'{' selected' if currency == compensation['currency'] else ''}>{currency}</option>"
+            for currency in values
         )
+
+    currency_control = (
+        "<option value=''>Choose currency</option>"
+        f"<optgroup label='Common currencies'>{options_for_currencies(common_currencies)}</optgroup>"
+        f"<optgroup label='All other currencies'>{options_for_currencies(other_currencies)}</optgroup>"
+    )
     period_options = ["<option value=''>Choose period</option>"]
     for period in catalog["compensation"]["periods"]:
         period_options.append(
             f"<option value='{period['code']}'{' selected' if period['code'] == compensation['period'] else ''}>{_safe_text(period['label'])}</option>"
         )
-    sections.append(
+    compensation_section = (
         "<fieldset class='preference-group compensation-group'><legend>Expected compensation</legend>"
-        "<p class='muted'>Set a minimum only if you have one. Amounts use the currency and time period you choose, with no automatic conversion.</p>"
+        "<p class='muted'>Set a minimum only if you have one. Choose how firm it is, then add the amount, currency, and time period.</p>"
         f"<div class='choice-grid'>{''.join(kind_choices)}</div>"
-        "<div class='compensation-guide' aria-label='Preferred and strict minimum explained'>"
-        "<p><strong>Preferred minimum</strong><span>Your target. You may choose to relax it to see more opportunities.</span></p>"
-        "<p><strong>Strict minimum</strong><span>Your firm floor. It will not be presented as something to relax.</span></p>"
-        "</div>"
         "<div class='review-grid'>"
         f"<label class='review-field'>Amount<input name='preference_compensation_amount' inputmode='decimal' pattern='[0-9]{{1,18}}(?:\\.[0-9]{{1,2}})?' value='{_safe_text(compensation['amount'] or '')}' maxlength='21'></label>"
-        f"<label class='review-field'>Currency<select name='preference_compensation_currency'>{''.join(currency_options)}</select></label>"
+        f"<label class='review-field'>Currency<select name='preference_compensation_currency'>{currency_control}</select><small class='field-help'>Common currencies appear first. Type letters to jump through the full list.</small></label>"
         f"<label class='review-field'>Period<select name='preference_compensation_period'>{''.join(period_options)}</select></label>"
         "</div></fieldset>"
     )
-    return "".join(sections)
+    secondary_disclosure = (
+        f"<details class='preference-disclosure more-preference-disclosure'{' open' if secondary_selected_count else ''}>"
+        "<summary><span>More work preferences"
+        "<small class='disclosure-selection-state'>Selections made — open to review</small>"
+        "<small class='disclosure-empty-state'>Schedule, contract length, phone or voice work, and career level</small>"
+        "</span></summary>"
+        f"<div class='disclosure-body'>{''.join(secondary_sections)}</div></details>"
+    )
+    return "".join((*immediate_sections, compensation_section, secondary_disclosure))
 
 
 def _review_source_label(fact):

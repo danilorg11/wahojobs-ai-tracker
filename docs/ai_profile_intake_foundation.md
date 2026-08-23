@@ -445,7 +445,7 @@ draft is released where practical, while correctness never depends on cleanup
 because the durable lease is independently reclaimable. Process loss creates
 no durable draft recovery and cannot consume the entitlement.
 
-The review form's final action is **Save profile and find matches**. It uses a
+The review form's final action is **Find my matches**. It uses a
 save-specific CSRF proof, same-origin enforcement, the opaque draft handle, and
 the exact optimistic review version. All facts, suggestions, conflicts, and
 user-only inputs are revalidated server-side. Suggestions initially remain
@@ -456,15 +456,32 @@ path. Browser fields cannot choose account, environment, principal, ownership
 lineage, attempt, reservation, entitlement, profile/revision/source IDs, or
 matcher signals.
 
-The review is presented in four practical steps: document-supported facts,
-suggestions requiring confirmation, structured job preferences, and final
-review/save. Closed classification suggestions show all allowed values and
-click/keyboard-operated definitions. The preference controls are generated
-from `profile_preferences_v1`; accepted-choice dimensions use checkboxes while
-compensation uses explicit minimum strength, amount, ISO currency, and
-hour/month/year period. Hover is not required for help. Legacy preference
-fields are not browser inputs: the server derives their current-matcher mirror
-from the authoritative model and the durable writer rejects divergence.
+The review is presented in four practical steps: facts found in the uploaded
+documents, suggestions requiring confirmation, structured job preferences,
+and final review/save. A suggested single-choice classification is confirmed by
+choosing its value; a separate choice leaves it out. The suggested and common
+values appear first, while every remaining authoritative value stays available
+through a keyboard/touch-operated disclosure. The underlying classification
+contract is unchanged.
+
+Preference controls continue to come from `profile_preferences_v1` and retain
+their independent multi-select semantics. Employment relationship, workload,
+common job areas, and compensation appear first. Secondary schedule, term,
+phone/voice, and target-level choices use a native **More work preferences**
+disclosure that opens automatically when it contains selections. Job interests
+show a compact common set, promote any selected areas into view, and retain the
+rest under **More job areas**. Candidate-only location, authorization, and
+constraint inputs use plain-language labels in a separate optional disclosure.
+One page-level note explains that a blank group is unrestricted instead of
+repeating that instruction for every dimension.
+
+Compensation still uses explicit minimum strength, amount, ISO currency, and
+hour/month/year period. The complete closed currency taxonomy remains present,
+with common currencies grouped first so native select keyboard search and
+mobile pickers reach them quickly. Hover is not required for help. Legacy
+preference fields are not browser inputs: the server derives their
+current-matcher mirror from the authoritative model and the durable writer
+rejects divergence.
 
 Upload remains synchronous. A CSP-hashed, content-free enhancement immediately
 shows a **Building your profile** status after a valid document submission and

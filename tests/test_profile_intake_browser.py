@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
+import re
 import sqlite3
 import socket
 import tempfile
@@ -34,6 +35,7 @@ from wahojobs.profile_intake.browser import (
     MAX_MULTIPART_BODY_BYTES,
     ProfileIntakeBrowserIntegration,
     _CLASSIFICATION_DESCRIPTIONS,
+    _SKIP_SUGGESTION_VALUE,
     _preference_form_values_for_model,
 )
 from wahojobs.profile_intake.contracts import (
@@ -54,7 +56,11 @@ from wahojobs.profile_intake.runtime import (
     profile_intake_csrf_proof,
     review_value_for_form,
 )
-from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+from wahojobs.profiles.preference_model import (
+    ISO_4217_CURRENCIES,
+    empty_profile_preferences_v1,
+    profile_preference_control_catalog_v1,
+)
 
 
 PUBLIC_ORIGIN = "https://localhost:8443"
@@ -411,6 +417,149 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             with self.subTest(field_path=field_path):
                 self.assertLessEqual(spec.allowed, set(_CLASSIFICATION_DESCRIPTIONS))
 
+    def test_classification_choice_confirms_or_leaves_out_without_contract_change(self):
+        response = self._upload(
+            _docx_bytes(paragraphs=("Synthetic Senior Software Engineer",))
+        )
+        reference = self._reference(response)
+        target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        index = next(
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.field_path == "experience.seniority"
+        )
+        fact = snapshot.review.facts[index]
+        self.assertTrue(fact.suggested)
+        self.assertEqual(fact.decision, "pending")
+
+        page = self.integration.handle("GET", target, self._headers(origin=False))
+        self.assertEqual(page.status, 200)
+        self.assertIn(
+            f"type='hidden' name='fact_{index}_decision' value='accept'".encode(),
+            page.body,
+        )
+        self.assertNotIn(
+            f"<select name='fact_{index}_decision'>".encode(), page.body
+        )
+        self.assertIn(b"Leave this suggestion out", page.body)
+        self.assertIn(b"More classifications", page.body)
+        self.assertIn(b"class='suggestion-tag'>Suggested", page.body)
+        for allowed_value in _FIELD_SPECS["experience.seniority"].allowed:
+            self.assertEqual(
+                page.body.count(
+                    f"name='fact_{index}_value' value='{allowed_value}'".encode(
+                        "ascii"
+                    )
+                ),
+                1,
+            )
+
+        def submission(current, *, value, decision):
+            form = {
+                "action": "update",
+                "version": str(current.version),
+                "csrf": profile_intake_csrf_proof(
+                    self.session["csrf_secret"],
+                    "update",
+                    draft_reference=reference,
+                    version=current.version,
+                ),
+            }
+            for fact_index, current_fact in enumerate(current.review.facts):
+                form[f"fact_{fact_index}_value"] = (
+                    value
+                    if fact_index == index
+                    else review_value_for_form(current_fact.value)
+                )
+                form[f"fact_{fact_index}_decision"] = (
+                    decision
+                    if fact_index == index
+                    else ("keep" if not current_fact.suggested else "accept")
+                )
+            for name in current.review.missing_user_fields:
+                form["missing_" + name] = dict(current.review.user_inputs).get(
+                    name, ""
+                )
+            form.update(
+                _preference_form_values_for_model(
+                    current.review.preference_model
+                )
+            )
+            body = urlencode(form).encode()
+            return self.integration.handle(
+                "POST",
+                target,
+                self._headers(
+                    content_type="application/x-www-form-urlencoded",
+                    content_length=len(body),
+                ),
+                BytesIO(body),
+            )
+
+        accepted = submission(snapshot, value="lead", decision="accept")
+        self.assertEqual(accepted.status, 303)
+        accepted_snapshot = self.integration._processing.vault.get(
+            reference, self._grant()
+        )
+        self.assertEqual(accepted_snapshot.review.facts[index].value, "lead")
+        self.assertEqual(accepted_snapshot.review.facts[index].decision, "accept")
+
+        left_out = submission(
+            accepted_snapshot,
+            value=_SKIP_SUGGESTION_VALUE,
+            decision="accept",
+        )
+        self.assertEqual(left_out.status, 303)
+        rejected_snapshot = self.integration._processing.vault.get(
+            reference, self._grant()
+        )
+        self.assertEqual(rejected_snapshot.review.facts[index].value, "lead")
+        self.assertEqual(rejected_snapshot.review.facts[index].decision, "reject")
+
+        explicit_index = next(
+            fact_index
+            for fact_index, current_fact in enumerate(rejected_snapshot.review.facts)
+            if not current_fact.suggested
+        )
+        invalid_form = {
+            "action": "update",
+            "version": str(rejected_snapshot.version),
+            "csrf": profile_intake_csrf_proof(
+                self.session["csrf_secret"],
+                "update",
+                draft_reference=reference,
+                version=rejected_snapshot.version,
+            ),
+        }
+        for fact_index, current_fact in enumerate(rejected_snapshot.review.facts):
+            invalid_form[f"fact_{fact_index}_value"] = (
+                _SKIP_SUGGESTION_VALUE
+                if fact_index == explicit_index
+                else review_value_for_form(current_fact.value)
+            )
+            invalid_form[f"fact_{fact_index}_decision"] = current_fact.decision
+        for name in rejected_snapshot.review.missing_user_fields:
+            invalid_form["missing_" + name] = dict(
+                rejected_snapshot.review.user_inputs
+            ).get(name, "")
+        invalid_form.update(
+            _preference_form_values_for_model(
+                rejected_snapshot.review.preference_model
+            )
+        )
+        invalid_body = urlencode(invalid_form).encode()
+        invalid = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(invalid_body),
+            ),
+            BytesIO(invalid_body),
+        )
+        self.assertEqual(invalid.status, 400)
+
     def test_oversized_content_length_is_rejected_before_body_read(self):
         headers = self._headers(
             content_type="multipart/form-data; boundary=x",
@@ -630,9 +779,9 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         review_target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
         page = self.integration.handle("GET", review_target, self._headers(origin=False))
         self.assertEqual(page.status, 200)
-        self.assertIn(b"Document-supported prefill", page.body)
+        self.assertIn(b"Found in your resume", page.body)
         self.assertIn(b"Confirm our suggestions", page.body)
-        self.assertIn(b"Information you still need to provide", page.body)
+        self.assertIn(b"A few details only you can answer", page.body)
         self.assertIn(b"aria-label='Profile review steps'", page.body)
         self.assertIn(b"href='#review-found'", page.body)
         self.assertIn(b"href='#review-suggestions'", page.body)
@@ -642,8 +791,10 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"aria-labelledby='review-suggestions-title'", page.body)
         self.assertIn(b"aria-labelledby='review-preferences-title'", page.body)
         self.assertIn(b"aria-labelledby='review-finish-title'", page.body)
-        self.assertIn(b"Use this suggestion?", page.body)
-        self.assertIn(b"Keep this detail?", page.body)
+        self.assertIn(b"Leave this suggestion out", page.body)
+        self.assertIn(b"Include this in your profile?", page.body)
+        self.assertNotIn(b"Use this suggestion?", page.body)
+        self.assertNotIn(b"Document-supported prefill", page.body)
         self.assertNotIn(b"matcher decisions", page.body)
         self.assertNotIn(b"confidence", page.body.lower())
         self.assertNotIn(b"Save profile", page.body)
@@ -718,20 +869,60 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"What are you looking for?", page.body)
         self.assertIn(b"type='checkbox'", page.body)
         self.assertIn(b"type='radio'", page.body)
-        self.assertIn(b"<details><summary>", page.body)
+        self.assertIn(b"class='preference-disclosure", page.body)
+        self.assertIn(b"class='choice-definitions-disclosure'", page.body)
         self.assertIn(b"aria-describedby=", page.body)
         self.assertIn(b"Choose all that apply", page.body)
         self.assertIn(b"Each group is separate", page.body)
+        self.assertIn(b"Leave a group blank", page.body)
+        self.assertNotIn(b"Leave every option blank", page.body)
+        self.assertIn(b"More work preferences", page.body)
+        self.assertIn(b"More job areas <span>(16)</span>", page.body)
+        self.assertIn(b"A few details only you can answer", page.body)
         self.assertIn(b"Independent contractor / freelance", page.body)
         self.assertIn(b"Preferred minimum", page.body)
         self.assertIn(b"Strict minimum", page.body)
-        self.assertIn(
-            b"aria-label='Preferred and strict minimum explained'", page.body
-        )
+        self.assertNotIn(b"compensation-guide", page.body)
+        self.assertEqual(page.body.count(b"Your target. You may choose to lower it"), 1)
+        self.assertEqual(page.body.count(b"Your firm floor. Wahojobs will not suggest"), 1)
+        self.assertIn(b"class='choice-more-selected'>Selections made", page.body)
+        self.assertIn(b"class='disclosure-selection-state'>Selections made", page.body)
+        self.assertIn(b".job-interest-group > .choice-grid", page.body)
         self.assertIn(b":has(input:checked)", page.body)
         self.assertIn(b"summary:focus-visible", page.body)
+        self.assertIn(b"optgroup label='Common currencies'", page.body)
+        self.assertIn(b"optgroup label='All other currencies'", page.body)
+        rendered_currencies = {
+            item.decode("ascii")
+            for item in re.findall(rb"<option value='([A-Z]{3})'", page.body)
+        }
+        self.assertEqual(rendered_currencies, ISO_4217_CURRENCIES)
+        self.assertEqual(
+            len(re.findall(rb"<option value='[A-Z]{3}'", page.body)),
+            len(ISO_4217_CURRENCIES),
+        )
+        catalog = profile_preference_control_catalog_v1()
+        for dimension in catalog["dimensions"]:
+            for choice in dimension["choices"]:
+                field_name = (
+                    "preference_"
+                    + "_".join((*dimension["path"], choice["code"]))
+                )
+                self.assertIn(f"name='{field_name}'".encode("ascii"), page.body)
         self.assertNotIn(b"missing_employment_types", page.body)
         self.assertNotIn(b"onmouseover", page.body.lower())
+        for technical_label in (
+            b"Eligible Countries",
+            b"Geographic Restrictions",
+            b"Hard Constraints",
+            b"Soft Preferences",
+            b"Avoid Keywords",
+            b"non-relaxable",
+            b"non-comparable",
+        ):
+            self.assertNotIn(technical_label.lower(), page.body.lower())
+        self.assertIn(b"Where can you work?", page.body)
+        self.assertIn(b"Anything you cannot do?", page.body)
 
         snapshot = self.integration._processing.vault.get(reference, self._grant())
         model = empty_profile_preferences_v1()
@@ -793,6 +984,16 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
                 "period": "month",
             },
         )
+        refreshed = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(refreshed.status, 200)
+        self.assertIn(b"<strong>Selected:</strong> Employee, Independent contractor / freelance", refreshed.body)
+        self.assertIn(
+            b"class='preference-disclosure more-preference-disclosure' open",
+            refreshed.body,
+        )
+        self.assertIn("Selections made — open to review".encode("utf-8"), refreshed.body)
 
         stale_form = dict(form)
         stale_form["version"] = str(saved.version)

@@ -135,6 +135,7 @@ _CONTROL_COPY = {
 }
 
 _CHOICE_LABELS = {
+    "accounting_finance": "Accounting & finance",
     "employee": "Employee",
     "independent_contractor": "Independent contractor / freelance",
     "full_time": "Full-time",
@@ -144,6 +145,10 @@ _CHOICE_LABELS = {
     "business_hours": "Business hours",
     "quality_assurance": "Quality assurance",
     "ai_training": "AI training",
+    "sales_marketing": "Sales & marketing",
+    "science_research": "Science & research",
+    "translation_localization": "Translation & localization",
+    "writing_editing": "Writing & editing",
 }
 
 _CHOICE_DESCRIPTIONS = {
@@ -177,15 +182,15 @@ _CHOICE_DESCRIPTIONS = {
 _COMPENSATION_KIND_COPY = {
     "none": (
         "No minimum",
-        "Compensation does not set a minimum for matching.",
+        "Do not use pay as a limit.",
     ),
     "preferred": (
         "Preferred minimum",
-        "A soft preference that may later be shown as relaxable.",
+        "Your target. You may choose to lower it later to see more opportunities.",
     ),
     "strict": (
         "Strict minimum",
-        "A non-relaxable minimum; undisclosed or non-comparable pay cannot prove it.",
+        "Your firm floor. Wahojobs will not suggest lowering it.",
     ),
 }
 _LEGACY_PREFERENCE_FIELDS = frozenset(
