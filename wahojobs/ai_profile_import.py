@@ -39,12 +39,14 @@ from wahojobs.persistent_profiles_repository import (
 from wahojobs.profile_intake.contracts import DocumentKind, LanguageValue, ProfileIntakeError
 from wahojobs.profile_intake.review_draft import REVIEW_DRAFT_SCHEMA_VERSION
 from wahojobs.profile_intake.runtime import (
+    PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
     PROFILE_INTAKE_PURPOSE,
     EditableProfileReview,
     SafeDocumentBundleMetadata,
     SafeModelDiagnostics,
     TrustedProfileIntakeGrant,
     hydrate_profile_intake_checkpoint,
+    profile_intake_checkpoint_review_step,
     review_value_for_form,
     serialize_profile_intake_checkpoint,
     update_editable_review,
@@ -359,6 +361,7 @@ class AIProfileIntakeCheckpointResult:
     reservation: AIProfileImportReservationAuthority
     review: EditableProfileReview = field(repr=False)
     source_metadata: AIProfileImportSourceMetadata = field(repr=False)
+    review_step: str
     replayed_reservation: bool
 
     def __repr__(self):
@@ -679,6 +682,7 @@ class AIProfileImportService:
                 reserved.authority,
                 review,
                 source_metadata,
+                PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
                 reserved.replayed,
             )
 
@@ -710,7 +714,7 @@ class AIProfileImportService:
                 )
                 outcome = AIProfileImportError("checkpoint_expired")
                 return
-            review, source_metadata = _validated_checkpoint_content(row)
+            review, source_metadata, review_step = _validated_checkpoint_content(row)
             _require_profile_absent(connection, authority)
             generation = row[6]
             version = row[2]
@@ -745,6 +749,7 @@ class AIProfileImportService:
                 reserved.authority,
                 review,
                 source_metadata,
+                review_step,
                 reserved.replayed,
             )
 
@@ -753,7 +758,16 @@ class AIProfileImportService:
             raise outcome
         return outcome
 
-    def update_checkpoint(self, connection, grant, checkpoint, review, *, now):
+    def update_checkpoint(
+        self,
+        connection,
+        grant,
+        checkpoint,
+        review,
+        *,
+        review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+        now,
+    ):
         """Optimistically save one validated review change and refresh seven days."""
 
         if (
@@ -763,7 +777,10 @@ class AIProfileImportService:
         ):
             raise AIProfileImportError("invalid_request")
         try:
-            payload_json = serialize_profile_intake_checkpoint(review)
+            payload_json = serialize_profile_intake_checkpoint(
+                review,
+                review_step=review_step,
+            )
         except ProfileIntakeError:
             raise AIProfileImportError("content_rejected") from None
         now = _trusted_time(now)
@@ -777,7 +794,7 @@ class AIProfileImportService:
             _require_checkpoint_match(row, authority, expected_version=checkpoint.row_version)
             if row[7] <= canonical_utc_timestamp(now):
                 raise AIProfileImportError("checkpoint_expired")
-            _stored_review, source_metadata = _validated_checkpoint_content(row)
+            _stored_review, source_metadata, _stored_step = _validated_checkpoint_content(row)
             if tuple(source.document_kind.value for source in review.sources) != source_metadata.origins:
                 raise AIProfileImportError("checkpoint_tampered")
             if hmac.compare_digest(row[3], payload_json):
@@ -1589,6 +1606,7 @@ def _validated_checkpoint_content(row):
             json.loads(row[5])
         )
         review = hydrate_profile_intake_checkpoint(row[3])
+        review_step = profile_intake_checkpoint_review_step(row[3])
     except (
         AIProfileImportError,
         ProfileIntakeError,
@@ -1607,7 +1625,7 @@ def _validated_checkpoint_content(row):
         != source_metadata.origins
     ):
         raise AIProfileImportError("checkpoint_tampered")
-    return review, source_metadata
+    return review, source_metadata, review_step
 
 
 def _require_checkpoint_match(row, authority, *, expected_version):

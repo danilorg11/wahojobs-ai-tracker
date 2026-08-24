@@ -391,7 +391,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"Create it manually instead", response.body)
         self.assertIn(b"LinkedIn profile PDF", response.body)
         self.assertIn(b"Building your profile", response.body)
-        self.assertIn(b"Nothing is saved before you review and confirm it", response.body)
+        self.assertIn(b"No profile is created before you review and confirm it", response.body)
         self.assertIn(b"role='status'", response.body)
         self.assertIn(b"aria-live='polite'", response.body)
         self.assertIn(b"aria-atomic='true'", response.body)
@@ -773,6 +773,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             names,
             {
                 "review",
+                "review_step",
                 "document",
                 "diagnostics",
                 "created_at",

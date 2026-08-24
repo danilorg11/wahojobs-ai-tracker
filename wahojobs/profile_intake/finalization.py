@@ -25,6 +25,7 @@ from wahojobs.ai_profile_import import (
 from wahojobs.profile_intake.contracts import ProfileIntakeError
 from wahojobs.profile_intake.runtime import (
     EditableProfileReview,
+    PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
     SafeDocumentBundleMetadata,
     SafeModelDiagnostics,
     TrustedProfileIntakeGrant,
@@ -244,13 +245,24 @@ class ProfileIntakeFinalizationService:
                 result.source_metadata,
                 result.checkpoint,
             )
-            return result.review, bound
+            review_seconds = (
+                AI_PROFILE_IMPORT_RESERVATION_GENERATION_MAX.total_seconds()
+                - RESERVATION_SAFETY_MARGIN_SECONDS
+            )
+            return result.review, bound, review_seconds, result.review_step
         except AIProfileImportError as exc:
             raise ProfileIntakeError(_browser_code(exc.code)) from None
         except (sqlite3.Error, TypeError, ValueError):
             raise ProfileIntakeError("durable_intake_unavailable") from None
 
-    def save_checkpoint(self, grant, bound, review):
+    def save_checkpoint(
+        self,
+        grant,
+        bound,
+        review,
+        *,
+        review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+    ):
         _require_bound(grant, bound)
         if type(review) is not EditableProfileReview:
             raise ProfileIntakeError("invalid_review_submission")
@@ -261,6 +273,7 @@ class ProfileIntakeFinalizationService:
                     grant,
                     bound.checkpoint_for_service(),
                     review,
+                    review_step=review_step,
                     now=_clock(self._clock),
                 )
             return BoundAIProfileImportAuthority._issue(
@@ -281,6 +294,23 @@ class ProfileIntakeFinalizationService:
                     connection,
                     grant,
                     bound.checkpoint_for_service(),
+                    now=_clock(self._clock),
+                )
+        except AIProfileImportError as exc:
+            raise ProfileIntakeError(_browser_code(exc.code)) from None
+        except (sqlite3.Error, TypeError, ValueError):
+            raise ProfileIntakeError("durable_intake_unavailable") from None
+
+    def discard_saved_checkpoint(self, grant, checkpoint):
+        _require_grant(grant)
+        if type(checkpoint) is not AIProfileIntakeCheckpointAuthority:
+            raise ProfileIntakeError("invalid_durable_intake_authority")
+        try:
+            with self._write_connection_provider() as connection:
+                return self._service.discard_checkpoint(
+                    connection,
+                    grant,
+                    checkpoint,
                     now=_clock(self._clock),
                 )
         except AIProfileImportError as exc:

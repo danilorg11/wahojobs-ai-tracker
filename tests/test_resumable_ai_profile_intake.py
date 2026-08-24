@@ -32,7 +32,10 @@ from wahojobs.ai_profile_import import (
 from wahojobs.persistent_profiles_repository import PersistentProfileRepository
 from wahojobs.profile_intake.contracts import ProfileIntakeError
 from wahojobs.profile_intake.runtime import (
+    PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+    PROFILE_INTAKE_REVIEW_STEPS,
     hydrate_profile_intake_checkpoint,
+    profile_intake_checkpoint_review_step,
     serialize_profile_intake_checkpoint,
 )
 
@@ -83,6 +86,10 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
             serialize_profile_intake_checkpoint(hydrated), row[0]
         )
         self.assertEqual((row[3], row[4]), (1, 1))
+        self.assertEqual(
+            json.loads(row[0])["review_step"],
+            PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+        )
         self.assertEqual(row[5], (NOW + timedelta(days=7)).isoformat(timespec="seconds"))
         retained = row[0].casefold()
         for forbidden in (
@@ -97,6 +104,74 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, retained)
         self.assertEqual(created.checkpoint.row_version, 1)
+
+    def test_review_step_hint_is_closed_backward_compatible_and_non_semantic(self):
+        baseline = serialize_profile_intake_checkpoint(self.review)
+        baseline_payload = json.loads(baseline)
+        for step in PROFILE_INTAKE_REVIEW_STEPS:
+            payload = serialize_profile_intake_checkpoint(
+                self.review,
+                review_step=step,
+            )
+            self.assertEqual(profile_intake_checkpoint_review_step(payload), step)
+            self.assertEqual(hydrate_profile_intake_checkpoint(payload), self.review)
+            semantic_payload = json.loads(payload)
+            semantic_payload.pop("review_step")
+            expected = dict(baseline_payload)
+            expected.pop("review_step")
+            self.assertEqual(semantic_payload, expected)
+
+        legacy_payload = dict(baseline_payload)
+        legacy_payload.pop("review_step")
+        legacy = json.dumps(
+            legacy_payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.assertEqual(
+            profile_intake_checkpoint_review_step(legacy),
+            PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+        )
+        invalid_payload = dict(baseline_payload)
+        invalid_payload["review_step"] = "https://example.invalid/arbitrary-route"
+        invalid = json.dumps(
+            invalid_payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.assertEqual(
+            profile_intake_checkpoint_review_step(invalid),
+            PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+        )
+        self.assertEqual(hydrate_profile_intake_checkpoint(invalid), self.review)
+
+    def test_every_valid_review_step_round_trips_through_resume(self):
+        created = self.create()
+        authority = created.checkpoint
+        current_step = PROFILE_INTAKE_DEFAULT_REVIEW_STEP
+        for index, step in enumerate(PROFILE_INTAKE_REVIEW_STEPS):
+            if step != current_step:
+                authority = self.service.update_checkpoint(
+                    self.connection,
+                    self.grant,
+                    authority,
+                    self.review,
+                    review_step=step,
+                    now=NOW + timedelta(seconds=index),
+                )
+                current_step = step
+            resumed = self.service.resume_checkpoint(
+                self.connection,
+                self.grant,
+                authority.checkpoint_id,
+                expected_version=authority.row_version,
+                now=NOW + timedelta(seconds=index),
+            )
+            self.assertEqual(resumed.review_step, step)
+            self.assertEqual(resumed.review, self.review)
+            authority = resumed.checkpoint
 
     def test_contact_pii_is_rejected_instead_of_transformed_or_stored(self):
         changed = replace(
@@ -249,6 +324,14 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
 
     def test_process_restart_and_cross_session_resume_use_no_extraction(self):
         created = self.create()
+        stepped = self.service.update_checkpoint(
+            self.connection,
+            self.grant,
+            created.checkpoint,
+            self.review,
+            review_step="review-preferences",
+            now=NOW + timedelta(seconds=1),
+        )
         session = accounts.create_session(
             self.connection,
             user_id=self.session["account_id"],
@@ -291,9 +374,10 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
                 expected_version=summary.checkpoint.row_version,
                 now=NOW + timedelta(minutes=1),
             )
-        self.assertEqual(resumed.checkpoint.row_version, 1)
+        self.assertEqual(resumed.checkpoint.row_version, stepped.row_version)
         self.assertEqual(resumed.checkpoint.reservation_generation, 1)
         self.assertTrue(resumed.replayed_reservation)
+        self.assertEqual(resumed.review_step, "review-preferences")
         self.assertEqual(
             serialize_profile_intake_checkpoint(resumed.review),
             serialize_profile_intake_checkpoint(self.review),

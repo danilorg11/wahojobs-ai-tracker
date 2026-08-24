@@ -82,9 +82,27 @@ MAX_REVIEW_VALUE_CHARS = 512
 MAX_REVIEW_USER_INPUT_CHARS = 512
 PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION = "profile_intake_checkpoint_v1"
 PROFILE_INTAKE_CHECKPOINT_MAX_BYTES = 65_536
+PROFILE_INTAKE_REVIEW_STEPS = (
+    "review-found",
+    "review-suggestions",
+    "review-preferences",
+    "review-finish",
+)
+PROFILE_INTAKE_DEFAULT_REVIEW_STEP = PROFILE_INTAKE_REVIEW_STEPS[0]
 
 _OPAQUE_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
-_ACTIONS = frozenset({"upload", "update", "renew", "cancel", "save"})
+_ACTIONS = frozenset(
+    {
+        "upload",
+        "continue",
+        "discard_saved",
+        "update",
+        "autosave",
+        "renew",
+        "cancel",
+        "save",
+    }
+)
 _REQUEST_ROUTES = frozenset({PROFILE_INTAKE_ROUTE, PROFILE_INTAKE_REVIEW_ROUTE})
 _GRANT_ISSUER = object()
 _TYPED_PREFERENCE_REPLACED_USER_FIELDS = frozenset(
@@ -104,6 +122,16 @@ _TYPED_PREFERENCE_REPLACED_USER_FIELDS = frozenset(
 
 def _configuration_error():
     return ValueError("invalid_profile_intake_runtime_configuration")
+
+
+def normalize_profile_intake_review_step(value):
+    """Return the closed presentation hint, defaulting away invalid input."""
+
+    return (
+        value
+        if type(value) is str and value in PROFILE_INTAKE_REVIEW_STEPS
+        else PROFILE_INTAKE_DEFAULT_REVIEW_STEP
+    )
 
 
 class ProfileIntakeRequestContext:
@@ -547,10 +575,30 @@ class SafeModelDiagnostics:
     failure_code: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class SavedProfileIntakeProgress:
+    created_at: str
+    saved_at: str
+    age_seconds: int
+    expires_in_seconds: int
+
+    def __post_init__(self):
+        if (
+            type(self.created_at) is not str
+            or type(self.saved_at) is not str
+            or type(self.age_seconds) is not int
+            or self.age_seconds < 0
+            or type(self.expires_in_seconds) is not int
+            or self.expires_in_seconds <= 0
+        ):
+            raise _configuration_error()
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class IntakeDraftSnapshot:
     review: EditableProfileReview = field(repr=False)
-    document: SafeDocumentBundleMetadata
+    review_step: str
+    document: SafeDocumentBundleMetadata | None
     diagnostics: tuple[SafeModelDiagnostics, ...] | None
     created_at: str
     expires_at_monotonic: float
@@ -686,6 +734,63 @@ class IntakeDraftVault:
             != tuple(item.origin for item in document.documents)
         ):
             raise _configuration_error()
+        return self._issue_bound(
+            binding,
+            review,
+            document,
+            diagnostics,
+            created_at=created_at,
+            durable_authority=durable_authority,
+            lifetime_seconds=lifetime_seconds,
+        )
+
+    def issue_resumed(
+        self,
+        grant,
+        review,
+        *,
+        created_at,
+        durable_authority,
+        lifetime_seconds,
+        review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+    ):
+        """Issue a new local draft from validated durable state only."""
+
+        binding = _grant_binding(grant)
+        if (
+            type(review) is not EditableProfileReview
+            or durable_authority is None
+            or type(created_at) is not datetime
+            or created_at.tzinfo is None
+            or type(lifetime_seconds) not in (int, float)
+            or not math.isfinite(lifetime_seconds)
+            or lifetime_seconds <= 0
+        ):
+            raise _configuration_error()
+        return self._issue_bound(
+            binding,
+            review,
+            None,
+            None,
+            created_at=created_at,
+            durable_authority=durable_authority,
+            lifetime_seconds=lifetime_seconds,
+            review_step=review_step,
+        )
+
+    def _issue_bound(
+        self,
+        binding,
+        review,
+        document,
+        diagnostics,
+        *,
+        created_at,
+        durable_authority,
+        lifetime_seconds,
+        review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+    ):
+        review_step = normalize_profile_intake_review_step(review_step)
         now = _monotonic(self._monotonic())
         with self._lock:
             if self._closed:
@@ -714,6 +819,7 @@ class IntakeDraftVault:
             lifetime = min(self._ttl, absolute_lifetime)
             snapshot = IntakeDraftSnapshot(
                 review=review,
+                review_step=review_step,
                 document=document,
                 diagnostics=diagnostics,
                 created_at=created_at.astimezone(timezone.utc).isoformat(),
@@ -888,6 +994,100 @@ class IntakeDraftVault:
             self._records[reference] = replace(record, snapshot=snapshot)
             self._purge_locked(now, skip_reference=reference)
             return "updated", snapshot
+
+    def checkpoint_update_material(self, reference, grant, *, expected_version):
+        """Return the current sealed authority for one optimistic autosave."""
+
+        binding = _grant_binding(grant)
+        now = _monotonic(self._monotonic())
+        with self._lock:
+            record = self._records.get(reference)
+            if record is None or record.binding != binding:
+                self._purge_locked(now)
+                return "gone", None
+            if record.state != "active" or record.snapshot is None:
+                self._purge_locked(now, skip_reference=reference)
+                return "stale", None
+            if now >= record.snapshot.expires_at_monotonic:
+                authority = record.durable_authority
+                del self._records[reference]
+                self._purge_locked(now)
+                return "expired", authority
+            if record.snapshot.version != expected_version:
+                self._purge_locked(now, skip_reference=reference)
+                return "stale", None
+            return "active", (record.snapshot, record.durable_authority)
+
+    def complete_checkpoint_update(
+        self,
+        reference,
+        grant,
+        *,
+        expected_version,
+        review,
+        review_step,
+        durable_authority,
+    ):
+        """Publish one durable save only if the local optimistic version still wins."""
+
+        binding = _grant_binding(grant)
+        now = _monotonic(self._monotonic())
+        with self._lock:
+            record = self._records.get(reference)
+            if record is None or record.binding != binding:
+                self._purge_locked(now)
+                return "gone", None
+            if (
+                record.state != "active"
+                or record.snapshot is None
+                or record.snapshot.version != expected_version
+                or now >= record.snapshot.expires_at_monotonic
+            ):
+                self._purge_locked(now, skip_reference=reference)
+                return "stale", None
+            snapshot = replace(
+                self._refresh_snapshot(record.snapshot, now),
+                review=review,
+                review_step=normalize_profile_intake_review_step(review_step),
+                version=expected_version + 1,
+            )
+            self._records[reference] = replace(
+                record,
+                snapshot=snapshot,
+                durable_authority=durable_authority,
+            )
+            self._purge_locked(now, skip_reference=reference)
+            return "updated", snapshot
+
+    def invalidate(self, reference, grant, *, expected_version):
+        """Drop only stale process-local state; never discard durable progress."""
+
+        binding = _grant_binding(grant)
+        with self._lock:
+            record = self._records.get(reference)
+            if (
+                record is not None
+                and record.binding == binding
+                and record.snapshot is not None
+                and record.snapshot.version == expected_version
+            ):
+                del self._records[reference]
+                return True
+            return False
+
+    def discard_lineage(self, grant):
+        """Remove local drafts for the current lineage after explicit discard."""
+
+        binding = _grant_binding(grant)
+        lineage_binding = binding[:1] + binding[2:]
+        removed = 0
+        with self._lock:
+            for reference, record in tuple(self._records.items()):
+                candidate = record.binding[:1] + record.binding[2:]
+                if candidate == lineage_binding:
+                    del self._records[reference]
+                    removed += 1
+        return removed
 
     def _refresh_snapshot(self, snapshot, now):
         if now - snapshot.last_renewed_at_monotonic < self._renewal_interval:
@@ -1101,10 +1301,14 @@ class ProfileIntakeProcessingService:
                 callable(getattr(durable_finalizer, name, None))
                 for name in (
                     "preflight",
+                    "checkpoint_summary",
                     "reserve",
+                    "resume",
+                    "save_checkpoint",
                     "renew",
                     "release",
                     "discard_checkpoint",
+                    "discard_saved_checkpoint",
                     "prepare",
                     "commit",
                 )
@@ -1129,29 +1333,138 @@ class ProfileIntakeProcessingService:
 
     def preflight(self, grant):
         _grant_binding(grant)
-        expired = self._vault.expire_bound(grant)
-        if self._durable is not None:
-            for authority in expired:
-                try:
-                    self._durable.release(
-                        grant,
-                        authority,
-                        outcome_code="draft_expired",
-                    )
-                except ProfileIntakeError:
-                    pass
+        self._vault.expire_bound(grant)
         if self._durable is None:
             return "eligible"
         return self._durable.preflight(grant)
 
+    def saved_progress(self, grant):
+        """Return only presentation-safe checkpoint timing, never its authority."""
+
+        _grant_binding(grant)
+        if self._durable is None:
+            return None
+        summary = self._durable.checkpoint_summary(grant)
+        if summary is None:
+            return None
+        now = self._clock()
+        if type(now) is not datetime or now.tzinfo is None:
+            raise ProfileIntakeError("durable_intake_unavailable")
+        try:
+            saved_at = datetime.fromisoformat(summary.review_saved_at)
+            expires_at = datetime.fromisoformat(summary.checkpoint.expires_at)
+            age_seconds = max(0, int((now - saved_at).total_seconds()))
+            expires_in_seconds = int((expires_at - now).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            raise ProfileIntakeError("durable_intake_unavailable") from None
+        if expires_in_seconds <= 0:
+            return None
+        return SavedProfileIntakeProgress(
+            created_at=summary.created_at,
+            saved_at=summary.review_saved_at,
+            age_seconds=age_seconds,
+            expires_in_seconds=expires_in_seconds,
+        )
+
+    def resume_saved(self, grant):
+        """Hydrate a fresh local review from the current durable checkpoint."""
+
+        _grant_binding(grant)
+        if self._durable is None:
+            raise ProfileIntakeError("ai_import_schema_unavailable")
+        summary = self._durable.checkpoint_summary(grant)
+        if summary is None:
+            raise ProfileIntakeError("ai_import_checkpoint_expired")
+        review, authority, lifetime_seconds, review_step = self._durable.resume(
+            grant,
+            summary.checkpoint.checkpoint_id,
+            expected_version=summary.checkpoint.row_version,
+        )
+        return self._vault.issue_resumed(
+            grant,
+            review,
+            created_at=self._clock(),
+            durable_authority=authority,
+            lifetime_seconds=lifetime_seconds,
+            review_step=review_step,
+        )
+
+    def discard_saved(self, grant):
+        """Explicitly destroy the current checkpoint after revalidation."""
+
+        _grant_binding(grant)
+        if self._durable is None:
+            raise ProfileIntakeError("ai_import_schema_unavailable")
+        summary = self._durable.checkpoint_summary(grant)
+        if summary is None:
+            return "gone"
+        self._durable.discard_saved_checkpoint(grant, summary.checkpoint)
+        self._vault.discard_lineage(grant)
+        return "discarded"
+
     def lookup(self, reference, grant):
         state, value = self._vault.lookup(reference, grant)
-        if state == "expired" and value is not None and self._durable is not None:
-            try:
-                self._durable.release(grant, value, outcome_code="draft_expired")
-            except ProfileIntakeError:
-                pass
         return ("gone", None) if state == "expired" else (state, value)
+
+    def autosave(
+        self,
+        reference,
+        grant,
+        *,
+        expected_version,
+        review,
+        review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+    ):
+        """Validate and durably save one optimistic full-review replacement."""
+
+        if self._durable is None or type(review) is not EditableProfileReview:
+            raise ProfileIntakeError("ai_import_schema_unavailable")
+        state, material = self._vault.checkpoint_update_material(
+            reference,
+            grant,
+            expected_version=expected_version,
+        )
+        if state == "expired":
+            raise ProfileIntakeError("draft_expired")
+        if state == "stale":
+            raise ProfileIntakeError("stale_review")
+        if state != "active" or material is None:
+            raise ProfileIntakeError("draft_expired")
+        snapshot, authority = material
+        review_step = normalize_profile_intake_review_step(review_step)
+        if review == snapshot.review and review_step == snapshot.review_step:
+            return "unchanged", snapshot
+        try:
+            durable_authority = self._durable.save_checkpoint(
+                grant,
+                authority,
+                review,
+                review_step=review_step,
+            )
+        except ProfileIntakeError as exc:
+            if exc.code == "stale_review":
+                self._vault.invalidate(
+                    reference,
+                    grant,
+                    expected_version=expected_version,
+                )
+            raise
+        state, updated = self._vault.complete_checkpoint_update(
+            reference,
+            grant,
+            expected_version=expected_version,
+            review=review,
+            review_step=review_step,
+            durable_authority=durable_authority,
+        )
+        if state != "updated" or updated is None:
+            self._vault.invalidate(
+                reference,
+                grant,
+                expected_version=expected_version,
+            )
+            raise ProfileIntakeError("stale_review")
+        return "saved", updated
 
     def renew(self, reference, grant, *, expected_version):
         state, value = self._vault.renew(
@@ -1159,11 +1472,6 @@ class ProfileIntakeProcessingService:
             grant,
             expected_version=expected_version,
         )
-        if state == "expired" and value is not None and self._durable is not None:
-            try:
-                self._durable.release(grant, value, outcome_code="draft_expired")
-            except ProfileIntakeError:
-                pass
         if state in {"renewed", "rate_limited"} and value is not None:
             snapshot, idle_seconds, absolute_seconds, authority = value
             if self._durable is not None:
@@ -1188,11 +1496,6 @@ class ProfileIntakeProcessingService:
             expected_version=expected_version,
             review=review,
         )
-        if state == "expired" and value is not None and self._durable is not None:
-            try:
-                self._durable.release(grant, value, outcome_code="draft_expired")
-            except ProfileIntakeError:
-                pass
         return ("gone", None) if state == "expired" else (state, value)
 
     def cancel(self, reference, grant, *, expected_version):
@@ -1520,7 +1823,11 @@ def _preference_model_json(value):
     ).encode("ascii")
 
 
-def serialize_profile_intake_checkpoint(review: EditableProfileReview) -> str:
+def serialize_profile_intake_checkpoint(
+    review: EditableProfileReview,
+    *,
+    review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+) -> str:
     """Return the closed, privacy-gated durable projection of one review.
 
     Evidence identities, document identities, uploaded-file details, model
@@ -1529,6 +1836,7 @@ def serialize_profile_intake_checkpoint(review: EditableProfileReview) -> str:
 
     if type(review) is not EditableProfileReview:
         raise ProfileIntakeError("invalid_checkpoint_content")
+    review_step = normalize_profile_intake_review_step(review_step)
     source_origins = tuple(source.document_kind.value for source in review.sources)
     source_set = set(source_origins)
     if not 1 <= len(source_origins) <= 2 or len(source_set) != len(source_origins):
@@ -1573,6 +1881,7 @@ def serialize_profile_intake_checkpoint(review: EditableProfileReview) -> str:
         "user_inputs": user_inputs,
         "issue_count": review.issue_count,
         "preference_model": review.preference_model,
+        "review_step": review_step,
     }
     try:
         encoded = json.dumps(
@@ -1609,7 +1918,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         )
     except (TypeError, ValueError, json.JSONDecodeError):
         raise ProfileIntakeError("invalid_checkpoint_content") from None
-    if type(payload) is not dict or set(payload) != {
+    expected_keys = {
         "schema_version",
         "review_schema_version",
         "source_origins",
@@ -1618,6 +1927,10 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         "user_inputs",
         "issue_count",
         "preference_model",
+    }
+    if type(payload) is not dict or set(payload) not in {
+        frozenset(expected_keys),
+        frozenset((*expected_keys, "review_step")),
     }:
         raise ProfileIntakeError("invalid_checkpoint_content")
     if (
@@ -1728,22 +2041,51 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         )
     except (ProfileIntakeError, ProfilePreferenceModelError, TypeError, ValueError):
         raise ProfileIntakeError("invalid_checkpoint_content") from None
+    semantic_payload = dict(payload)
+    semantic_payload.pop("review_step", None)
     canonical = json.dumps(
-        json.loads(_serialize_profile_intake_checkpoint_unchecked(review)),
+        json.loads(
+            _serialize_profile_intake_checkpoint_unchecked(
+                review,
+                include_review_step=False,
+            )
+        ),
         ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
     )
     incoming = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    semantic_incoming = json.dumps(
+        semantic_payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     if (
         not hmac.compare_digest(incoming, payload_json)
-        or not hmac.compare_digest(canonical, incoming)
+        or not hmac.compare_digest(canonical, semantic_incoming)
     ):
         raise ProfileIntakeError("invalid_checkpoint_content")
     return review
 
 
-def _serialize_profile_intake_checkpoint_unchecked(review: EditableProfileReview) -> str:
+def profile_intake_checkpoint_review_step(payload_json):
+    """Read the non-authoritative step after strict checkpoint validation."""
+
+    hydrate_profile_intake_checkpoint(payload_json)
+    try:
+        payload = json.loads(payload_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise ProfileIntakeError("invalid_checkpoint_content") from None
+    return normalize_profile_intake_review_step(payload.get("review_step"))
+
+
+def _serialize_profile_intake_checkpoint_unchecked(
+    review: EditableProfileReview,
+    *,
+    review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
+    include_review_step=True,
+) -> str:
     """Internal canonicalizer used to avoid recursive validation."""
 
     source_origins = tuple(source.document_kind.value for source in review.sources)
@@ -1761,7 +2103,7 @@ def _serialize_profile_intake_checkpoint_unchecked(review: EditableProfileReview
             "decision": fact.decision,
             "conflict_id": conflict_id,
         })
-    return json.dumps({
+    payload = {
         "schema_version": PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION,
         "review_schema_version": review.schema_version,
         "source_origins": list(source_origins),
@@ -1770,7 +2112,15 @@ def _serialize_profile_intake_checkpoint_unchecked(review: EditableProfileReview
         "user_inputs": dict(review.user_inputs),
         "issue_count": review.issue_count,
         "preference_model": review.preference_model,
-    }, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    }
+    if include_review_step:
+        payload["review_step"] = normalize_profile_intake_review_step(review_step)
+    return json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _checkpoint_value(value):

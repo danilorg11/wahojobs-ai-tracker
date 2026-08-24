@@ -2022,6 +2022,16 @@ def _page(title: str, body: str) -> str:
     .processing-steps li {{ border-left: 2px solid #c8ddd4; color: #46534e; padding: 8px 0 8px 26px; position: relative; }}
     .processing-steps li::before {{ background: white; border: 2px solid #5d8f7b; border-radius: 50%; content: ''; height: 10px; left: -6px; position: absolute; top: 14px; width: 10px; }}
     .processing-state .reassurance-line {{ justify-content: center; }}
+    .resume-intake-hero {{ margin-inline: auto; max-width: 760px; }}
+    .saved-progress-summary {{ align-items: flex-start; background: #edf6f1; border-radius: 12px; display: flex; gap: 14px; margin: 26px 0 22px; padding: 18px; }}
+    .saved-progress-summary p {{ color: #4f5e58; line-height: 1.5; margin: 4px 0 0; }}
+    .saved-progress-mark {{ align-items: center; background: #2f755b; border-radius: 50%; color: white; display: inline-flex; flex: 0 0 28px; height: 28px; justify-content: center; }}
+    .resume-primary-action {{ margin-top: 4px; }}
+    .resume-primary-action button {{ min-width: 180px; }}
+    .resume-discard-disclosure {{ border-top: 1px solid #dfe8e4; margin-top: 28px; padding-top: 14px; }}
+    .resume-discard-disclosure summary {{ min-height: 44px; }}
+    .resume-discard-disclosure .disclosure-body {{ padding: 4px 0 0; }}
+    .destructive-action {{ color: #8a3d35; }}
     @keyframes intake-pulse {{ 0%, 100% {{ opacity: .35; transform: scale(.82); }} 50% {{ opacity: 1; transform: scale(1); }} }}
     .intake-review-hero {{ padding-bottom: 30px; }}
     .review-progress {{ border-top: 1px solid #e2ebe7; margin-top: 30px; padding-top: 24px; }}
@@ -2032,6 +2042,12 @@ def _page(title: str, body: str) -> str:
     .intake-review-form {{ border: 0; border-radius: 20px; box-shadow: 0 16px 45px rgba(24, 45, 37, .07); padding: clamp(26px, 5vw, 52px); }}
     .intake-callout {{ background: #fff8e8; border-left: 4px solid #d2a13e; border-radius: 8px; color: #5b4a28; margin: 0 0 20px; padding: 14px 18px; }}
     .review-expiry-warning {{ bottom: 16px; box-shadow: 0 8px 28px rgba(32, 37, 35, .18); left: 50%; margin: 0; max-width: 640px; position: fixed; transform: translateX(-50%); width: calc(100% - 32px); z-index: 10; }}
+    .review-save-status {{ align-items: center; background: #f3f7f5; border: 1px solid #dce6e1; border-radius: 999px; color: #42534c; display: flex; font-size: 13px; font-weight: 700; gap: 8px; margin: -14px 24px 18px auto; min-height: 42px; padding: 6px 14px; position: sticky; top: 12px; width: fit-content; z-index: 8; }}
+    .review-save-status .save-status-dot {{ background: #3d8067; border-radius: 50%; height: 8px; width: 8px; }}
+    .review-save-status[data-state='saving'] .save-status-dot {{ background: #c08b31; }}
+    .review-save-status[data-state='error'], .review-save-status[data-state='conflict'], .review-save-status[data-state='expired'] {{ background: #fff5f2; border-color: #e7c8bf; color: #7b3d35; }}
+    .review-save-status[data-state='error'] .save-status-dot, .review-save-status[data-state='conflict'] .save-status-dot, .review-save-status[data-state='expired'] .save-status-dot {{ background: #ad5145; }}
+    .review-save-status .button-quiet {{ min-height: 30px; padding: 2px 5px; }}
     .intake-review-form .review-section {{ border-top-color: #dfe8e4; margin-top: 46px; padding-top: 46px; scroll-margin-top: 20px; }}
     .intake-review-form .review-section:first-of-type {{ border-top: 0; margin-top: 0; padding-top: 0; }}
     .section-heading {{ margin-bottom: 24px; max-width: 720px; }}
@@ -2103,6 +2119,7 @@ def _page(title: str, body: str) -> str:
     .intake-cancel-form {{ margin-top: 14px; text-align: center; }}
     .button-quiet {{ background: transparent; color: #59645f; font-weight: 650; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }}
     .button-quiet:hover {{ color: #202523; }}
+    .button-quiet.destructive-action {{ color: #8a3d35; }}
     button:disabled {{ cursor: wait; opacity: .65; }}
     [hidden] {{ display: none !important; }}
     @media (max-width: 700px) {{
@@ -2116,6 +2133,8 @@ def _page(title: str, body: str) -> str:
       .upload-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
       .profile-entry-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
       .upload-actions button, .finish-actions button {{ width: 100%; }}
+      .resume-primary-action button {{ width: 100%; }}
+      .review-save-status {{ border-radius: 12px; margin: -8px 8px 14px; position: sticky; top: 8px; width: auto; }}
       .review-progress ol {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .intake-review-form .review-section {{ margin-top: 36px; padding-top: 36px; }}
       .intake-review-form .choice-grid, .profile-grid, .review-grid {{ grid-template-columns: 1fr; }}

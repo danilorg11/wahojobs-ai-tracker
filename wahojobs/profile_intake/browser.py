@@ -36,10 +36,12 @@ from wahojobs.profile_intake.contracts import (
 )
 from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_REVIEW_ROUTE,
+    PROFILE_INTAKE_REVIEW_STEPS,
     PROFILE_INTAKE_ROUTE,
     ProfileIntakeDocumentInput,
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
+    normalize_profile_intake_review_step,
     profile_intake_csrf_proof,
     review_value_for_form,
     update_editable_review,
@@ -209,9 +211,30 @@ _PROCESSING_SCRIPT = """(function(){var f=document.getElementById('profile-intak
 _PROCESSING_SCRIPT_HASH = base64.b64encode(
     hashlib.sha256(_PROCESSING_SCRIPT.encode("utf-8")).digest()
 ).decode("ascii")
-_REVIEW_RENEWAL_SCRIPT = """(function(){var f=document.getElementById('profile-review-renewal');var m=document.getElementById('profile-review-lifetime');if(!f||!m||!window.fetch){return;}var lastActivity=0;var lastSent=Date.now();var interval=300000;var recent=360000;function activity(){lastActivity=Date.now();}['input','change','keydown','pointerdown'].forEach(function(name){document.addEventListener(name,activity,{passive:true});});function message(text){m.textContent=text;m.hidden=false;}function tick(){var now=Date.now();if(document.visibilityState!=='visible'||!lastActivity||now-lastActivity>recent||now-lastSent<interval){return;}lastSent=now;var data=new URLSearchParams(new FormData(f));window.fetch(f.action,{method:'POST',body:data.toString(),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(!response.ok){if(response.status===409){message('This review changed in another tab. Reload before continuing.');}else if(response.status===410){message('This review has expired. Start again before saving.');}return;}var remaining=Number(response.headers.get('X-Wahojobs-Review-Absolute-Seconds'));if(Number.isFinite(remaining)&&remaining<=600){message('This review will close in about '+Math.max(1,Math.ceil(remaining/60))+' minutes. Finish and find your matches soon.');}}).catch(function(){});}window.setInterval(tick,60000);}());"""
-_REVIEW_RENEWAL_SCRIPT_HASH = base64.b64encode(
-    hashlib.sha256(_REVIEW_RENEWAL_SCRIPT.encode("utf-8")).digest()
+_REVIEW_STATE_SCRIPT = """(function(){
+var form=document.getElementById('profile-review-form');var autosave=document.getElementById('profile-review-autosave');var renew=document.getElementById('profile-review-renewal');var discard=document.getElementById('profile-review-discard');var status=document.getElementById('profile-review-save-status');var label=document.getElementById('profile-review-save-label');var retry=document.getElementById('profile-review-save-retry');var resume=document.getElementById('profile-review-save-resume');if(!form||!renew||!status||!label||!window.fetch){return;}var dirty=false;var saving=false;var current=null;var timer=null;var allowSubmit=false;var allowDiscard=false;var lastActivity=0;var lastRenewed=Date.now();function show(kind,text,canRetry,canResume){status.dataset.state=kind;label.textContent=text;if(retry){retry.hidden=!canRetry;}if(resume){resume.hidden=!canResume;}}function updateForm(target,version,proof){if(!target){return false;}var versionInput=target.querySelector('input[name=version]');var proofInput=target.querySelector('input[name=csrf]');if(!versionInput||!proofInput||!/^[0-9]+$/.test(version)||!proof){return false;}versionInput.value=version;proofInput.value=proof;return true;}function applyTokens(response){var version=response.headers.get('X-Wahojobs-Review-Version');return updateForm(form,version,response.headers.get('X-Wahojobs-CSRF-Save'))&&updateForm(autosave,version,response.headers.get('X-Wahojobs-CSRF-Autosave'))&&updateForm(renew,version,response.headers.get('X-Wahojobs-CSRF-Renew'))&&updateForm(discard,version,response.headers.get('X-Wahojobs-CSRF-Discard'));}function schedule(){if(!autosave){return;}dirty=true;window.clearTimeout(timer);timer=window.setTimeout(function(){saveNow(false);},1500);}function saveNow(keepalive){if(!autosave||!dirty){return current||Promise.resolve(true);}if(saving){return current;}saving=true;dirty=false;show('saving','Saving…',false,false);var data=new URLSearchParams(new FormData(form));data.set('action','autosave');data.set('version',autosave.querySelector('input[name=version]').value);data.set('csrf',autosave.querySelector('input[name=csrf]').value);current=window.fetch(form.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',keepalive:!!keepalive,headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===204&&applyTokens(response)){show('saved','Progress saved',false,false);return true;}dirty=true;if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);}else if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);}else if(response.status===400){show('error','Check the unfinished details, then retry saving.',true,false);}else{show('error','We could not save your progress. Try again.',true,false);}return false;}).catch(function(){dirty=true;show('error','We could not save your progress. Try again.',true,false);return false;}).finally(function(){saving=false;current=null;});return current;}function flush(){return saveNow(false).then(function(ok){return ok&&dirty?flush():ok;});}function activity(){lastActivity=Date.now();}form.addEventListener('input',function(){activity();schedule();});form.addEventListener('change',function(){activity();schedule();});form.addEventListener('submit',function(event){if(allowSubmit||(!dirty&&!saving)){return;}event.preventDefault();var submitter=event.submitter;flush().then(function(ok){if(!ok){return;}allowSubmit=true;if(form.requestSubmit){if(submitter){form.requestSubmit(submitter);}else{form.requestSubmit();}}else{form.submit();}allowSubmit=false;});});if(discard){discard.addEventListener('submit',function(event){window.clearTimeout(timer);dirty=false;if(allowDiscard||!saving){return;}event.preventDefault();Promise.resolve(current).then(function(){dirty=false;allowDiscard=true;if(discard.requestSubmit){discard.requestSubmit();}else{discard.submit();}allowDiscard=false;});});}if(retry){retry.addEventListener('click',function(){saveNow(false);});}function tick(){var now=Date.now();if(saving||document.visibilityState!=='visible'||!lastActivity||now-lastActivity>360000||now-lastRenewed<300000){return;}lastRenewed=now;var data=new URLSearchParams(new FormData(renew));window.fetch(renew.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);return;}if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);return;}if(!response.ok){return;}var remaining=Number(response.headers.get('X-Wahojobs-Review-Absolute-Seconds'));if(Number.isFinite(remaining)&&remaining<=600){show('warning','This review session closes in about '+Math.max(1,Math.ceil(remaining/60))+' minutes. Your saved progress will remain available.',false,false);}}).catch(function(){});}window.setInterval(tick,60000);window.addEventListener('pagehide',function(){if(dirty&&!saving){saveNow(true);}});show('saved',autosave?'Progress saved':'Review active',false,false);
+}());"""
+_REVIEW_STATE_SCRIPT = _REVIEW_STATE_SCRIPT.replace(
+    "var form=document.getElementById('profile-review-form');",
+    "var reviewSteps="
+    + json.dumps(PROFILE_INTAKE_REVIEW_STEPS, ensure_ascii=True)
+    + ";var form=document.getElementById('profile-review-form');",
+).replace(
+    "var lastActivity=0;var lastRenewed=Date.now();",
+    "var lastActivity=0;var lastRenewed=Date.now();"
+    "var step=form.querySelector('input[name=review_step]');",
+).replace(
+    "function activity(){lastActivity=Date.now();}form.addEventListener('input'",
+    "function activity(){lastActivity=Date.now();}"
+    "function setStep(value){if(!step||reviewSteps.indexOf(value)<0||step.value===value){return;}step.value=value;activity();schedule();}"
+    "function rememberSection(event){var section=event.target.closest&&event.target.closest('section.review-section');if(section){setStep(section.id);}}"
+    "Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^=\"#review-\"]'),function(link){link.addEventListener('click',function(){setStep(link.getAttribute('href').slice(1));});});"
+    "form.addEventListener('focusin',rememberSection);form.addEventListener('pointerdown',rememberSection);"
+    "window.addEventListener('hashchange',function(){setStep(window.location.hash.slice(1));});"
+    "form.addEventListener('input'",
+)
+_REVIEW_STATE_SCRIPT_HASH = base64.b64encode(
+    hashlib.sha256(_REVIEW_STATE_SCRIPT.encode("utf-8")).digest()
 ).decode("ascii")
 
 
@@ -370,6 +393,21 @@ class ProfileIntakeBrowserIntegration:
                 preflight = self._processing.preflight(grant)
             except ProfileIntakeError as exc:
                 return _failure(_processing_error_code(exc.code))
+            if preflight == "checkpoint_available":
+                try:
+                    progress = self._processing.saved_progress(grant)
+                except ProfileIntakeError as exc:
+                    return _failure(_processing_error_code(exc.code))
+                if progress is None:
+                    return _failure("expired_checkpoint")
+                return _form_page_response(
+                    HTTPStatus.OK,
+                    _resume_page(
+                        progress,
+                        profile_intake_csrf_proof(csrf_secret, "continue"),
+                        profile_intake_csrf_proof(csrf_secret, "discard_saved"),
+                    ),
+                )
             if preflight != "eligible":
                 return _failure(_preflight_error_code(preflight))
             proof = profile_intake_csrf_proof(csrf_secret, "upload")
@@ -378,6 +416,69 @@ class ProfileIntakeBrowserIntegration:
                 _upload_page(proof),
                 script_sha256=_PROCESSING_SCRIPT_HASH,
             )
+        if _header_values(headers, "content-type") == (
+            "application/x-www-form-urlencoded",
+        ):
+            form = _parse_review_form(headers, body_stream)
+            if form is None or set(form) != {"action", "csrf"}:
+                return _failure("invalid_request")
+            action = _single(form, "action")
+            proof = _single(form, "csrf")
+            if action not in {"continue", "discard_saved"}:
+                return _failure("invalid_request")
+            grant, failure = self._authorize(
+                method="POST",
+                route=PROFILE_INTAKE_ROUTE,
+                authentication_input=authentication_input,
+                session_token=session_token,
+                csrf_secret=csrf_secret,
+                action=action,
+                proof=proof,
+            )
+            if failure is not None:
+                return failure
+            if action == "discard_saved":
+                try:
+                    state = self._processing.discard_saved(grant)
+                except ProfileIntakeError as exc:
+                    return _failure(_processing_error_code(exc.code))
+                if state not in {"discarded", "gone"}:
+                    return _failure("unavailable")
+                return _response(
+                    HTTPStatus.SEE_OTHER,
+                    _message_page(
+                        "Saved progress discarded",
+                        "You can start again whenever you are ready.",
+                    ),
+                    extra_headers=(("Location", PROFILE_INTAKE_ROUTE),),
+                )
+            try:
+                reference, snapshot = self._processing.resume_saved(grant)
+            except ProfileIntakeError as exc:
+                return _failure(_processing_error_code(exc.code))
+            return _response(
+                HTTPStatus.SEE_OTHER,
+                _message_page(
+                    "Saved progress ready",
+                    "Continue reviewing your profile.",
+                ),
+                extra_headers=((
+                    "Location",
+                    PROFILE_INTAKE_REVIEW_ROUTE
+                    + "?"
+                    + urlencode({"draft": reference})
+                    + "#"
+                    + snapshot.review_step,
+                ),),
+            )
+        try:
+            preflight = self._processing.preflight(grant)
+        except ProfileIntakeError as exc:
+            return _failure(_processing_error_code(exc.code))
+        if preflight != "eligible":
+            if preflight == "checkpoint_available":
+                return _failure("checkpoint_available")
+            return _failure(_preflight_error_code(preflight))
         parsed_upload = _parse_multipart_upload(headers, body_stream)
         if type(parsed_upload) is str:
             return _failure(parsed_upload)
@@ -444,7 +545,7 @@ class ProfileIntakeBrowserIntegration:
                     csrf_secret,
                     save_enabled=self._processing.durable_save_enabled,
                 ),
-                script_sha256=_REVIEW_RENEWAL_SCRIPT_HASH,
+                script_sha256=_REVIEW_STATE_SCRIPT_HASH,
                 script_connect_self=True,
             )
         form = _parse_review_form(headers, body_stream)
@@ -454,7 +555,7 @@ class ProfileIntakeBrowserIntegration:
         raw_version = _single(form, "version")
         proof = _single(form, "csrf")
         if (
-            action not in {"update", "renew", "cancel", "save"}
+            action not in {"update", "autosave", "renew", "cancel", "save"}
             or raw_version is None
             or not raw_version.isdigit()
             or int(raw_version) < 1
@@ -526,9 +627,36 @@ class ProfileIntakeBrowserIntegration:
                 extra_headers=(("Location", "/account/profile"),),
             )
         try:
-            review = _review_from_form(snapshot.review, form)
+            review_step = normalize_profile_intake_review_step(
+                _single(form, "review_step")
+            )
+            review = _review_from_form(
+                snapshot.review,
+                form,
+                allow_pending=action == "autosave",
+            )
         except ProfileIntakeError:
             return _failure("invalid_review")
+        if action == "autosave":
+            try:
+                _save_state, updated = self._processing.autosave(
+                    reference,
+                    grant,
+                    expected_version=version,
+                    review=review,
+                    review_step=review_step,
+                )
+            except ProfileIntakeError as exc:
+                return _failure(_save_error_code(exc.code))
+            return _response(
+                HTTPStatus.NO_CONTENT,
+                "",
+                extra_headers=_review_state_headers(
+                    csrf_secret,
+                    reference,
+                    updated.version,
+                ),
+            )
         if action == "save":
             try:
                 self._processing.save(
@@ -806,17 +934,33 @@ def _parse_review_form(headers, body_stream):
     return form
 
 
-def _review_from_form(review, form):
+def _review_from_form(review, form, *, allow_pending=False):
+    if type(allow_pending) is not bool:
+        raise ProfileIntakeError("invalid_review_submission")
     expected = {"action", "version", "csrf"}
+    if "review_step" in form:
+        expected.add("review_step")
     values = []
     decisions = []
     for index, fact in enumerate(review.facts):
         value_name = f"fact_{index}_value"
         decision_name = f"fact_{index}_decision"
-        expected.update({value_name, decision_name})
+        expected.add(decision_name)
         value = _single(form, value_name)
         decision = _single(form, decision_name)
-        if value is None or decision is None:
+        if value is None:
+            if (
+                not allow_pending
+                or not _uses_compact_suggestion_choice(fact)
+                or fact.decision != "pending"
+                or decision != "accept"
+            ):
+                raise ProfileIntakeError("invalid_review_submission")
+            value = review_value_for_form(fact.value)
+            decision = "pending"
+        else:
+            expected.add(value_name)
+        if decision is None:
             raise ProfileIntakeError("invalid_review_submission")
         if value == _SKIP_SUGGESTION_VALUE:
             if not _uses_compact_suggestion_choice(fact):
@@ -945,7 +1089,9 @@ def _review_request_digest(form):
         payload = [
             (name, values[0])
             for name, values in sorted(form.items())
-            if name != "csrf" and type(values) is list and len(values) == 1
+            if name not in {"csrf", "review_step"}
+            and type(values) is list
+            and len(values) == 1
         ]
         return hashlib.sha256(
             json.dumps(
@@ -958,6 +1104,92 @@ def _review_request_digest(form):
         return ""
 
 
+def _review_state_headers(csrf_secret, reference, version):
+    return (
+        ("X-Wahojobs-Review-Version", str(version)),
+        (
+            "X-Wahojobs-CSRF-Save",
+            profile_intake_csrf_proof(
+                csrf_secret,
+                "save",
+                draft_reference=reference,
+                version=version,
+            ),
+        ),
+        (
+            "X-Wahojobs-CSRF-Autosave",
+            profile_intake_csrf_proof(
+                csrf_secret,
+                "autosave",
+                draft_reference=reference,
+                version=version,
+            ),
+        ),
+        (
+            "X-Wahojobs-CSRF-Renew",
+            profile_intake_csrf_proof(
+                csrf_secret,
+                "renew",
+                draft_reference=reference,
+                version=version,
+            ),
+        ),
+        (
+            "X-Wahojobs-CSRF-Discard",
+            profile_intake_csrf_proof(
+                csrf_secret,
+                "cancel",
+                draft_reference=reference,
+                version=version,
+            ),
+        ),
+    )
+
+
+def _resume_page(progress, continue_proof, discard_proof):
+    age = _saved_age_copy(progress.age_seconds)
+    body = f"""
+    {_authenticated_navigation()}
+    <section class='profile-header intake-hero resume-intake-hero'>
+      <p class='eyebrow'>Your Wahojobs profile</p>
+      <h1>Continue building your profile</h1>
+      <p class='hero-lede'>Pick up where you left off—your reviewed details and job preferences are ready.</p>
+      <div class='saved-progress-summary' role='status'>
+        <span class='saved-progress-mark' aria-hidden='true'>&#10003;</span>
+        <div><strong>Progress saved</strong><p>Last saved {_safe_text(age)}. Your progress is saved for 7 days after your last saved change.</p></div>
+      </div>
+      <form method='post' action='{PROFILE_INTAKE_ROUTE}' class='resume-primary-action'>
+        <input type='hidden' name='action' value='continue'><input type='hidden' name='csrf' value='{_safe_text(continue_proof)}'>
+        <button type='submit'>Continue</button>
+      </form>
+      <p class='muted'>You will continue without uploading your documents again.</p>
+      <details class='resume-discard-disclosure'>
+        <summary>Start over instead</summary>
+        <div class='disclosure-body'><p>Starting over permanently removes this saved review. It will not happen just because you leave this page.</p>
+          <form method='post' action='{PROFILE_INTAKE_ROUTE}'>
+            <input type='hidden' name='action' value='discard_saved'><input type='hidden' name='csrf' value='{_safe_text(discard_proof)}'>
+            <button class='button-quiet destructive-action' type='submit'>Discard saved progress and start over</button>
+          </form>
+        </div>
+      </details>
+    </section>
+    """
+    return _page("Continue your profile", body)
+
+
+def _saved_age_copy(seconds):
+    if seconds < 60:
+        return "just now"
+    if seconds < 3_600:
+        count = max(1, seconds // 60)
+        return f"{count} minute{'s' if count != 1 else ''} ago"
+    if seconds < 86_400:
+        count = max(1, seconds // 3_600)
+        return f"{count} hour{'s' if count != 1 else ''} ago"
+    count = max(1, seconds // 86_400)
+    return f"{count} day{'s' if count != 1 else ''} ago"
+
+
 def _upload_page(proof):
     body = f"""
     {_authenticated_navigation()}
@@ -965,7 +1197,7 @@ def _upload_page(proof):
       <p class='eyebrow'>Create your Wahojobs profile</p>
       <h1>Start with what you already have</h1>
       <p class='hero-lede'>Add a resume, a LinkedIn PDF, or both. Wahojobs will organize a profile draft for you to review.</p>
-      <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> You review every detail before anything is saved.</p>
+      <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> You review every detail before your profile is created.</p>
     </section>
     <form class='profile-review-form intake-upload-form' id='profile-intake-upload' method='post' enctype='multipart/form-data' action='{PROFILE_INTAKE_ROUTE}'>
       <input type='hidden' name='csrf' value='{_safe_text(proof)}'>
@@ -1005,7 +1237,7 @@ def _upload_page(proof):
           <li>Organizing experience and skills</li>
           <li>Preparing your review</li>
         </ol>
-        <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> Nothing is saved before you review and confirm it.</p>
+        <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> No profile is created before you review and confirm it.</p>
       </section>
     </form>
     <script>{_PROCESSING_SCRIPT}</script>
@@ -1085,6 +1317,12 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         draft_reference=reference,
         version=snapshot.version,
     )
+    autosave_proof = profile_intake_csrf_proof(
+        csrf_secret,
+        "autosave",
+        draft_reference=reference,
+        version=snapshot.version,
+    )
     issue_note = (
         "<p class='intake-callout'>Some document details may be ambiguous or conflicting; "
         "review them carefully.</p>"
@@ -1098,9 +1336,16 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         else "Update temporary review"
     )
     persistence_note = (
-        "Your profile is saved only when you choose Find my matches."
+        "Your progress is saved as you review. Your profile is created only when you choose Find my matches."
         if save_enabled
         else "You can update this preview, but it cannot be saved here."
+    )
+    autosave_form = (
+        f"<form id='profile-review-autosave' method='post' action='{target}' hidden>"
+        f"<input type='hidden' name='action' value='autosave'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{autosave_proof}'>"
+        "</form>"
+        if save_enabled
+        else ""
     )
     found_cards = _render_found_fact_cards(fact_fields)
     suggestion_cards = "".join(
@@ -1147,7 +1392,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     {_authenticated_navigation()}
     <section class='profile-header intake-hero intake-review-hero'><p class='eyebrow'>Your Wahojobs profile draft</p><h1>Review it and make it yours</h1>
       <p class='hero-lede'>We organized what your documents say. You decide what belongs in your profile.</p>
-      <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> Nothing is saved until you finish.</p>
+      <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> Your progress is saved as you review. No profile is created until you finish.</p>
       <nav class='review-progress' aria-label='Profile review steps'><ol>
         <li><a href='#review-found'><span>1</span>What we found</a></li>
         <li><a href='#review-suggestions'><span>2</span>Confirm suggestions</a></li>
@@ -1157,21 +1402,27 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     </section>
     {issue_note}
     <p id='profile-review-lifetime' class='intake-callout review-expiry-warning' role='status' aria-live='polite' hidden></p>
-    <form class='profile-review-form intake-review-form' method='post' action='{target}'>
-      <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'>
+    <div id='profile-review-save-status' class='review-save-status' data-state='saved' role='status' aria-live='polite'>
+      <span class='save-status-dot' aria-hidden='true'></span><span id='profile-review-save-label'>{'Progress saved' if save_enabled else 'Review active'}</span>
+      <button id='profile-review-save-retry' class='button-quiet' type='button' hidden>Retry</button>
+      <a id='profile-review-save-resume' href='{PROFILE_INTAKE_ROUTE}' hidden>Continue saved progress</a>
+    </div>
+    <form id='profile-review-form' class='profile-review-form intake-review-form' method='post' action='{target}'>
+      <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'><input type='hidden' name='review_step' value='{_safe_text(snapshot.review_step)}'>
       <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>What we found</h2><p>Check the details taken directly from your documents. Edit or remove anything that is not right.</p></div><div class='profile-grid'>{found_cards}</div></section>
       <section class='review-section' id='review-suggestions' aria-labelledby='review-suggestions-title'><div class='section-heading'><p class='eyebrow'>Step 2 of 4</p><h2 id='review-suggestions-title'>Confirm our suggestions</h2><p>These classifications can make your profile more useful. See every available choice and select what feels accurate.</p></div><div class='profile-grid'>{suggestion_cards}</div>{conflict_section}</section>
       <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose all the options you would consider. Each group is separate, so choices such as freelance and full-time can work together.</p><p class='preference-open-note'>Leave a group blank when you are open to all of its options.</p></div>{_render_preference_controls(snapshot.review.preference_model)}
         {missing_section}</section>
       <section class='review-section finish-section' id='review-finish' aria-labelledby='review-finish-title'><div class='finish-panel'><p class='eyebrow'>Step 4 of 4</p><h2 id='review-finish-title'>Review &amp; find matches</h2><p>When everything looks right, see the opportunities that fit the profile you confirmed. You can update your profile later.</p><div class='finish-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></div></div></section>
     </form>
-    <form class='intake-cancel-form' method='post' action='{target}'>
-      <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button class='button-quiet' type='submit'>Discard this draft</button>
+    <form id='profile-review-discard' class='intake-cancel-form' method='post' action='{target}'>
+      <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button class='button-quiet destructive-action' type='submit'>Discard saved progress</button>
     </form>
+    {autosave_form}
     <form id='profile-review-renewal' method='post' action='{target}' hidden>
       <input type='hidden' name='action' value='renew'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{renewal_proof}'>
     </form>
-    <script>{_REVIEW_RENEWAL_SCRIPT}</script>
+    <script>{_REVIEW_STATE_SCRIPT}</script>
     """
     return _page("Review your profile", body)
 
@@ -1524,7 +1775,11 @@ def _processing_error_code(code):
         "ai_import_profile_exists": "existing_profile",
         "ai_import_entitlement_consumed": "existing_profile",
         "ai_import_entitlement_reserved": "import_reserved",
-        "ai_import_checkpoint_available": "import_reserved",
+        "ai_import_checkpoint_available": "checkpoint_available",
+        "ai_import_checkpoint_expired": "expired_checkpoint",
+        "ai_import_checkpoint_stale": "stale_review",
+        "stale_review": "stale_review",
+        "ai_import_review_invalid": "invalid_review",
         "ai_import_schema_unavailable": "durable_unavailable",
         "durable_intake_unavailable": "durable_unavailable",
     }.get(code, "extraction_unavailable")
@@ -1552,6 +1807,8 @@ def _save_error_code(code):
         "ai_import_ownership_stale": "authorization_denied",
         "ai_import_idempotency_conflict": "stale_review",
         "ai_import_temporary_contention": "unavailable",
+        "ai_import_checkpoint_expired": "expired_draft",
+        "ai_import_checkpoint_available": "checkpoint_available",
         "ai_import_schema_unavailable": "durable_unavailable",
         "durable_intake_unavailable": "durable_unavailable",
         "draft_expired": "expired_draft",
@@ -1590,10 +1847,12 @@ def _failure(code):
         "authorization_denied": (404, "Page not found", "This page is not available."),
         "not_found": (404, "Page not found", "This page is not available."),
         "invalid_draft": (400, "Draft request unavailable", "Start the import again."),
-        "expired_draft": (410, "Draft expired", "This temporary draft has expired. Start again."),
-        "stale_review": (409, "Review changed", "Reload the draft before submitting another change."),
+        "expired_draft": (410, "Review session closed", "Your saved progress is still available. Return to the profile builder to continue."),
+        "expired_checkpoint": (410, "Saved progress expired", "This saved review has reached its 7-day limit. Start a new profile import when you are ready."),
+        "stale_review": (409, "Newer progress is available", "This review was updated in another tab or session. Continue from the saved version before making more changes."),
         "unresolved_review": (409, "Review needs confirmation", "Resolve every suggestion or source disagreement before saving."),
         "import_reserved": (409, "Import already in progress", "Finish or cancel the current import before starting another."),
+        "checkpoint_available": (409, "Saved progress is available", "Continue your saved review or explicitly discard it before starting another import."),
         "durable_unavailable": (503, "Profile saving unavailable", "AI profile saving is not available in this environment. You can still create your profile manually."),
         "file_too_large": (413, "Document too large", "Choose a document no larger than 10 MiB."),
         "unsupported_format": (415, "Unsupported document", "Use a text-based PDF or DOCX. LinkedIn exports must be PDF."),

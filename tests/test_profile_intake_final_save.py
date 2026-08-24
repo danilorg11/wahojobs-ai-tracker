@@ -175,6 +175,9 @@ class _ShortLeaseFinalizer:
     def preflight(self, grant):
         return self.delegate.preflight(grant)
 
+    def checkpoint_summary(self, grant):
+        return self.delegate.checkpoint_summary(grant)
+
     def reserve(self, grant, review, document, diagnostics):
         authority, _lifetime = self.delegate.reserve(
             grant, review, document, diagnostics
@@ -184,11 +187,29 @@ class _ShortLeaseFinalizer:
     def renew(self, grant, authority):
         return self.delegate.renew(grant, authority)
 
+    def resume(self, grant, checkpoint_id, *, expected_version):
+        return self.delegate.resume(
+            grant,
+            checkpoint_id,
+            expected_version=expected_version,
+        )
+
+    def save_checkpoint(self, grant, authority, review, *, review_step="review-found"):
+        return self.delegate.save_checkpoint(
+            grant,
+            authority,
+            review,
+            review_step=review_step,
+        )
+
     def release(self, grant, authority, *, outcome_code):
         return self.delegate.release(grant, authority, outcome_code=outcome_code)
 
     def discard_checkpoint(self, grant, authority):
         return self.delegate.discard_checkpoint(grant, authority)
+
+    def discard_saved_checkpoint(self, grant, checkpoint):
+        return self.delegate.discard_saved_checkpoint(grant, checkpoint)
 
     def prepare(self, review, authority):
         return self.delegate.prepare(review, authority)
@@ -348,16 +369,39 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         return intake_grant(self.path, self.session, now=self.now)
 
     def _save_body(self, reference, *, decisions=None, changes=None):
-        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        return self._review_body(
+            reference,
+            action="save",
+            decisions=decisions,
+            changes=changes,
+        )
+
+    def _review_body(
+        self,
+        reference,
+        *,
+        action,
+        integration=None,
+        session=None,
+        decisions=None,
+        changes=None,
+        preference_overrides=None,
+        review_step=None,
+    ):
+        integration = integration or self.integration
+        session = session or self.session
+        grant = intake_grant(self.path, session, now=self.now)
+        snapshot = integration._processing.vault.get(reference, grant)
         form = {
-            "action": "save",
+            "action": action,
             "version": str(snapshot.version),
             "csrf": profile_intake_csrf_proof(
-                self.session["csrf_secret"],
-                "save",
+                session["csrf_secret"],
+                action,
                 draft_reference=reference,
                 version=snapshot.version,
             ),
+            "review_step": review_step or snapshot.review_step,
         }
         decisions = decisions or {}
         changes = changes or {}
@@ -372,6 +416,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
         form.update(_preference_form_values_for_model(snapshot.review.preference_model))
+        form.update(preference_overrides or {})
         return urlencode(form).encode()
 
     def _save(self, reference, body):
@@ -382,6 +427,43 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             self._headers(
                 content_type="application/x-www-form-urlencoded",
                 content_length=len(body),
+            ),
+            BytesIO(body),
+        )
+
+    def _post_review(self, reference, body, *, integration=None, session=None):
+        integration = integration or self.integration
+        target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        return integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(body),
+                session=session,
+            ),
+            BytesIO(body),
+        )
+
+    def _entry_action(self, action, *, integration=None, session=None):
+        integration = integration or self.integration
+        session = session or self.session
+        body = urlencode(
+            {
+                "action": action,
+                "csrf": profile_intake_csrf_proof(
+                    session["csrf_secret"],
+                    action,
+                ),
+            }
+        ).encode()
+        return integration.handle(
+            "POST",
+            PROFILE_INTAKE_ROUTE,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(body),
+                session=session,
             ),
             BytesIO(body),
         )
@@ -449,7 +531,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertEqual(page.status, 200)
         self.assertIn(b"<button type='submit'>Find my matches</button>", page.body)
         self.assertIn(
-            b"Your profile is saved only when you choose Find my matches",
+            b"Your progress is saved as you review. Your profile is created only when you choose Find my matches",
             page.body,
         )
         self.assertNotIn(row["attempt_id"].encode(), page.body)
@@ -526,6 +608,422 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertEqual(entitlement["lease_expires_at"], attempt["lease_expires_at"])
         self.assertIsNone(entitlement["consumed_at"])
 
+    def test_validated_autosave_updates_checkpoint_and_unchanged_save_keeps_expiry(self):
+        reference = self._reference(self._upload())
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        self.assertEqual(page.status, 200)
+        self.assertIn(b"Saving\xe2\x80\xa6", page.body)
+        self.assertIn(b"Progress saved", page.body)
+        self.assertIn(b"profile-review-save-retry", page.body)
+        self.assertIn(b"pagehide", page.body)
+        self.assertIn(b"fetch(form.getAttribute('action')", page.body)
+        self.assertIn(b"fetch(renew.getAttribute('action')", page.body)
+        self.assertIn(b"name='review_step' value='review-found'", page.body)
+        self.assertIn(b"reviewSteps", page.body)
+        self.assertIn(b"review-progress a[href^=\"#review-\"]", page.body)
+        self.assertNotIn(b"fetch(form.action", page.body)
+        self.assertNotIn(b"fetch(renew.action", page.body)
+
+        body = self._review_body(
+            reference,
+            action="autosave",
+            changes={0: "Saved Synthetic Candidate"},
+            preference_overrides={
+                "preference_employment_relationships_independent_contractor": "selected"
+            },
+        )
+        saved = self._post_review(reference, body)
+        self.assertEqual(saved.status, 204)
+        headers = dict(saved.headers)
+        self.assertEqual(headers["X-Wahojobs-Review-Version"], "2")
+        for name in (
+            "X-Wahojobs-CSRF-Save",
+            "X-Wahojobs-CSRF-Autosave",
+            "X-Wahojobs-CSRF-Renew",
+            "X-Wahojobs-CSRF-Discard",
+        ):
+            self.assertRegex(headers[name], r"^[A-Za-z0-9_-]{43}$")
+        with self._database() as connection:
+            row = connection.execute(
+                "SELECT row_version,review_payload_json,review_saved_at,expires_at "
+                "FROM ai_profile_intake_checkpoints"
+            ).fetchone()
+            self.assertEqual(row["row_version"], 2)
+            payload = json.loads(row["review_payload_json"])
+            self.assertEqual(payload["facts"][0]["value"], "Saved Synthetic Candidate")
+            self.assertEqual(
+                payload["preference_model"]["employment_relationships"],
+                ["independent_contractor"],
+            )
+            saved_times = (row["review_saved_at"], row["expires_at"])
+
+        self.now += timedelta(hours=1)
+        unchanged = self._post_review(
+            reference,
+            self._review_body(reference, action="autosave"),
+        )
+        self.assertEqual(unchanged.status, 204)
+        self.assertEqual(
+            dict(unchanged.headers)["X-Wahojobs-Review-Version"],
+            "2",
+        )
+        with self._database() as connection:
+            row = connection.execute(
+                "SELECT row_version,review_saved_at,expires_at "
+                "FROM ai_profile_intake_checkpoints"
+            ).fetchone()
+            self.assertEqual(
+                (row["row_version"], row["review_saved_at"], row["expires_at"]),
+                (2, *saved_times),
+            )
+
+    def test_autosave_preserves_unresolved_suggestion_without_confirming_it(self):
+        reference = self._reference(self._upload())
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        suggestion_index = next(
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.suggested and fact.decision == "pending"
+        )
+        form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    changes={0: "Saved With Pending Suggestion"},
+                ).decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        form.pop(f"fact_{suggestion_index}_value")
+        saved = self._post_review(reference, urlencode(form).encode("ascii"))
+        self.assertEqual(saved.status, 204)
+        updated = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(updated.review.facts[0].value, "Saved With Pending Suggestion")
+        self.assertEqual(updated.review.facts[suggestion_index].decision, "pending")
+        with self._database() as connection:
+            payload = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        self.assertEqual(payload["facts"][suggestion_index]["decision"], "pending")
+
+        final_form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(reference, action="save").decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        final_form.pop(f"fact_{suggestion_index}_value")
+        rejected = self._post_review(
+            reference,
+            urlencode(final_form).encode("ascii"),
+        )
+        self.assertEqual(rejected.status, 400)
+        with self._database() as connection:
+            self.assertEqual(database_counts(connection)["product_profiles"], 0)
+
+    def test_review_step_autosave_is_allowlisted_and_semantically_isolated(self):
+        reference = self._reference(self._upload())
+        semantic_baseline = None
+        for step in (
+            "review-found",
+            "review-suggestions",
+            "review-preferences",
+            "review-finish",
+        ):
+            saved = self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    review_step=step,
+                ),
+            )
+            self.assertEqual(saved.status, 204)
+            snapshot = self.integration._processing.vault.get(
+                reference,
+                self._grant(),
+            )
+            self.assertEqual(snapshot.review_step, step)
+            with self._database() as connection:
+                payload = json.loads(
+                    connection.execute(
+                        "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                    ).fetchone()[0]
+                )
+            self.assertEqual(payload.pop("review_step"), step)
+            if semantic_baseline is None:
+                semantic_baseline = payload
+            else:
+                self.assertEqual(payload, semantic_baseline)
+
+        fallback = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                review_step="https://example.invalid/not-a-review-step",
+            ),
+        )
+        self.assertEqual(fallback.status, 204)
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(snapshot.review_step, "review-found")
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        continued = self._entry_action("continue")
+        self.assertTrue(dict(continued.headers)["Location"].endswith("#review-found"))
+        self.assertEqual(tuple(self.adapter.calls), (DocumentKind.RESUME,))
+
+    def test_process_restart_cross_session_continue_restores_without_extraction(self):
+        reference = self._reference(self._upload())
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                changes={0: "Resumable Synthetic Candidate"},
+                preference_overrides={
+                    "preference_employment_relationships_independent_contractor": "selected"
+                },
+                review_step="review-preferences",
+            ),
+        )
+        self.assertEqual(saved.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.monotonic += 3_601
+        self.now += timedelta(hours=1)
+        with self._database() as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            session = accounts.create_session(
+                connection,
+                user_id=self.session["account_id"],
+                idle_ttl=timedelta(hours=3),
+                absolute_ttl=timedelta(days=1),
+                idempotency_key="slice-5b-cross-session-resume-0001",
+                now=self.now - timedelta(minutes=1),
+            )
+            connection.commit()
+        resumed_session = dict(self.session)
+        resumed_session.update(
+            session_id=session.session.session_id,
+            session_token=session.session_token,
+            csrf_secret=session.csrf_secret,
+        )
+        self.integration = self._build(self.adapter)
+        entry = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_ROUTE,
+            self._headers(origin=False, session=resumed_session),
+        )
+        self.assertEqual(entry.status, 200)
+        self.assertIn(b"Continue building your profile", entry.body)
+        self.assertIn(b"Last saved 1 hour ago", entry.body)
+        self.assertIn(b"saved for 7 days", entry.body)
+        with self._database() as connection:
+            checkpoint_id = connection.execute(
+                "SELECT checkpoint_id FROM ai_profile_intake_checkpoints"
+            ).fetchone()[0]
+        self.assertNotIn(checkpoint_id.encode("ascii"), entry.body)
+        self.assertNotIn(b"private-sentinel", entry.body)
+        continued = self._entry_action("continue", session=resumed_session)
+        self.assertTrue(
+            dict(continued.headers)["Location"].endswith("#review-preferences")
+        )
+        resumed_reference = self._reference(continued)
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed_grant = intake_grant(self.path, resumed_session, now=self.now)
+        snapshot = self.integration._processing.vault.get(
+            resumed_reference,
+            resumed_grant,
+        )
+        self.assertIsNone(snapshot.document)
+        self.assertIsNone(snapshot.diagnostics)
+        self.assertEqual(snapshot.review_step, "review-preferences")
+        self.assertEqual(snapshot.review.facts[0].value, "Resumable Synthetic Candidate")
+        self.assertEqual(
+            snapshot.review.preference_model["employment_relationships"],
+            ["independent_contractor"],
+        )
+        with self._database() as connection:
+            self.assertEqual(
+                tuple(
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT state FROM ai_profile_import_attempts ORDER BY created_at,attempt_id"
+                    )
+                ),
+                ("expired", "reserved"),
+            )
+
+    def test_stale_resumed_tab_cannot_overwrite_newer_checkpoint(self):
+        first_reference = self._reference(self._upload())
+        second_adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+        )
+        second = self._build(second_adapter)
+        try:
+            second_reference = self._reference(
+                self._entry_action("continue", integration=second)
+            )
+            first = self._post_review(
+                first_reference,
+                self._review_body(
+                    first_reference,
+                    action="autosave",
+                    changes={0: "Newest Synthetic Candidate"},
+                ),
+            )
+            self.assertEqual(first.status, 204)
+            stale = self._post_review(
+                second_reference,
+                self._review_body(
+                    second_reference,
+                    action="autosave",
+                    integration=second,
+                    changes={0: "Stale Synthetic Candidate"},
+                ),
+                integration=second,
+            )
+            self.assertEqual(stale.status, 409)
+            self.assertIn(b"Newer progress is available", stale.body)
+            self.assertIsNone(
+                second._processing.vault.get(second_reference, self._grant())
+            )
+            with self._database() as connection:
+                payload = json.loads(
+                    connection.execute(
+                        "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                    ).fetchone()[0]
+                )
+            self.assertEqual(
+                payload["facts"][0]["value"],
+                "Newest Synthetic Candidate",
+            )
+        finally:
+            second.close()
+
+    def test_explicit_entry_discard_is_required_and_removes_saved_progress(self):
+        self._reference(self._upload())
+        self.integration.close()
+        with self._database() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                1,
+            )
+        self.integration = self._build(self.adapter)
+        entry = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_ROUTE,
+            self._headers(origin=False),
+        )
+        self.assertEqual(entry.status, 200)
+        self.assertIn(b"Discard saved progress and start over", entry.body)
+        discarded = self._entry_action("discard_saved")
+        self.assertEqual(discarded.status, 303)
+        self.assertEqual(dict(discarded.headers)["Location"], PROFILE_INTAKE_ROUTE)
+        with self._database() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT state,consumed_at FROM ai_profile_import_entitlements"
+                    ).fetchone()
+                ),
+                ("available", None),
+            )
+        fresh = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_ROUTE,
+            self._headers(origin=False),
+        )
+        self.assertEqual(fresh.status, 200)
+        self.assertIn(b"Start with what you already have", fresh.body)
+
+    def test_expired_checkpoint_cannot_continue_and_falls_back_to_fresh_entry(self):
+        self._reference(self._upload())
+        self.integration.close()
+        self.monotonic += 7 * 24 * 60 * 60 + 1
+        self.now += timedelta(days=7, seconds=1)
+        with self._database() as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            session = accounts.create_session(
+                connection,
+                user_id=self.session["account_id"],
+                idle_ttl=timedelta(hours=3),
+                absolute_ttl=timedelta(days=1),
+                idempotency_key="slice-5b-expired-checkpoint-session-0001",
+                now=self.now - timedelta(minutes=1),
+            )
+            connection.commit()
+        later_session = dict(self.session)
+        later_session.update(
+            session_id=session.session.session_id,
+            session_token=session.session_token,
+            csrf_secret=session.csrf_secret,
+        )
+        self.integration = self._build(self.adapter)
+        expired = self._entry_action("continue", session=later_session)
+        self.assertEqual(expired.status, 410)
+        self.assertIn(b"Saved progress expired", expired.body)
+        fresh = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_ROUTE,
+            self._headers(origin=False, session=later_session),
+        )
+        self.assertEqual(fresh.status, 200)
+        self.assertIn(b"Start with what you already have", fresh.body)
+
+    def test_final_save_after_autosave_still_atomically_deletes_checkpoint(self):
+        reference = self._reference(self._upload())
+        autosaved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                changes={0: "Autosaved Final Candidate"},
+            ),
+        )
+        self.assertEqual(autosaved.status, 204)
+        saved = self._save(reference, self._save_body(reference))
+        self.assertEqual(saved.status, 303)
+        self.assertEqual(dict(saved.headers)["Location"], "/find-matches")
+        with self._database() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM ai_profile_import_entitlements"
+                ).fetchone()[0],
+                "consumed",
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM product_profiles"
+                ).fetchone()[0],
+                1,
+            )
+
     def test_model_failure_has_no_reservation_or_draft(self):
         failing = self._build(
             _FinalSaveAdapter(
@@ -542,7 +1040,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             self.assertEqual(database_counts(connection)["ai_profile_import_entitlements"], 0)
             self.assertEqual(database_counts(connection)["ai_profile_import_attempts"], 0)
 
-    def test_cancel_and_expiry_release_without_consuming(self):
+    def test_explicit_cancel_discards_while_local_expiry_keeps_checkpoint(self):
         reference = self._reference(self._upload())
         snapshot = self.integration._processing.vault.get(reference, self._grant())
         cancel = urlencode(
@@ -594,7 +1092,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             entitlement = connection.execute(
                 "SELECT state,consumed_at FROM ai_profile_import_entitlements"
             ).fetchone()
-            self.assertEqual(tuple(entitlement), ("available", None))
+            self.assertEqual(tuple(entitlement), ("reserved", None))
             self.assertEqual(
                 connection.execute(
                     "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
@@ -602,7 +1100,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 1,
             )
 
-    def test_idle_abandonment_is_released_before_starting_again(self):
+    def test_idle_abandonment_keeps_checkpoint_and_reacquires_on_continue(self):
         self._reference(self._upload())
         self.monotonic += 1801
         self.now += timedelta(seconds=1801)
@@ -611,15 +1109,20 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             PROFILE_INTAKE_ROUTE,
             self._headers(origin=False),
         )
-        self.assertEqual(restarted.status, 409)
+        self.assertEqual(restarted.status, 200)
+        self.assertIn(b"Continue building your profile", restarted.body)
+        self.assertIn(b"Your progress is saved for 7 days", restarted.body)
+        continued = self._entry_action("continue")
+        self._reference(continued)
         with self._database() as connection:
             self.assertEqual(
                 tuple(
-                    connection.execute(
-                        "SELECT state,result_code FROM ai_profile_import_attempts"
-                    ).fetchone()
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT state FROM ai_profile_import_attempts ORDER BY created_at,attempt_id"
+                    )
                 ),
-                ("expired", "reservation_expired"),
+                ("expired", "reserved"),
             )
             self.assertEqual(
                 tuple(
@@ -627,7 +1130,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                         "SELECT state,consumed_at FROM ai_profile_import_entitlements"
                     ).fetchone()
                 ),
-                ("available", None),
+                ("reserved", None),
             )
             self.assertEqual(
                 connection.execute(
@@ -806,7 +1309,12 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 ).fetchone()[0],
                 "consumed",
             )
-        replay = self._save(reference, body)
+        alternate_step = body.replace(
+            b"review_step=review-found",
+            b"review_step=review-finish",
+        )
+        self.assertNotEqual(alternate_step, body)
+        replay = self._save(reference, alternate_step)
         self.assertEqual(replay.status, 303)
         repeated = self._save(reference, body)
         self.assertEqual(repeated.status, 303)

@@ -286,15 +286,18 @@ and form shape are checked server-side. Browser indexes select only fields
 already present in the bound draft; they cannot select authority or arbitrary
 Canonical paths.
 
-Ordinary browser edits still update only the process-local draft in Slice 5A;
-the durable core exposes an optimistic checkpoint-save operation for Slice 5B
-autosave. Edits count as bounded active-review activity and do not consume the
-import or write profile content. In an M011-capable composed runtime, the explicit
-final Save described under Slice 4B is still the sole durable profile
-transition; it revalidates the complete review and calls the Slice 4A atomic
-authority. Cancellation removes the bound draft, releases its active
-reservation where practical, and returns to profile creation. Expired drafts
-show a clear start-again response and do not consume the entitlement.
+Validated browser edits and meaningful movement between the four review steps
+are debounced and saved optimistically to the durable checkpoint. Unchanged
+review content and step state do not extend checkpoint retention, and a stale
+tab cannot overwrite a newer row version. The page exposes Saving,
+saved, retryable failure, and stale-session states; a page-hide save is only a
+best-effort supplement to ordinary autosave. Edits count as bounded
+active-review activity and do not consume the import or write profile content.
+In an M011-capable composed runtime, the explicit final Save described under
+Slice 4B is still the sole durable profile transition; it revalidates the
+complete review and calls the Slice 4A atomic authority. Only an explicit
+discard removes the durable checkpoint. Leaving the page or allowing a local
+draft to expire preserves saved progress and does not consume the entitlement.
 
 Private responses use `Cache-Control: no-store`, noindex/nofollow, the existing
 closed CSP, `nosniff`, and a no-referrer or same-origin referrer policy. Stable
@@ -388,7 +391,9 @@ expires seven days after the last successfully validated review-content save.
 
 The canonical payload contains normalized fact values, review decisions,
 structured preferences, missing-field inputs, safe source kinds, opaque
-conflict grouping, contract versions, and bounded issue state. A reject-only
+conflict grouping, contract versions, bounded issue state, and one
+non-authoritative allowlisted review-step hint. The hint is never a route or a
+profile value; missing or invalid hints fall back to the first step. A reject-only
 contact-PII gate runs before each write. The table has no representation for
 uploaded binaries, filenames, extracted text, document/evidence references,
 evidence snippets, prompts, raw model responses, provider request/token
@@ -402,6 +407,19 @@ then replays or reacquires one short reservation generation. Final Save checks
 the expected checkpoint version and performs profile creation, entitlement
 consumption, and checkpoint deletion in the existing atomic transaction. The
 succeeded attempt remains the bounded exact-replay receipt.
+
+The authenticated intake entry reads only a bounded server-derived progress
+summary. When an active checkpoint exists it presents **Continue building your
+profile**, its last-saved age, the seven-day retention promise, and separate
+Continue and explicit discard actions. Both actions are same-origin,
+CSRF-protected server transitions; checkpoint identifiers and versions never
+enter browser markup. Continue hydrates a fresh session-bound process-local
+draft from the normalized checkpoint, reissues or reacquires the short
+reservation as necessary, and performs no upload parsing, extraction, or model
+request. After those authority checks, the browser opens the allowlisted saved
+review step when available. Facts, decisions, and preferences remain the only
+profile-semantic authority; the navigation hint cannot affect validation,
+entitlement, matching, or final Save.
 
 ### Confirmed review mapping and atomic creation
 
@@ -473,9 +491,13 @@ runs only while the page is visible after recent interaction, uses a
 draft/version-bound CSRF proof and same-origin enforcement, and reauthorizes the
 account, session, environment, principal, and PB-OWN-1 lineage. It carries no
 review or document content and does not consume the entitlement. Local expiry
-or process loss may release/lose the short authority while the seven-day
-checkpoint remains available for Slice 5B resume UX. Explicit cancellation
-discards both checkpoint and reservation.
+or process loss drops only the process-local draft; it does not release a
+potentially shared active reservation generation. That short lease expires
+naturally, while the seven-day checkpoint remains resumable and may later
+reacquire a fresh generation. Only the clearly labeled discard action removes
+the checkpoint and releases its active reservation authority. A local expiry
+message directs the candidate back to their saved progress instead of saying
+their work was lost.
 
 The review form's final action is **Find my matches**. It uses a
 save-specific CSRF proof, same-origin enforcement, the opaque draft handle, and
