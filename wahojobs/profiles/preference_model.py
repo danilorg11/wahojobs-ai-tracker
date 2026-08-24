@@ -1,9 +1,9 @@
 """Typed profile preference contract and pure legacy compatibility adapters.
 
-This module does no I/O.  ``profile_preferences_v1`` is an optional Canonical
-Profile V2 subdocument.  AI-assisted onboarding is its first writer; manual
-profile writers and the current matcher remain on the legacy preference
-fields until later, separately approved slices.
+This module does no I/O.  Both ``profile_preferences_v1`` and its additive V2
+successor are optional Canonical Profile V2 subdocuments.  AI-assisted
+onboarding writes V2; existing V1 documents remain valid and are never
+rewritten merely because they were read.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from wahojobs.profiles.seniority_presentation import (
 
 
 SCHEMA_VERSION = "profile_preferences_v1"
+V2_SCHEMA_VERSION = "profile_preferences_v2"
 
 EMPLOYMENT_RELATIONSHIPS = frozenset({"employee", "independent_contractor"})
 WORKLOADS = frozenset({"full_time", "part_time"})
@@ -34,12 +35,15 @@ SCHEDULE_COORDINATION_MODES = frozenset({"synchronous", "asynchronous"})
 SCHEDULE_TIME_WINDOWS = frozenset(
     {"business_hours", "weekdays", "evenings", "weekends"}
 )
+SCHEDULE_WORKING_DAYS = frozenset({"weekdays", "weekends"})
+SCHEDULE_TIME_OF_DAY = frozenset({"business_hours", "evenings"})
 PHONE_VOICE_MODES = frozenset({"phone", "non_phone"})
 JOB_INTEREST_CODES = frozenset(OCCUPATIONAL_FAMILIES)
 ACCEPTED_CAREER_LEVELS = frozenset(CAREER_LEVELS)
 SOFT_PREFERENCE_DIMENSIONS = frozenset({"job_interests"})
 COMPENSATION_MINIMUM_KINDS = frozenset({"none", "preferred", "strict"})
 COMPENSATION_PERIODS = frozenset({"hour", "month", "year"})
+MAX_COMPENSATION_EXPECTATIONS = 12
 
 # V1 deliberately accepts ordinary circulating currencies, not ISO fund,
 # precious-metal, testing, or reserved X-codes.  The set is closed so a
@@ -86,6 +90,30 @@ _SCHEDULE_FIELDS = frozenset(
 _COMPENSATION_FIELDS = frozenset(
     {"minimum_kind", "amount", "currency", "period"}
 )
+_V2_ROOT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "employment_relationships",
+        "workloads",
+        "engagement_terms",
+        "schedule",
+        "accepted_phone_voice_modes",
+        "job_interests",
+        "accepted_career_levels",
+        "compensation_expectations",
+    }
+)
+_V2_SCHEDULE_FIELDS = frozenset(
+    {
+        "flexibility_modes",
+        "coordination_modes",
+        "working_days",
+        "time_of_day",
+    }
+)
+_COMPENSATION_EXPECTATION_FIELDS = frozenset(
+    {"minimum_kind", "amount", "currency", "period"}
+)
 PREFERENCE_ENUM_LIST_PATHS = (
     ("employment_relationships",),
     ("workloads",),
@@ -93,6 +121,18 @@ PREFERENCE_ENUM_LIST_PATHS = (
     ("schedule", "flexibility_modes"),
     ("schedule", "coordination_modes"),
     ("schedule", "time_windows"),
+    ("accepted_phone_voice_modes",),
+    ("job_interests",),
+    ("accepted_career_levels",),
+)
+PREFERENCE_V2_ENUM_LIST_PATHS = (
+    ("employment_relationships",),
+    ("workloads",),
+    ("engagement_terms",),
+    ("schedule", "flexibility_modes"),
+    ("schedule", "coordination_modes"),
+    ("schedule", "working_days"),
+    ("schedule", "time_of_day"),
     ("accepted_phone_voice_modes",),
     ("job_interests",),
     ("accepted_career_levels",),
@@ -122,6 +162,14 @@ _CONTROL_COPY = {
     "schedule.time_windows": (
         "Working time windows",
         "Select every time window you would consider.",
+    ),
+    "schedule.working_days": (
+        "Days",
+        "Choose the days you prefer to work.",
+    ),
+    "schedule.time_of_day": (
+        "Time of day",
+        "Choose the times of day you prefer to work.",
     ),
     "accepted_phone_voice_modes": (
         "Phone and voice work",
@@ -214,7 +262,7 @@ class ProfilePreferenceModelError(ValueError):
     def __init__(self, *reason_codes: str):
         self.reason_codes = tuple(sorted(set(reason_codes or ("invalid_model",))))[:32]
         super().__init__(
-            "profile_preferences_v1 rejected; reason_codes="
+            "profile preferences rejected; reason_codes="
             + ",".join(self.reason_codes)
         )
 
@@ -240,6 +288,27 @@ def empty_profile_preferences_v1() -> dict:
             "currency": None,
             "period": None,
         },
+    }
+
+
+def empty_profile_preferences_v2() -> dict:
+    """Return the exact unrestricted V2 preference model."""
+
+    return {
+        "schema_version": V2_SCHEMA_VERSION,
+        "employment_relationships": [],
+        "workloads": [],
+        "engagement_terms": [],
+        "schedule": {
+            "flexibility_modes": [],
+            "coordination_modes": [],
+            "working_days": [],
+            "time_of_day": [],
+        },
+        "accepted_phone_voice_modes": [],
+        "job_interests": [],
+        "accepted_career_levels": [],
+        "compensation_expectations": [],
     }
 
 
@@ -300,6 +369,72 @@ def profile_preference_control_catalog_v1() -> dict:
                 {"code": code, "label": f"Per {code}"}
                 for code in ("hour", "month", "year")
             ),
+        },
+    }
+
+
+def profile_preference_control_catalog_v2() -> dict:
+    """Return V2 UI copy derived only from the closed V2 contract."""
+
+    allowed_by_path = {
+        ("employment_relationships",): EMPLOYMENT_RELATIONSHIPS,
+        ("workloads",): WORKLOADS,
+        ("engagement_terms",): ENGAGEMENT_TERMS,
+        ("schedule", "flexibility_modes"): SCHEDULE_FLEXIBILITY_MODES,
+        ("schedule", "coordination_modes"): SCHEDULE_COORDINATION_MODES,
+        ("schedule", "working_days"): SCHEDULE_WORKING_DAYS,
+        ("schedule", "time_of_day"): SCHEDULE_TIME_OF_DAY,
+        ("accepted_phone_voice_modes",): PHONE_VOICE_MODES,
+        ("job_interests",): JOB_INTEREST_CODES,
+        ("accepted_career_levels",): ACCEPTED_CAREER_LEVELS,
+    }
+    dimensions = []
+    for path in PREFERENCE_V2_ENUM_LIST_PATHS:
+        identifier = ".".join(path)
+        title, help_text = _CONTROL_COPY[identifier]
+        if path == ("accepted_career_levels",):
+            choices = list(target_career_level_display_choices())
+        else:
+            choices = []
+            for code in sorted(allowed_by_path[path]):
+                label = _CHOICE_LABELS.get(code, code.replace("_", " ").title())
+                choices.append(
+                    {
+                        "code": code,
+                        "label": label,
+                        "description": _CHOICE_DESCRIPTIONS.get(
+                            code,
+                            f"Include {label.casefold()} opportunities.",
+                        ),
+                    }
+                )
+        dimensions.append(
+            {
+                "id": identifier,
+                "path": path,
+                "title": title,
+                "help": help_text,
+                "choices": tuple(choices),
+            }
+        )
+    return {
+        "schema_version": V2_SCHEMA_VERSION,
+        "dimensions": tuple(dimensions),
+        "compensation": {
+            "minimum_kinds": tuple(
+                {
+                    "code": code,
+                    "label": _COMPENSATION_KIND_COPY[code][0],
+                    "description": _COMPENSATION_KIND_COPY[code][1],
+                }
+                for code in ("preferred", "strict")
+            ),
+            "currencies": tuple(sorted(ISO_4217_CURRENCIES)),
+            "periods": tuple(
+                {"code": code, "label": f"Per {code}"}
+                for code in ("hour", "month", "year")
+            ),
+            "maximum_expectations": MAX_COMPENSATION_EXPECTATIONS,
         },
     }
 
@@ -387,6 +522,200 @@ def canonicalize_profile_preferences_v1(value: dict) -> dict:
 def validate_profile_preferences_v1(value: dict) -> dict:
     """Alias emphasizing that canonicalization is part of validation."""
     return canonicalize_profile_preferences_v1(value)
+
+
+def canonicalize_profile_preferences_v2(value: dict) -> dict:
+    """Validate and return the deterministic authoritative V2 subdocument."""
+
+    if type(value) is not dict:
+        raise ProfilePreferenceModelError("preference_model_not_object")
+    candidate = deepcopy(value)
+    errors: list[str] = []
+    if set(candidate) != _V2_ROOT_FIELDS:
+        errors.append("invalid_preference_model_fields")
+    if candidate.get("schema_version") != V2_SCHEMA_VERSION:
+        errors.append("invalid_preference_model_version")
+
+    _canonical_enum_list(
+        candidate, "employment_relationships", EMPLOYMENT_RELATIONSHIPS, errors
+    )
+    _canonical_enum_list(candidate, "workloads", WORKLOADS, errors)
+    _canonical_enum_list(candidate, "engagement_terms", ENGAGEMENT_TERMS, errors)
+    _canonical_enum_list(
+        candidate, "accepted_phone_voice_modes", PHONE_VOICE_MODES, errors
+    )
+    _canonical_enum_list(candidate, "job_interests", JOB_INTEREST_CODES, errors)
+    _canonical_enum_list(
+        candidate, "accepted_career_levels", ACCEPTED_CAREER_LEVELS, errors
+    )
+
+    schedule = candidate.get("schedule")
+    if type(schedule) is not dict or set(schedule) != _V2_SCHEDULE_FIELDS:
+        errors.append("invalid_preference_schedule")
+    else:
+        _canonical_enum_list(
+            schedule, "flexibility_modes", SCHEDULE_FLEXIBILITY_MODES, errors
+        )
+        _canonical_enum_list(
+            schedule, "coordination_modes", SCHEDULE_COORDINATION_MODES, errors
+        )
+        _canonical_enum_list(
+            schedule, "working_days", SCHEDULE_WORKING_DAYS, errors
+        )
+        _canonical_enum_list(
+            schedule, "time_of_day", SCHEDULE_TIME_OF_DAY, errors
+        )
+
+    expectations = candidate.get("compensation_expectations")
+    if type(expectations) is not list or len(expectations) > MAX_COMPENSATION_EXPECTATIONS:
+        errors.append("invalid_compensation_expectations")
+    else:
+        canonical_expectations = []
+        pairs = []
+        for item in expectations:
+            canonical = _canonical_compensation_expectation(item, errors)
+            if canonical is not None:
+                canonical_expectations.append(canonical)
+                if (
+                    type(canonical.get("currency")) is str
+                    and canonical["currency"] in ISO_4217_CURRENCIES
+                    and type(canonical.get("period")) is str
+                    and canonical["period"] in COMPENSATION_PERIODS
+                ):
+                    pairs.append((canonical["currency"], canonical["period"]))
+        if len(pairs) != len(set(pairs)):
+            errors.append("duplicate_compensation_currency_period")
+        candidate["compensation_expectations"] = sorted(
+            canonical_expectations,
+            key=_compensation_expectation_sort_key,
+        )
+
+    if errors:
+        raise ProfilePreferenceModelError(*errors)
+    return candidate
+
+
+def validate_profile_preferences(value: dict) -> dict:
+    """Validate either supported preference version without rewriting it."""
+
+    if type(value) is not dict:
+        raise ProfilePreferenceModelError("preference_model_not_object")
+    version = value.get("schema_version")
+    if version == SCHEMA_VERSION:
+        return canonicalize_profile_preferences_v1(value)
+    if version == V2_SCHEMA_VERSION:
+        return canonicalize_profile_preferences_v2(value)
+    raise ProfilePreferenceModelError("invalid_preference_model_version")
+
+
+def profile_preferences_v1_to_v2(value: dict) -> dict:
+    """Losslessly lift one canonical V1 model into the V2 dimensions."""
+
+    model = canonicalize_profile_preferences_v1(value)
+    result = empty_profile_preferences_v2()
+    for field in (
+        "employment_relationships",
+        "workloads",
+        "engagement_terms",
+        "accepted_phone_voice_modes",
+        "job_interests",
+        "accepted_career_levels",
+    ):
+        result[field] = deepcopy(model[field])
+    result["schedule"]["flexibility_modes"] = deepcopy(
+        model["schedule"]["flexibility_modes"]
+    )
+    result["schedule"]["coordination_modes"] = deepcopy(
+        model["schedule"]["coordination_modes"]
+    )
+    result["schedule"]["working_days"] = [
+        item for item in model["schedule"]["time_windows"]
+        if item in SCHEDULE_WORKING_DAYS
+    ]
+    result["schedule"]["time_of_day"] = [
+        item for item in model["schedule"]["time_windows"]
+        if item in SCHEDULE_TIME_OF_DAY
+    ]
+    compensation = model["compensation"]
+    if compensation["minimum_kind"] != "none":
+        result["compensation_expectations"] = [deepcopy(compensation)]
+    return canonicalize_profile_preferences_v2(result)
+
+
+def profile_preferences_v2_to_v1_matcher_compat(value: dict) -> dict:
+    """Return the temporary V1 typed-matcher view used until Slice 6B.
+
+    Split schedule dimensions map exactly.  A zero/one compensation list maps
+    exactly; multiple expectations remain non-enforcing rather than selecting
+    an arbitrary currency or period.
+    """
+
+    model = canonicalize_profile_preferences_v2(value)
+    result = empty_profile_preferences_v1()
+    for field in (
+        "employment_relationships",
+        "workloads",
+        "engagement_terms",
+        "accepted_phone_voice_modes",
+        "job_interests",
+        "accepted_career_levels",
+    ):
+        result[field] = deepcopy(model[field])
+    result["schedule"]["flexibility_modes"] = deepcopy(
+        model["schedule"]["flexibility_modes"]
+    )
+    result["schedule"]["coordination_modes"] = deepcopy(
+        model["schedule"]["coordination_modes"]
+    )
+    result["schedule"]["time_windows"] = sorted(
+        [
+            *model["schedule"]["working_days"],
+            *model["schedule"]["time_of_day"],
+        ]
+    )
+    if len(model["compensation_expectations"]) == 1:
+        result["compensation"] = deepcopy(model["compensation_expectations"][0])
+    return canonicalize_profile_preferences_v1(result)
+
+
+def preference_model_for_v2_editor(value: dict) -> dict:
+    """Return a V2 editing copy while preserving stored V1 at read boundaries."""
+
+    canonical = validate_profile_preferences(value)
+    if canonical["schema_version"] == SCHEMA_VERSION:
+        return profile_preferences_v1_to_v2(canonical)
+    return canonical
+
+
+def _canonical_compensation_expectation(value, errors):
+    if type(value) is not dict or set(value) != _COMPENSATION_EXPECTATION_FIELDS:
+        errors.append("invalid_compensation_expectation")
+        return None
+    candidate = deepcopy(value)
+    if candidate.get("minimum_kind") not in {"preferred", "strict"}:
+        errors.append("invalid_compensation_minimum_kind")
+    try:
+        candidate["amount"] = canonical_decimal_string(candidate.get("amount"))
+    except ProfilePreferenceModelError as exc:
+        errors.extend(exc.reason_codes)
+    currency = candidate.get("currency")
+    if type(currency) is str:
+        currency = currency.upper()
+        candidate["currency"] = currency
+    if type(currency) is not str or currency not in ISO_4217_CURRENCIES:
+        errors.append("invalid_compensation_currency")
+    if candidate.get("period") not in COMPENSATION_PERIODS:
+        errors.append("invalid_compensation_period")
+    return candidate
+
+
+def _compensation_expectation_sort_key(value):
+    return (
+        str(value.get("currency", "")),
+        str(value.get("period", "")),
+        str(value.get("minimum_kind", "")),
+        str(value.get("amount", "")),
+    )
 
 
 def legacy_preferences_to_preference_draft(legacy_preferences: dict) -> dict:
@@ -485,13 +814,35 @@ def legacy_preferences_to_preference_draft(legacy_preferences: dict) -> dict:
     }
 
 
+def legacy_preferences_to_preference_draft_v2(legacy_preferences: dict) -> dict:
+    """Return the same conservative legacy draft using the V2 contract."""
+
+    draft = legacy_preferences_to_preference_draft(legacy_preferences)
+    return {
+        "preference_model": profile_preferences_v1_to_v2(
+            draft["preference_model"]
+        ),
+        "ambiguities": deepcopy(draft["ambiguities"]),
+    }
+
+
 def preference_model_to_legacy_preferences(
     preference_model: dict,
     *,
     legacy_base: dict | None = None,
 ) -> dict:
     """Project the typed model into one valid, intentionally lossy V1 mirror."""
-    model = canonicalize_profile_preferences_v1(preference_model)
+    authoritative = validate_profile_preferences(preference_model)
+    if authoritative["schema_version"] == V2_SCHEMA_VERSION:
+        model = profile_preferences_v2_to_v1_matcher_compat(authoritative)
+        expectations = authoritative["compensation_expectations"]
+    else:
+        model = authoritative
+        expectations = (
+            []
+            if model["compensation"]["minimum_kind"] == "none"
+            else [model["compensation"]]
+        )
     legacy = _validated_legacy_preferences(legacy_base or {}, allow_partial=True)
     result = _legacy_defaults()
     for field in ("remote", "availability"):
@@ -555,14 +906,14 @@ def preference_model_to_legacy_preferences(
         work_preferences.add("flexible")
     result["work_preferences"] = sorted(work_preferences)
 
-    compensation = model["compensation"]
-    if compensation["minimum_kind"] == "none":
+    if not expectations:
         result["rate_pay_preference"] = ""
     else:
-        result["rate_pay_preference"] = (
+        result["rate_pay_preference"] = "; ".join(
             f"{compensation['minimum_kind']} minimum: "
             f"{compensation['currency']} {compensation['amount']} per "
             f"{compensation['period']}"
+            for compensation in expectations
         )
     _validated_legacy_preferences(result, allow_partial=False)
     return result

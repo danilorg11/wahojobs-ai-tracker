@@ -549,9 +549,11 @@ derives the legacy flat education shadows on the server. Mixed statuses project
 to `unknown`, multiple asserted kinds project to `not_specified`, and the V1
 matcher projection strips the entry subdocument so matching remains unchanged.
 
-Preference controls continue to come from `profile_preferences_v1` and retain
+Preference controls now write `profile_preferences_v2` while existing V1
+checkpoints and profiles remain readable. They retain
 their independent multi-select semantics. Employment relationship, workload,
-common job areas, and compensation appear first. Secondary schedule, term,
+common job areas, and compensation appear first. Compensation supports
+multiple independently typed currency/period minimums. Secondary schedule, term,
 phone/voice, and target-level choices use a native **More work preferences**
 disclosure that opens automatically when it contains selections. Job interests
 show a compact common set, promote any selected areas into view, and retain the

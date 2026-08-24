@@ -59,10 +59,12 @@ from wahojobs.profiles.education_entries import (
     MAX_EDUCATION_ENTRIES,
 )
 from wahojobs.profiles.preference_model import (
+    MAX_COMPENSATION_EXPECTATIONS,
     ProfilePreferenceModelError,
-    canonicalize_profile_preferences_v1,
-    empty_profile_preferences_v1,
-    profile_preference_control_catalog_v1,
+    canonicalize_profile_preferences_v2,
+    empty_profile_preferences_v2,
+    preference_model_for_v2_editor,
+    profile_preference_control_catalog_v2,
 )
 from wahojobs.profiles.seniority_presentation import (
     candidate_seniority_display_choices,
@@ -87,12 +89,7 @@ _FILE_PARTS = {
 _ALLOWED_MULTIPART_NAMES = frozenset({"csrf", *_FILE_PARTS})
 _MIME_PDF = b"application/pdf"
 _MIME_DOCX = b"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-_PREFERENCE_COMPENSATION_FIELDS = (
-    "preference_compensation_minimum_kind",
-    "preference_compensation_amount",
-    "preference_compensation_currency",
-    "preference_compensation_period",
-)
+_PREFERENCE_COMPENSATION_MARKER = "preference_compensation_expectations_present"
 
 _CLASSIFICATION_DESCRIPTIONS = {
     "advanced_degree": "A graduate or professional qualification beyond a bachelor's degree.",
@@ -1241,8 +1238,8 @@ def _preference_model_from_form(form):
 
     if type(form) is not dict:
         raise ProfileIntakeError("invalid_review_submission")
-    catalog = profile_preference_control_catalog_v1()
-    model = empty_profile_preferences_v1()
+    catalog = profile_preference_control_catalog_v2()
+    model = empty_profile_preferences_v2()
     allowed_checkbox_fields = {}
     for dimension in catalog["dimensions"]:
         path = dimension["path"]
@@ -1250,10 +1247,9 @@ def _preference_model_from_form(form):
             field_name = _preference_choice_field(path, choice["code"])
             allowed_checkbox_fields[field_name] = (path, choice["code"])
 
-    submitted = set(_PREFERENCE_COMPENSATION_FIELDS)
-    for field_name in _PREFERENCE_COMPENSATION_FIELDS:
-        if _single(form, field_name) is None:
-            raise ProfileIntakeError("invalid_review_submission")
+    submitted = {_PREFERENCE_COMPENSATION_MARKER}
+    if _single(form, _PREFERENCE_COMPENSATION_MARKER) != "present":
+        raise ProfileIntakeError("invalid_review_submission")
     for field_name, (path, code) in allowed_checkbox_fields.items():
         if field_name not in form:
             continue
@@ -1265,20 +1261,59 @@ def _preference_model_from_form(form):
         parent[path[-1]].append(code)
         submitted.add(field_name)
 
-    kind = _single(form, "preference_compensation_minimum_kind")
-    amount = _single(form, "preference_compensation_amount")
-    currency = _single(form, "preference_compensation_currency")
-    period = _single(form, "preference_compensation_period")
-    model["compensation"] = {
-        "minimum_kind": kind,
-        "amount": amount or None,
-        "currency": currency or None,
-        "period": period or None,
-    }
+    expectations, expectation_fields = _compensation_expectations_from_form(form)
+    model["compensation_expectations"] = expectations
+    submitted.update(expectation_fields)
     try:
-        return canonicalize_profile_preferences_v1(model), submitted
+        return canonicalize_profile_preferences_v2(model), submitted
     except ProfilePreferenceModelError:
         raise ProfileIntakeError("invalid_review_submission") from None
+
+
+def _compensation_expectations_from_form(form):
+    names = {name for name in form if name.startswith("preference_compensation_")}
+    names.discard(_PREFERENCE_COMPENSATION_MARKER)
+    if not names:
+        return [], set()
+    suffixes = ("minimum_kind", "amount", "currency", "period", "remove")
+    pattern = re.compile(
+        r"^preference_compensation_([0-9]{1,2})_(" + "|".join(suffixes) + r")$"
+    )
+    indexes = set()
+    matched = set()
+    for name in names:
+        match = pattern.fullmatch(name)
+        if match is not None:
+            indexes.add(int(match.group(1)))
+            matched.add(name)
+    if (
+        matched != names
+        or not indexes
+        or indexes != set(range(max(indexes) + 1))
+        or len(indexes) > MAX_COMPENSATION_EXPECTATIONS
+    ):
+        raise ProfileIntakeError("invalid_review_submission")
+    expectations = []
+    submitted = set()
+    for index in range(max(indexes) + 1):
+        prefix = f"preference_compensation_{index}_"
+        values = {}
+        for suffix in suffixes[:-1]:
+            name = prefix + suffix
+            value = _single(form, name)
+            if value is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            submitted.add(name)
+            values[suffix] = value
+        remove_name = prefix + "remove"
+        remove = _single(form, remove_name)
+        if remove is not None:
+            submitted.add(remove_name)
+            if remove != "remove":
+                raise ProfileIntakeError("invalid_review_submission")
+        else:
+            expectations.append(values)
+    return expectations, submitted
 
 
 def _preference_choice_field(path, code):
@@ -1291,24 +1326,25 @@ def _preference_choice_field(path, code):
 def _preference_form_values_for_model(model):
     """Return the exact browser fields for tests and server-built replays."""
 
-    canonical = canonicalize_profile_preferences_v1(model)
-    fields = {}
-    for dimension in profile_preference_control_catalog_v1()["dimensions"]:
+    canonical = preference_model_for_v2_editor(model)
+    fields = {_PREFERENCE_COMPENSATION_MARKER: "present"}
+    for dimension in profile_preference_control_catalog_v2()["dimensions"]:
         path = dimension["path"]
         parent = canonical
         for part in path:
             parent = parent[part]
         for code in parent:
             fields[_preference_choice_field(path, code)] = "selected"
-    compensation = canonical["compensation"]
-    fields.update(
-        {
-            "preference_compensation_minimum_kind": compensation["minimum_kind"],
-            "preference_compensation_amount": compensation["amount"] or "",
-            "preference_compensation_currency": compensation["currency"] or "",
-            "preference_compensation_period": compensation["period"] or "",
-        }
-    )
+    for index, compensation in enumerate(canonical["compensation_expectations"]):
+        prefix = f"preference_compensation_{index}_"
+        fields.update(
+            {
+                prefix + "minimum_kind": compensation["minimum_kind"],
+                prefix + "amount": compensation["amount"],
+                prefix + "currency": compensation["currency"],
+                prefix + "period": compensation["period"],
+            }
+        )
     return fields
 
 
@@ -2118,8 +2154,8 @@ def _review_fact_value_control(index, fact, raw_value, label):
 
 
 def _render_preference_controls(model):
-    canonical = canonicalize_profile_preferences_v1(model)
-    catalog = profile_preference_control_catalog_v1()
+    canonical = preference_model_for_v2_editor(model)
+    catalog = profile_preference_control_catalog_v2()
     immediate_sections = []
     secondary_sections = []
     secondary_selected_count = 0
@@ -2205,50 +2241,32 @@ def _render_preference_controls(model):
             secondary_sections.append(section)
             secondary_selected_count += len(selected)
 
-    compensation = canonical["compensation"]
-    kind_choices = []
-    for choice in catalog["compensation"]["minimum_kinds"]:
-        choice_id = "compensation-kind-" + choice["code"]
-        kind_choices.append(
-            f"<label class='choice-card' for='{choice_id}'>"
-            f"<input id='{choice_id}' type='radio' name='preference_compensation_minimum_kind' "
-            f"value='{choice['code']}'{' checked' if choice['code'] == compensation['minimum_kind'] else ''}>"
-            f"<span><strong>{_safe_text(choice['label'])}</strong><small>{_safe_text(choice['description'])}</small></span></label>"
-        )
-    currencies = tuple(catalog["compensation"]["currencies"])
-    common_currencies = tuple(
-        currency for currency in _COMMON_CURRENCIES if currency in currencies
+    expectations = canonical["compensation_expectations"]
+    expectation_items = "".join(
+        _render_compensation_expectation(index, expectation, catalog)
+        for index, expectation in enumerate(expectations)
     )
-    common_currency_set = set(common_currencies)
-    other_currencies = tuple(
-        currency for currency in currencies if currency not in common_currency_set
+    expectation_template = _render_compensation_expectation(
+        "__INDEX__",
+        {
+            "minimum_kind": "preferred",
+            "amount": "",
+            "currency": "USD",
+            "period": "hour",
+        },
+        catalog,
+        template=True,
     )
-
-    def options_for_currencies(values):
-        return "".join(
-            f"<option value='{currency}'{' selected' if currency == compensation['currency'] else ''}>{currency}</option>"
-            for currency in values
-        )
-
-    currency_control = (
-        "<option value=''>Choose currency</option>"
-        f"<optgroup label='Common currencies'>{options_for_currencies(common_currencies)}</optgroup>"
-        f"<optgroup label='All other currencies'>{options_for_currencies(other_currencies)}</optgroup>"
-    )
-    period_options = ["<option value=''>Choose period</option>"]
-    for period in catalog["compensation"]["periods"]:
-        period_options.append(
-            f"<option value='{period['code']}'{' selected' if period['code'] == compensation['period'] else ''}>{_safe_text(period['label'])}</option>"
-        )
     compensation_section = (
-        "<fieldset class='preference-group compensation-group'><legend>Expected compensation</legend>"
-        "<p class='muted'>Set a minimum only if you have one. Choose how firm it is, then add the amount, currency, and time period.</p>"
-        f"<div class='choice-grid'>{''.join(kind_choices)}</div>"
-        "<div class='review-grid'>"
-        f"<label class='review-field'>Amount<input name='preference_compensation_amount' inputmode='decimal' pattern='[0-9]{{1,18}}(?:\\.[0-9]{{1,2}})?' value='{_safe_text(compensation['amount'] or '')}' maxlength='21'></label>"
-        f"<label class='review-field'>Currency<select name='preference_compensation_currency'>{currency_control}</select><small class='field-help'>Common currencies appear first. Type letters to jump through the full list.</small></label>"
-        f"<label class='review-field'>Period<select name='preference_compensation_period'>{''.join(period_options)}</select></label>"
-        "</div></fieldset>"
+        f"<fieldset class='preference-group compensation-group review-collection' data-review-collection='compensation' data-next-index='{len(expectations)}' data-limit='{MAX_COMPENSATION_EXPECTATIONS}'>"
+        "<legend>Expected compensation</legend>"
+        "<p class='muted'>Add each minimum you use, such as an hourly rate and a yearly salary. We never convert between currencies or time periods.</p>"
+        "<dl class='compensation-kind-guide'><div><dt>Preferred minimum</dt><dd>Your target. You may choose to lower it later to see more opportunities.</dd></div><div><dt>Strict minimum</dt><dd>Your firm floor. Wahojobs will not suggest lowering it.</dd></div></dl>"
+        f"<input type='hidden' name='{_PREFERENCE_COMPENSATION_MARKER}' value='present'>"
+        f"<p class='collection-empty'{' hidden' if expectations else ''}>No minimum added. Jobs will not be limited by pay.</p>"
+        f"<div class='review-collection-items compensation-expectation-items' data-collection-items>{expectation_items}</div>"
+        "<button class='button-quiet collection-add' type='button' data-collection-add>Add another compensation expectation</button>"
+        f"<template data-collection-template>{expectation_template}</template></fieldset>"
     )
     secondary_disclosure = (
         f"<details class='preference-disclosure more-preference-disclosure'{' open' if secondary_selected_count else ''}>"
@@ -2256,9 +2274,50 @@ def _render_preference_controls(model):
         "<small class='disclosure-selection-state'>Selections made — open to review</small>"
         "<small class='disclosure-empty-state'>Schedule, contract length, phone or voice work, and career level</small>"
         "</span></summary>"
-        f"<div class='disclosure-body'>{''.join(secondary_sections)}</div></details>"
+        "<div class='disclosure-body'><p class='preference-evidence-note'>These are preferences, not automatic exclusions when a job leaves details out. If a job doesn’t specify this, we’ll still keep it in your matches.</p>"
+        f"{''.join(secondary_sections)}</div></details>"
     )
     return "".join((*immediate_sections, compensation_section, secondary_disclosure))
+
+
+def _render_compensation_expectation(index, expectation, catalog, *, template=False):
+    prefix = f"preference_compensation_{index}_"
+    item_id = f"preference-compensation-{index}"
+    kind_options = "".join(
+        f"<option value='{choice['code']}'{' selected' if choice['code'] == expectation['minimum_kind'] else ''}>{_safe_text(choice['label'])}</option>"
+        for choice in catalog["compensation"]["minimum_kinds"]
+    )
+    currencies = tuple(catalog["compensation"]["currencies"])
+    common = tuple(currency for currency in _COMMON_CURRENCIES if currency in currencies)
+    common_set = set(common)
+    remaining = tuple(currency for currency in currencies if currency not in common_set)
+
+    def currency_options(values):
+        return "".join(
+            f"<option value='{currency}'{' selected' if currency == expectation['currency'] else ''}>{currency}</option>"
+            for currency in values
+        )
+
+    currency_control = (
+        f"<optgroup label='Common currencies'>{currency_options(common)}</optgroup>"
+        f"<optgroup label='All other currencies'>{currency_options(remaining)}</optgroup>"
+    )
+    period_options = "".join(
+        f"<option value='{period['code']}'{' selected' if period['code'] == expectation['period'] else ''}>{_safe_text(period['label'])}</option>"
+        for period in catalog["compensation"]["periods"]
+    )
+    new_attribute = " data-collection-new='true'" if template else ""
+    return (
+        f"<div class='review-collection-item compensation-expectation' data-collection-item data-index='{index}'{new_attribute}>"
+        "<div class='collection-item-controls compensation-expectation-controls'>"
+        f"<label class='review-field'><span>Minimum type</span><select id='{item_id}-kind' name='{prefix}minimum_kind'>{kind_options}</select><small>Preferred can be relaxed later; strict is your firm floor.</small></label>"
+        f"<label class='review-field'><span>Amount</span><input id='{item_id}-amount' name='{prefix}amount' inputmode='decimal' pattern='[0-9]{{1,18}}(?:\\.[0-9]{{1,2}})?' value='{_safe_text(expectation['amount'])}' maxlength='21' required></label>"
+        f"<label class='review-field'><span>Currency</span><select id='{item_id}-currency' name='{prefix}currency'>{currency_control}</select><small>Type letters to jump through the full list.</small></label>"
+        f"<label class='review-field'><span>Period</span><select id='{item_id}-period' name='{prefix}period'>{period_options}</select></label>"
+        "</div>"
+        f"<label class='collection-remove'><input type='checkbox' name='{prefix}remove' value='remove' data-collection-remove>"
+        "<span class='remove-copy'>Remove</span><span class='restore-copy'>Keep expectation</span></label></div>"
+    )
 
 
 def _review_source_label(fact):

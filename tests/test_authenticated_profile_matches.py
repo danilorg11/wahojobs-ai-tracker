@@ -51,7 +51,10 @@ from wahojobs.profiles.canonical_v2 import (
     convert_v1_to_v2,
     validate_canonical_profile_v2,
 )
-from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+from wahojobs.profiles.preference_model import (
+    empty_profile_preferences_v1,
+    profile_preferences_v1_to_v2,
+)
 
 
 NOW = datetime(2026, 7, 25, 14, 0, 0, tzinfo=timezone.utc)
@@ -1340,6 +1343,54 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 for match in matches_module._primary_presentation_matches(strict)
             ],
             [1203],
+        )
+
+    def test_v2_single_expectation_keeps_current_visible_match_behavior(self):
+        model_v1 = empty_profile_preferences_v1()
+        model_v1["schedule"]["time_windows"] = ["weekdays", "business_hours"]
+        model_v1["compensation"] = {
+            "minimum_kind": "preferred",
+            "amount": "25",
+            "currency": "USD",
+            "period": "hour",
+        }
+        model_v2 = profile_preferences_v1_to_v2(model_v1)
+        profiles = tuple(
+            validate_canonical_profile_v2(
+                with_preference_model(self.profile_v2, model)
+            )
+            for model in (model_v1, model_v2)
+        )
+        context = self._presentation_context([1251, 1252, 1253])
+        rows = [self._row(job_id=job_id) for job_id in (1251, 1252, 1253)]
+        enrichments = {
+            1251: typed_enrichment(amount_min=22, amount_max=22, amount_type="exact"),
+            1252: typed_enrichment(
+                disclosed=False,
+                currency=None,
+                amount_min=None,
+                amount_max=None,
+                period=None,
+                amount_type="unknown",
+            ),
+            1253: typed_enrichment(amount_min=30, amount_max=30, amount_type="exact"),
+        }
+        results = tuple(
+            matches_module._apply_typed_preference_enforcement_v1(
+                profile,
+                deepcopy(context),
+                rows,
+                enrichments,
+            )
+            for profile in profiles
+        )
+        self.assertEqual(
+            [item["job_id"] for item in matches_module._primary_presentation_matches(results[0])],
+            [item["job_id"] for item in matches_module._primary_presentation_matches(results[1])],
+        )
+        self.assertEqual(
+            results[0]["_typed_preference_enforcement"]["single_criterion_relaxations"],
+            results[1]["_typed_preference_enforcement"]["single_criterion_relaxations"],
         )
 
     def test_strict_unknown_can_truthfully_render_zero_results(self):

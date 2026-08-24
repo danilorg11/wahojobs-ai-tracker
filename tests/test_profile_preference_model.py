@@ -18,6 +18,7 @@ from wahojobs.profiles.canonical import (
 from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
     add_user_confirmed_preference_model_v1,
+    add_user_confirmed_preference_model_v2,
     canonical_profile_v2_json_bytes,
     convert_v1_to_v2,
     parse_canonical_profile_v2_json,
@@ -34,17 +35,25 @@ from wahojobs.profiles.preference_model import (
     ISO_4217_CURRENCIES,
     JOB_INTEREST_CODES,
     PHONE_VOICE_MODES,
+    MAX_COMPENSATION_EXPECTATIONS,
     ProfilePreferenceModelError,
     SCHEDULE_COORDINATION_MODES,
     SCHEDULE_FLEXIBILITY_MODES,
     SCHEDULE_TIME_WINDOWS,
+    SCHEDULE_TIME_OF_DAY,
+    SCHEDULE_WORKING_DAYS,
     SOFT_PREFERENCE_DIMENSIONS,
     WORKLOADS,
     canonicalize_profile_preferences_v1,
+    canonicalize_profile_preferences_v2,
     empty_profile_preferences_v1,
+    empty_profile_preferences_v2,
     legacy_preferences_to_preference_draft,
     preference_model_to_legacy_preferences,
+    profile_preferences_v1_to_v2,
+    profile_preferences_v2_to_v1_matcher_compat,
     profile_preference_control_catalog_v1,
+    profile_preference_control_catalog_v2,
 )
 
 
@@ -99,6 +108,117 @@ class ProfilePreferenceModelTests(unittest.TestCase):
             "period": "hour",
         }
         return model
+
+    def populated_model_v2(self):
+        model = profile_preferences_v1_to_v2(self.populated_model())
+        model["compensation_expectations"].append(
+            {
+                "minimum_kind": "strict",
+                "amount": "90000",
+                "currency": "USD",
+                "period": "year",
+            }
+        )
+        return model
+
+    def test_v2_contract_splits_schedule_and_supports_multiple_compensation_units(self):
+        model = empty_profile_preferences_v2()
+        model["schedule"] = {
+            "flexibility_modes": ["flexible"],
+            "coordination_modes": ["asynchronous"],
+            "working_days": ["weekends", "weekdays"],
+            "time_of_day": ["evenings", "business_hours"],
+        }
+        model["compensation_expectations"] = [
+            {
+                "minimum_kind": "strict",
+                "amount": "090000.00",
+                "currency": "usd",
+                "period": "year",
+            },
+            {
+                "minimum_kind": "preferred",
+                "amount": "30.00",
+                "currency": "usd",
+                "period": "hour",
+            },
+        ]
+        canonical = canonicalize_profile_preferences_v2(model)
+        self.assertEqual(canonical["schema_version"], "profile_preferences_v2")
+        self.assertEqual(canonical["schedule"]["working_days"], ["weekdays", "weekends"])
+        self.assertEqual(canonical["schedule"]["time_of_day"], ["business_hours", "evenings"])
+        self.assertEqual(
+            [(item["amount"], item["currency"], item["period"], item["minimum_kind"]) for item in canonical["compensation_expectations"]],
+            [("30", "USD", "hour", "preferred"), ("90000", "USD", "year", "strict")],
+        )
+
+    def test_v2_rejects_duplicate_units_invalid_items_and_oversize_lists(self):
+        duplicate = empty_profile_preferences_v2()
+        duplicate["compensation_expectations"] = [
+            {"minimum_kind": "preferred", "amount": "30", "currency": "USD", "period": "hour"},
+            {"minimum_kind": "strict", "amount": "35", "currency": "usd", "period": "hour"},
+        ]
+        invalid_kind = empty_profile_preferences_v2()
+        invalid_kind["compensation_expectations"] = [
+            {"minimum_kind": "none", "amount": "30", "currency": "USD", "period": "hour"}
+        ]
+        invalid_currency_type = empty_profile_preferences_v2()
+        invalid_currency_type["compensation_expectations"] = [
+            {"minimum_kind": "preferred", "amount": "30", "currency": ["USD"], "period": "hour"}
+        ]
+        invalid_period = empty_profile_preferences_v2()
+        invalid_period["compensation_expectations"] = [
+            {"minimum_kind": "preferred", "amount": "30", "currency": "USD", "period": "project"}
+        ]
+        oversize = empty_profile_preferences_v2()
+        oversize["compensation_expectations"] = [
+            {"minimum_kind": "preferred", "amount": str(index + 1), "currency": currency, "period": "hour"}
+            for index, currency in enumerate(sorted(ISO_4217_CURRENCIES)[: MAX_COMPENSATION_EXPECTATIONS + 1])
+        ]
+        for value, code in (
+            (duplicate, "duplicate_compensation_currency_period"),
+            (invalid_kind, "invalid_compensation_minimum_kind"),
+            (invalid_currency_type, "invalid_compensation_currency"),
+            (invalid_period, "invalid_compensation_period"),
+            (oversize, "invalid_compensation_expectations"),
+        ):
+            with self.subTest(code=code):
+                with self.assertRaises(ProfilePreferenceModelError) as context:
+                    canonicalize_profile_preferences_v2(value)
+                self.assertIn(code, context.exception.reason_codes)
+
+    def test_v1_lifts_losslessly_and_v2_legacy_projection_is_deterministic(self):
+        v1 = canonicalize_profile_preferences_v1(self.populated_model())
+        v2 = profile_preferences_v1_to_v2(v1)
+        self.assertEqual(v2["schedule"]["working_days"], ["weekends"])
+        self.assertEqual(v2["schedule"]["time_of_day"], ["business_hours"])
+        self.assertEqual(len(v2["compensation_expectations"]), 1)
+        self.assertEqual(profile_preferences_v2_to_v1_matcher_compat(v2), v1)
+        multi = canonicalize_profile_preferences_v2(self.populated_model_v2())
+        compat = profile_preferences_v2_to_v1_matcher_compat(multi)
+        self.assertEqual(compat["compensation"]["minimum_kind"], "none")
+        legacy = preference_model_to_legacy_preferences(multi)
+        self.assertIn("preferred minimum: BRL 25 per hour", legacy["rate_pay_preference"])
+        self.assertIn("strict minimum: USD 90000 per year", legacy["rate_pay_preference"])
+
+    def test_v2_catalog_is_exact_and_keeps_schedule_axes_independent(self):
+        catalog = profile_preference_control_catalog_v2()
+        expected = {
+            "schedule.flexibility_modes": SCHEDULE_FLEXIBILITY_MODES,
+            "schedule.coordination_modes": SCHEDULE_COORDINATION_MODES,
+            "schedule.working_days": SCHEDULE_WORKING_DAYS,
+            "schedule.time_of_day": SCHEDULE_TIME_OF_DAY,
+        }
+        by_id = {item["id"]: item for item in catalog["dimensions"]}
+        for identifier, allowed in expected.items():
+            self.assertEqual(
+                {item["code"] for item in by_id[identifier]["choices"]},
+                allowed,
+            )
+        self.assertEqual(
+            catalog["compensation"]["maximum_expectations"],
+            MAX_COMPENSATION_EXPECTATIONS,
+        )
 
     def test_empty_contract_is_exact_and_means_unrestricted(self):
         model = canonicalize_profile_preferences_v1(empty_profile_preferences_v1())
@@ -261,6 +381,46 @@ class ProfilePreferenceModelTests(unittest.TestCase):
                 source_ordinal_resolver=ordinal_resolver,
             )
         self.assertIn("preference_legacy_projection_mismatch", context.exception.reason_codes)
+
+    def test_v2_writer_is_additive_and_legacy_matcher_projection_stays_identical(self):
+        model = canonicalize_profile_preferences_v2(self.populated_model_v2())
+        v1 = deepcopy(self.v1)
+        v1["preferences"] = preference_model_to_legacy_preferences(model)
+        v1["provenance"]["field_sources"] = field_sources_for_profile(
+            v1,
+            PROFILE_SOURCE_USER_CONFIRMATION,
+            explicit=True,
+        )
+        base = convert_v1_to_v2(
+            v1,
+            persistent_profile_id=persistent_id(4),
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        baseline = project_v2_to_matcher_v1(base, matcher_profile_id="v2-writer")
+        written = add_user_confirmed_preference_model_v2(
+            base,
+            model,
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        self.assertEqual(written["preferences"]["preference_model"], model)
+        self.assertEqual(
+            project_v2_to_matcher_v1(written, matcher_profile_id="v2-writer"),
+            baseline,
+        )
+        parsed = parse_canonical_profile_v2_json(
+            canonical_profile_v2_json_bytes(written)
+        )
+        self.assertEqual(parsed, written)
+
+        invalid = deepcopy(model)
+        invalid["compensation_expectations"][0]["period"] = "project"
+        with self.assertRaises(CanonicalProfileV2Error) as context:
+            add_user_confirmed_preference_model_v2(
+                base,
+                invalid,
+                source_ordinal_resolver=ordinal_resolver,
+            )
+        self.assertIn("invalid_compensation_period", context.exception.reason_codes)
 
     def test_v2_reads_and_canonicalizes_optional_preference_model(self):
         candidate = with_preference_model(self.base_v2(), self.populated_model())

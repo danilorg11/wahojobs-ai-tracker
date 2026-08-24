@@ -935,6 +935,78 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 ("expired", "reserved"),
             )
 
+    def test_v2_schedule_and_compensation_expectations_autosave_resume_and_finalize(self):
+        reference = self._reference(self._upload())
+        overrides = {
+            "preference_schedule_working_days_weekdays": "selected",
+            "preference_schedule_time_of_day_business_hours": "selected",
+            "preference_schedule_flexibility_modes_flexible": "selected",
+            "preference_schedule_coordination_modes_asynchronous": "selected",
+            "preference_compensation_0_minimum_kind": "preferred",
+            "preference_compensation_0_amount": "30.00",
+            "preference_compensation_0_currency": "USD",
+            "preference_compensation_0_period": "hour",
+            "preference_compensation_1_minimum_kind": "strict",
+            "preference_compensation_1_amount": "90000",
+            "preference_compensation_1_currency": "USD",
+            "preference_compensation_1_period": "year",
+        }
+        autosaved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                preference_overrides=overrides,
+                review_step="review-preferences",
+            ),
+        )
+        self.assertEqual(autosaved.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+        with self._database() as connection:
+            payload = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        model = payload["preference_model"]
+        self.assertEqual(model["schema_version"], "profile_preferences_v2")
+        self.assertEqual(model["schedule"]["working_days"], ["weekdays"])
+        self.assertEqual(model["schedule"]["time_of_day"], ["business_hours"])
+        self.assertEqual(len(model["compensation_expectations"]), 2)
+
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference,
+            self._grant(),
+        )
+        self.assertEqual(resumed.review.preference_model, model)
+        saved = self._post_review(
+            resumed_reference,
+            self._review_body(resumed_reference, action="save"),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
+        persisted = profile["preferences"]["preference_model"]
+        self.assertEqual(persisted, model)
+        self.assertIn("weekdays", profile["preferences"]["schedule"])
+        self.assertIn("business hours", profile["preferences"]["schedule"])
+        self.assertIn("USD 30 per hour", profile["preferences"]["rate_pay_preference"])
+        self.assertIn("USD 90000 per year", profile["preferences"]["rate_pay_preference"])
+
     def test_integer_total_years_autosaves_resumes_and_persists_canonically(self):
         self.integration.close()
         self.adapter = _FinalSaveAdapter(

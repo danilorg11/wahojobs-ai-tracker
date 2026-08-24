@@ -65,6 +65,7 @@ from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
     add_user_confirmed_education_entries_v1,
     add_user_confirmed_preference_model_v1,
+    add_user_confirmed_preference_model_v2,
     convert_v1_to_v2,
 )
 from wahojobs.profiles.education_entries import (
@@ -76,8 +77,9 @@ from wahojobs.profiles.countries import normalize_country
 from wahojobs.profiles.normalizer import signals_for_domains, skills_block
 from wahojobs.profiles.preference_model import (
     ProfilePreferenceModelError,
-    canonicalize_profile_preferences_v1,
+    V2_SCHEMA_VERSION as PREFERENCE_V2_SCHEMA_VERSION,
     preference_model_to_legacy_preferences,
+    validate_profile_preferences,
 )
 
 
@@ -440,7 +442,7 @@ class ConfirmedAIProfileImport:
         ):
             raise AIProfileImportError("invalid_request")
         try:
-            preference_model = canonicalize_profile_preferences_v1(preference_model)
+            preference_model = validate_profile_preferences(preference_model)
             preference_json = json.dumps(
                 preference_model,
                 ensure_ascii=True,
@@ -488,7 +490,7 @@ class ConfirmedAIProfileImport:
         if getattr(self, "_issuer", None) is not _AUTHORITY_ISSUER:
             raise AIProfileImportError("invalid_request")
         try:
-            return canonicalize_profile_preferences_v1(
+            return validate_profile_preferences(
                 json.loads(self._preference_model_json.decode("ascii"))
             )
         except (ProfilePreferenceModelError, UnicodeError, ValueError, TypeError):
@@ -1497,9 +1499,15 @@ def _create_command(confirmed, authority, reservation, now):
             confirmed.unpaired_education_for_service(),
             source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
         )
-        return add_user_confirmed_preference_model_v1(
+        preference_model = confirmed.preference_model_for_service()
+        writer = (
+            add_user_confirmed_preference_model_v2
+            if preference_model["schema_version"] == PREFERENCE_V2_SCHEMA_VERSION
+            else add_user_confirmed_preference_model_v1
+        )
+        return writer(
             profile_v2,
-            confirmed.preference_model_for_service(),
+            preference_model,
             source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
         )
 

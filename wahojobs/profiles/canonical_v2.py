@@ -41,11 +41,12 @@ from wahojobs.profiles.education_entries import (
 )
 from wahojobs.profiles.preference_model import (
     PREFERENCE_ENUM_LIST_PATHS,
+    PREFERENCE_V2_ENUM_LIST_PATHS,
     ProfilePreferenceModelError,
+    V2_SCHEMA_VERSION as PREFERENCE_V2_SCHEMA_VERSION,
     canonical_decimal_string,
-    canonicalize_profile_preferences_v1,
     preference_model_to_legacy_preferences,
-    validate_profile_preferences_v1,
+    validate_profile_preferences,
 )
 
 
@@ -591,7 +592,7 @@ def add_user_confirmed_preference_model_v1(
     *,
     source_ordinal_resolver,
 ) -> dict:
-    """Add the first authoritative preference model to a validated V2 draft.
+    """Add one supported authoritative preference model to a validated V2 draft.
 
     The browser never supplies legacy preference shadows.  Callers must first
     derive those shadows from ``preference_model`` before creating ``v2``;
@@ -605,7 +606,7 @@ def add_user_confirmed_preference_model_v1(
     if not callable(source_ordinal_resolver):
         raise CanonicalProfileV2Error("invalid_source_resolver")
     try:
-        model = canonicalize_profile_preferences_v1(preference_model)
+        model = validate_profile_preferences(preference_model)
     except ProfilePreferenceModelError as exc:
         raise CanonicalProfileV2Error(*exc.reason_codes) from None
     projected_legacy = preference_model_to_legacy_preferences(model)
@@ -648,6 +649,28 @@ def add_user_confirmed_preference_model_v1(
         key=lambda item: (item["field_path"].casefold(), item["field_path"])
     )
     return validate_canonical_profile_v2(profile)
+
+
+@_sanitized_public_boundary
+def add_user_confirmed_preference_model_v2(
+    v2: dict,
+    preference_model: dict,
+    *,
+    source_ordinal_resolver,
+) -> dict:
+    """V2-named writer sharing the version-dispatching durable authority."""
+
+    try:
+        model = validate_profile_preferences(preference_model)
+    except ProfilePreferenceModelError as exc:
+        raise CanonicalProfileV2Error(*exc.reason_codes) from None
+    if model["schema_version"] != PREFERENCE_V2_SCHEMA_VERSION:
+        raise CanonicalProfileV2Error("invalid_preference_model_version")
+    return add_user_confirmed_preference_model_v1(
+        v2,
+        model,
+        source_ordinal_resolver=source_ordinal_resolver,
+    )
 
 
 @_sanitized_public_boundary
@@ -1734,7 +1757,12 @@ def _canonicalize_profile(profile):
         else None
     )
     if type(preference_model) is dict:
-        for path_parts in PREFERENCE_ENUM_LIST_PATHS:
+        enum_paths = (
+            PREFERENCE_V2_ENUM_LIST_PATHS
+            if preference_model.get("schema_version") == PREFERENCE_V2_SCHEMA_VERSION
+            else PREFERENCE_ENUM_LIST_PATHS
+        )
+        for path_parts in enum_paths:
             parent = preference_model
             for part in path_parts[:-1]:
                 if type(parent) is not dict:
@@ -1761,6 +1789,26 @@ def _canonicalize_profile(profile):
                     )
                 except ProfilePreferenceModelError:
                     pass
+        expectations = preference_model.get("compensation_expectations")
+        if type(expectations) is list and all(type(item) is dict for item in expectations):
+            for item in expectations:
+                if type(item.get("currency")) is str:
+                    item["currency"] = item["currency"].upper()
+                if type(item.get("amount")) is str:
+                    try:
+                        item["amount"] = canonical_decimal_string(item["amount"])
+                    except ProfilePreferenceModelError:
+                        pass
+            preference_model["compensation_expectations"] = sort_indexed(
+                "preferences.preference_model.compensation_expectations",
+                expectations,
+                lambda item: (
+                    str(item.get("currency", "")),
+                    str(item.get("period", "")),
+                    str(item.get("minimum_kind", "")),
+                    str(item.get("amount", "")),
+                ),
+            )
 
     education = profile.get("education")
     if type(education) is dict:
@@ -2014,7 +2062,7 @@ def _validate_section(name, value, errors):
         _validate_skill_entries(value.get("entries"), errors)
     if name == "preferences" and "preference_model" in value:
         try:
-            canonical = validate_profile_preferences_v1(value["preference_model"])
+            canonical = validate_profile_preferences(value["preference_model"])
             if canonical != value["preference_model"]:
                 errors.append("preference_model_not_canonical")
         except ProfilePreferenceModelError as exc:

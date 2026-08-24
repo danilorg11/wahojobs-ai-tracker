@@ -2145,7 +2145,13 @@ def _page(title: str, body: str) -> str:
     .empty-inline {{ background: #f5f8f6; border-radius: 10px; color: #53605b; margin: 0; padding: 18px; }}
     .user-details {{ margin-top: 34px; }}
     .compensation-group {{ background: #f7faf8; border-radius: 14px !important; margin-top: 36px !important; padding: 24px !important; }}
-    .compensation-group .choice-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .compensation-expectation-controls {{ align-items: start; grid-template-columns: 1.3fr .8fr 1fr .8fr; }}
+    .compensation-expectation .review-field small {{ color: #66716c; display: block; font-size: 12px; font-weight: 400; line-height: 1.45; }}
+    .compensation-kind-guide {{ display: grid; gap: 8px 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 14px 0 18px; }}
+    .compensation-kind-guide div {{ margin: 0; }}
+    .compensation-kind-guide dt {{ font-weight: 750; }}
+    .compensation-kind-guide dd {{ color: #66716c; font-size: 13px; margin: 2px 0 0; }}
+    .preference-evidence-note {{ background: #eef6f2; border-radius: 10px; color: #3d5148; margin: 18px 0 4px; padding: 14px 16px; }}
     .finish-section {{ padding-bottom: 0; }}
     .finish-panel {{ background: #eaf6f0; border-radius: 16px; padding: clamp(24px, 4vw, 36px); }}
     .finish-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 14px 18px; margin-top: 22px; }}
@@ -2162,7 +2168,7 @@ def _page(title: str, body: str) -> str:
       .intake-hero, .intake-upload-form, .intake-review-form {{ border-radius: 14px; }}
       .intake-hero h1 {{ font-size: 36px; }}
       .upload-heading {{ align-items: start; flex-direction: column; gap: 10px; }}
-      .upload-choice-grid, .compensation-group .choice-grid {{ grid-template-columns: 1fr; }}
+      .upload-choice-grid {{ grid-template-columns: 1fr; }}
       .upload-choice {{ padding: 18px; }}
       .upload-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
       .profile-entry-actions {{ align-items: stretch; flex-direction: column; text-align: center; }}
@@ -2177,6 +2183,7 @@ def _page(title: str, body: str) -> str:
       .review-collection {{ padding: 16px; }}
       .review-collection-item {{ align-items: stretch; grid-template-columns: 1fr; }}
       .collection-item-controls {{ grid-template-columns: 1fr; }}
+      .compensation-kind-guide {{ grid-template-columns: 1fr; }}
       .skills-collection .skill-token {{ max-width: 100%; }}
       .intake-review-form .job-interest-group > .choice-grid,
       .intake-review-form .job-interest-more .choice-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}

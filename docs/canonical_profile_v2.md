@@ -91,11 +91,14 @@ does not change legacy matching behavior. Existing documents without
 
 `preferences` may additionally contain the optional, authoritative
 `preference_model` subdocument documented in
-[`profile_preferences_v1.md`](profile_preferences_v1.md). This is additive V2
-read support: current V1 writers do not emit it, and both review and matcher V1
-projections remove it before legacy validation. The existing legacy preference
-fields therefore continue to determine current matching until the typed-matcher
-slice is separately approved.
+[`profile_preferences_v1.md`](profile_preferences_v1.md) and
+[`profile_preferences_v2.md`](profile_preferences_v2.md). Existing V1 models
+remain valid and new AI onboarding writes V2. This is additive V2
+read support: reading an existing V1 model does not rewrite it, and both review
+and matcher V1 projections remove the nested object before legacy validation.
+Authenticated matching reads the authoritative model through typed criteria;
+the temporary V2 compatibility projection preserves the established V1
+outcomes until the independent V2 criteria arrive in Slice 6B.
 
 ## Provenance paths
 

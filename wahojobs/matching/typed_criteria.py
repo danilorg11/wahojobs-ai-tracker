@@ -30,6 +30,8 @@ from wahojobs.profiles.preference_model import (
     SCHEDULE_FLEXIBILITY_MODES,
     SCHEDULE_TIME_WINDOWS,
     WORKLOADS,
+    V2_SCHEMA_VERSION as PROFILE_PREFERENCES_V2_SCHEMA_VERSION,
+    profile_preferences_v2_to_v1_matcher_compat,
 )
 
 
@@ -826,6 +828,12 @@ def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
             strict_preference_criteria=(),
             soft_preference_criteria=(),
         )
+
+    # Slice 6A keeps the established V1 matcher contract. Split V2 schedule
+    # fields map exactly. Multiple compensation expectations are intentionally
+    # non-enforcing until Slice 6B can evaluate each item independently.
+    if model.get("schema_version") == PROFILE_PREFERENCES_V2_SCHEMA_VERSION:
+        model = profile_preferences_v2_to_v1_matcher_compat(model)
 
     strict: list[ProfileCriterionV1] = []
     soft: list[ProfileCriterionV1] = []

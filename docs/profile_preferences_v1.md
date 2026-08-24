@@ -1,5 +1,9 @@
 # Profile Preferences V1
 
+This contract remains supported for existing profiles. New AI-assisted
+onboarding writes the additive [`profile_preferences_v2`](profile_preferences_v2.md)
+contract; reading V1 does not silently rewrite it.
+
 `profile_preferences_v1` is an optional authoritative subdocument at
 `canonical_profile_v2.preferences.preference_model`. It separates concepts
 that legacy `employment_types` mixes together. New AI-assisted onboarding is

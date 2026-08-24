@@ -27,7 +27,10 @@ from wahojobs.profiles.canonical_v2 import (
     project_v2_to_matcher_v1,
     validate_canonical_profile_v2,
 )
-from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+from wahojobs.profiles.preference_model import (
+    empty_profile_preferences_v1,
+    profile_preferences_v1_to_v2,
+)
 
 
 def profile_model(*, minimum_kind="preferred", amount="30"):
@@ -290,6 +293,42 @@ def opportunity_for_dimension(dimension, value, *, known=True):
 
 
 class TypedMatchCriteriaTests(unittest.TestCase):
+    def test_v2_single_expectation_preserves_existing_typed_criteria(self):
+        v1_profile = profile_v2()
+        v1_criteria = match_criteria_v1_from_profile(v1_profile)
+        model_v2 = profile_preferences_v1_to_v2(profile_model())
+        v2_profile = validate_canonical_profile_v2(
+            with_preference_model(
+                v1_profile,
+                model_v2,
+            )
+        )
+        self.assertEqual(match_criteria_v1_from_profile(v2_profile), v1_criteria)
+
+    def test_v2_multiple_compensation_expectations_wait_for_6b_without_arbitrary_enforcement(self):
+        model = profile_preferences_v1_to_v2(profile_model())
+        model["compensation_expectations"].append(
+            {
+                "minimum_kind": "strict",
+                "amount": "90000",
+                "currency": "USD",
+                "period": "year",
+            }
+        )
+        base = profile_v2(minimum_kind="none")
+        criteria = match_criteria_v1_from_profile(
+            validate_canonical_profile_v2(with_preference_model(base, model))
+        )
+        self.assertFalse(
+            any(
+                item.dimension == "compensation_minimum"
+                for item in (*criteria.strict_preference_criteria, *criteria.soft_preference_criteria)
+            )
+        )
+        self.assertTrue(
+            any(item.dimension == "schedule_time_window" for item in criteria.soft_preference_criteria)
+        )
+
     def test_profile_criteria_preserve_eligibility_strict_and_soft_groups(self):
         criteria = match_criteria_v1_from_profile(
             profile_v2(minimum_kind="strict")

@@ -63,8 +63,8 @@ from wahojobs.profile_intake.review_draft import (
 )
 from wahojobs.profiles.preference_model import (
     ProfilePreferenceModelError,
-    canonicalize_profile_preferences_v1,
-    empty_profile_preferences_v1,
+    empty_profile_preferences_v2,
+    validate_profile_preferences,
 )
 from wahojobs.profiles.education_entries import (
     EducationEntryContractError,
@@ -553,7 +553,7 @@ class EditableProfileReview:
 
         try:
             value = json.loads(self._preference_model_json.decode("ascii"))
-            return canonicalize_profile_preferences_v1(value)
+            return validate_profile_preferences(value)
         except (UnicodeError, ValueError, TypeError):
             raise ProfileIntakeError("invalid_review_submission") from None
 
@@ -1866,7 +1866,7 @@ def editable_profile_review(draft):
         for name in draft.missing_user_fields
         if name not in _TYPED_PREFERENCE_REPLACED_USER_FIELDS
     )
-    preference_model = empty_profile_preferences_v1()
+    preference_model = empty_profile_preferences_v2()
     return EditableProfileReview(
         schema_version=draft.schema_version,
         sources=draft.sources,
@@ -2167,7 +2167,7 @@ def update_editable_review(
     for name in review.missing_user_fields:
         normalized_inputs.append((name, _validate_user_input(name, user_inputs[name])))
     try:
-        canonical_preferences = canonicalize_profile_preferences_v1(
+        canonical_preferences = validate_profile_preferences(
             review.preference_model if preference_model is None else preference_model
         )
     except ProfilePreferenceModelError:
@@ -2364,7 +2364,7 @@ def _review_collection_identity(value):
 
 
 def _preference_model_json(value):
-    canonical = canonicalize_profile_preferences_v1(value)
+    canonical = validate_profile_preferences(value)
     return json.dumps(
         canonical,
         ensure_ascii=True,

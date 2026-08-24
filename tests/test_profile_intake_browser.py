@@ -62,8 +62,8 @@ from wahojobs.profile_intake.runtime import (
 )
 from wahojobs.profiles.preference_model import (
     ISO_4217_CURRENCIES,
-    empty_profile_preferences_v1,
-    profile_preference_control_catalog_v1,
+    empty_profile_preferences_v2,
+    profile_preference_control_catalog_v2,
 )
 
 
@@ -1089,8 +1089,8 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(new_snapshot.review.facts[1].decision, "accept")
         self.assertNotIn("remote", dict(new_snapshot.review.user_inputs))
         self.assertEqual(
-            new_snapshot.review.preference_model["compensation"]["minimum_kind"],
-            "none",
+            new_snapshot.review.preference_model["compensation_expectations"],
+            [],
         )
         self.assertEqual(
             self.integration.handle("POST", review_target, headers, BytesIO(encoded)).status,
@@ -1128,7 +1128,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(page.status, 200)
         self.assertIn(b"What are you looking for?", page.body)
         self.assertIn(b"type='checkbox'", page.body)
-        self.assertIn(b"type='radio'", page.body)
+        self.assertIn(b"data-review-collection='compensation'", page.body)
         self.assertIn(b"class='preference-disclosure", page.body)
         self.assertIn(b"class='choice-definitions-disclosure'", page.body)
         self.assertIn(b"aria-describedby=", page.body)
@@ -1142,6 +1142,17 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"Independent contractor / freelance", page.body)
         self.assertIn(b"Preferred minimum", page.body)
         self.assertIn(b"Strict minimum", page.body)
+        self.assertIn(b">Days</legend>", page.body)
+        self.assertIn(b">Time of day</legend>", page.body)
+        self.assertIn(b">Schedule flexibility</legend>", page.body)
+        self.assertIn(b">Team coordination</legend>", page.body)
+        self.assertNotIn(b"preference_schedule_time_windows_", page.body)
+        self.assertIn(
+            "If a job doesn’t specify this, we’ll still keep it in your matches.".encode("utf-8"),
+            page.body,
+        )
+        self.assertIn(b"Add another compensation expectation", page.body)
+        self.assertIn(b"compensation-expectation-controls", page.body)
         self.assertNotIn(b"compensation-guide", page.body)
         self.assertEqual(page.body.count(b"Your target. You may choose to lower it"), 1)
         self.assertEqual(page.body.count(b"Your firm floor. Wahojobs will not suggest"), 1)
@@ -1161,7 +1172,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             len(re.findall(rb"<option value='[A-Z]{3}'", page.body)),
             len(ISO_4217_CURRENCIES),
         )
-        catalog = profile_preference_control_catalog_v1()
+        catalog = profile_preference_control_catalog_v2()
         for dimension in catalog["dimensions"]:
             for choice in dimension["choices"]:
                 field_name = (
@@ -1185,20 +1196,30 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"Anything you cannot do?", page.body)
 
         snapshot = self.integration._processing.vault.get(reference, self._grant())
-        model = empty_profile_preferences_v1()
+        model = empty_profile_preferences_v2()
         model["employment_relationships"] = ["employee", "independent_contractor"]
         model["workloads"] = ["full_time", "part_time"]
         model["engagement_terms"] = ["fixed_term"]
         model["schedule"]["coordination_modes"] = ["asynchronous", "synchronous"]
+        model["schedule"]["working_days"] = ["weekdays", "weekends"]
+        model["schedule"]["time_of_day"] = ["business_hours"]
         model["accepted_phone_voice_modes"] = ["non_phone", "phone"]
         model["job_interests"] = ["customer_support", "software_engineering"]
         model["accepted_career_levels"] = ["entry", "senior"]
-        model["compensation"] = {
-            "minimum_kind": "strict",
-            "amount": "5000.00",
-            "currency": "brl",
-            "period": "month",
-        }
+        model["compensation_expectations"] = [
+            {
+                "minimum_kind": "strict",
+                "amount": "5000.00",
+                "currency": "brl",
+                "period": "month",
+            },
+            {
+                "minimum_kind": "preferred",
+                "amount": "30",
+                "currency": "USD",
+                "period": "hour",
+            },
+        ]
         form = {
             "action": "update",
             "version": str(snapshot.version),
@@ -1236,13 +1257,21 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             ["full_time", "part_time"],
         )
         self.assertEqual(
-            saved.review.preference_model["compensation"],
-            {
-                "minimum_kind": "strict",
-                "amount": "5000",
-                "currency": "BRL",
-                "period": "month",
-            },
+            saved.review.preference_model["compensation_expectations"],
+            [
+                {
+                    "minimum_kind": "strict",
+                    "amount": "5000",
+                    "currency": "BRL",
+                    "period": "month",
+                },
+                {
+                    "minimum_kind": "preferred",
+                    "amount": "30",
+                    "currency": "USD",
+                    "period": "hour",
+                },
+            ],
         )
         refreshed = self.integration.handle(
             "GET", target, self._headers(origin=False)
@@ -1263,7 +1292,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             draft_reference=reference,
             version=saved.version,
         )
-        stale_form["preference_compensation_amount"] = ""
+        stale_form["preference_compensation_0_amount"] = ""
         bad_body = urlencode(stale_form).encode()
         rejected = self.integration.handle(
             "POST",
@@ -1276,8 +1305,58 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         )
         self.assertEqual(rejected.status, 400)
 
+        duplicate_form = dict(stale_form)
+        duplicate_form["preference_compensation_0_amount"] = "5000"
+        duplicate_form["preference_compensation_1_currency"] = "BRL"
+        duplicate_form["preference_compensation_1_period"] = "month"
+        bad_body = urlencode(duplicate_form).encode()
+        rejected = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(bad_body),
+            ),
+            BytesIO(bad_body),
+        )
+        self.assertEqual(rejected.status, 400)
+
+        remove_form = dict(stale_form)
+        remove_form["preference_compensation_0_amount"] = "5000"
+        remove_form["preference_compensation_1_remove"] = "remove"
+        remove_body = urlencode(remove_form).encode()
+        removed = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(remove_body),
+            ),
+            BytesIO(remove_body),
+        )
+        self.assertEqual(removed.status, 303)
+        after_remove = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(
+            after_remove.review.preference_model["compensation_expectations"],
+            [
+                {
+                    "minimum_kind": "strict",
+                    "amount": "5000",
+                    "currency": "BRL",
+                    "period": "month",
+                }
+            ],
+        )
+
         legacy_form = dict(stale_form)
-        legacy_form["preference_compensation_amount"] = "5000"
+        legacy_form["version"] = str(after_remove.version)
+        legacy_form["csrf"] = profile_intake_csrf_proof(
+            self.session["csrf_secret"],
+            "update",
+            draft_reference=reference,
+            version=after_remove.version,
+        )
+        legacy_form["preference_compensation_0_amount"] = "5000"
         legacy_form["missing_employment_types"] = "freelance"
         bad_body = urlencode(legacy_form).encode()
         rejected = self.integration.handle(
