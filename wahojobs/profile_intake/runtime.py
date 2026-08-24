@@ -66,6 +66,12 @@ from wahojobs.profiles.preference_model import (
     canonicalize_profile_preferences_v1,
     empty_profile_preferences_v1,
 )
+from wahojobs.profiles.education_entries import (
+    EducationEntryContractError,
+    MAX_EDUCATION_ENTRIES,
+    canonicalize_education_entries_v1,
+    education_entry_identity,
+)
 
 
 PROFILE_INTAKE_ROUTE = "/account/profile/intake"
@@ -118,6 +124,15 @@ PROFILE_INTAKE_REVIEW_COLLECTIONS = {
 _USER_FACT_REFERENCE = re.compile(
     r"^uci_(?:skills|job_titles|languages)_[0-9]{3}$"
 )
+_EDUCATION_ENTRY_REFERENCE = re.compile(r"^edu_[0-9]{3}$")
+_EDUCATION_ENTRY_COMPONENTS = {
+    "education.education_level": "kind",
+    "education.degrees": "qualification",
+    "education.fields_or_domains": "field",
+    "education.institutions": "institution",
+    "education.completion_status": "status",
+    "education.graduation_years": "completion_year",
+}
 
 _OPAQUE_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _ACTIONS = frozenset(
@@ -471,6 +486,49 @@ class EditableUserFact:
             raise ProfileIntakeError("invalid_review_submission")
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class EditableEducationEntry:
+    """One closed review entry; source relationships remain server-owned."""
+
+    item_reference: str
+    origin: str
+    kind: str
+    qualification: str = field(repr=False)
+    field_of_study: str = field(repr=False)
+    institution: str = field(repr=False)
+    status: str
+    completion_year: int | None
+    source_fact_indexes: tuple[int, ...] = field(repr=False)
+    source_attributions: tuple[ReviewSourceAttribution, ...] = field(repr=False)
+    decision: str
+
+    def __post_init__(self):
+        if (
+            _EDUCATION_ENTRY_REFERENCE.fullmatch(self.item_reference) is None
+            or self.origin not in {"document", "user"}
+            or type(self.source_fact_indexes) is not tuple
+            or type(self.source_attributions) is not tuple
+            or self.decision not in {"keep", "remove"}
+            or (
+                self.origin == "document"
+                and (not self.source_fact_indexes or not self.source_attributions)
+            )
+            or (
+                self.origin == "user"
+                and (self.source_fact_indexes or self.source_attributions)
+            )
+        ):
+            raise ProfileIntakeError("invalid_review_submission")
+        try:
+            canonical = canonicalize_education_entries_v1(
+                [_education_entry_mapping(self)]
+            )[0]
+        except EducationEntryContractError:
+            raise ProfileIntakeError("invalid_review_submission") from None
+        if canonical != _education_entry_mapping(self):
+            raise ProfileIntakeError("invalid_review_submission")
+
+
 @dataclass(frozen=True, slots=True)
 class EditableProfileReview:
     schema_version: str
@@ -481,6 +539,9 @@ class EditableProfileReview:
     issue_count: int
     _preference_model_json: bytes = field(repr=False)
     user_facts: tuple[EditableUserFact, ...] = field(default=(), repr=False)
+    education_entries: tuple[EditableEducationEntry, ...] = field(
+        default=(), repr=False
+    )
 
     @property
     def document_reference(self):
@@ -1814,7 +1875,171 @@ def editable_profile_review(draft):
         user_inputs=tuple((name, "") for name in missing_user_fields),
         issue_count=len(draft.issues),
         _preference_model_json=_preference_model_json(preference_model),
+        education_entries=_associate_education_entries(facts),
     )
+
+
+def _education_entry_mapping(entry):
+    return {
+        "kind": entry.kind,
+        "qualification": entry.qualification,
+        "field": entry.field_of_study,
+        "institution": entry.institution,
+        "status": entry.status,
+        "completion_year": entry.completion_year,
+    }
+
+
+def education_entry_values(review):
+    if type(review) is not EditableProfileReview or not _valid_education_entries(
+        review.facts,
+        review.education_entries,
+    ):
+        raise ProfileIntakeError("invalid_review_submission")
+    return tuple(
+        {
+            "item_reference": entry.item_reference,
+            "origin": entry.origin,
+            "value": _education_entry_mapping(entry),
+            "source_attributions": entry.source_attributions,
+            "decision": entry.decision,
+        }
+        for entry in review.education_entries
+    )
+
+
+def managed_education_fact_indexes(review):
+    if type(review) is not EditableProfileReview or not _valid_education_entries(
+        review.facts,
+        review.education_entries,
+    ):
+        raise ProfileIntakeError("invalid_review_submission")
+    return frozenset(
+        index
+        for entry in review.education_entries
+        for index in entry.source_fact_indexes
+    )
+
+
+def _associate_education_entries(facts):
+    groups = {}
+    for index, fact in enumerate(facts):
+        if (
+            fact.field_path not in _EDUCATION_ENTRY_COMPONENTS
+            or fact.conflict_group is not None
+            or len(fact.source_attributions) != 1
+            or len(fact.source_attributions[0].evidence_block_references) != 1
+        ):
+            continue
+        attribution = fact.source_attributions[0]
+        key = (
+            attribution.document_kind.value,
+            attribution.document_reference,
+            attribution.evidence_block_references[0],
+        )
+        groups.setdefault(key, []).append(index)
+
+    entries = []
+    for key, indexes in sorted(groups.items()):
+        if len(entries) >= MAX_EDUCATION_ENTRIES:
+            break
+        components = {}
+        duplicate_component = False
+        for index in indexes:
+            component = _EDUCATION_ENTRY_COMPONENTS[facts[index].field_path]
+            if component in components:
+                duplicate_component = True
+                break
+            components[component] = index
+        if (
+            duplicate_component
+            or len(components) < 2
+            or not {"qualification", "field", "institution"}.intersection(components)
+        ):
+            continue
+        value = {
+            "kind": "not_specified",
+            "qualification": "",
+            "field": "",
+            "institution": "",
+            "status": "not_specified",
+            "completion_year": None,
+        }
+        for component, index in components.items():
+            value[component] = facts[index].value
+        try:
+            value = canonicalize_education_entries_v1([value])[0]
+            entry = EditableEducationEntry(
+                item_reference=f"edu_{len(entries):03d}",
+                origin="document",
+                kind=value["kind"],
+                qualification=value["qualification"],
+                field_of_study=value["field"],
+                institution=value["institution"],
+                status=value["status"],
+                completion_year=value["completion_year"],
+                source_fact_indexes=tuple(sorted(components.values())),
+                source_attributions=(facts[indexes[0]].source_attributions[0],),
+                decision="keep",
+            )
+        except (EducationEntryContractError, ProfileIntakeError):
+            continue
+        entries.append(entry)
+    return tuple(entries)
+
+
+def _valid_education_entries(facts, entries):
+    if type(facts) is not tuple or type(entries) is not tuple:
+        return False
+    used_indexes = set()
+    active_identities = set()
+    for ordinal, entry in enumerate(entries):
+        if (
+            type(entry) is not EditableEducationEntry
+            or entry.item_reference != f"edu_{ordinal:03d}"
+        ):
+            return False
+        if entry.decision == "keep":
+            try:
+                identity = education_entry_identity(_education_entry_mapping(entry))
+            except EducationEntryContractError:
+                return False
+            if identity in active_identities:
+                return False
+            active_identities.add(identity)
+        if entry.origin == "user":
+            continue
+        if (
+            tuple(sorted(entry.source_fact_indexes)) != entry.source_fact_indexes
+            or len(set(entry.source_fact_indexes)) != len(entry.source_fact_indexes)
+            or used_indexes.intersection(entry.source_fact_indexes)
+        ):
+            return False
+        components = set()
+        attributions = []
+        for index in entry.source_fact_indexes:
+            if type(index) is not int or not 0 <= index < len(facts):
+                return False
+            fact = facts[index]
+            component = _EDUCATION_ENTRY_COMPONENTS.get(fact.field_path)
+            if component is None or component in components or fact.conflict_group is not None:
+                return False
+            components.add(component)
+            attributions.extend(fact.source_attributions)
+        expected_attributions = tuple(
+            sorted(
+                set(attributions),
+                key=lambda item: (
+                    item.document_kind.value,
+                    item.document_reference,
+                    item.evidence_block_references,
+                ),
+            )
+        )
+        if expected_attributions != entry.source_attributions:
+            return False
+        used_indexes.update(entry.source_fact_indexes)
+    return len(entries) <= MAX_EDUCATION_ENTRIES
 
 
 def review_collection_entries(review, collection_id):
@@ -1893,6 +2118,7 @@ def update_editable_review(
     user_inputs,
     preference_model=None,
     collection_updates=None,
+    education_updates=None,
 ):
     """Strict pure update; browser indexes never select authority or field paths."""
 
@@ -1905,6 +2131,7 @@ def update_editable_review(
         or type(user_inputs) is not dict
         or set(user_inputs) != set(review.missing_user_fields)
         or not _valid_user_fact_references(review.user_facts)
+        or not _valid_education_entries(review.facts, review.education_entries)
     ):
         raise ProfileIntakeError("invalid_review_submission")
     updated = []
@@ -1920,6 +2147,13 @@ def update_editable_review(
             review,
             updated,
             collection_updates,
+        )
+    education_entries = review.education_entries
+    if education_updates is not None:
+        updated, education_entries = _apply_education_entry_updates(
+            review,
+            updated,
+            education_updates,
         )
     accepted_conflicts: dict[str, int] = {}
     for fact in updated:
@@ -1944,7 +2178,84 @@ def update_editable_review(
         user_inputs=tuple(normalized_inputs),
         _preference_model_json=_preference_model_json(canonical_preferences),
         user_facts=user_facts,
+        education_entries=education_entries,
     )
+
+
+def _apply_education_entry_updates(review, updated_facts, updates):
+    if type(updates) is not tuple:
+        raise ProfileIntakeError("invalid_review_submission")
+    existing = list(review.education_entries)
+    if not len(existing) <= len(updates) <= MAX_EDUCATION_ENTRIES:
+        raise ProfileIntakeError("invalid_review_submission")
+    result = list(existing)
+    for index, raw in enumerate(updates):
+        if type(raw) is not tuple or len(raw) != 7:
+            raise ProfileIntakeError("invalid_review_submission")
+        kind, qualification, field_of_study, institution, status, raw_year, decision = raw
+        if decision not in {"keep", "remove"}:
+            raise ProfileIntakeError("invalid_review_submission")
+        year = None
+        if raw_year:
+            if type(raw_year) is not str or re.fullmatch(r"[0-9]{4}", raw_year) is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            year = int(raw_year)
+        value = {
+            "kind": kind,
+            "qualification": qualification,
+            "field": field_of_study,
+            "institution": institution,
+            "status": status,
+            "completion_year": year,
+        }
+        try:
+            value = canonicalize_education_entries_v1([value])[0]
+        except EducationEntryContractError:
+            raise ProfileIntakeError("invalid_review_submission") from None
+        if index < len(existing):
+            current = existing[index]
+            result[index] = replace(
+                current,
+                kind=value["kind"],
+                qualification=value["qualification"],
+                field_of_study=value["field"],
+                institution=value["institution"],
+                status=value["status"],
+                completion_year=value["completion_year"],
+                decision=decision,
+            )
+            for fact_index in current.source_fact_indexes:
+                fact = updated_facts[fact_index]
+                updated_facts[fact_index] = replace(
+                    fact,
+                    decision=(
+                        "accept" if decision == "keep" else "reject"
+                    ) if fact.suggested else (
+                        "keep" if decision == "keep" else "remove"
+                    ),
+                )
+        else:
+            if decision != "keep":
+                raise ProfileIntakeError("invalid_review_submission")
+            result.append(
+                EditableEducationEntry(
+                    item_reference=f"edu_{index:03d}",
+                    origin="user",
+                    kind=value["kind"],
+                    qualification=value["qualification"],
+                    field_of_study=value["field"],
+                    institution=value["institution"],
+                    status=value["status"],
+                    completion_year=value["completion_year"],
+                    source_fact_indexes=(),
+                    source_attributions=(),
+                    decision="keep",
+                )
+            )
+    candidate = tuple(result)
+    if not _valid_education_entries(tuple(updated_facts), candidate):
+        raise ProfileIntakeError("invalid_review_submission")
+    return updated_facts, candidate
 
 
 def _apply_review_collection_updates(review, updated_facts, updates):
@@ -2131,6 +2442,25 @@ def serialize_profile_intake_checkpoint(
                 "decision": fact.decision,
             }
         )
+    if not _valid_education_entries(review.facts, review.education_entries):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    education_entries = []
+    for entry in review.education_entries:
+        value = _education_entry_mapping(entry)
+        _checkpoint_require_no_contact_pii(value)
+        education_entries.append(
+            {
+                "item_reference": entry.item_reference,
+                "origin": entry.origin,
+                "value": value,
+                "source_fact_indexes": list(entry.source_fact_indexes),
+                "source_origins": [
+                    attribution.document_kind.value
+                    for attribution in entry.source_attributions
+                ],
+                "decision": entry.decision,
+            }
+        )
     payload = {
         "schema_version": PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION,
         "review_schema_version": review.schema_version,
@@ -2141,6 +2471,7 @@ def serialize_profile_intake_checkpoint(
         "issue_count": review.issue_count,
         "preference_model": review.preference_model,
         "user_facts": user_facts,
+        "education_entries": education_entries,
         "review_step": review_step,
     }
     try:
@@ -2188,7 +2519,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         "issue_count",
         "preference_model",
     }
-    optional_keys = {"review_step", "user_facts"}
+    optional_keys = {"review_step", "user_facts", "education_entries"}
     if (
         type(payload) is not dict
         or not required_keys <= set(payload)
@@ -2316,6 +2647,58 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
             raise ProfileIntakeError("invalid_checkpoint_content") from None
     if not _valid_user_fact_references(tuple(user_facts)):
         raise ProfileIntakeError("invalid_checkpoint_content")
+    raw_education_entries = payload.get("education_entries", [])
+    if type(raw_education_entries) is not list or len(raw_education_entries) > MAX_EDUCATION_ENTRIES:
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    education_entries = []
+    for raw in raw_education_entries:
+        if type(raw) is not dict or set(raw) != {
+            "item_reference",
+            "origin",
+            "value",
+            "source_fact_indexes",
+            "source_origins",
+            "decision",
+        }:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        value = raw["value"]
+        _checkpoint_require_no_contact_pii(value)
+        source_indexes = raw["source_fact_indexes"]
+        raw_entry_origins = raw["source_origins"]
+        if (
+            type(source_indexes) is not list
+            or any(type(index) is not int for index in source_indexes)
+            or type(raw_entry_origins) is not list
+        ):
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        try:
+            entry_origins = tuple(DocumentKind(item) for item in raw_entry_origins)
+            education_entries.append(
+                EditableEducationEntry(
+                    item_reference=raw["item_reference"],
+                    origin=raw["origin"],
+                    kind=value["kind"],
+                    qualification=value["qualification"],
+                    field_of_study=value["field"],
+                    institution=value["institution"],
+                    status=value["status"],
+                    completion_year=value["completion_year"],
+                    source_fact_indexes=tuple(source_indexes),
+                    source_attributions=tuple(
+                        ReviewSourceAttribution(
+                            references[origin],
+                            origin,
+                            ("b001",),
+                        )
+                        for origin in entry_origins
+                    ),
+                    decision=raw["decision"],
+                )
+            )
+        except (KeyError, ProfileIntakeError, TypeError, ValueError):
+            raise ProfileIntakeError("invalid_checkpoint_content") from None
+    if not _valid_education_entries(tuple(facts), tuple(education_entries)):
+        raise ProfileIntakeError("invalid_checkpoint_content")
     try:
         review = EditableProfileReview(
             schema_version=REVIEW_DRAFT_SCHEMA_VERSION,
@@ -2326,6 +2709,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
             issue_count=payload["issue_count"],
             _preference_model_json=_preference_model_json(payload["preference_model"]),
             user_facts=tuple(user_facts),
+            education_entries=tuple(education_entries),
         )
         review = update_editable_review(
             review,
@@ -2339,6 +2723,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
     semantic_payload = dict(payload)
     semantic_payload.pop("review_step", None)
     semantic_payload.setdefault("user_facts", [])
+    semantic_payload.setdefault("education_entries", [])
     canonical = json.dumps(
         json.loads(
             _serialize_profile_intake_checkpoint_unchecked(
@@ -2417,6 +2802,20 @@ def _serialize_profile_intake_checkpoint_unchecked(
                 "decision": fact.decision,
             }
             for fact in review.user_facts
+        ],
+        "education_entries": [
+            {
+                "item_reference": entry.item_reference,
+                "origin": entry.origin,
+                "value": _education_entry_mapping(entry),
+                "source_fact_indexes": list(entry.source_fact_indexes),
+                "source_origins": [
+                    attribution.document_kind.value
+                    for attribution in entry.source_attributions
+                ],
+                "decision": entry.decision,
+            }
+            for entry in review.education_entries
         ],
     }
     if include_review_step:
@@ -2514,6 +2913,10 @@ def _parse_review_value(field_path, raw):
                 if re.fullmatch(r"\+?[0-9]+", candidate) is not None
                 else float(candidate)
             )
+        elif spec.kind == "completion_year":
+            if re.fullmatch(r"[0-9]{4}", candidate) is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            value = int(candidate)
         elif spec.kind == "language":
             parts = tuple(part.strip() for part in raw.split("|"))
             if not 1 <= len(parts) <= 3:

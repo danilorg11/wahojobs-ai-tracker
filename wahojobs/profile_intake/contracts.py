@@ -395,6 +395,7 @@ _FIELD_SPECS = {
     "education.degrees": _strings(multiple=True),
     "education.fields_or_domains": _strings(multiple=True),
     "education.institutions": _strings(multiple=True),
+    "education.graduation_years": _FieldSpec("completion_year", multiple=True),
     "education.completion_status": _enum(EDUCATION_COMPLETION_STATUSES, inferred_only=True),
     "credentials.certifications": _strings(multiple=True),
     "credentials.licenses": _strings(multiple=True),
@@ -539,6 +540,10 @@ def _validate_fact_value(value: object, spec: _FieldSpec):
         return value
     if spec.kind == "years":
         if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 80:
+            raise ProfileIntakeError("invalid_fact_number")
+        return value
+    if spec.kind == "completion_year":
+        if type(value) is not int or not 1900 <= value <= 2200:
             raise ProfileIntakeError("invalid_fact_number")
         return value
     if spec.kind == "language":

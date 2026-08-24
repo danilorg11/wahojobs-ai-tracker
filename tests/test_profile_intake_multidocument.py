@@ -49,6 +49,8 @@ from wahojobs.profile_intake.runtime import (
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
     editable_profile_review,
+    education_entry_values,
+    managed_education_fact_indexes,
     profile_intake_csrf_proof,
     review_value_for_form,
     update_editable_review,
@@ -131,6 +133,54 @@ class _NoReadStream:
 
 
 class ReconciliationTests(unittest.TestCase):
+    def test_supported_same_source_education_relationship_becomes_one_entry(self):
+        review = editable_profile_review(
+            reconcile_profile_extractions(
+                (
+                    _validated_source(
+                        DocumentKind.RESUME,
+                        RESUME_REFERENCE,
+                        _raw_fact("education.education_level", "bachelor", explicit=False),
+                        _raw_fact("education.degrees", "Bachelor of Business Administration"),
+                        _raw_fact("education.fields_or_domains", "Business Administration"),
+                        _raw_fact("education.institutions", "Faculdade Horizonte Paulista"),
+                        _raw_fact("education.graduation_years", 2016),
+                        _raw_fact("education.completion_status", "completed", explicit=False),
+                    ),
+                )
+            )
+        )
+        entries = education_entry_values(review)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["value"]["status"], "completed")
+        self.assertEqual(entries[0]["value"]["completion_year"], 2016)
+        self.assertEqual(len(managed_education_fact_indexes(review)), 6)
+
+    def test_ambiguous_legacy_education_facts_are_not_silently_paired(self):
+        review = editable_profile_review(
+            reconcile_profile_extractions(
+                (
+                    _validated_source(
+                        DocumentKind.RESUME,
+                        RESUME_REFERENCE,
+                        _raw_fact("education.degrees", "Bachelor of Business Administration"),
+                        _raw_fact("education.degrees", "Data Analytics Certificate"),
+                        _raw_fact("education.institutions", "Faculdade Horizonte Paulista"),
+                    ),
+                )
+            )
+        )
+        self.assertEqual(education_entry_values(review), ())
+        self.assertEqual(managed_education_fact_indexes(review), frozenset())
+        self.assertEqual(
+            {fact.value for fact in review.facts},
+            {
+                "Bachelor of Business Administration",
+                "Data Analytics Certificate",
+                "Faculdade Horizonte Paulista",
+            },
+        )
+
     def test_identical_values_deduplicate_merge_sources_and_prefer_explicit_evidence(self):
         resume = _validated_source(
             DocumentKind.RESUME,
@@ -653,7 +703,7 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertEqual(page.body.count(b"data-review-collection='job_titles'"), 1)
         self.assertEqual(page.body.count(b"data-review-collection='skills'"), 1)
         self.assertEqual(page.body.count(b"class='review-collection-item skill-token"), 3)
-        self.assertEqual(page.body.count(b"data-index='__INDEX__'"), 3)
+        self.assertEqual(page.body.count(b"data-index='__INDEX__'"), 4)
         self.assertEqual(page.body.count(b"Add another job title"), 1)
         self.assertEqual(page.body.count(b"Add another skill"), 1)
         self.assertIn(b"Type of work", page.body)

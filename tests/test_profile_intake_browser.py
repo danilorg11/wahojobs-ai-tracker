@@ -38,6 +38,7 @@ from wahojobs.profile_intake.browser import (
     _CLASSIFICATION_DESCRIPTIONS,
     _SKIP_SUGGESTION_VALUE,
     _preference_form_values_for_model,
+    _render_education_entry,
     _review_fact_value_control,
     _failure,
 )
@@ -466,6 +467,34 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
                 )
                 self.assertNotIn("<strong>Not Specified</strong>", markup)
                 self.assertNotIn("<strong>Unknown</strong>", markup)
+
+    def test_education_unknown_status_renders_once_without_changing_its_raw_value(self):
+        markup = _render_education_entry(
+            0,
+            {
+                "origin": "user",
+                "value": {
+                    "kind": "bachelor",
+                    "qualification": "Bachelor of Business Administration",
+                    "field": "Business Administration",
+                    "institution": "Synthetic University",
+                    "status": "unknown",
+                    "completion_year": None,
+                },
+                "source_attributions": (),
+                "decision": "keep",
+            },
+        )
+        status_markup = re.search(
+            r"<select id='review-education-0-status'.*?</select>",
+            markup,
+        ).group(0)
+        self.assertEqual(status_markup.count(">Not specified</option>"), 1)
+        self.assertIn(
+            "value='unknown' selected>Not specified</option>",
+            status_markup,
+        )
+        self.assertNotIn("value='not_specified'", status_markup)
 
     def test_classification_choice_confirms_or_leaves_out_without_contract_change(self):
         response = self._upload(

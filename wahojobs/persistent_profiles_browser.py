@@ -2072,6 +2072,8 @@ def _page(title: str, body: str) -> str:
     .review-collection-item {{ align-items: end; background: #fbfcfb; border: 1px solid #e0e8e4; border-radius: 10px; display: grid; gap: 8px 14px; grid-template-columns: minmax(0, 1fr) auto; padding: 14px; }}
     .review-collection-item .fact-meta {{ grid-column: 1 / -1; margin: 0; }}
     .collection-item-controls {{ display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .education-entry-controls {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    .education-entry {{ align-items: start; }}
     .screen-reader-only {{ clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }}
     .skills-collection .review-collection-items {{ align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }}
     .skills-collection .skill-token {{ align-items: center; background: #eef6f2; border-color: #c9ded4; border-radius: 999px; display: inline-flex; flex: 0 1 auto; gap: 3px; max-width: 100%; padding: 3px 4px 3px 12px; }}

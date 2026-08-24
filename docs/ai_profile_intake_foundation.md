@@ -533,9 +533,21 @@ references, limits, value parsing, uniqueness, and final projection. Added
 items have no document/evidence attribution; successful finalization gives
 them the existing user-confirmation source. Collection edits and removals are
 part of the same optimistic autosaved checkpoint, so resume restores them
-without parsing a document or calling a model. Education is intentionally not
-included: its flat current fields cannot safely express per-entry association
-and requires a dedicated contract.
+without parsing a document or calling a model.
+
+Education uses a dedicated closed entry model instead of treating its flat
+legacy fields as one contextless record. Each item keeps education kind,
+qualification/course, field, institution, status, and optional completion year
+together. The server associates document facts only when one source and one
+evidence block support an unambiguous relationship; duplicate components,
+conflicts, or otherwise ambiguous flat facts stay separately reviewable and
+are never guessed into an entry. Candidates may add, edit, and remove entries;
+user-added entries retain only user-confirmation provenance and no fabricated
+document evidence. Entries autosave and resume with the same optimistic
+checkpoint authority. Finalization writes optional `education.entries` and
+derives the legacy flat education shadows on the server. Mixed statuses project
+to `unknown`, multiple asserted kinds project to `not_specified`, and the V1
+matcher projection strips the entry subdocument so matching remains unchanged.
 
 Preference controls continue to come from `profile_preferences_v1` and retain
 their independent multi-select semantics. Employment relationship, workload,

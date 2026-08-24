@@ -39,6 +39,7 @@ from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
     FIELD_PATH_VERSION,
     MAX_DOMAIN_YEARS,
+    MAX_EDUCATION_ENTRIES,
     MAX_FIELD_SOURCES,
     MAX_LANGUAGES,
     MAX_SIGNALS,
@@ -46,6 +47,7 @@ from wahojobs.profiles.canonical_v2 import (
     MAX_SKILL_ENTRIES,
     SCHEMA_VERSION,
     STRUCTURED_WHITESPACE_POLICY,
+    add_user_confirmed_education_entries_v1,
     canonical_profile_v2_json_bytes,
     convert_v1_to_v2,
     merge_server_review_correction_v2,
@@ -57,6 +59,9 @@ from wahojobs.profiles.canonical_v2 import (
     resolve_field_path,
     validate_ephemeral_matcher_profile_id,
     validate_canonical_profile_v2,
+)
+from wahojobs.profiles.education_entries import (
+    project_education_entries_to_legacy,
 )
 
 
@@ -151,6 +156,142 @@ class CanonicalProfileV2Tests(unittest.TestCase):
             persistent_profile_id=persistent_id(index + 1),
             source_ordinal_resolver=ordinal_resolver,
         )
+
+    def test_optional_education_entries_preserve_existing_profiles_and_matcher_projection(self):
+        existing = self.convert_case()
+        original_bytes = canonical_profile_v2_json_bytes(existing)
+        self.assertNotIn("entries", existing["education"])
+        self.assertEqual(validate_canonical_profile_v2(existing), existing)
+        self.assertEqual(canonical_profile_v2_json_bytes(existing), original_bytes)
+
+        entries = [
+            {
+                "kind": "not_specified",
+                "qualification": "",
+                "field": "generalist",
+                "institution": "",
+                "status": "unknown",
+                "completion_year": None,
+            }
+        ]
+        unpaired = {
+            "education_level": "no_degree",
+            "fields_or_domains": ["language"],
+        }
+        candidate = deepcopy(existing)
+        candidate["education"] = project_education_entries_to_legacy(entries, unpaired)
+        rebuild_field_sources(candidate)
+        matcher_id = "education-entries-matcher-fixture"
+        baseline_matcher = project_v2_to_matcher_v1(
+            candidate,
+            matcher_profile_id=matcher_id,
+        )
+        structured = add_user_confirmed_education_entries_v1(
+            candidate,
+            entries,
+            unpaired,
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        self.assertEqual(structured["education"]["entries"], entries)
+        self.assertEqual(structured["education"]["completion_status"], "unknown")
+        self.assertEqual(structured["education"]["education_level"], "no_degree")
+        self.assertEqual(
+            project_v2_to_matcher_v1(
+                structured,
+                matcher_profile_id=matcher_id,
+            ),
+            baseline_matcher,
+        )
+        self.assertLessEqual(len(entries), MAX_EDUCATION_ENTRIES)
+
+    def test_structured_education_rejects_shadow_divergence_and_duplicate_entries(self):
+        entry = {
+            "kind": "not_specified",
+            "qualification": "",
+            "field": "generalist",
+            "institution": "",
+            "status": "unknown",
+            "completion_year": None,
+        }
+        unpaired = {
+            "education_level": "no_degree",
+            "fields_or_domains": ["language"],
+        }
+        candidate = self.convert_case()
+        candidate["education"] = project_education_entries_to_legacy([entry], unpaired)
+        rebuild_field_sources(candidate)
+        divergent = deepcopy(candidate)
+        divergent["education"]["institutions"].append("Browser-authored shadow")
+        rebuild_field_sources(divergent)
+        with self.assertRaises(CanonicalProfileV2Error) as raised:
+            add_user_confirmed_education_entries_v1(
+                divergent,
+                [entry],
+                unpaired,
+                source_ordinal_resolver=ordinal_resolver,
+            )
+        self.assertIn("education_legacy_projection_mismatch", raised.exception.reason_codes)
+        with self.assertRaises(CanonicalProfileV2Error) as raised:
+            add_user_confirmed_education_entries_v1(
+                candidate,
+                [entry, deepcopy(entry)],
+                unpaired,
+                source_ordinal_resolver=ordinal_resolver,
+            )
+        self.assertIn("duplicate_entry", raised.exception.reason_codes)
+
+    def test_legacy_correction_preserves_unchanged_entries_and_unpairs_an_education_edit(self):
+        entry = {
+            "kind": "not_specified",
+            "qualification": "",
+            "field": "generalist",
+            "institution": "",
+            "status": "unknown",
+            "completion_year": None,
+        }
+        unpaired = {
+            "education_level": "no_degree",
+            "fields_or_domains": ["language"],
+        }
+        base = self.convert_case()
+        base["education"] = project_education_entries_to_legacy([entry], unpaired)
+        rebuild_field_sources(base)
+        structured = add_user_confirmed_education_entries_v1(
+            base,
+            [entry],
+            unpaired,
+            source_ordinal_resolver=ordinal_resolver,
+        )
+        draft = IdentityFreeCanonicalProfileV1.from_mapping(
+            project_v2_to_review_v1(structured)
+        )
+        fields = profile_review_form_fields(
+            draft,
+            "structured-education-correction",
+            "R" * 43,
+        )
+        updates = profile_review_updates_from_form(
+            {name: [value] for name, value in fields.items()},
+            profile_review_language_slots(draft),
+        )
+        baseline = apply_identity_free_profile_review(draft, updates).to_mapping()
+        unchanged = merge_server_review_correction_v2(
+            structured,
+            baseline,
+            deepcopy(baseline),
+        )
+        self.assertEqual(unchanged["education"]["entries"], [entry])
+
+        changed_updates = deepcopy(updates)
+        changed_updates["institutions"] = "Language Institute"
+        changed = apply_identity_free_profile_review(draft, changed_updates).to_mapping()
+        merged = merge_server_review_correction_v2(
+            structured,
+            baseline,
+            changed,
+        )
+        self.assertNotIn("entries", merged["education"])
+        self.assertEqual(merged["education"]["institutions"], ["Language Institute"])
 
     def _merge_review_updates(self, changes, *, case_index=0):
         profile_id = persistent_id(902)

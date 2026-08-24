@@ -75,6 +75,20 @@ Confidence retains the existing V1 enum (`unknown`, `low`, `medium`, or `high`)
 so conversion does not invent a new confidence model. Evidence, snippets, raw
 content, source identity, and arbitrary signal metadata are not accepted.
 
+`education` may contain an optional `entries` array for profiles whose review
+has established honest per-entry relationships. Each closed entry has exactly
+`kind`, `qualification`, `field`, `institution`, `status`, and
+`completion_year`. Text is bounded and canonicalized, year is either null or
+an integer from 1900 through 2200, duplicate entries are rejected, and the
+array is deterministically ordered. The existing flat education fields remain
+compatibility shadows. New structured writers derive those shadows on the
+server; mixed entry statuses project to `unknown`, while multiple asserted
+education kinds project to `not_specified`. Legacy flat facts that cannot be
+paired honestly remain unpaired shadows until the candidate organizes them.
+V1 review and matcher projections remove `entries`, so this additive contract
+does not change legacy matching behavior. Existing documents without
+`education.entries` remain valid and serialize unchanged.
+
 `preferences` may additionally contain the optional, authoritative
 `preference_model` subdocument documented in
 [`profile_preferences_v1.md`](profile_preferences_v1.md). This is additive V2
@@ -143,6 +157,7 @@ tests can compare the complete contract without relying on prose aliases.
 | `dynamic_label_length` | 128 |
 | `display_name_length` | 160 |
 | `languages` | 32 |
+| `education_entries` | 24 |
 | `domain_year_records` | 64 |
 | `skill_records` | 96 |
 | `derived_signals` | 64 |

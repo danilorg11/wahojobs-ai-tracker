@@ -32,6 +32,7 @@ _REVIEW_FIELDS = {
     "education.degrees": "degrees",
     "education.fields_or_domains": "education_fields",
     "education.institutions": "institutions",
+    "education.graduation_years": "graduation_years",
     "education.completion_status": "education_status",
     "credentials.certifications": "certifications",
     "credentials.licenses": "licenses",

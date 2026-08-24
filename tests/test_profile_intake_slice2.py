@@ -984,6 +984,25 @@ class ReviewDraftTests(unittest.TestCase):
         )
         self.assertTrue(all(fact.requires_confirmation for fact in draft.suggested_facts))
 
+    def test_completion_year_uses_the_bounded_integer_contract(self):
+        evidence = _model_packet("Synthetic education completed in 2016")
+        valid = _payload(_fact("education.graduation_years", 2016))
+        self.assertTrue(
+            structured_outputs_schema_accepts(
+                profile_extraction_structured_output_schema(evidence),
+                valid,
+            )
+        )
+        extraction = validate_ai_profile_extraction(valid, evidence)
+        fact = extraction.facts[0]
+        self.assertEqual(fact.field_path, "education.graduation_years")
+        self.assertIs(type(fact.value), int)
+        with self.assertRaisesRegex(ProfileIntakeError, "invalid_fact_number"):
+            validate_ai_profile_extraction(
+                _payload(_fact("education.graduation_years", 2016.5)),
+                evidence,
+            )
+
     def test_user_only_fields_stay_missing_and_preferences_require_confirmation(self):
         extraction = self._extraction(
             _fact("preferences.remote", True, explicit=True),

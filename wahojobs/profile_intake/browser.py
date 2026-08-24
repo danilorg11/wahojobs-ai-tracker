@@ -44,12 +44,19 @@ from wahojobs.profile_intake.runtime import (
     ProfileIntakeDocumentInput,
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
+    education_entry_values,
+    managed_education_fact_indexes,
     managed_review_collection_fact_indexes,
     normalize_profile_intake_review_step,
     profile_intake_csrf_proof,
     review_collection_entries,
     review_value_for_form,
     update_editable_review,
+)
+from wahojobs.profiles.education_entries import (
+    EDUCATION_ENTRY_KINDS,
+    EDUCATION_ENTRY_STATUSES,
+    MAX_EDUCATION_ENTRIES,
 )
 from wahojobs.profiles.preference_model import (
     ProfilePreferenceModelError,
@@ -138,6 +145,14 @@ _CLASSIFICATION_DESCRIPTIONS = {
 _REVIEW_FIELD_LABELS = {
     "occupational_families": "Type of work",
     "professional_domains": "Areas of experience",
+    "graduation_years": "Completion year",
+}
+_UNPAIRED_EDUCATION_LABELS = {
+    "degrees": "Qualification or course (not linked to an entry)",
+    "education_fields": "Field of study (not linked to an entry)",
+    "institutions": "School or institution (not linked to an entry)",
+    "graduation_years": "Completion year (not linked to an entry)",
+    "education_status": "Education status (not linked to an entry)",
 }
 _COMPACT_FOUND_REVIEW_FIELDS = {
     "job_titles": "Job titles",
@@ -980,11 +995,18 @@ def _review_from_form(review, form, *, allow_pending=False):
         form,
     )
     expected.update(collection_fields)
+    education_updates, education_fields = _education_entries_from_form(
+        review,
+        form,
+    )
+    expected.update(education_fields)
     managed_indexes = (
         managed_review_collection_fact_indexes(review)
         if collection_updates is not None
         else frozenset()
     )
+    if education_updates is not None:
+        managed_indexes = managed_indexes | managed_education_fact_indexes(review)
     values = []
     decisions = []
     for index, fact in enumerate(review.facts):
@@ -1037,7 +1059,59 @@ def _review_from_form(review, form, *, allow_pending=False):
         user_inputs,
         preference_model,
         collection_updates,
+        education_updates,
     )
+
+
+def _education_entries_from_form(review, form):
+    names = {name for name in form if name.startswith("review_education_")}
+    if not names:
+        return None, set()
+    suffixes = (
+        "kind",
+        "qualification",
+        "field",
+        "institution",
+        "status",
+        "completion_year",
+        "remove",
+    )
+    pattern = re.compile(
+        r"^review_education_([0-9]{1,3})_(" + "|".join(suffixes) + r")$"
+    )
+    indexes = set()
+    matched = set()
+    for name in names:
+        match = pattern.fullmatch(name)
+        if match is not None:
+            indexes.add(int(match.group(1)))
+            matched.add(name)
+    if matched != names or not indexes or indexes != set(range(max(indexes) + 1)):
+        raise ProfileIntakeError("invalid_review_submission")
+    existing_count = len(education_entry_values(review))
+    item_count = max(indexes) + 1
+    if not existing_count <= item_count <= MAX_EDUCATION_ENTRIES:
+        raise ProfileIntakeError("invalid_review_submission")
+    submitted = set()
+    updates = []
+    for index in range(item_count):
+        prefix = f"review_education_{index}_"
+        values = []
+        for suffix in suffixes[:-1]:
+            name = prefix + suffix
+            value = _single(form, name)
+            if value is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            submitted.add(name)
+            values.append(value)
+        remove_name = prefix + "remove"
+        remove = _single(form, remove_name)
+        if remove is not None:
+            submitted.add(remove_name)
+            if remove != "remove":
+                raise ProfileIntakeError("invalid_review_submission")
+        updates.append((*values, "remove" if remove == "remove" else "keep"))
+    return tuple(updates), submitted
 
 
 def _review_collections_from_form(review, form):
@@ -1122,6 +1196,32 @@ def _collection_form_values_for_review(review):
                 fields[prefix + "value"] = review_value_for_form(value)
             if entry["decision"] == "remove":
                 fields[prefix + "remove"] = "remove"
+    return fields
+
+
+def _education_form_values_for_review(review):
+    """Return the sole browser representation of structured education."""
+
+    fields = {}
+    for index, entry in enumerate(education_entry_values(review)):
+        prefix = f"review_education_{index}_"
+        value = entry["value"]
+        fields.update(
+            {
+                prefix + "kind": value["kind"],
+                prefix + "qualification": value["qualification"],
+                prefix + "field": value["field"],
+                prefix + "institution": value["institution"],
+                prefix + "status": value["status"],
+                prefix + "completion_year": (
+                    ""
+                    if value["completion_year"] is None
+                    else str(value["completion_year"])
+                ),
+            }
+        )
+        if entry["decision"] == "remove":
+            fields[prefix + "remove"] = "remove"
     return fields
 
 
@@ -1382,8 +1482,15 @@ def _upload_page(proof):
 
 def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     fact_fields = []
+    education_fact_indexes = managed_education_fact_indexes(snapshot.review)
     for index, fact in enumerate(snapshot.review.facts):
-        label = _REVIEW_FIELD_LABELS.get(
+        if index in education_fact_indexes:
+            continue
+        label = (
+            _UNPAIRED_EDUCATION_LABELS.get(fact.review_field)
+            if snapshot.review.education_entries
+            else None
+        ) or _REVIEW_FIELD_LABELS.get(
             fact.review_field,
             fact.review_field.replace("_", " ").title(),
         )
@@ -1483,7 +1590,10 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         else ""
     )
     found_cards = _render_found_fact_cards(fact_fields)
-    collection_controls = _render_review_collections(snapshot.review)
+    collection_controls = (
+        _render_education_entries(snapshot.review)
+        + _render_review_collections(snapshot.review)
+    )
     suggestion_cards = "".join(
         card
         for fact, card, _compact_item in fact_fields
@@ -1670,6 +1780,120 @@ def _render_review_collections(review):
             f"<template data-collection-template>{template_item}</template></fieldset>"
         )
     return "<div class='review-collections' aria-label='Profile lists'>" + "".join(sections) + "</div>"
+
+
+_PRIMARY_EDUCATION_ENTRY_KINDS = (
+    "not_specified",
+    "high_school",
+    "technical",
+    "associate",
+    "bachelor",
+    "master",
+    "doctorate",
+    "professional_degree",
+)
+_EDUCATION_KIND_LABELS = {
+    "not_specified": "Not specified",
+    "high_school": "High school",
+    "technical": "Technical or vocational",
+    "associate": "Associate degree",
+    "bachelor": "Bachelor's degree",
+    "master": "Master's degree",
+    "doctorate": "Doctorate",
+    "professional_degree": "Professional degree",
+    "advanced_degree": "Advanced degree",
+    "professional": "Professional qualification",
+    "phd": "PhD",
+}
+_EDUCATION_STATUS_LABELS = {
+    "completed": "Completed",
+    "in_progress": "In progress",
+    "not_specified": "Not specified",
+    "unknown": "Not specified",
+}
+
+
+def _render_education_entries(review):
+    entries = education_entry_values(review)
+    items = "".join(
+        _render_education_entry(index, entry)
+        for index, entry in enumerate(entries)
+    )
+    template = _render_education_entry(
+        "__INDEX__",
+        {
+            "origin": "user",
+            "value": {
+                "kind": "not_specified",
+                "qualification": "",
+                "field": "",
+                "institution": "",
+                "status": "not_specified",
+                "completion_year": None,
+            },
+            "source_attributions": (),
+            "decision": "keep",
+        },
+        template=True,
+    )
+    empty = (
+        "<p class='collection-empty'>Nothing listed yet. Add your education if you would like it in your profile.</p>"
+        if not entries
+        else ""
+    )
+    return (
+        "<div class='review-collections education-review-collections' aria-label='Education'>"
+        f"<fieldset class='review-collection education-collection' data-review-collection='education' data-next-index='{len(entries)}' data-limit='{MAX_EDUCATION_ENTRIES}'>"
+        "<legend>Education</legend><p class='muted'>Keep each school, degree, or course together so its status and completion year are clear.</p>"
+        f"{empty}<div class='review-collection-items' data-collection-items>{items}</div>"
+        "<button class='button-quiet collection-add' type='button' data-collection-add>Add another education entry</button>"
+        f"<template data-collection-template>{template}</template></fieldset></div>"
+    )
+
+
+def _render_education_entry(index, entry, *, template=False):
+    value = entry["value"]
+    prefix = f"review_education_{index}_"
+    item_id = f"review-education-{index}"
+    removed = entry["decision"] == "remove"
+    source = (
+        "Added by you"
+        if entry["origin"] == "user"
+        else _collection_source_label(entry["source_attributions"])
+    )
+    kind_values = list(_PRIMARY_EDUCATION_ENTRY_KINDS)
+    if value["kind"] not in kind_values:
+        kind_values.append(value["kind"])
+    kind_options = "".join(
+        f"<option value='{_safe_text(code)}'{' selected' if code == value['kind'] else ''}>{_safe_text(_EDUCATION_KIND_LABELS.get(code, code.replace('_', ' ').title()))}</option>"
+        for code in kind_values
+        if code in EDUCATION_ENTRY_KINDS
+    )
+    status_values = [
+        value["status"] if value["status"] == "unknown" else "not_specified",
+        "in_progress",
+        "completed",
+    ]
+    status_options = "".join(
+        f"<option value='{_safe_text(code)}'{' selected' if code == value['status'] else ''}>{_safe_text(_EDUCATION_STATUS_LABELS.get(code, code.replace('_', ' ').title()))}</option>"
+        for code in status_values
+        if code in EDUCATION_ENTRY_STATUSES
+    )
+    year = "" if value["completion_year"] is None else str(value["completion_year"])
+    new_attribute = " data-collection-new='true'" if template else ""
+    return (
+        f"<div class='review-collection-item education-entry{' is-removed' if removed else ''}' data-collection-item data-index='{index}'{new_attribute}>"
+        f"<p class='fact-meta'>{_safe_text(source)}</p><div class='collection-item-controls education-entry-controls'>"
+        f"<label class='review-field'><span>Education type</span><select id='{item_id}-kind' name='{prefix}kind'>{kind_options}</select></label>"
+        f"<label class='review-field'><span>Qualification or course</span><input id='{item_id}-qualification' name='{prefix}qualification' value='{_safe_text(value['qualification'])}' maxlength='128'></label>"
+        f"<label class='review-field'><span>Field of study</span><input id='{item_id}-field' name='{prefix}field' value='{_safe_text(value['field'])}' maxlength='128'></label>"
+        f"<label class='review-field'><span>School or institution</span><input id='{item_id}-institution' name='{prefix}institution' value='{_safe_text(value['institution'])}' maxlength='128'></label>"
+        f"<label class='review-field'><span>Status</span><select id='{item_id}-status' name='{prefix}status'>{status_options}</select></label>"
+        f"<label class='review-field'><span>Completion year <small>(optional)</small></span><input id='{item_id}-completion-year' name='{prefix}completion_year' value='{_safe_text(year)}' inputmode='numeric' pattern='[0-9]{{4}}' maxlength='4'></label>"
+        "</div>"
+        f"<label class='collection-remove'><input type='checkbox' name='{prefix}remove' value='remove'{' checked' if removed else ''} data-collection-remove>"
+        "<span class='remove-copy'>Remove</span><span class='restore-copy'>Keep entry</span></label></div>"
+    )
 
 
 def _render_review_collection_item(

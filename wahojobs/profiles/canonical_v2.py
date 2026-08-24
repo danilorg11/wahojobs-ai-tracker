@@ -33,6 +33,12 @@ from wahojobs.profiles.canonical import (
     field_sources_for_profile,
     validate_canonical_profile,
 )
+from wahojobs.profiles.education_entries import (
+    EducationEntryContractError,
+    MAX_EDUCATION_ENTRIES as EDUCATION_ENTRY_LIMIT,
+    canonicalize_education_entries_v1,
+    project_education_entries_to_legacy,
+)
 from wahojobs.profiles.preference_model import (
     PREFERENCE_ENUM_LIST_PATHS,
     ProfilePreferenceModelError,
@@ -58,6 +64,7 @@ CANONICAL_PROFILE_V2_LIMITS = MappingProxyType(
         "dynamic_label_length": 128,
         "display_name_length": 160,
         "languages": 32,
+        "education_entries": EDUCATION_ENTRY_LIMIT,
         "domain_year_records": 64,
         "skill_records": 96,
         "derived_signals": 64,
@@ -94,6 +101,7 @@ MAX_SCALAR_LENGTH = CANONICAL_PROFILE_V2_LIMITS["scalar_string_length"]
 MAX_DYNAMIC_LABEL_LENGTH = CANONICAL_PROFILE_V2_LIMITS["dynamic_label_length"]
 MAX_DISPLAY_NAME_LENGTH = CANONICAL_PROFILE_V2_LIMITS["display_name_length"]
 MAX_LANGUAGES = CANONICAL_PROFILE_V2_LIMITS["languages"]
+MAX_EDUCATION_ENTRIES = CANONICAL_PROFILE_V2_LIMITS["education_entries"]
 MAX_DOMAIN_YEARS = CANONICAL_PROFILE_V2_LIMITS["domain_year_records"]
 MAX_SKILL_ENTRIES = CANONICAL_PROFILE_V2_LIMITS["skill_records"]
 MAX_SIGNALS = CANONICAL_PROFILE_V2_LIMITS["derived_signals"]
@@ -217,6 +225,7 @@ _SECTION_FIELDS = {
             "institutions",
             "graduation_years",
             "completion_status",
+            "entries",
         }
     ),
     "credentials": frozenset(
@@ -641,6 +650,67 @@ def add_user_confirmed_preference_model_v1(
     return validate_canonical_profile_v2(profile)
 
 
+@_sanitized_public_boundary
+def add_user_confirmed_education_entries_v1(
+    v2: dict,
+    entries: list,
+    unpaired_legacy: dict,
+    *,
+    source_ordinal_resolver,
+) -> dict:
+    """Add structured education entries over server-derived legacy shadows."""
+
+    profile = validate_canonical_profile_v2(v2)
+    if "entries" in profile["education"]:
+        raise CanonicalProfileV2Error("education_entries_already_present")
+    if not callable(source_ordinal_resolver):
+        raise CanonicalProfileV2Error("invalid_source_resolver")
+    try:
+        canonical_entries = canonicalize_education_entries_v1(entries)
+        projected = project_education_entries_to_legacy(
+            canonical_entries,
+            unpaired_legacy,
+        )
+    except EducationEntryContractError as exc:
+        raise CanonicalProfileV2Error(*exc.reason_codes) from None
+    if profile["education"] != projected:
+        raise CanonicalProfileV2Error("education_legacy_projection_mismatch")
+    if not canonical_entries:
+        return profile
+
+    profile["education"]["entries"] = canonical_entries
+    new_sources = []
+    for path in _material_field_paths(profile):
+        if not path.startswith("education.entries["):
+            continue
+        try:
+            ordinals = _validated_ordinals(
+                source_ordinal_resolver(
+                    path,
+                    PROFILE_SOURCE_USER_CONFIRMATION,
+                    True,
+                )
+            )
+        except CanonicalProfileV2Error:
+            raise
+        except Exception as exc:
+            raise CanonicalProfileV2Error("source_resolution_failed") from exc
+        new_sources.append(
+            {
+                "field_path": path,
+                "path_version": FIELD_PATH_VERSION,
+                "source_ordinals": ordinals,
+                "source_kind": PROFILE_SOURCE_USER_CONFIRMATION,
+                "explicit": True,
+            }
+        )
+    profile["provenance"]["field_sources"].extend(new_sources)
+    profile["provenance"]["field_sources"].sort(
+        key=lambda item: (item["field_path"].casefold(), item["field_path"])
+    )
+    return validate_canonical_profile_v2(profile)
+
+
 def _convert_validated_v1_to_v2(
     original,
     *,
@@ -745,6 +815,8 @@ def project_v2_to_review_v1(v2: dict) -> dict:
         for item in profile_v2["experience"]["years_by_domain"]
     }
 
+    education = deepcopy(profile_v2["education"])
+    education.pop("entries", None)
     review_v1 = {
         "schema_version": V1_SCHEMA_VERSION,
         "identity": {
@@ -753,7 +825,7 @@ def project_v2_to_review_v1(v2: dict) -> dict:
         },
         "languages": languages,
         "location": deepcopy(profile_v2["location"]),
-        "education": deepcopy(profile_v2["education"]),
+        "education": education,
         "credentials": deepcopy(profile_v2["credentials"]),
         "experience": experience,
         "skills": skills,
@@ -901,6 +973,14 @@ def merge_server_review_correction_v2(
                 target_path,
                 _nested_value(candidate, target_path),
             )
+
+    if changed_fields.intersection(
+        {"education_level", "degrees", "education_fields", "institutions", "education_status"}
+    ):
+        # The legacy correction form cannot author structured entries.  An
+        # explicit legacy education correction therefore returns this section
+        # to an unpaired summary rather than leaving divergent authorities.
+        result["education"].pop("entries", None)
 
     if languages_changed:
         result["languages"] = _preserve_unchanged_language_records(
@@ -1275,6 +1355,8 @@ def _v2_to_v1(v2: dict, *, matcher_profile_id: str) -> dict:
     # empty avoids reintroducing dynamic object keys and Unicode/path ambiguity
     # at the V1 compatibility boundary.
     experience["years_by_domain"] = {}
+    education = deepcopy(v2["education"])
+    education.pop("entries", None)
     profile_v1 = {
         "schema_version": V1_SCHEMA_VERSION,
         "identity": {
@@ -1284,7 +1366,7 @@ def _v2_to_v1(v2: dict, *, matcher_profile_id: str) -> dict:
         },
         "languages": languages,
         "location": deepcopy(v2["location"]),
-        "education": deepcopy(v2["education"]),
+        "education": education,
         "credentials": deepcopy(v2["credentials"]),
         "experience": experience,
         "skills": skills,
@@ -1614,6 +1696,24 @@ def _canonicalize_profile(profile):
                 ),
             )
 
+    education = profile.get("education")
+    if type(education) is dict:
+        entries = education.get("entries")
+        if type(entries) is list and all(type(item) is dict for item in entries):
+            education["entries"] = sort_indexed(
+                "education.entries",
+                entries,
+                lambda item: (
+                    item.get("completion_year") is None,
+                    item.get("completion_year") or 0,
+                    normalize_comparison_label(item.get("institution", "")),
+                    normalize_comparison_label(item.get("qualification", "")),
+                    normalize_comparison_label(item.get("field", "")),
+                    item.get("kind", ""),
+                    item.get("status", ""),
+                ),
+            )
+
     for section, fields in _STRING_LIST_FIELDS.items():
         section_value = profile.get(section)
         if type(section_value) is not dict:
@@ -1898,10 +1998,13 @@ def _validate_section(name, value, errors):
         if field in value:
             limit = 128 if name == "skills" else 64
             _validate_string_list(value[field], errors, limit=limit)
-    if name == "education" and "graduation_years" in value:
-        years = value["graduation_years"]
-        if type(years) is not list or any(type(year) is not int or not 1900 <= year <= 2200 for year in years):
-            errors.append("invalid_graduation_years")
+    if name == "education":
+        if "graduation_years" in value:
+            years = value["graduation_years"]
+            if type(years) is not list or any(type(year) is not int or not 1900 <= year <= 2200 for year in years):
+                errors.append("invalid_graduation_years")
+        if "entries" in value:
+            _validate_education_entries(value, errors)
     if name == "experience":
         total = value.get("total_years")
         if total is not None and (type(total) is not int or not 0 <= total <= 80):
@@ -1918,6 +2021,40 @@ def _validate_section(name, value, errors):
             errors.extend(exc.reason_codes)
     if name == "derived_matcher_signals":
         _validate_signals(value.get("signals"), errors)
+
+
+def _validate_education_entries(education, errors):
+    entries = education.get("entries")
+    try:
+        canonical = canonicalize_education_entries_v1(entries)
+    except EducationEntryContractError as exc:
+        errors.extend(exc.reason_codes)
+        return
+    if canonical != entries:
+        errors.append("education_entries_not_canonical")
+        return
+    if len(entries) > MAX_EDUCATION_ENTRIES:
+        errors.append("invalid_entry_list")
+        return
+    qualifications = {item["qualification"] for item in entries if item["qualification"]}
+    fields = {item["field"] for item in entries if item["field"]}
+    institutions = {item["institution"] for item in entries if item["institution"]}
+    years = {item["completion_year"] for item in entries if item["completion_year"] is not None}
+    if not qualifications <= set(education.get("degrees", [])):
+        errors.append("education_entry_shadow_mismatch")
+    if not fields <= set(education.get("fields_or_domains", [])):
+        errors.append("education_entry_shadow_mismatch")
+    if not institutions <= set(education.get("institutions", [])):
+        errors.append("education_entry_shadow_mismatch")
+    if not years <= set(education.get("graduation_years", [])):
+        errors.append("education_entry_shadow_mismatch")
+    if len({item["status"] for item in entries}) > 1 and education.get("completion_status") != UNKNOWN:
+        errors.append("education_entry_shadow_mismatch")
+    asserted_kinds = {
+        item["kind"] for item in entries if item["kind"] != "not_specified"
+    }
+    if len(asserted_kinds) > 1 and education.get("education_level") != "not_specified":
+        errors.append("education_entry_shadow_mismatch")
 
 
 def _validate_string_list(

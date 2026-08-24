@@ -42,11 +42,14 @@ from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
     PROFILE_INTAKE_PURPOSE,
     EditableProfileReview,
+    EditableEducationEntry,
     EditableUserFact,
     SafeDocumentBundleMetadata,
     SafeModelDiagnostics,
     TrustedProfileIntakeGrant,
     hydrate_profile_intake_checkpoint,
+    education_entry_values,
+    managed_education_fact_indexes,
     profile_intake_checkpoint_review_step,
     review_value_for_form,
     serialize_profile_intake_checkpoint,
@@ -60,8 +63,14 @@ from wahojobs.profiles.canonical import (
 )
 from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
+    add_user_confirmed_education_entries_v1,
     add_user_confirmed_preference_model_v1,
     convert_v1_to_v2,
+)
+from wahojobs.profiles.education_entries import (
+    EducationEntryContractError,
+    canonicalize_education_entries_v1,
+    project_education_entries_to_legacy,
 )
 from wahojobs.profiles.countries import normalize_country
 from wahojobs.profiles.normalizer import signals_for_domains, skills_block
@@ -403,6 +412,8 @@ class ConfirmedAIProfileImport:
     source_metadata: AIProfileImportSourceMetadata
     confirmation_fingerprint: str = field(repr=False)
     _preference_model_json: bytes = field(repr=False)
+    _education_entries_json: bytes = field(repr=False)
+    _unpaired_education_json: bytes = field(repr=False)
     _issuer: object = field(repr=False, compare=False)
 
     def __init__(self, *_args, **_kwargs):
@@ -416,6 +427,8 @@ class ConfirmedAIProfileImport:
         source_metadata,
         fingerprint,
         preference_model,
+        education_entries,
+        unpaired_education,
     ):
         if (
             capability is not _AUTHORITY_ISSUER
@@ -434,13 +447,40 @@ class ConfirmedAIProfileImport:
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("ascii")
-        except (ProfilePreferenceModelError, TypeError, UnicodeError, ValueError):
+            canonical_entries = canonicalize_education_entries_v1(education_entries)
+            education_json = json.dumps(
+                canonical_entries,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+            projected = project_education_entries_to_legacy(
+                canonical_entries,
+                unpaired_education,
+            )
+            if projected != reviewed_profile.to_mapping()["education"]:
+                raise AIProfileImportError("invalid_request")
+            unpaired_json = json.dumps(
+                unpaired_education,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+        except (
+            EducationEntryContractError,
+            ProfilePreferenceModelError,
+            TypeError,
+            UnicodeError,
+            ValueError,
+        ):
             raise AIProfileImportError("invalid_request") from None
         instance = object.__new__(cls)
         object.__setattr__(instance, "reviewed_profile", reviewed_profile)
         object.__setattr__(instance, "source_metadata", source_metadata)
         object.__setattr__(instance, "confirmation_fingerprint", fingerprint)
         object.__setattr__(instance, "_preference_model_json", preference_json)
+        object.__setattr__(instance, "_education_entries_json", education_json)
+        object.__setattr__(instance, "_unpaired_education_json", unpaired_json)
         object.__setattr__(instance, "_issuer", _AUTHORITY_ISSUER)
         return instance
 
@@ -452,6 +492,29 @@ class ConfirmedAIProfileImport:
                 json.loads(self._preference_model_json.decode("ascii"))
             )
         except (ProfilePreferenceModelError, UnicodeError, ValueError, TypeError):
+            raise AIProfileImportError("invalid_request") from None
+
+    def education_entries_for_service(self):
+        if getattr(self, "_issuer", None) is not _AUTHORITY_ISSUER:
+            raise AIProfileImportError("invalid_request")
+        try:
+            return canonicalize_education_entries_v1(
+                json.loads(self._education_entries_json.decode("ascii"))
+            )
+        except (EducationEntryContractError, UnicodeError, ValueError, TypeError):
+            raise AIProfileImportError("invalid_request") from None
+
+    def unpaired_education_for_service(self):
+        if getattr(self, "_issuer", None) is not _AUTHORITY_ISSUER:
+            raise AIProfileImportError("invalid_request")
+        try:
+            value = json.loads(self._unpaired_education_json.decode("ascii"))
+            project_education_entries_to_legacy(
+                self.education_entries_for_service(),
+                value,
+            )
+            return value
+        except (EducationEntryContractError, UnicodeError, ValueError, TypeError):
             raise AIProfileImportError("invalid_request") from None
 
     def __repr__(self):
@@ -1005,11 +1068,27 @@ class AIProfileImportService:
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("ascii")
+            education_entries_json = json.dumps(
+                confirmed.education_entries_for_service(),
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+            unpaired_education_json = json.dumps(
+                confirmed.unpaired_education_for_service(),
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
             expected_confirmation = hashlib.sha256(
                 b"ai-profile-confirmation-v1\x00"
                 + confirmed.reviewed_profile.canonical_bytes
                 + b"\x00"
                 + preference_model_json
+                + b"\x00"
+                + education_entries_json
+                + b"\x00"
+                + unpaired_education_json
                 + b"\x00"
                 + confirmed.source_metadata.canonical_json.encode("ascii")
             ).hexdigest()
@@ -1153,11 +1232,17 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
             != source_metadata.origins
             or type(review.user_facts) is not tuple
             or any(type(fact) is not EditableUserFact for fact in review.user_facts)
+            or type(review.education_entries) is not tuple
+            or any(
+                type(entry) is not EditableEducationEntry
+                for entry in review.education_entries
+            )
         ):
             raise AIProfileImportError("invalid_request")
         accepted = []
         conflict_accepts = {}
-        for fact in review.facts:
+        paired_education_indexes = managed_education_fact_indexes(review)
+        for fact_index, fact in enumerate(review.facts):
             if fact.decision == "pending":
                 raise AIProfileImportError("review_unresolved")
             included = fact.decision in {"keep", "accept"}
@@ -1165,7 +1250,7 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
                 conflict_accepts[fact.conflict_group] = (
                     conflict_accepts.get(fact.conflict_group, 0) + 1
                 )
-            if included:
+            if included and fact_index not in paired_education_indexes:
                 accepted.append(fact)
         if any(count > 1 for count in conflict_accepts.values()):
             raise AIProfileImportError("review_unresolved")
@@ -1178,21 +1263,38 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
             tuple(fact.decision for fact in review.facts),
             user_inputs,
         )
+        paired_education_indexes = managed_education_fact_indexes(review)
         accepted = [
-            fact for fact in review.facts if fact.decision in {"keep", "accept"}
+            fact for index, fact in enumerate(review.facts)
+            if fact.decision in {"keep", "accept"}
+            and index not in paired_education_indexes
         ]
         accepted_user_facts = [
             fact for fact in review.user_facts if fact.decision == "keep"
         ]
+        education_entries = canonicalize_education_entries_v1(
+            [
+                item["value"]
+                for item in education_entry_values(review)
+                if item["decision"] == "keep"
+            ]
+        )
     except AIProfileImportError:
         raise
-    except (ProfileIntakeError, AttributeError, TypeError, ValueError):
+    except (
+        EducationEntryContractError,
+        ProfileIntakeError,
+        AttributeError,
+        TypeError,
+        ValueError,
+    ):
         raise AIProfileImportError("content_rejected") from None
     preference_model = review.preference_model
-    canonical = _confirmed_review_v1(
+    canonical, unpaired_education = _confirmed_review_v1(
         review,
         tuple(accepted),
         tuple(accepted_user_facts),
+        education_entries,
         preference_model,
     )
     try:
@@ -1210,6 +1312,20 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
             separators=(",", ":"),
         ).encode("ascii")
         + b"\x00"
+        + json.dumps(
+            education_entries,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\x00"
+        + json.dumps(
+            unpaired_education,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\x00"
         + source_metadata.canonical_json.encode("ascii")
     ).hexdigest()
     return ConfirmedAIProfileImport._issue(
@@ -1218,10 +1334,18 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         source_metadata,
         fingerprint,
         preference_model,
+        education_entries,
+        unpaired_education,
     )
 
 
-def _confirmed_review_v1(review, facts, user_facts, preference_model):
+def _confirmed_review_v1(
+    review,
+    facts,
+    user_facts,
+    education_entries,
+    preference_model,
+):
     values = {}
     for fact in (*facts, *user_facts):
         values.setdefault(fact.field_path, []).append(fact.value)
@@ -1261,6 +1385,29 @@ def _confirmed_review_v1(review, facts, user_facts, preference_model):
     if years is not None and (type(years) not in {int, float} or float(years) != int(years)):
         raise AIProfileImportError("content_rejected")
     years = None if years is None else int(years)
+    unpaired_education = {}
+    education_paths = {
+        "education.education_level": "education_level",
+        "education.degrees": "degrees",
+        "education.fields_or_domains": "fields_or_domains",
+        "education.institutions": "institutions",
+        "education.graduation_years": "graduation_years",
+        "education.completion_status": "completion_status",
+    }
+    for path, name in education_paths.items():
+        if path not in values:
+            continue
+        if name in {"education_level", "completion_status"}:
+            unpaired_education[name] = _singleton(values, path, None)
+        else:
+            unpaired_education[name] = _unique(values[path])
+    try:
+        education = project_education_entries_to_legacy(
+            education_entries,
+            unpaired_education,
+        )
+    except EducationEntryContractError:
+        raise AIProfileImportError("content_rejected") from None
     canonical = {
         "schema_version": CANONICAL_PROFILE_V1,
         "identity": {"display_name": display_name, "source_inputs": [{"type": "ai_profile_import"}]},
@@ -1277,14 +1424,7 @@ def _confirmed_review_v1(review, facts, user_facts, preference_model):
             "restrictions": _user_list(inputs, "geographic_restrictions"),
             "geographic_work_restrictions": _user_list(inputs, "geographic_restrictions"),
         },
-        "education": {
-            "education_level": _singleton(values, "education.education_level", "not_specified"),
-            "degrees": _unique(values.get("education.degrees", [])),
-            "fields_or_domains": _unique(values.get("education.fields_or_domains", [])),
-            "institutions": _unique(values.get("education.institutions", [])),
-            "graduation_years": [],
-            "completion_status": _singleton(values, "education.completion_status", UNKNOWN),
-        },
+        "education": education,
         "credentials": {
             "certifications": _unique(values.get("credentials.certifications", [])),
             "licenses": _unique(values.get("credentials.licenses", [])),
@@ -1336,7 +1476,7 @@ def _confirmed_review_v1(review, facts, user_facts, preference_model):
         PROFILE_SOURCE_USER_CONFIRMATION,
         explicit=True,
     )
-    return canonical
+    return canonical, unpaired_education
 
 
 def _create_command(confirmed, authority, reservation, now):
@@ -1349,6 +1489,12 @@ def _create_command(confirmed, authority, reservation, now):
         profile_v2 = convert_v1_to_v2(
             confirmed.reviewed_profile.bind_durable_profile_id(profile_id),
             persistent_profile_id=profile_id,
+            source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
+        )
+        profile_v2 = add_user_confirmed_education_entries_v1(
+            profile_v2,
+            confirmed.education_entries_for_service(),
+            confirmed.unpaired_education_for_service(),
             source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
         )
         return add_user_confirmed_preference_model_v1(

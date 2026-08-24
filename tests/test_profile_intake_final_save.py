@@ -36,6 +36,7 @@ from wahojobs.persistent_profiles_repository import PersistentProfileRepository
 from wahojobs.profile_intake.browser import (
     ProfileIntakeBrowserIntegration,
     _collection_form_values_for_review,
+    _education_form_values_for_review,
     _preference_form_values_for_model,
 )
 from wahojobs.profile_intake.contracts import (
@@ -53,6 +54,7 @@ from wahojobs.profile_intake.runtime import (
     IntakeDraftVault,
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
+    managed_education_fact_indexes,
     managed_review_collection_fact_indexes,
     profile_intake_csrf_proof,
     review_value_for_form,
@@ -108,12 +110,14 @@ class _FinalSaveAdapter:
         fail=False,
         conflict=False,
         include_total_years=False,
+        include_education=False,
     ):
         self.path = Path(path)
         self.providers = providers
         self.fail = fail
         self.conflict = conflict
         self.include_total_years = include_total_years
+        self.include_education = include_education
         self.calls = []
         self.attempt_counts_during_model = []
 
@@ -154,6 +158,17 @@ class _FinalSaveAdapter:
         if self.include_total_years:
             facts.append(
                 _fact(reference, block, "experience.total_years", 6)
+            )
+        if self.include_education:
+            facts.extend(
+                (
+                    _fact(reference, block, "education.education_level", "bachelor", explicit=False),
+                    _fact(reference, block, "education.degrees", "Bachelor of Business Administration"),
+                    _fact(reference, block, "education.fields_or_domains", "Business Administration"),
+                    _fact(reference, block, "education.institutions", "Faculdade Horizonte Paulista"),
+                    _fact(reference, block, "education.graduation_years", 2016),
+                    _fact(reference, block, "education.completion_status", "completed", explicit=False),
+                )
             )
         if evidence.document_kind is DocumentKind.LINKEDIN_PROFILE_EXPORT:
             facts.append(_fact(reference, block, "skills.normalized", "SQL"))
@@ -410,6 +425,8 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         review_step=None,
         collection_overrides=None,
         use_collections=False,
+        education_overrides=None,
+        use_education=False,
     ):
         integration = integration or self.integration
         session = session or self.session
@@ -433,6 +450,10 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             if use_collections
             else frozenset()
         )
+        if use_education:
+            managed_indexes = managed_indexes | managed_education_fact_indexes(
+                snapshot.review
+            )
         for index, fact in enumerate(snapshot.review.facts):
             if index in managed_indexes:
                 continue
@@ -449,6 +470,9 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         if use_collections:
             form.update(_collection_form_values_for_review(snapshot.review))
             form.update(collection_overrides or {})
+        if use_education:
+            form.update(_education_form_values_for_review(snapshot.review))
+            form.update(education_overrides or {})
         form.update(preference_overrides or {})
         return urlencode(form).encode()
 
@@ -1194,6 +1218,193 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         snapshot = self.integration._processing.vault.get(reference, self._grant())
         self.assertEqual(snapshot.version, 1)
         self.assertEqual(snapshot.review.user_facts, ())
+
+    def test_structured_education_autosaves_resumes_and_persists_legacy_shadows(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_education=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(len(snapshot.review.education_entries), 1)
+        paired_indexes = managed_education_fact_indexes(snapshot.review)
+        self.assertEqual(len(paired_indexes), 6)
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        self.assertIn(b"data-review-collection='education'", page.body)
+        self.assertIn(b"Bachelor of Business Administration", page.body)
+        completion_index = next(
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.field_path == "education.completion_status"
+        )
+        self.assertNotIn(
+            f"name='fact_{completion_index}_value'".encode(),
+            page.body,
+        )
+
+        added = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_education=True,
+                education_overrides={
+                    "review_education_0_institution": "Faculdade Horizonte",
+                    "review_education_1_kind": "technical",
+                    "review_education_1_qualification": "Data Analytics Certificate",
+                    "review_education_1_field": "Data Analytics",
+                    "review_education_1_institution": "Instituto Futuro",
+                    "review_education_1_status": "in_progress",
+                    "review_education_1_completion_year": "2027",
+                },
+            ),
+        )
+        self.assertEqual(added.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+        with self._database() as connection:
+            payload = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        self.assertEqual(len(payload["education_entries"]), 2)
+        serialized = json.dumps(payload["education_entries"], sort_keys=True).casefold()
+        for forbidden in (
+            "evidence",
+            "document_reference",
+            "filename",
+            "prompt",
+            "provider",
+        ):
+            self.assertNotIn(forbidden, serialized)
+
+        removed = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_education=True,
+                education_overrides={"review_education_1_remove": "remove"},
+            ),
+        )
+        self.assertEqual(removed.status, 204)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference,
+            self._grant(),
+        )
+        self.assertEqual(len(resumed.review.education_entries), 2)
+        self.assertEqual(resumed.review.education_entries[1].decision, "remove")
+        self.assertEqual(
+            resumed.review.education_entries[0].institution,
+            "Faculdade Horizonte",
+        )
+
+        final_form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(
+                    resumed_reference,
+                    action="save",
+                    use_education=True,
+                ).decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        final_form.pop("review_education_1_remove")
+        saved = self._post_review(
+            resumed_reference,
+            urlencode(final_form).encode("ascii"),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(len(profile["education"]["entries"]), 2)
+        self.assertEqual(profile["education"]["completion_status"], "unknown")
+        self.assertEqual(profile["education"]["education_level"], "not_specified")
+        self.assertEqual(profile["education"]["graduation_years"], [2016, 2027])
+        self.assertEqual(
+            profile["education"]["institutions"],
+            ["Faculdade Horizonte", "Instituto Futuro"],
+        )
+        self.assertEqual(
+            set(profile["education"]["entries"][1]),
+            {"kind", "qualification", "field", "institution", "status", "completion_year"},
+        )
+        self.assertTrue(
+            any(
+                source["source_kind"] == "user_confirmation"
+                and source["field_path"].startswith("education.entries[")
+                for source in profile["provenance"]["field_sources"]
+            )
+        )
+
+    def test_structured_education_rejects_duplicates_invalid_values_limits_and_paths(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_education=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        base_second = {
+            "review_education_1_kind": "bachelor",
+            "review_education_1_qualification": "bachelor of business administration",
+            "review_education_1_field": "business administration",
+            "review_education_1_institution": "faculdade horizonte paulista",
+            "review_education_1_status": "completed",
+            "review_education_1_completion_year": "2016",
+        }
+        oversize = {}
+        for index in range(1, 25):
+            oversize.update(
+                {
+                    f"review_education_{index}_kind": "technical",
+                    f"review_education_{index}_qualification": f"Course {index}",
+                    f"review_education_{index}_field": "Data Analytics",
+                    f"review_education_{index}_institution": "Instituto Futuro",
+                    f"review_education_{index}_status": "in_progress",
+                    f"review_education_{index}_completion_year": "2027",
+                }
+            )
+        invalid_overrides = (
+            base_second,
+            {**base_second, "review_education_1_kind": "university"},
+            {**base_second, "review_education_1_completion_year": "1899"},
+            {**base_second, "review_education_1_field_path": "constraints.hard_constraints"},
+            {"review_education_0_institution": "synthetic.private@example.test"},
+            oversize,
+        )
+        for overrides in invalid_overrides:
+            with self.subTest(overrides=tuple(overrides)[:2]):
+                response = self._post_review(
+                    reference,
+                    self._review_body(
+                        reference,
+                        action="autosave",
+                        use_education=True,
+                        education_overrides=overrides,
+                    ),
+                )
+                self.assertEqual(response.status, 400)
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(snapshot.version, 1)
+        self.assertEqual(len(snapshot.review.education_entries), 1)
 
     def test_stale_resumed_tab_cannot_overwrite_newer_checkpoint(self):
         first_reference = self._reference(self._upload())
