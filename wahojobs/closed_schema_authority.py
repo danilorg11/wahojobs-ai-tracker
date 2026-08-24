@@ -73,6 +73,19 @@ AI_PROFILE_IMPORT_CLOSED_SCHEMA_FINGERPRINT = (
     "d0924a37e03afd0b5939f2840fae5d684c867f0f91e57db8d141b2f932ce6d06"
 )
 
+# M011 adds a privacy-minimized resumable review checkpoint and bounded renewal
+# for the existing short AI-import reservation.  It does not alter profiles.
+RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_MIGRATION = "011_resumable_ai_profile_intake"
+RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_MARKERS = (
+    *AI_PROFILE_IMPORT_CLOSED_SCHEMA_MARKERS,
+    RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_MIGRATION,
+)
+# Filled from the exact closed-schema capture produced by the migration.
+RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_OBJECT_COUNT = 224
+RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_FINGERPRINT = (
+    "ec65d30a61a76bf598e5019a5d1c6807e27d40868248dc309bdf399d7476caa2"
+)
+
 _MAX_CLOSED_SCHEMA_SQL_BYTES = 1_048_576
 
 
@@ -111,7 +124,7 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
             "WHERE type IN ('table','index','trigger','view') "
             "AND name NOT IN (" + extension_placeholders + ") "
             "ORDER BY type, name, tbl_name "
-            f"LIMIT {max(PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_OBJECT_COUNT, AI_PROFILE_IMPORT_CLOSED_SCHEMA_OBJECT_COUNT) + 1}",
+            f"LIMIT {max(PUBLIC_JOB_IDENTITY_CLOSED_SCHEMA_OBJECT_COUNT, AI_PROFILE_IMPORT_CLOSED_SCHEMA_OBJECT_COUNT, RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_OBJECT_COUNT) + 1}",
             OPPORTUNITY_ENRICHMENT_SCHEMA_OBJECTS,
         )
         for raw in cursor.fetchall():
@@ -137,7 +150,7 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
             "SELECT CAST(version AS BLOB) "
             "FROM main.wahojobs_schema_migrations "
             "ORDER BY version "
-            f"LIMIT {len(AI_PROFILE_IMPORT_CLOSED_SCHEMA_MARKERS) + 1}"
+            f"LIMIT {len(RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_MARKERS) + 1}"
         ).fetchall()
         for raw in marker_rows:
             if type(raw) is not tuple or len(raw) != 1 or type(raw[0]) is not bytes:
@@ -204,6 +217,11 @@ def current_closed_schema_is_exact(connection) -> bool:
             AI_PROFILE_IMPORT_CLOSED_SCHEMA_OBJECT_COUNT,
             AI_PROFILE_IMPORT_CLOSED_SCHEMA_FINGERPRINT,
             AI_PROFILE_IMPORT_CLOSED_SCHEMA_MARKERS,
+        ),
+        (
+            RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_OBJECT_COUNT,
+            RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_FINGERPRINT,
+            RESUMABLE_AI_INTAKE_CLOSED_SCHEMA_MARKERS,
         ),
     )
     return identity.temporary_object_count == 0 and any(

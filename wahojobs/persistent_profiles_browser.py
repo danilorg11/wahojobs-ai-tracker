@@ -1633,6 +1633,7 @@ def _response(
     referrer_policy=_NO_REFERRER_POLICY,
     extra_headers=(),
     script_sha256=None,
+    script_connect_self=False,
 ) -> PersistentProfileBrowserResponse:
     payload = content.encode("utf-8")
     if referrer_policy not in {
@@ -1645,13 +1646,20 @@ def _response(
         or _CSP_SCRIPT_SHA256.fullmatch(script_sha256) is None
     ):
         raise ValueError("invalid_persistent_profile_browser_response")
+    if type(script_connect_self) is not bool or (
+        script_connect_self and script_sha256 is None
+    ):
+        raise ValueError("invalid_persistent_profile_browser_response")
     security_headers = _SECURITY_HEADERS
     if script_sha256 is not None:
+        connect_source = "connect-src 'self'; " if script_connect_self else ""
         security_headers = (
             (
                 "Content-Security-Policy",
                 "default-src 'none'; style-src 'unsafe-inline'; "
-                f"script-src 'sha256-{script_sha256}'; base-uri 'none'; "
+                f"script-src 'sha256-{script_sha256}'; "
+                f"{connect_source}"
+                "base-uri 'none'; "
                 "form-action 'self'; frame-ancestors 'none'",
             ),
             *_SECURITY_HEADERS[1:],
@@ -1672,12 +1680,14 @@ def _form_page_response(
     content: str,
     *,
     script_sha256=None,
+    script_connect_self=False,
 ) -> PersistentProfileBrowserResponse:
     return _response(
         status,
         content,
         referrer_policy=_SAME_ORIGIN_REFERRER_POLICY,
         script_sha256=script_sha256,
+        script_connect_self=script_connect_self,
     )
 
 
@@ -2021,6 +2031,7 @@ def _page(title: str, body: str) -> str:
     .review-progress span {{ align-items: center; background: #e6f3ed; border-radius: 50%; color: #174d3b; display: inline-flex; flex: 0 0 28px; height: 28px; justify-content: center; }}
     .intake-review-form {{ border: 0; border-radius: 20px; box-shadow: 0 16px 45px rgba(24, 45, 37, .07); padding: clamp(26px, 5vw, 52px); }}
     .intake-callout {{ background: #fff8e8; border-left: 4px solid #d2a13e; border-radius: 8px; color: #5b4a28; margin: 0 0 20px; padding: 14px 18px; }}
+    .review-expiry-warning {{ bottom: 16px; box-shadow: 0 8px 28px rgba(32, 37, 35, .18); left: 50%; margin: 0; max-width: 640px; position: fixed; transform: translateX(-50%); width: calc(100% - 32px); z-index: 10; }}
     .intake-review-form .review-section {{ border-top-color: #dfe8e4; margin-top: 46px; padding-top: 46px; scroll-margin-top: 20px; }}
     .intake-review-form .review-section:first-of-type {{ border-top: 0; margin-top: 0; padding-top: 0; }}
     .section-heading {{ margin-bottom: 24px; max-width: 720px; }}

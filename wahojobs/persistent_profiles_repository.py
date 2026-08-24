@@ -19,6 +19,9 @@ from wahojobs.persistent_profile_canonical_v2_schema import (
     attest_persistent_profile_canonical_v2_schema,
 )
 from wahojobs.ai_profile_import_schema import attest_ai_profile_import_schema
+from wahojobs.resumable_ai_profile_intake_schema import (
+    attest_resumable_ai_profile_intake_schema,
+)
 from wahojobs.persistent_profiles import (
     MIGRATION_005_CAPABILITIES,
     MIGRATION_010_CAPABILITIES,
@@ -495,6 +498,9 @@ class PersistentProfileRepository:
             raise _error("schema_capability_unavailable")
         m010 = attest_ai_profile_import_schema(connection)
         if m010.get("state") == "correctly_installed":
+            return
+        m011 = attest_resumable_ai_profile_intake_schema(connection)
+        if m011.get("state") == "correctly_installed":
             return
         if self._capabilities == MIGRATION_010_CAPABILITIES:
             raise _error("schema_capability_unavailable")

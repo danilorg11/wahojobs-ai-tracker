@@ -21,12 +21,12 @@ def install_browser_authentication_database(path):
     return install_authorization_database(path)
 
 
-def seed_browser_session(connection, *, suffix="42"):
+def seed_browser_session(connection, *, suffix="42", idle_ttl=timedelta(hours=2)):
     state = seed_authorized_account(connection, suffix=suffix)
     created = accounts.create_session(
         connection,
         user_id=state["account_id"],
-        idle_ttl=timedelta(hours=2),
+        idle_ttl=idle_ttl,
         absolute_ttl=timedelta(days=1),
         idempotency_key=f"browser-session-create-{suffix}",
         now=AUTHENTICATED_AT,

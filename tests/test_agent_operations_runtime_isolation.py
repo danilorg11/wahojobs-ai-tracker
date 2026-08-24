@@ -241,6 +241,7 @@ print(operations._is_trusted_approval(approval))
             "008_workos_authkit_provider.sql",
             "009_public_job_identity.sql",
             "010_ai_profile_import.sql",
+            "011_resumable_ai_profile_intake.sql",
         ]
         self.assertEqual([path.name for path in migrations], accepted_migrations)
         self.assertNotEqual(

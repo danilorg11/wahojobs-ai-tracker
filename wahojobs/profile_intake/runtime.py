@@ -43,16 +43,22 @@ from wahojobs.profile_intake.contracts import (
     validate_ai_profile_extraction,
 )
 from wahojobs.profile_intake.documents import extract_profile_document
-from wahojobs.profile_intake.minimization import minimize_evidence_packet
+from wahojobs.profile_intake.minimization import (
+    contains_detectable_contact_pii,
+    minimize_evidence_packet,
+)
 from wahojobs.profile_intake.openai_adapter import (
     ProfileExtractionDiagnostics,
     ProfileExtractionOutcome,
 )
 from wahojobs.profile_intake.review_draft import (
     AIProfileReviewDraft,
+    REVIEW_DRAFT_SCHEMA_VERSION,
     ReviewDraftSource,
     ReviewSourceAttribution,
     ValidatedProfileSource,
+    _REVIEW_FIELDS,
+    _USER_ONLY_REVIEW_FIELDS,
     reconcile_profile_extractions,
 )
 from wahojobs.profiles.preference_model import (
@@ -65,16 +71,20 @@ from wahojobs.profiles.preference_model import (
 PROFILE_INTAKE_ROUTE = "/account/profile/intake"
 PROFILE_INTAKE_REVIEW_ROUTE = "/account/profile/intake/review"
 PROFILE_INTAKE_PURPOSE = "ai_profile_intake_review_v1"
-PROFILE_INTAKE_DRAFT_LIFETIME_SECONDS = 600
+PROFILE_INTAKE_DRAFT_LIFETIME_SECONDS = 30 * 60
+PROFILE_INTAKE_DRAFT_ABSOLUTE_LIFETIME_SECONDS = 2 * 60 * 60
+PROFILE_INTAKE_DRAFT_RENEWAL_INTERVAL_SECONDS = 5 * 60
 PROFILE_INTAKE_DRAFT_CAPACITY = 64
 PROFILE_INTAKE_COMPLETION_RECEIPT_SECONDS = 120
 PROFILE_INTAKE_MIN_SAFE_REVIEW_SECONDS = 60
 PROFILE_INTAKE_CSRF_MESSAGE_PREFIX = b"wahojobs.profile-intake.v1\x00"
 MAX_REVIEW_VALUE_CHARS = 512
 MAX_REVIEW_USER_INPUT_CHARS = 512
+PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION = "profile_intake_checkpoint_v1"
+PROFILE_INTAKE_CHECKPOINT_MAX_BYTES = 65_536
 
 _OPAQUE_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
-_ACTIONS = frozenset({"upload", "update", "cancel", "save"})
+_ACTIONS = frozenset({"upload", "update", "renew", "cancel", "save"})
 _REQUEST_ROUTES = frozenset({PROFILE_INTAKE_ROUTE, PROFILE_INTAKE_REVIEW_ROUTE})
 _GRANT_ISSUER = object()
 _TYPED_PREFERENCE_REPLACED_USER_FIELDS = frozenset(
@@ -544,6 +554,8 @@ class IntakeDraftSnapshot:
     diagnostics: tuple[SafeModelDiagnostics, ...] | None
     created_at: str
     expires_at_monotonic: float
+    absolute_expires_at_monotonic: float
+    last_renewed_at_monotonic: float
     version: int
 
     def __repr__(self):
@@ -567,7 +579,17 @@ class _DraftRecord:
 class IntakeDraftVault:
     """Bounded, process-local draft storage with exact lineage binding."""
 
-    __slots__ = ("_capacity", "_closed", "_lock", "_monotonic", "_records", "_token_factory", "_ttl")
+    __slots__ = (
+        "_absolute_ttl",
+        "_capacity",
+        "_closed",
+        "_lock",
+        "_monotonic",
+        "_records",
+        "_renewal_interval",
+        "_token_factory",
+        "_ttl",
+    )
 
     def __init__(
         self,
@@ -575,6 +597,8 @@ class IntakeDraftVault:
         monotonic=time.monotonic,
         token_factory=lambda: secrets.token_urlsafe(32),
         ttl_seconds=PROFILE_INTAKE_DRAFT_LIFETIME_SECONDS,
+        absolute_ttl_seconds=PROFILE_INTAKE_DRAFT_ABSOLUTE_LIFETIME_SECONDS,
+        renewal_interval_seconds=PROFILE_INTAKE_DRAFT_RENEWAL_INTERVAL_SECONDS,
         capacity=PROFILE_INTAKE_DRAFT_CAPACITY,
     ):
         if (
@@ -583,6 +607,12 @@ class IntakeDraftVault:
             or type(ttl_seconds) not in (int, float)
             or not math.isfinite(ttl_seconds)
             or ttl_seconds <= 0
+            or type(absolute_ttl_seconds) not in (int, float)
+            or not math.isfinite(absolute_ttl_seconds)
+            or absolute_ttl_seconds < ttl_seconds
+            or type(renewal_interval_seconds) not in (int, float)
+            or not math.isfinite(renewal_interval_seconds)
+            or not 0 < renewal_interval_seconds < ttl_seconds
             or type(capacity) is not int
             or capacity < 1
         ):
@@ -590,6 +620,8 @@ class IntakeDraftVault:
         self._monotonic = monotonic
         self._token_factory = token_factory
         self._ttl = float(ttl_seconds)
+        self._absolute_ttl = float(absolute_ttl_seconds)
+        self._renewal_interval = float(renewal_interval_seconds)
         self._capacity = capacity
         self._lock = threading.RLock()
         self._records = {}
@@ -676,15 +708,18 @@ class IntakeDraftVault:
                     break
             if reference is None:
                 raise ProfileIntakeError("draft_vault_unavailable")
-            lifetime = self._ttl
+            absolute_lifetime = self._absolute_ttl
             if lifetime_seconds is not None:
-                lifetime = min(lifetime, float(lifetime_seconds))
+                absolute_lifetime = min(absolute_lifetime, float(lifetime_seconds))
+            lifetime = min(self._ttl, absolute_lifetime)
             snapshot = IntakeDraftSnapshot(
                 review=review,
                 document=document,
                 diagnostics=diagnostics,
                 created_at=created_at.astimezone(timezone.utc).isoformat(),
                 expires_at_monotonic=now + lifetime,
+                absolute_expires_at_monotonic=now + absolute_lifetime,
+                last_renewed_at_monotonic=now,
                 version=1,
             )
             self._records[reference] = _DraftRecord(
@@ -697,6 +732,26 @@ class IntakeDraftVault:
     def get(self, reference, grant):
         state, value = self.lookup(reference, grant)
         return value if state == "active" else None
+
+    def expire_bound(self, grant):
+        """Discard unusable drafts for one binding and return sealed authorities."""
+
+        binding = _grant_binding(grant)
+        now = _monotonic(self._monotonic())
+        expired = []
+        with self._lock:
+            for reference, record in tuple(self._records.items()):
+                if record.binding != binding or record.state == "completed":
+                    continue
+                if (
+                    record.snapshot is None
+                    or now >= record.snapshot.expires_at_monotonic
+                ):
+                    if record.durable_authority is not None:
+                        expired.append(record.durable_authority)
+                    del self._records[reference]
+            self._purge_locked(now)
+        return tuple(expired)
 
     def lookup(self, reference, grant):
         """Return active state, a minimal completion receipt, or an expiry."""
@@ -732,6 +787,72 @@ class IntakeDraftVault:
             self._purge_locked(now, skip_reference=reference)
             return "active", record.snapshot
 
+    def renew(self, reference, grant, *, expected_version):
+        """Refresh one correctly bound active draft without accepting content."""
+
+        binding = _grant_binding(grant)
+        if (
+            type(reference) is not str
+            or _OPAQUE_REFERENCE.fullmatch(reference) is None
+            or type(expected_version) is not int
+            or expected_version < 1
+        ):
+            return "gone", None
+        now = _monotonic(self._monotonic())
+        with self._lock:
+            record = self._records.get(reference)
+            if record is None or record.binding != binding:
+                self._purge_locked(now)
+                return "gone", None
+            if record.state != "active" or record.snapshot is None:
+                self._purge_locked(now, skip_reference=reference)
+                return "stale", None
+            snapshot = record.snapshot
+            if now >= snapshot.expires_at_monotonic:
+                authority = record.durable_authority
+                del self._records[reference]
+                self._purge_locked(now)
+                return "expired", authority
+            if snapshot.version != expected_version:
+                self._purge_locked(now, skip_reference=reference)
+                return "stale", None
+            state = "rate_limited"
+            if now - snapshot.last_renewed_at_monotonic >= self._renewal_interval:
+                snapshot = self._refresh_snapshot(snapshot, now)
+                self._records[reference] = replace(record, snapshot=snapshot)
+                state = "renewed"
+            self._purge_locked(now, skip_reference=reference)
+            return state, (
+                snapshot,
+                max(0, int(snapshot.expires_at_monotonic - now)),
+                max(0, int(snapshot.absolute_expires_at_monotonic - now)),
+                record.durable_authority,
+            )
+
+    def replace_durable_authority(
+        self, reference, grant, *, expected_version, authority
+    ):
+        """Replace only the sealed server-side capability for one live draft."""
+
+        binding = _grant_binding(grant)
+        now = _monotonic(self._monotonic())
+        with self._lock:
+            record = self._records.get(reference)
+            if (
+                record is None
+                or record.binding != binding
+                or record.state != "active"
+                or record.snapshot is None
+                or record.snapshot.version != expected_version
+                or now >= record.snapshot.expires_at_monotonic
+            ):
+                self._purge_locked(now)
+                return False
+            self._records[reference] = replace(
+                record, durable_authority=authority
+            )
+            return True
+
     def update(self, reference, grant, *, expected_version, review):
         binding = _grant_binding(grant)
         if (
@@ -744,21 +865,41 @@ class IntakeDraftVault:
             return "gone", None
         now = _monotonic(self._monotonic())
         with self._lock:
-            self._purge_locked(now)
             record = self._records.get(reference)
             if record is None or record.binding != binding:
+                self._purge_locked(now)
                 return "gone", None
             if record.state != "active" or record.snapshot is None:
+                self._purge_locked(now, skip_reference=reference)
                 return "stale", None
+            if now >= record.snapshot.expires_at_monotonic:
+                authority = record.durable_authority
+                del self._records[reference]
+                self._purge_locked(now)
+                return "expired", authority
             if record.snapshot.version != expected_version:
+                self._purge_locked(now, skip_reference=reference)
                 return "stale", None
             snapshot = replace(
-                record.snapshot,
+                self._refresh_snapshot(record.snapshot, now),
                 review=review,
                 version=expected_version + 1,
             )
             self._records[reference] = replace(record, snapshot=snapshot)
+            self._purge_locked(now, skip_reference=reference)
             return "updated", snapshot
+
+    def _refresh_snapshot(self, snapshot, now):
+        if now - snapshot.last_renewed_at_monotonic < self._renewal_interval:
+            return snapshot
+        return replace(
+            snapshot,
+            expires_at_monotonic=min(
+                now + self._ttl,
+                snapshot.absolute_expires_at_monotonic,
+            ),
+            last_renewed_at_monotonic=now,
+        )
 
     def cancel(self, reference, grant, *, expected_version):
         state, _authority = self.cancel_bound(
@@ -958,7 +1099,15 @@ class ProfileIntakeProcessingService:
             durable_finalizer is not None
             and not all(
                 callable(getattr(durable_finalizer, name, None))
-                for name in ("preflight", "reserve", "release", "prepare", "commit")
+                for name in (
+                    "preflight",
+                    "reserve",
+                    "renew",
+                    "release",
+                    "discard_checkpoint",
+                    "prepare",
+                    "commit",
+                )
             )
         ) or (save_failure_injector is not None and not callable(save_failure_injector)):
             raise _configuration_error()
@@ -980,12 +1129,65 @@ class ProfileIntakeProcessingService:
 
     def preflight(self, grant):
         _grant_binding(grant)
+        expired = self._vault.expire_bound(grant)
+        if self._durable is not None:
+            for authority in expired:
+                try:
+                    self._durable.release(
+                        grant,
+                        authority,
+                        outcome_code="draft_expired",
+                    )
+                except ProfileIntakeError:
+                    pass
         if self._durable is None:
             return "eligible"
         return self._durable.preflight(grant)
 
     def lookup(self, reference, grant):
         state, value = self._vault.lookup(reference, grant)
+        if state == "expired" and value is not None and self._durable is not None:
+            try:
+                self._durable.release(grant, value, outcome_code="draft_expired")
+            except ProfileIntakeError:
+                pass
+        return ("gone", None) if state == "expired" else (state, value)
+
+    def renew(self, reference, grant, *, expected_version):
+        state, value = self._vault.renew(
+            reference,
+            grant,
+            expected_version=expected_version,
+        )
+        if state == "expired" and value is not None and self._durable is not None:
+            try:
+                self._durable.release(grant, value, outcome_code="draft_expired")
+            except ProfileIntakeError:
+                pass
+        if state in {"renewed", "rate_limited"} and value is not None:
+            snapshot, idle_seconds, absolute_seconds, authority = value
+            if self._durable is not None:
+                try:
+                    renewed_authority = self._durable.renew(grant, authority)
+                except ProfileIntakeError:
+                    return "gone", None
+                if not self._vault.replace_durable_authority(
+                    reference,
+                    grant,
+                    expected_version=expected_version,
+                    authority=renewed_authority,
+                ):
+                    return "stale", None
+            value = snapshot, idle_seconds, absolute_seconds
+        return ("gone", None) if state == "expired" else (state, value)
+
+    def update(self, reference, grant, *, expected_version, review):
+        state, value = self._vault.update(
+            reference,
+            grant,
+            expected_version=expected_version,
+            review=review,
+        )
         if state == "expired" and value is not None and self._durable is not None:
             try:
                 self._durable.release(grant, value, outcome_code="draft_expired")
@@ -1001,7 +1203,7 @@ class ProfileIntakeProcessingService:
         )
         if state == "cancelled" and authority is not None and self._durable is not None:
             try:
-                self._durable.release(grant, authority, outcome_code="cancelled")
+                self._durable.discard_checkpoint(grant, authority)
             except ProfileIntakeError:
                 pass
         return state
@@ -1121,6 +1323,7 @@ class ProfileIntakeProcessingService:
             if self._durable is not None:
                 durable_authority, lifetime_seconds = self._durable.reserve(
                     grant,
+                    review,
                     document_metadata,
                     diagnostics,
                 )
@@ -1130,11 +1333,7 @@ class ProfileIntakeProcessingService:
                     or lifetime_seconds < PROFILE_INTAKE_MIN_SAFE_REVIEW_SECONDS
                 ):
                     try:
-                        self._durable.release(
-                            grant,
-                            durable_authority,
-                            outcome_code="processing_failed",
-                        )
+                        self._durable.discard_checkpoint(grant, durable_authority)
                     finally:
                         durable_authority = None
                     raise ProfileIntakeError("ai_import_lease_unavailable")
@@ -1151,11 +1350,7 @@ class ProfileIntakeProcessingService:
             except Exception:
                 if durable_authority is not None and self._durable is not None:
                     try:
-                        self._durable.release(
-                            grant,
-                            durable_authority,
-                            outcome_code="processing_failed",
-                        )
+                        self._durable.discard_checkpoint(grant, durable_authority)
                     except ProfileIntakeError:
                         pass
                 raise
@@ -1323,6 +1518,313 @@ def _preference_model_json(value):
         sort_keys=True,
         separators=(",", ":"),
     ).encode("ascii")
+
+
+def serialize_profile_intake_checkpoint(review: EditableProfileReview) -> str:
+    """Return the closed, privacy-gated durable projection of one review.
+
+    Evidence identities, document identities, uploaded-file details, model
+    diagnostics, and raw extraction material are intentionally not represented.
+    """
+
+    if type(review) is not EditableProfileReview:
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    source_origins = tuple(source.document_kind.value for source in review.sources)
+    source_set = set(source_origins)
+    if not 1 <= len(source_origins) <= 2 or len(source_set) != len(source_origins):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    conflict_ids = {}
+    facts = []
+    for fact in review.facts:
+        origins = tuple(
+            attribution.document_kind.value
+            for attribution in fact.source_attributions
+        )
+        if not origins or len(set(origins)) != len(origins) or not set(origins) <= source_set:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        conflict_id = None
+        if fact.conflict_group is not None:
+            conflict_id = conflict_ids.setdefault(
+                fact.conflict_group,
+                f"conflict_{len(conflict_ids) + 1:03d}",
+            )
+        value = _checkpoint_value(fact.value)
+        _checkpoint_require_no_contact_pii(value)
+        facts.append(
+            {
+                "field_path": fact.field_path,
+                "value": value,
+                "source_origins": list(origins),
+                "suggested": fact.suggested,
+                "decision": fact.decision,
+                "conflict_id": conflict_id,
+            }
+        )
+    user_inputs = dict(review.user_inputs)
+    if len(user_inputs) != len(review.user_inputs):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    _checkpoint_require_no_contact_pii(user_inputs)
+    payload = {
+        "schema_version": PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION,
+        "review_schema_version": review.schema_version,
+        "source_origins": list(source_origins),
+        "facts": facts,
+        "missing_user_fields": list(review.missing_user_fields),
+        "user_inputs": user_inputs,
+        "issue_count": review.issue_count,
+        "preference_model": review.preference_model,
+    }
+    try:
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+    except (TypeError, UnicodeError, ValueError):
+        raise ProfileIntakeError("invalid_checkpoint_content") from None
+    if not 2 <= len(encoded) <= PROFILE_INTAKE_CHECKPOINT_MAX_BYTES:
+        raise ProfileIntakeError("checkpoint_too_large")
+    # Hydration is also the strict structural validator for the serialized form.
+    hydrate_profile_intake_checkpoint(encoded.decode("ascii"))
+    return encoded.decode("ascii")
+
+
+def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileReview:
+    """Strictly reconstruct a process-local review without document/model work."""
+
+    if type(payload_json) is not str:
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    try:
+        encoded = payload_json.encode("ascii")
+    except UnicodeError:
+        raise ProfileIntakeError("invalid_checkpoint_content") from None
+    if not 2 <= len(encoded) <= PROFILE_INTAKE_CHECKPOINT_MAX_BYTES:
+        raise ProfileIntakeError("checkpoint_too_large")
+    try:
+        payload = json.loads(
+            payload_json,
+            object_pairs_hook=_unique_checkpoint_object,
+            parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise ProfileIntakeError("invalid_checkpoint_content") from None
+    if type(payload) is not dict or set(payload) != {
+        "schema_version",
+        "review_schema_version",
+        "source_origins",
+        "facts",
+        "missing_user_fields",
+        "user_inputs",
+        "issue_count",
+        "preference_model",
+    }:
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    if (
+        payload["schema_version"] != PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION
+        or payload["review_schema_version"] != REVIEW_DRAFT_SCHEMA_VERSION
+    ):
+        raise ProfileIntakeError("checkpoint_version_unsupported")
+    raw_origins = payload["source_origins"]
+    try:
+        origins = tuple(DocumentKind(item) for item in raw_origins)
+    except (TypeError, ValueError):
+        raise ProfileIntakeError("invalid_checkpoint_content") from None
+    if (
+        type(raw_origins) is not list
+        or not 1 <= len(origins) <= 2
+        or len(set(origins)) != len(origins)
+    ):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    references = {
+        origin: f"doc_{index:032x}" for index, origin in enumerate(origins, start=1)
+    }
+    sources = tuple(
+        ReviewDraftSource(references[origin], origin) for origin in origins
+    )
+    raw_facts = payload["facts"]
+    if type(raw_facts) is not list or len(raw_facts) > contracts.MAX_EXTRACTION_FACTS:
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    facts = []
+    values = []
+    decisions = []
+    for raw in raw_facts:
+        if type(raw) is not dict or set(raw) != {
+            "field_path", "value", "source_origins", "suggested", "decision", "conflict_id"
+        }:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        field_path = raw["field_path"]
+        if field_path not in _REVIEW_FIELDS or type(raw["suggested"]) is not bool:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        raw_fact_origins = raw["source_origins"]
+        try:
+            fact_origins = tuple(DocumentKind(item) for item in raw_fact_origins)
+        except (TypeError, ValueError):
+            raise ProfileIntakeError("invalid_checkpoint_content") from None
+        if (
+            type(raw_fact_origins) is not list
+            or not fact_origins
+            or len(set(fact_origins)) != len(fact_origins)
+            or not set(fact_origins) <= set(origins)
+        ):
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        conflict_id = raw["conflict_id"]
+        if conflict_id is not None and (
+            type(conflict_id) is not str
+            or re.fullmatch(r"conflict_[0-9]{3}", conflict_id) is None
+        ):
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        value = _checkpoint_value_from_json(raw["value"])
+        _checkpoint_require_no_contact_pii(raw["value"])
+        facts.append(
+            EditableReviewFact(
+                field_path=field_path,
+                review_field=_REVIEW_FIELDS[field_path],
+                value=value,
+                source_attributions=tuple(
+                    ReviewSourceAttribution(
+                        references[origin], origin, ("b001",)
+                    )
+                    for origin in fact_origins
+                ),
+                suggested=raw["suggested"],
+                decision=raw["decision"],
+                conflict_group=conflict_id,
+            )
+        )
+        values.append(review_value_for_form(value))
+        decisions.append(raw["decision"])
+    missing = payload["missing_user_fields"]
+    user_inputs = payload["user_inputs"]
+    allowed_missing = set(_USER_ONLY_REVIEW_FIELDS) - _TYPED_PREFERENCE_REPLACED_USER_FIELDS
+    if (
+        type(missing) is not list
+        or any(type(item) is not str or item not in allowed_missing for item in missing)
+        or len(set(missing)) != len(missing)
+        or type(user_inputs) is not dict
+        or set(user_inputs) != set(missing)
+        or any(type(value) is not str for value in user_inputs.values())
+        or type(payload["issue_count"]) is not int
+        or not 0 <= payload["issue_count"] <= contracts.MAX_EXTRACTION_FACTS
+    ):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    _checkpoint_require_no_contact_pii(user_inputs)
+    try:
+        review = EditableProfileReview(
+            schema_version=REVIEW_DRAFT_SCHEMA_VERSION,
+            sources=sources,
+            facts=tuple(facts),
+            missing_user_fields=tuple(missing),
+            user_inputs=tuple((name, "") for name in missing),
+            issue_count=payload["issue_count"],
+            _preference_model_json=_preference_model_json(payload["preference_model"]),
+        )
+        review = update_editable_review(
+            review,
+            tuple(values),
+            tuple(decisions),
+            user_inputs,
+            payload["preference_model"],
+        )
+    except (ProfileIntakeError, ProfilePreferenceModelError, TypeError, ValueError):
+        raise ProfileIntakeError("invalid_checkpoint_content") from None
+    canonical = json.dumps(
+        json.loads(_serialize_profile_intake_checkpoint_unchecked(review)),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    incoming = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    if (
+        not hmac.compare_digest(incoming, payload_json)
+        or not hmac.compare_digest(canonical, incoming)
+    ):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    return review
+
+
+def _serialize_profile_intake_checkpoint_unchecked(review: EditableProfileReview) -> str:
+    """Internal canonicalizer used to avoid recursive validation."""
+
+    source_origins = tuple(source.document_kind.value for source in review.sources)
+    conflict_ids = {}
+    facts = []
+    for fact in review.facts:
+        conflict_id = None
+        if fact.conflict_group is not None:
+            conflict_id = conflict_ids.setdefault(fact.conflict_group, fact.conflict_group)
+        facts.append({
+            "field_path": fact.field_path,
+            "value": _checkpoint_value(fact.value),
+            "source_origins": [item.document_kind.value for item in fact.source_attributions],
+            "suggested": fact.suggested,
+            "decision": fact.decision,
+            "conflict_id": conflict_id,
+        })
+    return json.dumps({
+        "schema_version": PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION,
+        "review_schema_version": review.schema_version,
+        "source_origins": list(source_origins),
+        "facts": facts,
+        "missing_user_fields": list(review.missing_user_fields),
+        "user_inputs": dict(review.user_inputs),
+        "issue_count": review.issue_count,
+        "preference_model": review.preference_model,
+    }, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+def _checkpoint_value(value):
+    if type(value) is LanguageValue:
+        return {
+            "type": "language",
+            "language": value.language,
+            "proficiency": value.proficiency,
+            "locale": value.locale,
+        }
+    if type(value) in {str, int, float, bool}:
+        return value
+    raise ProfileIntakeError("invalid_checkpoint_content")
+
+
+def _checkpoint_value_from_json(value):
+    if type(value) is dict:
+        if set(value) != {"type", "language", "proficiency", "locale"} or value["type"] != "language":
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        if type(value["language"]) is not str or (
+            value["proficiency"] is not None and type(value["proficiency"]) is not str
+        ) or (value["locale"] is not None and type(value["locale"]) is not str):
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        return LanguageValue(value["language"], value["proficiency"], value["locale"])
+    if type(value) in {str, int, float, bool}:
+        return value
+    raise ProfileIntakeError("invalid_checkpoint_content")
+
+
+def _checkpoint_require_no_contact_pii(value):
+    if type(value) is str:
+        if contains_detectable_contact_pii(value):
+            raise ProfileIntakeError("checkpoint_contact_pii_rejected")
+        return
+    if type(value) is dict:
+        for item in value.values():
+            _checkpoint_require_no_contact_pii(item)
+        return
+    if type(value) is list:
+        for item in value:
+            _checkpoint_require_no_contact_pii(item)
+        return
+    if value is None or type(value) in {int, float, bool}:
+        return
+    raise ProfileIntakeError("invalid_checkpoint_content")
+
+
+def _unique_checkpoint_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError
+        result[key] = value
+    return result
 
 
 def review_value_for_form(value):

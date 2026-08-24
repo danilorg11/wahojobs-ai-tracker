@@ -209,6 +209,10 @@ _PROCESSING_SCRIPT = """(function(){var f=document.getElementById('profile-intak
 _PROCESSING_SCRIPT_HASH = base64.b64encode(
     hashlib.sha256(_PROCESSING_SCRIPT.encode("utf-8")).digest()
 ).decode("ascii")
+_REVIEW_RENEWAL_SCRIPT = """(function(){var f=document.getElementById('profile-review-renewal');var m=document.getElementById('profile-review-lifetime');if(!f||!m||!window.fetch){return;}var lastActivity=0;var lastSent=Date.now();var interval=300000;var recent=360000;function activity(){lastActivity=Date.now();}['input','change','keydown','pointerdown'].forEach(function(name){document.addEventListener(name,activity,{passive:true});});function message(text){m.textContent=text;m.hidden=false;}function tick(){var now=Date.now();if(document.visibilityState!=='visible'||!lastActivity||now-lastActivity>recent||now-lastSent<interval){return;}lastSent=now;var data=new URLSearchParams(new FormData(f));window.fetch(f.action,{method:'POST',body:data.toString(),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(!response.ok){if(response.status===409){message('This review changed in another tab. Reload before continuing.');}else if(response.status===410){message('This review has expired. Start again before saving.');}return;}var remaining=Number(response.headers.get('X-Wahojobs-Review-Absolute-Seconds'));if(Number.isFinite(remaining)&&remaining<=600){message('This review will close in about '+Math.max(1,Math.ceil(remaining/60))+' minutes. Finish and find your matches soon.');}}).catch(function(){});}window.setInterval(tick,60000);}());"""
+_REVIEW_RENEWAL_SCRIPT_HASH = base64.b64encode(
+    hashlib.sha256(_REVIEW_RENEWAL_SCRIPT.encode("utf-8")).digest()
+).decode("ascii")
 
 
 class _NoContentParserLogger:
@@ -440,6 +444,8 @@ class ProfileIntakeBrowserIntegration:
                     csrf_secret,
                     save_enabled=self._processing.durable_save_enabled,
                 ),
+                script_sha256=_REVIEW_RENEWAL_SCRIPT_HASH,
+                script_connect_self=True,
             )
         form = _parse_review_form(headers, body_stream)
         if form is None:
@@ -447,7 +453,12 @@ class ProfileIntakeBrowserIntegration:
         action = _single(form, "action")
         raw_version = _single(form, "version")
         proof = _single(form, "csrf")
-        if action not in {"update", "cancel", "save"} or raw_version is None or not raw_version.isdigit():
+        if (
+            action not in {"update", "renew", "cancel", "save"}
+            or raw_version is None
+            or not raw_version.isdigit()
+            or int(raw_version) < 1
+        ):
             return _failure("invalid_review")
         version = int(raw_version)
         grant, failure = self._authorize(
@@ -463,6 +474,27 @@ class ProfileIntakeBrowserIntegration:
         )
         if failure is not None:
             return failure
+        if action == "renew":
+            if set(form) != {"action", "version", "csrf"}:
+                return _failure("invalid_review")
+            state, renewal = self._processing.renew(
+                reference,
+                grant,
+                expected_version=version,
+            )
+            if state == "stale":
+                return _failure("stale_review")
+            if state not in {"renewed", "rate_limited"} or renewal is None:
+                return _failure("expired_draft")
+            _snapshot, idle_seconds, absolute_seconds = renewal
+            return _response(
+                HTTPStatus.NO_CONTENT,
+                "",
+                extra_headers=(
+                    ("X-Wahojobs-Review-Idle-Seconds", str(idle_seconds)),
+                    ("X-Wahojobs-Review-Absolute-Seconds", str(absolute_seconds)),
+                ),
+            )
         request_digest = _review_request_digest(form) if action == "save" else None
         if action == "save":
             completion = self._processing.completion_matches(
@@ -512,7 +544,7 @@ class ProfileIntakeBrowserIntegration:
                     return _matches_redirect()
                 return _failure(failure_code)
             return _matches_redirect()
-        state, _updated = self._processing.vault.update(
+        state, _updated = self._processing.update(
             reference,
             grant,
             expected_version=version,
@@ -1047,6 +1079,12 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         draft_reference=reference,
         version=snapshot.version,
     )
+    renewal_proof = profile_intake_csrf_proof(
+        csrf_secret,
+        "renew",
+        draft_reference=reference,
+        version=snapshot.version,
+    )
     issue_note = (
         "<p class='intake-callout'>Some document details may be ambiguous or conflicting; "
         "review them carefully.</p>"
@@ -1118,6 +1156,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
       </ol></nav>
     </section>
     {issue_note}
+    <p id='profile-review-lifetime' class='intake-callout review-expiry-warning' role='status' aria-live='polite' hidden></p>
     <form class='profile-review-form intake-review-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'>
       <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>What we found</h2><p>Check the details taken directly from your documents. Edit or remove anything that is not right.</p></div><div class='profile-grid'>{found_cards}</div></section>
@@ -1129,6 +1168,10 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     <form class='intake-cancel-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button class='button-quiet' type='submit'>Discard this draft</button>
     </form>
+    <form id='profile-review-renewal' method='post' action='{target}' hidden>
+      <input type='hidden' name='action' value='renew'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{renewal_proof}'>
+    </form>
+    <script>{_REVIEW_RENEWAL_SCRIPT}</script>
     """
     return _page("Review your profile", body)
 
@@ -1481,6 +1524,7 @@ def _processing_error_code(code):
         "ai_import_profile_exists": "existing_profile",
         "ai_import_entitlement_consumed": "existing_profile",
         "ai_import_entitlement_reserved": "import_reserved",
+        "ai_import_checkpoint_available": "import_reserved",
         "ai_import_schema_unavailable": "durable_unavailable",
         "durable_intake_unavailable": "durable_unavailable",
     }.get(code, "extraction_unavailable")
@@ -1491,6 +1535,7 @@ def _preflight_error_code(state):
         "profile_exists": "existing_profile",
         "entitlement_consumed": "existing_profile",
         "entitlement_reserved": "import_reserved",
+        "checkpoint_available": "import_reserved",
     }.get(state, "durable_unavailable")
 
 

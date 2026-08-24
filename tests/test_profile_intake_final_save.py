@@ -25,6 +25,7 @@ from tests.test_profile_intake_foundation import _docx_bytes, _pdf_bytes
 from tests.persistent_profiles_repository_test_support import create_command
 from wahojobs import accounts
 from wahojobs.authenticated_profile_matches import AuthenticatedProfileMatchesService
+from wahojobs.ai_profile_import import AI_PROFILE_IMPORT_RESERVATION_LEASE
 from wahojobs.browser_session_authentication import (
     DurableBrowserSessionAuthenticationGateway,
 )
@@ -174,12 +175,20 @@ class _ShortLeaseFinalizer:
     def preflight(self, grant):
         return self.delegate.preflight(grant)
 
-    def reserve(self, grant, document, diagnostics):
-        authority, _lifetime = self.delegate.reserve(grant, document, diagnostics)
+    def reserve(self, grant, review, document, diagnostics):
+        authority, _lifetime = self.delegate.reserve(
+            grant, review, document, diagnostics
+        )
         return authority, 30
+
+    def renew(self, grant, authority):
+        return self.delegate.renew(grant, authority)
 
     def release(self, grant, authority, *, outcome_code):
         return self.delegate.release(grant, authority, outcome_code=outcome_code)
+
+    def discard_checkpoint(self, grant, authority):
+        return self.delegate.discard_checkpoint(grant, authority)
 
     def prepare(self, review, authority):
         return self.delegate.prepare(review, authority)
@@ -431,7 +440,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             self.assertEqual(row["state"], "reserved")
         grant = self._grant()
         snapshot = self.integration._processing.vault.get(reference, grant)
-        self.assertLessEqual(snapshot.expires_at_monotonic - self.monotonic, 600)
+        self.assertLessEqual(snapshot.expires_at_monotonic - self.monotonic, 1800)
         page = self.integration.handle(
             "GET",
             PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
@@ -446,6 +455,76 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertNotIn(row["attempt_id"].encode(), page.body)
         self.assertNotIn(row["reservation_id"].encode(), page.body)
         self.assertNotIn(b"private-sentinel", page.body)
+
+    def test_review_renewal_stays_inside_durable_lease_and_does_not_consume(self):
+        reference = self._reference(self._upload())
+        grant = self._grant()
+        snapshot = self.integration._processing.vault.get(reference, grant)
+        with self._database() as connection:
+            initial_attempt = connection.execute(
+                "SELECT lease_expires_at,state FROM ai_profile_import_attempts"
+            ).fetchone()
+            initial_entitlement = connection.execute(
+                "SELECT state,lease_expires_at,consumed_at FROM ai_profile_import_entitlements"
+            ).fetchone()
+        self.assertEqual(initial_attempt["state"], "reserved")
+        self.assertEqual(tuple(initial_entitlement), (
+            "reserved",
+            (self.now + AI_PROFILE_IMPORT_RESERVATION_LEASE).isoformat(timespec="seconds"),
+            None,
+        ))
+        self.assertLessEqual(
+            snapshot.absolute_expires_at_monotonic - self.monotonic,
+            2 * 60 * 60 - 30,
+        )
+        self.assertGreater(
+            snapshot.absolute_expires_at_monotonic - self.monotonic,
+            7100,
+        )
+
+        self.monotonic += 301
+        self.now += timedelta(seconds=301)
+        renewal = urlencode(
+            {
+                "action": "renew",
+                "version": str(snapshot.version),
+                "csrf": profile_intake_csrf_proof(
+                    self.session["csrf_secret"],
+                    "renew",
+                    draft_reference=reference,
+                    version=snapshot.version,
+                ),
+            }
+        ).encode()
+        target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        response = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(renewal),
+            ),
+            BytesIO(renewal),
+        )
+        self.assertEqual(response.status, 204)
+        renewed = self.integration._processing.vault.get(reference, self._grant())
+        self.assertGreater(renewed.expires_at_monotonic, snapshot.expires_at_monotonic)
+        self.assertLessEqual(
+            renewed.expires_at_monotonic,
+            renewed.absolute_expires_at_monotonic,
+        )
+        with self._database() as connection:
+            attempt = connection.execute(
+                "SELECT lease_expires_at,state FROM ai_profile_import_attempts"
+            ).fetchone()
+            entitlement = connection.execute(
+                "SELECT state,lease_expires_at,consumed_at FROM ai_profile_import_entitlements"
+            ).fetchone()
+        self.assertGreater(attempt["lease_expires_at"], initial_attempt["lease_expires_at"])
+        self.assertEqual(attempt["state"], "reserved")
+        self.assertEqual(entitlement["state"], "reserved")
+        self.assertEqual(entitlement["lease_expires_at"], attempt["lease_expires_at"])
+        self.assertIsNone(entitlement["consumed_at"])
 
     def test_model_failure_has_no_reservation_or_draft(self):
         failing = self._build(
@@ -496,9 +575,15 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 ).fetchone()[0],
                 "available",
             )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
         self.now += timedelta(seconds=1)
         second = self._reference(self._upload())
-        self.monotonic += 601
+        self.monotonic += 1801
         expired = self.integration.handle(
             "GET",
             PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": second}),
@@ -510,6 +595,46 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 "SELECT state,consumed_at FROM ai_profile_import_entitlements"
             ).fetchone()
             self.assertEqual(tuple(entitlement), ("available", None))
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                1,
+            )
+
+    def test_idle_abandonment_is_released_before_starting_again(self):
+        self._reference(self._upload())
+        self.monotonic += 1801
+        self.now += timedelta(seconds=1801)
+        restarted = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_ROUTE,
+            self._headers(origin=False),
+        )
+        self.assertEqual(restarted.status, 409)
+        with self._database() as connection:
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT state,result_code FROM ai_profile_import_attempts"
+                    ).fetchone()
+                ),
+                ("expired", "reservation_expired"),
+            )
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT state,consumed_at FROM ai_profile_import_entitlements"
+                    ).fetchone()
+                ),
+                ("available", None),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                1,
+            )
 
     def test_resume_save_is_atomic_and_redirects_to_normal_matches(self):
         reference = self._reference(self._upload(("resume_docx",)))

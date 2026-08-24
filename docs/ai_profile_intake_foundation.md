@@ -247,10 +247,11 @@ is retained for review. This source-aware ephemeral shape is versioned as
 ## Process-local draft vault
 
 `IntakeDraftVault` is non-durable, process-local, and bounded to 64 live drafts
-with a ten-minute TTL. Opaque identifiers contain 256 bits of server-generated
-randomness. A process-local in-flight guard prevents concurrent generation for
-one lineage, while the durable reservation prevents a second M010-backed flow
-for the same account from replacing the first.
+with a thirty-minute sliding idle lifetime and a two-hour absolute active-review
+cap. Opaque identifiers contain 256 bits of server-generated randomness. A
+process-local in-flight guard prevents concurrent generation for one lineage,
+while the durable reservation prevents a second M011-backed flow for the same
+account from replacing the first.
 
 Every record is bound to account, browser session, environment, account-native
 principal, exact ownership binding/version/latest-event/lineage digest, and
@@ -285,8 +286,11 @@ and form shape are checked server-side. Browser indexes select only fields
 already present in the bound draft; they cannot select authority or arbitrary
 Canonical paths.
 
-Ordinary edits update only the process-local draft. In an M010-capable composed
-runtime, the explicit final Save described under Slice 4B is the sole durable
+Ordinary browser edits still update only the process-local draft in Slice 5A;
+the durable core exposes an optimistic checkpoint-save operation for Slice 5B
+autosave. Edits count as bounded active-review activity and do not consume the
+import or write profile content. In an M011-capable composed runtime, the explicit
+final Save described under Slice 4B is still the sole durable profile
 transition; it revalidates the complete review and calls the Slice 4A atomic
 authority. Cancellation removes the bound draft, releases its active
 reservation where practical, and returns to profile creation. Expired drafts
@@ -311,7 +315,7 @@ and keeps the manual path available.
 Ordinary tests inject a deterministic adapter and make zero real OpenAI or
 network calls. No API key is required and committed fixtures contain only
 synthetic, non-personal data. Slice 4B exercises durable Save only against
-ephemeral M010 test databases. No matching behavior, public route, deployment
+ephemeral M011 test databases. No matching behavior, public route, deployment
 change, DNS, proxy, Vercel, DigitalOcean, WorkOS authority change, or old-site
 cutover is introduced.
 
@@ -365,15 +369,39 @@ profile/revision IDs for exact replay. Those receipt identifiers are bounded,
 non-owning references, so they do not block the existing profile privacy-purge
 path; the consumed account entitlement remains durable.
 
-The centralized reservation lease is twelve minutes, modestly longer than the
-ten-minute process-local review TTL. `BEGIN IMMEDIATE` serializes competing
-reservations. An exact retry reuses the same attempt/reservation. A different
-active attempt receives a stable reserved response. Expiry deterministically
-marks the old attempt expired and restores availability before a new operation
-can reserve it. Explicit processing-failure, cancellation, draft-expiry, and
-abandonment release paths restore availability without consuming the import.
-No database transaction remains open while documents are parsed or a model is
-called.
+M011 keeps the centralized reservation short: twelve minutes, renewable no more
+than once every five minutes and capped at two hours per reservation generation.
+`BEGIN IMMEDIATE` serializes competing reservations. A deterministic checkpoint
+generation key reuses a live attempt after process loss; an expired generation
+is replaced only after its short lease restores entitlement availability. An
+orphan therefore blocks only briefly, never for the checkpoint retention
+window. No transaction remains open while documents are parsed, a model is
+called, or the user reviews the draft.
+
+### M011 resumable review checkpoint
+
+`ai_profile_intake_checkpoints` holds at most one active
+`profile_intake_checkpoint_v1` per account and environment. It is bound to the
+account, environment, principal, and exact PB-OWN-1 lineage, but not to one
+browser session. Its optimistic row version is authoritative and its payload
+expires seven days after the last successfully validated review-content save.
+
+The canonical payload contains normalized fact values, review decisions,
+structured preferences, missing-field inputs, safe source kinds, opaque
+conflict grouping, contract versions, and bounded issue state. A reject-only
+contact-PII gate runs before each write. The table has no representation for
+uploaded binaries, filenames, extracted text, document/evidence references,
+evidence snippets, prompts, raw model responses, provider request/token
+diagnostics, removed contact details, or credentials. Hydration reconstructs
+process-local structural references without parsing documents or calling a
+model.
+
+Resume reauthenticates, recaptures current PB-OWN-1 lineage, checks profile
+absence and free-import availability, validates checkpoint digest/version, and
+then replays or reacquires one short reservation generation. Final Save checks
+the expected checkpoint version and performs profile creation, entitlement
+consumption, and checkpoint deletion in the existing atomic transaction. The
+succeeded attempt remains the bounded exact-replay receipt.
 
 ### Confirmed review mapping and atomic creation
 
@@ -395,8 +423,9 @@ account-native principal, and exact current PB-OWN-1 lineage. In one outer
 `BEGIN IMMEDIATE` transaction it validates the live reservation, calls the
 existing account-native create-once repository through its nested-savepoint
 path, marks the attempt successful, transitions the entitlement to consumed,
-and records the replay result. Thus profile creation and entitlement
-consumption commit or roll back together.
+deletes the expected checkpoint version, and records the replay result. Thus
+profile creation, entitlement consumption, and checkpoint deletion commit or
+roll back together.
 
 An exact post-success retry returns the original profile/revision result and
 creates no row. A different attempt after consumption fails. If manual
@@ -416,13 +445,13 @@ adds a durable AI correction/update path.
 ## Slice 4B authenticated final confirmation
 
 The authenticated intake page now performs a read-only durable eligibility
-preflight before document parsing or model work. The preflight attests M010,
+preflight before document parsing or model work. The preflight attests M011,
 revalidates the trusted session/account/principal/PB-OWN-1 grant, checks for an
 existing profile, and reads any existing free-import state. It creates neither
 an entitlement nor an attempt and is only advisory: the later serialized
 reservation remains authoritative. An M009 or otherwise unsupported database
 returns a safe unavailable result. No browser request or application startup
-installs M010.
+installs M011.
 
 Documents still pass independently through extraction, PII minimization,
 adapter extraction, strict local validation, and deterministic reconciliation
@@ -434,16 +463,19 @@ generation or reconciliation failure creates no reservation. If another
 session wins the reservation race, the losing generated draft is discarded and
 never becomes browser-accessible.
 
-The process-local vault retains the opaque durable reservation capability and
+The process-local vault retains opaque checkpoint and reservation capabilities and
 the already-approved safe source metadata entirely server-side. Attempt and
 reservation IDs never enter a URL, form, HTML, editable field, or user-visible
-error. Effective review lifetime is the smaller of the normal ten-minute vault
-TTL and the actual twelve-minute reservation lease minus a conservative safety
-margin; a draft with less than one minute of safe review time is never issued.
-Cancellation releases the reservation without consumption. A targeted expired
-draft is released where practical, while correctness never depends on cleanup
-because the durable lease is independently reclaimable. Process loss creates
-no durable draft recovery and cannot consume the entitlement.
+error. The active page uses a thirty-minute sliding idle lifetime and a two-hour
+process-local absolute maximum. A content-free renewal request may refresh the
+idle deadline and short durable lease no more than once every five minutes. It
+runs only while the page is visible after recent interaction, uses a
+draft/version-bound CSRF proof and same-origin enforcement, and reauthorizes the
+account, session, environment, principal, and PB-OWN-1 lineage. It carries no
+review or document content and does not consume the entitlement. Local expiry
+or process loss may release/lose the short authority while the seven-day
+checkpoint remains available for Slice 5B resume UX. Explicit cancellation
+discards both checkpoint and reservation.
 
 The review form's final action is **Find my matches**. It uses a
 save-specific CSRF proof, same-origin enforcement, the opaque draft handle, and

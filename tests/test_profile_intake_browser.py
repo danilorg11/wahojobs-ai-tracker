@@ -771,7 +771,16 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         names = set(snapshot.__dataclass_fields__)
         self.assertEqual(
             names,
-            {"review", "document", "diagnostics", "created_at", "expires_at_monotonic", "version"},
+            {
+                "review",
+                "document",
+                "diagnostics",
+                "created_at",
+                "expires_at_monotonic",
+                "absolute_expires_at_monotonic",
+                "last_renewed_at_monotonic",
+                "version",
+            },
         )
         rendered = repr(snapshot)
         self.assertNotIn("Synthetic Software", rendered)
@@ -836,8 +845,157 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             )
         tiny.close()
         self.assertTrue(tiny.closed)
-        self.monotonic += 601
+        self.monotonic += 1801
         self.assertIsNone(self.integration._processing.vault.get(reference, grant))
+
+    def test_review_lifetime_is_sliding_rate_limited_bound_and_absolute_capped(self):
+        document = _docx_bytes(
+            paragraphs=("Synthetic Software Engineer Example Systems",)
+        )
+        reference = self._reference(self._upload(document))
+        grant = self._grant()
+        issued = self.integration._processing.vault.get(reference, grant)
+        self.assertEqual(issued.expires_at_monotonic - self.monotonic, 1800)
+        self.assertEqual(
+            issued.absolute_expires_at_monotonic - self.monotonic,
+            7200,
+        )
+
+        self.monotonic += 299
+        state, limited = self.integration._processing.renew(
+            reference,
+            grant,
+            expected_version=issued.version,
+        )
+        self.assertEqual(state, "rate_limited")
+        self.assertEqual(limited[0].expires_at_monotonic, issued.expires_at_monotonic)
+
+        self.monotonic += 1
+        state, renewed = self.integration._processing.renew(
+            reference,
+            grant,
+            expected_version=issued.version,
+        )
+        self.assertEqual(state, "renewed")
+        self.assertEqual(renewed[1:], (1800, 6900))
+        renewed_snapshot = renewed[0]
+        self.assertGreater(
+            renewed_snapshot.expires_at_monotonic,
+            issued.expires_at_monotonic,
+        )
+
+        self.monotonic = 100.0 + 601
+        self.assertIsNotNone(
+            self.integration._processing.vault.get(reference, grant)
+        )
+        previous_expiry = renewed_snapshot.expires_at_monotonic
+        state, updated = self.integration._processing.update(
+            reference,
+            grant,
+            expected_version=renewed_snapshot.version,
+            review=renewed_snapshot.review,
+        )
+        self.assertEqual(state, "updated")
+        self.assertGreater(updated.expires_at_monotonic, previous_expiry)
+        self.assertEqual(updated.version, 2)
+
+        for elapsed in range(900, 7200, 300):
+            self.monotonic = 100.0 + elapsed
+            state, value = self.integration._processing.renew(
+                reference,
+                grant,
+                expected_version=2,
+            )
+            self.assertIn(state, {"renewed", "rate_limited"})
+            self.assertLessEqual(
+                value[0].expires_at_monotonic,
+                value[0].absolute_expires_at_monotonic,
+            )
+        self.monotonic = 100.0 + 7200
+        self.assertIsNone(self.integration._processing.vault.get(reference, grant))
+
+    def test_review_renewal_endpoint_is_content_free_same_origin_and_version_bound(self):
+        document = _docx_bytes(
+            paragraphs=("Synthetic Software Engineer Example Systems",)
+        )
+        reference = self._reference(self._upload(document))
+        target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        page = self.integration.handle("GET", target, self._headers(origin=False))
+        self.assertEqual(page.status, 200)
+        policy = dict(page.headers)["Content-Security-Policy"]
+        self.assertIn("connect-src 'self'", policy)
+        self.assertIn(b"id='profile-review-renewal'", page.body)
+        self.assertIn(b"document.visibilityState!=='visible'", page.body)
+        self.assertIn(b"aria-live='polite'", page.body)
+        self.assertNotIn(b"document_reference", page.body)
+
+        self.monotonic += 301
+        form = {
+            "action": "renew",
+            "version": "1",
+            "csrf": profile_intake_csrf_proof(
+                self.session["csrf_secret"],
+                "renew",
+                draft_reference=reference,
+                version=1,
+            ),
+        }
+
+        def request(values, *, origin=True, session=None):
+            body = urlencode(values).encode()
+            return self.integration.handle(
+                "POST",
+                target,
+                self._headers(
+                    origin=origin,
+                    session=session,
+                    content_type="application/x-www-form-urlencoded",
+                    content_length=len(body),
+                ),
+                BytesIO(body),
+            )
+
+        renewed = request(form)
+        self.assertEqual(renewed.status, 204)
+        renewal_headers = dict(renewed.headers)
+        self.assertEqual(renewal_headers["X-Wahojobs-Review-Idle-Seconds"], "1800")
+        self.assertLessEqual(
+            int(renewal_headers["X-Wahojobs-Review-Absolute-Seconds"]),
+            7200,
+        )
+        self.assertEqual(renewed.body, b"")
+        self.assertEqual(request(form).status, 204)
+        self.assertEqual(request(form, origin=False).status, 403)
+        self.assertEqual(request({**form, "csrf": "Z" * 43}).status, 403)
+        self.assertEqual(request({**form, "unexpected": "1"}).status, 400)
+
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        self.integration._processing.update(
+            reference,
+            self._grant(),
+            expected_version=1,
+            review=snapshot.review,
+        )
+        self.assertEqual(request(form).status, 409)
+
+        writer = sqlite3.connect(self.path)
+        writer.row_factory = sqlite3.Row
+        writer.execute("PRAGMA foreign_keys = ON")
+        try:
+            other = seed_browser_session(writer, suffix="93")
+        finally:
+            writer.close()
+        other_form = {
+            "action": "renew",
+            "version": "2",
+            "csrf": profile_intake_csrf_proof(
+                other["csrf_secret"],
+                "renew",
+                draft_reference=reference,
+                version=2,
+            ),
+        }
+        self.assertEqual(request(other_form, session=other).status, 410)
 
     def test_review_is_editable_replay_safe_and_cancelled_without_save(self):
         before = self._profile_counts()

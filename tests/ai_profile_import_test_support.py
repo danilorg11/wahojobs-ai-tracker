@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 import sqlite3
 
 from scripts.ai_profile_import_migration import apply_ai_profile_import_migration
+from scripts.resumable_ai_profile_intake_migration import (
+    apply_resumable_ai_profile_intake_migration,
+)
 from scripts.public_job_identity_migration import apply_public_job_identity_migration
 from tests.browser_session_authentication_test_support import REQUEST_AT, seed_browser_session
 from tests.workos_authkit_test_support import build_m008
@@ -86,7 +90,12 @@ def install_ai_profile_import_database(path, *, suffix="94"):
     connection = build_m008(Path(path))
     apply_public_job_identity_migration(connection)
     apply_ai_profile_import_migration(connection)
-    session = seed_browser_session(connection, suffix=suffix)
+    apply_resumable_ai_profile_intake_migration(connection)
+    session = seed_browser_session(
+        connection,
+        suffix=suffix,
+        idle_ttl=timedelta(hours=3),
+    )
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection, session

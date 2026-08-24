@@ -135,3 +135,41 @@ def require_minimized_model_evidence(evidence: ModelEvidencePacket) -> None:
         raise ProfileIntakeError("invalid_model_evidence_packet")
     if any(_minimize_block(block.text) != block.text for block in evidence.blocks):
         raise ProfileIntakeError("model_evidence_not_minimized")
+
+
+def contains_detectable_contact_pii(text: str) -> bool:
+    """Detect the contact-PII classes the model boundary already minimizes.
+
+    Checkpoint storage uses this as a reject-only gate.  It deliberately does
+    not return, log, or transform the supplied value.
+    """
+
+    if type(text) is not str:
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    if (
+        _EMAIL.search(text)
+        or _DOB_OR_AGE.search(text)
+        or _STREET_ADDRESS.search(text)
+        or _CONTACT_INFORMATION_LINE.search(text)
+        or _CONTACT_ONLY_LABEL.fullmatch(text)
+    ):
+        return True
+    if any(_looks_like_phone(match.group(0)) for match in _PHONE_CANDIDATE.finditer(text)):
+        return True
+    for match in _URL.finditer(text):
+        try:
+            hostname = (urlsplit(match.group(0).rstrip(".,;:")).hostname or "").lower()
+        except ValueError:
+            return True
+        hostname = hostname.removeprefix("www.")
+        if any(hostname == host or hostname.endswith(f".{host}") for host in _SOCIAL_HOSTS):
+            return True
+    return False
+
+
+__all__ = (
+    "MODEL_EVIDENCE_SCHEMA_VERSION",
+    "contains_detectable_contact_pii",
+    "minimize_evidence_packet",
+    "require_minimized_model_evidence",
+)

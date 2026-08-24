@@ -16,7 +16,9 @@ import re
 import secrets
 import sqlite3
 
-from wahojobs.ai_profile_import_schema import attest_ai_profile_import_schema
+from wahojobs.resumable_ai_profile_intake_schema import (
+    attest_resumable_ai_profile_intake_schema,
+)
 from wahojobs.persistent_profiles import (
     AI_IMPORT_SOURCE_SCHEMA_VERSION,
     MIGRATION_010_CAPABILITIES,
@@ -42,7 +44,9 @@ from wahojobs.profile_intake.runtime import (
     SafeDocumentBundleMetadata,
     SafeModelDiagnostics,
     TrustedProfileIntakeGrant,
+    hydrate_profile_intake_checkpoint,
     review_value_for_form,
+    serialize_profile_intake_checkpoint,
     update_editable_review,
 )
 from wahojobs.profiles.canonical import (
@@ -67,6 +71,10 @@ from wahojobs.profiles.preference_model import (
 
 AI_PROFILE_IMPORT_ENTITLEMENT_CODE = "ai_profile_import_v1"
 AI_PROFILE_IMPORT_RESERVATION_LEASE = timedelta(minutes=12)
+AI_PROFILE_IMPORT_RESERVATION_RENEWAL_INTERVAL = timedelta(minutes=5)
+AI_PROFILE_IMPORT_RESERVATION_GENERATION_MAX = timedelta(hours=2)
+AI_PROFILE_INTAKE_CHECKPOINT_RETENTION = timedelta(days=7)
+AI_PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION = "profile_intake_checkpoint_v1"
 AI_PROFILE_IMPORT_NORMALIZER_VERSION = "ai_profile_intake_v1"
 AI_PROFILE_IMPORT_REVIEWER_VERSION = REVIEW_DRAFT_SCHEMA_VERSION
 AI_PROFILE_IMPORT_REASON_CODE = "profile.ai_import"
@@ -74,6 +82,7 @@ AI_PROFILE_IMPORT_ACTOR_TYPE = "authenticated_user"
 
 _ATTEMPT = re.compile(r"^aip_[0-9a-f]{32}$")
 _RESERVATION = re.compile(r"^air_[0-9a-f]{32}$")
+_CHECKPOINT = re.compile(r"^aic_[0-9a-f]{32}$")
 _IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{16,256}$")
 _AUTHORITY_ISSUER = object()
 _USER_LIST_FIELDS = frozenset(
@@ -104,6 +113,11 @@ _PUBLIC_CODES = frozenset(
         "reservation_mismatch",
         "attempt_released",
         "attempt_failed",
+        "checkpoint_exists",
+        "checkpoint_expired",
+        "checkpoint_missing",
+        "checkpoint_stale",
+        "checkpoint_tampered",
         "profile_already_exists",
         "ownership_stale",
         "review_unresolved",
@@ -299,6 +313,69 @@ class AIProfileImportReservationResult:
     replayed: bool
 
 
+@dataclass(frozen=True, slots=True, repr=False, init=False)
+class AIProfileIntakeCheckpointAuthority:
+    checkpoint_id: str = field(repr=False)
+    row_version: int
+    expires_at: str
+    reservation_generation: int
+    _issuer: object = field(repr=False, compare=False)
+
+    def __init__(self, *_args, **_kwargs):
+        raise AIProfileImportError("invalid_request")
+
+    @classmethod
+    def _issue(cls, capability, *, checkpoint_id, row_version, expires_at, reservation_generation):
+        if (
+            capability is not _AUTHORITY_ISSUER
+            or type(checkpoint_id) is not str
+            or _CHECKPOINT.fullmatch(checkpoint_id) is None
+            or len(set(checkpoint_id[4:])) == 1
+            or type(row_version) is not int
+            or row_version < 1
+            or type(reservation_generation) is not int
+            or reservation_generation < 1
+            or type(expires_at) is not str
+        ):
+            raise AIProfileImportError("invalid_request")
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "checkpoint_id", checkpoint_id)
+        object.__setattr__(instance, "row_version", row_version)
+        object.__setattr__(instance, "expires_at", expires_at)
+        object.__setattr__(instance, "reservation_generation", reservation_generation)
+        object.__setattr__(instance, "_issuer", _AUTHORITY_ISSUER)
+        return instance
+
+    def __repr__(self):
+        return "AIProfileIntakeCheckpointAuthority(<redacted>)"
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("ai_profile_intake_checkpoint_authority_not_serializable")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class AIProfileIntakeCheckpointResult:
+    checkpoint: AIProfileIntakeCheckpointAuthority
+    reservation: AIProfileImportReservationAuthority
+    review: EditableProfileReview = field(repr=False)
+    source_metadata: AIProfileImportSourceMetadata = field(repr=False)
+    replayed_reservation: bool
+
+    def __repr__(self):
+        return (
+            "AIProfileIntakeCheckpointResult("
+            f"checkpoint={self.checkpoint!r}, reservation=<redacted>, "
+            "review=<redacted>, source_metadata=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AIProfileIntakeCheckpointSummary:
+    checkpoint: AIProfileIntakeCheckpointAuthority
+    created_at: str
+    review_saved_at: str
+
+
 @dataclass(frozen=True, slots=True)
 class AIProfileImportPreflightResult:
     """Advisory, read-only eligibility state for the authenticated runtime."""
@@ -311,6 +388,7 @@ class AIProfileImportPreflightResult:
             "profile_exists",
             "entitlement_consumed",
             "entitlement_reserved",
+            "checkpoint_available",
         }:
             raise AIProfileImportError("invalid_request")
 
@@ -416,13 +494,20 @@ class AIProfileImportService:
                 or connection.execute("PRAGMA query_only").fetchone()[0] != 1
             ):
                 raise AIProfileImportError("schema_unavailable")
-            _require_m010(connection)
+            _require_m011(connection)
             authority = _grant_authority(connection, grant, now)
             if connection.execute(
                 "SELECT 1 FROM product_profiles WHERE principal_id=? AND environment_namespace=?",
                 (authority[3], authority[2]),
             ).fetchone() is not None:
                 return AIProfileImportPreflightResult("profile_exists")
+            checkpoint = connection.execute(
+                "SELECT expires_at FROM ai_profile_intake_checkpoints "
+                "WHERE environment_namespace=? AND account_id=? AND state='active'",
+                (authority[2], authority[0]),
+            ).fetchone()
+            if checkpoint is not None and checkpoint[0] > canonical_utc_timestamp(now):
+                return AIProfileImportPreflightResult("checkpoint_available")
             entitlement = connection.execute(
                 "SELECT state,lease_expires_at FROM ai_profile_import_entitlements "
                 "WHERE environment_namespace=? AND account_id=? AND entitlement_code=?",
@@ -446,112 +531,388 @@ class AIProfileImportService:
             _detach(exc)
             raise AIProfileImportError("schema_unavailable") from None
 
+    def inspect_checkpoint(self, connection, grant, *, now):
+        """Return only bounded resume metadata under current ownership authority."""
+
+        now = _trusted_time(now)
+        try:
+            if (
+                type(connection) is not sqlite3.Connection
+                or connection.in_transaction
+                or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+            ):
+                raise AIProfileImportError("schema_unavailable")
+            _require_m011(connection)
+            authority = _grant_authority(connection, grant, now)
+            _require_profile_absent(connection, authority)
+            row = connection.execute(
+                "SELECT checkpoint_id,row_version,reservation_generation,expires_at,"
+                "created_at,review_saved_at FROM ai_profile_intake_checkpoints "
+                "WHERE environment_namespace=? AND account_id=? AND state='active'",
+                (authority[2], authority[0]),
+            ).fetchone()
+            if row is None or row[3] <= canonical_utc_timestamp(now):
+                return None
+            full = _checkpoint_row(connection, row[0])
+            _require_checkpoint_match(full, authority, expected_version=row[1])
+            _validated_checkpoint_content(full)
+            return AIProfileIntakeCheckpointSummary(
+                _checkpoint_authority(row[0], row[1], row[3], row[2]),
+                row[4],
+                row[5],
+            )
+        except AIProfileImportError:
+            raise
+        except sqlite3.Error as exc:
+            _detach(exc)
+            raise AIProfileImportError("schema_unavailable") from None
+
     def reserve(self, connection, grant, request, *, now):
         if type(request) is not AIProfileImportReservationRequest:
             raise AIProfileImportError("invalid_request")
         now = _trusted_time(now)
         request.source_metadata.to_mapping()
-        metadata_json = request.source_metadata.canonical_json
-        key_hash = hashlib.sha256(request.idempotency_key.encode("ascii")).hexdigest()
         result = None
 
         def operation():
             nonlocal result
-            _require_m010(connection)
+            _require_m011(connection)
             authority = _grant_authority(connection, grant, now)
-            fingerprint = _request_fingerprint(authority, key_hash, metadata_json)
-            existing = connection.execute(
-                "SELECT attempt_id,reservation_id,state,request_fingerprint,lease_expires_at,"
-                "binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256 "
-                "FROM ai_profile_import_attempts WHERE environment_namespace=? AND account_id=? "
-                "AND entitlement_code=? AND idempotency_key_sha256=?",
-                (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, key_hash),
-            ).fetchone()
-            if existing is not None:
-                if not hmac.compare_digest(existing[3], fingerprint):
-                    raise AIProfileImportError("idempotency_conflict")
-                if existing[2] == "reserved" and existing[4] <= canonical_utc_timestamp(now):
-                    _expire_attempt(connection, existing[0], existing[1], authority, now)
-                    result = AIProfileImportError("reservation_expired")
-                    return
-                lineage = authority[4]
-                if tuple(existing[5:]) != (
-                    lineage.binding_id,
-                    lineage.binding_version,
-                    lineage.latest_event_version,
-                    lineage.latest_event_id,
-                    lineage.lineage_sha256,
-                ):
-                    raise AIProfileImportError("ownership_stale")
-                if existing[2] == "released":
-                    result = AIProfileImportError("attempt_released")
-                    return
-                if existing[2] in {"expired", "failed"}:
-                    result = AIProfileImportError("attempt_failed")
-                    return
-                result = AIProfileImportReservationResult(
-                    existing[2],
-                    _reservation_authority(existing[0], existing[1], authority, fingerprint, existing[4]),
-                    True,
-                )
-                return
-
-            entitlement = connection.execute(
-                "SELECT state,reservation_id,attempt_id,lease_expires_at FROM ai_profile_import_entitlements "
-                "WHERE environment_namespace=? AND account_id=? AND entitlement_code=?",
-                (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE),
-            ).fetchone()
-            timestamp = canonical_utc_timestamp(now)
-            if entitlement is None:
-                connection.execute(
-                    "INSERT INTO ai_profile_import_entitlements "
-                    "(environment_namespace,account_id,entitlement_code,state,reservation_id,attempt_id,lease_expires_at,consumed_at,created_at,updated_at) "
-                    "VALUES (?,?,?,'available',NULL,NULL,NULL,NULL,?,?)",
-                    (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, timestamp, timestamp),
-                )
-                entitlement = ("available", None, None, None)
-            if entitlement[0] == "consumed":
-                raise AIProfileImportError("entitlement_consumed")
-            if entitlement[0] == "reserved":
-                if entitlement[3] > timestamp:
-                    raise AIProfileImportError("entitlement_reserved")
-                _expire_attempt(connection, entitlement[2], entitlement[1], authority, now)
-
-            attempt_id = _new_id(connection, "aip", "ai_profile_import_attempts", "attempt_id", self._token_hex)
-            reservation_id = _new_id(connection, "air", "ai_profile_import_attempts", "reservation_id", self._token_hex)
-            lease = canonical_utc_timestamp(now + AI_PROFILE_IMPORT_RESERVATION_LEASE)
-            lineage = authority[4]
-            connection.execute(
-                "INSERT INTO ai_profile_import_attempts "
-                "(attempt_id,reservation_id,environment_namespace,account_id,principal_id,entitlement_code,state,"
-                "idempotency_key_sha256,request_fingerprint,confirmation_fingerprint,source_metadata_json,"
-                "binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256,lease_expires_at,"
-                "result_code,result_profile_id,result_revision_id,created_at,updated_at,completed_at) "
-                "VALUES (?,?,?,?,?,?,'reserved',?,?,NULL,?,?,?,?,?,?,?,NULL,NULL,NULL,?,?,NULL)",
-                (
-                    attempt_id, reservation_id, authority[2], authority[0], authority[3],
-                    AI_PROFILE_IMPORT_ENTITLEMENT_CODE, key_hash, fingerprint, metadata_json,
-                    lineage.binding_id, lineage.binding_version, lineage.latest_event_version,
-                    lineage.latest_event_id, lineage.lineage_sha256, lease, timestamp, timestamp,
-                ),
-            )
-            connection.execute(
-                "UPDATE ai_profile_import_entitlements SET state='reserved',reservation_id=?,attempt_id=?,"
-                "lease_expires_at=?,updated_at=? WHERE environment_namespace=? AND account_id=? AND entitlement_code=? AND state='available'",
-                (reservation_id, attempt_id, lease, timestamp, authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE),
-            )
-            if connection.execute("SELECT changes()").fetchone()[0] != 1:
-                raise AIProfileImportError("entitlement_reserved")
-            result = AIProfileImportReservationResult(
-                "reserved",
-                _reservation_authority(attempt_id, reservation_id, authority, fingerprint, lease),
-                False,
+            _require_profile_absent(connection, authority)
+            result = _reserve_in_transaction(
+                connection,
+                authority,
+                request,
+                now,
+                self._token_hex,
             )
 
         _atomic(connection, operation)
         if isinstance(result, AIProfileImportError):
             raise result
         return result
+
+    def create_checkpoint(self, connection, grant, review, source_metadata, *, now):
+        """Persist one minimized review and acquire its first short reservation."""
+
+        if (
+            type(review) is not EditableProfileReview
+            or type(source_metadata) is not AIProfileImportSourceMetadata
+            or getattr(source_metadata, "_issuer", None) is not _AUTHORITY_ISSUER
+        ):
+            raise AIProfileImportError("invalid_request")
+        try:
+            payload_json = serialize_profile_intake_checkpoint(review)
+        except ProfileIntakeError as exc:
+            raise AIProfileImportError(
+                "content_rejected" if exc.code != "checkpoint_too_large" else "invalid_request"
+            ) from None
+        if tuple(source.document_kind.value for source in review.sources) != source_metadata.origins:
+            raise AIProfileImportError("invalid_request")
+        now = _trusted_time(now)
+        outcome = None
+
+        def operation():
+            nonlocal outcome
+            _require_m011(connection)
+            authority = _grant_authority(connection, grant, now)
+            _require_profile_absent(connection, authority)
+            existing = connection.execute(
+                "SELECT checkpoint_id,expires_at,reservation_generation FROM ai_profile_intake_checkpoints "
+                "WHERE environment_namespace=? AND account_id=?",
+                (authority[2], authority[0]),
+            ).fetchone()
+            if existing is not None:
+                if existing[1] > canonical_utc_timestamp(now):
+                    raise AIProfileImportError("checkpoint_exists")
+                _discard_checkpoint_in_transaction(
+                    connection, authority, existing[0], existing[2], now, expired=True
+                )
+            checkpoint_id = _new_id(
+                connection,
+                "aic",
+                "ai_profile_intake_checkpoints",
+                "checkpoint_id",
+                self._token_hex,
+            )
+            timestamp = canonical_utc_timestamp(now)
+            expires_at = canonical_utc_timestamp(now + AI_PROFILE_INTAKE_CHECKPOINT_RETENTION)
+            digest = hashlib.sha256(payload_json.encode("ascii")).hexdigest()
+            lineage = authority[4]
+            connection.execute(
+                "INSERT INTO ai_profile_intake_checkpoints "
+                "(checkpoint_id,environment_namespace,account_id,principal_id,checkpoint_schema_version,"
+                "review_schema_version,state,row_version,review_payload_json,review_payload_sha256,"
+                "source_metadata_json,binding_id,binding_version,latest_event_version,latest_event_id,"
+                "lineage_sha256,reservation_generation,created_at,review_saved_at,updated_at,expires_at) "
+                "VALUES (?,?,?,?,?,?,'active',1,?,?,?,?,?,?,?,?,1,?,?,?,?)",
+                (
+                    checkpoint_id,
+                    authority[2],
+                    authority[0],
+                    authority[3],
+                    AI_PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION,
+                    REVIEW_DRAFT_SCHEMA_VERSION,
+                    payload_json,
+                    digest,
+                    source_metadata.canonical_json,
+                    lineage.binding_id,
+                    lineage.binding_version,
+                    lineage.latest_event_version,
+                    lineage.latest_event_id,
+                    lineage.lineage_sha256,
+                    timestamp,
+                    timestamp,
+                    timestamp,
+                    expires_at,
+                ),
+            )
+            request = _checkpoint_reservation_request(checkpoint_id, 1, source_metadata)
+            reserved = _reserve_in_transaction(
+                connection, authority, request, now, self._token_hex
+            )
+            if isinstance(reserved, AIProfileImportError):
+                raise reserved
+            outcome = AIProfileIntakeCheckpointResult(
+                _checkpoint_authority(checkpoint_id, 1, expires_at, 1),
+                reserved.authority,
+                review,
+                source_metadata,
+                reserved.replayed,
+            )
+
+        _atomic(connection, operation)
+        return outcome
+
+    def resume_checkpoint(self, connection, grant, checkpoint_id, *, expected_version, now):
+        """Rehydrate a checkpoint and reacquire authority without extraction."""
+
+        if (
+            type(checkpoint_id) is not str
+            or _CHECKPOINT.fullmatch(checkpoint_id) is None
+            or type(expected_version) is not int
+            or expected_version < 1
+        ):
+            raise AIProfileImportError("invalid_request")
+        now = _trusted_time(now)
+        outcome = None
+
+        def operation():
+            nonlocal outcome
+            _require_m011(connection)
+            authority = _grant_authority(connection, grant, now)
+            row = _checkpoint_row(connection, checkpoint_id)
+            _require_checkpoint_match(row, authority, expected_version=expected_version)
+            if row[7] <= canonical_utc_timestamp(now):
+                _discard_checkpoint_in_transaction(
+                    connection, authority, row[0], row[6], now, expired=True
+                )
+                outcome = AIProfileImportError("checkpoint_expired")
+                return
+            review, source_metadata = _validated_checkpoint_content(row)
+            _require_profile_absent(connection, authority)
+            generation = row[6]
+            version = row[2]
+            reserved = None
+            for _attempt in range(2):
+                request = _checkpoint_reservation_request(
+                    checkpoint_id, generation, source_metadata
+                )
+                reserved = _reserve_in_transaction(
+                    connection, authority, request, now, self._token_hex
+                )
+                if not isinstance(reserved, AIProfileImportError):
+                    break
+                if reserved.code not in {
+                    "reservation_expired", "attempt_released", "attempt_failed"
+                }:
+                    raise reserved
+                generation += 1
+                version += 1
+                timestamp = canonical_utc_timestamp(now)
+                connection.execute(
+                    "UPDATE ai_profile_intake_checkpoints SET row_version=?,reservation_generation=?,updated_at=? "
+                    "WHERE checkpoint_id=? AND row_version=?",
+                    (version, generation, timestamp, checkpoint_id, version - 1),
+                )
+                if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                    raise AIProfileImportError("checkpoint_stale")
+            if isinstance(reserved, AIProfileImportError):
+                raise reserved
+            outcome = AIProfileIntakeCheckpointResult(
+                _checkpoint_authority(checkpoint_id, version, row[7], generation),
+                reserved.authority,
+                review,
+                source_metadata,
+                reserved.replayed,
+            )
+
+        _atomic(connection, operation)
+        if isinstance(outcome, AIProfileImportError):
+            raise outcome
+        return outcome
+
+    def update_checkpoint(self, connection, grant, checkpoint, review, *, now):
+        """Optimistically save one validated review change and refresh seven days."""
+
+        if (
+            type(checkpoint) is not AIProfileIntakeCheckpointAuthority
+            or getattr(checkpoint, "_issuer", None) is not _AUTHORITY_ISSUER
+            or type(review) is not EditableProfileReview
+        ):
+            raise AIProfileImportError("invalid_request")
+        try:
+            payload_json = serialize_profile_intake_checkpoint(review)
+        except ProfileIntakeError:
+            raise AIProfileImportError("content_rejected") from None
+        now = _trusted_time(now)
+        outcome = None
+
+        def operation():
+            nonlocal outcome
+            _require_m011(connection)
+            authority = _grant_authority(connection, grant, now)
+            row = _checkpoint_row(connection, checkpoint.checkpoint_id)
+            _require_checkpoint_match(row, authority, expected_version=checkpoint.row_version)
+            if row[7] <= canonical_utc_timestamp(now):
+                raise AIProfileImportError("checkpoint_expired")
+            _stored_review, source_metadata = _validated_checkpoint_content(row)
+            if tuple(source.document_kind.value for source in review.sources) != source_metadata.origins:
+                raise AIProfileImportError("checkpoint_tampered")
+            if hmac.compare_digest(row[3], payload_json):
+                outcome = _checkpoint_authority(
+                    row[0], row[2], row[7], row[6]
+                )
+                return
+            timestamp = canonical_utc_timestamp(now)
+            expires_at = canonical_utc_timestamp(now + AI_PROFILE_INTAKE_CHECKPOINT_RETENTION)
+            next_version = row[2] + 1
+            connection.execute(
+                "UPDATE ai_profile_intake_checkpoints SET row_version=?,review_payload_json=?,"
+                "review_payload_sha256=?,review_saved_at=?,updated_at=?,expires_at=? "
+                "WHERE checkpoint_id=? AND row_version=?",
+                (
+                    next_version,
+                    payload_json,
+                    hashlib.sha256(payload_json.encode("ascii")).hexdigest(),
+                    timestamp,
+                    timestamp,
+                    expires_at,
+                    checkpoint.checkpoint_id,
+                    row[2],
+                ),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("checkpoint_stale")
+            outcome = _checkpoint_authority(
+                row[0], next_version, expires_at, row[6]
+            )
+
+        _atomic(connection, operation)
+        return outcome
+
+    def renew_checkpoint_reservation(
+        self, connection, grant, checkpoint, reservation, *, now
+    ):
+        """Extend one live short lease, rate-limited and capped per generation."""
+
+        if type(checkpoint) is not AIProfileIntakeCheckpointAuthority:
+            raise AIProfileImportError("invalid_request")
+        now = _trusted_time(now)
+        outcome = None
+
+        def operation():
+            nonlocal outcome
+            _require_m011(connection)
+            authority = _grant_authority(connection, grant, now)
+            row = _checkpoint_row(connection, checkpoint.checkpoint_id)
+            _require_checkpoint_match(row, authority, expected_version=checkpoint.row_version)
+            _validated_checkpoint_content(row)
+            _require_reservation_binding(reservation, authority)
+            attempt = _attempt_row(connection, reservation.attempt_id)
+            _require_attempt_match(attempt, reservation, authority)
+            timestamp = canonical_utc_timestamp(now)
+            if attempt[2] != "reserved" or attempt[7] <= timestamp:
+                if attempt[2] == "reserved":
+                    _expire_attempt(connection, attempt[0], attempt[1], authority, now)
+                outcome = AIProfileImportError("reservation_expired")
+                return
+            created_at = datetime.fromisoformat(attempt[18])
+            updated_at = datetime.fromisoformat(attempt[19])
+            if now - updated_at < AI_PROFILE_IMPORT_RESERVATION_RENEWAL_INTERVAL:
+                outcome = AIProfileImportReservationResult(
+                    "reserved",
+                    _reservation_authority(
+                        attempt[0], attempt[1], authority, attempt[12], attempt[7]
+                    ),
+                    True,
+                )
+                return
+            generation_end = created_at + AI_PROFILE_IMPORT_RESERVATION_GENERATION_MAX
+            lease_end = min(now + AI_PROFILE_IMPORT_RESERVATION_LEASE, generation_end)
+            if lease_end <= datetime.fromisoformat(attempt[7]):
+                outcome = AIProfileImportReservationResult(
+                    "reserved",
+                    _reservation_authority(
+                        attempt[0], attempt[1], authority, attempt[12], attempt[7]
+                    ),
+                    True,
+                )
+                return
+            lease = canonical_utc_timestamp(lease_end)
+            connection.execute(
+                "UPDATE ai_profile_import_attempts SET lease_expires_at=?,updated_at=? "
+                "WHERE attempt_id=? AND state='reserved' AND lease_expires_at=?",
+                (lease, timestamp, attempt[0], attempt[7]),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("reservation_mismatch")
+            connection.execute(
+                "UPDATE ai_profile_import_entitlements SET lease_expires_at=?,updated_at=? "
+                "WHERE environment_namespace=? AND account_id=? AND entitlement_code=? "
+                "AND state='reserved' AND attempt_id=? AND reservation_id=?",
+                (
+                    lease,
+                    timestamp,
+                    authority[2],
+                    authority[0],
+                    AI_PROFILE_IMPORT_ENTITLEMENT_CODE,
+                    attempt[0],
+                    attempt[1],
+                ),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("reservation_mismatch")
+            outcome = AIProfileImportReservationResult(
+                "reserved",
+                _reservation_authority(
+                    attempt[0], attempt[1], authority, attempt[12], lease
+                ),
+                False,
+            )
+
+        _atomic(connection, operation)
+        if isinstance(outcome, AIProfileImportError):
+            raise outcome
+        return outcome
+
+    def discard_checkpoint(self, connection, grant, checkpoint, *, now):
+        if type(checkpoint) is not AIProfileIntakeCheckpointAuthority:
+            raise AIProfileImportError("invalid_request")
+        now = _trusted_time(now)
+
+        def operation():
+            _require_m011(connection)
+            authority = _grant_authority(connection, grant, now)
+            row = _checkpoint_row(connection, checkpoint.checkpoint_id)
+            _require_checkpoint_match(row, authority, expected_version=checkpoint.row_version)
+            _discard_checkpoint_in_transaction(
+                connection, authority, row[0], row[6], now, expired=False
+            )
+
+        _atomic(connection, operation)
+        return {"discarded": True}
 
     def release(self, connection, grant, reservation, *, outcome_code, now):
         if type(outcome_code) is not str or outcome_code not in _RELEASE_CODES:
@@ -561,7 +922,7 @@ class AIProfileImportService:
 
         def operation():
             nonlocal result
-            _require_m010(connection)
+            _require_m011(connection)
             authority = _grant_authority(connection, grant, now)
             _require_reservation_binding(reservation, authority)
             row = _attempt_row(connection, reservation.attempt_id)
@@ -609,11 +970,14 @@ class AIProfileImportService:
         reservation,
         confirmed,
         *,
+        checkpoint,
         now,
     ):
         if (
             type(confirmed) is not ConfirmedAIProfileImport
             or getattr(confirmed, "_issuer", None) is not _AUTHORITY_ISSUER
+            or type(checkpoint) is not AIProfileIntakeCheckpointAuthority
+            or getattr(checkpoint, "_issuer", None) is not _AUTHORITY_ISSUER
         ):
             raise AIProfileImportError("invalid_request")
         try:
@@ -652,7 +1016,7 @@ class AIProfileImportService:
 
         def operation():
             nonlocal outcome
-            _require_m010(connection)
+            _require_m011(connection)
             authority = _grant_authority(connection, grant, now)
             if authority != prepared_authority:
                 raise AIProfileImportError("ownership_stale")
@@ -666,6 +1030,19 @@ class AIProfileImportService:
                 return
             if row[2] != "reserved":
                 raise AIProfileImportError("reservation_mismatch")
+            checkpoint_row = _checkpoint_row(connection, checkpoint.checkpoint_id)
+            _require_checkpoint_match(
+                checkpoint_row,
+                authority,
+                expected_version=checkpoint.row_version,
+            )
+            if checkpoint_row[7] <= canonical_utc_timestamp(now):
+                raise AIProfileImportError("checkpoint_expired")
+            if not hmac.compare_digest(
+                checkpoint_row[5], confirmed.source_metadata.canonical_json
+            ):
+                raise AIProfileImportError("checkpoint_tampered")
+            _validated_checkpoint_content(checkpoint_row)
             timestamp = canonical_utc_timestamp(now)
             if row[7] <= timestamp:
                 _expire_attempt(connection, row[0], row[1], authority, now)
@@ -697,6 +1074,12 @@ class AIProfileImportService:
                 )
                 if connection.execute("SELECT changes()").fetchone()[0] != 1:
                     raise AIProfileImportError("internal_failure")
+                connection.execute(
+                    "DELETE FROM ai_profile_intake_checkpoints WHERE checkpoint_id=? AND row_version=?",
+                    (checkpoint.checkpoint_id, checkpoint.row_version),
+                )
+                if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                    raise AIProfileImportError("checkpoint_stale")
                 outcome = AIProfileImportError("profile_already_exists")
                 return
             _hook(self._failure_injector, "after_profile_create")
@@ -722,6 +1105,12 @@ class AIProfileImportService:
             )
             if connection.execute("SELECT changes()").fetchone()[0] != 1:
                 raise AIProfileImportError("internal_failure")
+            connection.execute(
+                "DELETE FROM ai_profile_intake_checkpoints WHERE checkpoint_id=? AND row_version=?",
+                (checkpoint.checkpoint_id, checkpoint.row_version),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("checkpoint_stale")
             _hook(self._failure_injector, "after_entitlement_transition")
             outcome = AIProfileImportCommitResult(created.profile_id, created.revision_id, False)
 
@@ -1013,11 +1402,144 @@ def _grant_authority(connection, grant, now):
     return binding[0], binding[1], binding[2], binding[3], lineage, principal
 
 
+def _require_profile_absent(connection, authority):
+    if connection.execute(
+        "SELECT 1 FROM product_profiles WHERE principal_id=? AND environment_namespace=?",
+        (authority[3], authority[2]),
+    ).fetchone() is not None:
+        raise AIProfileImportError("profile_already_exists")
+
+
+def _reserve_in_transaction(connection, authority, request, now, token_hex):
+    metadata_json = request.source_metadata.canonical_json
+    key_hash = hashlib.sha256(request.idempotency_key.encode("ascii")).hexdigest()
+    fingerprint = _request_fingerprint(authority, key_hash, metadata_json)
+    existing = connection.execute(
+        "SELECT attempt_id,reservation_id,state,request_fingerprint,lease_expires_at,"
+        "binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256 "
+        "FROM ai_profile_import_attempts WHERE environment_namespace=? AND account_id=? "
+        "AND entitlement_code=? AND idempotency_key_sha256=?",
+        (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, key_hash),
+    ).fetchone()
+    if existing is not None:
+        if not hmac.compare_digest(existing[3], fingerprint):
+            raise AIProfileImportError("idempotency_conflict")
+        lineage = authority[4]
+        if tuple(existing[5:]) != (
+            lineage.binding_id,
+            lineage.binding_version,
+            lineage.latest_event_version,
+            lineage.latest_event_id,
+            lineage.lineage_sha256,
+        ):
+            raise AIProfileImportError("ownership_stale")
+        if existing[2] == "reserved" and existing[4] <= canonical_utc_timestamp(now):
+            _expire_attempt(connection, existing[0], existing[1], authority, now)
+            return AIProfileImportError("reservation_expired")
+        if existing[2] == "released":
+            return AIProfileImportError("attempt_released")
+        if existing[2] in {"expired", "failed"}:
+            return AIProfileImportError("attempt_failed")
+        return AIProfileImportReservationResult(
+            existing[2],
+            _reservation_authority(
+                existing[0], existing[1], authority, fingerprint, existing[4]
+            ),
+            True,
+        )
+
+    entitlement = connection.execute(
+        "SELECT state,reservation_id,attempt_id,lease_expires_at FROM ai_profile_import_entitlements "
+        "WHERE environment_namespace=? AND account_id=? AND entitlement_code=?",
+        (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE),
+    ).fetchone()
+    timestamp = canonical_utc_timestamp(now)
+    if entitlement is None:
+        connection.execute(
+            "INSERT INTO ai_profile_import_entitlements "
+            "(environment_namespace,account_id,entitlement_code,state,reservation_id,attempt_id,lease_expires_at,consumed_at,created_at,updated_at) "
+            "VALUES (?,?,?,'available',NULL,NULL,NULL,NULL,?,?)",
+            (
+                authority[2],
+                authority[0],
+                AI_PROFILE_IMPORT_ENTITLEMENT_CODE,
+                timestamp,
+                timestamp,
+            ),
+        )
+        entitlement = ("available", None, None, None)
+    if entitlement[0] == "consumed":
+        raise AIProfileImportError("entitlement_consumed")
+    if entitlement[0] == "reserved":
+        if entitlement[3] > timestamp:
+            raise AIProfileImportError("entitlement_reserved")
+        _expire_attempt(connection, entitlement[2], entitlement[1], authority, now)
+
+    attempt_id = _new_id(
+        connection, "aip", "ai_profile_import_attempts", "attempt_id", token_hex
+    )
+    reservation_id = _new_id(
+        connection, "air", "ai_profile_import_attempts", "reservation_id", token_hex
+    )
+    lease = canonical_utc_timestamp(now + AI_PROFILE_IMPORT_RESERVATION_LEASE)
+    lineage = authority[4]
+    connection.execute(
+        "INSERT INTO ai_profile_import_attempts "
+        "(attempt_id,reservation_id,environment_namespace,account_id,principal_id,entitlement_code,state,"
+        "idempotency_key_sha256,request_fingerprint,confirmation_fingerprint,source_metadata_json,"
+        "binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256,lease_expires_at,"
+        "result_code,result_profile_id,result_revision_id,created_at,updated_at,completed_at) "
+        "VALUES (?,?,?,?,?,?,'reserved',?,?,NULL,?,?,?,?,?,?,?,NULL,NULL,NULL,?,?,NULL)",
+        (
+            attempt_id,
+            reservation_id,
+            authority[2],
+            authority[0],
+            authority[3],
+            AI_PROFILE_IMPORT_ENTITLEMENT_CODE,
+            key_hash,
+            fingerprint,
+            metadata_json,
+            lineage.binding_id,
+            lineage.binding_version,
+            lineage.latest_event_version,
+            lineage.latest_event_id,
+            lineage.lineage_sha256,
+            lease,
+            timestamp,
+            timestamp,
+        ),
+    )
+    connection.execute(
+        "UPDATE ai_profile_import_entitlements SET state='reserved',reservation_id=?,attempt_id=?,"
+        "lease_expires_at=?,updated_at=? WHERE environment_namespace=? AND account_id=? AND entitlement_code=? AND state='available'",
+        (
+            reservation_id,
+            attempt_id,
+            lease,
+            timestamp,
+            authority[2],
+            authority[0],
+            AI_PROFILE_IMPORT_ENTITLEMENT_CODE,
+        ),
+    )
+    if connection.execute("SELECT changes()").fetchone()[0] != 1:
+        raise AIProfileImportError("entitlement_reserved")
+    return AIProfileImportReservationResult(
+        "reserved",
+        _reservation_authority(
+            attempt_id, reservation_id, authority, fingerprint, lease
+        ),
+        False,
+    )
+
+
 def _attempt_row(connection, attempt_id):
     row = connection.execute(
         "SELECT attempt_id,reservation_id,state,environment_namespace,account_id,principal_id,source_metadata_json,"
         "lease_expires_at,confirmation_fingerprint,result_code,result_profile_id,result_revision_id,"
-        "request_fingerprint,binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256 "
+        "request_fingerprint,binding_id,binding_version,latest_event_version,latest_event_id,lineage_sha256,"
+        "created_at,updated_at "
         "FROM ai_profile_import_attempts WHERE attempt_id=?",
         (attempt_id,),
     ).fetchone()
@@ -1035,7 +1557,7 @@ def _require_attempt_match(row, reservation, authority):
         or row[4] != authority[0]
         or row[5] != authority[3]
         or not hmac.compare_digest(row[12], reservation.request_fingerprint)
-        or tuple(row[13:])
+        or tuple(row[13:18])
         != (
             lineage.binding_id,
             lineage.binding_version,
@@ -1045,6 +1567,130 @@ def _require_attempt_match(row, reservation, authority):
         )
     ):
         raise AIProfileImportError("reservation_mismatch")
+
+
+def _checkpoint_row(connection, checkpoint_id):
+    row = connection.execute(
+        "SELECT checkpoint_id,environment_namespace,row_version,review_payload_json,"
+        "review_payload_sha256,source_metadata_json,reservation_generation,expires_at,"
+        "account_id,principal_id,binding_id,binding_version,latest_event_version,"
+        "latest_event_id,lineage_sha256 FROM ai_profile_intake_checkpoints "
+        "WHERE checkpoint_id=? AND state='active'",
+        (checkpoint_id,),
+    ).fetchone()
+    if row is None:
+        raise AIProfileImportError("checkpoint_missing")
+    return row
+
+
+def _validated_checkpoint_content(row):
+    try:
+        source_metadata = AIProfileImportSourceMetadata._from_mapping(
+            json.loads(row[5])
+        )
+        review = hydrate_profile_intake_checkpoint(row[3])
+    except (
+        AIProfileImportError,
+        ProfileIntakeError,
+        TypeError,
+        ValueError,
+        UnicodeError,
+        json.JSONDecodeError,
+    ):
+        raise AIProfileImportError("checkpoint_tampered") from None
+    if (
+        not hmac.compare_digest(
+            hashlib.sha256(row[3].encode("ascii")).hexdigest(), row[4]
+        )
+        or not hmac.compare_digest(source_metadata.canonical_json, row[5])
+        or tuple(source.document_kind.value for source in review.sources)
+        != source_metadata.origins
+    ):
+        raise AIProfileImportError("checkpoint_tampered")
+    return review, source_metadata
+
+
+def _require_checkpoint_match(row, authority, *, expected_version):
+    lineage = authority[4]
+    if (
+        row[1] != authority[2]
+        or row[8] != authority[0]
+        or row[9] != authority[3]
+        or row[2] != expected_version
+        or tuple(row[10:15])
+        != (
+            lineage.binding_id,
+            lineage.binding_version,
+            lineage.latest_event_version,
+            lineage.latest_event_id,
+            lineage.lineage_sha256,
+        )
+    ):
+        raise AIProfileImportError(
+            "checkpoint_stale" if row[2] != expected_version else "ownership_stale"
+        )
+
+
+def _checkpoint_authority(checkpoint_id, row_version, expires_at, generation):
+    return AIProfileIntakeCheckpointAuthority._issue(
+        _AUTHORITY_ISSUER,
+        checkpoint_id=checkpoint_id,
+        row_version=row_version,
+        expires_at=expires_at,
+        reservation_generation=generation,
+    )
+
+
+def _checkpoint_reservation_request(checkpoint_id, generation, source_metadata):
+    return AIProfileImportReservationRequest(
+        f"checkpoint:{checkpoint_id}:{generation}", source_metadata
+    )
+
+
+def _discard_checkpoint_in_transaction(
+    connection, authority, checkpoint_id, generation, now, *, expired
+):
+    request_key = f"checkpoint:{checkpoint_id}:{generation}"
+    key_hash = hashlib.sha256(request_key.encode("ascii")).hexdigest()
+    attempt = connection.execute(
+        "SELECT attempt_id,reservation_id,state FROM ai_profile_import_attempts "
+        "WHERE environment_namespace=? AND account_id=? AND entitlement_code=? "
+        "AND idempotency_key_sha256=?",
+        (authority[2], authority[0], AI_PROFILE_IMPORT_ENTITLEMENT_CODE, key_hash),
+    ).fetchone()
+    if attempt is not None and attempt[2] == "reserved":
+        if expired:
+            _expire_attempt(connection, attempt[0], attempt[1], authority, now)
+        else:
+            timestamp = canonical_utc_timestamp(now)
+            connection.execute(
+                "UPDATE ai_profile_import_attempts SET state='released',result_code='abandoned',"
+                "updated_at=?,completed_at=? WHERE attempt_id=? AND state='reserved'",
+                (timestamp, timestamp, attempt[0]),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("reservation_mismatch")
+            connection.execute(
+                "UPDATE ai_profile_import_entitlements SET state='available',reservation_id=NULL,"
+                "attempt_id=NULL,lease_expires_at=NULL,updated_at=? WHERE environment_namespace=? "
+                "AND account_id=? AND entitlement_code=? AND state='reserved' AND attempt_id=? AND reservation_id=?",
+                (
+                    timestamp,
+                    authority[2],
+                    authority[0],
+                    AI_PROFILE_IMPORT_ENTITLEMENT_CODE,
+                    attempt[0],
+                    attempt[1],
+                ),
+            )
+            if connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise AIProfileImportError("reservation_mismatch")
+    connection.execute(
+        "DELETE FROM ai_profile_intake_checkpoints WHERE checkpoint_id=?",
+        (checkpoint_id,),
+    )
+    if connection.execute("SELECT changes()").fetchone()[0] != 1:
+        raise AIProfileImportError("checkpoint_stale")
 
 
 def _expire_attempt(connection, attempt_id, reservation_id, authority, now):
@@ -1116,7 +1762,11 @@ def _new_id(connection, prefix, table, column, token_hex):
     for _attempt in range(16):
         token = token_hex(16)
         candidate = f"{prefix}_{token}"
-        pattern = _ATTEMPT if prefix == "aip" else _RESERVATION
+        pattern = {
+            "aip": _ATTEMPT,
+            "air": _RESERVATION,
+            "aic": _CHECKPOINT,
+        }.get(prefix)
         if type(token) is str and pattern.fullmatch(candidate) is not None and connection.execute(
             f"SELECT 1 FROM {table} WHERE {column}=?", (candidate,)
         ).fetchone() is None and len(set(candidate[4:])) > 1:
@@ -1135,8 +1785,8 @@ def _trusted_time(value):
     return normalized
 
 
-def _require_m010(connection):
-    if attest_ai_profile_import_schema(connection).get("state") != "correctly_installed":
+def _require_m011(connection):
+    if attest_resumable_ai_profile_intake_schema(connection).get("state") != "correctly_installed":
         raise AIProfileImportError("schema_unavailable")
 
 
@@ -1233,6 +1883,13 @@ def _user_list(inputs, name):
 __all__ = (
     "AI_PROFILE_IMPORT_ENTITLEMENT_CODE",
     "AI_PROFILE_IMPORT_RESERVATION_LEASE",
+    "AI_PROFILE_IMPORT_RESERVATION_RENEWAL_INTERVAL",
+    "AI_PROFILE_IMPORT_RESERVATION_GENERATION_MAX",
+    "AI_PROFILE_INTAKE_CHECKPOINT_RETENTION",
+    "AI_PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION",
+    "AIProfileIntakeCheckpointAuthority",
+    "AIProfileIntakeCheckpointResult",
+    "AIProfileIntakeCheckpointSummary",
     "AIProfileImportCommitResult",
     "AIProfileImportError",
     "AIProfileImportPreflightResult",

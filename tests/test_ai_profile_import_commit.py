@@ -65,18 +65,25 @@ class AIProfileImportCommitTests(unittest.TestCase):
         self.grant = intake_grant(self.path, self.session)
         self.service = AIProfileImportService()
         self.metadata = import_source_metadata()
+        self.checkpoints = {}
 
     def tearDown(self):
         self.connection.close()
         self.directory.cleanup()
 
     def reserve(self, *, key="ai-confirmation-key-0001", service=None):
-        return (service or self.service).reserve(
+        result = (service or self.service).create_checkpoint(
             self.connection,
             self.grant,
-            AIProfileImportReservationRequest(key, self.metadata),
+            confirmed_review(),
+            self.metadata,
             now=NOW,
-        ).authority
+        )
+        self.checkpoints[result.reservation.attempt_id] = result.checkpoint
+        return result.reservation
+
+    def checkpoint_for(self, reservation):
+        return self.checkpoints[reservation.attempt_id]
 
     def confirmed(self, *, conflict=False, preference_model=None):
         return prepare_confirmed_ai_profile_import(
@@ -101,6 +108,7 @@ class AIProfileImportCommitTests(unittest.TestCase):
             self.grant,
             reservation,
             self.confirmed(),
+            checkpoint=self.checkpoint_for(reservation),
             now=NOW,
         )
         self.assertFalse(result.replayed)
@@ -156,13 +164,15 @@ class AIProfileImportCommitTests(unittest.TestCase):
         reservation = self.reserve()
         confirmed = self.confirmed()
         first = self.service.commit_confirmed_ai_profile_import(
-            self.connection, self.grant, reservation, confirmed, now=NOW
+            self.connection, self.grant, reservation, confirmed,
+            checkpoint=self.checkpoint_for(reservation), now=NOW
         )
         replay = self.service.commit_confirmed_ai_profile_import(
             self.connection,
             self.grant,
             reservation,
             confirmed,
+            checkpoint=self.checkpoint_for(reservation),
             now=NOW + timedelta(seconds=1),
         )
         self.assertTrue(replay.replayed)
@@ -185,16 +195,18 @@ class AIProfileImportCommitTests(unittest.TestCase):
             self.grant,
             reservation,
             changed,
+            checkpoint=self.checkpoint_for(reservation),
             now=NOW + timedelta(seconds=2),
         )
 
     def test_different_attempt_after_consumption_is_rejected(self):
         reservation = self.reserve()
         self.service.commit_confirmed_ai_profile_import(
-            self.connection, self.grant, reservation, self.confirmed(), now=NOW
+            self.connection, self.grant, reservation, self.confirmed(),
+            checkpoint=self.checkpoint_for(reservation), now=NOW
         )
         self.assert_code(
-            "entitlement_consumed",
+            "profile_already_exists",
             self.service.reserve,
             self.connection,
             self.grant,
@@ -214,6 +226,7 @@ class AIProfileImportCommitTests(unittest.TestCase):
             self.grant,
             expired,
             self.confirmed(),
+            checkpoint=self.checkpoint_for(expired),
             now=NOW + AI_PROFILE_IMPORT_RESERVATION_LEASE + timedelta(seconds=1),
         )
         self.assertEqual(
@@ -223,15 +236,19 @@ class AIProfileImportCommitTests(unittest.TestCase):
             "available",
         )
 
-        fresh = self.service.reserve(
+        resumed = self.service.resume_checkpoint(
             self.connection,
             self.grant,
-            AIProfileImportReservationRequest(
-                "ai-confirmation-key-0003", self.metadata
-            ),
+            self.checkpoint_for(expired).checkpoint_id,
+            expected_version=self.checkpoint_for(expired).row_version,
             now=NOW + AI_PROFILE_IMPORT_RESERVATION_LEASE + timedelta(seconds=1),
-        ).authority
-        other_session = seed_browser_session(self.connection, suffix="96")
+        )
+        fresh = resumed.reservation
+        other_session = seed_browser_session(
+            self.connection,
+            suffix="96",
+            idle_ttl=timedelta(hours=3),
+        )
         other_grant = intake_grant(self.path, other_session)
         self.assert_code(
             "reservation_mismatch",
@@ -240,6 +257,7 @@ class AIProfileImportCommitTests(unittest.TestCase):
             other_grant,
             fresh,
             self.confirmed(),
+            checkpoint=resumed.checkpoint,
             now=NOW + AI_PROFILE_IMPORT_RESERVATION_LEASE + timedelta(seconds=1),
         )
         transition_binding(self.connection, self.session, "suspended")
@@ -250,6 +268,7 @@ class AIProfileImportCommitTests(unittest.TestCase):
             self.grant,
             fresh,
             self.confirmed(),
+            checkpoint=resumed.checkpoint,
             now=NOW + AI_PROFILE_IMPORT_RESERVATION_LEASE + timedelta(seconds=1),
         )
         self.assertEqual(database_counts(self.connection)["product_profiles"], 0)
@@ -309,7 +328,8 @@ class AIProfileImportCommitTests(unittest.TestCase):
         }
         confirmed = self.confirmed(preference_model=preference_model)
         result = self.service.commit_confirmed_ai_profile_import(
-            self.connection, self.grant, reservation, confirmed, now=NOW
+            self.connection, self.grant, reservation, confirmed,
+            checkpoint=self.checkpoint_for(reservation), now=NOW
         )
         structured = json.loads(
             self.connection.execute(
@@ -386,7 +406,8 @@ class AIProfileImportCommitTests(unittest.TestCase):
             ConfirmedAIProfileImport()
         reservation = self.reserve()
         self.service.commit_confirmed_ai_profile_import(
-            self.connection, self.grant, reservation, self.confirmed(), now=NOW
+            self.connection, self.grant, reservation, self.confirmed(),
+            checkpoint=self.checkpoint_for(reservation), now=NOW
         )
         retained = "\n".join(
             str(value)
@@ -434,6 +455,7 @@ class AIProfileImportCommitTests(unittest.TestCase):
             self.grant,
             reservation,
             self.confirmed(),
+            checkpoint=self.checkpoint_for(reservation),
             now=NOW,
         )
         self.assertEqual(database_counts(self.connection)["product_profiles"], 1)
@@ -496,7 +518,8 @@ class AIProfileImportCommitTests(unittest.TestCase):
     def test_ai_import_source_cannot_be_used_for_a_later_revision(self):
         reservation = self.reserve()
         result = self.service.commit_confirmed_ai_profile_import(
-            self.connection, self.grant, reservation, self.confirmed(), now=NOW
+            self.connection, self.grant, reservation, self.confirmed(),
+            checkpoint=self.checkpoint_for(reservation), now=NOW
         )
         principal = self.grant.principal_for_repository()
         current = PersistentProfileRepository().read_current(
@@ -552,15 +575,18 @@ class AIProfileImportCommitTests(unittest.TestCase):
             grant = intake_grant(other_path, session)
             metadata = import_source_metadata()
             service = AIProfileImportService()
-            reservation = service.reserve(
+            checkpoint_result = service.create_checkpoint(
                 connection,
                 grant,
-                AIProfileImportReservationRequest("ai-wins-race-key-0001", metadata),
+                confirmed_review(),
+                metadata,
                 now=NOW,
-            ).authority
+            )
+            reservation = checkpoint_result.reservation
             confirmed = prepare_confirmed_ai_profile_import(confirmed_review(), metadata)
             service.commit_confirmed_ai_profile_import(
-                connection, grant, reservation, confirmed, now=NOW
+                connection, grant, reservation, confirmed,
+                checkpoint=checkpoint_result.checkpoint, now=NOW
             )
             losing_manual = create_command(
                 grant.principal_for_repository(),
@@ -582,7 +608,8 @@ class AIProfileImportCommitTests(unittest.TestCase):
     def test_existing_profile_privacy_purge_is_not_blocked_by_success_receipt(self):
         reservation = self.reserve()
         result = self.service.commit_confirmed_ai_profile_import(
-            self.connection, self.grant, reservation, self.confirmed(), now=NOW
+            self.connection, self.grant, reservation, self.confirmed(),
+            checkpoint=self.checkpoint_for(reservation), now=NOW
         )
         principal = self.grant.principal_for_repository()
         repository = PersistentProfileRepository()
@@ -630,7 +657,8 @@ class AIProfileImportCommitTests(unittest.TestCase):
             connection.execute("PRAGMA foreign_keys = ON")
             try:
                 return AIProfileImportService().commit_confirmed_ai_profile_import(
-                    connection, self.grant, reservation, confirmed, now=NOW
+                    connection, self.grant, reservation, confirmed,
+                    checkpoint=self.checkpoint_for(reservation), now=NOW
                 )
             finally:
                 connection.close()
@@ -690,20 +718,21 @@ class AIProfileImportCommitTests(unittest.TestCase):
                         repository=repository,
                         failure_injector=fail_service if service_point else None,
                     )
-                    reservation = service.reserve(
+                    checkpoint_result = service.create_checkpoint(
                         connection,
                         grant,
-                        AIProfileImportReservationRequest(
-                            f"ai-fault-boundary-{ordinal:04d}", metadata
-                        ),
+                        confirmed_review(),
+                        metadata,
                         now=NOW,
-                    ).authority
+                    )
+                    reservation = checkpoint_result.reservation
                     confirmed = prepare_confirmed_ai_profile_import(
                         confirmed_review(), metadata
                     )
                     with self.assertRaises(AIProfileImportError) as raised:
                         service.commit_confirmed_ai_profile_import(
-                            connection, grant, reservation, confirmed, now=NOW
+                            connection, grant, reservation, confirmed,
+                            checkpoint=checkpoint_result.checkpoint, now=NOW
                         )
                     self.assertEqual(raised.exception.code, "internal_failure")
                     self.assertNotIn("content-must-not-escape", str(raised.exception))
@@ -722,6 +751,12 @@ class AIProfileImportCommitTests(unittest.TestCase):
                             "SELECT state,consumed_at FROM ai_profile_import_entitlements"
                         ).fetchone()),
                         ("reserved", None),
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                        ).fetchone()[0],
+                        1,
                     )
                     self.assertEqual(
                         tuple(connection.execute(

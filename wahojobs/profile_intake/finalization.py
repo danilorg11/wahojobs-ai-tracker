@@ -1,7 +1,7 @@
 """Authenticated durable finalization boundary for AI profile intake.
 
 The browser never receives the authority objects in this module.  Every
-database is supplied by the composed runtime, M010 is only attested (never
+database is supplied by the composed runtime, M011 is only attested (never
 installed), and the Slice 4A service remains the sole mutation authority.
 """
 
@@ -10,16 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 import math
-import re
-import secrets
 import sqlite3
 
 from wahojobs.ai_profile_import import (
     AIProfileImportError,
+    AIProfileIntakeCheckpointAuthority,
     AIProfileImportReservationAuthority,
-    AIProfileImportReservationRequest,
     AIProfileImportService,
     AIProfileImportSourceMetadata,
+    AI_PROFILE_IMPORT_RESERVATION_GENERATION_MAX,
     ConfirmedAIProfileImport,
     prepare_confirmed_ai_profile_import,
 )
@@ -34,7 +33,6 @@ from wahojobs.profile_intake.runtime import (
 
 MIN_SAFE_REVIEW_SECONDS = 60
 RESERVATION_SAFETY_MARGIN_SECONDS = 30
-_IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{16,256}$")
 _BOUND_ISSUER = object()
 
 
@@ -43,6 +41,9 @@ class BoundAIProfileImportAuthority:
     """Server-only reservation and safe provenance held by one vault record."""
 
     lease_expires_at: str
+    checkpoint_expires_at: str
+    checkpoint_version: int
+    _checkpoint: AIProfileIntakeCheckpointAuthority = field(repr=False)
     _reservation: AIProfileImportReservationAuthority = field(repr=False)
     _source_metadata: AIProfileImportSourceMetadata = field(repr=False)
     _issuer: object = field(repr=False, compare=False)
@@ -51,14 +52,18 @@ class BoundAIProfileImportAuthority:
         raise ProfileIntakeError("invalid_durable_intake_authority")
 
     @classmethod
-    def _issue(cls, reservation, source_metadata):
+    def _issue(cls, reservation, source_metadata, checkpoint):
         if (
             type(reservation) is not AIProfileImportReservationAuthority
             or type(source_metadata) is not AIProfileImportSourceMetadata
+            or type(checkpoint) is not AIProfileIntakeCheckpointAuthority
         ):
             raise ProfileIntakeError("invalid_durable_intake_authority")
         instance = object.__new__(cls)
         object.__setattr__(instance, "lease_expires_at", reservation.lease_expires_at)
+        object.__setattr__(instance, "checkpoint_expires_at", checkpoint.expires_at)
+        object.__setattr__(instance, "checkpoint_version", checkpoint.row_version)
+        object.__setattr__(instance, "_checkpoint", checkpoint)
         object.__setattr__(instance, "_reservation", reservation)
         object.__setattr__(instance, "_source_metadata", source_metadata)
         object.__setattr__(instance, "_issuer", _BOUND_ISSUER)
@@ -74,6 +79,11 @@ class BoundAIProfileImportAuthority:
             raise ProfileIntakeError("invalid_durable_intake_authority")
         return self._source_metadata
 
+    def checkpoint_for_service(self):
+        if getattr(self, "_issuer", None) is not _BOUND_ISSUER:
+            raise ProfileIntakeError("invalid_durable_intake_authority")
+        return self._checkpoint
+
     def __repr__(self):
         return "BoundAIProfileImportAuthority(<redacted>)"
 
@@ -86,7 +96,6 @@ class ProfileIntakeFinalizationService:
 
     __slots__ = (
         "_clock",
-        "_idempotency_factory",
         "_read_connection_provider",
         "_service",
         "_write_connection_provider",
@@ -99,7 +108,6 @@ class ProfileIntakeFinalizationService:
         write_connection_provider,
         clock,
         import_service=None,
-        idempotency_factory=lambda: secrets.token_urlsafe(24),
     ):
         service = import_service or AIProfileImportService()
         if (
@@ -107,14 +115,12 @@ class ProfileIntakeFinalizationService:
             or not callable(write_connection_provider)
             or not callable(clock)
             or type(service) is not AIProfileImportService
-            or not callable(idempotency_factory)
         ):
             raise ValueError("invalid_profile_intake_finalization_configuration")
         self._read_connection_provider = read_connection_provider
         self._write_connection_provider = write_connection_provider
         self._clock = clock
         self._service = service
-        self._idempotency_factory = idempotency_factory
 
     def preflight(self, grant):
         _require_grant(grant)
@@ -128,10 +134,23 @@ class ProfileIntakeFinalizationService:
         except (sqlite3.Error, TypeError, ValueError):
             raise ProfileIntakeError("ai_import_schema_unavailable") from None
 
-    def reserve(self, grant, document, diagnostics):
+    def checkpoint_summary(self, grant):
+        _require_grant(grant)
+        try:
+            with self._read_connection_provider() as connection:
+                return self._service.inspect_checkpoint(
+                    connection, grant, now=_clock(self._clock)
+                )
+        except AIProfileImportError as exc:
+            raise ProfileIntakeError(_browser_code(exc.code)) from None
+        except (sqlite3.Error, TypeError, ValueError):
+            raise ProfileIntakeError("ai_import_schema_unavailable") from None
+
+    def reserve(self, grant, review, document, diagnostics):
         _require_grant(grant)
         if (
-            type(document) is not SafeDocumentBundleMetadata
+            type(review) is not EditableProfileReview
+            or type(document) is not SafeDocumentBundleMetadata
             or diagnostics is not None
             and (
                 type(diagnostics) is not tuple
@@ -141,24 +160,28 @@ class ProfileIntakeFinalizationService:
             raise ProfileIntakeError("invalid_durable_intake_authority")
         try:
             metadata = AIProfileImportSourceMetadata.from_runtime(document, diagnostics)
-            key = self._idempotency_factory()
-            if type(key) is not str or _IDEMPOTENCY.fullmatch(key) is None:
-                raise ProfileIntakeError("durable_intake_unavailable")
             now = _clock(self._clock)
             with self._write_connection_provider() as connection:
-                result = self._service.reserve(
+                result = self._service.create_checkpoint(
                     connection,
                     grant,
-                    AIProfileImportReservationRequest(key, metadata),
+                    review,
+                    metadata,
                     now=now,
                 )
-            bound = BoundAIProfileImportAuthority._issue(result.authority, metadata)
+            bound = BoundAIProfileImportAuthority._issue(
+                result.reservation,
+                result.source_metadata,
+                result.checkpoint,
+            )
             lease = datetime.fromisoformat(bound.lease_expires_at)
+            lease_seconds = (lease - now).total_seconds()
             review_seconds = (
-                lease - now
-            ).total_seconds() - RESERVATION_SAFETY_MARGIN_SECONDS
-            if not math.isfinite(review_seconds) or review_seconds < MIN_SAFE_REVIEW_SECONDS:
-                self.release(grant, bound, outcome_code="processing_failed")
+                AI_PROFILE_IMPORT_RESERVATION_GENERATION_MAX.total_seconds()
+                - RESERVATION_SAFETY_MARGIN_SECONDS
+            )
+            if not math.isfinite(lease_seconds) or lease_seconds < MIN_SAFE_REVIEW_SECONDS:
+                self.discard_checkpoint(grant, bound)
                 raise ProfileIntakeError("ai_import_lease_unavailable")
             return bound, review_seconds
         except ProfileIntakeError:
@@ -177,6 +200,87 @@ class ProfileIntakeFinalizationService:
                     grant,
                     bound.reservation_for_service(),
                     outcome_code=outcome_code,
+                    now=_clock(self._clock),
+                )
+        except AIProfileImportError as exc:
+            raise ProfileIntakeError(_browser_code(exc.code)) from None
+        except (sqlite3.Error, TypeError, ValueError):
+            raise ProfileIntakeError("durable_intake_unavailable") from None
+
+    def renew(self, grant, bound):
+        _require_bound(grant, bound)
+        try:
+            with self._write_connection_provider() as connection:
+                result = self._service.renew_checkpoint_reservation(
+                    connection,
+                    grant,
+                    bound.checkpoint_for_service(),
+                    bound.reservation_for_service(),
+                    now=_clock(self._clock),
+                )
+            return BoundAIProfileImportAuthority._issue(
+                result.authority,
+                bound.source_metadata_for_service(),
+                bound.checkpoint_for_service(),
+            )
+        except AIProfileImportError as exc:
+            raise ProfileIntakeError(_browser_code(exc.code)) from None
+        except (sqlite3.Error, TypeError, ValueError):
+            raise ProfileIntakeError("durable_intake_unavailable") from None
+
+    def resume(self, grant, checkpoint_id, *, expected_version):
+        _require_grant(grant)
+        try:
+            with self._write_connection_provider() as connection:
+                result = self._service.resume_checkpoint(
+                    connection,
+                    grant,
+                    checkpoint_id,
+                    expected_version=expected_version,
+                    now=_clock(self._clock),
+                )
+            bound = BoundAIProfileImportAuthority._issue(
+                result.reservation,
+                result.source_metadata,
+                result.checkpoint,
+            )
+            return result.review, bound
+        except AIProfileImportError as exc:
+            raise ProfileIntakeError(_browser_code(exc.code)) from None
+        except (sqlite3.Error, TypeError, ValueError):
+            raise ProfileIntakeError("durable_intake_unavailable") from None
+
+    def save_checkpoint(self, grant, bound, review):
+        _require_bound(grant, bound)
+        if type(review) is not EditableProfileReview:
+            raise ProfileIntakeError("invalid_review_submission")
+        try:
+            with self._write_connection_provider() as connection:
+                checkpoint = self._service.update_checkpoint(
+                    connection,
+                    grant,
+                    bound.checkpoint_for_service(),
+                    review,
+                    now=_clock(self._clock),
+                )
+            return BoundAIProfileImportAuthority._issue(
+                bound.reservation_for_service(),
+                bound.source_metadata_for_service(),
+                checkpoint,
+            )
+        except AIProfileImportError as exc:
+            raise ProfileIntakeError(_browser_code(exc.code)) from None
+        except (sqlite3.Error, TypeError, ValueError):
+            raise ProfileIntakeError("durable_intake_unavailable") from None
+
+    def discard_checkpoint(self, grant, bound):
+        _require_bound(grant, bound)
+        try:
+            with self._write_connection_provider() as connection:
+                return self._service.discard_checkpoint(
+                    connection,
+                    grant,
+                    bound.checkpoint_for_service(),
                     now=_clock(self._clock),
                 )
         except AIProfileImportError as exc:
@@ -207,6 +311,7 @@ class ProfileIntakeFinalizationService:
                     grant,
                     bound.reservation_for_service(),
                     confirmed,
+                    checkpoint=bound.checkpoint_for_service(),
                     now=_clock(self._clock),
                 )
         except AIProfileImportError as exc:
@@ -251,6 +356,11 @@ def _browser_code(code):
         "attempt_released": "ai_import_reservation_expired",
         "attempt_failed": "ai_import_reservation_expired",
         "content_rejected": "ai_import_review_invalid",
+        "checkpoint_exists": "ai_import_checkpoint_available",
+        "checkpoint_expired": "ai_import_checkpoint_expired",
+        "checkpoint_missing": "ai_import_checkpoint_expired",
+        "checkpoint_stale": "stale_review",
+        "checkpoint_tampered": "ai_import_review_invalid",
     }.get(code, "durable_intake_unavailable")
 
 
