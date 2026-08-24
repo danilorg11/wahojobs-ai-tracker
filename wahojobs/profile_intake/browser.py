@@ -31,18 +31,23 @@ from wahojobs.profile_intake.contracts import (
     DEFAULT_DOCUMENT_LIMITS,
     DocumentFormat,
     DocumentKind,
+    LanguageValue,
+    LANGUAGE_PROFICIENCIES,
     ProfileIntakeError,
     _FIELD_SPECS,
 )
 from wahojobs.profile_intake.runtime import (
+    PROFILE_INTAKE_REVIEW_COLLECTIONS,
     PROFILE_INTAKE_REVIEW_ROUTE,
     PROFILE_INTAKE_REVIEW_STEPS,
     PROFILE_INTAKE_ROUTE,
     ProfileIntakeDocumentInput,
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
+    managed_review_collection_fact_indexes,
     normalize_profile_intake_review_step,
     profile_intake_csrf_proof,
+    review_collection_entries,
     review_value_for_form,
     update_editable_review,
 )
@@ -232,6 +237,36 @@ _REVIEW_STATE_SCRIPT = _REVIEW_STATE_SCRIPT.replace(
     "form.addEventListener('focusin',rememberSection);form.addEventListener('pointerdown',rememberSection);"
     "window.addEventListener('hashchange',function(){setStep(window.location.hash.slice(1));});"
     "form.addEventListener('input'",
+)
+_REVIEW_STATE_SCRIPT = _REVIEW_STATE_SCRIPT.replace(
+    "if(response.status===204&&applyTokens(response)){show('saved'",
+    "if(response.status===204&&applyTokens(response)){"
+    "Array.prototype.forEach.call(form.querySelectorAll('[data-collection-new]'),function(item){item.removeAttribute('data-collection-new');});"
+    "show('saved'",
+).replace(
+    "form.addEventListener('input',function(){activity();schedule();});",
+    "function replaceIndex(item,oldIndex,newIndex){"
+    "Array.prototype.forEach.call(item.querySelectorAll('[name]'),function(control){control.name=control.name.replace('_'+oldIndex+'_','_'+newIndex+'_');});"
+    "Array.prototype.forEach.call(item.querySelectorAll('[id]'),function(control){control.id=control.id.replace('-'+oldIndex+'-','-'+newIndex+'-');});"
+    "Array.prototype.forEach.call(item.querySelectorAll('[for]'),function(control){control.htmlFor=control.htmlFor.replace('-'+oldIndex+'-','-'+newIndex+'-');});"
+    "item.dataset.index=String(newIndex);"
+    "}"
+    "function renumberNewItems(editor){"
+    "var items=editor.querySelectorAll('[data-collection-item]');var fresh=editor.querySelectorAll('[data-collection-new]');var next=items.length-fresh.length;"
+    "Array.prototype.forEach.call(fresh,function(item){replaceIndex(item,item.dataset.index,next);next+=1;});editor.dataset.nextIndex=String(next);"
+    "var empty=editor.querySelector('.collection-empty');if(empty){empty.hidden=items.length!==0;}"
+    "}"
+    "form.addEventListener('click',function(event){"
+    "var add=event.target.closest&&event.target.closest('[data-collection-add]');if(!add){return;}"
+    "var editor=add.closest('[data-review-collection]');var template=editor&&editor.querySelector('template[data-collection-template]');var container=editor&&editor.querySelector('[data-collection-items]');"
+    "var index=Number(editor&&editor.dataset.nextIndex);var limit=Number(editor&&editor.dataset.limit);if(!template||!container||!Number.isInteger(index)||index<0||index>=limit){return;}"
+    "var fragment=template.content.cloneNode(true);var item=fragment.querySelector('[data-collection-item]');replaceIndex(item,'__INDEX__',index);container.appendChild(fragment);editor.dataset.nextIndex=String(index+1);"
+    "var empty=editor.querySelector('.collection-empty');if(empty){empty.hidden=true;}var input=item.querySelector('input:not([type=checkbox]),select');if(input){input.focus();}activity();"
+    "});"
+    "form.addEventListener('change',function(event){"
+    "if(!event.target.matches||!event.target.matches('[data-collection-remove]')||!event.target.checked){return;}var item=event.target.closest('[data-collection-new]');if(!item){return;}var editor=item.closest('[data-review-collection]');item.remove();renumberNewItems(editor);"
+    "});"
+    "form.addEventListener('input',function(){activity();schedule();});",
 )
 _REVIEW_STATE_SCRIPT_HASH = base64.b64encode(
     hashlib.sha256(_REVIEW_STATE_SCRIPT.encode("utf-8")).digest()
@@ -940,9 +975,23 @@ def _review_from_form(review, form, *, allow_pending=False):
     expected = {"action", "version", "csrf"}
     if "review_step" in form:
         expected.add("review_step")
+    collection_updates, collection_fields = _review_collections_from_form(
+        review,
+        form,
+    )
+    expected.update(collection_fields)
+    managed_indexes = (
+        managed_review_collection_fact_indexes(review)
+        if collection_updates is not None
+        else frozenset()
+    )
     values = []
     decisions = []
     for index, fact in enumerate(review.facts):
+        if index in managed_indexes:
+            values.append(review_value_for_form(fact.value))
+            decisions.append(fact.decision)
+            continue
         value_name = f"fact_{index}_value"
         decision_name = f"fact_{index}_decision"
         expected.add(decision_name)
@@ -987,7 +1036,93 @@ def _review_from_form(review, form, *, allow_pending=False):
         tuple(decisions),
         user_inputs,
         preference_model,
+        collection_updates,
     )
+
+
+def _review_collections_from_form(review, form):
+    collection_names = {
+        name for name in form if name.startswith("review_collection_")
+    }
+    if not collection_names:
+        return None, set()
+    updates = {}
+    submitted_fields = set()
+    matched_fields = set()
+    for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+        suffixes = (
+            ("language", "proficiency", "locale", "remove")
+            if spec["kind"] == "language"
+            else ("value", "remove")
+        )
+        pattern = re.compile(
+            rf"^review_collection_{re.escape(collection_id)}_([0-9]{{1,3}})_"
+            rf"({'|'.join(suffixes)})$"
+        )
+        indexes = set()
+        for name in collection_names:
+            match = pattern.fullmatch(name)
+            if match is not None:
+                indexes.add(int(match.group(1)))
+                matched_fields.add(name)
+        existing_count = len(review_collection_entries(review, collection_id))
+        if indexes:
+            if indexes != set(range(max(indexes) + 1)):
+                raise ProfileIntakeError("invalid_review_submission")
+            item_count = max(indexes) + 1
+        else:
+            item_count = 0
+        if not existing_count <= item_count <= spec["limit"]:
+            raise ProfileIntakeError("invalid_review_submission")
+        items = []
+        for index in range(item_count):
+            prefix = f"review_collection_{collection_id}_{index}_"
+            remove_name = prefix + "remove"
+            remove = _single(form, remove_name)
+            if remove is not None:
+                submitted_fields.add(remove_name)
+                if remove != "remove":
+                    raise ProfileIntakeError("invalid_review_submission")
+            decision = "remove" if remove == "remove" else "keep"
+            if spec["kind"] == "language":
+                names = tuple(prefix + suffix for suffix in ("language", "proficiency", "locale"))
+                values = tuple(_single(form, name) for name in names)
+                if any(value is None for value in values):
+                    raise ProfileIntakeError("invalid_review_submission")
+                submitted_fields.update(names)
+                items.append((*values, decision))
+            else:
+                value_name = prefix + "value"
+                value = _single(form, value_name)
+                if value is None:
+                    raise ProfileIntakeError("invalid_review_submission")
+                submitted_fields.add(value_name)
+                items.append((value, decision))
+        updates[collection_id] = tuple(items)
+    if matched_fields != collection_names:
+        raise ProfileIntakeError("invalid_review_submission")
+    return updates, submitted_fields
+
+
+def _collection_form_values_for_review(review):
+    """Return the sole browser representation of current typed collections."""
+
+    fields = {}
+    for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+        for index, entry in enumerate(review_collection_entries(review, collection_id)):
+            prefix = f"review_collection_{collection_id}_{index}_"
+            value = entry["value"]
+            if spec["kind"] == "language":
+                if type(value) is not LanguageValue:
+                    raise ProfileIntakeError("invalid_review_submission")
+                fields[prefix + "language"] = value.language
+                fields[prefix + "proficiency"] = value.proficiency or ""
+                fields[prefix + "locale"] = value.locale or ""
+            else:
+                fields[prefix + "value"] = review_value_for_form(value)
+            if entry["decision"] == "remove":
+                fields[prefix + "remove"] = "remove"
+    return fields
 
 
 def _uses_compact_suggestion_choice(fact):
@@ -1348,6 +1483,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         else ""
     )
     found_cards = _render_found_fact_cards(fact_fields)
+    collection_controls = _render_review_collections(snapshot.review)
     suggestion_cards = "".join(
         card
         for fact, card, _compact_item in fact_fields
@@ -1409,7 +1545,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     </div>
     <form id='profile-review-form' class='profile-review-form intake-review-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'><input type='hidden' name='review_step' value='{_safe_text(snapshot.review_step)}'>
-      <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>What we found</h2><p>Check the details taken directly from your documents. Edit or remove anything that is not right.</p></div><div class='profile-grid'>{found_cards}</div></section>
+      <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>What we found</h2><p>Check the details taken directly from your documents, then add anything useful that was missing.</p></div><div class='profile-grid'>{found_cards}</div>{collection_controls}</section>
       <section class='review-section' id='review-suggestions' aria-labelledby='review-suggestions-title'><div class='section-heading'><p class='eyebrow'>Step 2 of 4</p><h2 id='review-suggestions-title'>Confirm our suggestions</h2><p>These classifications can make your profile more useful. See every available choice and select what feels accurate.</p></div><div class='profile-grid'>{suggestion_cards}</div>{conflict_section}</section>
       <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose all the options you would consider. Each group is separate, so choices such as freelance and full-time can work together.</p><p class='preference-open-note'>Leave a group blank when you are open to all of its options.</p></div>{_render_preference_controls(snapshot.review.preference_model)}
         {missing_section}</section>
@@ -1430,7 +1566,11 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
 def _render_found_fact_cards(fact_fields):
     grouped_counts = {}
     for fact, _card, _compact_item in fact_fields:
-        if fact.suggested or fact.conflict_group is not None:
+        if (
+            fact.suggested
+            or fact.conflict_group is not None
+            or _is_managed_collection_fact(fact)
+        ):
             continue
         if fact.review_field in _COMPACT_FOUND_REVIEW_FIELDS:
             grouped_counts[fact.review_field] = (
@@ -1440,7 +1580,11 @@ def _render_found_fact_cards(fact_fields):
     grouped_items = {}
     ordered = []
     for fact, card, compact_item in fact_fields:
-        if fact.suggested or fact.conflict_group is not None:
+        if (
+            fact.suggested
+            or fact.conflict_group is not None
+            or _is_managed_collection_fact(fact)
+        ):
             continue
         if grouped_counts.get(fact.review_field, 0) < 2:
             ordered.append(("card", card))
@@ -1467,6 +1611,148 @@ def _render_found_fact_cards(fact_fields):
             + "</div></article>"
         )
     return "".join(rendered)
+
+
+def _is_managed_collection_fact(fact):
+    return bool(
+        not fact.suggested
+        and fact.conflict_group is None
+        and any(
+            fact.field_path in spec["paths"]
+            for spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.values()
+        )
+    )
+
+
+def _render_review_collections(review):
+    sections = []
+    for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+        entries = review_collection_entries(review, collection_id)
+        items = "".join(
+            _render_review_collection_item(collection_id, spec, index, entry)
+            for index, entry in enumerate(entries)
+        )
+        next_index = len(entries)
+        template_item = _render_review_collection_item(
+            collection_id,
+            spec,
+            "__INDEX__",
+            {
+                "origin": "user",
+                "value": LanguageValue("", None, None)
+                if spec["kind"] == "language"
+                else "",
+                "decision": "keep",
+                "source_attributions": (),
+            },
+            template=True,
+        )
+        empty = (
+            "<p class='collection-empty'>Nothing listed yet. Add an item if it belongs in your profile.</p>"
+            if not entries
+            else ""
+        )
+        noun = {
+            "skills": "skill",
+            "job_titles": "job title",
+            "languages": "language",
+        }[collection_id]
+        help_text = {
+            "skills": "Add practical skills, tools, or subject knowledge. Similar entries are kept only once.",
+            "job_titles": "Add roles you have held. Job interests are chosen separately later.",
+            "languages": "Add each language separately. Leave proficiency blank when you do not want to state one.",
+        }[collection_id]
+        sections.append(
+            f"<fieldset class='review-collection {collection_id}-collection' data-review-collection='{collection_id}' data-next-index='{next_index}' data-limit='{spec['limit']}'>"
+            f"<legend>{_safe_text(spec['title'])}</legend><p class='muted'>{_safe_text(help_text)}</p>"
+            f"{empty}<div class='review-collection-items' data-collection-items>{items}</div>"
+            f"<button class='button-quiet collection-add' type='button' data-collection-add>Add another {_safe_text(noun)}</button>"
+            f"<template data-collection-template>{template_item}</template></fieldset>"
+        )
+    return "<div class='review-collections' aria-label='Profile lists'>" + "".join(sections) + "</div>"
+
+
+def _render_review_collection_item(
+    collection_id,
+    spec,
+    index,
+    entry,
+    *,
+    template=False,
+):
+    prefix = f"review_collection_{collection_id}_{index}_"
+    item_id = f"review-collection-{collection_id}-{index}"
+    removed = entry["decision"] == "remove"
+    source = (
+        "Added by you"
+        if entry["origin"] == "user"
+        else _collection_source_label(entry["source_attributions"])
+    )
+    if spec["kind"] == "language":
+        value = entry["value"]
+        if type(value) is not LanguageValue:
+            raise ProfileIntakeError("invalid_review_submission")
+        current_proficiency = value.proficiency or ""
+        options = [
+            f"<option value=''{' selected' if not current_proficiency else ''}>Not specified</option>"
+        ]
+        if current_proficiency in {"unknown", "unspecified"}:
+            options.append(
+                f"<option value='{_safe_text(current_proficiency)}' selected>Not specified</option>"
+            )
+        for proficiency in sorted(
+            LANGUAGE_PROFICIENCIES - {"unknown", "unspecified"}
+        ):
+            label = proficiency.replace("_", " ").title()
+            options.append(
+                f"<option value='{_safe_text(proficiency)}'{' selected' if proficiency == current_proficiency else ''}>{_safe_text(label)}</option>"
+            )
+        controls = (
+            f"<label class='review-field'><span>Language</span><input id='{item_id}-language' name='{prefix}language' value='{_safe_text(value.language)}' maxlength='512' required></label>"
+            f"<label class='review-field'><span>Proficiency</span><select id='{item_id}-proficiency' name='{prefix}proficiency'>{''.join(options)}</select></label>"
+            f"<label class='review-field'><span>Locale or variety <small>(optional)</small></span><input id='{item_id}-locale' name='{prefix}locale' value='{_safe_text(value.locale or '')}' maxlength='512'></label>"
+        )
+    else:
+        label = "Skill" if collection_id == "skills" else "Job title"
+        token_class = " skill-token-field" if collection_id == "skills" else ""
+        label_class = " class='screen-reader-only'" if collection_id == "skills" else ""
+        size = (
+            min(34, max(18, len(entry["value"]) + 1))
+            if collection_id == "skills"
+            else min(32, max(8, len(entry["value"])))
+        )
+        controls = (
+            f"<label class='review-field{token_class}'><span{label_class}>{label}</span>"
+            f"<input id='{item_id}-value' name='{prefix}value' value='{_safe_text(entry['value'])}' "
+            f"maxlength='512' size='{size}' aria-label='{_safe_text(label)}' required></label>"
+        )
+    new_attribute = " data-collection-new='true'" if template else ""
+    token_item_class = " skill-token" if collection_id == "skills" else ""
+    remove_label = (
+        " aria-label='Remove this skill'" if collection_id == "skills" else ""
+    )
+    remove_symbol = (
+        "<span class='collection-remove-symbol' aria-hidden='true'>×</span>"
+        if collection_id == "skills"
+        else ""
+    )
+    return (
+        f"<div class='review-collection-item{token_item_class}{' is-removed' if removed else ''}' data-collection-item data-index='{index}'{new_attribute}>"
+        f"<p class='fact-meta'>{_safe_text(source)}</p><div class='collection-item-controls'>{controls}</div>"
+        f"<label class='collection-remove'{remove_label}><input type='checkbox' name='{prefix}remove' value='remove'{' checked' if removed else ''} data-collection-remove>"
+        f"{remove_symbol}<span class='remove-copy'>Remove</span><span class='restore-copy'>Keep item</span></label></div>"
+    )
+
+
+def _collection_source_label(attributions):
+    kinds = {item.document_kind for item in attributions}
+    if kinds == {DocumentKind.RESUME, DocumentKind.LINKEDIN_PROFILE_EXPORT}:
+        return "Found in both"
+    if kinds == {DocumentKind.RESUME}:
+        return "Found in your resume"
+    if kinds == {DocumentKind.LINKEDIN_PROFILE_EXPORT}:
+        return "Found in your LinkedIn profile"
+    raise ProfileIntakeError("invalid_review_submission")
 
 
 def _review_fact_value_control(index, fact, raw_value, label):

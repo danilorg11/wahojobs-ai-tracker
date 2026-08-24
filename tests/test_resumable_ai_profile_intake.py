@@ -105,6 +105,36 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
             self.assertNotIn(forbidden, retained)
         self.assertEqual(created.checkpoint.row_version, 1)
 
+    def test_total_years_integer_and_existing_float_checkpoints_round_trip_exactly(self):
+        template = replace(
+            self.review.facts[0],
+            field_path="experience.total_years",
+            review_field="total_years",
+            suggested=False,
+            decision="keep",
+            conflict_group=None,
+        )
+        for value in (6, 6.0):
+            with self.subTest(value_type=type(value).__name__):
+                review = replace(
+                    self.review,
+                    facts=(*self.review.facts, replace(template, value=value)),
+                )
+                payload = serialize_profile_intake_checkpoint(review)
+                raw_value = next(
+                    fact["value"]
+                    for fact in json.loads(payload)["facts"]
+                    if fact["field_path"] == "experience.total_years"
+                )
+                hydrated_value = next(
+                    fact.value
+                    for fact in hydrate_profile_intake_checkpoint(payload).facts
+                    if fact.field_path == "experience.total_years"
+                )
+                self.assertIs(type(raw_value), type(value))
+                self.assertIs(type(hydrated_value), type(value))
+                self.assertEqual(hydrated_value, value)
+
     def test_review_step_hint_is_closed_backward_compatible_and_non_semantic(self):
         baseline = serialize_profile_intake_checkpoint(self.review)
         baseline_payload = json.loads(baseline)
@@ -123,6 +153,7 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
 
         legacy_payload = dict(baseline_payload)
         legacy_payload.pop("review_step")
+        legacy_payload.pop("user_facts")
         legacy = json.dumps(
             legacy_payload,
             ensure_ascii=True,
@@ -133,6 +164,7 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
             profile_intake_checkpoint_review_step(legacy),
             PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
         )
+        self.assertEqual(hydrate_profile_intake_checkpoint(legacy), self.review)
         invalid_payload = dict(baseline_payload)
         invalid_payload["review_step"] = "https://example.invalid/arbitrary-route"
         invalid = json.dumps(

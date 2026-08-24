@@ -616,7 +616,7 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertEqual(cancelled.status, 303)
         self.assertEqual(len(integration._processing.vault._records), 0)
 
-    def test_review_groups_repeated_found_facts_without_changing_individual_fields(self):
+    def test_review_collections_keep_repeated_facts_individually_editable(self):
         adapter = _BundleAdapter(
             {
                 DocumentKind.RESUME: (
@@ -650,10 +650,12 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         )
         page = integration.handle("GET", target, get_headers)
         self.assertEqual(page.status, 200)
-        self.assertEqual(page.body.count(b"class='profile-group fact-card fact-group-card'"), 2)
-        self.assertEqual(page.body.count(b"<h3>Job titles</h3>"), 1)
-        self.assertEqual(page.body.count(b"<h3>Skills</h3>"), 1)
-        self.assertEqual(page.body.count(b"<span>2 items</span>"), 2)
+        self.assertEqual(page.body.count(b"data-review-collection='job_titles'"), 1)
+        self.assertEqual(page.body.count(b"data-review-collection='skills'"), 1)
+        self.assertEqual(page.body.count(b"class='review-collection-item skill-token"), 3)
+        self.assertEqual(page.body.count(b"data-index='__INDEX__'"), 3)
+        self.assertEqual(page.body.count(b"Add another job title"), 1)
+        self.assertEqual(page.body.count(b"Add another skill"), 1)
         self.assertIn(b"Type of work", page.body)
         self.assertIn(b"Areas of experience", page.body)
         self.assertNotIn(b"Occupational Families", page.body)
@@ -668,9 +670,18 @@ class MultiDocumentBrowserTests(unittest.TestCase):
             if fact.review_field in {"job_titles", "skills"}
         ]
         self.assertEqual(len(grouped_indexes), 4)
+        for collection, count in (("job_titles", 2), ("skills", 2)):
+            for index in range(count):
+                self.assertIn(
+                    f"name='review_collection_{collection}_{index}_value'".encode(),
+                    page.body,
+                )
+                self.assertIn(
+                    f"name='review_collection_{collection}_{index}_remove'".encode(),
+                    page.body,
+                )
         for index in grouped_indexes:
-            self.assertIn(f"name='fact_{index}_value'".encode(), page.body)
-            self.assertIn(f"name='fact_{index}_decision'".encode(), page.body)
+            self.assertNotIn(f"name='fact_{index}_value'".encode(), page.body)
 
     def _profile_counts(self):
         connection = sqlite3.connect(self.path)

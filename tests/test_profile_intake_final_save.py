@@ -35,6 +35,7 @@ from wahojobs.persistent_profile_read_authorization import (
 from wahojobs.persistent_profiles_repository import PersistentProfileRepository
 from wahojobs.profile_intake.browser import (
     ProfileIntakeBrowserIntegration,
+    _collection_form_values_for_review,
     _preference_form_values_for_model,
 )
 from wahojobs.profile_intake.contracts import (
@@ -46,13 +47,20 @@ from wahojobs.profile_intake.contracts import (
 )
 from wahojobs.profile_intake.finalization import ProfileIntakeFinalizationService
 from wahojobs.profile_intake.runtime import (
+    PROFILE_INTAKE_REVIEW_COLLECTIONS,
     PROFILE_INTAKE_REVIEW_ROUTE,
     PROFILE_INTAKE_ROUTE,
     IntakeDraftVault,
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
+    managed_review_collection_fact_indexes,
     profile_intake_csrf_proof,
     review_value_for_form,
+)
+from wahojobs.profiles.canonical_v2 import (
+    CANONICAL_PROFILE_V2_LIMITS,
+    MAX_LANGUAGES,
+    MAX_SKILL_ENTRIES,
 )
 
 
@@ -92,11 +100,20 @@ class _ConnectionProvider:
 
 
 class _FinalSaveAdapter:
-    def __init__(self, path, providers, *, fail=False, conflict=False):
+    def __init__(
+        self,
+        path,
+        providers,
+        *,
+        fail=False,
+        conflict=False,
+        include_total_years=False,
+    ):
         self.path = Path(path)
         self.providers = providers
         self.fail = fail
         self.conflict = conflict
+        self.include_total_years = include_total_years
         self.calls = []
         self.attempt_counts_during_model = []
 
@@ -134,6 +151,10 @@ class _FinalSaveAdapter:
                 explicit=False,
             ),
         ]
+        if self.include_total_years:
+            facts.append(
+                _fact(reference, block, "experience.total_years", 6)
+            )
         if evidence.document_kind is DocumentKind.LINKEDIN_PROFILE_EXPORT:
             facts.append(_fact(reference, block, "skills.normalized", "SQL"))
         return validate_ai_profile_extraction(
@@ -387,6 +408,8 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         changes=None,
         preference_overrides=None,
         review_step=None,
+        collection_overrides=None,
+        use_collections=False,
     ):
         integration = integration or self.integration
         session = session or self.session
@@ -405,7 +428,14 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         }
         decisions = decisions or {}
         changes = changes or {}
+        managed_indexes = (
+            managed_review_collection_fact_indexes(snapshot.review)
+            if use_collections
+            else frozenset()
+        )
         for index, fact in enumerate(snapshot.review.facts):
+            if index in managed_indexes:
+                continue
             form[f"fact_{index}_value"] = changes.get(
                 index, review_value_for_form(fact.value)
             )
@@ -416,6 +446,9 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
         form.update(_preference_form_values_for_model(snapshot.review.preference_model))
+        if use_collections:
+            form.update(_collection_form_values_for_review(snapshot.review))
+            form.update(collection_overrides or {})
         form.update(preference_overrides or {})
         return urlencode(form).encode()
 
@@ -472,6 +505,20 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         return connection
+
+    def test_review_collection_limits_remain_coherent_with_canonical_v2(self):
+        self.assertEqual(
+            PROFILE_INTAKE_REVIEW_COLLECTIONS["skills"]["limit"],
+            MAX_SKILL_ENTRIES,
+        )
+        self.assertEqual(
+            PROFILE_INTAKE_REVIEW_COLLECTIONS["job_titles"]["limit"],
+            CANONICAL_PROFILE_V2_LIMITS["string_list_items"],
+        )
+        self.assertEqual(
+            PROFILE_INTAKE_REVIEW_COLLECTIONS["languages"]["limit"],
+            MAX_LANGUAGES,
+        )
 
     def test_preflight_is_read_only_and_old_schema_fails_closed_without_migration(self):
         response = self.integration.handle(
@@ -864,6 +911,290 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 ("expired", "reserved"),
             )
 
+    def test_integer_total_years_autosaves_resumes_and_persists_canonically(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_total_years=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        total_years = next(
+            fact.value
+            for fact in snapshot.review.facts
+            if fact.field_path == "experience.total_years"
+        )
+        self.assertIs(type(total_years), int)
+        self.assertEqual(total_years, 6)
+
+        autosaved = self._post_review(
+            reference,
+            self._review_body(reference, action="autosave"),
+        )
+        self.assertEqual(autosaved.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference,
+            self._grant(),
+        )
+        resumed_total_years = next(
+            fact.value
+            for fact in resumed.review.facts
+            if fact.field_path == "experience.total_years"
+        )
+        self.assertIs(type(resumed_total_years), int)
+        self.assertEqual(resumed_total_years, 6)
+
+        saved = self._save(
+            resumed_reference,
+            self._save_body(resumed_reference),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
+        self.assertIs(type(profile["experience"]["total_years"]), int)
+        self.assertEqual(profile["experience"]["total_years"], 6)
+
+    def test_typed_collections_autosave_resume_and_persist_without_fabricated_evidence(self):
+        reference = self._reference(self._upload())
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        skill_index = next(
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.field_path == "skills.normalized"
+        )
+        self.assertIn(b"data-review-collection='skills'", page.body)
+        self.assertNotIn(f"name='fact_{skill_index}_value'".encode(), page.body)
+
+        added = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    "review_collection_skills_1_value": "SQL",
+                    "review_collection_job_titles_0_value": "Customer Support Specialist",
+                    "review_collection_languages_0_language": "Portuguese",
+                    "review_collection_languages_0_proficiency": "",
+                    "review_collection_languages_0_locale": "Brazil",
+                },
+            ),
+        )
+        self.assertEqual(added.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(
+            [(fact.collection_id, fact.decision) for fact in snapshot.review.user_facts],
+            [("skills", "keep"), ("job_titles", "keep"), ("languages", "keep")],
+        )
+        language = snapshot.review.user_facts[2].value
+        self.assertEqual((language.language, language.proficiency, language.locale), (
+            "Portuguese", None, "Brazil"
+        ))
+        with self._database() as connection:
+            payload = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        self.assertEqual(len(payload["user_facts"]), 3)
+        retained = json.dumps(payload["user_facts"], sort_keys=True).casefold()
+        for forbidden in (
+            "source_origins",
+            "source_attributions",
+            "evidence",
+            "document_reference",
+            "filename",
+        ):
+            self.assertNotIn(forbidden, retained)
+
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference, self._grant()
+        )
+        self.assertEqual(
+            [fact.value if type(fact.value) is str else fact.value.language
+             for fact in resumed.review.user_facts],
+            ["SQL", "Customer Support Specialist", "Portuguese"],
+        )
+
+        edited = self._post_review(
+            resumed_reference,
+            self._review_body(
+                resumed_reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    "review_collection_skills_0_value": "Python programming",
+                    "review_collection_skills_1_remove": "remove",
+                    "review_collection_job_titles_0_value": "Senior Customer Support Specialist",
+                },
+            ),
+        )
+        self.assertEqual(edited.status, 204)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        final_reference = self._reference(self._entry_action("continue"))
+        restored = self.integration._processing.vault.get(
+            final_reference, self._grant()
+        )
+        self.assertEqual(
+            next(
+                fact.value
+                for fact in restored.review.facts
+                if fact.field_path == "skills.normalized"
+            ),
+            "Python programming",
+        )
+        self.assertEqual(restored.review.user_facts[0].decision, "remove")
+        self.assertEqual(
+            restored.review.user_facts[1].value,
+            "Senior Customer Support Specialist",
+        )
+        restored_page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": final_reference}),
+            self._headers(origin=False),
+        )
+        self.assertIn(
+            b"name='review_collection_skills_1_remove' value='remove' checked",
+            restored_page.body,
+        )
+        restore_form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(
+                    final_reference,
+                    action="autosave",
+                    use_collections=True,
+                ).decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        restore_form.pop("review_collection_skills_1_remove")
+        self.assertEqual(
+            self._post_review(
+                final_reference,
+                urlencode(restore_form).encode("ascii"),
+            ).status,
+            204,
+        )
+        self.assertEqual(
+            self.integration._processing.vault.get(
+                final_reference, self._grant()
+            ).review.user_facts[0].decision,
+            "keep",
+        )
+        removed_again = self._post_review(
+            final_reference,
+            self._review_body(
+                final_reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    "review_collection_skills_1_remove": "remove"
+                },
+            ),
+        )
+        self.assertEqual(removed_again.status, 204)
+
+        saved = self._post_review(
+            final_reference,
+            self._review_body(
+                final_reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(profile["skills"]["normalized"], ["Python programming"])
+        self.assertNotIn("SQL", profile["skills"]["normalized"])
+        self.assertIn(
+            "Senior Customer Support Specialist",
+            profile["experience"]["job_titles"],
+        )
+        portuguese = next(
+            item for item in profile["languages"] if item["language"] == "Portuguese"
+        )
+        self.assertEqual(portuguese.get("proficiency"), "unknown")
+        self.assertFalse(portuguese["proficiency_explicit"])
+        self.assertNotIn("evidence", portuguese)
+        self.assertTrue(
+            any(
+                source["source_kind"] == "user_confirmation"
+                and source["field_path"].startswith("languages[")
+                for source in profile["provenance"]["field_sources"]
+            )
+        )
+
+    def test_typed_collections_reject_duplicates_invalid_values_limits_and_paths(self):
+        reference = self._reference(self._upload())
+        invalid_overrides = (
+            {"review_collection_skills_1_value": "python"},
+            {
+                "review_collection_languages_0_language": "Portuguese",
+                "review_collection_languages_0_proficiency": "expert",
+                "review_collection_languages_0_locale": "",
+            },
+            {
+                "review_collection_languages_0_language": "Portuguese",
+                "review_collection_languages_0_proficiency": "",
+                "review_collection_languages_0_locale": "Brazil",
+                "review_collection_languages_1_language": "portuguese",
+                "review_collection_languages_1_proficiency": "native",
+                "review_collection_languages_1_locale": "Portugal",
+            },
+            {"review_collection_skills_0_field_path": "constraints.work_authorization"},
+            {"review_collection_job_titles_0_value": "x" * 513},
+            {
+                f"review_collection_skills_{index}_value": f"Skill {index}"
+                for index in range(1, 97)
+            },
+        )
+        for overrides in invalid_overrides:
+            with self.subTest(overrides=tuple(overrides)[:2]):
+                body = self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides=overrides,
+                )
+                self.assertEqual(self._post_review(reference, body).status, 400)
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(snapshot.version, 1)
+        self.assertEqual(snapshot.review.user_facts, ())
+
     def test_stale_resumed_tab_cannot_overwrite_newer_checkpoint(self):
         first_reference = self._reference(self._upload())
         second_adapter = _FinalSaveAdapter(
@@ -880,7 +1211,10 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 self._review_body(
                     first_reference,
                     action="autosave",
-                    changes={0: "Newest Synthetic Candidate"},
+                    use_collections=True,
+                    collection_overrides={
+                        "review_collection_skills_1_value": "SQL"
+                    },
                 ),
             )
             self.assertEqual(first.status, 204)
@@ -890,7 +1224,10 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                     second_reference,
                     action="autosave",
                     integration=second,
-                    changes={0: "Stale Synthetic Candidate"},
+                    use_collections=True,
+                    collection_overrides={
+                        "review_collection_skills_1_value": "Excel"
+                    },
                 ),
                 integration=second,
             )
@@ -906,8 +1243,8 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                     ).fetchone()[0]
                 )
             self.assertEqual(
-                payload["facts"][0]["value"],
-                "Newest Synthetic Candidate",
+                payload["user_facts"][0]["value"],
+                "SQL",
             )
         finally:
             second.close()

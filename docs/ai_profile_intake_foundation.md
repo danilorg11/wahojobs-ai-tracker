@@ -518,6 +518,25 @@ values appear first, while every remaining authoritative value stays available
 through a keyboard/touch-operated disclosure. The underlying classification
 contract is unchanged.
 
+Skills, historical job titles, and languages use closed typed review
+collections. Document-supported items remain individually editable and
+removable; **Add another** creates a server-identified, user-confirmed item in
+the same existing Canonical field. Skills remain free text and are normalized
+and deduplicated without introducing a taxonomy. Languages reuse the existing
+language/proficiency contract, and a newly added language has no proficiency
+unless the candidate selects one. Historical titles remain separate from job
+interests.
+
+The browser submits collection positions and typed values, never Canonical
+paths or provenance. The server owns collection membership, field paths, item
+references, limits, value parsing, uniqueness, and final projection. Added
+items have no document/evidence attribution; successful finalization gives
+them the existing user-confirmation source. Collection edits and removals are
+part of the same optimistic autosaved checkpoint, so resume restores them
+without parsing a document or calling a model. Education is intentionally not
+included: its flat current fields cannot safely express per-entry association
+and requires a dedicated contract.
+
 Preference controls continue to come from `profile_preferences_v1` and retain
 their independent multi-select semantics. Employment relationship, workload,
 common job areas, and compensation appear first. Secondary schedule, term,

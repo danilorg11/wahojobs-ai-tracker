@@ -42,6 +42,7 @@ from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
     PROFILE_INTAKE_PURPOSE,
     EditableProfileReview,
+    EditableUserFact,
     SafeDocumentBundleMetadata,
     SafeModelDiagnostics,
     TrustedProfileIntakeGrant,
@@ -1150,6 +1151,8 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
             review.schema_version != REVIEW_DRAFT_SCHEMA_VERSION
             or tuple(source.document_kind.value for source in review.sources)
             != source_metadata.origins
+            or type(review.user_facts) is not tuple
+            or any(type(fact) is not EditableUserFact for fact in review.user_facts)
         ):
             raise AIProfileImportError("invalid_request")
         accepted = []
@@ -1178,12 +1181,20 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         accepted = [
             fact for fact in review.facts if fact.decision in {"keep", "accept"}
         ]
+        accepted_user_facts = [
+            fact for fact in review.user_facts if fact.decision == "keep"
+        ]
     except AIProfileImportError:
         raise
     except (ProfileIntakeError, AttributeError, TypeError, ValueError):
         raise AIProfileImportError("content_rejected") from None
     preference_model = review.preference_model
-    canonical = _confirmed_review_v1(review, tuple(accepted), preference_model)
+    canonical = _confirmed_review_v1(
+        review,
+        tuple(accepted),
+        tuple(accepted_user_facts),
+        preference_model,
+    )
     try:
         reviewed = IdentityFreeCanonicalProfileV1.from_mapping(canonical)
     except (PersistentProfileDomainError, CanonicalProfileV2Error, TypeError, ValueError):
@@ -1210,9 +1221,9 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
     )
 
 
-def _confirmed_review_v1(review, facts, preference_model):
+def _confirmed_review_v1(review, facts, user_facts, preference_model):
     values = {}
-    for fact in facts:
+    for fact in (*facts, *user_facts):
         values.setdefault(fact.field_path, []).append(fact.value)
     display_name = _singleton(values, "identity.display_name", "")
     if not display_name:

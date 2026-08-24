@@ -2064,6 +2064,38 @@ def _page(title: str, body: str) -> str:
     .fact-group-item .review-field, .fact-group-item .decision-field {{ margin-bottom: 0; }}
     .fact-group-item .decision-field {{ margin-top: 0; }}
     .fact-meta {{ color: #466257; font-size: 13px; font-weight: 750; line-height: 1.45; }}
+    .review-collections {{ display: grid; gap: 18px; margin-top: 28px; }}
+    .review-collection {{ border: 1px solid #dce6e1; border-radius: 12px; margin: 0; padding: 20px; }}
+    .review-collection legend {{ font-size: 18px; font-weight: 750; padding: 0 6px; }}
+    .review-collection > .muted {{ line-height: 1.5; margin-bottom: 14px; }}
+    .review-collection-items {{ display: grid; gap: 10px; }}
+    .review-collection-item {{ align-items: end; background: #fbfcfb; border: 1px solid #e0e8e4; border-radius: 10px; display: grid; gap: 8px 14px; grid-template-columns: minmax(0, 1fr) auto; padding: 14px; }}
+    .review-collection-item .fact-meta {{ grid-column: 1 / -1; margin: 0; }}
+    .collection-item-controls {{ display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    .screen-reader-only {{ clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }}
+    .skills-collection .review-collection-items {{ align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }}
+    .skills-collection .skill-token {{ align-items: center; background: #eef6f2; border-color: #c9ded4; border-radius: 999px; display: inline-flex; flex: 0 1 auto; gap: 3px; max-width: 100%; padding: 3px 4px 3px 12px; }}
+    .skills-collection .skill-token .fact-meta {{ clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }}
+    .skills-collection .collection-item-controls {{ display: block; min-width: 0; }}
+    .skills-collection .skill-token-field input {{ background: transparent; border: 0; box-shadow: none; min-height: 38px; max-width: calc(100vw - 154px); padding: 7px 4px; width: auto; }}
+    .skills-collection .skill-token-field input:focus-visible {{ outline: 2px solid #174d3b; outline-offset: 1px; }}
+    .skills-collection .collection-remove {{ border-radius: 999px; justify-content: center; min-height: 44px; min-width: 44px; position: relative; }}
+    .skills-collection .collection-remove input {{ height: 1px; opacity: 0; position: absolute; width: 1px; }}
+    .skills-collection .collection-remove-symbol {{ color: #755049; display: block; font-size: 22px; font-weight: 500; line-height: 1; }}
+    .skills-collection .collection-remove .remove-copy {{ clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }}
+    .skills-collection .collection-remove:has(input:focus-visible) {{ outline: 2px solid #174d3b; outline-offset: 1px; }}
+    .skills-collection .collection-remove:has(input:checked) .collection-remove-symbol {{ display: none; }}
+    .skills-collection .collection-remove:has(input:checked) .restore-copy {{ display: inline; padding: 0 9px; }}
+    .skills-collection .collection-item-controls, .job_titles-collection .collection-item-controls {{ grid-template-columns: 1fr; }}
+    .collection-remove {{ align-items: center; color: #755049; cursor: pointer; display: inline-flex; font-size: 13px; font-weight: 700; gap: 7px; min-height: 44px; }}
+    .collection-remove input {{ height: 18px; width: 18px; }}
+    .collection-remove .restore-copy {{ display: none; }}
+    .collection-remove:has(input:checked) .remove-copy {{ display: none; }}
+    .collection-remove:has(input:checked) .restore-copy {{ display: inline; }}
+    .review-collection-item:has(input[data-collection-remove]:checked) {{ background: #f5f5f4; border-style: dashed; opacity: .72; }}
+    .review-collection-item:has(input[data-collection-remove]:checked) .collection-item-controls {{ text-decoration: line-through; }}
+    .collection-add {{ margin-top: 12px; }}
+    .collection-empty {{ color: #66716c; font-size: 14px; margin-bottom: 12px; }}
     .decision-field {{ display: grid; font-size: 13px; font-weight: 750; gap: 6px; margin-top: 14px; }}
     .decision-field select {{ background: white; border: 1px solid #aebbb5; border-radius: 7px; font: inherit; min-height: 44px; padding: 9px; width: 100%; }}
     .intake-review-form .review-field input, .intake-review-form .review-field select {{ background: white; border-radius: 7px; font: inherit; min-height: 44px; }}
@@ -2140,6 +2172,10 @@ def _page(title: str, body: str) -> str:
       .intake-review-form .choice-grid, .profile-grid, .review-grid {{ grid-template-columns: 1fr; }}
       .fact-group-items {{ grid-template-columns: 1fr; }}
       .fact-group-item {{ gap: 8px; grid-template-columns: 1fr; padding: 12px; }}
+      .review-collection {{ padding: 16px; }}
+      .review-collection-item {{ align-items: stretch; grid-template-columns: 1fr; }}
+      .collection-item-controls {{ grid-template-columns: 1fr; }}
+      .skills-collection .skill-token {{ max-width: 100%; }}
       .intake-review-form .job-interest-group > .choice-grid,
       .intake-review-form .job-interest-more .choice-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .compensation-group {{ margin-left: -8px !important; margin-right: -8px !important; padding: 20px !important; }}

@@ -89,6 +89,35 @@ PROFILE_INTAKE_REVIEW_STEPS = (
     "review-finish",
 )
 PROFILE_INTAKE_DEFAULT_REVIEW_STEP = PROFILE_INTAKE_REVIEW_STEPS[0]
+PROFILE_INTAKE_REVIEW_COLLECTIONS = {
+    "skills": {
+        "title": "Skills",
+        "paths": ("skills.normalized",),
+        "add_path": "skills.normalized",
+        "kind": "string",
+        # Closed Canonical V2 cardinalities; a contract-coherence test guards
+        # these presentation limits without importing the durable profile
+        # implementation into the intake runtime.
+        "limit": 96,
+    },
+    "job_titles": {
+        "title": "Job titles",
+        "paths": ("experience.job_titles",),
+        "add_path": "experience.job_titles",
+        "kind": "string",
+        "limit": 128,
+    },
+    "languages": {
+        "title": "Languages",
+        "paths": ("languages",),
+        "add_path": "languages",
+        "kind": "language",
+        "limit": 32,
+    },
+}
+_USER_FACT_REFERENCE = re.compile(
+    r"^uci_(?:skills|job_titles|languages)_[0-9]{3}$"
+)
 
 _OPAQUE_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _ACTIONS = frozenset(
@@ -417,6 +446,31 @@ class EditableReviewFact:
     conflict_group: str | None
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class EditableUserFact:
+    """A closed, evidence-free review item added directly by the candidate."""
+
+    item_reference: str
+    collection_id: str
+    field_path: str
+    value: str | LanguageValue = field(repr=False)
+    decision: str
+
+    def __post_init__(self):
+        spec = PROFILE_INTAKE_REVIEW_COLLECTIONS.get(self.collection_id)
+        field_spec = contracts._FIELD_SPECS.get(self.field_path)
+        if (
+            spec is None
+            or self.field_path != spec["add_path"]
+            or _USER_FACT_REFERENCE.fullmatch(self.item_reference) is None
+            or not self.item_reference.startswith(f"uci_{self.collection_id}_")
+            or field_spec is None
+            or contracts._validate_fact_value(self.value, field_spec) != self.value
+            or self.decision not in {"keep", "remove"}
+        ):
+            raise ProfileIntakeError("invalid_review_submission")
+
+
 @dataclass(frozen=True, slots=True)
 class EditableProfileReview:
     schema_version: str
@@ -426,6 +480,7 @@ class EditableProfileReview:
     user_inputs: tuple[tuple[str, str], ...]
     issue_count: int
     _preference_model_json: bytes = field(repr=False)
+    user_facts: tuple[EditableUserFact, ...] = field(default=(), repr=False)
 
     @property
     def document_reference(self):
@@ -1762,12 +1817,82 @@ def editable_profile_review(draft):
     )
 
 
+def review_collection_entries(review, collection_id):
+    """Return one closed server-owned view of a supported review collection."""
+
+    if type(review) is not EditableProfileReview:
+        raise ProfileIntakeError("invalid_review_submission")
+    spec = PROFILE_INTAKE_REVIEW_COLLECTIONS.get(collection_id)
+    if spec is None:
+        raise ProfileIntakeError("invalid_review_submission")
+    entries = []
+    for index, fact in enumerate(review.facts):
+        if (
+            fact.field_path in spec["paths"]
+            and not fact.suggested
+            and fact.conflict_group is None
+        ):
+            entries.append(
+                {
+                    "origin": "document",
+                    "index": index,
+                    "value": fact.value,
+                    "decision": fact.decision,
+                    "source_attributions": fact.source_attributions,
+                }
+            )
+    for index, fact in enumerate(review.user_facts):
+        if fact.collection_id == collection_id:
+            entries.append(
+                {
+                    "origin": "user",
+                    "index": index,
+                    "value": fact.value,
+                    "decision": fact.decision,
+                    "source_attributions": (),
+                }
+            )
+    return tuple(entries)
+
+
+def managed_review_collection_fact_indexes(review):
+    if type(review) is not EditableProfileReview:
+        raise ProfileIntakeError("invalid_review_submission")
+    managed_paths = {
+        path
+        for spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.values()
+        for path in spec["paths"]
+    }
+    return frozenset(
+        index
+        for index, fact in enumerate(review.facts)
+        if fact.field_path in managed_paths
+        and not fact.suggested
+        and fact.conflict_group is None
+    )
+
+
+def _valid_user_fact_references(user_facts):
+    if type(user_facts) is not tuple:
+        return False
+    next_ordinal = {collection_id: 0 for collection_id in PROFILE_INTAKE_REVIEW_COLLECTIONS}
+    for fact in user_facts:
+        if type(fact) is not EditableUserFact:
+            return False
+        ordinal = next_ordinal[fact.collection_id]
+        if fact.item_reference != f"uci_{fact.collection_id}_{ordinal:03d}":
+            return False
+        next_ordinal[fact.collection_id] = ordinal + 1
+    return True
+
+
 def update_editable_review(
     review,
     values,
     decisions,
     user_inputs,
     preference_model=None,
+    collection_updates=None,
 ):
     """Strict pure update; browser indexes never select authority or field paths."""
 
@@ -1779,6 +1904,7 @@ def update_editable_review(
         or len(decisions) != len(review.facts)
         or type(user_inputs) is not dict
         or set(user_inputs) != set(review.missing_user_fields)
+        or not _valid_user_fact_references(review.user_facts)
     ):
         raise ProfileIntakeError("invalid_review_submission")
     updated = []
@@ -1788,6 +1914,13 @@ def update_editable_review(
             raise ProfileIntakeError("invalid_review_submission")
         value = _parse_review_value(fact.field_path, raw_value)
         updated.append(replace(fact, value=value, decision=decision))
+    user_facts = review.user_facts
+    if collection_updates is not None:
+        updated, user_facts = _apply_review_collection_updates(
+            review,
+            updated,
+            collection_updates,
+        )
     accepted_conflicts: dict[str, int] = {}
     for fact in updated:
         if fact.conflict_group is not None and fact.decision == "accept":
@@ -1810,7 +1943,113 @@ def update_editable_review(
         facts=tuple(updated),
         user_inputs=tuple(normalized_inputs),
         _preference_model_json=_preference_model_json(canonical_preferences),
+        user_facts=user_facts,
     )
+
+
+def _apply_review_collection_updates(review, updated_facts, updates):
+    if type(updates) is not dict or set(updates) != set(PROFILE_INTAKE_REVIEW_COLLECTIONS):
+        raise ProfileIntakeError("invalid_review_submission")
+    updated_user_facts = list(review.user_facts)
+    references = {fact.item_reference for fact in review.user_facts}
+    if len(references) != len(review.user_facts):
+        raise ProfileIntakeError("invalid_review_submission")
+    new_fact_count = 0
+    for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+        submitted = updates[collection_id]
+        if type(submitted) is not tuple:
+            raise ProfileIntakeError("invalid_review_submission")
+        existing = review_collection_entries(review, collection_id)
+        if not len(existing) <= len(submitted) <= spec["limit"]:
+            raise ProfileIntakeError("invalid_review_submission")
+        normalized_active = []
+        for item_index, raw_item in enumerate(submitted):
+            value, decision = _review_collection_value(spec, raw_item)
+            if item_index < len(existing):
+                entry = existing[item_index]
+                if entry["origin"] == "document":
+                    fact_index = entry["index"]
+                    current = updated_facts[fact_index]
+                    if decision not in {"keep", "remove"}:
+                        raise ProfileIntakeError("invalid_review_submission")
+                    updated_facts[fact_index] = replace(
+                        current,
+                        value=value,
+                        decision=decision,
+                    )
+                else:
+                    user_index = entry["index"]
+                    current = updated_user_facts[user_index]
+                    updated_user_facts[user_index] = replace(
+                        current,
+                        value=value,
+                        decision=decision,
+                    )
+            else:
+                if decision != "keep":
+                    raise ProfileIntakeError("invalid_review_submission")
+                ordinal = sum(
+                    fact.collection_id == collection_id
+                    for fact in updated_user_facts
+                )
+                reference = f"uci_{collection_id}_{ordinal:03d}"
+                if reference in references:
+                    raise ProfileIntakeError("invalid_review_submission")
+                references.add(reference)
+                updated_user_facts.append(
+                    EditableUserFact(
+                        item_reference=reference,
+                        collection_id=collection_id,
+                        field_path=spec["add_path"],
+                        value=value,
+                        decision="keep",
+                    )
+                )
+                new_fact_count += 1
+            if decision == "keep":
+                identity = _review_collection_identity(value)
+                if identity in normalized_active:
+                    raise ProfileIntakeError("invalid_review_submission")
+                normalized_active.append(identity)
+    if len(review.facts) + len(review.user_facts) + new_fact_count > contracts.MAX_EXTRACTION_FACTS:
+        raise ProfileIntakeError("invalid_review_submission")
+    return updated_facts, tuple(updated_user_facts)
+
+
+def _review_collection_value(spec, raw_item):
+    try:
+        if spec["kind"] == "string":
+            if type(raw_item) is not tuple or len(raw_item) != 2:
+                raise ProfileIntakeError("invalid_review_submission")
+            raw_value, decision = raw_item
+            value = _parse_review_value(spec["add_path"], raw_value)
+        elif spec["kind"] == "language":
+            if type(raw_item) is not tuple or len(raw_item) != 4:
+                raise ProfileIntakeError("invalid_review_submission")
+            language, proficiency, locale, decision = raw_item
+            value = contracts._validate_fact_value(
+                {
+                    "language": language,
+                    "proficiency": proficiency or None,
+                    "locale": locale or None,
+                },
+                contracts._FIELD_SPECS[spec["add_path"]],
+            )
+        else:
+            raise ProfileIntakeError("invalid_review_submission")
+    except (ProfileIntakeError, TypeError, ValueError):
+        raise ProfileIntakeError("invalid_review_submission") from None
+    if decision not in {"keep", "remove"}:
+        raise ProfileIntakeError("invalid_review_submission")
+    return value, decision
+
+
+def _review_collection_identity(value):
+    if type(value) is LanguageValue:
+        return ("language", value.language.casefold())
+    if type(value) is str:
+        return ("string", value.casefold())
+    raise ProfileIntakeError("invalid_review_submission")
 
 
 def _preference_model_json(value):
@@ -1872,6 +2111,26 @@ def serialize_profile_intake_checkpoint(
     if len(user_inputs) != len(review.user_inputs):
         raise ProfileIntakeError("invalid_checkpoint_content")
     _checkpoint_require_no_contact_pii(user_inputs)
+    user_facts = []
+    if (
+        not _valid_user_fact_references(review.user_facts)
+        or len(review.facts) + len(review.user_facts) > contracts.MAX_EXTRACTION_FACTS
+    ):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    for fact in review.user_facts:
+        if type(fact) is not EditableUserFact:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        value = _checkpoint_value(fact.value)
+        _checkpoint_require_no_contact_pii(value)
+        user_facts.append(
+            {
+                "item_reference": fact.item_reference,
+                "collection_id": fact.collection_id,
+                "field_path": fact.field_path,
+                "value": value,
+                "decision": fact.decision,
+            }
+        )
     payload = {
         "schema_version": PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION,
         "review_schema_version": review.schema_version,
@@ -1881,6 +2140,7 @@ def serialize_profile_intake_checkpoint(
         "user_inputs": user_inputs,
         "issue_count": review.issue_count,
         "preference_model": review.preference_model,
+        "user_facts": user_facts,
         "review_step": review_step,
     }
     try:
@@ -1918,7 +2178,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         )
     except (TypeError, ValueError, json.JSONDecodeError):
         raise ProfileIntakeError("invalid_checkpoint_content") from None
-    expected_keys = {
+    required_keys = {
         "schema_version",
         "review_schema_version",
         "source_origins",
@@ -1928,10 +2188,12 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         "issue_count",
         "preference_model",
     }
-    if type(payload) is not dict or set(payload) not in {
-        frozenset(expected_keys),
-        frozenset((*expected_keys, "review_step")),
-    }:
+    optional_keys = {"review_step", "user_facts"}
+    if (
+        type(payload) is not dict
+        or not required_keys <= set(payload)
+        or not set(payload) <= required_keys | optional_keys
+    ):
         raise ProfileIntakeError("invalid_checkpoint_content")
     if (
         payload["schema_version"] != PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION
@@ -2022,6 +2284,38 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
     ):
         raise ProfileIntakeError("invalid_checkpoint_content")
     _checkpoint_require_no_contact_pii(user_inputs)
+    raw_user_facts = payload.get("user_facts", [])
+    if (
+        type(raw_user_facts) is not list
+        or len(raw_facts) + len(raw_user_facts) > contracts.MAX_EXTRACTION_FACTS
+    ):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    user_facts = []
+    for raw in raw_user_facts:
+        if type(raw) is not dict or set(raw) != {
+            "item_reference",
+            "collection_id",
+            "field_path",
+            "value",
+            "decision",
+        }:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        value = _checkpoint_value_from_json(raw["value"])
+        _checkpoint_require_no_contact_pii(raw["value"])
+        try:
+            user_facts.append(
+                EditableUserFact(
+                    item_reference=raw["item_reference"],
+                    collection_id=raw["collection_id"],
+                    field_path=raw["field_path"],
+                    value=value,
+                    decision=raw["decision"],
+                )
+            )
+        except (ProfileIntakeError, TypeError, ValueError):
+            raise ProfileIntakeError("invalid_checkpoint_content") from None
+    if not _valid_user_fact_references(tuple(user_facts)):
+        raise ProfileIntakeError("invalid_checkpoint_content")
     try:
         review = EditableProfileReview(
             schema_version=REVIEW_DRAFT_SCHEMA_VERSION,
@@ -2031,6 +2325,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
             user_inputs=tuple((name, "") for name in missing),
             issue_count=payload["issue_count"],
             _preference_model_json=_preference_model_json(payload["preference_model"]),
+            user_facts=tuple(user_facts),
         )
         review = update_editable_review(
             review,
@@ -2043,6 +2338,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         raise ProfileIntakeError("invalid_checkpoint_content") from None
     semantic_payload = dict(payload)
     semantic_payload.pop("review_step", None)
+    semantic_payload.setdefault("user_facts", [])
     canonical = json.dumps(
         json.loads(
             _serialize_profile_intake_checkpoint_unchecked(
@@ -2112,6 +2408,16 @@ def _serialize_profile_intake_checkpoint_unchecked(
         "user_inputs": dict(review.user_inputs),
         "issue_count": review.issue_count,
         "preference_model": review.preference_model,
+        "user_facts": [
+            {
+                "item_reference": fact.item_reference,
+                "collection_id": fact.collection_id,
+                "field_path": fact.field_path,
+                "value": _checkpoint_value(fact.value),
+                "decision": fact.decision,
+            }
+            for fact in review.user_facts
+        ],
     }
     if include_review_step:
         payload["review_step"] = normalize_profile_intake_review_step(review_step)
@@ -2200,7 +2506,14 @@ def _parse_review_value(field_path, raw):
                 raise ProfileIntakeError("invalid_review_submission")
             value = candidate == "true"
         elif spec.kind == "years":
-            value = float(candidate)
+            # Preserve the JSON numeric category through the form-backed review
+            # round-trip.  This keeps both existing float checkpoints ("6.0")
+            # and integer extraction values ("6") canonically stable.
+            value = (
+                int(candidate)
+                if re.fullmatch(r"\+?[0-9]+", candidate) is not None
+                else float(candidate)
+            )
         elif spec.kind == "language":
             parts = tuple(part.strip() for part in raw.split("|"))
             if not 1 <= len(parts) <= 3:
