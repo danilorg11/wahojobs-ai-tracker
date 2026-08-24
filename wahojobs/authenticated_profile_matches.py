@@ -67,7 +67,10 @@ from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
     project_v2_to_matcher_v1,
 )
-from wahojobs.profiles.preference_model import profile_preference_control_catalog_v1
+from wahojobs.profiles.preference_model import (
+    profile_preference_control_catalog_v1,
+    profile_preference_control_catalog_v2,
+)
 
 
 AUTHENTICATED_MATCHES_ROUTE = "/find-matches"
@@ -129,6 +132,16 @@ _RELAXATION_PRESENTATION_SPEC = {
         "allow_schedule_time_window",
         "schedule.time_windows",
     ),
+    "preferences.schedule.working_days": (
+        "schedule_working_day",
+        "allow_schedule_working_day",
+        "schedule.working_days",
+    ),
+    "preferences.schedule.time_of_day": (
+        "schedule_time_of_day",
+        "allow_schedule_time_of_day",
+        "schedule.time_of_day",
+    ),
     "preferences.accepted_phone_voice_modes": (
         "phone_voice",
         "allow_phone_voice_mode",
@@ -150,6 +163,10 @@ _RELAXATION_PRESENTATION_SPEC = {
         None,
     ),
 }
+_V2_COMPENSATION_RELAXATION_CRITERION = re.compile(
+    r"^preferences\.compensation_expectations\.([A-Z]{3})\."
+    r"(hour|month|year)\.minimum$"
+)
 
 SESSION_COOKIE_NAME = "wahojobs_session"
 SESSION_CSRF_COOKIE_NAME = "__Host-wahojobs_session_csrf"
@@ -2692,17 +2709,24 @@ def _presented_relaxation_scenarios(context):
         or len(relaxation_document["scenarios"]) > 256
     ):
         return ()
-    catalog = profile_preference_control_catalog_v1()
-    labels_by_dimension = {
-        dimension["id"]: {
-            choice["code"]: choice["label"]
-            for choice in dimension["choices"]
-        }
-        for dimension in catalog["dimensions"]
-    }
-    currencies = set(catalog["compensation"]["currencies"])
+    catalogs = (
+        profile_preference_control_catalog_v1(),
+        profile_preference_control_catalog_v2(),
+    )
+    labels_by_dimension = {}
+    for catalog in catalogs:
+        labels_by_dimension.update(
+            {
+                dimension["id"]: {
+                    choice["code"]: choice["label"]
+                    for choice in dimension["choices"]
+                }
+                for dimension in catalog["dimensions"]
+            }
+        )
+    currencies = set(catalogs[1]["compensation"]["currencies"])
     periods = {
-        item["code"] for item in catalog["compensation"]["periods"]
+        item["code"] for item in catalogs[1]["compensation"]["periods"]
     }
     ranked_pool = _ranked_presentation_eligible_pool(context)
     candidate_references = enforcement.get("candidate_references")
@@ -2767,13 +2791,22 @@ def _presented_relaxation_scenario(
         or set(raw) != required
         or raw.get("schema_version")
         != SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION
-        or raw.get("criterion_id") not in _RELAXATION_PRESENTATION_SPEC
     ):
         return None
     criterion_id = raw["criterion_id"]
-    dimension, relaxation_type, catalog_id = _RELAXATION_PRESENTATION_SPEC[
-        criterion_id
-    ]
+    compensation_basis = None
+    if criterion_id in _RELAXATION_PRESENTATION_SPEC:
+        dimension, relaxation_type, catalog_id = _RELAXATION_PRESENTATION_SPEC[
+            criterion_id
+        ]
+    else:
+        match = _V2_COMPENSATION_RELAXATION_CRITERION.fullmatch(criterion_id)
+        if match is None:
+            return None
+        dimension = "compensation_minimum"
+        relaxation_type = "lower_preferred_compensation_minimum"
+        catalog_id = None
+        compensation_basis = match.groups()
     if (
         raw.get("dimension") != dimension
         or raw.get("relaxation_type") != relaxation_type
@@ -2788,6 +2821,16 @@ def _presented_relaxation_scenario(
             currencies=currencies,
             periods=periods,
         )
+        if (
+            change is not None
+            and compensation_basis is not None
+            and (
+                raw["current"].get("currency"),
+                raw["current"].get("period"),
+            )
+            != compensation_basis
+        ):
+            return None
     else:
         change = _presented_choice_relaxation(
             raw,
@@ -2949,6 +2992,10 @@ def _relaxation_choice_headline(relaxation_type, label):
     if relaxation_type == "allow_schedule_coordination":
         return f"Open to {label.casefold()} teamwork?"
     if relaxation_type == "allow_schedule_time_window":
+        return f"Open to working {label.casefold()}?"
+    if relaxation_type == "allow_schedule_working_day":
+        return f"Open to working {label.casefold()}?"
+    if relaxation_type == "allow_schedule_time_of_day":
         return f"Open to working {label.casefold()}?"
     if relaxation_type == "allow_phone_voice_mode":
         return (

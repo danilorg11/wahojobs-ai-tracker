@@ -1,5 +1,6 @@
 import unittest
 from copy import deepcopy
+from dataclasses import replace
 
 from scripts import profile_match_digest as matcher
 from tests.test_canonical_profile_v2 import load_cases, ordinal_resolver, persistent_id
@@ -29,6 +30,7 @@ from wahojobs.profiles.canonical_v2 import (
 )
 from wahojobs.profiles.preference_model import (
     empty_profile_preferences_v1,
+    empty_profile_preferences_v2,
     profile_preferences_v1_to_v2,
 )
 
@@ -257,6 +259,8 @@ def opportunity_for_dimension(dimension, value, *, known=True):
         "schedule_flexibility_modes": unknown,
         "schedule_coordination_modes": unknown,
         "schedule_time_windows": unknown,
+        "schedule_working_days": unknown,
+        "schedule_time_of_day": unknown,
         "phone_voice_modes": unknown,
         "job_interests": unknown,
         "career_levels": unknown,
@@ -268,6 +272,8 @@ def opportunity_for_dimension(dimension, value, *, known=True):
         "schedule_flexibility": "schedule_flexibility_modes",
         "schedule_coordination": "schedule_coordination_modes",
         "schedule_time_window": "schedule_time_windows",
+        "schedule_working_day": "schedule_working_days",
+        "schedule_time_of_day": "schedule_time_of_day",
         "phone_voice": "phone_voice_modes",
         "job_interest": "job_interests",
         "career_level": "career_levels",
@@ -293,7 +299,7 @@ def opportunity_for_dimension(dimension, value, *, known=True):
 
 
 class TypedMatchCriteriaTests(unittest.TestCase):
-    def test_v2_single_expectation_preserves_existing_typed_criteria(self):
+    def test_v2_single_expectation_uses_native_basis_and_split_schedule_criteria(self):
         v1_profile = profile_v2()
         v1_criteria = match_criteria_v1_from_profile(v1_profile)
         model_v2 = profile_preferences_v1_to_v2(profile_model())
@@ -303,9 +309,41 @@ class TypedMatchCriteriaTests(unittest.TestCase):
                 model_v2,
             )
         )
-        self.assertEqual(match_criteria_v1_from_profile(v2_profile), v1_criteria)
+        v2_criteria = match_criteria_v1_from_profile(v2_profile)
+        self.assertEqual(
+            {
+                item.criterion_id
+                for item in v2_criteria.soft_preference_criteria
+                if item.dimension == "compensation_minimum"
+            },
+            {"preferences.compensation_expectations.USD.hour.minimum"},
+        )
+        self.assertTrue(
+            any(
+                item.dimension == "schedule_working_day"
+                for item in v2_criteria.soft_preference_criteria
+            )
+        )
+        self.assertFalse(
+            any(
+                item.dimension == "schedule_time_window"
+                for item in v2_criteria.soft_preference_criteria
+            )
+        )
+        self.assertEqual(
+            {
+                item.dimension
+                for item in v1_criteria.soft_preference_criteria
+                if item.dimension not in {"schedule_time_window", "compensation_minimum"}
+            },
+            {
+                item.dimension
+                for item in v2_criteria.soft_preference_criteria
+                if item.dimension not in {"schedule_working_day", "compensation_minimum"}
+            },
+        )
 
-    def test_v2_multiple_compensation_expectations_wait_for_6b_without_arbitrary_enforcement(self):
+    def test_v2_multiple_compensation_expectations_project_independently(self):
         model = profile_preferences_v1_to_v2(profile_model())
         model["compensation_expectations"].append(
             {
@@ -319,14 +357,311 @@ class TypedMatchCriteriaTests(unittest.TestCase):
         criteria = match_criteria_v1_from_profile(
             validate_canonical_profile_v2(with_preference_model(base, model))
         )
-        self.assertFalse(
-            any(
-                item.dimension == "compensation_minimum"
-                for item in (*criteria.strict_preference_criteria, *criteria.soft_preference_criteria)
+        compensation = {
+            item.criterion_id: item
+            for item in (
+                *criteria.strict_preference_criteria,
+                *criteria.soft_preference_criteria,
             )
+            if item.dimension == "compensation_minimum"
+        }
+        self.assertEqual(
+            set(compensation),
+            {
+                "preferences.compensation_expectations.USD.hour.minimum",
+                "preferences.compensation_expectations.USD.year.minimum",
+            },
+        )
+        self.assertEqual(
+            compensation["preferences.compensation_expectations.USD.hour.minimum"].criterion_class,
+            "soft_preference",
+        )
+        self.assertEqual(
+            compensation["preferences.compensation_expectations.USD.year.minimum"].criterion_class,
+            "strict_preference",
         )
         self.assertTrue(
-            any(item.dimension == "schedule_time_window" for item in criteria.soft_preference_criteria)
+            any(
+                item.dimension == "schedule_working_day"
+                for item in criteria.soft_preference_criteria
+            )
+        )
+
+    def test_v2_compensation_applies_only_the_matching_currency_period_basis(self):
+        model = empty_profile_preferences_v2()
+        model["compensation_expectations"] = [
+            {
+                "minimum_kind": "preferred",
+                "amount": "30",
+                "currency": "USD",
+                "period": "hour",
+            },
+            {
+                "minimum_kind": "strict",
+                "amount": "90000",
+                "currency": "USD",
+                "period": "year",
+            },
+            {
+                "minimum_kind": "preferred",
+                "amount": "25",
+                "currency": "EUR",
+                "period": "hour",
+            },
+        ]
+        criteria = criteria_with_model(model)
+
+        def evaluate(**kwargs):
+            opportunity = project_opportunity_criteria_v1(
+                effective_enrichment=enrichment(
+                    amount_type="exact",
+                    **kwargs,
+                )
+            )
+            outcomes = evaluate_match_criteria_shadow(criteria, opportunity).outcomes
+            return (
+                {item.criterion_id: item for item in outcomes},
+                evaluate_primary_preference_admission_v1(criteria, outcomes),
+            )
+
+        hourly, hourly_admission = evaluate(
+            currency="USD", amount_min=22, amount_max=22, period="hour"
+        )
+        self.assertEqual(
+            hourly["preferences.compensation_expectations.USD.hour.minimum"].outcome,
+            "fail",
+        )
+        self.assertEqual(
+            hourly["preferences.compensation_expectations.USD.year.minimum"].outcome,
+            "not_applicable",
+        )
+        self.assertEqual(
+            hourly["preferences.compensation_expectations.EUR.hour.minimum"].outcome,
+            "not_applicable",
+        )
+        self.assertEqual(hourly_admission.status, "exclude")
+
+        yearly, yearly_admission = evaluate(
+            currency="USD", amount_min=95000, amount_max=95000, period="year"
+        )
+        self.assertEqual(
+            yearly["preferences.compensation_expectations.USD.year.minimum"].outcome,
+            "pass",
+        )
+        self.assertEqual(
+            yearly["preferences.compensation_expectations.USD.hour.minimum"].outcome,
+            "not_applicable",
+        )
+        self.assertEqual(yearly_admission.status, "keep")
+
+        euros, euros_admission = evaluate(
+            currency="EUR", amount_min=26, amount_max=26, period="hour"
+        )
+        self.assertEqual(
+            euros["preferences.compensation_expectations.EUR.hour.minimum"].outcome,
+            "pass",
+        )
+        self.assertEqual(euros_admission.status, "keep")
+
+    def test_v2_incompatible_basis_is_ignored_but_unknown_strict_pay_excludes(self):
+        model = empty_profile_preferences_v2()
+        model["compensation_expectations"] = [
+            {
+                "minimum_kind": "strict",
+                "amount": "30",
+                "currency": "USD",
+                "period": "hour",
+            }
+        ]
+        criteria = criteria_with_model(model)
+        incompatible = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(
+                currency="EUR",
+                amount_min=5000,
+                amount_max=5000,
+                period="month",
+                amount_type="exact",
+            )
+        )
+        outcomes = evaluate_match_criteria_shadow(criteria, incompatible).outcomes
+        self.assertEqual(outcomes[0].outcome, "not_applicable")
+        self.assertEqual(
+            outcomes[0].reason_code,
+            "compensation_expectation_basis_not_applicable",
+        )
+        self.assertEqual(
+            evaluate_primary_preference_admission_v1(criteria, outcomes).status,
+            "keep",
+        )
+
+        undisclosed = replace(
+            opportunity_for_dimension("workload", "full_time"),
+            compensation=opportunity_compensation(
+                disclosed=False,
+                currency=None,
+                minimum=None,
+                maximum=None,
+                period=None,
+                amount_type="unknown",
+            ),
+        )
+        unknown_outcomes = evaluate_match_criteria_shadow(
+            criteria,
+            undisclosed,
+        ).outcomes
+        self.assertEqual(unknown_outcomes[0].outcome, "unknown")
+        self.assertEqual(
+            evaluate_primary_preference_admission_v1(
+                criteria,
+                unknown_outcomes,
+            ).status,
+            "exclude",
+        )
+
+    def test_v2_schedule_dimensions_evaluate_independently_and_unknown_keeps(self):
+        model = empty_profile_preferences_v2()
+        model["schedule"]["working_days"] = ["weekdays"]
+        model["schedule"]["time_of_day"] = ["business_hours"]
+        criteria = criteria_with_model(model)
+
+        weekend = opportunity_for_dimension(
+            "schedule_working_day",
+            "weekends",
+        )
+        weekend_outcomes = {
+            item.criterion_id: item
+            for item in evaluate_match_criteria_shadow(criteria, weekend).outcomes
+        }
+        self.assertEqual(
+            weekend_outcomes["preferences.schedule.working_days"].outcome,
+            "fail",
+        )
+        self.assertEqual(
+            weekend_outcomes["preferences.schedule.time_of_day"].outcome,
+            "unknown",
+        )
+        self.assertEqual(
+            evaluate_primary_preference_admission_v1(
+                criteria,
+                tuple(weekend_outcomes.values()),
+            ).status,
+            "exclude",
+        )
+
+        weekdays = opportunity_for_dimension(
+            "schedule_working_day",
+            "weekdays",
+        )
+        weekday_outcomes = evaluate_match_criteria_shadow(criteria, weekdays).outcomes
+        self.assertEqual(
+            evaluate_primary_preference_admission_v1(
+                criteria,
+                weekday_outcomes,
+            ).status,
+            "keep",
+        )
+        projected = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(schedule_type="fixed")
+        )
+        self.assertEqual(projected.schedule_working_days.status, "unknown")
+        self.assertEqual(projected.schedule_time_of_day.status, "unknown")
+        self.assertEqual(projected.schedule_coordination_modes.status, "unknown")
+        self.assertEqual(projected.schedule_flexibility_modes.status, "known")
+
+    def test_v2_schedule_and_compensation_relaxations_require_known_evidence(self):
+        schedule_model = empty_profile_preferences_v2()
+        schedule_model["schedule"]["working_days"] = ["weekdays"]
+        schedule_criteria = criteria_with_model(schedule_model)
+        schedule_candidates = evaluate_single_criterion_relaxations_v1(
+            schedule_criteria,
+            opportunity_for_dimension("schedule_working_day", "weekends"),
+            nonblocking_eligibility(),
+            opportunity_reference="canonical:601",
+            original_rank=4,
+        )
+        self.assertEqual(len(schedule_candidates), 1)
+        self.assertEqual(
+            schedule_candidates[0].criterion_id,
+            "preferences.schedule.working_days",
+        )
+        self.assertEqual(
+            schedule_candidates[0].relaxation_type,
+            "allow_schedule_working_day",
+        )
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                schedule_criteria,
+                opportunity_for_dimension(
+                    "schedule_working_day",
+                    "weekends",
+                    known=False,
+                ),
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:602",
+                original_rank=5,
+            ),
+            (),
+        )
+
+        compensation_model = empty_profile_preferences_v2()
+        compensation_model["compensation_expectations"] = [
+            {
+                "minimum_kind": "preferred",
+                "amount": "25",
+                "currency": "USD",
+                "period": "hour",
+            },
+            {
+                "minimum_kind": "strict",
+                "amount": "90000",
+                "currency": "USD",
+                "period": "year",
+            },
+        ]
+        compensation_criteria = criteria_with_model(compensation_model)
+        comparable = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(
+                amount_min=22,
+                amount_max=22,
+                amount_type="exact",
+                currency="USD",
+                period="hour",
+            )
+        )
+        candidates = evaluate_single_criterion_relaxations_v1(
+            compensation_criteria,
+            comparable,
+            nonblocking_eligibility(),
+            opportunity_reference="canonical:603",
+            original_rank=6,
+        )
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(
+            candidates[0].criterion_id,
+            "preferences.compensation_expectations.USD.hour.minimum",
+        )
+        self.assertEqual(candidates[0].proposed_minimum_amount, "22")
+
+        unknown_pay = replace(
+            opportunity_for_dimension("workload", "full_time"),
+            compensation=opportunity_compensation(
+                disclosed=False,
+                currency=None,
+                minimum=None,
+                maximum=None,
+                period=None,
+                amount_type="unknown",
+            ),
+        )
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                compensation_criteria,
+                unknown_pay,
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:604",
+                original_rank=7,
+            ),
+            (),
         )
 
     def test_profile_criteria_preserve_eligibility_strict_and_soft_groups(self):
@@ -663,6 +998,8 @@ class TypedMatchCriteriaTests(unittest.TestCase):
             schedule_flexibility_modes=unknown,
             schedule_coordination_modes=unknown,
             schedule_time_windows=unknown,
+            schedule_working_days=unknown,
+            schedule_time_of_day=unknown,
             phone_voice_modes=unknown,
             job_interests=unknown,
             career_levels=unknown,
@@ -738,6 +1075,8 @@ class TypedMatchCriteriaTests(unittest.TestCase):
             ("preferences.schedule.flexibility_modes", "schedule_flexibility", "fixed", "flexible", "allow_schedule_flexibility"),
             ("preferences.schedule.coordination_modes", "schedule_coordination", "asynchronous", "synchronous", "allow_schedule_coordination"),
             ("preferences.schedule.time_windows", "schedule_time_window", "weekdays", "weekends", "allow_schedule_time_window"),
+            ("preferences.schedule.working_days", "schedule_working_day", "weekdays", "weekends", "allow_schedule_working_day"),
+            ("preferences.schedule.time_of_day", "schedule_time_of_day", "business_hours", "evenings", "allow_schedule_time_of_day"),
             ("preferences.accepted_phone_voice_modes", "phone_voice", "non_phone", "phone", "allow_phone_voice_mode"),
             ("preferences.job_interests", "job_interest", "data_annotation", "customer_support", "broaden_job_interests"),
             ("preferences.accepted_career_levels", "career_level", "entry", "mid", "add_accepted_career_level"),

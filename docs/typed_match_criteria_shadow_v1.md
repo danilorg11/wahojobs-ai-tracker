@@ -7,12 +7,13 @@ preference enforcement is inactive and authenticated match presentation is
 unchanged. The criterion diagnostics continue to run independently for the
 existing eligibility bridge.
 
-Preference Model V2 Slice 6A is compatibility-only here. Split day/time
-schedule values project into the existing V1 schedule criterion without
-changing current outcomes. One compensation expectation maps exactly; multiple
-expectations are not arbitrarily selected or enforced until Slice 6B adds
-criterion-per-expectation support. Unknown soft evidence therefore still keeps
-a primary match and cannot prove a relaxation.
+Preference Model V2 projects natively here. Working days, time of day,
+flexibility, and coordination remain separate soft criteria. Each compensation
+expectation becomes its own stable currency/period criterion; only the criterion
+matching an opportunity's disclosed basis applies. Unrelated bases are not
+treated as failures, while undisclosed or non-comparable evidence remains
+unknown. Unknown soft evidence still keeps a primary match and cannot prove a
+relaxation; unknown strict compensation remains blocking.
 
 ## Profile criteria
 

@@ -53,6 +53,7 @@ from wahojobs.profiles.canonical_v2 import (
 )
 from wahojobs.profiles.preference_model import (
     empty_profile_preferences_v1,
+    empty_profile_preferences_v2,
     profile_preferences_v1_to_v2,
 )
 
@@ -1391,6 +1392,155 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(
             results[0]["_typed_preference_enforcement"]["single_criterion_relaxations"],
             results[1]["_typed_preference_enforcement"]["single_criterion_relaxations"],
+        )
+
+    def test_v2_multiple_compensation_bases_enforce_independently_and_keep_rank(self):
+        model = empty_profile_preferences_v2()
+        model["compensation_expectations"] = [
+            {
+                "minimum_kind": "preferred",
+                "amount": "25",
+                "currency": "USD",
+                "period": "hour",
+            },
+            {
+                "minimum_kind": "strict",
+                "amount": "90000",
+                "currency": "USD",
+                "period": "year",
+            },
+        ]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        job_ids = [1701, 1702, 1703, 1704, 1705]
+        context = self._presentation_context(job_ids)
+        for match in context["matches"][
+            local_product.ACTIONABLE_PRESENTATION_SECTIONS[0]
+        ]:
+            match.update(
+                {
+                    "eligible_for_personalized": True,
+                    "language_requirement_mode": "none",
+                    "location_eligibility_status": "not_applicable",
+                }
+            )
+        rows = [self._row(job_id=job_id) for job_id in job_ids]
+        enrichments = {
+            1701: typed_enrichment(
+                amount_min=22,
+                amount_max=22,
+                amount_type="exact",
+                period="hour",
+            ),
+            1702: typed_enrichment(
+                amount_min=30,
+                amount_max=30,
+                amount_type="exact",
+                period="hour",
+            ),
+            1703: typed_enrichment(
+                amount_min=95000,
+                amount_max=95000,
+                amount_type="exact",
+                period="year",
+            ),
+            1704: typed_enrichment(
+                amount_min=80000,
+                amount_max=80000,
+                amount_type="exact",
+                period="year",
+            ),
+            1705: typed_enrichment(
+                disclosed=False,
+                currency=None,
+                amount_min=None,
+                amount_max=None,
+                period="unknown",
+                amount_type="unknown",
+            ),
+        }
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            enrichments,
+        )
+        self.assertEqual(
+            [
+                match["job_id"]
+                for match in matches_module._primary_presentation_matches(enforced)
+            ],
+            [1702, 1703],
+        )
+        evaluations = {
+            item["opportunity_reference"]: {
+                outcome["criterion_id"]: outcome
+                for outcome in item["outcomes"]
+            }
+            for item in enforced["_typed_preference_enforcement"]["evaluations"]
+        }
+        self.assertEqual(
+            evaluations["canonical:1702"][
+                "preferences.compensation_expectations.USD.year.minimum"
+            ]["outcome"],
+            "not_applicable",
+        )
+        scenarios = enforced["_typed_preference_enforcement"][
+            "single_criterion_relaxations"
+        ]["scenarios"]
+        self.assertEqual(len(scenarios), 1)
+        self.assertEqual(
+            scenarios[0]["criterion_id"],
+            "preferences.compensation_expectations.USD.hour.minimum",
+        )
+        self.assertEqual(
+            scenarios[0]["unlocked_opportunities"],
+            [{"opportunity_reference": "canonical:1701", "original_rank": 1}],
+        )
+        body = matches_module._render_match_results(enforced, inventory_count=5)
+        self.assertIn("Lower your preferred pay to $22/hour", body)
+        self.assertNotIn("Synthetic Role 1704", body)
+        self.assertNotIn("Synthetic Role 1705", body)
+
+    def test_v2_unknown_schedule_evidence_keeps_ranked_opportunities(self):
+        model = empty_profile_preferences_v2()
+        model["schedule"]["working_days"] = ["weekdays"]
+        model["schedule"]["time_of_day"] = ["business_hours"]
+        model["schedule"]["coordination_modes"] = ["asynchronous"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+        context = self._presentation_context([1711, 1712])
+        rows = [self._row(job_id=1711), self._row(job_id=1712)]
+        enforced = matches_module._apply_typed_preference_enforcement_v1(
+            authoritative,
+            context,
+            rows,
+            {},
+        )
+        self.assertEqual(
+            [
+                match["job_id"]
+                for match in matches_module._primary_presentation_matches(enforced)
+            ],
+            [1711, 1712],
+        )
+        for evaluation in enforced["_typed_preference_enforcement"]["evaluations"]:
+            schedule = {
+                item["criterion_id"]: item
+                for item in evaluation["outcomes"]
+                if item["criterion_id"].startswith("preferences.schedule.")
+            }
+            self.assertEqual(
+                {item["outcome"] for item in schedule.values()},
+                {"unknown"},
+            )
+        self.assertEqual(
+            enforced["_typed_preference_enforcement"][
+                "single_criterion_relaxations"
+            ]["scenarios"],
+            [],
         )
 
     def test_strict_unknown_can_truthfully_render_zero_results(self):

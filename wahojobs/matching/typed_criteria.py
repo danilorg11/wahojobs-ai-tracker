@@ -28,10 +28,11 @@ from wahojobs.profiles.preference_model import (
     PHONE_VOICE_MODES,
     SCHEDULE_COORDINATION_MODES,
     SCHEDULE_FLEXIBILITY_MODES,
+    SCHEDULE_TIME_OF_DAY,
     SCHEDULE_TIME_WINDOWS,
+    SCHEDULE_WORKING_DAYS,
     WORKLOADS,
     V2_SCHEMA_VERSION as PROFILE_PREFERENCES_V2_SCHEMA_VERSION,
-    profile_preferences_v2_to_v1_matcher_compat,
 )
 
 
@@ -135,6 +136,8 @@ DIMENSION_ALLOWED_VALUES = {
     "schedule_flexibility": SCHEDULE_FLEXIBILITY_MODES,
     "schedule_coordination": SCHEDULE_COORDINATION_MODES,
     "schedule_time_window": SCHEDULE_TIME_WINDOWS,
+    "schedule_working_day": SCHEDULE_WORKING_DAYS,
+    "schedule_time_of_day": SCHEDULE_TIME_OF_DAY,
     "phone_voice": PHONE_VOICE_MODES,
     "job_interest": JOB_INTEREST_CODES,
     "career_level": ACCEPTED_CAREER_LEVELS,
@@ -188,6 +191,24 @@ _PROFILE_LIST_CRITERIA = (
     ),
 )
 
+_PROFILE_LIST_CRITERIA_V2 = (
+    *(
+        item
+        for item in _PROFILE_LIST_CRITERIA
+        if item[1] != "schedule_time_window"
+    ),
+    (
+        "preferences.schedule.working_days",
+        "schedule_working_day",
+        ("schedule", "working_days"),
+    ),
+    (
+        "preferences.schedule.time_of_day",
+        "schedule_time_of_day",
+        ("schedule", "time_of_day"),
+    ),
+)
+
 _OPPORTUNITY_DIMENSION_FIELDS = {
     "employment_relationship": "employment_relationships",
     "workload": "workloads",
@@ -195,6 +216,8 @@ _OPPORTUNITY_DIMENSION_FIELDS = {
     "schedule_flexibility": "schedule_flexibility_modes",
     "schedule_coordination": "schedule_coordination_modes",
     "schedule_time_window": "schedule_time_windows",
+    "schedule_working_day": "schedule_working_days",
+    "schedule_time_of_day": "schedule_time_of_day",
     "phone_voice": "phone_voice_modes",
     "job_interest": "job_interests",
     "career_level": "career_levels",
@@ -202,7 +225,10 @@ _OPPORTUNITY_DIMENSION_FIELDS = {
 
 _CRITERION_IDS_BY_DIMENSION = {
     dimension: criterion_id
-    for criterion_id, dimension, _path in _PROFILE_LIST_CRITERIA
+    for criterion_id, dimension, _path in (
+        *_PROFILE_LIST_CRITERIA,
+        *_PROFILE_LIST_CRITERIA_V2,
+    )
 }
 _CRITERION_IDS_BY_DIMENSION["compensation_minimum"] = (
     "preferences.compensation.minimum"
@@ -215,6 +241,8 @@ _RELAXATION_TYPES_BY_DIMENSION = {
     "schedule_flexibility": "allow_schedule_flexibility",
     "schedule_coordination": "allow_schedule_coordination",
     "schedule_time_window": "allow_schedule_time_window",
+    "schedule_working_day": "allow_schedule_working_day",
+    "schedule_time_of_day": "allow_schedule_time_of_day",
     "phone_voice": "allow_phone_voice_mode",
     "job_interest": "broaden_job_interests",
     "career_level": "add_accepted_career_level",
@@ -229,6 +257,41 @@ _EXISTING_ELIGIBILITY_CRITERION_IDS = frozenset(
         "eligibility.professional_domain",
     }
 )
+
+_LEGACY_COMPENSATION_CRITERION_ID = "preferences.compensation.minimum"
+_V2_COMPENSATION_CRITERION_PREFIX = "preferences.compensation_expectations."
+
+
+def _v2_compensation_criterion_id(currency, period):
+    if currency not in ISO_4217_CURRENCIES or period not in COMPENSATION_PERIODS:
+        raise TypedCriteriaError("invalid_compensation_criterion_basis")
+    return f"{_V2_COMPENSATION_CRITERION_PREFIX}{currency}.{period}.minimum"
+
+
+def _v2_compensation_basis_from_criterion_id(criterion_id):
+    if type(criterion_id) is not str or not criterion_id.startswith(
+        _V2_COMPENSATION_CRITERION_PREFIX
+    ):
+        return None
+    suffix = criterion_id[len(_V2_COMPENSATION_CRITERION_PREFIX):]
+    parts = suffix.split(".")
+    if (
+        len(parts) != 3
+        or parts[0] not in ISO_4217_CURRENCIES
+        or parts[1] not in COMPENSATION_PERIODS
+        or parts[2] != "minimum"
+    ):
+        return None
+    return parts[0], parts[1]
+
+
+def _criterion_id_matches_dimension(criterion_id, dimension):
+    if dimension == "compensation_minimum":
+        return (
+            criterion_id == _LEGACY_COMPENSATION_CRITERION_ID
+            or _v2_compensation_basis_from_criterion_id(criterion_id) is not None
+        )
+    return _CRITERION_IDS_BY_DIMENSION.get(dimension) == criterion_id
 
 
 class TypedCriteriaError(ValueError):
@@ -282,6 +345,11 @@ class ProfileCriterionV1:
             or _positive_decimal(self.minimum_amount) is None
             or self.currency not in ISO_4217_CURRENCIES
             or self.period not in COMPENSATION_PERIODS
+            or (
+                self.criterion_id != _LEGACY_COMPENSATION_CRITERION_ID
+                and _v2_compensation_basis_from_criterion_id(self.criterion_id)
+                != (self.currency, self.period)
+            )
         ):
             raise TypedCriteriaError("invalid_profile_criterion")
 
@@ -454,6 +522,8 @@ class OpportunityCriteriaV1:
     schedule_flexibility_modes: OpportunityDimensionV1
     schedule_coordination_modes: OpportunityDimensionV1
     schedule_time_windows: OpportunityDimensionV1
+    schedule_working_days: OpportunityDimensionV1
+    schedule_time_of_day: OpportunityDimensionV1
     phone_voice_modes: OpportunityDimensionV1
     job_interests: OpportunityDimensionV1
     career_levels: OpportunityDimensionV1
@@ -619,7 +689,10 @@ class SingleCriterionRelaxationCandidateV1:
             or not self.criterion_id
             or len(self.criterion_id) > 128
             or self.dimension not in _RELAXATION_TYPES_BY_DIMENSION
-            or self.criterion_id != _CRITERION_IDS_BY_DIMENSION[self.dimension]
+            or not _criterion_id_matches_dimension(
+                self.criterion_id,
+                self.dimension,
+            )
             or self.relaxation_type
             != _RELAXATION_TYPES_BY_DIMENSION[self.dimension]
             or not _valid_opportunity_reference(self.opportunity_reference)
@@ -829,15 +902,16 @@ def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
             soft_preference_criteria=(),
         )
 
-    # Slice 6A keeps the established V1 matcher contract. Split V2 schedule
-    # fields map exactly. Multiple compensation expectations are intentionally
-    # non-enforcing until Slice 6B can evaluate each item independently.
-    if model.get("schema_version") == PROFILE_PREFERENCES_V2_SCHEMA_VERSION:
-        model = profile_preferences_v2_to_v1_matcher_compat(model)
+    model_is_v2 = (
+        model.get("schema_version") == PROFILE_PREFERENCES_V2_SCHEMA_VERSION
+    )
+    list_criteria = (
+        _PROFILE_LIST_CRITERIA_V2 if model_is_v2 else _PROFILE_LIST_CRITERIA
+    )
 
     strict: list[ProfileCriterionV1] = []
     soft: list[ProfileCriterionV1] = []
-    for criterion_id, dimension, path in _PROFILE_LIST_CRITERIA:
+    for criterion_id, dimension, path in list_criteria:
         values = _nested(model, path)
         allowed = DIMENSION_ALLOWED_VALUES[dimension]
         if not values or set(values) == set(allowed):
@@ -851,15 +925,28 @@ def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
         )
         soft.append(criterion)
 
-    compensation = model["compensation"]
-    if compensation["minimum_kind"] in {"preferred", "strict"}:
+    compensations = (
+        model["compensation_expectations"]
+        if model_is_v2
+        else [model["compensation"]]
+    )
+    for compensation in compensations:
+        if compensation["minimum_kind"] not in {"preferred", "strict"}:
+            continue
         criterion_class = (
             "strict_preference"
             if compensation["minimum_kind"] == "strict"
             else "soft_preference"
         )
         criterion = ProfileCriterionV1(
-            criterion_id="preferences.compensation.minimum",
+            criterion_id=(
+                _v2_compensation_criterion_id(
+                    compensation["currency"],
+                    compensation["period"],
+                )
+                if model_is_v2
+                else _LEGACY_COMPENSATION_CRITERION_ID
+            ),
             criterion_class=criterion_class,
             dimension="compensation_minimum",
             operator="minimum",
@@ -979,6 +1066,12 @@ def project_opportunity_criteria_v1(
         schedule_time_windows=_unknown_dimension(
             "schedule_time_window_not_structured"
         ),
+        schedule_working_days=_unknown_dimension(
+            "schedule_working_days_not_structured"
+        ),
+        schedule_time_of_day=_unknown_dimension(
+            "schedule_time_of_day_not_structured"
+        ),
         phone_voice_modes=_unknown_dimension("phone_voice_not_structured"),
         job_interests=job_interests,
         career_levels=career_levels,
@@ -1050,11 +1143,7 @@ def evaluate_primary_preference_admission_v1(
     }
     for criterion in criteria.strict_preference_criteria:
         result = outcome_by_id.get(criterion.criterion_id)
-        if (
-            result is None
-            or result.criterion_class != "strict_preference"
-            or result.outcome != "pass"
-        ):
+        if not _strict_criterion_is_nonblocking(criterion, result):
             exclusions.add(criterion.criterion_id)
     for criterion in criteria.soft_preference_criteria:
         result = outcome_by_id.get(criterion.criterion_id)
@@ -1120,7 +1209,10 @@ def evaluate_single_criterion_relaxations_v1(
     }
     if any(
         preference_by_id.get(criterion.criterion_id) is None
-        or preference_by_id[criterion.criterion_id].outcome != "pass"
+        or not _strict_criterion_is_nonblocking(
+            criterion,
+            preference_by_id[criterion.criterion_id],
+        )
         for criterion in criteria.strict_preference_criteria
     ):
         return ()
@@ -1626,8 +1718,20 @@ def compare_compensation_criterion(
     if opportunity.currency not in ISO_4217_CURRENCIES:
         return _outcome(criterion, "unknown", "compensation_currency_unknown")
     if opportunity.currency != criterion.currency:
+        if _v2_compensation_basis_from_criterion_id(criterion.criterion_id):
+            return _outcome(
+                criterion,
+                "not_applicable",
+                "compensation_expectation_basis_not_applicable",
+            )
         return _outcome(criterion, "unknown", "compensation_currency_mismatch")
     if opportunity.period != criterion.period:
+        if _v2_compensation_basis_from_criterion_id(criterion.criterion_id):
+            return _outcome(
+                criterion,
+                "not_applicable",
+                "compensation_expectation_basis_not_applicable",
+            )
         return _outcome(criterion, "unknown", "compensation_period_mismatch")
 
     threshold = _positive_decimal(criterion.minimum_amount)
@@ -1691,6 +1795,27 @@ def compare_compensation_criterion(
         criterion,
         "unknown",
         "compensation_preferred_range_overlap",
+    )
+
+
+def _strict_criterion_is_nonblocking(criterion, result):
+    if (
+        type(criterion) is not ProfileCriterionV1
+        or criterion.criterion_class != "strict_preference"
+        or type(result) is not CriterionOutcomeV1
+        or result.criterion_id != criterion.criterion_id
+        or result.criterion_class != "strict_preference"
+    ):
+        return False
+    if result.outcome == "pass":
+        return True
+    return (
+        criterion.dimension == "compensation_minimum"
+        and _v2_compensation_basis_from_criterion_id(criterion.criterion_id)
+        is not None
+        and result.outcome == "not_applicable"
+        and result.reason_code
+        == "compensation_expectation_basis_not_applicable"
     )
 
 
@@ -1831,6 +1956,12 @@ def _project_inventory_row(row) -> OpportunityCriteriaV1:
         ),
         schedule_time_windows=_unknown_dimension(
             "schedule_time_window_not_structured"
+        ),
+        schedule_working_days=_unknown_dimension(
+            "schedule_working_days_not_structured"
+        ),
+        schedule_time_of_day=_unknown_dimension(
+            "schedule_time_of_day_not_structured"
         ),
         phone_voice_modes=_unknown_dimension("phone_voice_unknown"),
         job_interests=interests,

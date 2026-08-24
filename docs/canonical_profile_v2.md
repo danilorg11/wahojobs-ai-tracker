@@ -97,8 +97,8 @@ remain valid and new AI onboarding writes V2. This is additive V2
 read support: reading an existing V1 model does not rewrite it, and both review
 and matcher V1 projections remove the nested object before legacy validation.
 Authenticated matching reads the authoritative model through typed criteria;
-the temporary V2 compatibility projection preserves the established V1
-outcomes until the independent V2 criteria arrive in Slice 6B.
+V1 retains its established criteria while V2 uses independent schedule axes and
+currency/period-specific compensation criteria.
 
 ## Provenance paths
 

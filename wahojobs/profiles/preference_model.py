@@ -643,11 +643,11 @@ def profile_preferences_v1_to_v2(value: dict) -> dict:
 
 
 def profile_preferences_v2_to_v1_matcher_compat(value: dict) -> dict:
-    """Return the temporary V1 typed-matcher view used until Slice 6B.
+    """Return the intentionally lossy V1 legacy-compatibility view.
 
-    Split schedule dimensions map exactly.  A zero/one compensation list maps
-    exactly; multiple expectations remain non-enforcing rather than selecting
-    an arbitrary currency or period.
+    Split schedule dimensions map exactly. A zero/one compensation list maps
+    exactly; multiple expectations cannot fit V1 and therefore never select an
+    arbitrary currency or period. Native typed matching reads V2 directly.
     """
 
     model = canonicalize_profile_preferences_v2(value)

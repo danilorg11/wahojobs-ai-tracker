@@ -44,9 +44,16 @@ set V1 compensation minimum into one expectation. Existing stored V1 models
 remain V1. The legacy compatibility mirror is always derived on the server;
 the browser cannot submit it independently.
 
-Slice 6A does not change visible matching. The existing typed matcher consumes
-a temporary V1 compatibility view: split schedule values map back exactly, a
-single expectation retains existing behavior, and multiple compensation
-expectations remain non-enforcing until Slice 6B evaluates them independently.
-Missing opportunity evidence remains `unknown`, keeps soft-preference matches,
-and cannot prove a relaxation scenario.
+Slice 6B projects this contract natively into the existing typed-criteria
+engine. Each schedule axis has its own criterion, and each compensation
+expectation has a stable currency/period-specific criterion. An opportunity is
+compared only with the expectation whose currency and period both match; other
+expectations are not applicable to that opportunity. No FX or period conversion
+is performed.
+
+Missing opportunity evidence remains `unknown`: it keeps a match for soft
+preferences, excludes for an applicable strict compensation requirement, and
+cannot prove a relaxation scenario. Current structured inventory reliably
+supports schedule flexibility but not working days, time of day, or coordination,
+so those dimensions remain unknown unless a future authoritative structured
+source supplies them.
