@@ -524,10 +524,16 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"Leave this suggestion out", page.body)
         self.assertIn(b"More classifications", page.body)
         self.assertIn(b"class='suggestion-tag'>Suggested", page.body)
-        self.assertEqual(page.body.count(b"<strong>Entry-level</strong>"), 1)
-        self.assertEqual(page.body.count(b"<strong>Mid-level</strong>"), 1)
-        self.assertIn(b"<strong>Advanced specialist</strong>", page.body)
-        self.assertIn(b"<strong>Senior</strong>", page.body)
+        classification_markup = _review_fact_value_control(
+            index,
+            fact,
+            review_value_for_form(fact.value),
+            "Experience level",
+        )
+        self.assertEqual(classification_markup.count("<strong>Entry-level</strong>"), 1)
+        self.assertEqual(classification_markup.count("<strong>Mid-level</strong>"), 1)
+        self.assertIn("<strong>Advanced specialist</strong>", classification_markup)
+        self.assertIn("<strong>Senior</strong>", classification_markup)
         self.assertIn(
             f"name='fact_{index}_value' value='entry-level'".encode(), page.body
         )
@@ -1130,7 +1136,13 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"type='checkbox'", page.body)
         self.assertIn(b"data-review-collection='compensation'", page.body)
         self.assertIn(b"class='preference-disclosure", page.body)
-        self.assertIn(b"class='choice-definitions-disclosure'", page.body)
+        self.assertNotIn(b"class='choice-definitions-disclosure'", page.body)
+        self.assertNotIn(b"What do these choices mean?", page.body)
+        self.assertIn(b"class='choice-help'", page.body)
+        self.assertIn(b"How to choose Job Interests", page.body)
+        self.assertIn(b"data-preference-dimension=", page.body)
+        self.assertIn(b"data-selection-summary", page.body)
+        self.assertIn(b"updatePreferenceSummaries", page.body)
         self.assertIn(b"aria-describedby=", page.body)
         self.assertIn(b"Choose all that apply", page.body)
         self.assertIn(b"Each group is separate", page.body)
@@ -1277,7 +1289,18 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             "GET", target, self._headers(origin=False)
         )
         self.assertEqual(refreshed.status, 200)
-        self.assertIn(b"<strong>Selected:</strong> Employee, Independent contractor / freelance", refreshed.body)
+        self.assertNotIn(
+            b"<strong>Selected:</strong> Employee, Independent contractor / freelance",
+            refreshed.body,
+        )
+        self.assertIn(
+            b"name='preference_employment_relationships_employee' value='selected' checked",
+            refreshed.body,
+        )
+        self.assertIn(
+            b"name='preference_employment_relationships_independent_contractor' value='selected' checked",
+            refreshed.body,
+        )
         self.assertIn(
             b"class='preference-disclosure more-preference-disclosure' open",
             refreshed.body,

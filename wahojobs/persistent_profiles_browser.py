@@ -1976,7 +1976,6 @@ def _page(title: str, body: str) -> str:
     .choice-card small {{ color: #66716c; display: block; font-weight: 400; margin-top: 4px; }}
     .profile-review-form details {{ margin-top: 10px; }}
     .profile-review-form summary {{ color: #174d3b; cursor: pointer; font-weight: 700; }}
-    .choice-definitions div {{ margin: 10px 0; }}
     .processing-state {{ background: #eef7f3; border: 1px solid #9bc8b7; border-radius: 8px; margin-top: 18px; padding: 18px; }}
     button {{ background: #174d3b; color: white; border: 0; border-radius: 5px; padding: 10px 16px; font: inherit; font-weight: 700; cursor: pointer; }}
     .muted {{ color: #66716c; }}
@@ -2038,21 +2037,33 @@ def _page(title: str, body: str) -> str:
     .review-progress ol {{ display: grid; gap: 10px; grid-template-columns: repeat(4, 1fr); list-style: none; margin: 0; padding: 0; }}
     .review-progress a {{ align-items: center; border-radius: 8px; color: #46534e; display: flex; font-size: 13px; font-weight: 700; gap: 8px; min-height: 44px; padding: 5px; text-decoration: none; }}
     .review-progress a:hover {{ background: #f1f7f4; color: #174d3b; }}
-    .review-progress span {{ align-items: center; background: #e6f3ed; border-radius: 50%; color: #174d3b; display: inline-flex; flex: 0 0 28px; height: 28px; justify-content: center; }}
+    .review-progress a > span:first-child {{ align-items: center; background: #e6f3ed; border-radius: 50%; color: #174d3b; display: inline-flex; flex: 0 0 28px; height: 28px; justify-content: center; }}
+    .review-progress .review-progress-label {{ display: grid; gap: 1px; }}
+    .review-progress .step-attention {{ color: #8a3d35; font-size: 11px; font-weight: 750; }}
+    .review-progress a.needs-attention {{ background: #fff5f2; color: #7b3d35; }}
     .intake-review-form {{ border: 0; border-radius: 20px; box-shadow: 0 16px 45px rgba(24, 45, 37, .07); padding: clamp(26px, 5vw, 52px); }}
     .intake-callout {{ background: #fff8e8; border-left: 4px solid #d2a13e; border-radius: 8px; color: #5b4a28; margin: 0 0 20px; padding: 14px 18px; }}
     .review-expiry-warning {{ bottom: 16px; box-shadow: 0 8px 28px rgba(32, 37, 35, .18); left: 50%; margin: 0; max-width: 640px; position: fixed; transform: translateX(-50%); width: calc(100% - 32px); z-index: 10; }}
     .review-save-status {{ align-items: center; background: #f3f7f5; border: 1px solid #dce6e1; border-radius: 999px; color: #42534c; display: flex; font-size: 13px; font-weight: 700; gap: 8px; margin: -14px 24px 18px auto; min-height: 42px; padding: 6px 14px; position: sticky; top: 12px; width: fit-content; z-index: 8; }}
     .review-save-status .save-status-dot {{ background: #3d8067; border-radius: 50%; height: 8px; width: 8px; }}
     .review-save-status[data-state='saving'] .save-status-dot {{ background: #c08b31; }}
-    .review-save-status[data-state='error'], .review-save-status[data-state='conflict'], .review-save-status[data-state='expired'] {{ background: #fff5f2; border-color: #e7c8bf; color: #7b3d35; }}
-    .review-save-status[data-state='error'] .save-status-dot, .review-save-status[data-state='conflict'] .save-status-dot, .review-save-status[data-state='expired'] .save-status-dot {{ background: #ad5145; }}
+    .review-save-status[data-state='error'], .review-save-status[data-state='attention'], .review-save-status[data-state='conflict'], .review-save-status[data-state='expired'] {{ background: #fff5f2; border-color: #e7c8bf; color: #7b3d35; }}
+    .review-save-status[data-state='error'] .save-status-dot, .review-save-status[data-state='attention'] .save-status-dot, .review-save-status[data-state='conflict'] .save-status-dot, .review-save-status[data-state='expired'] .save-status-dot {{ background: #ad5145; }}
     .review-save-status .button-quiet {{ min-height: 30px; padding: 2px 5px; }}
     .intake-review-form .review-section {{ border-top-color: #dfe8e4; margin-top: 46px; padding-top: 46px; scroll-margin-top: 20px; }}
     .intake-review-form .review-section:first-of-type {{ border-top: 0; margin-top: 0; padding-top: 0; }}
     .section-heading {{ margin-bottom: 24px; max-width: 720px; }}
     .section-heading h2, .finish-panel h2 {{ font-size: clamp(25px, 3vw, 34px); letter-spacing: -.025em; margin-bottom: 10px; }}
     .section-heading p:not(.eyebrow), .finish-panel > p:not(.eyebrow) {{ color: #53605b; font-size: 16px; line-height: 1.55; }}
+    .review-profile-sections {{ display: grid; gap: 34px; }}
+    .review-concept-section {{ min-width: 0; }}
+    .review-concept-section + .review-concept-section, .review-concept-section + .review-collections, .review-concept-section + .review-collection, .review-collections + .review-concept-section, .review-collections + .review-collections, .review-collections + .review-collection, .review-collection + .review-concept-section, .review-collection + .review-collection {{ border-top: 1px solid #e5ebe8; padding-top: 30px; }}
+    .review-concept-heading {{ margin-bottom: 14px; max-width: 680px; }}
+    .review-concept-heading h3 {{ font-size: 21px; letter-spacing: -.015em; margin: 0 0 5px; }}
+    .review-concept-heading h4 {{ font-size: 17px; margin: 0 0 5px; }}
+    .review-concept-heading p {{ color: #66716c; line-height: 1.5; margin: 0; }}
+    .review-concept-section > .review-collection, .review-profile-sections > .review-collection {{ margin-top: 12px; }}
+    .review-profile-sections > .review-collections {{ margin-top: 0; }}
     .fact-card {{ background: #fbfcfb; border-color: #dfe7e3; border-radius: 12px; padding: 20px; }}
     .fact-group-card {{ grid-column: 1 / -1; }}
     .fact-group-heading {{ align-items: baseline; display: flex; justify-content: space-between; margin-bottom: 14px; }}
@@ -2096,6 +2107,11 @@ def _page(title: str, body: str) -> str:
     .collection-remove:has(input:checked) .restore-copy {{ display: inline; }}
     .review-collection-item:has(input[data-collection-remove]:checked) {{ background: #f5f5f4; border-style: dashed; opacity: .72; }}
     .review-collection-item:has(input[data-collection-remove]:checked) .collection-item-controls {{ text-decoration: line-through; }}
+    .review-collection-item.collection-item-needs-attention {{ background: #fff8f5; border-color: #c97767; box-shadow: 0 0 0 1px #c97767; }}
+    .review-collection-item [aria-invalid='true'] {{ border-color: #a94f42 !important; box-shadow: 0 0 0 2px rgba(169,79,66,.14); }}
+    .collection-item-error {{ color: #8a3d35; font-size: 13px; font-weight: 700; grid-column: 1 / -1; margin: 2px 0 0; }}
+    .industries-background {{ background: #f5f8f6; border-radius: 12px; margin-top: 20px; padding: 18px; }}
+    .industries-background .fact-group-items {{ margin-top: 12px; }}
     .collection-add {{ margin-top: 12px; }}
     .collection-empty {{ color: #66716c; font-size: 14px; margin-bottom: 12px; }}
     .decision-field {{ display: grid; font-size: 13px; font-weight: 750; gap: 6px; margin-top: 14px; }}
@@ -2110,6 +2126,7 @@ def _page(title: str, body: str) -> str:
     .intake-review-form .choice-card:has(input:checked) {{ background: #eaf6f0; border-color: #2f755b; box-shadow: inset 0 0 0 1px #2f755b; }}
     .intake-review-form .choice-card input {{ accent-color: #174d3b; flex: 0 0 auto; height: 18px; width: 18px; }}
     .intake-review-form .choice-card strong {{ line-height: 1.35; }}
+    .intake-review-form .choice-card small {{ color: #66716c; display: block; font-size: 12px; font-weight: 400; line-height: 1.4; margin-top: 3px; }}
     .intake-review-form details {{ margin-top: 8px; }}
     .intake-review-form details[open] {{ background: #f5f8f6; border-radius: 10px; padding: 0 12px 10px; }}
     .preference-open-note {{ background: #f1f7f4; border-radius: 8px; color: #315d4d !important; display: inline-block; font-size: 14px !important; margin: 8px 0 0; padding: 8px 11px; }}
@@ -2123,7 +2140,8 @@ def _page(title: str, body: str) -> str:
     .choice-more summary span {{ color: #66716c; font-size: 13px; }}
     .choice-more .choice-more-selected {{ display: none; margin-left: auto; }}
     .job-interest-more:has(input:checked) .choice-more-selected {{ display: inline; }}
-    .choice-definitions-disclosure summary {{ min-height: 44px; }}
+    .choice-help summary {{ min-height: 44px; }}
+    .choice-help p {{ color: #53605b; font-size: 13px; line-height: 1.5; margin: 4px 0 0; }}
     .preference-disclosure {{ border: 1px solid #dce6e1; border-radius: 12px; margin-top: 30px !important; overflow: hidden; }}
     .preference-disclosure > summary {{ align-items: center; background: #f7faf8; display: flex; min-height: 64px; padding: 14px 18px !important; }}
     .preference-disclosure > summary > span {{ display: grid; font-size: 17px; gap: 3px; }}
@@ -2138,8 +2156,6 @@ def _page(title: str, body: str) -> str:
     .candidate-input {{ gap: 5px; }}
     .candidate-input > span {{ font-weight: 700; }}
     .candidate-input small, .field-help {{ color: #66716c; display: block; font-size: 12px; font-weight: 400; line-height: 1.45; }}
-    .choice-definitions {{ margin-bottom: 0; }}
-    .choice-definitions div {{ border-top: 1px solid #e1e8e5; padding-top: 10px; }}
     .review-subsection {{ background: #f7f9f8; border-radius: 12px; margin-top: 28px; padding: 22px; }}
     .review-subsection h3 {{ font-size: 18px; margin-top: 0; }}
     .empty-inline {{ background: #f5f8f6; border-radius: 10px; color: #53605b; margin: 0; padding: 18px; }}
@@ -2180,6 +2196,8 @@ def _page(title: str, body: str) -> str:
       .intake-review-form .choice-grid, .profile-grid, .review-grid {{ grid-template-columns: 1fr; }}
       .fact-group-items {{ grid-template-columns: 1fr; }}
       .fact-group-item {{ gap: 8px; grid-template-columns: 1fr; padding: 12px; }}
+      .review-profile-sections {{ gap: 28px; }}
+      .review-concept-section + .review-concept-section, .review-concept-section + .review-collections, .review-concept-section + .review-collection, .review-collections + .review-concept-section, .review-collections + .review-collections, .review-collections + .review-collection, .review-collection + .review-concept-section, .review-collection + .review-collection {{ padding-top: 24px; }}
       .review-collection {{ padding: 16px; }}
       .review-collection-item {{ align-items: stretch; grid-template-columns: 1fr; }}
       .collection-item-controls {{ grid-template-columns: 1fr; }}

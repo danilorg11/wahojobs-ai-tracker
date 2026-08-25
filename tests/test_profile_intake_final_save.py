@@ -42,6 +42,7 @@ from wahojobs.profile_intake.browser import (
 from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
     DocumentKind,
+    INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS,
     ModelEvidencePacket,
     ProfileIntakeError,
     validate_ai_profile_extraction,
@@ -111,6 +112,7 @@ class _FinalSaveAdapter:
         conflict=False,
         include_total_years=False,
         include_education=False,
+        include_internal_classifications=False,
     ):
         self.path = Path(path)
         self.providers = providers
@@ -118,6 +120,7 @@ class _FinalSaveAdapter:
         self.conflict = conflict
         self.include_total_years = include_total_years
         self.include_education = include_education
+        self.include_internal_classifications = include_internal_classifications
         self.calls = []
         self.attempt_counts_during_model = []
 
@@ -168,6 +171,32 @@ class _FinalSaveAdapter:
                     _fact(reference, block, "education.institutions", "Faculdade Horizonte Paulista"),
                     _fact(reference, block, "education.graduation_years", 2016),
                     _fact(reference, block, "education.completion_status", "completed", explicit=False),
+                )
+            )
+        if self.include_internal_classifications:
+            facts.extend(
+                (
+                    _fact(
+                        reference,
+                        block,
+                        "experience.occupational_families",
+                        "Customer Support",
+                        explicit=False,
+                    ),
+                    _fact(
+                        reference,
+                        block,
+                        "experience.professional_domains",
+                        "AI Training",
+                        explicit=False,
+                    ),
+                    _fact(
+                        reference,
+                        block,
+                        "experience.contribution_type",
+                        "individual contributor",
+                        explicit=False,
+                    ),
                 )
             )
         if evidence.document_kind is DocumentKind.LINKEDIN_PROFILE_EXPORT:
@@ -455,7 +484,10 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 snapshot.review
             )
         for index, fact in enumerate(snapshot.review.facts):
-            if index in managed_indexes:
+            if (
+                index in managed_indexes
+                or fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS
+            ):
                 continue
             form[f"fact_{index}_value"] = changes.get(
                 index, review_value_for_form(fact.value)
@@ -1067,6 +1099,151 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertIs(type(profile["experience"]["total_years"]), int)
         self.assertEqual(profile["experience"]["total_years"], 6)
 
+    def test_internal_experience_classifications_stay_internal_and_do_not_select_interests(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_internal_classifications=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        self.assertEqual(page.status, 200)
+        self.assertNotIn(b"Type of work", page.body)
+        self.assertNotIn(b"Areas of experience", page.body)
+        self.assertNotIn(b"Role responsibility", page.body)
+        self.assertNotIn(b"Suggested from your experience", page.body)
+        self.assertNotIn(b"Choose any that you want to add to your Job Interests.", page.body)
+        self.assertIn(
+            b"name='preference_job_interests_customer_support' value='selected'>",
+            page.body,
+        )
+        self.assertIn(
+            b"name='preference_job_interests_ai_training' value='selected'>",
+            page.body,
+        )
+
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        internal_index = next(
+            index
+            for index, fact in enumerate(initial.review.facts)
+            if fact.field_path == "experience.occupational_families"
+        )
+        injected_form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(reference, action="autosave").decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        injected_form[f"fact_{internal_index}_value"] = "Customer Support"
+        injected_form[f"fact_{internal_index}_decision"] = "accept"
+        self.assertEqual(
+            self._post_review(
+                reference,
+                urlencode(injected_form).encode("ascii"),
+            ).status,
+            400,
+        )
+        self.assertEqual(
+            self.integration._processing.vault.get(
+                reference,
+                self._grant(),
+            ).version,
+            initial.version,
+        )
+
+        autosaved = self._post_review(
+            reference,
+            self._review_body(reference, action="autosave"),
+        )
+        self.assertEqual(autosaved.status, 204)
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(snapshot.review.preference_model["job_interests"], [])
+        internal = {
+            fact.field_path: (fact.value, fact.decision)
+            for fact in snapshot.review.facts
+            if fact.field_path
+            in {
+                "experience.occupational_families",
+                "experience.professional_domains",
+                "experience.contribution_type",
+            }
+        }
+        self.assertEqual(
+            internal,
+            {
+                "experience.occupational_families": ("Customer Support", "accept"),
+                "experience.professional_domains": ("AI Training", "accept"),
+                "experience.contribution_type": ("individual contributor", "accept"),
+            },
+        )
+
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference,
+            self._grant(),
+        )
+        self.assertEqual(resumed.review.preference_model["job_interests"], [])
+        saved = self._save(
+            resumed_reference,
+            self._save_body(resumed_reference),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            profile["experience"]["occupational_families"],
+            ["Customer Support"],
+        )
+        self.assertEqual(
+            profile["experience"]["professional_domains"],
+            ["AI Training"],
+        )
+        self.assertEqual(
+            profile["experience"]["contribution_type"],
+            "individual contributor",
+        )
+        self.assertEqual(
+            profile["preferences"]["preference_model"]["job_interests"],
+            [],
+        )
+        inferred_sources = {
+            source["field_path"]: source
+            for source in profile["provenance"]["field_sources"]
+            if source["field_path"].startswith(
+                (
+                    "experience.occupational_families",
+                    "experience.professional_domains",
+                    "experience.contribution_type",
+                )
+            )
+        }
+        self.assertEqual(
+            set(inferred_sources),
+            {
+                "experience.occupational_families[0]",
+                "experience.professional_domains[0]",
+                "experience.contribution_type",
+            },
+        )
+        for source in inferred_sources.values():
+            self.assertEqual(source["source_kind"], "resume_extraction")
+            self.assertFalse(source["explicit"])
+
     def test_typed_collections_autosave_resume_and_persist_without_fabricated_evidence(self):
         reference = self._reference(self._upload())
         page = self.integration.handle(
@@ -1290,6 +1467,52 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         snapshot = self.integration._processing.vault.get(reference, self._grant())
         self.assertEqual(snapshot.version, 1)
         self.assertEqual(snapshot.review.user_facts, ())
+
+    def test_partial_collection_item_fails_closed_without_replacing_valid_checkpoint(self):
+        reference = self._reference(self._upload())
+        valid = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                changes={0: "Last Valid Candidate"},
+            ),
+        )
+        self.assertEqual(valid.status, 204)
+        before = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(before.version, 2)
+        with self._database() as connection:
+            row = connection.execute(
+                "SELECT row_version,review_payload_json FROM ai_profile_intake_checkpoints"
+            ).fetchone()
+            durable_before = (row["row_version"], row["review_payload_json"])
+
+        partial = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    "review_collection_languages_0_language": "",
+                    "review_collection_languages_0_proficiency": "native",
+                    "review_collection_languages_0_locale": "",
+                },
+            ),
+        )
+        self.assertEqual(partial.status, 400)
+        after = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(after.version, 2)
+        self.assertEqual(after.review.facts[0].value, "Last Valid Candidate")
+        with self._database() as connection:
+            row = connection.execute(
+                "SELECT row_version,review_payload_json FROM ai_profile_intake_checkpoints"
+            ).fetchone()
+            self.assertEqual(
+                (row["row_version"], row["review_payload_json"]),
+                durable_before,
+            )
 
     def test_structured_education_autosaves_resumes_and_persists_legacy_shadows(self):
         self.integration.close()

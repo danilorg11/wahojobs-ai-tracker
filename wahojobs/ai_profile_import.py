@@ -36,7 +36,12 @@ from wahojobs.persistent_profiles_repository import (
     _ai_profile_import_repository,
     capture_profile_create_lineage,
 )
-from wahojobs.profile_intake.contracts import DocumentKind, LanguageValue, ProfileIntakeError
+from wahojobs.profile_intake.contracts import (
+    DocumentKind,
+    INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS,
+    LanguageValue,
+    ProfileIntakeError,
+)
 from wahojobs.profile_intake.review_draft import REVIEW_DRAFT_SCHEMA_VERSION
 from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
@@ -56,6 +61,7 @@ from wahojobs.profile_intake.runtime import (
     update_editable_review,
 )
 from wahojobs.profiles.canonical import (
+    PROFILE_SOURCE_RESUME,
     PROFILE_SOURCE_USER_CONFIRMATION,
     SCHEMA_VERSION as CANONICAL_PROFILE_V1,
     UNKNOWN,
@@ -1473,11 +1479,24 @@ def _confirmed_review_v1(
             "field_sources": {},
         },
     }
-    canonical["provenance"]["field_sources"] = field_sources_for_profile(
+    field_sources = field_sources_for_profile(
         canonical,
         PROFILE_SOURCE_USER_CONFIRMATION,
         explicit=True,
     )
+    retained_internal_paths = {
+        fact.field_path
+        for fact in facts
+        if fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS
+    }
+    for path, detail in field_sources.items():
+        if any(
+            path == internal_path or path.startswith(internal_path + "[")
+            for internal_path in retained_internal_paths
+        ):
+            detail["source"] = PROFILE_SOURCE_RESUME
+            detail["explicit"] = False
+    canonical["provenance"]["field_sources"] = field_sources
     return canonical, unpaired_education
 
 

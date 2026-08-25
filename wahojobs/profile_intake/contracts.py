@@ -432,6 +432,21 @@ INFERRED_ONLY_EXTRACTION_FIELD_PATHS = frozenset(
     path for path, spec in _FIELD_SPECS.items() if spec.inferred_only
 )
 
+# These classifications may remain useful to server-side profile and matching
+# projections, but they are not candidate-authored preferences or useful V1
+# review questions.  Browser review never accepts values for these paths.
+INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS = frozenset(
+    {
+        "experience.occupational_families",
+        "experience.professional_domains",
+        "experience.contribution_type",
+    }
+)
+if not INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS <= (
+    INFERRED_ONLY_EXTRACTION_FIELD_PATHS
+):
+    raise RuntimeError("invalid_internal_inferred_classification_paths")
+
 _FORBIDDEN_AUTHORITY_KEYS = frozenset(
     {
         "account_id",

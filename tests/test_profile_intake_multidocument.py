@@ -32,6 +32,7 @@ from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
     DocumentFormat,
     DocumentKind,
+    INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS,
     LanguageValue,
     ModelEvidenceBlock,
     ModelEvidencePacket,
@@ -622,6 +623,8 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         }
         accepted = False
         for index, fact in enumerate(snapshot.review.facts):
+            if fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS:
+                continue
             form[f"fact_{index}_value"] = review_value_for_form(fact.value)
             if fact.conflict_group and not accepted:
                 form[f"fact_{index}_decision"] = "accept"
@@ -670,8 +673,15 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         adapter = _BundleAdapter(
             {
                 DocumentKind.RESUME: (
+                    _raw_fact("identity.display_name", "Synthetic Candidate"),
+                    _raw_fact("location.country", "Brazil"),
                     _raw_fact("experience.job_titles", "Support Specialist"),
                     _raw_fact("experience.job_titles", "Search Evaluator"),
+                    _raw_fact(
+                        "experience.industries",
+                        "Business services",
+                        explicit=False,
+                    ),
                     _raw_fact("skills.normalized", "Zendesk"),
                     _raw_fact("skills.normalized", "Data Annotation"),
                     _raw_fact(
@@ -682,6 +692,11 @@ class MultiDocumentBrowserTests(unittest.TestCase):
                     _raw_fact(
                         "experience.professional_domains",
                         "AI Training",
+                        explicit=False,
+                    ),
+                    _raw_fact(
+                        "experience.total_years",
+                        6,
                         explicit=False,
                     ),
                 )
@@ -707,14 +722,44 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertIn(b"data-review-collection='compensation'", page.body)
         self.assertEqual(page.body.count(b"Add another job title"), 1)
         self.assertEqual(page.body.count(b"Add another skill"), 1)
-        self.assertIn(b"Type of work", page.body)
-        self.assertIn(b"Areas of experience", page.body)
+        self.assertNotIn(b"Type of work", page.body)
+        self.assertNotIn(b"Areas of experience", page.body)
         self.assertNotIn(b"Occupational Families", page.body)
         self.assertNotIn(b"Professional Domains", page.body)
+        self.assertIn(b"About you", page.body)
+        self.assertIn(b"class='review-field'>Name<input", page.body)
+        self.assertIn(b"class='review-field'>Based in<input", page.body)
+        self.assertIn(b"Based in means where you currently live.", page.body)
+        self.assertIn(b"Where you are legally eligible to work is asked separately.", page.body)
+        self.assertIn(b"Total years of professional experience", page.body)
+        self.assertIn(b"Industries in your experience", page.body)
+        self.assertIn(b"They do not limit the kinds of jobs Wahojobs can show you", page.body)
+        self.assertNotIn(b"Add another industry", page.body)
+        self.assertNotIn(b"Suggested from your experience", page.body)
+        self.assertNotIn(b"Choose any that you want to add to your Job Interests.", page.body)
+        self.assertNotIn(b"What do these choices mean?", page.body)
+        self.assertIn(b"How to choose Job Interests", page.body)
+        self.assertIn(b"data-selection-summary", page.body)
+        self.assertIn(b"updatePreferenceSummaries", page.body)
+        self.assertIn(b"data-collection-error", page.body)
+        self.assertIn(b"data-step-attention", page.body)
+        self.assertIn(b"Finish the highlighted item before it can be saved.", page.body)
+        self.assertIn(b"scrollIntoView", page.body)
+        self.assertIn(b"form.addEventListener('keydown'", page.body)
+        self.assertIn(b"event.preventDefault();validateCollections(true)", page.body)
+        self.assertIn(
+            b"name='preference_job_interests_customer_support' value='selected'>",
+            page.body,
+        )
+        self.assertIn(
+            b"name='preference_job_interests_ai_training' value='selected'>",
+            page.body,
+        )
 
         snapshot = integration._processing.vault.get(
             reference, self._grant(integration)
         )
+        self.assertEqual(snapshot.review.preference_model["job_interests"], [])
         grouped_indexes = [
             index
             for index, fact in enumerate(snapshot.review.facts)
