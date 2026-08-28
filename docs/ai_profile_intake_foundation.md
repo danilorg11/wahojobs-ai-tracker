@@ -161,6 +161,22 @@ hard/soft/avoid constraints remain user-input fields. An explicitly stated
 present remote/flexible preference can be shown for confirmation; old remote
 work cannot silently become a present preference.
 
+New AI-assisted review drafts use `profile_preferences_v2` and leave
+`job_interests` unrestricted. The V1 interface asks for working conditions such
+as relationship, workload, schedule, compensation, and phone/voice acceptance;
+it does not ask candidates to maintain job-area or work-activity taxonomies.
+Confirmed background facts remain available to the existing matcher as fit
+evidence for domain-specific AI training and evaluation work. Existing stored
+V1/V2 Job Interests remain authoritative and are not migrated or weakened.
+New working-condition groups start at the explicit **No preference** state
+unless a current preference was already confirmed. Choosing that state writes
+the same empty/unrestricted V2 list; historical work facts never preselect a
+current working-condition preference. Step 3 keeps its page introduction brief
+and places the comparison rules in one native disclosure. That explanation
+uses a full-time/part-time example to distinguish a known conflict from missing
+opportunity evidence, and separately explains background-driven AI-training
+relevance.
+
 Canonical V2 currently has no employer fact path, so employer names are
 preserved in minimized evidence but are not invented as a new profile field in
 this slice. A later canonical-model decision would be required to add one.

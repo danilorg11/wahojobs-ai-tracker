@@ -299,6 +299,36 @@ def opportunity_for_dimension(dimension, value, *, known=True):
 
 
 class TypedMatchCriteriaTests(unittest.TestCase):
+    def test_v2_empty_job_interests_is_unrestricted_for_ai_training_work(self):
+        criteria = criteria_with_model(empty_profile_preferences_v2())
+        self.assertFalse(
+            any(
+                item.dimension == "job_interest"
+                for item in criteria.soft_preference_criteria
+            )
+        )
+
+        opportunity = opportunity_for_dimension(
+            "job_interest",
+            "data_annotation",
+        )
+        evaluation = evaluate_match_criteria_shadow(criteria, opportunity)
+        admission = evaluate_primary_preference_admission_v1(
+            criteria,
+            evaluation.outcomes,
+        )
+        self.assertEqual(admission.status, "keep")
+        self.assertEqual(
+            evaluate_single_criterion_relaxations_v1(
+                criteria,
+                opportunity,
+                nonblocking_eligibility(),
+                opportunity_reference="canonical:1",
+                original_rank=1,
+            ),
+            (),
+        )
+
     def test_v2_single_expectation_uses_native_basis_and_split_schedule_criteria(self):
         v1_profile = profile_v2()
         v1_criteria = match_criteria_v1_from_profile(v1_profile)

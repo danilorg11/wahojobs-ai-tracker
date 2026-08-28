@@ -37,8 +37,10 @@ from wahojobs.profile_intake.browser import (
     ProfileIntakeBrowserIntegration,
     _CLASSIFICATION_DESCRIPTIONS,
     _SKIP_SUGGESTION_VALUE,
+    _preference_model_from_form,
     _preference_form_values_for_model,
     _render_education_entry,
+    _render_preference_controls,
     _review_fact_value_control,
     _failure,
 )
@@ -1138,18 +1140,49 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"class='preference-disclosure", page.body)
         self.assertNotIn(b"class='choice-definitions-disclosure'", page.body)
         self.assertNotIn(b"What do these choices mean?", page.body)
-        self.assertIn(b"class='choice-help'", page.body)
-        self.assertIn(b"How to choose Job Interests", page.body)
+        self.assertNotIn(b"How to choose Job Interests", page.body)
+        self.assertNotIn(b"data-preference-dimension='job_interests'", page.body)
+        self.assertNotIn(b"preference_job_interests_", page.body)
+        self.assertIn(b"How your preferences affect matches", page.body)
+        self.assertIn(
+            b"We use your preferences whenever a job gives us enough information to compare.",
+            page.body,
+        )
+        self.assertIn(
+            b"if you prefer full-time work and a job is clearly part-time",
+            page.body,
+        )
+        self.assertIn(b"Your background works differently.", page.body)
+        self.assertIn(
+            "You don’t need to choose every job area or task type yourself.".encode("utf-8"),
+            page.body,
+        )
+        self.assertIn(b"class='matching-explanation-disclosure'", page.body)
+        self.assertNotIn(b"class='matching-explanation-disclosure' open", page.body)
         self.assertIn(b"data-preference-dimension=", page.body)
-        self.assertIn(b"data-selection-summary", page.body)
+        self.assertNotIn(
+            b"<p class='selection-summary' data-selection-summary",
+            page.body,
+        )
         self.assertIn(b"updatePreferenceSummaries", page.body)
+        self.assertIn(b"updatePreferenceModes", page.body)
+        self.assertIn(b"validatePreferenceModes", page.body)
+        self.assertIn(b"data-preference-mode-error", page.body)
         self.assertIn(b"aria-describedby=", page.body)
         self.assertIn(b"Choose all that apply", page.body)
-        self.assertIn(b"Each group is separate", page.body)
-        self.assertIn(b"Leave a group blank", page.body)
+        self.assertIn(b"Choose the work conditions you would consider.", page.body)
+        self.assertNotIn(b"Leave a group blank", page.body)
         self.assertNotIn(b"Leave every option blank", page.body)
+        self.assertEqual(page.body.count(b"<strong>No preference</strong>"), 9)
+        self.assertEqual(page.body.count(b"<strong>I have preferences</strong>"), 9)
+        self.assertEqual(
+            page.body.count(b"value='unrestricted' data-preference-mode checked"),
+            9,
+        )
+        self.assertEqual(page.body.count(b"class='preference-option-panel'"), 9)
+        self.assertEqual(page.body.count(b"data-preference-options hidden"), 9)
         self.assertIn(b"More work preferences", page.body)
-        self.assertIn(b"More job areas <span>(16)</span>", page.body)
+        self.assertNotIn(b"More job areas", page.body)
         self.assertIn(b"A few details only you can answer", page.body)
         self.assertIn(b"Independent contractor / freelance", page.body)
         self.assertIn(b"Preferred minimum", page.body)
@@ -1160,18 +1193,20 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b">Team coordination</legend>", page.body)
         self.assertNotIn(b"preference_schedule_time_windows_", page.body)
         self.assertIn(
-            "If a job doesn’t specify this, we’ll still keep it in your matches.".encode("utf-8"),
+            "If a job doesn’t say whether it’s full-time or part-time, we won’t assume it conflicts with your preference.".encode("utf-8"),
             page.body,
         )
+        self.assertNotIn(b"preference-open-note", page.body)
+        self.assertNotIn(b"preference-evidence-note", page.body)
         self.assertIn(b"Add another compensation expectation", page.body)
         self.assertIn(b"compensation-expectation-controls", page.body)
         self.assertNotIn(b"compensation-guide", page.body)
         self.assertEqual(page.body.count(b"Your target. You may choose to lower it"), 1)
         self.assertEqual(page.body.count(b"Your firm floor. Wahojobs will not suggest"), 1)
-        self.assertIn(b"class='choice-more-selected'>Selections made", page.body)
+        self.assertNotIn(b"class='choice-more-selected'>Selections made", page.body)
         self.assertIn(b"class='disclosure-selection-state'>Selections made", page.body)
         self.assertIn(b".job-interest-group > .choice-grid", page.body)
-        self.assertIn(b":has(input:checked)", page.body)
+        self.assertIn(b":has(input[type=checkbox]:checked)", page.body)
         self.assertIn(b"summary:focus-visible", page.body)
         self.assertIn(b"optgroup label='Common currencies'", page.body)
         self.assertIn(b"optgroup label='All other currencies'", page.body)
@@ -1186,6 +1221,8 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         )
         catalog = profile_preference_control_catalog_v2()
         for dimension in catalog["dimensions"]:
+            if dimension["id"] == "job_interests":
+                continue
             for choice in dimension["choices"]:
                 field_name = (
                     "preference_"
@@ -1208,6 +1245,17 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"Anything you cannot do?", page.body)
 
         snapshot = self.integration._processing.vault.get(reference, self._grant())
+        initial_model = snapshot.review.preference_model
+        self.assertEqual(initial_model["employment_relationships"], [])
+        self.assertEqual(initial_model["workloads"], [])
+        self.assertEqual(initial_model["engagement_terms"], [])
+        self.assertEqual(initial_model["schedule"]["flexibility_modes"], [])
+        self.assertEqual(initial_model["schedule"]["coordination_modes"], [])
+        self.assertEqual(initial_model["schedule"]["working_days"], [])
+        self.assertEqual(initial_model["schedule"]["time_of_day"], [])
+        self.assertEqual(initial_model["accepted_phone_voice_modes"], [])
+        self.assertEqual(initial_model["accepted_career_levels"], [])
+        self.assertEqual(initial_model["compensation_expectations"], [])
         model = empty_profile_preferences_v2()
         model["employment_relationships"] = ["employee", "independent_contractor"]
         model["workloads"] = ["full_time", "part_time"]
@@ -1216,7 +1264,6 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         model["schedule"]["working_days"] = ["weekdays", "weekends"]
         model["schedule"]["time_of_day"] = ["business_hours"]
         model["accepted_phone_voice_modes"] = ["non_phone", "phone"]
-        model["job_interests"] = ["customer_support", "software_engineering"]
         model["accepted_career_levels"] = ["entry", "senior"]
         model["compensation_expectations"] = [
             {
@@ -1248,6 +1295,28 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
         form.update(_preference_form_values_for_model(model))
+        forbidden_interest_form = dict(form)
+        forbidden_interest_form[
+            "preference_job_interests_customer_support"
+        ] = "selected"
+        forbidden_interest_body = urlencode(forbidden_interest_form).encode()
+        rejected_interest = self.integration.handle(
+            "POST",
+            target,
+            self._headers(
+                content_type="application/x-www-form-urlencoded",
+                content_length=len(forbidden_interest_body),
+            ),
+            BytesIO(forbidden_interest_body),
+        )
+        self.assertEqual(rejected_interest.status, 400)
+        self.assertEqual(
+            self.integration._processing.vault.get(
+                reference,
+                self._grant(),
+            ).version,
+            snapshot.version,
+        )
         body = urlencode(form).encode()
         updated = self.integration.handle(
             "POST",
@@ -1268,6 +1337,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             saved.review.preference_model["workloads"],
             ["full_time", "part_time"],
         )
+        self.assertEqual(saved.review.preference_model["job_interests"], [])
         self.assertEqual(
             saved.review.preference_model["compensation_expectations"],
             [
@@ -1302,10 +1372,15 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             refreshed.body,
         )
         self.assertIn(
+            b"name='preference_employment_relationships_mode' value='preferences' data-preference-mode aria-controls='preference-employment-relationships-mode-options' checked",
+            refreshed.body,
+        )
+        self.assertIn(
             b"class='preference-disclosure more-preference-disclosure' open",
             refreshed.body,
         )
         self.assertIn("Selections made — open to review".encode("utf-8"), refreshed.body)
+        self.assertNotIn(b"preference_job_interests_", refreshed.body)
 
         stale_form = dict(form)
         stale_form["version"] = str(saved.version)
@@ -1392,6 +1467,101 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             BytesIO(bad_body),
         )
         self.assertEqual(rejected.status, 400)
+
+    def test_existing_confirmed_job_interests_remain_editable(self):
+        model = empty_profile_preferences_v2()
+        model["job_interests"] = ["customer_support", "search_evaluation"]
+
+        rendered = _render_preference_controls(model).encode("utf-8")
+        self.assertIn(b">Job interests</legend>", rendered)
+        self.assertIn(
+            b"These interests were already confirmed in your profile",
+            rendered,
+        )
+        self.assertIn(
+            b"name='preference_job_interests_customer_support' value='selected' checked",
+            rendered,
+        )
+        self.assertIn(
+            b"name='preference_job_interests_search_evaluation' value='selected' checked",
+            rendered,
+        )
+
+        parsed, _submitted = _preference_model_from_form(
+            {
+                name: [value]
+                for name, value in _preference_form_values_for_model(model).items()
+            },
+            model,
+        )
+        self.assertEqual(parsed, model)
+
+    def test_no_preference_mode_is_explicit_and_fail_closed(self):
+        model = empty_profile_preferences_v2()
+        unrestricted = _preference_form_values_for_model(model)
+        self.assertEqual(
+            unrestricted["preference_employment_relationships_mode"],
+            "unrestricted",
+        )
+        self.assertNotIn(
+            "preference_employment_relationships_employee",
+            unrestricted,
+        )
+        parsed, _submitted = _preference_model_from_form(
+            {name: [value] for name, value in unrestricted.items()},
+            model,
+        )
+        self.assertEqual(parsed, model)
+
+        preferences = dict(unrestricted)
+        preferences["preference_employment_relationships_mode"] = "preferences"
+        preferences["preference_employment_relationships_employee"] = "selected"
+        preferences[
+            "preference_employment_relationships_independent_contractor"
+        ] = "selected"
+        parsed, _submitted = _preference_model_from_form(
+            {name: [value] for name, value in preferences.items()},
+            model,
+        )
+        self.assertEqual(
+            parsed["employment_relationships"],
+            ["employee", "independent_contractor"],
+        )
+
+        returned_to_unrestricted = dict(preferences)
+        returned_to_unrestricted["preference_employment_relationships_mode"] = (
+            "unrestricted"
+        )
+        returned_to_unrestricted.pop(
+            "preference_employment_relationships_employee"
+        )
+        returned_to_unrestricted.pop(
+            "preference_employment_relationships_independent_contractor"
+        )
+        parsed, _submitted = _preference_model_from_form(
+            {
+                name: [value]
+                for name, value in returned_to_unrestricted.items()
+            },
+            parsed,
+        )
+        self.assertEqual(parsed["employment_relationships"], [])
+
+        contradictory = dict(returned_to_unrestricted)
+        contradictory["preference_employment_relationships_employee"] = "selected"
+        with self.assertRaisesRegex(ProfileIntakeError, "invalid_review_submission"):
+            _preference_model_from_form(
+                {name: [value] for name, value in contradictory.items()},
+                model,
+            )
+
+        empty_preferences = dict(unrestricted)
+        empty_preferences["preference_workloads_mode"] = "preferences"
+        with self.assertRaisesRegex(ProfileIntakeError, "invalid_review_submission"):
+            _preference_model_from_form(
+                {name: [value] for name, value in empty_preferences.items()},
+                model,
+            )
 
     def test_review_rejects_invalid_values_and_never_places_content_in_url(self):
         document = _docx_bytes(paragraphs=("Synthetic Software Engineer Example Systems",))

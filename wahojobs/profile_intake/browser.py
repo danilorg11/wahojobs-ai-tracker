@@ -326,9 +326,22 @@ function updatePreferenceSummaries(){
   Array.prototype.forEach.call(form.querySelectorAll('[data-preference-dimension]'),function(group){var summary=group.querySelector('[data-selection-summary]');if(!summary){return;}var labels=[];Array.prototype.forEach.call(group.querySelectorAll('input[type=checkbox]:checked'),function(input){var strong=input.closest('label')&&input.closest('label').querySelector('strong');if(strong){labels.push(strong.textContent.trim());}});var visible=labels.slice(0,4);if(labels.length>4){visible.push('+'+(labels.length-4)+' more');}var values=summary.querySelector('[data-selection-values]');if(values){values.textContent=visible.join(', ');}summary.hidden=!labels.length;});
   var secondary=form.querySelector('.more-preference-disclosure');if(secondary){var count=secondary.querySelectorAll('input[type=checkbox]:checked').length;var state=secondary.querySelector('.disclosure-selection-state');if(state){state.textContent=count+(count===1?' selection':' selections')+' — open to review';}}
 }
+function updatePreferenceMode(group,reset){
+  var mode=group.querySelector('[data-preference-mode]:checked');var panel=group.querySelector('[data-preference-options]');var error=group.querySelector('[data-preference-mode-error]');var active=!!(mode&&mode.value==='preferences');
+  if(!active&&reset){Array.prototype.forEach.call(group.querySelectorAll('[data-preference-options] input[type=checkbox]'),function(input){input.checked=false;});}
+  Array.prototype.forEach.call(group.querySelectorAll('[data-preference-options] input[type=checkbox]'),function(input){input.disabled=!active;});
+  if(panel){panel.hidden=!active;}
+  var preferences=group.querySelector('[data-preference-mode][value="preferences"]');if(preferences){preferences.setAttribute('aria-expanded',active?'true':'false');}
+  var valid=!active||!!group.querySelector('[data-preference-options] input[type=checkbox]:checked');if(valid&&error){error.hidden=true;}if(valid&&preferences){preferences.removeAttribute('aria-invalid');preferences.removeAttribute('aria-describedby');}
+}
+function updatePreferenceModes(target){Array.prototype.forEach.call(form.querySelectorAll('[data-preference-dimension]'),function(group){var reset=!!(target&&target.matches&&target.matches('[data-preference-mode]')&&target.value==='unrestricted'&&group.contains(target));updatePreferenceMode(group,reset);});}
+function validatePreferenceModes(focusFirst,showErrors){
+  var first=null;Array.prototype.forEach.call(form.querySelectorAll('[data-preference-dimension]'),function(group){var mode=group.querySelector('[data-preference-mode]:checked');var preferences=group.querySelector('[data-preference-mode][value="preferences"]');var error=group.querySelector('[data-preference-mode-error]');var valid=!!mode&&(mode.value!=='preferences'||!!group.querySelector('[data-preference-options] input[type=checkbox]:checked'));if(valid){if(error){error.hidden=true;}if(preferences){preferences.removeAttribute('aria-invalid');preferences.removeAttribute('aria-describedby');}}else if(showErrors){if(error){error.hidden=false;}if(preferences){preferences.setAttribute('aria-invalid','true');if(error&&error.id){preferences.setAttribute('aria-describedby',error.id);}}if(!first){first=preferences||mode||group;}}});
+  if(first){show('attention','Choose at least one option, or select No preference.',false,false);if(focusFirst){first.focus();if(first.scrollIntoView){first.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}return !Array.prototype.some.call(form.querySelectorAll('[data-preference-dimension]'),function(group){var mode=group.querySelector('[data-preference-mode]:checked');return !mode||(mode.value==='preferences'&&!group.querySelector('[data-preference-options] input[type=checkbox]:checked'));});
+}
 function schedule(){if(!autosave){return;}dirty=true;window.clearTimeout(timer);timer=window.setTimeout(function(){saveNow(false);},1500);}
 function saveNow(keepalive){
-  if(!autosave||!dirty){return current||Promise.resolve(true);}if(saving){return current;}if(!validateCollections(false)){dirty=true;return Promise.resolve(false);}
+  if(!autosave||!dirty){return current||Promise.resolve(true);}if(saving){return current;}if(!validateCollections(false)||!validatePreferenceModes(false,false)){dirty=true;return Promise.resolve(false);}
   saving=true;dirty=false;show('saving','Saving…',false,false);var material=autosaveMaterial();var data=material.data;data.set('action','autosave');data.set('version',autosave.querySelector('input[name=version]').value);data.set('csrf',autosave.querySelector('input[name=csrf]').value);
   current=window.fetch(form.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',keepalive:!!keepalive,headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===204&&applyTokens(response)){Array.prototype.forEach.call(material.submittedNew,function(item){item.removeAttribute('data-collection-new');});show('saved','Progress saved',false,false);return true;}dirty=true;if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);}else if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);}else if(response.status===400){show('error','Check the highlighted details, then retry saving.',true,false);}else{show('error','We could not save your progress. Try again.',true,false);}return false;}).catch(function(){dirty=true;show('error','We could not save your progress. Try again.',true,false);return false;}).finally(function(){saving=false;current=null;});return current;
 }
@@ -338,14 +351,14 @@ function focusFirstNativeInvalid(){var first=form.querySelector(':invalid');if(!
 Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^="#review-"]'),function(link){link.addEventListener('click',function(){setStep(link.getAttribute('href').slice(1));});});
 form.addEventListener('focusin',rememberSection);form.addEventListener('pointerdown',rememberSection);window.addEventListener('hashchange',function(){setStep(window.location.hash.slice(1));});
 form.addEventListener('click',function(event){var add=event.target.closest&&event.target.closest('[data-collection-add]');if(!add){return;}var editor=add.closest('[data-review-collection]');var template=editor&&editor.querySelector('template[data-collection-template]');var container=editor&&editor.querySelector('[data-collection-items]');var index=Number(editor&&editor.dataset.nextIndex);var limit=Number(editor&&editor.dataset.limit);if(!template||!container||!Number.isInteger(index)||index<0||index>=limit){return;}var fragment=template.content.cloneNode(true);var item=fragment.querySelector('[data-collection-item]');replaceIndex(item,'__INDEX__',index);container.appendChild(fragment);editor.dataset.nextIndex=String(index+1);var empty=editor.querySelector('.collection-empty');if(empty){empty.hidden=true;}var input=item.querySelector('input:not([type=checkbox]),select');if(input){input.focus();}activity();});
-form.addEventListener('change',function(event){if(event.target.matches&&event.target.matches('[data-collection-remove]')&&event.target.checked){var item=event.target.closest('[data-collection-new]');if(item){var editor=item.closest('[data-review-collection]');item.remove();renumberNewItems(editor);}}activity();updatePreferenceSummaries();validateCollections(false);schedule();});
+form.addEventListener('change',function(event){if(event.target.matches&&event.target.matches('[data-collection-remove]')&&event.target.checked){var item=event.target.closest('[data-collection-new]');if(item){var editor=item.closest('[data-review-collection]');item.remove();renumberNewItems(editor);}}activity();updatePreferenceModes(event.target);updatePreferenceSummaries();validateCollections(false);schedule();});
 form.addEventListener('input',function(){activity();updatePreferenceSummaries();validateCollections(false);schedule();});
 form.addEventListener('keydown',function(event){if(event.key==='Enter'&&event.target.matches&&event.target.matches('input:not([type=submit]):not([type=button])')){event.preventDefault();validateCollections(true);}});
-form.addEventListener('submit',function(event){if(allowSubmit){return;}event.preventDefault();var submitter=event.submitter;if(!submitter){return;}if(!validateCollections(true)){return;}dropEmptyPlaceholders();if(!form.checkValidity()){form.reportValidity();focusFirstNativeInvalid();return;}flush().then(function(ok){if(!ok){return;}allowSubmit=true;if(form.requestSubmit){form.requestSubmit(submitter);}else{form.submit();}allowSubmit=false;});});
+form.addEventListener('submit',function(event){if(allowSubmit){return;}event.preventDefault();var submitter=event.submitter;if(!submitter){return;}if(!validateCollections(true)||!validatePreferenceModes(true,true)){return;}dropEmptyPlaceholders();if(!form.checkValidity()){form.reportValidity();focusFirstNativeInvalid();return;}flush().then(function(ok){if(!ok){return;}allowSubmit=true;if(form.requestSubmit){form.requestSubmit(submitter);}else{form.submit();}allowSubmit=false;});});
 if(discard){discard.addEventListener('submit',function(event){window.clearTimeout(timer);dirty=false;if(allowDiscard||!saving){return;}event.preventDefault();Promise.resolve(current).then(function(){dirty=false;allowDiscard=true;if(discard.requestSubmit){discard.requestSubmit();}else{discard.submit();}allowDiscard=false;});});}
 if(retry){retry.addEventListener('click',function(){saveNow(false);});}
 function tick(){var now=Date.now();if(saving||document.visibilityState!=='visible'||!lastActivity||now-lastActivity>360000||now-lastRenewed<300000){return;}lastRenewed=now;var data=new URLSearchParams(new FormData(renew));window.fetch(renew.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);return;}if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);return;}if(!response.ok){return;}var remaining=Number(response.headers.get('X-Wahojobs-Review-Absolute-Seconds'));if(Number.isFinite(remaining)&&remaining<=600){show('warning','This review session closes in about '+Math.max(1,Math.ceil(remaining/60))+' minutes. Your saved progress will remain available.',false,false);}}).catch(function(){});}
-window.setInterval(tick,60000);window.addEventListener('pagehide',function(){if(dirty&&!saving){saveNow(true);}});updatePreferenceSummaries();show('saved',autosave?'Progress saved':'Review active',false,false);
+window.setInterval(tick,60000);window.addEventListener('pagehide',function(){if(dirty&&!saving){saveNow(true);}});updatePreferenceModes(null);updatePreferenceSummaries();show('saved',autosave?'Progress saved':'Review active',false,false);
 }());""".replace(
     "__REVIEW_STEPS__",
     json.dumps(PROFILE_INTAKE_REVIEW_STEPS, ensure_ascii=True),
@@ -1119,7 +1132,10 @@ def _review_from_form(review, form, *, allow_pending=False):
         if value is None:
             raise ProfileIntakeError("invalid_review_submission")
         user_inputs[name] = value
-    preference_model, preference_fields = _preference_model_from_form(form)
+    preference_model, preference_fields = _preference_model_from_form(
+        form,
+        review.preference_model,
+    )
     expected.update(preference_fields)
     if set(form) != expected:
         raise ProfileIntakeError("invalid_review_submission")
@@ -1317,16 +1333,26 @@ def _uses_compact_suggestion_choice(fact):
     )
 
 
-def _preference_model_from_form(form):
+def _preference_model_from_form(form, current_model):
     """Build the sole authoritative model from closed server-owned controls."""
 
     if type(form) is not dict:
         raise ProfileIntakeError("invalid_review_submission")
+    try:
+        current = preference_model_for_v2_editor(current_model)
+    except ProfilePreferenceModelError:
+        raise ProfileIntakeError("invalid_review_submission") from None
+    allow_existing_job_interests = bool(current["job_interests"])
     catalog = profile_preference_control_catalog_v2()
     model = empty_profile_preferences_v2()
     allowed_checkbox_fields = {}
+    allowed_mode_fields = {}
     for dimension in catalog["dimensions"]:
+        if dimension["id"] == "job_interests" and not allow_existing_job_interests:
+            continue
         path = dimension["path"]
+        mode_field = _preference_mode_field(path)
+        allowed_mode_fields[mode_field] = path
         for choice in dimension["choices"]:
             field_name = _preference_choice_field(path, choice["code"])
             allowed_checkbox_fields[field_name] = (path, choice["code"])
@@ -1334,16 +1360,33 @@ def _preference_model_from_form(form):
     submitted = {_PREFERENCE_COMPENSATION_MARKER}
     if _single(form, _PREFERENCE_COMPENSATION_MARKER) != "present":
         raise ProfileIntakeError("invalid_review_submission")
+    modes = {}
+    for field_name, path in allowed_mode_fields.items():
+        mode = _single(form, field_name)
+        if mode not in {"unrestricted", "preferences"}:
+            raise ProfileIntakeError("invalid_review_submission")
+        modes[path] = mode
+        submitted.add(field_name)
     for field_name, (path, code) in allowed_checkbox_fields.items():
         if field_name not in form:
             continue
         if _single(form, field_name) != "selected":
+            raise ProfileIntakeError("invalid_review_submission")
+        if modes[path] != "preferences":
             raise ProfileIntakeError("invalid_review_submission")
         parent = model
         for part in path[:-1]:
             parent = parent[part]
         parent[path[-1]].append(code)
         submitted.add(field_name)
+    for path, mode in modes.items():
+        if mode != "preferences":
+            continue
+        parent = model
+        for part in path:
+            parent = parent[part]
+        if not parent:
+            raise ProfileIntakeError("invalid_review_submission")
 
     expectations, expectation_fields = _compensation_expectations_from_form(form)
     model["compensation_expectations"] = expectations
@@ -1407,6 +1450,13 @@ def _preference_choice_field(path, code):
     return name
 
 
+def _preference_mode_field(path):
+    name = "preference_" + "_".join((*path, "mode"))
+    if _FIELD_NAME.fullmatch(name) is None:
+        raise ProfileIntakeError("invalid_review_submission")
+    return name
+
+
 def _preference_form_values_for_model(model):
     """Return the exact browser fields for tests and server-built replays."""
 
@@ -1417,6 +1467,11 @@ def _preference_form_values_for_model(model):
         parent = canonical
         for part in path:
             parent = parent[part]
+        if dimension["id"] == "job_interests" and not parent:
+            continue
+        fields[_preference_mode_field(path)] = (
+            "preferences" if parent else "unrestricted"
+        )
         for code in parent:
             fields[_preference_choice_field(path, code)] = "selected"
     for index, compensation in enumerate(canonical["compensation_expectations"]):
@@ -1839,6 +1894,18 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         if missing
         else ""
     )
+    matching_explanation = (
+        "<details class='matching-explanation-disclosure'>"
+        "<summary><span class='matching-explanation-icon' aria-hidden='true'>&#9432;</span>"
+        "<span>How your preferences affect matches</span></summary>"
+        "<div class='matching-explanation-body'>"
+        "<p><strong>We use your preferences whenever a job gives us enough information to compare.</strong></p>"
+        "<p>For example, if you prefer full-time work and a job is clearly part-time, it may not appear in your main matches. "
+        "If a job doesn’t say whether it’s full-time or part-time, we won’t assume it conflicts with your preference.</p>"
+        "<p><strong>Your background works differently.</strong> We use your experience, skills, languages, and education to find "
+        "AI training and evaluation opportunities that fit you. You don’t need to choose every job area or task type yourself.</p>"
+        "</div></details>"
+    )
     body = f"""
     {_authenticated_navigation()}
     <section class='profile-header intake-hero intake-review-hero'><p class='eyebrow'>Your Wahojobs profile draft</p><h1>Review it and make it yours</h1>
@@ -1871,7 +1938,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         </div>
       </section>
       <section class='review-section' id='review-suggestions' aria-labelledby='review-suggestions-title'><div class='section-heading'><p class='eyebrow'>Step 2 of 4</p><h2 id='review-suggestions-title'>Confirm our suggestions</h2><p>Confirm the experience details we interpreted from your documents.</p></div>{suggestion_content}{conflict_section}</section>
-      <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose all the options you would consider. Each group is separate, so choices such as freelance and full-time can work together.</p><p class='preference-open-note'>Leave a group blank when you are open to all of its options.</p></div>{_render_preference_controls(snapshot.review.preference_model)}
+      <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose the work conditions you would consider.</p></div>{matching_explanation}{_render_preference_controls(snapshot.review.preference_model)}
         {missing_section}</section>
       <section class='review-section finish-section' id='review-finish' aria-labelledby='review-finish-title'><div class='finish-panel'><p class='eyebrow'>Step 4 of 4</p><h2 id='review-finish-title'>Review &amp; find matches</h2><p>When everything looks right, see the opportunities that fit the profile you confirmed. You can update your profile later.</p><div class='finish-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></div></div></section>
     </form>
@@ -2341,6 +2408,8 @@ def _render_preference_controls(model):
         for part in dimension["path"]:
             parent = parent[part]
         selected = set(parent)
+        if dimension["id"] == "job_interests" and not selected:
+            continue
         choice_by_code = {choice["code"]: choice for choice in dimension["choices"]}
         ordered_choices = tuple(dimension["choices"])
         visible_choices = ordered_choices
@@ -2409,16 +2478,38 @@ def _render_preference_controls(model):
         )
         local_help = (
             "<details class='choice-help'><summary>How to choose Job Interests</summary>"
-            "<p>Select the job areas you want to see now. You do not need to repeat every skill or past industry, and your work history does not select these for you.</p></details>"
+            "<p>These interests were already confirmed in your profile and still shape your matches. Keep, change, or clear them here.</p></details>"
             if dimension["id"] == "job_interests"
             else ""
         )
-        section = (
-            f"<fieldset class='preference-group{' job-interest-group' if dimension['id'] == 'job_interests' else ''}' aria-describedby='{help_id}' data-preference-dimension='{_safe_text(dimension['id'])}'>"
-            f"<legend>{_safe_text(dimension['title'])}</legend><span class='selection-hint'>Choose all that apply</span>"
+        mode_field = _preference_mode_field(dimension["path"])
+        mode_slug = mode_field.replace("_", "-")
+        options_id = mode_slug + "-options"
+        error_id = mode_slug + "-error"
+        has_preferences = bool(selected)
+        mode_controls = (
+            "<div class='choice-grid preference-mode-grid' data-preference-mode-controls>"
+            f"<label class='choice-card' for='{mode_slug}-unrestricted'>"
+            f"<input id='{mode_slug}-unrestricted' type='radio' name='{mode_field}' value='unrestricted' data-preference-mode"
+            f"{' checked' if not has_preferences else ''} required>"
+            "<span><strong>No preference</strong><small>I’m open to any.</small></span></label>"
+            f"<label class='choice-card' for='{mode_slug}-preferences'>"
+            f"<input id='{mode_slug}-preferences' type='radio' name='{mode_field}' value='preferences' data-preference-mode aria-controls='{options_id}'"
+            f"{' checked' if has_preferences else ''} required>"
+            "<span><strong>I have preferences</strong><small>Show the choices I can select.</small></span></label></div>"
+        )
+        option_controls = (
+            f"<div class='preference-option-panel' id='{options_id}' data-preference-options"
+            f"{' hidden' if not has_preferences else ''}>"
+            "<span class='selection-hint'>Choose all that apply</span>"
             f"<p class='muted' id='{help_id}'>{_safe_text(dimension['help'])}</p>"
             f"{selection_summary}<div class='choice-grid'>{''.join(choice_markup(choice) for choice in visible_choices)}</div>"
-            f"{more_markup}{local_help}</fieldset>"
+            f"{more_markup}{local_help}</div>"
+            f"<p class='preference-mode-error' id='{error_id}' data-preference-mode-error role='alert' hidden>Choose at least one option, or select No preference.</p>"
+        )
+        section = (
+            f"<fieldset class='preference-group{' job-interest-group' if dimension['id'] == 'job_interests' else ''}' aria-describedby='{help_id}' data-preference-dimension='{_safe_text(dimension['id'])}'>"
+            f"<legend>{_safe_text(dimension['title'])}</legend>{mode_controls}{option_controls}</fieldset>"
         )
         if dimension["id"] in _IMMEDIATE_PREFERENCE_DIMENSIONS:
             immediate_sections.append(section)
@@ -2459,8 +2550,7 @@ def _render_preference_controls(model):
         "<small class='disclosure-selection-state'>Selections made — open to review</small>"
         "<small class='disclosure-empty-state'>Schedule, contract length, phone or voice work, and career level</small>"
         "</span></summary>"
-        "<div class='disclosure-body'><p class='preference-evidence-note'>These are preferences, not automatic exclusions when a job leaves details out. If a job doesn’t specify this, we’ll still keep it in your matches.</p>"
-        f"{''.join(secondary_sections)}</div></details>"
+        f"<div class='disclosure-body'>{''.join(secondary_sections)}</div></details>"
     )
     return "".join((*immediate_sections, compensation_section, secondary_disclosure))
 

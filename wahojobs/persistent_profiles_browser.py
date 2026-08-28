@@ -2121,6 +2121,10 @@ def _page(title: str, body: str) -> str:
     .intake-review-form .choice-fieldset legend, .intake-review-form .preference-group legend {{ font-size: 18px; padding: 0; }}
     .intake-review-form .selection-hint {{ margin: 8px 0 4px; }}
     .intake-review-form .choice-grid {{ gap: 10px; margin: 14px 0; }}
+    .preference-mode-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 8px !important; }}
+    .preference-mode-grid .choice-card {{ align-items: center; }}
+    .preference-option-panel {{ margin-top: 18px; }}
+    .preference-mode-error {{ color: #8a3d35; font-size: 13px; font-weight: 700; margin: 10px 0 0; }}
     .intake-review-form .choice-card {{ background: white; border-color: #c8d4cf; border-radius: 10px; min-height: 48px; padding: 13px; transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }}
     .intake-review-form .choice-card:hover {{ border-color: #6e9686; }}
     .intake-review-form .choice-card:has(input:checked) {{ background: #eaf6f0; border-color: #2f755b; box-shadow: inset 0 0 0 1px #2f755b; }}
@@ -2129,7 +2133,13 @@ def _page(title: str, body: str) -> str:
     .intake-review-form .choice-card small {{ color: #66716c; display: block; font-size: 12px; font-weight: 400; line-height: 1.4; margin-top: 3px; }}
     .intake-review-form details {{ margin-top: 8px; }}
     .intake-review-form details[open] {{ background: #f5f8f6; border-radius: 10px; padding: 0 12px 10px; }}
-    .preference-open-note {{ background: #f1f7f4; border-radius: 8px; color: #315d4d !important; display: inline-block; font-size: 14px !important; margin: 8px 0 0; padding: 8px 11px; }}
+    .matching-explanation-disclosure {{ border: 1px solid #dce6e1; border-radius: 10px; margin: 14px 0 4px !important; overflow: hidden; }}
+    .matching-explanation-disclosure > summary {{ align-items: center; display: flex; font-size: 14px; gap: 8px; min-height: 44px; padding: 10px 12px !important; }}
+    .matching-explanation-icon {{ color: #2f755b; font-size: 18px; line-height: 1; }}
+    .intake-review-form .matching-explanation-disclosure[open] {{ background: #f5f8f6; border-radius: 10px; padding: 0; }}
+    .matching-explanation-disclosure[open] > summary {{ border-bottom: 1px solid #e2e9e6; }}
+    .matching-explanation-body {{ padding: 4px 14px 14px; }}
+    .matching-explanation-body p {{ color: #53605b; font-size: 14px; line-height: 1.55; margin: 10px 0 0; }}
     .selection-summary {{ background: #edf6f1; border-radius: 8px; color: #315d4d; font-size: 13px; line-height: 1.45; margin: 12px 0; padding: 9px 11px; }}
     .suggestion-tag {{ background: #dff2e9; border-radius: 999px; color: #245b46; display: inline-block; font-size: 11px; font-weight: 800; margin: 0 0 0 8px; padding: 3px 7px; text-transform: uppercase; }}
     .classification-help {{ margin: 10px 0 14px; }}
@@ -2147,8 +2157,8 @@ def _page(title: str, body: str) -> str:
     .preference-disclosure > summary > span {{ display: grid; font-size: 17px; gap: 3px; }}
     .preference-disclosure > summary small {{ color: #66716c; font-size: 13px; font-weight: 500; line-height: 1.4; }}
     .preference-disclosure .disclosure-selection-state {{ display: none; }}
-    .more-preference-disclosure:has(input:checked) .disclosure-selection-state {{ display: block; }}
-    .more-preference-disclosure:has(input:checked) .disclosure-empty-state {{ display: none; }}
+    .more-preference-disclosure:has(input[type=checkbox]:checked) .disclosure-selection-state {{ display: block; }}
+    .more-preference-disclosure:has(input[type=checkbox]:checked) .disclosure-empty-state {{ display: none; }}
     .intake-review-form .preference-disclosure[open] {{ background: transparent; border-radius: 12px; padding: 0; }}
     .preference-disclosure[open] > summary {{ border-bottom: 1px solid #e2e9e6; }}
     .disclosure-body {{ padding: 0 20px 22px; }}
@@ -2167,7 +2177,6 @@ def _page(title: str, body: str) -> str:
     .compensation-kind-guide div {{ margin: 0; }}
     .compensation-kind-guide dt {{ font-weight: 750; }}
     .compensation-kind-guide dd {{ color: #66716c; font-size: 13px; margin: 2px 0 0; }}
-    .preference-evidence-note {{ background: #eef6f2; border-radius: 10px; color: #3d5148; margin: 18px 0 4px; padding: 14px 16px; }}
     .finish-section {{ padding-bottom: 0; }}
     .finish-panel {{ background: #eaf6f0; border-radius: 16px; padding: clamp(24px, 4vw, 36px); }}
     .finish-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 14px 18px; margin-top: 22px; }}
@@ -2205,6 +2214,7 @@ def _page(title: str, body: str) -> str:
       .skills-collection .skill-token {{ max-width: 100%; }}
       .intake-review-form .job-interest-group > .choice-grid,
       .intake-review-form .job-interest-more .choice-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .preference-mode-grid {{ grid-template-columns: 1fr; }}
       .compensation-group {{ margin-left: -8px !important; margin-right: -8px !important; padding: 20px !important; }}
       .preference-disclosure > summary {{ padding: 13px 14px !important; }}
       .disclosure-body {{ padding: 0 14px 18px; }}

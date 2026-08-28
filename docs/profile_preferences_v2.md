@@ -32,6 +32,26 @@ engagement term, flexibility, coordination, phone/voice, job interests, and
 career levels. Working days are `weekdays` or `weekends`; time of day is
 `business_hours` or `evenings`. They are independent dimensions.
 
+For the AI-training-first V1 onboarding, new AI-assisted drafts keep
+`job_interests` empty and do not present that taxonomy as a question. Empty
+remains unrestricted. Candidate experience, skills, languages, education,
+industries, and specialties supply relevance evidence for AI training and
+evaluation opportunities; candidates do not have to enumerate every domain or
+activity to avoid missing work. Existing V1/V2 profiles with confirmed
+`job_interests` are neither migrated nor reinterpreted, and their existing
+typed enforcement and relaxation behavior remains unchanged.
+
+The AI intake editor presents each non-compensation soft dimension with an
+explicit **No preference** or **I have preferences** state. No preference is
+the default for a new draft and persists the existing empty/unrestricted list;
+choosing preferences requires at least one allowlisted value. Returning to no
+preference clears that dimension. This is presentation and form authority only:
+the persisted V2 contract and matcher interpretation of an empty list are
+unchanged. A single accessible Step 3 disclosure explains that preferences are
+used when an opportunity provides comparable evidence, while missing evidence
+is not treated as a conflict; background facts continue to drive AI-training
+relevance without requiring candidate-maintained job taxonomies.
+
 Each compensation expectation has exactly `minimum_kind`, `amount`,
 `currency`, and `period`. Minimum kind is `preferred` or `strict`; amount is a
 positive canonical decimal string; currency uses the existing closed ISO 4217

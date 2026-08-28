@@ -738,8 +738,11 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertNotIn(b"Suggested from your experience", page.body)
         self.assertNotIn(b"Choose any that you want to add to your Job Interests.", page.body)
         self.assertNotIn(b"What do these choices mean?", page.body)
-        self.assertIn(b"How to choose Job Interests", page.body)
-        self.assertIn(b"data-selection-summary", page.body)
+        self.assertNotIn(b"How to choose Job Interests", page.body)
+        self.assertNotIn(
+            b"<p class='selection-summary' data-selection-summary",
+            page.body,
+        )
         self.assertIn(b"updatePreferenceSummaries", page.body)
         self.assertIn(b"data-collection-error", page.body)
         self.assertIn(b"data-step-attention", page.body)
@@ -747,14 +750,16 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertIn(b"scrollIntoView", page.body)
         self.assertIn(b"form.addEventListener('keydown'", page.body)
         self.assertIn(b"event.preventDefault();validateCollections(true)", page.body)
-        self.assertIn(
+        self.assertNotIn(
             b"name='preference_job_interests_customer_support' value='selected'>",
             page.body,
         )
-        self.assertIn(
+        self.assertNotIn(
             b"name='preference_job_interests_ai_training' value='selected'>",
             page.body,
         )
+        self.assertIn(b"How your preferences affect matches", page.body)
+        self.assertIn(b"Your background works differently.", page.body)
 
         snapshot = integration._processing.vault.get(
             reference, self._grant(integration)

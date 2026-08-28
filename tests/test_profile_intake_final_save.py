@@ -736,6 +736,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             action="autosave",
             changes={0: "Saved Synthetic Candidate"},
             preference_overrides={
+                "preference_employment_relationships_mode": "preferences",
                 "preference_employment_relationships_independent_contractor": "selected"
             },
         )
@@ -894,6 +895,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 action="autosave",
                 changes={0: "Resumable Synthetic Candidate"},
                 preference_overrides={
+                    "preference_employment_relationships_mode": "preferences",
                     "preference_employment_relationships_independent_contractor": "selected"
                 },
                 review_step="review-preferences",
@@ -970,9 +972,13 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
     def test_v2_schedule_and_compensation_expectations_autosave_resume_and_finalize(self):
         reference = self._reference(self._upload())
         overrides = {
+            "preference_schedule_working_days_mode": "preferences",
             "preference_schedule_working_days_weekdays": "selected",
+            "preference_schedule_time_of_day_mode": "preferences",
             "preference_schedule_time_of_day_business_hours": "selected",
+            "preference_schedule_flexibility_modes_mode": "preferences",
             "preference_schedule_flexibility_modes_flexible": "selected",
+            "preference_schedule_coordination_modes_mode": "preferences",
             "preference_schedule_coordination_modes_asynchronous": "selected",
             "preference_compensation_0_minimum_kind": "preferred",
             "preference_compensation_0_amount": "30.00",
@@ -1038,6 +1044,83 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertIn("business hours", profile["preferences"]["schedule"])
         self.assertIn("USD 30 per hour", profile["preferences"]["rate_pay_preference"])
         self.assertIn("USD 90000 per year", profile["preferences"]["rate_pay_preference"])
+
+    def test_no_preference_clears_dimension_and_resumes_unrestricted(self):
+        reference = self._reference(self._upload())
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        incomplete = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                preference_overrides={
+                    "preference_workloads_mode": "preferences",
+                },
+                review_step="review-preferences",
+            ),
+        )
+        self.assertEqual(incomplete.status, 400)
+        unchanged = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(unchanged.version, initial.version)
+        self.assertEqual(unchanged.review.preference_model["workloads"], [])
+
+        selected = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                preference_overrides={
+                    "preference_workloads_mode": "preferences",
+                    "preference_workloads_part_time": "selected",
+                },
+                review_step="review-preferences",
+            ),
+        )
+        self.assertEqual(selected.status, 204)
+        self.assertEqual(
+            self.integration._processing.vault.get(
+                reference,
+                self._grant(),
+            ).review.preference_model["workloads"],
+            ["part_time"],
+        )
+
+        unrestricted_form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    review_step="review-preferences",
+                ).decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        unrestricted_form["preference_workloads_mode"] = "unrestricted"
+        unrestricted_form.pop("preference_workloads_part_time")
+        cleared = self._post_review(
+            reference,
+            urlencode(unrestricted_form).encode("ascii"),
+        )
+        self.assertEqual(cleared.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+        with self._database() as connection:
+            payload = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        self.assertEqual(payload["preference_model"]["workloads"], [])
+
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference,
+            self._grant(),
+        )
+        self.assertEqual(resumed.review.preference_model["workloads"], [])
 
     def test_integer_total_years_autosaves_resumes_and_persists_canonically(self):
         self.integration.close()
@@ -1119,14 +1202,16 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertNotIn(b"Role responsibility", page.body)
         self.assertNotIn(b"Suggested from your experience", page.body)
         self.assertNotIn(b"Choose any that you want to add to your Job Interests.", page.body)
-        self.assertIn(
+        self.assertNotIn(
             b"name='preference_job_interests_customer_support' value='selected'>",
             page.body,
         )
-        self.assertIn(
+        self.assertNotIn(
             b"name='preference_job_interests_ai_training' value='selected'>",
             page.body,
         )
+        self.assertIn(b"How your preferences affect matches", page.body)
+        self.assertIn(b"Your background works differently.", page.body)
 
         initial = self.integration._processing.vault.get(reference, self._grant())
         internal_index = next(
