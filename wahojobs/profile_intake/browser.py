@@ -51,8 +51,11 @@ from wahojobs.profile_intake.runtime import (
     normalize_profile_intake_review_step,
     profile_intake_csrf_proof,
     review_collection_entries,
+    review_reset_section_available,
     review_value_for_form,
     update_editable_review,
+    _parse_review_value,
+    _review_reset_section_for_fact,
 )
 from wahojobs.profiles.education_entries import (
     EDUCATION_ENTRY_KINDS,
@@ -91,6 +94,13 @@ _ALLOWED_MULTIPART_NAMES = frozenset({"csrf", *_FILE_PARTS})
 _MIME_PDF = b"application/pdf"
 _MIME_DOCX = b"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PREFERENCE_COMPENSATION_MARKER = "preference_compensation_expectations_present"
+_REVIEW_CONFIRM_FIELD = "review_confirm_step"
+_SECTION_RESET_FIELD = "reset_section"
+_PROFILE_BASICS_REVIEW_STEP = "review-found"
+_BACKGROUND_REVIEW_STEP = "review-suggestions"
+_HIDDEN_BACKGROUND_FIELD_PATHS = frozenset(
+    {"experience.industries", "experience.seniority"}
+)
 
 _CLASSIFICATION_DESCRIPTIONS = {
     "advanced_degree": "A graduate or professional qualification beyond a bachelor's degree.",
@@ -144,7 +154,7 @@ _REVIEW_FIELD_LABELS = {
     "display_name": "Name",
     "country": "Based in",
     "total_years": "Total years of professional experience",
-    "seniority": "Experience level",
+    "seniority": "Overall career stage",
     "industries": "Industry",
     "specialties": "Relevant specialties",
     "graduation_years": "Completion year",
@@ -247,6 +257,18 @@ if(!form||!renew||!status||!label||!window.fetch){return;}
 var dirty=false;var saving=false;var current=null;var timer=null;
 var allowSubmit=false;var allowDiscard=false;var lastActivity=0;var lastRenewed=Date.now();
 var step=form.querySelector('input[name=review_step]');
+var reviewConfirm=form.querySelector('input[name=review_confirm_step]');
+var profileBasicsContinue=form.querySelector('[data-confirm-profile-basics]');
+var backgroundContinue=form.querySelector('[data-confirm-background]');
+var expertiseEditor=form.querySelector('[data-review-collection="skills"]');
+var expertiseUndo=expertiseEditor&&expertiseEditor.querySelector('[data-expertise-undo]');
+var expertiseUndoMessage=expertiseUndo&&expertiseUndo.querySelector('[data-expertise-undo-message]');
+var sectionResetField=form.querySelector('[data-section-reset-field]');
+var lastExpertiseUndo=null;
+var workHistoryEditor=form.querySelector('[data-review-collection="job_titles"]');
+var workHistoryUndo=workHistoryEditor&&workHistoryEditor.querySelector('[data-work-history-undo]');
+var workHistoryUndoMessage=workHistoryUndo&&workHistoryUndo.querySelector('[data-work-history-undo-message]');
+var lastWorkHistoryUndo=null;
 
 function show(kind,text,canRetry,canResume){status.dataset.state=kind;label.textContent=text;if(retry){retry.hidden=!canRetry;}if(resume){resume.hidden=!canResume;}}
 function activity(){lastActivity=Date.now();}
@@ -267,10 +289,21 @@ function renumberNewItems(editor){
   var empty=editor.querySelector('.collection-empty');if(empty){empty.hidden=items.length!==0;}
 }
 function collectionId(item){var editor=item.closest('[data-review-collection]');return editor?editor.dataset.reviewCollection:'';}
+function updateCollectionEmpty(editor){if(!editor){return;}var empty=editor.querySelector('.collection-empty');if(empty){empty.hidden=!!editor.querySelector('[data-collection-item]:not([hidden])');}}
+function expertiseItemValue(item){var input=item.querySelector('[name$="_value"]');var text=item.querySelector('.compact-expertise-text');return String(input?input.value:(text?text.textContent:'' )).trim();}
+function clearExpertiseUndo(){if(lastExpertiseUndo&&lastExpertiseUndo.unsaved&&lastExpertiseUndo.item&&lastExpertiseUndo.item.hidden){var editor=lastExpertiseUndo.item.closest('[data-review-collection]');lastExpertiseUndo.item.remove();renumberNewItems(editor);updateCollectionEmpty(editor);}lastExpertiseUndo=null;if(expertiseUndo){expertiseUndo.hidden=true;}if(expertiseUndoMessage){expertiseUndoMessage.textContent='';}}
+function offerExpertiseUndo(item,unsaved){clearExpertiseUndo();var value=expertiseItemValue(item)||'Expertise';lastExpertiseUndo={item:item,unsaved:!!unsaved};if(unsaved){Array.prototype.forEach.call(item.querySelectorAll('[name]'),function(control){control.disabled=true;});}item.hidden=true;item.setAttribute('aria-hidden','true');updateCollectionEmpty(expertiseEditor);if(expertiseUndoMessage){expertiseUndoMessage.textContent=value+' removed.';}if(expertiseUndo){expertiseUndo.hidden=false;var button=expertiseUndo.querySelector('[data-expertise-undo-action]');if(button){button.focus();}}}
+function undoExpertise(){if(!lastExpertiseUndo||!lastExpertiseUndo.item){return;}var item=lastExpertiseUndo.item;var unsaved=lastExpertiseUndo.unsaved;lastExpertiseUndo=null;Array.prototype.forEach.call(item.querySelectorAll('[name]'),function(control){control.disabled=false;});var remove=item.querySelector('[data-collection-remove]');if(remove){remove.checked=false;}item.hidden=false;item.removeAttribute('aria-hidden');if(expertiseUndo){expertiseUndo.hidden=true;}if(expertiseUndoMessage){expertiseUndoMessage.textContent='';}updateCollectionEmpty(expertiseEditor);activity();dirty=true;window.clearTimeout(timer);flush().then(function(ok){if(ok){var focus=item.querySelector('input:not([type=checkbox]),select');if(focus){focus.focus();}}else if(unsaved){offerExpertiseUndo(item,true);}});}
+function clearWorkHistoryUndo(){if(lastWorkHistoryUndo&&lastWorkHistoryUndo.unsaved&&lastWorkHistoryUndo.item&&lastWorkHistoryUndo.item.hidden){var editor=lastWorkHistoryUndo.item.closest('[data-review-collection]');lastWorkHistoryUndo.item.remove();renumberNewItems(editor);updateCollectionEmpty(editor);}lastWorkHistoryUndo=null;if(workHistoryUndo){workHistoryUndo.hidden=true;}if(workHistoryUndoMessage){workHistoryUndoMessage.textContent='';}}
+function offerWorkHistoryUndo(item,unsaved){clearWorkHistoryUndo();var value=expertiseItemValue(item)||'Job title';lastWorkHistoryUndo={item:item,unsaved:!!unsaved};if(unsaved){Array.prototype.forEach.call(item.querySelectorAll('[name]'),function(control){control.disabled=true;});}item.hidden=true;item.setAttribute('aria-hidden','true');updateCollectionEmpty(workHistoryEditor);if(workHistoryUndoMessage){workHistoryUndoMessage.textContent=value+' removed.';}if(workHistoryUndo){workHistoryUndo.hidden=false;var button=workHistoryUndo.querySelector('[data-work-history-undo-action]');if(button){button.focus();}}}
+function undoWorkHistory(){if(!lastWorkHistoryUndo||!lastWorkHistoryUndo.item){return;}var item=lastWorkHistoryUndo.item;var unsaved=lastWorkHistoryUndo.unsaved;lastWorkHistoryUndo=null;Array.prototype.forEach.call(item.querySelectorAll('[name]'),function(control){control.disabled=false;});var remove=item.querySelector('[data-collection-remove]');if(remove){remove.checked=false;}item.hidden=false;item.removeAttribute('aria-hidden');if(workHistoryUndo){workHistoryUndo.hidden=true;}if(workHistoryUndoMessage){workHistoryUndoMessage.textContent='';}updateCollectionEmpty(workHistoryEditor);activity();dirty=true;window.clearTimeout(timer);flush().then(function(ok){if(ok){var focus=item.querySelector('input:not([type=checkbox]),select');if(focus){focus.focus();}}else if(unsaved){offerWorkHistoryUndo(item,true);}});}
+function clearSectionUndo(section){if(section==='expertise'){clearExpertiseUndo();}if(section==='work_history'){clearWorkHistoryUndo();}}
+function closeSectionReset(panel,returnFocus){if(panel){panel.hidden=true;}if(returnFocus){returnFocus.setAttribute('aria-expanded','false');returnFocus.focus();}}
+function removeCollectionItem(remove){var item=remove&&remove.closest('[data-collection-item]');var editor=item&&item.closest('[data-review-collection]');if(!item||!editor){return;}remove.checked=true;var kind=editor.dataset.reviewCollection;if(kind==='skills'){offerExpertiseUndo(item,item.hasAttribute('data-collection-new'));return;}if(kind==='job_titles'){offerWorkHistoryUndo(item,item.hasAttribute('data-collection-new'));return;}if(item.hasAttribute('data-collection-new')){item.remove();renumberNewItems(editor);updateCollectionEmpty(editor);return;}item.hidden=true;item.setAttribute('aria-hidden','true');updateCollectionEmpty(editor);}
 function controlValue(item,suffix){var control=item.querySelector('[name$="_'+suffix+'"]');return control?String(control.value||'').trim():'';}
 function firstControl(item,suffix){return item.querySelector('[name$="_'+suffix+'"]')||item.querySelector('input:not([type=checkbox]),select');}
 function isRemoved(item){var remove=item.querySelector('[data-collection-remove]');return !!(remove&&remove.checked);}
-function itemState(item){
+function itemState(item,allowPending){
   var kind=collectionId(item);var empty=false;var message='';var control=firstControl(item,'value');
   if(isRemoved(item)){return {valid:true,empty:false,control:null,message:''};}
   if(kind==='skills'||kind==='job_titles'){
@@ -291,6 +324,7 @@ function itemState(item){
     var amount=controlValue(item,'amount');empty=!amount;control=firstControl(item,'amount');
     if(!empty&&(!/^[0-9]{1,18}(?:\.[0-9]{1,2})?$/.test(amount)||Number(amount)<=0)){message='Enter a positive amount with no more than two decimal places.';}
   }
+  if(!message&&!allowPending&&item.hasAttribute('data-decision-required')&&!item.querySelector('input[name$="_decision"]:checked')){control=item.querySelector('input[name$="_decision"]');message='Choose Keep or Remove before finding matches.';}
   if(item.hasAttribute('data-collection-new')&&empty){return {valid:true,empty:true,control:control,message:''};}
   if(!message){
     var invalid=Array.prototype.find.call(item.querySelectorAll('input:not([type=checkbox]),select'),function(candidate){return !candidate.checkValidity();});
@@ -308,15 +342,16 @@ function showItemError(item,state){
   if(error){error.textContent=state.message;error.hidden=false;}
   if(control){control.setAttribute('aria-invalid','true');if(error&&error.id){var described=(control.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean);if(described.indexOf(error.id)<0){described.push(error.id);}control.setAttribute('aria-describedby',described.join(' '));}}
 }
+function resetOwnsCollection(item){if(!sectionResetField||sectionResetField.disabled){return false;}var owned={work_history:'job_titles',education:'education',languages:'languages',expertise:'skills'};return collectionId(item)===owned[sectionResetField.value];}
 function updateStepAttention(){
   Array.prototype.forEach.call(document.querySelectorAll('section.review-section'),function(section){var needs=!!section.querySelector('.collection-item-needs-attention');section.classList.toggle('review-step-needs-attention',needs);var link=document.querySelector('.review-progress a[href="#'+section.id+'"]');if(link){link.classList.toggle('needs-attention',needs);var note=link.querySelector('[data-step-attention]');if(note){note.hidden=!needs;}}});
 }
-function validateCollections(focusFirst){
-  var first=null;Array.prototype.forEach.call(form.querySelectorAll('[data-collection-item]'),function(item){var state=itemState(item);if(state.valid){clearItemError(item);}else{showItemError(item,state);if(!first){first=state.control||item;}}});updateStepAttention();
+function validateCollections(focusFirst,allowPending){
+  var first=null;Array.prototype.forEach.call(form.querySelectorAll('[data-collection-item]'),function(item){if(resetOwnsCollection(item)){clearItemError(item);return;}var state=itemState(item,!!allowPending);if(state.valid){clearItemError(item);}else{showItemError(item,state);if(!first){first=state.control||item;}}});updateStepAttention();
   if(first){show('attention','Finish the highlighted item before it can be saved.',false,false);if(focusFirst){first.focus();if(first.scrollIntoView){first.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}return true;
 }
 function autosaveMaterial(){
-  var disabled=[];var submittedNew=[];Array.prototype.forEach.call(form.querySelectorAll('[data-collection-new]'),function(item){var state=itemState(item);if(state.empty){Array.prototype.forEach.call(item.querySelectorAll('[name]'),function(control){disabled.push([control,control.disabled]);control.disabled=true;});}else{submittedNew.push(item);}});
+  var disabled=[];var submittedNew=[];Array.prototype.forEach.call(form.querySelectorAll('[data-collection-new]'),function(item){var state=itemState(item,true);if(state.empty){Array.prototype.forEach.call(item.querySelectorAll('[name]'),function(control){disabled.push([control,control.disabled]);control.disabled=true;});}else{submittedNew.push(item);}});
   var data=new URLSearchParams(new FormData(form));Array.prototype.forEach.call(disabled,function(entry){entry[0].disabled=entry[1];});return {data:data,submittedNew:submittedNew};
 }
 function dropEmptyPlaceholders(){
@@ -341,20 +376,51 @@ function validatePreferenceModes(focusFirst,showErrors){
 }
 function schedule(){if(!autosave){return;}dirty=true;window.clearTimeout(timer);timer=window.setTimeout(function(){saveNow(false);},1500);}
 function saveNow(keepalive){
-  if(!autosave||!dirty){return current||Promise.resolve(true);}if(saving){return current;}if(!validateCollections(false)||!validatePreferenceModes(false,false)){dirty=true;return Promise.resolve(false);}
+  if(!autosave||!dirty){return current||Promise.resolve(true);}if(saving){return current;}if(!validateCollections(false,true)||!validatePreferenceModes(false,false)){dirty=true;return Promise.resolve(false);}
   saving=true;dirty=false;show('saving','Saving…',false,false);var material=autosaveMaterial();var data=material.data;data.set('action','autosave');data.set('version',autosave.querySelector('input[name=version]').value);data.set('csrf',autosave.querySelector('input[name=csrf]').value);
   current=window.fetch(form.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',keepalive:!!keepalive,headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===204&&applyTokens(response)){Array.prototype.forEach.call(material.submittedNew,function(item){item.removeAttribute('data-collection-new');});show('saved','Progress saved',false,false);return true;}dirty=true;if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);}else if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);}else if(response.status===400){show('error','Check the highlighted details, then retry saving.',true,false);}else{show('error','We could not save your progress. Try again.',true,false);}return false;}).catch(function(){dirty=true;show('error','We could not save your progress. Try again.',true,false);return false;}).finally(function(){saving=false;current=null;});return current;
 }
 function flush(){return saveNow(false).then(function(ok){return ok&&dirty?flush():ok;});}
+function profileBasicsNeedsConfirmation(){return !!form.querySelector('#review-found [data-profile-basics-pending]');}
+function unresolvedProfileBasicsChoice(){return Array.prototype.find.call(form.querySelectorAll('#review-found [data-profile-basics-pending] select[name$="_decision"]'),function(control){return control.value==='pending';});}
+function clearProfileBasicsPending(){Array.prototype.forEach.call(form.querySelectorAll('#review-found [data-profile-basics-pending]'),function(item){var control=item.querySelector('select[name$="_decision"]');if(!control||control.value!=='pending'){item.removeAttribute('data-profile-basics-pending');}});}
+function backgroundNeedsConfirmation(){return !!form.querySelector('#review-suggestions [data-background-pending]');}
+function clearBackgroundPending(){Array.prototype.forEach.call(form.querySelectorAll('#review-suggestions [data-background-pending]'),function(item){item.removeAttribute('data-background-pending');});}
+function confirmReviewStep(source,target){
+  if(!reviewConfirm||reviewSteps.indexOf(target)<0||!validateCollections(true,true)){return;}
+  if(source==='review-found'){
+    var unresolved=unresolvedProfileBasicsChoice();if(unresolved){show('attention','Choose which document detail is correct before continuing.',false,false);unresolved.focus();if(unresolved.scrollIntoView){unresolved.scrollIntoView({behavior:'smooth',block:'center'});}return;}
+    var invalid=document.querySelector('#review-found :invalid');if(invalid){show('attention','Check the highlighted profile detail before continuing.',false,false);invalid.focus();if(invalid.scrollIntoView){invalid.scrollIntoView({behavior:'smooth',block:'center'});}return;}
+  }
+  if(source==='review-found'){clearWorkHistoryUndo();}
+  if(source==='review-suggestions'){clearExpertiseUndo();}
+  reviewConfirm.disabled=false;reviewConfirm.value=source;if(step){step.value=target;}activity();dirty=true;window.clearTimeout(timer);
+  if(!autosave){window.location.hash='#'+target;return;}
+  flush().then(function(ok){reviewConfirm.disabled=true;reviewConfirm.value='';if(ok){if(source==='review-found'){clearProfileBasicsPending();}else{clearBackgroundPending();}if(source==='review-found'&&profileBasicsNeedsConfirmation()){show('attention','Choose which document detail is correct before continuing.',false,false);return;}window.location.hash='#'+target;var heading=document.getElementById(target+'-title');if(heading){heading.focus({preventScroll:true});}}});
+}
+function requireReviewConfirmation(){if(profileBasicsNeedsConfirmation()){show('attention','Review your profile basics before finding matches.',false,false);if(profileBasicsContinue){profileBasicsContinue.focus();if(profileBasicsContinue.scrollIntoView){profileBasicsContinue.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}if(backgroundNeedsConfirmation()){show('attention','Review your skills and experience before finding matches.',false,false);if(backgroundContinue){backgroundContinue.focus();if(backgroundContinue.scrollIntoView){backgroundContinue.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}return true;}
 function focusFirstNativeInvalid(){var first=form.querySelector(':invalid');if(!first){return false;}var section=first.closest('section.review-section');if(section){section.classList.add('review-step-needs-attention');var link=document.querySelector('.review-progress a[href="#'+section.id+'"]');if(link){link.classList.add('needs-attention');var note=link.querySelector('[data-step-attention]');if(note){note.hidden=false;}}}show('attention','Finish the highlighted detail before finding matches.',false,false);first.focus();if(first.scrollIntoView){first.scrollIntoView({behavior:'smooth',block:'center'});}return true;}
 
-Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^="#review-"]'),function(link){link.addEventListener('click',function(){setStep(link.getAttribute('href').slice(1));});});
+Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^="#review-"]'),function(link){link.addEventListener('click',function(event){var target=link.getAttribute('href').slice(1);if(step&&step.value==='review-found'&&target!=='review-found'&&profileBasicsNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-found',target);return;}if(step&&step.value==='review-suggestions'&&['review-preferences','review-finish'].indexOf(target)>=0&&backgroundNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-suggestions',target);return;}if(step&&step.value==='review-found'&&target!=='review-found'){clearWorkHistoryUndo();}if(step&&step.value==='review-suggestions'&&target!=='review-suggestions'){clearExpertiseUndo();}setStep(target);});});
 form.addEventListener('focusin',rememberSection);form.addEventListener('pointerdown',rememberSection);window.addEventListener('hashchange',function(){setStep(window.location.hash.slice(1));});
-form.addEventListener('click',function(event){var add=event.target.closest&&event.target.closest('[data-collection-add]');if(!add){return;}var editor=add.closest('[data-review-collection]');var template=editor&&editor.querySelector('template[data-collection-template]');var container=editor&&editor.querySelector('[data-collection-items]');var index=Number(editor&&editor.dataset.nextIndex);var limit=Number(editor&&editor.dataset.limit);if(!template||!container||!Number.isInteger(index)||index<0||index>=limit){return;}var fragment=template.content.cloneNode(true);var item=fragment.querySelector('[data-collection-item]');replaceIndex(item,'__INDEX__',index);container.appendChild(fragment);editor.dataset.nextIndex=String(index+1);var empty=editor.querySelector('.collection-empty');if(empty){empty.hidden=true;}var input=item.querySelector('input:not([type=checkbox]),select');if(input){input.focus();}activity();});
-form.addEventListener('change',function(event){if(event.target.matches&&event.target.matches('[data-collection-remove]')&&event.target.checked){var item=event.target.closest('[data-collection-new]');if(item){var editor=item.closest('[data-review-collection]');item.remove();renumberNewItems(editor);}}activity();updatePreferenceModes(event.target);updatePreferenceSummaries();validateCollections(false);schedule();});
-form.addEventListener('input',function(){activity();updatePreferenceSummaries();validateCollections(false);schedule();});
-form.addEventListener('keydown',function(event){if(event.key==='Enter'&&event.target.matches&&event.target.matches('input:not([type=submit]):not([type=button])')){event.preventDefault();validateCollections(true);}});
-form.addEventListener('submit',function(event){if(allowSubmit){return;}event.preventDefault();var submitter=event.submitter;if(!submitter){return;}if(!validateCollections(true)||!validatePreferenceModes(true,true)){return;}dropEmptyPlaceholders();if(!form.checkValidity()){form.reportValidity();focusFirstNativeInvalid();return;}flush().then(function(ok){if(!ok){return;}allowSubmit=true;if(form.requestSubmit){form.requestSubmit(submitter);}else{form.submit();}allowSubmit=false;});});
+form.addEventListener('click',function(event){
+  var undo=event.target.closest&&event.target.closest('[data-expertise-undo-action]');if(undo){event.preventDefault();undoExpertise();return;}
+  var workUndo=event.target.closest&&event.target.closest('[data-work-history-undo-action]');if(workUndo){event.preventDefault();undoWorkHistory();return;}
+  var resetOpen=event.target.closest&&event.target.closest('[data-section-reset-open]');
+  if(resetOpen){event.preventDefault();var panelId=resetOpen.getAttribute('aria-controls');var panel=panelId&&document.getElementById(panelId);resetOpen.setAttribute('aria-expanded','true');if(panel){panel.hidden=false;var cancel=panel.querySelector('[data-section-reset-cancel]');if(cancel){cancel.focus();}}return;}
+  var resetCancel=event.target.closest&&event.target.closest('[data-section-reset-cancel]');
+  if(resetCancel){event.preventDefault();var cancelPanel=resetCancel.closest('[data-section-reset-confirm]');var cancelOpen=cancelPanel&&form.querySelector('[aria-controls="'+cancelPanel.id+'"]');closeSectionReset(cancelPanel,cancelOpen);return;}
+  var resetConfirm=event.target.closest&&event.target.closest('[data-section-reset-confirm-action]');
+  if(resetConfirm){event.preventDefault();if(!sectionResetField){return;}var confirmPanel=resetConfirm.closest('[data-section-reset-confirm]');var confirmOpen=confirmPanel&&form.querySelector('[aria-controls="'+confirmPanel.id+'"]');var section=resetConfirm.getAttribute('data-section-reset-confirm-action');clearSectionUndo(section);sectionResetField.value=section;sectionResetField.disabled=false;if(confirmPanel){confirmPanel.hidden=true;}if(confirmOpen){confirmOpen.setAttribute('aria-expanded','false');}activity();dirty=true;window.clearTimeout(timer);flush().then(function(ok){if(ok){window.location.reload();}else{sectionResetField.disabled=true;sectionResetField.value='';}});return;}
+  var removeAction=event.target.closest&&event.target.closest('[data-collection-remove-action]');if(removeAction){event.preventDefault();var remove=removeAction.closest('[data-collection-item]')&&removeAction.closest('[data-collection-item]').querySelector('[data-collection-remove]');removeCollectionItem(remove);activity();validateCollections(false,true);schedule();return;}
+  var basics=event.target.closest&&event.target.closest('[data-confirm-profile-basics]');if(basics){event.preventDefault();confirmReviewStep('review-found','review-suggestions');return;}
+  var confirm=event.target.closest&&event.target.closest('[data-confirm-background]');if(confirm){event.preventDefault();confirmReviewStep('review-suggestions','review-preferences');return;}
+  var add=event.target.closest&&event.target.closest('[data-collection-add]');if(!add){return;}var editor=add.closest('[data-review-collection]');if(editor&&editor.dataset.reviewCollection==='skills'){clearExpertiseUndo();}if(editor&&editor.dataset.reviewCollection==='job_titles'){clearWorkHistoryUndo();}var template=editor&&editor.querySelector('template[data-collection-template]');var container=editor&&editor.querySelector('[data-collection-items]');var index=Number(editor&&editor.dataset.nextIndex);var limit=Number(editor&&editor.dataset.limit);if(!template||!container||!Number.isInteger(index)||index<0||index>=limit){return;}var fragment=template.content.cloneNode(true);var item=fragment.querySelector('[data-collection-item]');replaceIndex(item,'__INDEX__',index);container.appendChild(fragment);editor.dataset.nextIndex=String(index+1);updateCollectionEmpty(editor);var input=item.querySelector('input:not([type=checkbox]),select');if(input){input.focus();}activity();
+});
+form.addEventListener('change',function(event){if(event.target.matches&&event.target.matches('[data-collection-remove]')&&event.target.checked){removeCollectionItem(event.target);}else{if(expertiseEditor&&expertiseEditor.contains(event.target)){clearExpertiseUndo();}if(workHistoryEditor&&workHistoryEditor.contains(event.target)){clearWorkHistoryUndo();}}activity();updatePreferenceModes(event.target);updatePreferenceSummaries();validateCollections(false,true);schedule();});
+form.addEventListener('input',function(event){if(expertiseEditor&&expertiseEditor.contains(event.target)){clearExpertiseUndo();}if(workHistoryEditor&&workHistoryEditor.contains(event.target)){clearWorkHistoryUndo();}activity();updatePreferenceSummaries();validateCollections(false,true);schedule();});
+form.addEventListener('keydown',function(event){if(event.key==='Enter'&&event.target.matches&&event.target.matches('input:not([type=submit]):not([type=button])')){event.preventDefault();validateCollections(true,false);}});
+form.addEventListener('submit',function(event){if(allowSubmit){return;}event.preventDefault();var submitter=event.submitter;if(!submitter){return;}if(!validateCollections(true,false)||!validatePreferenceModes(true,true)||!requireReviewConfirmation()){return;}clearWorkHistoryUndo();clearExpertiseUndo();dropEmptyPlaceholders();if(!form.checkValidity()){form.reportValidity();focusFirstNativeInvalid();return;}flush().then(function(ok){if(!ok){return;}allowSubmit=true;if(form.requestSubmit){form.requestSubmit(submitter);}else{form.submit();}allowSubmit=false;});});
 if(discard){discard.addEventListener('submit',function(event){window.clearTimeout(timer);dirty=false;if(allowDiscard||!saving){return;}event.preventDefault();Promise.resolve(current).then(function(){dirty=false;allowDiscard=true;if(discard.requestSubmit){discard.requestSubmit();}else{discard.submit();}allowDiscard=false;});});}
 if(retry){retry.addEventListener('click',function(){saveNow(false);});}
 function tick(){var now=Date.now();if(saving||document.visibilityState!=='visible'||!lastActivity||now-lastActivity>360000||now-lastRenewed<300000){return;}lastRenewed=now;var data=new URLSearchParams(new FormData(renew));window.fetch(renew.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);return;}if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);return;}if(!response.ok){return;}var remaining=Number(response.headers.get('X-Wahojobs-Review-Absolute-Seconds'));if(Number.isFinite(remaining)&&remaining<=600){show('warning','This review session closes in about '+Math.max(1,Math.ceil(remaining/60))+' minutes. Your saved progress will remain available.',false,false);}}).catch(function(){});}
@@ -1070,14 +1136,35 @@ def _review_from_form(review, form, *, allow_pending=False):
     expected = {"action", "version", "csrf"}
     if "review_step" in form:
         expected.add("review_step")
+    confirm_step = _single(form, _REVIEW_CONFIRM_FIELD)
+    if confirm_step is not None:
+        if (
+            confirm_step not in {_PROFILE_BASICS_REVIEW_STEP, _BACKGROUND_REVIEW_STEP}
+            or _single(form, "action") not in {"autosave", "save", "update"}
+        ):
+            raise ProfileIntakeError("invalid_review_submission")
+        expected.add(_REVIEW_CONFIRM_FIELD)
+    confirm_profile_basics = confirm_step == _PROFILE_BASICS_REVIEW_STEP
+    confirm_background = confirm_step == _BACKGROUND_REVIEW_STEP
+    reset_section = _single(form, _SECTION_RESET_FIELD)
+    if reset_section is not None:
+        if (
+            _single(form, "action") != "autosave"
+            or confirm_step is not None
+            or not review_reset_section_available(review, reset_section)
+        ):
+            raise ProfileIntakeError("invalid_review_submission")
+        expected.add(_SECTION_RESET_FIELD)
     collection_updates, collection_fields = _review_collections_from_form(
         review,
         form,
+        reset_section=reset_section,
     )
     expected.update(collection_fields)
     education_updates, education_fields = _education_entries_from_form(
         review,
         form,
+        reset_section=reset_section,
     )
     expected.update(education_fields)
     managed_indexes = (
@@ -1094,9 +1181,82 @@ def _review_from_form(review, form, *, allow_pending=False):
             values.append(review_value_for_form(fact.value))
             decisions.append(fact.decision)
             continue
+        if (
+            reset_section is not None
+            and reset_section == _review_reset_section_for_fact(fact)
+        ):
+            value_name = f"fact_{index}_value"
+            expected.add(value_name)
+            if _single(form, value_name) is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            if not _uses_direct_profile_fact(fact) and not (
+                fact.field_path == "experience.total_years"
+                and fact.conflict_group is None
+            ):
+                decision_name = f"fact_{index}_decision"
+                expected.add(decision_name)
+                if _single(form, decision_name) is None:
+                    raise ProfileIntakeError("invalid_review_submission")
+            values.append(review_value_for_form(fact.value))
+            decisions.append(fact.decision)
+            continue
         if fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS:
             values.append(review_value_for_form(fact.value))
             decisions.append(_server_internal_fact_decision(fact))
+            continue
+        if fact.field_path in _HIDDEN_BACKGROUND_FIELD_PATHS:
+            values.append(review_value_for_form(fact.value))
+            decisions.append(_server_hidden_background_fact_decision(fact))
+            continue
+        if fact.field_path.startswith("preferences."):
+            values.append(review_value_for_form(fact.value))
+            decisions.append(_server_legacy_preference_fact_decision(fact))
+            continue
+        if fact.field_path == "experience.total_years" and fact.conflict_group is None:
+            value_name = f"fact_{index}_value"
+            expected.add(value_name)
+            value = _single(form, value_name)
+            if value is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            if not value.strip():
+                value = review_value_for_form(fact.value)
+                decision = "reject" if fact.suggested else "remove"
+            elif fact.suggested:
+                if fact.decision == "reject":
+                    decision = "pending"
+                else:
+                    decision = fact.decision
+                if decision == "pending" and not allow_pending and not confirm_background:
+                    raise ProfileIntakeError("invalid_review_submission")
+            else:
+                decision = "keep"
+            values.append(value)
+            decisions.append(decision)
+            continue
+        if _uses_direct_profile_fact(fact):
+            value_name = f"fact_{index}_value"
+            expected.add(value_name)
+            value = _single(form, value_name)
+            if value is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            if not value.strip():
+                if fact.field_path == "identity.display_name":
+                    raise ProfileIntakeError("invalid_review_submission")
+                value = review_value_for_form(fact.value)
+                decision = "reject" if fact.suggested else "remove"
+            elif fact.suggested:
+                changed = _parse_review_value(fact.field_path, value) != fact.value
+                decision = "accept" if changed else fact.decision
+                if (
+                    decision == "pending"
+                    and not allow_pending
+                    and not confirm_profile_basics
+                ):
+                    raise ProfileIntakeError("invalid_review_submission")
+            else:
+                decision = "keep"
+            values.append(value)
+            decisions.append(decision)
             continue
         value_name = f"fact_{index}_value"
         decision_name = f"fact_{index}_decision"
@@ -1116,7 +1276,16 @@ def _review_from_form(review, form, *, allow_pending=False):
         else:
             expected.add(value_name)
         if decision is None:
-            raise ProfileIntakeError("invalid_review_submission")
+            if (
+                allow_pending
+                and fact.suggested
+                and fact.decision == "pending"
+                and fact.field_path
+                in {"experience.total_years", "experience.seniority"}
+            ):
+                decision = "pending"
+            else:
+                raise ProfileIntakeError("invalid_review_submission")
         if value == _SKIP_SUGGESTION_VALUE:
             if not _uses_compact_suggestion_choice(fact):
                 raise ProfileIntakeError("invalid_review_submission")
@@ -1147,6 +1316,18 @@ def _review_from_form(review, form, *, allow_pending=False):
         preference_model,
         collection_updates,
         education_updates,
+        confirm_background,
+        confirm_profile_basics,
+        reset_section,
+    )
+
+
+def _uses_direct_profile_fact(fact):
+    """Ordinary visible facts are edited directly; conflicts keep explicit choices."""
+
+    return fact.conflict_group is None and (
+        not fact.suggested
+        or fact.field_path.startswith(("identity.", "location."))
     )
 
 
@@ -1160,7 +1341,23 @@ def _server_internal_fact_decision(fact):
     return "reject" if fact.conflict_group is not None else "accept"
 
 
-def _education_entries_from_form(review, form):
+def _server_hidden_background_fact_decision(fact):
+    """Leave new hidden suggestions unused without rewriting prior choices."""
+
+    if fact.field_path not in _HIDDEN_BACKGROUND_FIELD_PATHS:
+        raise ProfileIntakeError("invalid_review_submission")
+    return "reject" if fact.decision == "pending" else fact.decision
+
+
+def _server_legacy_preference_fact_decision(fact):
+    """Keep Step 3 authoritative without rewriting an existing checkpoint choice."""
+
+    if not fact.field_path.startswith("preferences."):
+        raise ProfileIntakeError("invalid_review_submission")
+    return "reject" if fact.decision == "pending" else fact.decision
+
+
+def _education_entries_from_form(review, form, *, reset_section=None):
     names = {name for name in form if name.startswith("review_education_")}
     if not names:
         return None, set()
@@ -1189,6 +1386,19 @@ def _education_entries_from_form(review, form):
     item_count = max(indexes) + 1
     if not existing_count <= item_count <= MAX_EDUCATION_ENTRIES:
         raise ProfileIntakeError("invalid_review_submission")
+    if reset_section == "education":
+        return tuple(
+            (
+                entry["value"]["kind"],
+                entry["value"]["qualification"],
+                entry["value"]["field"],
+                entry["value"]["institution"],
+                entry["value"]["status"],
+                "" if entry["value"]["completion_year"] is None else str(entry["value"]["completion_year"]),
+                entry["decision"],
+            )
+            for entry in education_entry_values(review)
+        ), names
     submitted = set()
     updates = []
     for index in range(item_count):
@@ -1211,7 +1421,7 @@ def _education_entries_from_form(review, form):
     return tuple(updates), submitted
 
 
-def _review_collections_from_form(review, form):
+def _review_collections_from_form(review, form, *, reset_section=None):
     collection_names = {
         name for name in form if name.startswith("review_collection_")
     }
@@ -1221,6 +1431,8 @@ def _review_collections_from_form(review, form):
     submitted_fields = set()
     matched_fields = set()
     for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+        if spec.get("browser_visible") is not True:
+            continue
         suffixes = (
             ("language", "proficiency", "locale", "remove")
             if spec["kind"] == "language"
@@ -1246,6 +1458,30 @@ def _review_collections_from_form(review, form):
         if not existing_count <= item_count <= spec["limit"]:
             raise ProfileIntakeError("invalid_review_submission")
         items = []
+        existing_entries = review_collection_entries(review, collection_id)
+        reset_collection = {
+            "work_history": "job_titles",
+            "languages": "languages",
+            "expertise": "skills",
+        }.get(reset_section)
+        if collection_id == reset_collection:
+            submitted_fields.update(
+                name
+                for name in collection_names
+                if pattern.fullmatch(name) is not None
+            )
+            updates[collection_id] = tuple(
+                (
+                    entry["value"].language,
+                    entry["value"].proficiency or "",
+                    entry["value"].locale or "",
+                    entry["decision"],
+                )
+                if spec["kind"] == "language"
+                else (entry["value"], entry["decision"])
+                for entry in existing_entries
+            )
+            continue
         for index in range(item_count):
             prefix = f"review_collection_{collection_id}_{index}_"
             remove_name = prefix + "remove"
@@ -1268,6 +1504,14 @@ def _review_collections_from_form(review, form):
                 if value is None:
                     raise ProfileIntakeError("invalid_review_submission")
                 submitted_fields.add(value_name)
+                if spec.get("include_suggested") is True and index < len(existing_entries):
+                    entry = existing_entries[index]
+                    if decision == "keep" and entry["suggested"]:
+                        decision = (
+                            "pending"
+                            if entry["decision"] == "pending"
+                            else "keep"
+                        )
                 items.append((value, decision))
         updates[collection_id] = tuple(items)
     if matched_fields != collection_names:
@@ -1280,6 +1524,8 @@ def _collection_form_values_for_review(review):
 
     fields = {}
     for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+        if spec.get("browser_visible") is not True:
+            continue
         for index, entry in enumerate(review_collection_entries(review, collection_id)):
             prefix = f"review_collection_{collection_id}_{index}_"
             value = entry["value"]
@@ -1661,6 +1907,8 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     for index, fact in enumerate(snapshot.review.facts):
         if index in education_fact_indexes:
             continue
+        if fact.field_path in _HIDDEN_BACKGROUND_FIELD_PATHS:
+            continue
         label = (
             _UNPAIRED_EDUCATION_LABELS.get(fact.review_field)
             if snapshot.review.education_entries
@@ -1671,7 +1919,11 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         )
         raw_value = review_value_for_form(fact.value)
         source_label = _review_source_label(fact)
-        if _uses_compact_suggestion_choice(fact):
+        direct_profile_fact = _uses_direct_profile_fact(fact)
+        if direct_profile_fact:
+            choice = ""
+            badge = ""
+        elif _uses_compact_suggestion_choice(fact):
             choice = (
                 f"<input type='hidden' name='fact_{index}_decision' value='accept'>"
             )
@@ -1695,15 +1947,26 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
             badge = f"{source_label} — conflicts with another document"
         if fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS:
             continue
+        if fact.field_path.startswith("preferences."):
+            continue
         value_control = _review_fact_value_control(index, fact, raw_value, label)
-        card = (
-            f"<article class='profile-group fact-card'><p class='fact-meta'>{_safe_text(badge)}</p>"
-            f"{value_control}{choice}</article>"
-        )
-        compact_item = (
-            f"<div class='fact-group-item'><p class='fact-meta'>{_safe_text(badge)}</p>"
-            f"{value_control}{choice}</div>"
-        )
+        if direct_profile_fact:
+            pending = fact.suggested and fact.decision == "pending"
+            card = (
+                f"<div class='direct-profile-fact'{' data-profile-basics-pending=true' if pending else ''}>"
+                f"{value_control}</div>"
+            )
+            compact_item = card
+        else:
+            pending = fact.decision == "pending"
+            card = (
+                f"<article class='profile-group fact-card'{' data-profile-basics-pending=true' if pending and fact.conflict_group is not None else ''}>"
+                f"<p class='fact-meta'>{_safe_text(badge)}</p>{value_control}{choice}</article>"
+            )
+            compact_item = (
+                f"<div class='fact-group-item'><p class='fact-meta'>{_safe_text(badge)}</p>"
+                f"{value_control}{choice}</div>"
+            )
         fact_fields.append((fact, card, compact_item))
     missing = []
     existing_inputs = dict(snapshot.review.user_inputs)
@@ -1782,8 +2045,8 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     about_section = (
         "<section class='review-concept-section review-about-you' aria-labelledby='review-about-you-title'>"
         "<div class='review-concept-heading'><h3 id='review-about-you-title'>About you</h3>"
-        "<p>Based in means where you currently live. Where you are legally eligible to work is asked separately.</p></div>"
-        f"<div class='profile-grid'>{about_cards}</div></section>"
+        "<p>Check that these details are correct. Based in means where you currently live; work eligibility is handled separately.</p></div>"
+        f"<div class='profile-basics-grid'>{about_cards}</div>{_render_section_reset(snapshot.review, 'profile_basics')}</section>"
         if about_cards
         else ""
     )
@@ -1798,46 +2061,43 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         snapshot.review,
         "job_titles",
     )
-    found_industry_items = "".join(
-        compact_item
-        for fact, _card, compact_item in fact_fields
-        if not fact.suggested
-        and fact.conflict_group is None
-        and fact.field_path == "experience.industries"
-    )
-    found_industries_background = (
-        "<div class='industries-background' aria-labelledby='found-industries-background-title'>"
-        "<div class='review-concept-heading'><h4 id='found-industries-background-title'>Industries in your experience</h4>"
-        "<p>These describe your background. They do not limit the kinds of jobs Wahojobs can show you, and you do not need to list every industry.</p></div>"
-        f"<div class='fact-group-items'>{found_industry_items}</div></div>"
-        if found_industry_items
-        else ""
-    )
     education_collection = _render_education_entries(snapshot.review)
     skills_collection = _render_review_collection(snapshot.review, "skills")
     languages_collection = _render_review_collection(snapshot.review, "languages")
+    experience_summary_items = "".join(
+        _render_compact_experience_fact(
+            next(
+                index
+                for index, current in enumerate(snapshot.review.facts)
+                if current is fact
+            ),
+            fact,
+        )
+        for fact, _card, _compact_item in fact_fields
+        if fact.conflict_group is None
+        and fact.field_path == "experience.total_years"
+    )
+    experience_summary = (
+        "<section class='review-concept-section compact-experience-section' aria-labelledby='compact-experience-title'>"
+        "<div class='review-concept-heading'><h3 id='compact-experience-title'>Professional experience</h3></div>"
+        f"<div class='compact-experience-grid'>{experience_summary_items}</div>{_render_section_reset(snapshot.review, 'professional_experience')}</section>"
+        if experience_summary_items
+        else ""
+    )
     experience_suggestion_cards = "".join(
         card
         for fact, card, _compact_item in fact_fields
         if fact.suggested
         and fact.conflict_group is None
         and fact.field_path.startswith("experience.")
-        and fact.field_path != "experience.industries"
-    )
-    industry_suggestion_cards = "".join(
-        compact_item
-        for fact, _card, compact_item in fact_fields
-        if fact.suggested
-        and fact.conflict_group is None
-        and fact.field_path == "experience.industries"
-    )
-    industries_background = (
-        "<div class='industries-background' aria-labelledby='industries-background-title'>"
-        "<div class='review-concept-heading'><h4 id='industries-background-title'>Industries in your experience</h4>"
-        "<p>These describe your background. They do not limit the kinds of jobs Wahojobs can show you, and you do not need to list every industry.</p></div>"
-        f"<div class='fact-group-items'>{industry_suggestion_cards}</div></div>"
-        if industry_suggestion_cards
-        else ""
+        and fact.field_path
+        not in {
+            "experience.industries",
+            "experience.specialties",
+            "experience.total_years",
+            "experience.seniority",
+        }
+        and not _is_managed_collection_fact(fact)
     )
     other_suggestion_cards = "".join(
         card
@@ -1847,12 +2107,12 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         and not fact.field_path.startswith("experience.")
     )
     suggestion_sections = []
-    if experience_suggestion_cards or industries_background:
+    if experience_suggestion_cards:
         suggestion_sections.append(
             "<section class='review-concept-section' aria-labelledby='review-experience-suggestions-title'>"
-            "<div class='review-concept-heading'><h3 id='review-experience-suggestions-title'>Experience</h3>"
-            "<p>Confirm the experience details that were interpreted from your documents.</p></div>"
-            f"<div class='profile-grid'>{experience_suggestion_cards}</div>{industries_background}</section>"
+            "<div class='review-concept-heading'><h3 id='review-experience-suggestions-title'>Other background details</h3>"
+            "<p>Check any additional details interpreted from your documents.</p></div>"
+            f"<div class='profile-grid'>{experience_suggestion_cards}</div></section>"
         )
     if other_suggestion_cards:
         suggestion_sections.append(
@@ -1860,16 +2120,14 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
             "<div class='review-concept-heading'><h3 id='review-other-suggestions-title'>Other profile details</h3></div>"
             f"<div class='profile-grid'>{other_suggestion_cards}</div></section>"
         )
-    suggestion_content = "".join(suggestion_sections) or (
-        "<p class='empty-inline'>No suggestions need your confirmation.</p>"
-    )
+    suggestion_content = "".join(suggestion_sections)
     conflict_cards = "".join(
         card
         for fact, card, _compact_item in fact_fields
         if fact.conflict_group is not None
     )
     conflict_section = (
-        "<div class='review-subsection'><h3>Sources disagree — please confirm</h3>"
+        "<div class='review-subsection review-conflicts'><h3>Sources disagree — please confirm</h3>"
         "<p class='muted'>Choose at most one value for each disagreement, edit it "
         "if needed, or leave the alternatives out.</p>"
         f"<div class='profile-grid'>{conflict_cards}</div></div>"
@@ -1906,14 +2164,21 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         "AI training and evaluation opportunities that fit you. You don’t need to choose every job area or task type yourself.</p>"
         "</div></details>"
     )
+    source_kinds = {source.document_kind for source in snapshot.review.sources}
+    if source_kinds == {DocumentKind.RESUME}:
+        profile_basics_copy = "Found in your resume. Check the details and add anything important we missed."
+    elif source_kinds == {DocumentKind.LINKEDIN_PROFILE_EXPORT}:
+        profile_basics_copy = "Found in your LinkedIn profile. Check the details and add anything important we missed."
+    else:
+        profile_basics_copy = "Found in your documents. Check the details and add anything important we missed."
     body = f"""
     {_authenticated_navigation()}
     <section class='profile-header intake-hero intake-review-hero'><p class='eyebrow'>Your Wahojobs profile draft</p><h1>Review it and make it yours</h1>
       <p class='hero-lede'>We organized what your documents say. You decide what belongs in your profile.</p>
       <p class='reassurance-line'><span aria-hidden='true'>&#10003;</span> Your progress is saved as you review. No profile is created until you finish.</p>
       <nav class='review-progress' aria-label='Profile review steps'><ol>
-        <li><a href='#review-found'><span>1</span><span class='review-progress-label'>What we found<small data-step-attention hidden>Needs attention</small></span></a></li>
-        <li><a href='#review-suggestions'><span>2</span><span class='review-progress-label'>Confirm suggestions<small data-step-attention hidden>Needs attention</small></span></a></li>
+        <li><a href='#review-found'><span>1</span><span class='review-progress-label'>Profile basics<small data-step-attention hidden>Needs attention</small></span></a></li>
+        <li><a href='#review-suggestions'><span>2</span><span class='review-progress-label'>Skills &amp; experience<small data-step-attention hidden>Needs attention</small></span></a></li>
         <li><a href='#review-preferences'><span>3</span><span class='review-progress-label'>What you want<small data-step-attention hidden>Needs attention</small></span></a></li>
         <li><a href='#review-finish'><span>4</span><span class='review-progress-label'>Find matches<small data-step-attention hidden>Needs attention</small></span></a></li>
       </ol></nav>
@@ -1926,18 +2191,20 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
       <a id='profile-review-save-resume' href='{PROFILE_INTAKE_ROUTE}' hidden>Continue saved progress</a>
     </div>
     <form id='profile-review-form' class='profile-review-form intake-review-form' method='post' action='{target}' novalidate>
-      <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'><input type='hidden' name='review_step' value='{_safe_text(snapshot.review_step)}'>
-      <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>What we found</h2><p>Check the profile details from your documents, then add anything useful that was missing.</p></div>
+      <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'><input type='hidden' name='review_step' value='{_safe_text(snapshot.review_step)}'><input type='hidden' name='{_REVIEW_CONFIRM_FIELD}' value='' disabled><input type='hidden' name='{_SECTION_RESET_FIELD}' value='' data-section-reset-field disabled>
+      <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>Your profile basics</h2><p>{_safe_text(profile_basics_copy)}</p></div>
         <div class='review-profile-sections'>
           {about_section}
-          <section class='review-concept-section' aria-labelledby='review-experience-title'><div class='review-concept-heading'><h3 id='review-experience-title'>Experience</h3><p>Your roles and professional background.</p></div>{experience_collection}{found_industries_background}</section>
+          <section class='review-concept-section' aria-labelledby='review-experience-title'><div class='review-concept-heading'><h3 id='review-experience-title'>Work history</h3><p>Roles found in your documents. Edit or remove anything that isn’t right.</p></div>{experience_collection}</section>
           {education_collection}
-          {skills_collection}
           {languages_collection}
           {other_facts_section}
-        </div>
+          {conflict_section}
+        </div><div class='background-review-continue'><button type='button' data-confirm-profile-basics>Continue</button></div>
       </section>
-      <section class='review-section' id='review-suggestions' aria-labelledby='review-suggestions-title'><div class='section-heading'><p class='eyebrow'>Step 2 of 4</p><h2 id='review-suggestions-title'>Confirm our suggestions</h2><p>Confirm the experience details we interpreted from your documents.</p></div>{suggestion_content}{conflict_section}</section>
+      <section class='review-section' id='review-suggestions' aria-labelledby='review-suggestions-title'><div class='section-heading'><p class='eyebrow'>Step 2 of 4</p><h2 id='review-suggestions-title'>Skills &amp; experience</h2><p>Review the skills and expertise we found and add anything important we missed.</p></div>
+        <section class='review-concept-section expertise-review-section' aria-labelledby='expertise-review-title'><div class='review-concept-heading'><h3 id='expertise-review-title'>Skills and areas of expertise</h3></div>{skills_collection}</section>
+        {experience_summary}{suggestion_content}<div class='background-review-continue'><button type='button' data-confirm-background>Continue</button></div></section>
       <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose the work conditions you would consider.</p></div>{matching_explanation}{_render_preference_controls(snapshot.review.preference_model)}
         {missing_section}</section>
       <section class='review-section finish-section' id='review-finish' aria-labelledby='review-finish-title'><div class='finish-panel'><p class='eyebrow'>Step 4 of 4</p><h2 id='review-finish-title'>Review &amp; find matches</h2><p>When everything looks right, see the opportunities that fit the profile you confirmed. You can update your profile later.</p><div class='finish-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></div></div></section>
@@ -2005,13 +2272,55 @@ def _render_found_fact_cards(fact_fields):
 
 
 def _is_managed_collection_fact(fact):
-    return bool(
-        not fact.suggested
-        and fact.conflict_group is None
-        and any(
-            fact.field_path in spec["paths"]
-            for spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.values()
-        )
+    if fact.conflict_group is not None:
+        return False
+    return any(
+        fact.field_path in spec["paths"]
+        and (not fact.suggested or spec.get("include_suggested") is True)
+        for spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.values()
+    )
+
+
+_SECTION_RESET_COPY = {
+    "profile_basics": ("profile-basics", "profile basics"),
+    "work_history": ("work-history", "work history"),
+    "education": ("education", "education"),
+    "languages": ("languages", "languages"),
+    "expertise": ("expertise", "skills & expertise"),
+    "professional_experience": ("professional-experience", "professional experience"),
+}
+
+
+def _render_section_reset(review, section_id):
+    """Render one quiet, explicit recovery action for a proven extraction baseline."""
+
+    if not review_reset_section_available(review, section_id):
+        return ""
+    slug, noun = _SECTION_RESET_COPY[section_id]
+    panel_id = f"{slug}-reset-confirm"
+    title_id = f"{slug}-reset-title"
+    return (
+        "<div class='expertise-reset section-reset'>"
+        f"<button class='button-quiet expertise-reset-open' type='button' data-section-reset-open aria-expanded='false' aria-controls='{panel_id}'>Reset to Wahojobs suggestions</button>"
+        f"<div class='expertise-reset-confirm section-reset-confirm' id='{panel_id}' data-section-reset-confirm role='group' aria-labelledby='{title_id}' hidden>"
+        f"<p id='{title_id}'><strong>Reset {_safe_text(noun)}?</strong></p>"
+        "<p>This will restore Wahojobs' original suggestions and remove changes you've made in this section.</p>"
+        "<div class='expertise-reset-actions'><button class='button-quiet' type='button' data-section-reset-cancel>Cancel</button>"
+        f"<button type='button' data-section-reset-confirm-action='{_safe_text(section_id)}'>Reset</button></div></div></div>"
+    )
+
+
+def _render_compact_experience_fact(index, fact):
+    if fact.field_path != "experience.total_years":
+        raise ProfileIntakeError("invalid_review_submission")
+    pending = fact.suggested and fact.decision == "pending"
+    removed = fact.decision in {"reject", "remove"}
+    raw_value = "" if removed else review_value_for_form(fact.value)
+    return (
+        f"<div class='compact-experience-item'{' data-background-pending=true' if pending else ''}>"
+        "<label class='review-field'><span>Approx. years of professional experience</span>"
+        f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' inputmode='decimal' maxlength='512' aria-describedby='professional-years-help'>"
+        "<small id='professional-years-help'>Optional. Clear the field if you prefer not to include it.</small></label></div>"
     )
 
 
@@ -2032,31 +2341,72 @@ def _render_review_collection(review, collection_id):
             if spec["kind"] == "language"
             else "",
             "decision": "keep",
+            "requires_confirmation": False,
+            "suggested": False,
+            "mixed_decisions": False,
             "source_attributions": (),
+            "members": (),
+            "field_paths": (spec["add_path"],),
         },
         template=True,
     )
+    visible_entry_count = sum(entry["decision"] != "remove" for entry in entries)
     empty = (
         "<p class='collection-empty'>Nothing listed yet. Add an item if it belongs in your profile.</p>"
-        if not entries
-        else ""
+        if not visible_entry_count
+        else "<p class='collection-empty' hidden>Nothing listed yet. Add an item if it belongs in your profile.</p>"
     )
     noun = {
-        "skills": "skill",
+        "skills": "skill or area of expertise",
         "job_titles": "job title",
+        "industries": "industry",
         "languages": "language",
     }[collection_id]
     help_text = {
-        "skills": "Add practical skills, tools, or subject knowledge. Similar entries are kept only once.",
-        "job_titles": "Add roles you have held. Job interests are chosen separately later.",
-        "languages": "Add each language separately. Leave proficiency blank when you do not want to state one.",
+        "skills": "Items shown will be included. Remove anything that is wrong. You don't need to list job types or every kind of AI work—Wahojobs uses your background to figure out where you may fit.",
+        "job_titles": "Edit the roles we found, or add another role you have held.",
+        "industries": "Add industries where you have real work experience. You do not need to list every possible area.",
+        "languages": "Edit the languages we found or add another. Leave proficiency blank when you do not want to state one.",
     }[collection_id]
+    active_add_path_count = sum(
+        any(
+            origin == "user"
+            or review.facts[member_index].field_path == spec["add_path"]
+            for origin, member_index in entry["members"]
+        )
+        and entry["decision"] != "remove"
+        for entry in entries
+    )
+    add_capacity = spec.get("add_limit", spec["limit"]) - active_add_path_count
+    browser_limit = min(spec["limit"], len(entries) + max(0, add_capacity))
+    legend_class = (
+        " class='screen-reader-only'"
+        if collection_id in {"skills", "industries"}
+        else ""
+    )
+    collection_actions = ""
+    if collection_id == "skills":
+        collection_actions = (
+            "<p class='expertise-undo' data-expertise-undo role='status' aria-live='polite' hidden>"
+            "<span data-expertise-undo-message></span> "
+            "<button class='button-quiet' type='button' data-expertise-undo-action>Undo</button></p>"
+            + _render_section_reset(review, "expertise")
+        )
+    elif collection_id == "job_titles":
+        collection_actions = (
+            "<p class='expertise-undo' data-work-history-undo role='status' aria-live='polite' hidden>"
+            "<span data-work-history-undo-message></span> "
+            "<button class='button-quiet' type='button' data-work-history-undo-action>Undo</button></p>"
+            + _render_section_reset(review, "work_history")
+        )
+    elif collection_id == "languages":
+        collection_actions = _render_section_reset(review, "languages")
     return (
-        f"<fieldset class='review-collection {collection_id}-collection' data-review-collection='{collection_id}' data-next-index='{len(entries)}' data-limit='{spec['limit']}'>"
-        f"<legend>{_safe_text(spec['title'])}</legend><p class='muted'>{_safe_text(help_text)}</p>"
+        f"<fieldset class='review-collection {collection_id}-collection' data-review-collection='{collection_id}' data-next-index='{len(entries)}' data-limit='{browser_limit}'>"
+        f"<legend{legend_class}>{_safe_text(spec['title'])}</legend><p class='muted'>{_safe_text(help_text)}</p>"
         f"{empty}<div class='review-collection-items' data-collection-items>{items}</div>"
-        f"<button class='button-quiet collection-add' type='button' data-collection-add>Add another {_safe_text(noun)}</button>"
-        f"<template data-collection-template>{template_item}</template></fieldset>"
+        f"<button class='button-quiet collection-add' type='button' data-collection-add{' hidden' if browser_limit <= len(entries) else ''}>Add another {_safe_text(noun)}</button>"
+        f"{collection_actions}<template data-collection-template>{template_item}</template></fieldset>"
     )
 
 
@@ -2116,16 +2466,16 @@ def _render_education_entries(review):
     )
     empty = (
         "<p class='collection-empty'>Nothing listed yet. Add your education if you would like it in your profile.</p>"
-        if not entries
-        else ""
+        if not any(entry["decision"] != "remove" for entry in entries)
+        else "<p class='collection-empty' hidden>Nothing listed yet. Add your education if you would like it in your profile.</p>"
     )
     return (
         "<div class='review-collections education-review-collections' aria-label='Education'>"
         f"<fieldset class='review-collection education-collection' data-review-collection='education' data-next-index='{len(entries)}' data-limit='{MAX_EDUCATION_ENTRIES}'>"
-        "<legend>Education</legend><p class='muted'>Keep each school, degree, or course together so its status and completion year are clear.</p>"
+        "<legend>Education</legend><p class='muted'>Edit the education we found or add another. Keep each school, degree, or course together so its status and completion year are clear.</p>"
         f"{empty}<div class='review-collection-items' data-collection-items>{items}</div>"
         "<button class='button-quiet collection-add' type='button' data-collection-add>Add another education entry</button>"
-        f"<template data-collection-template>{template}</template></fieldset></div>"
+        f"{_render_section_reset(review, 'education')}<template data-collection-template>{template}</template></fieldset></div>"
     )
 
 
@@ -2134,11 +2484,6 @@ def _render_education_entry(index, entry, *, template=False):
     prefix = f"review_education_{index}_"
     item_id = f"review-education-{index}"
     removed = entry["decision"] == "remove"
-    source = (
-        "Added by you"
-        if entry["origin"] == "user"
-        else _collection_source_label(entry["source_attributions"])
-    )
     kind_values = list(_PRIMARY_EDUCATION_ENTRY_KINDS)
     if value["kind"] not in kind_values:
         kind_values.append(value["kind"])
@@ -2160,8 +2505,8 @@ def _render_education_entry(index, entry, *, template=False):
     year = "" if value["completion_year"] is None else str(value["completion_year"])
     new_attribute = " data-collection-new='true'" if template else ""
     return (
-        f"<div class='review-collection-item education-entry{' is-removed' if removed else ''}' data-collection-item data-index='{index}'{new_attribute}>"
-        f"<p class='fact-meta'>{_safe_text(source)}</p><div class='collection-item-controls education-entry-controls'>"
+        f"<div class='review-collection-item education-entry' data-collection-item data-index='{index}'{new_attribute}{' hidden aria-hidden=true' if removed else ''}>"
+        "<div class='collection-item-controls education-entry-controls'>"
         f"<label class='review-field'><span>Education type</span><select id='{item_id}-kind' name='{prefix}kind'>{kind_options}</select></label>"
         f"<label class='review-field'><span>Qualification or course</span><input id='{item_id}-qualification' name='{prefix}qualification' value='{_safe_text(value['qualification'])}' maxlength='128'></label>"
         f"<label class='review-field'><span>Field of study</span><input id='{item_id}-field' name='{prefix}field' value='{_safe_text(value['field'])}' maxlength='128'></label>"
@@ -2170,8 +2515,8 @@ def _render_education_entry(index, entry, *, template=False):
         f"<label class='review-field'><span>Completion year <small>(optional)</small></span><input id='{item_id}-completion-year' name='{prefix}completion_year' value='{_safe_text(year)}' inputmode='numeric' pattern='[0-9]{{4}}' maxlength='4'></label>"
         "</div>"
         f"<p class='collection-item-error' id='{item_id}-error' data-collection-error role='alert' hidden></p>"
-        f"<label class='collection-remove'><input type='checkbox' name='{prefix}remove' value='remove'{' checked' if removed else ''} data-collection-remove>"
-        "<span class='remove-copy'>Remove</span><span class='restore-copy'>Keep entry</span></label></div>"
+        f"<input type='checkbox' name='{prefix}remove' value='remove'{' checked' if removed else ''} data-collection-remove hidden>"
+        "<button class='collection-remove-action' type='button' data-collection-remove-action>Remove</button></div>"
     )
 
 
@@ -2186,11 +2531,6 @@ def _render_review_collection_item(
     prefix = f"review_collection_{collection_id}_{index}_"
     item_id = f"review-collection-{collection_id}-{index}"
     removed = entry["decision"] == "remove"
-    source = (
-        "Added by you"
-        if entry["origin"] == "user"
-        else _collection_source_label(entry["source_attributions"])
-    )
     if spec["kind"] == "language":
         value = entry["value"]
         if type(value) is not LanguageValue:
@@ -2215,6 +2555,24 @@ def _render_review_collection_item(
             f"<label class='review-field'><span>Proficiency</span><select id='{item_id}-proficiency' name='{prefix}proficiency'>{''.join(options)}</select></label>"
             f"<label class='review-field'><span>Locale or variety <small>(optional)</small></span><input id='{item_id}-locale' name='{prefix}locale' value='{_safe_text(value.locale or '')}' maxlength='512'></label>"
         )
+    elif collection_id in {"skills", "industries"}:
+        label = (
+            "Skill or area of expertise"
+            if collection_id == "skills"
+            else "Industry"
+        )
+        size = min(40, max(18, len(entry["value"]) + 1))
+        if entry.get("suggested"):
+            controls = (
+                f"<p class='compact-expertise-text'>{_safe_text(entry['value'])}</p>"
+                f"<input type='hidden' name='{prefix}value' value='{_safe_text(entry['value'])}'>"
+            )
+        else:
+            controls = (
+                f"<label class='review-field compact-expertise-value'><span class='screen-reader-only'>{label}</span>"
+                f"<input id='{item_id}-value' name='{prefix}value' value='{_safe_text(entry['value'])}' "
+                f"maxlength='512' size='{size}' aria-label='{_safe_text(label)}' required></label>"
+            )
     else:
         label = "Skill" if collection_id == "skills" else "Job title"
         token_class = " skill-token-field" if collection_id == "skills" else ""
@@ -2230,21 +2588,24 @@ def _render_review_collection_item(
             f"maxlength='512' size='{size}' aria-label='{_safe_text(label)}' required></label>"
         )
     new_attribute = " data-collection-new='true'" if template else ""
-    token_item_class = " skill-token" if collection_id == "skills" else ""
-    remove_label = (
-        " aria-label='Remove this skill'" if collection_id == "skills" else ""
-    )
-    remove_symbol = (
-        "<span class='collection-remove-symbol' aria-hidden='true'>×</span>"
-        if collection_id == "skills"
-        else ""
-    )
+    compact_background = collection_id == "skills"
+    token_item_class = " expertise-compact-row" if compact_background else ""
+    if compact_background:
+        pending = bool(entry.get("requires_confirmation") and not removed)
+        remove_name = _safe_text(f"Remove {entry['value']}")
+        return (
+            f"<div class='review-collection-item{token_item_class}' data-collection-item data-expertise-item data-index='{index}'{new_attribute}{' data-background-pending=true' if pending else ''}{' hidden aria-hidden=true' if removed else ''}>"
+            f"<div class='compact-row-main'>{controls}<label class='collection-remove' aria-label='{remove_name}'>"
+            f"<input type='checkbox' name='{prefix}remove' value='remove'{' checked' if removed else ''} data-collection-remove>"
+            "<span class='collection-remove-symbol' aria-hidden='true'>×</span><span class='remove-copy screen-reader-only'>Remove</span></label></div>"
+            f"<p class='collection-item-error' id='{item_id}-error' data-collection-error role='alert' hidden></p></div>"
+        )
     return (
-        f"<div class='review-collection-item{token_item_class}{' is-removed' if removed else ''}' data-collection-item data-index='{index}'{new_attribute}>"
-        f"<p class='fact-meta'>{_safe_text(source)}</p><div class='collection-item-controls'>{controls}</div>"
+        f"<div class='review-collection-item{token_item_class}' data-collection-item data-index='{index}'{new_attribute}{' hidden aria-hidden=true' if removed else ''}>"
+        f"<div class='collection-item-controls'>{controls}</div>"
         f"<p class='collection-item-error' id='{item_id}-error' data-collection-error role='alert' hidden></p>"
-        f"<label class='collection-remove'{remove_label}><input type='checkbox' name='{prefix}remove' value='remove'{' checked' if removed else ''} data-collection-remove>"
-        f"{remove_symbol}<span class='remove-copy'>Remove</span><span class='restore-copy'>Keep item</span></label></div>"
+        f"<input type='checkbox' name='{prefix}remove' value='remove'{' checked' if removed else ''} data-collection-remove hidden>"
+        "<button class='collection-remove-action' type='button' data-collection-remove-action>Remove</button></div>"
     )
 
 
@@ -2262,9 +2623,11 @@ def _collection_source_label(attributions):
 def _review_fact_value_control(index, fact, raw_value, label):
     spec = _FIELD_SPECS.get(fact.field_path)
     if spec is None or spec.kind != "enum" or spec.multiple:
+        required = " required" if fact.field_path == "identity.display_name" else ""
+        maxlength = "160" if fact.field_path == "identity.display_name" else "512"
         return (
-            f"<label class='review-field'>{_safe_text(label)}"
-            f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='512'></label>"
+            f"<label class='review-field'><span>{_safe_text(label)}</span>"
+            f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='{maxlength}'{required}></label>"
         )
 
     compact_suggestion = _uses_compact_suggestion_choice(fact)

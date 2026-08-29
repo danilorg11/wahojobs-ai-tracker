@@ -43,6 +43,7 @@ from wahojobs.profile_intake.contracts import (
     AI_EXTRACTION_SCHEMA_VERSION,
     DocumentKind,
     INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS,
+    LanguageValue,
     ModelEvidencePacket,
     ProfileIntakeError,
     validate_ai_profile_extraction,
@@ -55,10 +56,16 @@ from wahojobs.profile_intake.runtime import (
     IntakeDraftVault,
     ProfileIntakeAuthorityService,
     ProfileIntakeProcessingService,
+    education_entry_field_authorities,
+    education_entry_values,
+    hydrate_profile_intake_checkpoint,
     managed_education_fact_indexes,
     managed_review_collection_fact_indexes,
     profile_intake_csrf_proof,
+    review_collection_entries,
     review_value_for_form,
+    serialize_profile_intake_checkpoint,
+    update_editable_review,
 )
 from wahojobs.profiles.canonical_v2 import (
     CANONICAL_PROFILE_V2_LIMITS,
@@ -113,6 +120,11 @@ class _FinalSaveAdapter:
         include_total_years=False,
         include_education=False,
         include_internal_classifications=False,
+        include_background_review=False,
+        include_second_job_title=False,
+        infer_display_name=False,
+        include_country=False,
+        include_languages=False,
     ):
         self.path = Path(path)
         self.providers = providers
@@ -121,6 +133,11 @@ class _FinalSaveAdapter:
         self.include_total_years = include_total_years
         self.include_education = include_education
         self.include_internal_classifications = include_internal_classifications
+        self.include_background_review = include_background_review
+        self.include_second_job_title = include_second_job_title
+        self.infer_display_name = infer_display_name
+        self.include_country = include_country
+        self.include_languages = include_languages
         self.calls = []
         self.attempt_counts_during_model = []
 
@@ -147,7 +164,13 @@ class _FinalSaveAdapter:
             else "Lisbon"
         )
         facts = [
-            _fact(reference, block, "identity.display_name", "Synthetic Candidate"),
+            _fact(
+                reference,
+                block,
+                "identity.display_name",
+                "Synthetic Candidate",
+                explicit=not self.infer_display_name,
+            ),
             _fact(reference, block, "location.city", city),
             _fact(reference, block, "skills.normalized", "Python"),
             _fact(
@@ -158,6 +181,33 @@ class _FinalSaveAdapter:
                 explicit=False,
             ),
         ]
+        if self.include_country:
+            facts.append(_fact(reference, block, "location.country", "Brazil"))
+        if self.include_languages:
+            facts.extend(
+                (
+                    _fact(
+                        reference,
+                        block,
+                        "languages",
+                        {
+                            "language": "Portuguese",
+                            "proficiency": "native",
+                            "locale": "Brazil",
+                        },
+                    ),
+                    _fact(
+                        reference,
+                        block,
+                        "languages",
+                        {
+                            "language": "English",
+                            "proficiency": "professional",
+                            "locale": None,
+                        },
+                    ),
+                )
+            )
         if self.include_total_years:
             facts.append(
                 _fact(reference, block, "experience.total_years", 6)
@@ -199,6 +249,27 @@ class _FinalSaveAdapter:
                     ),
                 )
             )
+        if self.include_background_review:
+            facts.extend(
+                (
+                    _fact(reference, block, "experience.job_titles", "Customer Support Specialist"),
+                    _fact(reference, block, "experience.recent_roles", "Customer Support Specialist"),
+                    _fact(reference, block, "experience.specialties", "Customer experience", explicit=False),
+                    _fact(reference, block, "experience.specialties", "Search quality", explicit=False),
+                    _fact(reference, block, "experience.industries", "Business services", explicit=False),
+                    _fact(reference, block, "experience.industries", "Technology services", explicit=False),
+                    _fact(reference, block, "preferences.remote", True),
+                )
+            )
+            if self.include_second_job_title:
+                facts.append(
+                    _fact(
+                        reference,
+                        block,
+                        "experience.job_titles",
+                        "Search Quality Evaluator",
+                    )
+                )
         if evidence.document_kind is DocumentKind.LINKEDIN_PROFILE_EXPORT:
             facts.append(_fact(reference, block, "skills.normalized", "SQL"))
         return validate_ai_profile_extraction(
@@ -433,12 +504,20 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
     def _grant(self):
         return intake_grant(self.path, self.session, now=self.now)
 
-    def _save_body(self, reference, *, decisions=None, changes=None):
+    def _save_body(
+        self,
+        reference,
+        *,
+        decisions=None,
+        changes=None,
+        confirm_background=True,
+    ):
         return self._review_body(
             reference,
             action="save",
             decisions=decisions,
             changes=changes,
+            confirm_background=confirm_background,
         )
 
     def _review_body(
@@ -456,6 +535,9 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         use_collections=False,
         education_overrides=None,
         use_education=False,
+        confirm_background=None,
+        confirm_profile_basics=False,
+        reset_section=None,
     ):
         integration = integration or self.integration
         session = session or self.session
@@ -472,6 +554,22 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             ),
             "review_step": review_step or snapshot.review_step,
         }
+        if confirm_background is None:
+            confirm_background = action == "save"
+        if confirm_background:
+            form["review_confirm_step"] = "review-suggestions"
+        if confirm_profile_basics:
+            if confirm_background:
+                raise AssertionError("only one review step can be confirmed per request")
+            form["review_confirm_step"] = "review-found"
+        if reset_section is not None:
+            if (
+                action != "autosave"
+                or confirm_background
+                or confirm_profile_basics
+            ):
+                raise AssertionError("section reset must be an isolated autosave")
+            form["reset_section"] = reset_section
         decisions = decisions or {}
         changes = changes or {}
         managed_indexes = (
@@ -487,11 +585,21 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             if (
                 index in managed_indexes
                 or fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS
+                or fact.field_path
+                in {"experience.industries", "experience.seniority"}
+                or fact.field_path.startswith("preferences.")
             ):
                 continue
             form[f"fact_{index}_value"] = changes.get(
                 index, review_value_for_form(fact.value)
             )
+            if fact.field_path == "experience.total_years" and fact.conflict_group is None:
+                continue
+            if fact.conflict_group is None and (
+                not fact.suggested
+                or fact.field_path.startswith(("identity.", "location."))
+            ):
+                continue
             form[f"fact_{index}_decision"] = decisions.get(
                 index,
                 "accept" if fact.suggested else "keep",
@@ -564,17 +672,243 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
 
     def test_review_collection_limits_remain_coherent_with_canonical_v2(self):
         self.assertEqual(
-            PROFILE_INTAKE_REVIEW_COLLECTIONS["skills"]["limit"],
+            PROFILE_INTAKE_REVIEW_COLLECTIONS["skills"]["add_limit"],
             MAX_SKILL_ENTRIES,
         )
         self.assertEqual(
-            PROFILE_INTAKE_REVIEW_COLLECTIONS["job_titles"]["limit"],
+            PROFILE_INTAKE_REVIEW_COLLECTIONS["job_titles"]["add_limit"],
+            CANONICAL_PROFILE_V2_LIMITS["string_list_items"],
+        )
+        self.assertEqual(
+            PROFILE_INTAKE_REVIEW_COLLECTIONS["industries"]["add_limit"],
             CANONICAL_PROFILE_V2_LIMITS["string_list_items"],
         )
         self.assertEqual(
             PROFILE_INTAKE_REVIEW_COLLECTIONS["languages"]["limit"],
             MAX_LANGUAGES,
         )
+
+    def test_profile_basics_render_as_direct_fields_and_get_confirms_nothing(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_country=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        before = self.integration._processing.vault.get(reference, self._grant())
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        self.assertEqual(page.status, 200)
+        name_index = next(
+            index
+            for index, fact in enumerate(before.review.facts)
+            if fact.field_path == "identity.display_name"
+        )
+        country_index = next(
+            index
+            for index, fact in enumerate(before.review.facts)
+            if fact.field_path == "location.country"
+        )
+        self.assertIn(
+            f"name='fact_{name_index}_value' value='Synthetic Candidate' maxlength='160' required".encode(),
+            page.body,
+        )
+        self.assertIn(
+            f"name='fact_{country_index}_value' value='Brazil'".encode(),
+            page.body,
+        )
+        self.assertNotIn(f"name='fact_{name_index}_decision'".encode(), page.body)
+        self.assertNotIn(f"name='fact_{country_index}_decision'".encode(), page.body)
+        self.assertNotIn(b"Include this in your profile?", page.body)
+        self.assertNotIn(b">Include it<", page.body)
+        self.assertNotIn(b">Leave it out<", page.body)
+        after = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(after.version, before.version)
+        self.assertEqual(after.review, before.review)
+
+    def test_profile_basic_corrections_resume_and_persist_as_user_corrections(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_country=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        indexes = {
+            fact.field_path: index for index, fact in enumerate(snapshot.review.facts)
+        }
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                changes={
+                    indexes["identity.display_name"]: "Marina Example",
+                    indexes["location.country"]: "Portugal",
+                },
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(saved.status, 204)
+        updated = self.integration._processing.vault.get(reference, self._grant())
+        edited = {
+            fact.field_path: fact
+            for fact in updated.review.facts
+            if fact.field_path in {"identity.display_name", "location.country"}
+        }
+        self.assertEqual(edited["identity.display_name"].value, "Marina Example")
+        self.assertEqual(edited["location.country"].value, "Portugal")
+        self.assertTrue(edited["identity.display_name"].candidate_edited)
+        self.assertTrue(edited["location.country"].candidate_edited)
+        with self._database() as connection:
+            checkpoint = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        checkpoint_edits = {
+            item["field_path"]: item.get("candidate_edited", False)
+            for item in checkpoint["facts"]
+        }
+        self.assertTrue(checkpoint_edits["identity.display_name"])
+        self.assertTrue(checkpoint_edits["location.country"])
+
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference, self._grant()
+        )
+        self.assertTrue(
+            next(
+                fact.candidate_edited
+                for fact in resumed.review.facts
+                if fact.field_path == "identity.display_name"
+            )
+        )
+        finalized = self._post_review(
+            resumed_reference,
+            self._save_body(resumed_reference),
+        )
+        self.assertEqual(finalized.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(profile["identity"]["display_name"], "Marina Example")
+        self.assertEqual(profile["location"]["country"], "Portugal")
+        sources = {
+            item["field_path"]: item
+            for item in profile["provenance"]["field_sources"]
+        }
+        # Canonical V2 deliberately omits identity.* field-source rows, while
+        # the checkpoint keeps the correction authority needed before Save.
+        self.assertNotIn("identity.display_name", sources)
+        self.assertEqual(
+            sources["location.country"]["source_kind"], "user_correction"
+        )
+        self.assertEqual(
+            sources["location.city"]["source_kind"], "resume_extraction"
+        )
+
+    def test_required_name_rejects_blank_while_optional_location_can_be_cleared(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_country=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        indexes = {
+            fact.field_path: index for index, fact in enumerate(snapshot.review.facts)
+        }
+        blank_name = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                changes={indexes["identity.display_name"]: ""},
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(blank_name.status, 400)
+        self.assertEqual(
+            self.integration._processing.vault.get(reference, self._grant()).version,
+            snapshot.version,
+        )
+        cleared = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                changes={indexes["location.country"]: ""},
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(cleared.status, 204)
+        current = self.integration._processing.vault.get(reference, self._grant())
+        country = current.review.facts[indexes["location.country"]]
+        self.assertEqual(country.decision, "remove")
+
+    def test_step_one_continue_confirms_only_visible_inferred_basics(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            infer_display_name=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        before = self.integration._processing.vault.get(reference, self._grant())
+        name_index = next(
+            index
+            for index, fact in enumerate(before.review.facts)
+            if fact.field_path == "identity.display_name"
+        )
+        seniority_index = next(
+            index
+            for index, fact in enumerate(before.review.facts)
+            if fact.field_path == "experience.seniority"
+        )
+        self.assertEqual(before.review.facts[name_index].decision, "pending")
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        self.assertIn(b"data-profile-basics-pending=true", page.body)
+        self.assertNotIn(f"name='fact_{name_index}_decision'".encode(), page.body)
+        self.assertEqual(
+            self.integration._processing.vault.get(reference, self._grant()).version,
+            before.version,
+        )
+        confirmed = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                confirm_background=False,
+                confirm_profile_basics=True,
+            ),
+        )
+        self.assertEqual(confirmed.status, 204)
+        after = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(after.review.facts[name_index].decision, "accept")
+        self.assertFalse(after.review.facts[name_index].candidate_edited)
+        self.assertNotEqual(after.review.facts[seniority_index].decision, "accept")
 
     def test_preflight_is_read_only_and_old_schema_fails_closed_without_migration(self):
         response = self.integration.handle(
@@ -786,29 +1120,43 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             )
 
     def test_autosave_preserves_unresolved_suggestion_without_confirming_it(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_background_review=True,
+        )
+        self.integration = self._build(self.adapter)
         reference = self._reference(self._upload())
         snapshot = self.integration._processing.vault.get(reference, self._grant())
+        identity_index = next(
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.field_path == "identity.display_name"
+        )
         suggestion_index = next(
             index
             for index, fact in enumerate(snapshot.review.facts)
-            if fact.suggested and fact.decision == "pending"
+            if fact.field_path == "experience.specialties"
+            and fact.suggested
+            and fact.decision == "pending"
         )
-        form = {
-            name: values[0]
-            for name, values in parse_qs(
-                self._review_body(
-                    reference,
-                    action="autosave",
-                    changes={0: "Saved With Pending Suggestion"},
-                ).decode("ascii"),
-                keep_blank_values=True,
-            ).items()
-        }
-        form.pop(f"fact_{suggestion_index}_value")
-        saved = self._post_review(reference, urlencode(form).encode("ascii"))
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                changes={identity_index: "Saved With Pending Suggestion"},
+                use_collections=True,
+                confirm_background=False,
+            ),
+        )
         self.assertEqual(saved.status, 204)
         updated = self.integration._processing.vault.get(reference, self._grant())
-        self.assertEqual(updated.review.facts[0].value, "Saved With Pending Suggestion")
+        self.assertEqual(
+            updated.review.facts[identity_index].value,
+            "Saved With Pending Suggestion",
+        )
         self.assertEqual(updated.review.facts[suggestion_index].decision, "pending")
         with self._database() as connection:
             payload = json.loads(
@@ -818,19 +1166,16 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             )
         self.assertEqual(payload["facts"][suggestion_index]["decision"], "pending")
 
-        final_form = {
-            name: values[0]
-            for name, values in parse_qs(
-                self._review_body(reference, action="save").decode("ascii"),
-                keep_blank_values=True,
-            ).items()
-        }
-        final_form.pop(f"fact_{suggestion_index}_value")
         rejected = self._post_review(
             reference,
-            urlencode(final_form).encode("ascii"),
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+                confirm_background=False,
+            ),
         )
-        self.assertEqual(rejected.status, 400)
+        self.assertEqual(rejected.status, 409)
         with self._database() as connection:
             self.assertEqual(database_counts(connection)["product_profiles"], 0)
 
@@ -1440,7 +1785,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             self._headers(origin=False),
         )
         self.assertIn(
-            b"name='review_collection_skills_1_remove' value='remove' checked",
+            b"name='review_collection_skills_1_remove' value='remove' checked data-collection-remove",
             restored_page.body,
         )
         restore_form = {
@@ -1516,10 +1861,1910 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             )
         )
 
+    def test_background_expertise_autosaves_resumes_and_finalizes_through_existing_fields(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_total_years=True,
+            include_background_review=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        original_preferences = snapshot.review.preference_model
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        self.assertEqual(page.status, 200)
+        self.assertEqual(page.body.count(b"Skills and areas of expertise</h3>"), 1)
+        self.assertIn(b"Customer experience", page.body)
+        self.assertIn(b"Search quality", page.body)
+        self.assertIn(b"Approx. years of professional experience", page.body)
+        self.assertNotIn(b"Overall career stage", page.body)
+        self.assertNotIn(b"Industry background", page.body)
+        self.assertNotIn(b"Business services", page.body)
+        self.assertNotIn(b"Technology services", page.body)
+        self.assertNotIn(b"Suggested from your background", page.body)
+        self.assertNotIn(b"Use this stage", page.body)
+        self.assertNotIn(b">Keep</span>", page.body)
+        self.assertNotIn(b"Add this to your profile?", page.body)
+        after_get = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(after_get.version, snapshot.version)
+        self.assertEqual(
+            {
+                fact.value: fact.decision
+                for fact in after_get.review.facts
+                if fact.field_path == "experience.specialties"
+            },
+            {"Customer experience": "pending", "Search quality": "pending"},
+        )
+        preference_index = next(
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.field_path == "preferences.remote"
+        )
+        self.assertNotIn(f"name='fact_{preference_index}_value'".encode(), page.body)
+
+        unsafe_edit = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    "review_collection_skills_1_value": "Client experience",
+                },
+            ),
+        )
+        self.assertEqual(unsafe_edit.status, 400)
+
+        ordinary_autosave = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(ordinary_autosave.status, 204)
+        after_ordinary_autosave = self.integration._processing.vault.get(
+            reference,
+            self._grant(),
+        )
+        self.assertEqual(
+            {
+                fact.value: fact.decision
+                for fact in after_ordinary_autosave.review.facts
+                if fact.field_path == "experience.specialties"
+            },
+            {"Customer experience": "pending", "Search quality": "pending"},
+        )
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in after_ordinary_autosave.review.facts
+                if fact.field_path == "experience.industries"
+            ),
+            "reject",
+        )
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in after_ordinary_autosave.review.facts
+                if fact.field_path == "experience.seniority"
+            ),
+            "reject",
+        )
+
+        saved_progress = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    "review_collection_skills_2_remove": "remove",
+                    "review_collection_skills_3_value": "SEO",
+                },
+                confirm_background=True,
+            ),
+        )
+        self.assertEqual(saved_progress.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(
+            resumed_reference,
+            self._grant(),
+        )
+        self.assertEqual(resumed.review.preference_model, original_preferences)
+        self.assertEqual(
+            [(fact.field_path, fact.value, fact.decision) for fact in resumed.review.user_facts],
+            [("skills.normalized", "SEO", "keep")],
+        )
+        self.assertEqual(
+            {
+                fact.value: fact.decision
+                for fact in resumed.review.facts
+                if fact.field_path == "experience.specialties"
+            },
+            {"Customer experience": "accept", "Search quality": "reject"},
+        )
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in resumed.review.facts
+                if fact.field_path == "experience.industries"
+            ),
+            "reject",
+        )
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in resumed.review.facts
+                if fact.field_path == "experience.seniority"
+            ),
+            "reject",
+        )
+
+        finalized = self._post_review(
+            resumed_reference,
+            self._review_body(
+                resumed_reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(finalized.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(profile["skills"]["normalized"], ["Python", "SEO"])
+        self.assertEqual(profile["experience"]["specialties"], ["Customer experience"])
+        self.assertEqual(profile["experience"].get("industries", []), [])
+        self.assertEqual(profile["experience"]["seniority"], "unknown")
+        self.assertEqual(profile["experience"]["total_years"], 6)
+        self.assertEqual(
+            profile["experience"]["job_titles"],
+            ["Customer Support Specialist"],
+        )
+        self.assertEqual(
+            profile["experience"]["recent_roles"],
+            ["Customer Support Specialist"],
+        )
+        self.assertEqual(
+            profile["preferences"]["preference_model"],
+            original_preferences,
+        )
+        self.assertTrue(
+            any(
+                source["source_kind"] == "user_confirmation"
+                and source["field_path"] == "skills.normalized[1]"
+                for source in profile["provenance"]["field_sources"]
+            )
+        )
+        self.assertTrue(
+            any(
+                source["source_kind"] == "resume_extraction"
+                and source["field_path"] == "experience.specialties[0]"
+                for source in profile["provenance"]["field_sources"]
+            )
+        )
+        self.assertFalse(
+            any(
+                source["source_kind"] == "user_confirmation"
+                and source["field_path"] == "experience.specialties[0]"
+                for source in profile["provenance"]["field_sources"]
+            )
+        )
+        self.assertFalse(
+            any(
+                source["field_path"] == "preferences.remote"
+                and source["source_kind"] == "resume_extraction"
+                for source in profile["provenance"]["field_sources"]
+            )
+        )
+
+    def test_removed_expertise_is_hidden_and_single_undo_restores_server_owned_state(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_background_review=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        initial_fields = _collection_form_values_for_review(initial.review)
+        search_key = next(
+            name
+            for name, value in initial_fields.items()
+            if name.startswith("review_collection_skills_")
+            and name.endswith("_value")
+            and value == "Search quality"
+        )
+        search_index = int(search_key.split("_")[-2])
+
+        removed = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    f"review_collection_skills_{search_index}_remove": "remove"
+                },
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(removed.status, 204)
+        after_remove = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in after_remove.review.facts
+                if fact.field_path == "experience.specialties"
+                and fact.value == "Search quality"
+            ),
+            "reject",
+        )
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        skills_start = page.body.index(b"data-review-collection='skills'")
+        skills_end = page.body.index(b"</fieldset>", skills_start)
+        skills_markup = page.body[skills_start:skills_end]
+        hidden_item = (
+            f"data-expertise-item data-index='{search_index}' hidden aria-hidden=true"
+        ).encode()
+        self.assertIn(hidden_item, skills_markup)
+        self.assertNotIn(b"Restore", skills_markup)
+        self.assertIn(b"data-expertise-undo", skills_markup)
+        self.assertIn(b"Reset to Wahojobs suggestions", skills_markup)
+        self.assertIn(
+            b"data-section-reset-open aria-expanded='false' "
+            b"aria-controls='expertise-reset-confirm'",
+            skills_markup,
+        )
+
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        resumed_reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed_page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE
+            + "?"
+            + urlencode({"draft": resumed_reference}),
+            self._headers(origin=False),
+        )
+        self.assertIn(hidden_item, resumed_page.body)
+
+        undo_form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(
+                    resumed_reference,
+                    action="autosave",
+                    use_collections=True,
+                    confirm_background=False,
+                ).decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        undo_form.pop(f"review_collection_skills_{search_index}_remove")
+        self.assertEqual(
+            self._post_review(
+                resumed_reference,
+                urlencode(undo_form).encode("ascii"),
+            ).status,
+            204,
+        )
+        after_undo = self.integration._processing.vault.get(
+            resumed_reference, self._grant()
+        )
+        restored = next(
+            fact
+            for fact in after_undo.review.facts
+            if fact.field_path == "experience.specialties"
+            and fact.value == "Search quality"
+        )
+        self.assertEqual(restored.decision, "accept")
+        self.assertFalse(restored.explicit)
+        self.assertFalse(restored.candidate_edited)
+        self.assertEqual(
+            list(_collection_form_values_for_review(after_undo.review).values()).count(
+                "Search quality"
+            ),
+            1,
+        )
+
+    def test_dummy_expertise_removals_stay_clean_and_reset_restores_checkpoint_baseline(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_total_years=True,
+            include_background_review=True,
+            include_country=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        initial_name = next(
+            fact.value
+            for fact in initial.review.facts
+            if fact.field_path == "identity.display_name"
+        )
+        initial_preferences = initial.review.preference_model
+        initial_fields = _collection_form_values_for_review(initial.review)
+        initial_values = {
+            value
+            for name, value in initial_fields.items()
+            if name.startswith("review_collection_skills_")
+            and name.endswith("_value")
+        }
+        next_index = 1 + max(
+            int(name.split("_")[-2])
+            for name in initial_fields
+            if name.startswith("review_collection_skills_")
+            and name.endswith("_value")
+        )
+        additions = ("lalala", "test thing", "dummy expertise", "SEO")
+        added = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    f"review_collection_skills_{next_index + offset}_value": value
+                    for offset, value in enumerate(additions)
+                },
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(added.status, 204)
+        removed = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                collection_overrides={
+                    f"review_collection_skills_{next_index + offset}_remove": "remove"
+                    for offset in range(3)
+                },
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(removed.status, 204)
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        skills_start = page.body.index(b"data-review-collection='skills'")
+        skills_end = page.body.index(b"</fieldset>", skills_start)
+        skills_markup = page.body[skills_start:skills_end]
+        for offset, value in enumerate(additions[:3]):
+            self.assertIn(
+                (
+                    f"data-expertise-item data-index='{next_index + offset}' "
+                    "hidden aria-hidden=true"
+                ).encode(),
+                skills_markup,
+            )
+            self.assertIn(value.encode(), skills_markup)
+        self.assertNotIn(b"Restore", skills_markup)
+        self.assertIn(b"value='SEO'", skills_markup)
+
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed_page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        resumed_skills_start = resumed_page.body.index(
+            b"data-review-collection='skills'"
+        )
+        resumed_skills_end = resumed_page.body.index(
+            b"</fieldset>", resumed_skills_start
+        )
+        resumed_skills_markup = resumed_page.body[
+            resumed_skills_start:resumed_skills_end
+        ]
+        for offset in range(3):
+            self.assertIn(
+                (
+                    f"data-expertise-item data-index='{next_index + offset}' "
+                    "hidden aria-hidden=true"
+                ).encode(),
+                resumed_skills_markup,
+            )
+        self.assertIn(b"value='SEO'", resumed_skills_markup)
+        self.assertNotIn(b"Restore", resumed_skills_markup)
+
+        with self._database() as connection:
+            checkpoint = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            {
+                item["value"]
+                for item in checkpoint["reset_baseline"]
+                if item["section_id"] == "expertise"
+            },
+            initial_values,
+        )
+        calls_before_reset = tuple(self.adapter.calls)
+        reset = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                reset_section="expertise",
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(reset.status, 204)
+        self.assertEqual(tuple(self.adapter.calls), calls_before_reset)
+        after_reset = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(
+            {
+                value
+                for name, value in _collection_form_values_for_review(
+                    after_reset.review
+                ).items()
+                if name.startswith("review_collection_skills_")
+                and name.endswith("_value")
+                and not name.replace("_value", "_remove")
+                in _collection_form_values_for_review(after_reset.review)
+            },
+            initial_values,
+        )
+        self.assertTrue(
+            all(
+                fact.decision == "remove"
+                for fact in after_reset.review.user_facts
+                if fact.collection_id == "skills"
+            )
+        )
+        self.assertEqual(
+            next(
+                fact.value
+                for fact in after_reset.review.facts
+                if fact.field_path == "identity.display_name"
+            ),
+            initial_name,
+        )
+        self.assertEqual(
+            next(
+                fact.value
+                for fact in after_reset.review.facts
+                if fact.field_path == "experience.total_years"
+            ),
+            6,
+        )
+        self.assertEqual(after_reset.review.preference_model, initial_preferences)
+        self.assertEqual(
+            {
+                fact.value: fact.decision
+                for fact in after_reset.review.facts
+                if fact.field_path == "experience.specialties"
+            },
+            {"Customer experience": "pending", "Search quality": "pending"},
+        )
+        finalized = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(finalized.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            set(profile["skills"]["normalized"]),
+            {"Python"},
+        )
+        self.assertEqual(
+            set(profile["experience"]["specialties"]),
+            {"Customer experience", "Search quality"},
+        )
+        self.assertNotIn(
+            "SEO",
+            profile["skills"]["normalized"] + profile["experience"]["specialties"],
+        )
+
+    def test_readding_rejected_specialty_stays_user_authored_and_renders_once(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_background_review=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        fields = _collection_form_values_for_review(initial.review)
+        search_key = next(
+            name
+            for name, value in fields.items()
+            if name.endswith("_value") and value == "Search quality"
+        )
+        search_index = int(search_key.split("_")[-2])
+        next_index = 1 + max(
+            int(name.split("_")[-2])
+            for name in fields
+            if name.startswith("review_collection_skills_")
+            and name.endswith("_value")
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_skills_{search_index}_remove": "remove"
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_skills_{next_index}_value": "Search quality"
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        review = self.integration._processing.vault.get(reference, self._grant()).review
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in review.facts
+                if fact.field_path == "experience.specialties"
+                and fact.value == "Search quality"
+            ),
+            "reject",
+        )
+        user_copy = next(
+            fact
+            for fact in review.user_facts
+            if fact.collection_id == "skills" and fact.value == "Search quality"
+        )
+        self.assertEqual((user_copy.field_path, user_copy.decision), (
+            "skills.normalized", "keep"
+        ))
+        visible_fields = _collection_form_values_for_review(review)
+        self.assertEqual(list(visible_fields.values()).count("Search quality"), 1)
+
+        finalized = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(finalized.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertIn("Search quality", profile["skills"]["normalized"])
+        self.assertNotIn("Search quality", profile["experience"]["specialties"])
+        self.assertTrue(
+            any(
+                source["source_kind"] == "user_confirmation"
+                and source["field_path"].startswith("skills.normalized[")
+                for source in profile["provenance"]["field_sources"]
+            )
+        )
+
+    def test_work_history_current_state_undo_readd_and_reset_preserve_both_role_paths(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_total_years=True,
+            include_background_review=True,
+            include_second_job_title=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        initial_preferences = initial.review.preference_model
+        self.assertEqual(
+            [
+                entry["value"]
+                for entry in review_collection_entries(initial.review, "job_titles")
+                if entry["decision"] != "remove"
+            ],
+            ["Customer Support Specialist", "Search Quality Evaluator"],
+        )
+        self.assertEqual(
+            [
+                (
+                    initial.review.facts[entry.fact_index].field_path,
+                    entry.value,
+                    entry.decision,
+                )
+                for entry in initial.review.reset_baseline
+                if entry.section_id == "work_history"
+            ],
+            [
+                (
+                    "experience.job_titles",
+                    "Customer Support Specialist",
+                    "keep",
+                ),
+                ("experience.job_titles", "Search Quality Evaluator", "keep"),
+                (
+                    "experience.recent_roles",
+                    "Customer Support Specialist",
+                    "keep",
+                ),
+            ],
+        )
+        initial_fields = _collection_form_values_for_review(initial.review)
+        next_index = 1 + max(
+            int(name.split("_")[-2])
+            for name in initial_fields
+            if name.startswith("review_collection_job_titles_")
+            and name.endswith("_value")
+        )
+        additions = ("lalala", "lili", "test job", "dummy role")
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_job_titles_{next_index + offset}_value": value
+                        for offset, value in enumerate(additions)
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_job_titles_{next_index + offset}_remove": "remove"
+                        for offset in range(len(additions))
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        work_start = page.body.index(b"data-review-collection='job_titles'")
+        work_end = page.body.index(b"</fieldset>", work_start)
+        work_markup = page.body[work_start:work_end]
+        for offset, value in enumerate(additions):
+            self.assertIn(
+                (
+                    f"data-index='{next_index + offset}' hidden aria-hidden=true"
+                ).encode(),
+                work_markup,
+            )
+            self.assertIn(value.encode(), work_markup)
+        self.assertNotIn(b"Keep item", work_markup)
+        self.assertNotIn(b"Restore", work_markup)
+        self.assertIn(b"data-work-history-undo", work_markup)
+        self.assertIn(
+            b"Reset to Wahojobs suggestions",
+            work_markup,
+        )
+        self.assertIn(b"class='collection-remove-action'", work_markup)
+        self.assertNotIn(b"class='collection-remove'><input", work_markup)
+
+        # The browser-local Undo submits the current collection with the latest
+        # remove marker cleared. The durable authority remains the same closed form.
+        undo_form = {
+            name: values[0]
+            for name, values in parse_qs(
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    confirm_background=False,
+                ).decode("ascii"),
+                keep_blank_values=True,
+            ).items()
+        }
+        latest_remove = (
+            f"review_collection_job_titles_{next_index + len(additions) - 1}_remove"
+        )
+        undo_form.pop(latest_remove)
+        self.assertEqual(
+            self._post_review(
+                reference,
+                urlencode(undo_form).encode("ascii"),
+            ).status,
+            204,
+        )
+        after_undo = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in after_undo.review.user_facts
+                if fact.collection_id == "job_titles" and fact.value == "dummy role"
+            ),
+            "keep",
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={latest_remove: "remove"},
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+
+        # Removing a deduplicated extracted title rejects both compatibility
+        # members. Re-adding the same words creates one evidence-free user fact.
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        "review_collection_job_titles_0_remove": "remove"
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        readd_index = next_index + len(additions)
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_job_titles_{readd_index}_value": (
+                            "Customer Support Specialist"
+                        )
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        readded = self.integration._processing.vault.get(reference, self._grant())
+        original_customer = [
+            fact
+            for fact in readded.review.facts
+            if fact.field_path
+            in {"experience.job_titles", "experience.recent_roles"}
+            and fact.value == "Customer Support Specialist"
+        ]
+        self.assertEqual([fact.decision for fact in original_customer], ["remove", "remove"])
+        user_customer = next(
+            fact
+            for fact in readded.review.user_facts
+            if fact.collection_id == "job_titles"
+            and fact.value == "Customer Support Specialist"
+        )
+        self.assertEqual(
+            (user_customer.field_path, user_customer.decision),
+            ("experience.job_titles", "keep"),
+        )
+        self.assertEqual(
+            list(_collection_form_values_for_review(readded.review).values()).count(
+                "Customer Support Specialist"
+            ),
+            1,
+        )
+
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        resumed = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(resumed.review.preference_model, initial_preferences)
+        unrelated_before_reset = tuple(
+            (fact.field_path, fact.value, fact.decision, fact.candidate_edited)
+            for fact in resumed.review.facts
+            if fact.field_path
+            not in {"experience.job_titles", "experience.recent_roles"}
+        )
+        with self._database() as connection:
+            checkpoint = json.loads(
+                connection.execute(
+                    "SELECT review_payload_json FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            [
+                item["value"]
+                for item in checkpoint["reset_baseline"]
+                if item["section_id"] == "work_history"
+            ],
+            [
+                "Customer Support Specialist",
+                "Search Quality Evaluator",
+                "Customer Support Specialist",
+            ],
+        )
+
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    reset_section="work_history",
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        reset = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        self.assertEqual(
+            [
+                entry["value"]
+                for entry in review_collection_entries(reset.review, "job_titles")
+                if entry["decision"] != "remove"
+            ],
+            ["Customer Support Specialist", "Search Quality Evaluator"],
+        )
+        self.assertTrue(
+            all(
+                fact.decision == "remove"
+                for fact in reset.review.user_facts
+                if fact.collection_id == "job_titles"
+            )
+        )
+        self.assertEqual(reset.review.preference_model, initial_preferences)
+        self.assertEqual(
+            tuple(
+                (fact.field_path, fact.value, fact.decision, fact.candidate_edited)
+                for fact in reset.review.facts
+                if fact.field_path
+                not in {"experience.job_titles", "experience.recent_roles"}
+            ),
+            unrelated_before_reset,
+        )
+
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            profile["experience"]["job_titles"],
+            ["Customer Support Specialist", "Search Quality Evaluator"],
+        )
+        self.assertEqual(
+            profile["experience"]["recent_roles"],
+            ["Customer Support Specialist"],
+        )
+        for value in additions:
+            self.assertNotIn(value, profile["experience"]["job_titles"])
+
+    def test_all_suggested_fact_sections_reset_from_one_checkpoint_baseline_in_isolation(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_total_years=True,
+            include_education=True,
+            include_background_review=True,
+            include_second_job_title=True,
+            include_country=True,
+            include_languages=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        review_target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        initial_page = self.integration.handle(
+            "GET", review_target, self._headers(origin=False)
+        )
+        self.assertEqual(initial_page.status, 200)
+        self.assertEqual(initial_page.body.count(b"Reset to Wahojobs suggestions"), 6)
+        for title in (
+            b"Reset profile basics?",
+            b"Reset work history?",
+            b"Reset education?",
+            b"Reset languages?",
+            b"Reset skills &amp; expertise?",
+            b"Reset professional experience?",
+        ):
+            self.assertIn(title, initial_page.body)
+        step_three = initial_page.body[
+            initial_page.body.index(b"id='review-preferences'"):
+            initial_page.body.index(b"id='review-finish'")
+        ]
+        self.assertNotIn(b"Reset to Wahojobs suggestions", step_three)
+        self.assertEqual(
+            self.integration._processing.vault.get(reference, self._grant()).version,
+            initial.version,
+        )
+        initial_preferences = initial.review.preference_model
+        initial_reset_baseline = initial.review.reset_baseline
+        initial_facts = {
+            (index, fact.field_path): (
+                fact.value,
+                fact.decision,
+                fact.source_attributions,
+            )
+            for index, fact in enumerate(initial.review.facts)
+        }
+        indexes = {
+            path: next(
+                index
+                for index, fact in enumerate(initial.review.facts)
+                if fact.field_path == path
+            )
+            for path in (
+                "identity.display_name",
+                "location.city",
+                "experience.total_years",
+                "experience.seniority",
+                "experience.industries",
+            )
+        }
+        collection_fields = _collection_form_values_for_review(initial.review)
+        language_next = 1 + max(
+            int(name.split("_")[-2])
+            for name in collection_fields
+            if name.startswith("review_collection_languages_")
+        )
+        title_next = 1 + max(
+            int(name.split("_")[-2])
+            for name in collection_fields
+            if name.startswith("review_collection_job_titles_")
+        )
+        skill_next = 1 + max(
+            int(name.split("_")[-2])
+            for name in collection_fields
+            if name.startswith("review_collection_skills_")
+        )
+        education_fields = _education_form_values_for_review(initial.review)
+        education_next = 1 + max(
+            int(name.split("_")[2])
+            for name in education_fields
+            if name.startswith("review_education_")
+        )
+        changed = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                use_education=True,
+                confirm_background=False,
+                changes={
+                    indexes["identity.display_name"]: "Marina Example",
+                    indexes["location.city"]: "Porto",
+                    indexes["experience.total_years"]: "9",
+                },
+                collection_overrides={
+                    "review_collection_job_titles_0_value": "Support Operations Lead",
+                    f"review_collection_job_titles_{title_next}_value": "AI Quality Reviewer",
+                    "review_collection_languages_0_language": "Portuguese (Brazil)",
+                    "review_collection_languages_0_proficiency": "fluent",
+                    "review_collection_languages_0_locale": "Brazilian Portuguese",
+                    f"review_collection_languages_{language_next}_language": "Spanish",
+                    f"review_collection_languages_{language_next}_proficiency": "intermediate",
+                    f"review_collection_languages_{language_next}_locale": "",
+                    "review_collection_skills_0_remove": "remove",
+                    f"review_collection_skills_{skill_next}_value": "SEO",
+                },
+                education_overrides={
+                    "review_education_0_qualification": "Edited degree",
+                    f"review_education_{education_next}_kind": "technical",
+                    f"review_education_{education_next}_qualification": "Data course",
+                    f"review_education_{education_next}_field": "Data quality",
+                    f"review_education_{education_next}_institution": "Synthetic Institute",
+                    f"review_education_{education_next}_status": "in_progress",
+                    f"review_education_{education_next}_completion_year": "",
+                },
+                preference_overrides={
+                    "preference_employment_relationships_mode": "preferences",
+                    "preference_employment_relationships_independent_contractor": "selected",
+                },
+            ),
+        )
+        self.assertEqual(changed.status, 204)
+
+        cleared_location = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                use_education=True,
+                confirm_background=False,
+                changes={indexes["location.city"]: ""},
+            ),
+        )
+        self.assertEqual(cleared_location.status, 204)
+        extraction_calls = tuple(self.adapter.calls)
+
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._entry_action("continue"))
+        resumed = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        self.assertEqual(resumed.review.reset_baseline, initial_reset_baseline)
+        self.assertEqual(
+            resumed.review.preference_model["employment_relationships"],
+            ["independent_contractor"],
+        )
+
+        def reset(section_id):
+            response = self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    use_education=True,
+                    reset_section=section_id,
+                    confirm_background=False,
+                ),
+            )
+            self.assertEqual(response.status, 204)
+            self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+            return self.integration._processing.vault.get(reference, self._grant())
+
+        reset_about = reset("profile_basics")
+        for path in ("identity.display_name", "location.city", "location.country"):
+            fact = next(item for item in reset_about.review.facts if item.field_path == path)
+            original = next(
+                value
+                for (_index, field_path), value in initial_facts.items()
+                if field_path == path
+            )
+            self.assertEqual((fact.value, fact.decision), original[:2])
+            self.assertFalse(fact.candidate_edited)
+            self.assertEqual(
+                tuple(item.document_kind for item in fact.source_attributions),
+                tuple(item.document_kind for item in original[2]),
+            )
+        self.assertEqual(
+            next(
+                fact.value
+                for fact in reset_about.review.facts
+                if fact.field_path == "experience.total_years"
+            ),
+            9,
+        )
+
+        reset_work = reset("work_history")
+        self.assertEqual(
+            [
+                entry["value"]
+                for entry in review_collection_entries(reset_work.review, "job_titles")
+                if entry["decision"] != "remove"
+            ],
+            ["Customer Support Specialist", "Search Quality Evaluator"],
+        )
+
+        reset_education = reset("education")
+        active_education = [
+            entry
+            for entry in education_entry_values(reset_education.review)
+            if entry["decision"] != "remove"
+        ]
+        self.assertEqual(len(active_education), 1)
+        self.assertEqual(
+            active_education[0]["value"],
+            {
+                "kind": "bachelor",
+                "qualification": "Bachelor of Business Administration",
+                "field": "Business Administration",
+                "institution": "Faculdade Horizonte Paulista",
+                "status": "completed",
+                "completion_year": 2016,
+            },
+        )
+        self.assertEqual(active_education[0]["origin"], "document")
+        self.assertEqual(
+            reset_education.review.education_entries[0].candidate_edited_components,
+            (),
+        )
+        self.assertEqual(
+            len(
+                {
+                    json.dumps(entry["value"], sort_keys=True)
+                    for entry in active_education
+                }
+            ),
+            len(active_education),
+        )
+
+        reset_languages = reset("languages")
+        active_languages = [
+            entry
+            for entry in review_collection_entries(reset_languages.review, "languages")
+            if entry["decision"] != "remove"
+        ]
+        self.assertEqual(
+            {entry["value"] for entry in active_languages},
+            {
+                LanguageValue("Portuguese", "native", "Brazil"),
+                LanguageValue("English", "professional", None),
+            },
+        )
+        self.assertEqual(
+            len({entry["value"] for entry in active_languages}),
+            len(active_languages),
+        )
+
+        reset_skills = reset("expertise")
+        self.assertEqual(
+            {
+                entry["value"]
+                for entry in review_collection_entries(reset_skills.review, "skills")
+                if entry["decision"] != "remove"
+            },
+            {"Python", "Customer experience", "Search quality"},
+        )
+        hidden_before_years = {
+            path: (
+                reset_skills.review.facts[indexes[path]].value,
+                reset_skills.review.facts[indexes[path]].decision,
+            )
+            for path in ("experience.seniority", "experience.industries")
+        }
+        reset_years = reset("professional_experience")
+        self.assertEqual(
+            reset_years.review.facts[indexes["experience.total_years"]].value,
+            6,
+        )
+        self.assertEqual(
+            {
+                path: (
+                    reset_years.review.facts[indexes[path]].value,
+                    reset_years.review.facts[indexes[path]].decision,
+                )
+                for path in ("experience.seniority", "experience.industries")
+            },
+            hidden_before_years,
+        )
+        self.assertEqual(reset_years.review.preference_model, resumed.review.preference_model)
+        with self._database() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM ai_profile_import_entitlements"
+                ).fetchone()[0],
+                "reserved",
+            )
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+                use_education=True,
+            ),
+        )
+        self.assertEqual(saved.status, 303)
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM ai_profile_import_entitlements"
+                ).fetchone()[0],
+                "consumed",
+            )
+        self.assertEqual(profile["identity"]["display_name"], "Synthetic Candidate")
+        self.assertEqual(profile["location"]["city"], "Lisbon")
+        self.assertEqual(profile["experience"]["total_years"], 6)
+        self.assertEqual(
+            profile["experience"]["job_titles"],
+            ["Customer Support Specialist", "Search Quality Evaluator"],
+        )
+        self.assertEqual(len(profile["education"]["entries"]), 1)
+        reset_education_sources = {
+            item["field_path"]: item
+            for item in profile["provenance"]["field_sources"]
+            if item["field_path"].startswith("education.entries[")
+        }
+        self.assertTrue(reset_education_sources)
+        self.assertEqual(
+            {item["source_kind"] for item in reset_education_sources.values()},
+            {"resume_extraction"},
+        )
+        self.assertFalse(
+            reset_education_sources["education.entries[0].kind"]["explicit"]
+        )
+        self.assertFalse(
+            reset_education_sources["education.entries[0].status"]["explicit"]
+        )
+        self.assertEqual(
+            {item["language"] for item in profile["languages"]},
+            {"English", "Portuguese"},
+        )
+        self.assertNotIn("SEO", profile["skills"]["normalized"])
+
+    def test_removed_extracted_and_user_job_titles_remain_absent_after_reload_and_save(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_background_review=True,
+            include_second_job_title=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        title_fields = {
+            name: value
+            for name, value in _collection_form_values_for_review(initial.review).items()
+            if name.startswith("review_collection_job_titles_")
+        }
+        search_key = next(
+            name
+            for name, value in title_fields.items()
+            if name.endswith("_value") and value == "Search Quality Evaluator"
+        )
+        search_index = int(search_key.split("_")[-2])
+        next_index = 1 + max(
+            int(name.split("_")[-2])
+            for name in title_fields
+            if name.endswith("_value")
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_job_titles_{next_index}_value": "lalala"
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_job_titles_{search_index}_remove": "remove",
+                        f"review_collection_job_titles_{next_index}_remove": "remove",
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        extraction_calls = tuple(self.adapter.calls)
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._entry_action("continue"))
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        work_start = page.body.index(b"data-review-collection='job_titles'")
+        work_end = page.body.index(b"</fieldset>", work_start)
+        work_markup = page.body[work_start:work_end]
+        self.assertIn(
+            f"data-index='{search_index}' hidden aria-hidden=true".encode(),
+            work_markup,
+        )
+        self.assertIn(
+            f"data-index='{next_index}' hidden aria-hidden=true".encode(),
+            work_markup,
+        )
+        self.assertNotIn(b"Keep item", work_markup)
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            profile["experience"]["job_titles"],
+            ["Customer Support Specialist"],
+        )
+        self.assertEqual(
+            profile["experience"]["recent_roles"],
+            ["Customer Support Specialist"],
+        )
+        self.assertNotIn("lalala", profile["experience"]["job_titles"])
+
+    def test_removed_education_and_languages_use_hidden_current_state_presentation(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_education=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    use_education=True,
+                    collection_overrides={
+                        "review_collection_languages_0_language": "Portuguese",
+                        "review_collection_languages_0_proficiency": "native",
+                        "review_collection_languages_0_locale": "Brazil",
+                    },
+                    education_overrides={
+                        "review_education_1_kind": "technical",
+                        "review_education_1_qualification": "Synthetic Data Course",
+                        "review_education_1_field": "Data Quality",
+                        "review_education_1_institution": "Synthetic Institute",
+                        "review_education_1_status": "in_progress",
+                        "review_education_1_completion_year": "2027",
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    use_education=True,
+                    collection_overrides={
+                        "review_collection_languages_0_remove": "remove",
+                    },
+                    education_overrides={
+                        "review_education_0_remove": "remove",
+                        "review_education_1_remove": "remove",
+                    },
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        language_start = page.body.index(b"data-review-collection='languages'")
+        language_end = page.body.index(b"</fieldset>", language_start)
+        language_markup = page.body[language_start:language_end]
+        education_start = page.body.index(b"data-review-collection='education'")
+        education_end = page.body.index(b"</fieldset>", education_start)
+        education_markup = page.body[education_start:education_end]
+        self.assertIn(b"data-index='0' hidden aria-hidden=true", language_markup)
+        self.assertIn(b"data-index='0' hidden aria-hidden=true", education_markup)
+        self.assertIn(b"Nothing listed yet", language_markup)
+        self.assertIn(b"Nothing listed yet", education_markup)
+        self.assertNotIn(b"Keep item", language_markup)
+        self.assertNotIn(b"Keep entry", education_markup)
+        self.assertNotIn(b"Restore", language_markup + education_markup)
+        self.assertIn(b"class='collection-remove-action'", language_markup)
+        self.assertIn(b"class='collection-remove-action'", education_markup)
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+                use_education=True,
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(saved.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertNotIn("entries", profile["education"])
+
+    def test_real_review_route_reloads_preserve_durable_state_without_new_import(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_total_years=True,
+            include_background_review=True,
+            include_country=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        target = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference})
+        extraction_calls = tuple(self.adapter.calls)
+
+        initial = self.integration._processing.vault.get(reference, self._grant())
+        initial_version = initial.version
+        initial_decisions = tuple(
+            (fact.field_path, fact.value, fact.decision)
+            for fact in initial.review.facts
+        )
+        first_get = self.integration.handle(
+            "GET",
+            target,
+            self._headers(origin=False),
+        )
+        self.assertEqual(first_get.status, 200)
+        after_first_get = self.integration._processing.vault.get(
+            reference, self._grant()
+        )
+        self.assertEqual(after_first_get.version, initial_version)
+        self.assertEqual(
+            tuple(
+                (fact.field_path, fact.value, fact.decision)
+                for fact in after_first_get.review.facts
+            ),
+            initial_decisions,
+        )
+
+        indexes = {
+            fact.field_path: index
+            for index, fact in enumerate(after_first_get.review.facts)
+        }
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    changes={indexes["identity.display_name"]: "Marina Reload Example"},
+                    review_step="review-found",
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        step_one_reload = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(step_one_reload.status, 200)
+        self.assertIn(b"value='Marina Reload Example'", step_one_reload.body)
+
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    review_step="review-suggestions",
+                    confirm_background=False,
+                    confirm_profile_basics=True,
+                ),
+            ).status,
+            204,
+        )
+        untouched_step_two = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(untouched_step_two.status, 200)
+        self.assertIn(b"value='review-suggestions'", untouched_step_two.body)
+        self.assertIn(b"Search quality", untouched_step_two.body)
+
+        current = self.integration._processing.vault.get(reference, self._grant())
+        collection_fields = _collection_form_values_for_review(current.review)
+        search_key = next(
+            name
+            for name, value in collection_fields.items()
+            if name.startswith("review_collection_skills_")
+            and name.endswith("_value")
+            and value == "Search quality"
+        )
+        search_index = int(search_key.split("_")[-2])
+        next_index = 1 + max(
+            int(name.split("_")[-2])
+            for name in collection_fields
+            if name.startswith("review_collection_skills_")
+            and name.endswith("_value")
+        )
+        years_index = next(
+            index
+            for index, fact in enumerate(current.review.facts)
+            if fact.field_path == "experience.total_years"
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    changes={years_index: "7"},
+                    collection_overrides={
+                        f"review_collection_skills_{search_index}_remove": "remove",
+                        f"review_collection_skills_{next_index}_value": "SEO",
+                    },
+                    review_step="review-suggestions",
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        edited_step_two = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(edited_step_two.status, 200)
+        self.assertIn(
+            (
+                f"data-expertise-item data-index='{search_index}' "
+                "hidden aria-hidden=true"
+            ).encode(),
+            edited_step_two.body,
+        )
+        self.assertIn(b"value='SEO'", edited_step_two.body)
+        self.assertIn(b"value='7'", edited_step_two.body)
+
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    collection_overrides={
+                        f"review_collection_skills_{next_index}_remove": "remove"
+                    },
+                    review_step="review-suggestions",
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        removed_user_skill_reload = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(removed_user_skill_reload.status, 200)
+        self.assertIn(
+            (
+                f"data-expertise-item data-index='{next_index}' "
+                "hidden aria-hidden=true"
+            ).encode(),
+            removed_user_skill_reload.body,
+        )
+
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    changes={years_index: ""},
+                    review_step="review-suggestions",
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        cleared_years_reload = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(cleared_years_reload.status, 200)
+        self.assertIn(
+            f"name='fact_{years_index}_value' value=''".encode(),
+            cleared_years_reload.body,
+        )
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    changes={years_index: "7"},
+                    review_step="review-suggestions",
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    reset_section="expertise",
+                    review_step="review-suggestions",
+                    confirm_background=False,
+                ),
+            ).status,
+            204,
+        )
+        reset_reload = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(reset_reload.status, 200)
+        after_reset = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(
+            {
+                entry["value"]
+                for entry in review_collection_entries(after_reset.review, "skills")
+                if entry["decision"] in {"keep", "pending"}
+            },
+            {"Python", "Customer experience", "Search quality"},
+        )
+        self.assertEqual(
+            next(
+                fact.value
+                for fact in after_reset.review.facts
+                if fact.field_path == "experience.total_years"
+            ),
+            7,
+        )
+        self.assertEqual(
+            next(
+                fact.value
+                for fact in after_reset.review.facts
+                if fact.field_path == "identity.display_name"
+            ),
+            "Marina Reload Example",
+        )
+
+        self.assertEqual(
+            self._post_review(
+                reference,
+                self._review_body(
+                    reference,
+                    action="autosave",
+                    use_collections=True,
+                    review_step="review-preferences",
+                    confirm_background=True,
+                ),
+            ).status,
+            204,
+        )
+        step_three_reload = self.integration.handle(
+            "GET", target, self._headers(origin=False)
+        )
+        self.assertEqual(step_three_reload.status, 200)
+        self.assertIn(b"value='review-preferences'", step_three_reload.body)
+        self.assertIn(b"What are you looking for?", step_three_reload.body)
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        with self._database() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_import_attempts"
+                ).fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT state,consumed_at FROM ai_profile_import_entitlements"
+                    ).fetchone()
+                ),
+                ("reserved", None),
+            )
+
+        finalized = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(finalized.status, 303)
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM ai_profile_import_entitlements"
+                ).fetchone()[0],
+                "consumed",
+            )
+        self.assertEqual(profile["identity"]["display_name"], "Marina Reload Example")
+        self.assertEqual(profile["experience"]["total_years"], 7)
+        self.assertEqual(profile["skills"]["normalized"], ["Python"])
+        self.assertEqual(
+            set(profile["experience"]["specialties"]),
+            {"Customer experience", "Search quality"},
+        )
+        self.assertNotIn("SEO", profile["skills"]["normalized"])
+
+    def test_existing_confirmed_hidden_background_checkpoint_values_are_preserved(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_background_review=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        snapshot = self.integration._processing.vault.get(reference, self._grant())
+        hidden_paths = {"experience.industries", "experience.seniority"}
+        confirmed_review = update_editable_review(
+            snapshot.review,
+            tuple(review_value_for_form(fact.value) for fact in snapshot.review.facts),
+            tuple(
+                "accept" if fact.field_path in hidden_paths else fact.decision
+                for fact in snapshot.review.facts
+            ),
+            dict(snapshot.review.user_inputs),
+        )
+        state, updated = self.integration._processing.update(
+            reference,
+            self._grant(),
+            expected_version=snapshot.version,
+            review=confirmed_review,
+        )
+        self.assertEqual(state, "updated")
+
+        autosaved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="autosave",
+                use_collections=True,
+                confirm_background=False,
+            ),
+        )
+        self.assertEqual(autosaved.status, 204)
+        preserved = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(preserved.version, updated.version + 1)
+        self.assertEqual(
+            {
+                fact.field_path: fact.decision
+                for fact in preserved.review.facts
+                if fact.field_path in hidden_paths
+            },
+            {
+                "experience.industries": "accept",
+                "experience.seniority": "accept",
+            },
+        )
+
+        finalized = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_collections=True,
+            ),
+        )
+        self.assertEqual(finalized.status, 303)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        self.assertEqual(
+            profile["experience"]["industries"],
+            ["Business services", "Technology services"],
+        )
+        self.assertEqual(profile["experience"]["seniority"], "senior")
+
     def test_typed_collections_reject_duplicates_invalid_values_limits_and_paths(self):
         reference = self._reference(self._upload())
         invalid_overrides = (
-            {"review_collection_skills_1_value": "python"},
+            {
+                "review_collection_skills_1_value": "python",
+            },
             {
                 "review_collection_languages_0_language": "Portuguese",
                 "review_collection_languages_0_proficiency": "expert",
@@ -1655,6 +3900,22 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 ).fetchone()[0]
             )
         self.assertEqual(len(payload["education_entries"]), 2)
+        self.assertEqual(
+            payload["education_entries"][0]["extraction_components"],
+            [
+                "completion_year",
+                "field",
+                "institution",
+                "kind",
+                "qualification",
+                "status",
+            ],
+        )
+        self.assertEqual(
+            payload["education_entries"][0]["candidate_edited_components"],
+            ["institution"],
+        )
+        self.assertEqual(payload["education_entries"][1]["extraction_components"], [])
         serialized = json.dumps(payload["education_entries"], sort_keys=True).casefold()
         for forbidden in (
             "evidence",
@@ -1664,6 +3925,44 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             "provider",
         ):
             self.assertNotIn(forbidden, serialized)
+        legacy_payload = json.loads(json.dumps(payload))
+        for item in legacy_payload["education_entries"]:
+            item.pop("extraction_components", None)
+            item.pop("candidate_edited_components", None)
+        legacy_payload_json = json.dumps(
+            legacy_payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        legacy_review = hydrate_profile_intake_checkpoint(legacy_payload_json)
+        self.assertTrue(
+            all(
+                detail["source_kind"] == "user_confirmation"
+                for fields in education_entry_field_authorities(legacy_review)
+                for detail in fields.values()
+            )
+        )
+        self.assertEqual(
+            serialize_profile_intake_checkpoint(
+                legacy_review,
+                review_step=legacy_payload["review_step"],
+            ),
+            legacy_payload_json,
+        )
+        tampered_payload = json.loads(json.dumps(payload))
+        tampered_payload["education_entries"][0]["candidate_edited_components"] = [
+            "arbitrary_field_path"
+        ]
+        with self.assertRaises(ProfileIntakeError):
+            hydrate_profile_intake_checkpoint(
+                json.dumps(
+                    tampered_payload,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
 
         removed = self._post_review(
             reference,
@@ -1688,6 +3987,10 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertEqual(
             resumed.review.education_entries[0].institution,
             "Faculdade Horizonte",
+        )
+        self.assertEqual(
+            resumed.review.education_entries[0].candidate_edited_components,
+            ("institution",),
         )
 
         final_form = {
@@ -1725,11 +4028,93 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             set(profile["education"]["entries"][1]),
             {"kind", "qualification", "field", "institution", "status", "completion_year"},
         )
+        education_sources = {
+            source["field_path"]: source
+            for source in profile["provenance"]["field_sources"]
+            if source["field_path"].startswith("education.entries[")
+        }
+        self.assertEqual(
+            education_sources["education.entries[0].institution"]["source_kind"],
+            "user_correction",
+        )
+        for field_name in (
+            "kind",
+            "qualification",
+            "field",
+            "status",
+            "completion_year",
+        ):
+            self.assertEqual(
+                education_sources[f"education.entries[0].{field_name}"]["source_kind"],
+                "resume_extraction",
+            )
+        for field_name in (
+            "kind",
+            "qualification",
+            "field",
+            "institution",
+            "status",
+            "completion_year",
+        ):
+            self.assertEqual(
+                education_sources[f"education.entries[1].{field_name}"]["source_kind"],
+                "user_confirmation",
+            )
+        self.assertFalse(
+            education_sources["education.entries[0].kind"]["explicit"]
+        )
+        self.assertFalse(
+            education_sources["education.entries[0].status"]["explicit"]
+        )
+
+    def test_untouched_structured_education_keeps_document_field_authority(self):
+        self.integration.close()
+        self.adapter = _FinalSaveAdapter(
+            self.path,
+            (self.read_provider, self.write_provider),
+            include_education=True,
+        )
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._upload())
+        extraction_calls = tuple(self.adapter.calls)
+        saved = self._post_review(
+            reference,
+            self._review_body(
+                reference,
+                action="save",
+                use_education=True,
+            ),
+        )
+        self.assertEqual(saved.status, 303)
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        with self._database() as connection:
+            profile = json.loads(
+                connection.execute(
+                    "SELECT structured_profile_json FROM product_profile_revisions"
+                ).fetchone()[0]
+            )
+        sources = {
+            item["field_path"]: item
+            for item in profile["provenance"]["field_sources"]
+            if item["field_path"].startswith("education.entries[")
+        }
+        self.assertEqual(len(profile["education"]["entries"]), 1)
+        self.assertEqual({item["source_kind"] for item in sources.values()}, {"resume_extraction"})
+        self.assertNotIn("user_confirmation", {item["source_kind"] for item in sources.values()})
+        self.assertFalse(sources["education.entries[0].kind"]["explicit"])
+        self.assertFalse(sources["education.entries[0].status"]["explicit"])
+        self.assertTrue(sources["education.entries[0].qualification"]["explicit"])
         self.assertTrue(
-            any(
-                source["source_kind"] == "user_confirmation"
-                and source["field_path"].startswith("education.entries[")
-                for source in profile["provenance"]["field_sources"]
+            all(
+                set(item)
+                == {
+                    "field_path",
+                    "path_version",
+                    "source_ordinals",
+                    "source_kind",
+                    "explicit",
+                }
+                for item in sources.values()
             )
         )
 
@@ -1804,7 +4189,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                     action="autosave",
                     use_collections=True,
                     collection_overrides={
-                        "review_collection_skills_1_value": "SQL"
+                        "review_collection_skills_1_value": "SQL",
                     },
                 ),
             )
@@ -1817,7 +4202,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                     integration=second,
                     use_collections=True,
                     collection_overrides={
-                        "review_collection_skills_1_value": "Excel"
+                        "review_collection_skills_1_value": "Excel",
                     },
                 ),
                 integration=second,

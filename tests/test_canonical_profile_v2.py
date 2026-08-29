@@ -26,6 +26,8 @@ from scripts.local_product_app import (
 )
 from wahojobs.profiles.canonical import (
     PROFILE_SOURCE_EXTERNAL,
+    PROFILE_SOURCE_RESUME,
+    PROFILE_SOURCE_USER_CORRECTION,
     PROFILE_SOURCE_USER_CONFIRMATION,
     canonical_to_matcher_profile,
     complete_trusted_fixture_provenance,
@@ -239,6 +241,50 @@ class CanonicalProfileV2Tests(unittest.TestCase):
                 source_ordinal_resolver=ordinal_resolver,
             )
         self.assertIn("duplicate_entry", raised.exception.reason_codes)
+
+    def test_structured_education_accepts_closed_field_level_source_authority(self):
+        entry = {
+            "kind": "not_specified",
+            "qualification": "",
+            "field": "generalist",
+            "institution": "",
+            "status": "unknown",
+            "completion_year": None,
+        }
+        unpaired = {
+            "education_level": "no_degree",
+            "fields_or_domains": ["language"],
+        }
+        candidate = self.convert_case()
+        candidate["education"] = project_education_entries_to_legacy([entry], unpaired)
+        rebuild_field_sources(candidate)
+
+        def authority(path):
+            if path.endswith(".field"):
+                return PROFILE_SOURCE_USER_CORRECTION, True
+            return PROFILE_SOURCE_RESUME, not path.endswith((".kind", ".status"))
+
+        structured = add_user_confirmed_education_entries_v1(
+            candidate,
+            [entry],
+            unpaired,
+            source_ordinal_resolver=ordinal_resolver,
+            source_authority_resolver=authority,
+        )
+        sources = {
+            item["field_path"]: item
+            for item in structured["provenance"]["field_sources"]
+            if item["field_path"].startswith("education.entries[")
+        }
+        self.assertEqual(
+            sources["education.entries[0].field"]["source_kind"],
+            PROFILE_SOURCE_USER_CORRECTION,
+        )
+        self.assertEqual(
+            sources["education.entries[0].status"]["source_kind"],
+            PROFILE_SOURCE_RESUME,
+        )
+        self.assertFalse(sources["education.entries[0].kind"]["explicit"])
 
     def test_legacy_correction_preserves_unchanged_entries_and_unpairs_an_education_edit(self):
         entry = {

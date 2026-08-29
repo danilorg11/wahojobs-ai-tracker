@@ -97,21 +97,40 @@ PROFILE_INTAKE_REVIEW_STEPS = (
 PROFILE_INTAKE_DEFAULT_REVIEW_STEP = PROFILE_INTAKE_REVIEW_STEPS[0]
 PROFILE_INTAKE_REVIEW_COLLECTIONS = {
     "skills": {
-        "title": "Skills",
-        "paths": ("skills.normalized",),
+        "title": "Skills and areas of expertise",
+        "paths": ("skills.normalized", "experience.specialties"),
         "add_path": "skills.normalized",
         "kind": "string",
-        # Closed Canonical V2 cardinalities; a contract-coherence test guards
-        # these presentation limits without importing the durable profile
-        # implementation into the intake runtime.
-        "limit": 96,
+        # The visual collection can contain both canonical lists. Candidate
+        # additions remain bounded by the Canonical V2 skills limit.
+        "limit": 224,
+        "add_limit": 96,
+        "include_suggested": True,
+        "deduplicate": True,
+        "browser_visible": True,
     },
     "job_titles": {
         "title": "Job titles",
-        "paths": ("experience.job_titles",),
+        "paths": ("experience.job_titles", "experience.recent_roles"),
         "add_path": "experience.job_titles",
         "kind": "string",
+        "limit": 256,
+        "add_limit": 128,
+        "deduplicate": True,
+        "browser_visible": True,
+    },
+    "industries": {
+        "title": "Industries in your experience",
+        "paths": ("experience.industries",),
+        "add_path": "experience.industries",
+        "kind": "string",
         "limit": 128,
+        "add_limit": 128,
+        "include_suggested": True,
+        "deduplicate": True,
+        # Compatibility-only collection. New assisted intake does not ask the
+        # candidate to maintain an industry taxonomy.
+        "browser_visible": False,
     },
     "languages": {
         "title": "Languages",
@@ -119,10 +138,16 @@ PROFILE_INTAKE_REVIEW_COLLECTIONS = {
         "add_path": "languages",
         "kind": "language",
         "limit": 32,
+        "browser_visible": True,
     },
 }
 _USER_FACT_REFERENCE = re.compile(
-    r"^uci_(?:skills|job_titles|languages)_[0-9]{3}$"
+    r"^uci_(?:skills|job_titles|industries|languages)_[0-9]{3}$"
+)
+from wahojobs.profiles.canonical import (
+    PROFILE_SOURCE_RESUME,
+    PROFILE_SOURCE_USER_CONFIRMATION,
+    PROFILE_SOURCE_USER_CORRECTION,
 )
 _EDUCATION_ENTRY_REFERENCE = re.compile(r"^edu_[0-9]{3}$")
 _EDUCATION_ENTRY_COMPONENTS = {
@@ -133,6 +158,45 @@ _EDUCATION_ENTRY_COMPONENTS = {
     "education.completion_status": "status",
     "education.graduation_years": "completion_year",
 }
+_EDUCATION_ENTRY_FIELDS = (
+    "kind",
+    "qualification",
+    "field",
+    "institution",
+    "status",
+    "completion_year",
+)
+
+PROFILE_INTAKE_RESET_SECTIONS = frozenset(
+    {
+        "profile_basics",
+        "work_history",
+        "education",
+        "languages",
+        "expertise",
+        "professional_experience",
+    }
+)
+
+
+def _review_reset_section_for_fact(fact):
+    """Return the only candidate-facing reset section owning one extracted fact."""
+
+    if fact.field_path.startswith(("identity.", "location.")):
+        return "profile_basics"
+    if fact.conflict_group is not None:
+        return None
+    if fact.field_path in PROFILE_INTAKE_REVIEW_COLLECTIONS["job_titles"]["paths"]:
+        return "work_history"
+    if fact.field_path in _EDUCATION_ENTRY_COMPONENTS:
+        return "education"
+    if fact.field_path in PROFILE_INTAKE_REVIEW_COLLECTIONS["languages"]["paths"]:
+        return "languages"
+    if fact.field_path in PROFILE_INTAKE_REVIEW_COLLECTIONS["skills"]["paths"]:
+        return "expertise"
+    if fact.field_path == "experience.total_years":
+        return "professional_experience"
+    return None
 
 _OPAQUE_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _ACTIONS = frozenset(
@@ -459,6 +523,31 @@ class EditableReviewFact:
     suggested: bool
     decision: str
     conflict_group: str | None
+    explicit: bool = True
+    candidate_edited: bool = False
+
+    def __post_init__(self):
+        if type(self.explicit) is not bool or type(self.candidate_edited) is not bool:
+            raise ProfileIntakeError("invalid_review_submission")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class EditableResetBaselineEntry:
+    """Immutable checkpoint-scoped extraction state for one resettable fact."""
+
+    section_id: str
+    fact_index: int
+    value: str | int | float | bool | LanguageValue = field(repr=False)
+    decision: str
+
+    def __post_init__(self):
+        if (
+            self.section_id not in PROFILE_INTAKE_RESET_SECTIONS
+            or type(self.fact_index) is not int
+            or self.fact_index < 0
+            or self.decision not in {"pending", "accept", "reject", "keep", "remove"}
+        ):
+            raise ProfileIntakeError("invalid_review_submission")
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -501,6 +590,8 @@ class EditableEducationEntry:
     source_fact_indexes: tuple[int, ...] = field(repr=False)
     source_attributions: tuple[ReviewSourceAttribution, ...] = field(repr=False)
     decision: str
+    extraction_components: tuple[str, ...] | None = field(default=None, repr=False)
+    candidate_edited_components: tuple[str, ...] = field(default=(), repr=False)
 
     def __post_init__(self):
         if (
@@ -508,6 +599,19 @@ class EditableEducationEntry:
             or self.origin not in {"document", "user"}
             or type(self.source_fact_indexes) is not tuple
             or type(self.source_attributions) is not tuple
+            or (
+                self.extraction_components is not None
+                and (
+                    type(self.extraction_components) is not tuple
+                    or tuple(sorted(set(self.extraction_components)))
+                    != self.extraction_components
+                    or not set(self.extraction_components) <= set(_EDUCATION_ENTRY_FIELDS)
+                )
+            )
+            or type(self.candidate_edited_components) is not tuple
+            or tuple(sorted(set(self.candidate_edited_components)))
+            != self.candidate_edited_components
+            or not set(self.candidate_edited_components) <= set(_EDUCATION_ENTRY_FIELDS)
             or self.decision not in {"keep", "remove"}
             or (
                 self.origin == "document"
@@ -540,6 +644,9 @@ class EditableProfileReview:
     _preference_model_json: bytes = field(repr=False)
     user_facts: tuple[EditableUserFact, ...] = field(default=(), repr=False)
     education_entries: tuple[EditableEducationEntry, ...] = field(
+        default=(), repr=False
+    )
+    reset_baseline: tuple[EditableResetBaselineEntry, ...] = field(
         default=(), repr=False
     )
 
@@ -1854,6 +1961,7 @@ def editable_profile_review(draft):
             suggested=suggested,
             decision="pending" if suggested else "keep",
             conflict_group=fact.conflict_group,
+            explicit=fact.explicit,
         )
         for suggested, collection in (
             (False, draft.prefilled_facts),
@@ -1876,7 +1984,80 @@ def editable_profile_review(draft):
         issue_count=len(draft.issues),
         _preference_model_json=_preference_model_json(preference_model),
         education_entries=_associate_education_entries(facts),
+        reset_baseline=_reset_baseline_for_facts(facts),
     )
+
+
+def _reset_baseline_for_facts(facts):
+    """Capture the original candidate-facing suggestion state exactly once."""
+
+    return tuple(
+        EditableResetBaselineEntry(section_id, index, fact.value, fact.decision)
+        for index, fact in enumerate(facts)
+        if (section_id := _review_reset_section_for_fact(fact)) is not None
+    )
+
+
+def _valid_reset_baseline(facts, baseline):
+    """Validate complete per-section snapshots while allowing older checkpoints.
+
+    A section is either absent (so Reset is unavailable) or represented by every
+    fact belonging to that section.  This lets pre-feature checkpoints resume
+    without pretending their edited values are an original extraction baseline.
+    """
+
+    if type(facts) is not tuple or type(baseline) is not tuple:
+        return False
+    if any(type(entry) is not EditableResetBaselineEntry for entry in baseline):
+        return False
+    seen = set()
+    represented_sections = {entry.section_id for entry in baseline}
+    for entry in baseline:
+        identity = (entry.section_id, entry.fact_index)
+        if identity in seen or not 0 <= entry.fact_index < len(facts):
+            return False
+        seen.add(identity)
+        fact = facts[entry.fact_index]
+        if _review_reset_section_for_fact(fact) != entry.section_id:
+            return False
+        allowed = {"pending", "accept", "reject"} if fact.suggested else {"keep", "remove"}
+        if entry.decision not in allowed:
+            return False
+        try:
+            if (
+                _parse_review_value(
+                    fact.field_path, review_value_for_form(entry.value)
+                )
+                != entry.value
+            ):
+                return False
+        except ProfileIntakeError:
+            return False
+    for section_id in represented_sections:
+        expected = {
+            index
+            for index, fact in enumerate(facts)
+            if _review_reset_section_for_fact(fact) == section_id
+        }
+        actual = {
+            entry.fact_index for entry in baseline if entry.section_id == section_id
+        }
+        if actual != expected:
+            return False
+    return len(seen) == len(baseline)
+
+
+def review_reset_section_available(review, section_id):
+    """Return whether this intake has a genuine immutable baseline for a section."""
+
+    if (
+        type(review) is not EditableProfileReview
+        or type(section_id) is not str
+        or section_id not in PROFILE_INTAKE_RESET_SECTIONS
+        or not _valid_reset_baseline(review.facts, review.reset_baseline)
+    ):
+        return False
+    return any(entry.section_id == section_id for entry in review.reset_baseline)
 
 
 def _education_entry_mapping(entry):
@@ -1906,6 +2087,58 @@ def education_entry_values(review):
         }
         for entry in review.education_entries
     )
+
+
+def education_entry_field_authorities(review):
+    """Return closed field-level authority for active entries in canonical order."""
+
+    if type(review) is not EditableProfileReview or not _valid_education_entries(
+        review.facts,
+        review.education_entries,
+    ):
+        raise ProfileIntakeError("invalid_review_submission")
+    active = tuple(entry for entry in review.education_entries if entry.decision == "keep")
+    by_identity = {
+        education_entry_identity(_education_entry_mapping(entry)): entry
+        for entry in active
+    }
+    try:
+        canonical_entries = canonicalize_education_entries_v1(
+            [_education_entry_mapping(entry) for entry in active]
+        )
+    except EducationEntryContractError:
+        raise ProfileIntakeError("invalid_review_submission") from None
+    result = []
+    for value in canonical_entries:
+        entry = by_identity.get(education_entry_identity(value))
+        if entry is None:
+            raise ProfileIntakeError("invalid_review_submission")
+        source_facts = {
+            _EDUCATION_ENTRY_COMPONENTS[review.facts[index].field_path]: review.facts[index]
+            for index in entry.source_fact_indexes
+        }
+        fields = {}
+        for component in _EDUCATION_ENTRY_FIELDS:
+            if entry.origin == "user":
+                authority = (PROFILE_SOURCE_USER_CONFIRMATION, True)
+            elif component in entry.candidate_edited_components:
+                authority = (PROFILE_SOURCE_USER_CORRECTION, True)
+            elif (
+                entry.extraction_components is not None
+                and component in entry.extraction_components
+                and component in source_facts
+            ):
+                authority = (PROFILE_SOURCE_RESUME, source_facts[component].explicit)
+            else:
+                # Older checkpoints did not retain mutation-aware education
+                # metadata. Conservatively avoid claiming document authority.
+                authority = (PROFILE_SOURCE_USER_CONFIRMATION, True)
+            fields[component] = {
+                "source_kind": authority[0],
+                "explicit": authority[1],
+            }
+        result.append(fields)
+    return tuple(result)
 
 
 def managed_education_fact_indexes(review):
@@ -1981,6 +2214,7 @@ def _associate_education_entries(facts):
                 source_fact_indexes=tuple(sorted(components.values())),
                 source_attributions=(facts[indexes[0]].source_attributions[0],),
                 decision="keep",
+                extraction_components=tuple(sorted(components)),
             )
         except (EducationEntryContractError, ProfileIntakeError):
             continue
@@ -2008,6 +2242,8 @@ def _valid_education_entries(facts, entries):
                 return False
             active_identities.add(identity)
         if entry.origin == "user":
+            if entry.extraction_components not in {None, ()}:
+                return False
             continue
         if (
             tuple(sorted(entry.source_fact_indexes)) != entry.source_fact_indexes
@@ -2026,6 +2262,11 @@ def _valid_education_entries(facts, entries):
                 return False
             components.add(component)
             attributions.extend(fact.source_attributions)
+        if (
+            entry.extraction_components is not None
+            and set(entry.extraction_components) != components
+        ):
+            return False
         expected_attributions = tuple(
             sorted(
                 set(attributions),
@@ -2054,16 +2295,21 @@ def review_collection_entries(review, collection_id):
     for index, fact in enumerate(review.facts):
         if (
             fact.field_path in spec["paths"]
-            and not fact.suggested
             and fact.conflict_group is None
+            and (not fact.suggested or spec.get("include_suggested") is True)
         ):
             entries.append(
                 {
                     "origin": "document",
                     "index": index,
+                    "members": (("document", index),),
                     "value": fact.value,
-                    "decision": fact.decision,
+                    "decision": _collection_decision_for_fact(fact),
+                    "requires_confirmation": fact.decision == "pending",
+                    "suggested": fact.suggested,
+                    "mixed_decisions": False,
                     "source_attributions": fact.source_attributions,
+                    "field_paths": (fact.field_path,),
                 }
             )
     for index, fact in enumerate(review.user_facts):
@@ -2072,29 +2318,79 @@ def review_collection_entries(review, collection_id):
                 {
                     "origin": "user",
                     "index": index,
+                    "members": (("user", index),),
                     "value": fact.value,
                     "decision": fact.decision,
+                    "requires_confirmation": False,
+                    "suggested": False,
+                    "mixed_decisions": False,
                     "source_attributions": (),
+                    "field_paths": (fact.field_path,),
                 }
             )
-    return tuple(entries)
+    if spec.get("deduplicate") is not True:
+        return tuple(entries)
+    grouped = []
+    grouped_by_identity = {}
+    for entry in entries:
+        identity = _review_collection_identity(entry["value"])
+        current = grouped_by_identity.get(identity)
+        if current is None:
+            current = dict(entry)
+            grouped_by_identity[identity] = current
+            grouped.append(current)
+            continue
+        current["members"] = (*current["members"], *entry["members"])
+        current["source_attributions"] = tuple(
+            dict.fromkeys((*current["source_attributions"], *entry["source_attributions"]))
+        )
+        current["field_paths"] = tuple(
+            dict.fromkeys((*current["field_paths"], *entry["field_paths"]))
+        )
+        current["requires_confirmation"] = bool(
+            current["requires_confirmation"] or entry["requires_confirmation"]
+        )
+        current["suggested"] = bool(current["suggested"] or entry["suggested"])
+        decisions = {current["decision"], entry["decision"]}
+        current["mixed_decisions"] = bool(
+            current["mixed_decisions"]
+            or entry["mixed_decisions"]
+            or len(decisions) > 1
+        )
+        current["decision"] = (
+            "pending"
+            if "pending" in decisions
+            else "keep"
+            if "keep" in decisions
+            else "remove"
+        )
+        if current["origin"] != entry["origin"]:
+            current["origin"] = "mixed"
+    return tuple(grouped)
+
+
+def _collection_decision_for_fact(fact):
+    if fact.suggested:
+        return {"pending": "pending", "accept": "keep", "reject": "remove"}[
+            fact.decision
+        ]
+    return fact.decision
 
 
 def managed_review_collection_fact_indexes(review):
     if type(review) is not EditableProfileReview:
         raise ProfileIntakeError("invalid_review_submission")
-    managed_paths = {
-        path
-        for spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.values()
-        for path in spec["paths"]
-    }
-    return frozenset(
-        index
-        for index, fact in enumerate(review.facts)
-        if fact.field_path in managed_paths
-        and not fact.suggested
-        and fact.conflict_group is None
-    )
+    indexes = set()
+    for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+        if spec.get("browser_visible") is not True:
+            continue
+        for entry in review_collection_entries(review, collection_id):
+            indexes.update(
+                index
+                for origin, index in entry["members"]
+                if origin == "document"
+            )
+    return frozenset(indexes)
 
 
 def _valid_user_fact_references(user_facts):
@@ -2119,6 +2415,9 @@ def update_editable_review(
     preference_model=None,
     collection_updates=None,
     education_updates=None,
+    confirm_background=False,
+    confirm_profile_basics=False,
+    reset_section=None,
 ):
     """Strict pure update; browser indexes never select authority or field paths."""
 
@@ -2129,9 +2428,19 @@ def update_editable_review(
         or len(values) != len(review.facts)
         or len(decisions) != len(review.facts)
         or type(user_inputs) is not dict
+        or type(confirm_background) is not bool
+        or type(confirm_profile_basics) is not bool
+        or (
+            reset_section is not None
+            and (
+                type(reset_section) is not str
+                or reset_section not in PROFILE_INTAKE_RESET_SECTIONS
+            )
+        )
         or set(user_inputs) != set(review.missing_user_fields)
         or not _valid_user_fact_references(review.user_facts)
         or not _valid_education_entries(review.facts, review.education_entries)
+        or not _valid_reset_baseline(review.facts, review.reset_baseline)
     ):
         raise ProfileIntakeError("invalid_review_submission")
     updated = []
@@ -2140,20 +2449,55 @@ def update_editable_review(
         if decision not in allowed:
             raise ProfileIntakeError("invalid_review_submission")
         value = _parse_review_value(fact.field_path, raw_value)
-        updated.append(replace(fact, value=value, decision=decision))
+        updated.append(
+            replace(
+                fact,
+                value=value,
+                decision=decision,
+                candidate_edited=fact.candidate_edited or value != fact.value,
+            )
+        )
     user_facts = review.user_facts
     if collection_updates is not None:
         updated, user_facts = _apply_review_collection_updates(
             review,
             updated,
             collection_updates,
+            confirm_background=confirm_background,
         )
+    if confirm_background:
+        updated = [
+            replace(fact, decision="accept")
+            if fact.field_path == "experience.total_years"
+            and fact.suggested
+            and fact.decision == "pending"
+            else fact
+            for fact in updated
+        ]
+    if confirm_profile_basics:
+        updated = [
+            replace(fact, decision="accept")
+            if fact.field_path.startswith(("identity.", "location."))
+            and fact.suggested
+            and fact.decision == "pending"
+            and fact.conflict_group is None
+            else fact
+            for fact in updated
+        ]
     education_entries = review.education_entries
     if education_updates is not None:
         updated, education_entries = _apply_education_entry_updates(
             review,
             updated,
             education_updates,
+        )
+    if reset_section is not None:
+        updated, user_facts, education_entries = _reset_review_section(
+            review,
+            updated,
+            user_facts,
+            education_entries,
+            reset_section,
         )
     accepted_conflicts: dict[str, int] = {}
     for fact in updated:
@@ -2180,6 +2524,102 @@ def update_editable_review(
         user_facts=user_facts,
         education_entries=education_entries,
     )
+
+
+def _reset_review_section(
+    review,
+    updated_facts,
+    user_facts,
+    education_entries,
+    section_id,
+):
+    """Restore one immutable extraction snapshot without touching other sections."""
+
+    if not review_reset_section_available(review, section_id):
+        raise ProfileIntakeError("invalid_review_submission")
+    restored = list(updated_facts)
+    baseline = tuple(
+        entry for entry in review.reset_baseline if entry.section_id == section_id
+    )
+    for entry in baseline:
+        fact = restored[entry.fact_index]
+        restored[entry.fact_index] = replace(
+            fact,
+            value=entry.value,
+            decision=entry.decision,
+            candidate_edited=False,
+        )
+    reset_collection = {
+        "work_history": "job_titles",
+        "languages": "languages",
+        "expertise": "skills",
+    }.get(section_id)
+    if reset_collection is not None:
+        user_facts = tuple(
+            replace(fact, decision="remove")
+            if fact.collection_id == reset_collection
+            else fact
+            for fact in user_facts
+        )
+    if section_id == "education":
+        education_entries = _reset_education_entries(
+            tuple(restored), education_entries, baseline
+        )
+    return restored, user_facts, education_entries
+
+
+def _reset_education_entries(restored_facts, entries, baseline):
+    """Rebuild extracted entry values while retaining server-owned grouping identity."""
+
+    baseline_by_index = {entry.fact_index: entry for entry in baseline}
+    reset_entries = []
+    for entry in entries:
+        if entry.origin == "user":
+            reset_entries.append(replace(entry, decision="remove"))
+            continue
+        value = {
+            "kind": "not_specified",
+            "qualification": "",
+            "field": "",
+            "institution": "",
+            "status": "not_specified",
+            "completion_year": None,
+        }
+        for fact_index in entry.source_fact_indexes:
+            baseline_entry = baseline_by_index.get(fact_index)
+            if baseline_entry is None:
+                raise ProfileIntakeError("invalid_review_submission")
+            component = _EDUCATION_ENTRY_COMPONENTS[restored_facts[fact_index].field_path]
+            value[component] = baseline_entry.value
+        try:
+            value = canonicalize_education_entries_v1([value])[0]
+        except EducationEntryContractError:
+            raise ProfileIntakeError("invalid_review_submission") from None
+        reset_entries.append(
+            replace(
+                entry,
+                kind=value["kind"],
+                qualification=value["qualification"],
+                field_of_study=value["field"],
+                institution=value["institution"],
+                status=value["status"],
+                completion_year=value["completion_year"],
+                decision="keep",
+                extraction_components=tuple(
+                    sorted(
+                        _EDUCATION_ENTRY_COMPONENTS[
+                            restored_facts[fact_index].field_path
+                        ]
+                        for fact_index in entry.source_fact_indexes
+                    )
+                ),
+                candidate_edited_components=(),
+            )
+        )
+    candidate = tuple(reset_entries)
+    if not _valid_education_entries(restored_facts, candidate):
+        raise ProfileIntakeError("invalid_review_submission")
+    return candidate
 
 
 def _apply_education_entry_updates(review, updated_facts, updates):
@@ -2214,6 +2654,14 @@ def _apply_education_entry_updates(review, updated_facts, updates):
             raise ProfileIntakeError("invalid_review_submission") from None
         if index < len(existing):
             current = existing[index]
+            changed_components = set(current.candidate_edited_components)
+            if current.origin == "document":
+                current_value = _education_entry_mapping(current)
+                changed_components.update(
+                    component
+                    for component in _EDUCATION_ENTRY_FIELDS
+                    if value[component] != current_value[component]
+                )
             result[index] = replace(
                 current,
                 kind=value["kind"],
@@ -2223,6 +2671,7 @@ def _apply_education_entry_updates(review, updated_facts, updates):
                 status=value["status"],
                 completion_year=value["completion_year"],
                 decision=decision,
+                candidate_edited_components=tuple(sorted(changed_components)),
             )
             for fact_index in current.source_fact_indexes:
                 fact = updated_facts[fact_index]
@@ -2250,6 +2699,7 @@ def _apply_education_entry_updates(review, updated_facts, updates):
                     source_fact_indexes=(),
                     source_attributions=(),
                     decision="keep",
+                    extraction_components=(),
                 )
             )
     candidate = tuple(result)
@@ -2258,15 +2708,31 @@ def _apply_education_entry_updates(review, updated_facts, updates):
     return updated_facts, candidate
 
 
-def _apply_review_collection_updates(review, updated_facts, updates):
-    if type(updates) is not dict or set(updates) != set(PROFILE_INTAKE_REVIEW_COLLECTIONS):
+def _apply_review_collection_updates(
+    review,
+    updated_facts,
+    updates,
+    *,
+    confirm_background=False,
+):
+    visible_collections = tuple(
+        collection_id
+        for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items()
+        if spec.get("browser_visible") is True
+    )
+    if (
+        type(updates) is not dict
+        or set(updates) != set(visible_collections)
+        or type(confirm_background) is not bool
+    ):
         raise ProfileIntakeError("invalid_review_submission")
     updated_user_facts = list(review.user_facts)
     references = {fact.item_reference for fact in review.user_facts}
     if len(references) != len(review.user_facts):
         raise ProfileIntakeError("invalid_review_submission")
     new_fact_count = 0
-    for collection_id, spec in PROFILE_INTAKE_REVIEW_COLLECTIONS.items():
+    for collection_id in visible_collections:
+        spec = PROFILE_INTAKE_REVIEW_COLLECTIONS[collection_id]
         submitted = updates[collection_id]
         if type(submitted) is not tuple:
             raise ProfileIntakeError("invalid_review_submission")
@@ -2278,24 +2744,55 @@ def _apply_review_collection_updates(review, updated_facts, updates):
             value, decision = _review_collection_value(spec, raw_item)
             if item_index < len(existing):
                 entry = existing[item_index]
-                if entry["origin"] == "document":
-                    fact_index = entry["index"]
-                    current = updated_facts[fact_index]
-                    if decision not in {"keep", "remove"}:
-                        raise ProfileIntakeError("invalid_review_submission")
-                    updated_facts[fact_index] = replace(
-                        current,
-                        value=value,
-                        decision=decision,
-                    )
-                else:
-                    user_index = entry["index"]
-                    current = updated_user_facts[user_index]
-                    updated_user_facts[user_index] = replace(
-                        current,
-                        value=value,
-                        decision=decision,
-                    )
+                if (
+                    confirm_background
+                    and collection_id == "skills"
+                    and entry["suggested"]
+                    and decision == "pending"
+                ):
+                    decision = "keep"
+                if decision == "pending" and not entry["requires_confirmation"]:
+                    raise ProfileIntakeError("invalid_review_submission")
+                if entry["suggested"] and value != entry["value"]:
+                    # Inferred document evidence does not become evidence for a
+                    # browser-authored correction.  Candidates can remove the
+                    # suggestion and add the corrected expertise as a user fact.
+                    raise ProfileIntakeError("invalid_review_submission")
+                preserve_member_decisions = bool(
+                    entry["mixed_decisions"] and decision == entry["decision"]
+                )
+                for origin, member_index in entry["members"]:
+                    if origin == "document":
+                        current = updated_facts[member_index]
+                        member_decision = (
+                            current.decision
+                            if decision == "pending" or preserve_member_decisions
+                            else (
+                                "accept" if decision == "keep" else "reject"
+                            )
+                            if current.suggested
+                            else decision
+                        )
+                        updated_facts[member_index] = replace(
+                            current,
+                            value=(current.value if value == entry["value"] else value),
+                            decision=member_decision,
+                            candidate_edited=(
+                                current.candidate_edited
+                                or value != entry["value"]
+                            ),
+                        )
+                    else:
+                        current = updated_user_facts[member_index]
+                        updated_user_facts[member_index] = replace(
+                            current,
+                            value=(current.value if value == entry["value"] else value),
+                            decision=(
+                                current.decision
+                                if decision == "pending" or preserve_member_decisions
+                                else decision
+                            ),
+                        )
             else:
                 if decision != "keep":
                     raise ProfileIntakeError("invalid_review_submission")
@@ -2317,11 +2814,23 @@ def _apply_review_collection_updates(review, updated_facts, updates):
                     )
                 )
                 new_fact_count += 1
-            if decision == "keep":
+            if decision in {"keep", "pending"}:
                 identity = _review_collection_identity(value)
                 if identity in normalized_active:
                     raise ProfileIntakeError("invalid_review_submission")
                 normalized_active.append(identity)
+        add_limit = spec.get("add_limit")
+        if add_limit is not None:
+            active_add_path_facts = sum(
+                fact.field_path == spec["add_path"]
+                and fact.decision in ({"accept"} if fact.suggested else {"keep"})
+                for fact in updated_facts
+            ) + sum(
+                fact.collection_id == collection_id and fact.decision == "keep"
+                for fact in updated_user_facts
+            )
+            if active_add_path_facts > add_limit:
+                raise ProfileIntakeError("invalid_review_submission")
     if len(review.facts) + len(review.user_facts) + new_fact_count > contracts.MAX_EXTRACTION_FACTS:
         raise ProfileIntakeError("invalid_review_submission")
     return updated_facts, tuple(updated_user_facts)
@@ -2350,7 +2859,12 @@ def _review_collection_value(spec, raw_item):
             raise ProfileIntakeError("invalid_review_submission")
     except (ProfileIntakeError, TypeError, ValueError):
         raise ProfileIntakeError("invalid_review_submission") from None
-    if decision not in {"keep", "remove"}:
+    allowed_decisions = (
+        {"pending", "keep", "remove"}
+        if spec.get("include_suggested") is True
+        else {"keep", "remove"}
+    )
+    if decision not in allowed_decisions:
         raise ProfileIntakeError("invalid_review_submission")
     return value, decision
 
@@ -2384,7 +2898,10 @@ def serialize_profile_intake_checkpoint(
     diagnostics, and raw extraction material are intentionally not represented.
     """
 
-    if type(review) is not EditableProfileReview:
+    if (
+        type(review) is not EditableProfileReview
+        or not _valid_reset_baseline(review.facts, review.reset_baseline)
+    ):
         raise ProfileIntakeError("invalid_checkpoint_content")
     review_step = normalize_profile_intake_review_step(review_step)
     source_origins = tuple(source.document_kind.value for source in review.sources)
@@ -2408,16 +2925,19 @@ def serialize_profile_intake_checkpoint(
             )
         value = _checkpoint_value(fact.value)
         _checkpoint_require_no_contact_pii(value)
-        facts.append(
-            {
-                "field_path": fact.field_path,
-                "value": value,
-                "source_origins": list(origins),
-                "suggested": fact.suggested,
-                "decision": fact.decision,
-                "conflict_id": conflict_id,
-            }
-        )
+        item = {
+            "field_path": fact.field_path,
+            "value": value,
+            "source_origins": list(origins),
+            "suggested": fact.suggested,
+            "decision": fact.decision,
+            "conflict_id": conflict_id,
+        }
+        if fact.explicit != (not fact.suggested):
+            item["explicit"] = fact.explicit
+        if fact.candidate_edited:
+            item["candidate_edited"] = True
+        facts.append(item)
     user_inputs = dict(review.user_inputs)
     if len(user_inputs) != len(review.user_inputs):
         raise ProfileIntakeError("invalid_checkpoint_content")
@@ -2448,16 +2968,33 @@ def serialize_profile_intake_checkpoint(
     for entry in review.education_entries:
         value = _education_entry_mapping(entry)
         _checkpoint_require_no_contact_pii(value)
-        education_entries.append(
+        item = {
+            "item_reference": entry.item_reference,
+            "origin": entry.origin,
+            "value": value,
+            "source_fact_indexes": list(entry.source_fact_indexes),
+            "source_origins": [
+                attribution.document_kind.value
+                for attribution in entry.source_attributions
+            ],
+            "decision": entry.decision,
+        }
+        if entry.extraction_components is not None:
+            item["extraction_components"] = list(entry.extraction_components)
+        if entry.candidate_edited_components:
+            item["candidate_edited_components"] = list(
+                entry.candidate_edited_components
+            )
+        education_entries.append(item)
+    reset_baseline = []
+    for entry in review.reset_baseline:
+        value = _checkpoint_value(entry.value)
+        _checkpoint_require_no_contact_pii(value)
+        reset_baseline.append(
             {
-                "item_reference": entry.item_reference,
-                "origin": entry.origin,
+                "section_id": entry.section_id,
+                "fact_index": entry.fact_index,
                 "value": value,
-                "source_fact_indexes": list(entry.source_fact_indexes),
-                "source_origins": [
-                    attribution.document_kind.value
-                    for attribution in entry.source_attributions
-                ],
                 "decision": entry.decision,
             }
         )
@@ -2472,6 +3009,7 @@ def serialize_profile_intake_checkpoint(
         "preference_model": review.preference_model,
         "user_facts": user_facts,
         "education_entries": education_entries,
+        "reset_baseline": reset_baseline,
         "review_step": review_step,
     }
     try:
@@ -2519,7 +3057,14 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         "issue_count",
         "preference_model",
     }
-    optional_keys = {"review_step", "user_facts", "education_entries"}
+    optional_keys = {
+        "review_step",
+        "user_facts",
+        "education_entries",
+        "reset_baseline",
+        "expertise_baseline",
+        "work_history_baseline",
+    }
     if (
         type(payload) is not dict
         or not required_keys <= set(payload)
@@ -2555,9 +3100,23 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
     values = []
     decisions = []
     for raw in raw_facts:
-        if type(raw) is not dict or set(raw) != {
+        base_fact_keys = {
             "field_path", "value", "source_origins", "suggested", "decision", "conflict_id"
-        }:
+        }
+        optional_fact_keys = {"explicit", "candidate_edited"}
+        if (
+            type(raw) is not dict
+            or not base_fact_keys <= set(raw)
+            or not set(raw) <= base_fact_keys | optional_fact_keys
+            or (
+                "explicit" in raw
+                and type(raw["explicit"]) is not bool
+            )
+            or (
+                "candidate_edited" in raw
+                and raw["candidate_edited"] is not True
+            )
+        ):
             raise ProfileIntakeError("invalid_checkpoint_content")
         field_path = raw["field_path"]
         if field_path not in _REVIEW_FIELDS or type(raw["suggested"]) is not bool:
@@ -2596,10 +3155,60 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
                 suggested=raw["suggested"],
                 decision=raw["decision"],
                 conflict_group=conflict_id,
+                explicit=raw.get("explicit", not raw["suggested"]),
+                candidate_edited=raw.get("candidate_edited", False),
             )
         )
         values.append(review_value_for_form(value))
         decisions.append(raw["decision"])
+    if "reset_baseline" in payload and {
+        "expertise_baseline",
+        "work_history_baseline",
+    }.intersection(payload):
+        raise ProfileIntakeError("invalid_checkpoint_content")
+    reset_baseline_items = []
+    raw_reset_baseline = payload.get("reset_baseline")
+    if raw_reset_baseline is not None:
+        if type(raw_reset_baseline) is not list:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        reset_sources = ((None, raw_reset_baseline),)
+    else:
+        reset_sources = tuple(
+            (section_id, payload[key])
+            for key, section_id in (
+                ("expertise_baseline", "expertise"),
+                ("work_history_baseline", "work_history"),
+            )
+            if key in payload
+        )
+    for legacy_section_id, raw_items in reset_sources:
+        if type(raw_items) is not list:
+            raise ProfileIntakeError("invalid_checkpoint_content")
+        for raw in raw_items:
+            expected_keys = {"fact_index", "value", "decision"}
+            if legacy_section_id is None:
+                expected_keys.add("section_id")
+            if type(raw) is not dict or set(raw) != expected_keys:
+                raise ProfileIntakeError("invalid_checkpoint_content")
+            _checkpoint_require_no_contact_pii(raw["value"])
+            try:
+                reset_baseline_items.append(
+                    EditableResetBaselineEntry(
+                        section_id=(
+                            raw["section_id"]
+                            if legacy_section_id is None
+                            else legacy_section_id
+                        ),
+                        fact_index=raw["fact_index"],
+                        value=_checkpoint_value_from_json(raw["value"]),
+                        decision=raw["decision"],
+                    )
+                )
+            except (KeyError, ProfileIntakeError, TypeError, ValueError):
+                raise ProfileIntakeError("invalid_checkpoint_content") from None
+    reset_baseline = tuple(reset_baseline_items)
+    if not _valid_reset_baseline(tuple(facts), reset_baseline):
+        raise ProfileIntakeError("invalid_checkpoint_content")
     missing = payload["missing_user_fields"]
     user_inputs = payload["user_inputs"]
     allowed_missing = set(_USER_ONLY_REVIEW_FIELDS) - _TYPED_PREFERENCE_REPLACED_USER_FIELDS
@@ -2652,14 +3261,23 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         raise ProfileIntakeError("invalid_checkpoint_content")
     education_entries = []
     for raw in raw_education_entries:
-        if type(raw) is not dict or set(raw) != {
+        base_entry_keys = {
             "item_reference",
             "origin",
             "value",
             "source_fact_indexes",
             "source_origins",
             "decision",
-        }:
+        }
+        optional_entry_keys = {
+            "extraction_components",
+            "candidate_edited_components",
+        }
+        if (
+            type(raw) is not dict
+            or not base_entry_keys <= set(raw)
+            or not set(raw) <= base_entry_keys | optional_entry_keys
+        ):
             raise ProfileIntakeError("invalid_checkpoint_content")
         value = raw["value"]
         _checkpoint_require_no_contact_pii(value)
@@ -2669,6 +3287,11 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
             type(source_indexes) is not list
             or any(type(index) is not int for index in source_indexes)
             or type(raw_entry_origins) is not list
+            or (
+                "extraction_components" in raw
+                and type(raw["extraction_components"]) is not list
+            )
+            or type(raw.get("candidate_edited_components", [])) is not list
         ):
             raise ProfileIntakeError("invalid_checkpoint_content")
         try:
@@ -2693,6 +3316,14 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
                         for origin in entry_origins
                     ),
                     decision=raw["decision"],
+                    extraction_components=(
+                        tuple(raw["extraction_components"])
+                        if "extraction_components" in raw
+                        else None
+                    ),
+                    candidate_edited_components=tuple(
+                        raw.get("candidate_edited_components", [])
+                    ),
                 )
             )
         except (KeyError, ProfileIntakeError, TypeError, ValueError):
@@ -2710,6 +3341,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
             _preference_model_json=_preference_model_json(payload["preference_model"]),
             user_facts=tuple(user_facts),
             education_entries=tuple(education_entries),
+            reset_baseline=reset_baseline,
         )
         review = update_editable_review(
             review,
@@ -2729,6 +3361,9 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
             _serialize_profile_intake_checkpoint_unchecked(
                 review,
                 include_review_step=False,
+                include_reset_baseline=("reset_baseline" in payload),
+                include_expertise_baseline=("expertise_baseline" in payload),
+                include_work_history_baseline=("work_history_baseline" in payload),
             )
         ),
         ensure_ascii=True,
@@ -2766,6 +3401,9 @@ def _serialize_profile_intake_checkpoint_unchecked(
     *,
     review_step=PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
     include_review_step=True,
+    include_reset_baseline=True,
+    include_expertise_baseline=False,
+    include_work_history_baseline=False,
 ) -> str:
     """Internal canonicalizer used to avoid recursive validation."""
 
@@ -2776,14 +3414,19 @@ def _serialize_profile_intake_checkpoint_unchecked(
         conflict_id = None
         if fact.conflict_group is not None:
             conflict_id = conflict_ids.setdefault(fact.conflict_group, fact.conflict_group)
-        facts.append({
+        item = {
             "field_path": fact.field_path,
             "value": _checkpoint_value(fact.value),
             "source_origins": [item.document_kind.value for item in fact.source_attributions],
             "suggested": fact.suggested,
             "decision": fact.decision,
             "conflict_id": conflict_id,
-        })
+        }
+        if fact.explicit != (not fact.suggested):
+            item["explicit"] = fact.explicit
+        if fact.candidate_edited:
+            item["candidate_edited"] = True
+        facts.append(item)
     payload = {
         "schema_version": PROFILE_INTAKE_CHECKPOINT_SCHEMA_VERSION,
         "review_schema_version": review.schema_version,
@@ -2814,10 +3457,54 @@ def _serialize_profile_intake_checkpoint_unchecked(
                     for attribution in entry.source_attributions
                 ],
                 "decision": entry.decision,
+                **(
+                    {"extraction_components": list(entry.extraction_components)}
+                    if entry.extraction_components is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "candidate_edited_components": list(
+                            entry.candidate_edited_components
+                        )
+                    }
+                    if entry.candidate_edited_components
+                    else {}
+                ),
             }
             for entry in review.education_entries
         ],
     }
+    if include_reset_baseline:
+        payload["reset_baseline"] = [
+            {
+                "section_id": entry.section_id,
+                "fact_index": entry.fact_index,
+                "value": _checkpoint_value(entry.value),
+                "decision": entry.decision,
+            }
+            for entry in review.reset_baseline
+        ]
+    if include_expertise_baseline:
+        payload["expertise_baseline"] = [
+            {
+                "fact_index": entry.fact_index,
+                "value": _checkpoint_value(entry.value),
+                "decision": entry.decision,
+            }
+            for entry in review.reset_baseline
+            if entry.section_id == "expertise"
+        ]
+    if include_work_history_baseline:
+        payload["work_history_baseline"] = [
+            {
+                "fact_index": entry.fact_index,
+                "value": _checkpoint_value(entry.value),
+                "decision": entry.decision,
+            }
+            for entry in review.reset_baseline
+            if entry.section_id == "work_history"
+        ]
     if include_review_step:
         payload["review_step"] = normalize_profile_intake_review_step(review_step)
     return json.dumps(

@@ -38,7 +38,6 @@ from wahojobs.persistent_profiles_repository import (
 )
 from wahojobs.profile_intake.contracts import (
     DocumentKind,
-    INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS,
     LanguageValue,
     ProfileIntakeError,
 )
@@ -53,6 +52,7 @@ from wahojobs.profile_intake.runtime import (
     SafeModelDiagnostics,
     TrustedProfileIntakeGrant,
     hydrate_profile_intake_checkpoint,
+    education_entry_field_authorities,
     education_entry_values,
     managed_education_fact_indexes,
     profile_intake_checkpoint_review_step,
@@ -63,6 +63,8 @@ from wahojobs.profile_intake.runtime import (
 from wahojobs.profiles.canonical import (
     PROFILE_SOURCE_RESUME,
     PROFILE_SOURCE_USER_CONFIRMATION,
+    PROFILE_SOURCE_USER_CORRECTION,
+    PROFILE_SOURCES,
     SCHEMA_VERSION as CANONICAL_PROFILE_V1,
     UNKNOWN,
     field_sources_for_profile,
@@ -414,6 +416,54 @@ class AIProfileImportPreflightResult:
             raise AIProfileImportError("invalid_request")
 
 
+_EDUCATION_AUTHORITY_FIELDS = frozenset(
+    {
+        "kind",
+        "qualification",
+        "field",
+        "institution",
+        "status",
+        "completion_year",
+    }
+)
+_EDUCATION_REVIEW_SOURCE_KINDS = frozenset(
+    {
+        PROFILE_SOURCE_RESUME,
+        PROFILE_SOURCE_USER_CORRECTION,
+        PROFILE_SOURCE_USER_CONFIRMATION,
+    }
+)
+
+
+def _canonical_education_field_authorities(entries, value):
+    """Validate the closed field authority plan aligned to canonical entries."""
+
+    canonical_entries = canonicalize_education_entries_v1(entries)
+    if type(value) not in {list, tuple} or len(value) != len(canonical_entries):
+        raise AIProfileImportError("invalid_request")
+    result = []
+    for fields in value:
+        if type(fields) is not dict or set(fields) != _EDUCATION_AUTHORITY_FIELDS:
+            raise AIProfileImportError("invalid_request")
+        canonical_fields = {}
+        for field_name in sorted(_EDUCATION_AUTHORITY_FIELDS):
+            detail = fields[field_name]
+            if (
+                type(detail) is not dict
+                or set(detail) != {"source_kind", "explicit"}
+                or detail["source_kind"] not in _EDUCATION_REVIEW_SOURCE_KINDS
+                or detail["source_kind"] not in PROFILE_SOURCES
+                or type(detail["explicit"]) is not bool
+            ):
+                raise AIProfileImportError("invalid_request")
+            canonical_fields[field_name] = {
+                "source_kind": detail["source_kind"],
+                "explicit": detail["explicit"],
+            }
+        result.append(canonical_fields)
+    return result
+
+
 @dataclass(frozen=True, slots=True, repr=False, init=False)
 class ConfirmedAIProfileImport:
     reviewed_profile: IdentityFreeCanonicalProfileV1 = field(repr=False)
@@ -421,6 +471,7 @@ class ConfirmedAIProfileImport:
     confirmation_fingerprint: str = field(repr=False)
     _preference_model_json: bytes = field(repr=False)
     _education_entries_json: bytes = field(repr=False)
+    _education_field_authorities_json: bytes = field(repr=False)
     _unpaired_education_json: bytes = field(repr=False)
     _issuer: object = field(repr=False, compare=False)
 
@@ -436,6 +487,7 @@ class ConfirmedAIProfileImport:
         fingerprint,
         preference_model,
         education_entries,
+        education_field_authorities,
         unpaired_education,
     ):
         if (
@@ -458,6 +510,16 @@ class ConfirmedAIProfileImport:
             canonical_entries = canonicalize_education_entries_v1(education_entries)
             education_json = json.dumps(
                 canonical_entries,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
+            canonical_authorities = _canonical_education_field_authorities(
+                canonical_entries,
+                education_field_authorities,
+            )
+            education_authorities_json = json.dumps(
+                canonical_authorities,
                 ensure_ascii=True,
                 sort_keys=True,
                 separators=(",", ":"),
@@ -488,6 +550,11 @@ class ConfirmedAIProfileImport:
         object.__setattr__(instance, "confirmation_fingerprint", fingerprint)
         object.__setattr__(instance, "_preference_model_json", preference_json)
         object.__setattr__(instance, "_education_entries_json", education_json)
+        object.__setattr__(
+            instance,
+            "_education_field_authorities_json",
+            education_authorities_json,
+        )
         object.__setattr__(instance, "_unpaired_education_json", unpaired_json)
         object.__setattr__(instance, "_issuer", _AUTHORITY_ISSUER)
         return instance
@@ -510,6 +577,17 @@ class ConfirmedAIProfileImport:
                 json.loads(self._education_entries_json.decode("ascii"))
             )
         except (EducationEntryContractError, UnicodeError, ValueError, TypeError):
+            raise AIProfileImportError("invalid_request") from None
+
+    def education_field_authorities_for_service(self):
+        if getattr(self, "_issuer", None) is not _AUTHORITY_ISSUER:
+            raise AIProfileImportError("invalid_request")
+        try:
+            return _canonical_education_field_authorities(
+                self.education_entries_for_service(),
+                json.loads(self._education_field_authorities_json.decode("ascii")),
+            )
+        except (UnicodeError, ValueError, TypeError):
             raise AIProfileImportError("invalid_request") from None
 
     def unpaired_education_for_service(self):
@@ -1082,6 +1160,12 @@ class AIProfileImportService:
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("ascii")
+            education_field_authorities_json = json.dumps(
+                confirmed.education_field_authorities_for_service(),
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("ascii")
             unpaired_education_json = json.dumps(
                 confirmed.unpaired_education_for_service(),
                 ensure_ascii=True,
@@ -1095,6 +1179,8 @@ class AIProfileImportService:
                 + preference_model_json
                 + b"\x00"
                 + education_entries_json
+                + b"\x00"
+                + education_field_authorities_json
                 + b"\x00"
                 + unpaired_education_json
                 + b"\x00"
@@ -1287,6 +1373,7 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
                 if item["decision"] == "keep"
             ]
         )
+        education_field_authority = education_entry_field_authorities(review)
     except AIProfileImportError:
         raise
     except (
@@ -1328,6 +1415,13 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         ).encode("ascii")
         + b"\x00"
         + json.dumps(
+            education_field_authority,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\x00"
+        + json.dumps(
             unpaired_education,
             ensure_ascii=True,
             sort_keys=True,
@@ -1343,6 +1437,7 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         fingerprint,
         preference_model,
         education_entries,
+        education_field_authority,
         unpaired_education,
     )
 
@@ -1484,20 +1579,79 @@ def _confirmed_review_v1(
         PROFILE_SOURCE_USER_CONFIRMATION,
         explicit=True,
     )
-    retained_internal_paths = {
-        fact.field_path
-        for fact in facts
-        if fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS
-    }
-    for path, detail in field_sources.items():
-        if any(
-            path == internal_path or path.startswith(internal_path + "[")
-            for internal_path in retained_internal_paths
-        ):
-            detail["source"] = PROFILE_SOURCE_RESUME
-            detail["explicit"] = False
+    _apply_review_fact_provenance(field_sources, canonical, facts)
     canonical["provenance"]["field_sources"] = field_sources
     return canonical, unpaired_education
+
+
+def _apply_review_fact_provenance(field_sources, canonical, facts):
+    """Keep document authority unless the candidate actually changed the value."""
+
+    by_path = {}
+    for fact in facts:
+        by_path.setdefault(fact.field_path, []).append(fact)
+
+    def apply(source_path, fact):
+        source = field_sources.get(source_path)
+        if source is None:
+            return
+        source["source"] = (
+            PROFILE_SOURCE_USER_CORRECTION
+            if fact.candidate_edited
+            else PROFILE_SOURCE_RESUME
+        )
+        source["explicit"] = True if fact.candidate_edited else fact.explicit
+
+    for field_path, path_facts in by_path.items():
+        if field_path == "languages":
+            remaining = list(path_facts)
+            for index, language in enumerate(canonical["languages"]):
+                match = next(
+                    (
+                        fact
+                        for fact in remaining
+                        if fact.value.language == language["language"]
+                        and (fact.value.proficiency or UNKNOWN)
+                        == language["proficiency"]
+                        and (fact.value.locale or "") == language["locale"]
+                    ),
+                    None,
+                )
+                if match is None:
+                    continue
+                remaining.remove(match)
+                for suffix in (
+                    "language",
+                    "proficiency",
+                    "locale",
+                    "confidence",
+                    "proficiency_explicit",
+                ):
+                    apply(f"languages[{index}].{suffix}", match)
+            continue
+        target = canonical
+        try:
+            for component in field_path.split("."):
+                target = target[component]
+        except (KeyError, TypeError):
+            continue
+        if type(target) is list:
+            remaining = list(path_facts)
+            for index, value in enumerate(target):
+                match = next(
+                    (fact for fact in remaining if fact.value == value),
+                    None,
+                )
+                if match is None:
+                    continue
+                remaining.remove(match)
+                apply(f"{field_path}[{index}]", match)
+            continue
+        if path_facts:
+            apply(field_path, path_facts[0])
+
+    if "location.residence" not in by_path and by_path.get("location.country"):
+        apply("location.residence", by_path["location.country"][0])
 
 
 def _create_command(confirmed, authority, reservation, now):
@@ -1507,6 +1661,22 @@ def _create_command(confirmed, authority, reservation, now):
     )
 
     def builder(profile_id):
+        education_authorities = confirmed.education_field_authorities_for_service()
+
+        def education_source_authority(path):
+            match = re.fullmatch(
+                r"education\.entries\[([0-9]+)\]\."
+                r"(kind|qualification|field|institution|status|completion_year)",
+                path,
+            )
+            if match is None:
+                raise CanonicalProfileV2Error("invalid_education_source_path")
+            index = int(match.group(1))
+            if not 0 <= index < len(education_authorities):
+                raise CanonicalProfileV2Error("invalid_education_source_path")
+            detail = education_authorities[index][match.group(2)]
+            return detail["source_kind"], detail["explicit"]
+
         profile_v2 = convert_v1_to_v2(
             confirmed.reviewed_profile.bind_durable_profile_id(profile_id),
             persistent_profile_id=profile_id,
@@ -1517,6 +1687,7 @@ def _create_command(confirmed, authority, reservation, now):
             confirmed.education_entries_for_service(),
             confirmed.unpaired_education_for_service(),
             source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
+            source_authority_resolver=education_source_authority,
         )
         preference_model = confirmed.preference_model_for_service()
         writer = (

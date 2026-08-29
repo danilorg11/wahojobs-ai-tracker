@@ -36,6 +36,7 @@ from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_REVIEW_STEPS,
     hydrate_profile_intake_checkpoint,
     profile_intake_checkpoint_review_step,
+    review_reset_section_available,
     serialize_profile_intake_checkpoint,
 )
 
@@ -178,6 +179,68 @@ class ResumableAIProfileIntakeCoreTests(unittest.TestCase):
             PROFILE_INTAKE_DEFAULT_REVIEW_STEP,
         )
         self.assertEqual(hydrate_profile_intake_checkpoint(invalid), self.review)
+
+    def test_pre_reset_checkpoint_resumes_without_inventing_an_original_baseline(self):
+        payload = json.loads(serialize_profile_intake_checkpoint(self.review))
+        payload.pop("reset_baseline")
+        legacy = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        resumed = hydrate_profile_intake_checkpoint(legacy)
+        self.assertEqual(resumed.facts, self.review.facts)
+        self.assertEqual(resumed.user_inputs, self.review.user_inputs)
+        self.assertFalse(review_reset_section_available(resumed, "profile_basics"))
+        self.assertFalse(review_reset_section_available(resumed, "expertise"))
+        self.assertEqual(json.loads(serialize_profile_intake_checkpoint(resumed))["reset_baseline"], [])
+
+        payload = json.loads(serialize_profile_intake_checkpoint(self.review))
+        legacy_entries = [
+            {
+                "fact_index": item["fact_index"],
+                "value": item["value"],
+                "decision": item["decision"],
+            }
+            for item in payload.pop("reset_baseline")
+            if item["section_id"] == "expertise"
+        ]
+        payload["expertise_baseline"] = legacy_entries
+        legacy = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        resumed = hydrate_profile_intake_checkpoint(legacy)
+        self.assertTrue(review_reset_section_available(resumed, "expertise"))
+        self.assertFalse(review_reset_section_available(resumed, "profile_basics"))
+
+    def test_reset_baseline_is_closed_and_uses_the_checkpoint_privacy_gate(self):
+        payload = json.loads(serialize_profile_intake_checkpoint(self.review))
+        payload["reset_baseline"][0]["value"] = "candidate@example.invalid"
+        contact_pii = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self.assertRaises(ProfileIntakeError) as raised:
+            hydrate_profile_intake_checkpoint(contact_pii)
+        self.assertEqual(raised.exception.code, "checkpoint_contact_pii_rejected")
+
+        payload = json.loads(serialize_profile_intake_checkpoint(self.review))
+        payload["reset_baseline"][0]["section_id"] = "review-preferences"
+        unknown_section = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        with self.assertRaises(ProfileIntakeError) as raised:
+            hydrate_profile_intake_checkpoint(unknown_section)
+        self.assertEqual(raised.exception.code, "invalid_checkpoint_content")
 
     def test_every_valid_review_step_round_trips_through_resume(self):
         created = self.create()

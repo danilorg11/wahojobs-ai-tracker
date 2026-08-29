@@ -2064,6 +2064,10 @@ def _page(title: str, body: str) -> str:
     .review-concept-heading p {{ color: #66716c; line-height: 1.5; margin: 0; }}
     .review-concept-section > .review-collection, .review-profile-sections > .review-collection {{ margin-top: 12px; }}
     .review-profile-sections > .review-collections {{ margin-top: 0; }}
+    .profile-basics-grid {{ display: grid; gap: 18px 22px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 760px; }}
+    .direct-profile-fact {{ min-width: 0; }}
+    .direct-profile-fact .review-field {{ margin: 0; }}
+    .direct-profile-fact .review-field > span {{ display: block; font-weight: 750; margin-bottom: 6px; }}
     .fact-card {{ background: #fbfcfb; border-color: #dfe7e3; border-radius: 12px; padding: 20px; }}
     .fact-group-card {{ grid-column: 1 / -1; }}
     .fact-group-heading {{ align-items: baseline; display: flex; justify-content: space-between; margin-bottom: 14px; }}
@@ -2097,11 +2101,12 @@ def _page(title: str, body: str) -> str:
     .skills-collection .collection-remove-symbol {{ color: #755049; display: block; font-size: 22px; font-weight: 500; line-height: 1; }}
     .skills-collection .collection-remove .remove-copy {{ clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }}
     .skills-collection .collection-remove:has(input:focus-visible) {{ outline: 2px solid #174d3b; outline-offset: 1px; }}
-    .skills-collection .collection-remove:has(input:checked) .collection-remove-symbol {{ display: none; }}
-    .skills-collection .collection-remove:has(input:checked) .restore-copy {{ display: inline; padding: 0 9px; }}
     .skills-collection .collection-item-controls, .job_titles-collection .collection-item-controls {{ grid-template-columns: 1fr; }}
     .collection-remove {{ align-items: center; color: #755049; cursor: pointer; display: inline-flex; font-size: 13px; font-weight: 700; gap: 7px; min-height: 44px; }}
     .collection-remove input {{ height: 18px; width: 18px; }}
+    .collection-remove-action {{ align-self: end; background: transparent; border: 0; box-shadow: none; color: #755049; font-size: 13px; font-weight: 750; min-height: 44px; padding: 8px 4px; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }}
+    .collection-remove-action:hover {{ background: transparent; color: #57382f; transform: none; }}
+    .collection-remove-action:focus-visible {{ outline: 2px solid #174d3b; outline-offset: 2px; }}
     .collection-remove .restore-copy {{ display: none; }}
     .collection-remove:has(input:checked) .remove-copy {{ display: none; }}
     .collection-remove:has(input:checked) .restore-copy {{ display: inline; }}
@@ -2110,8 +2115,30 @@ def _page(title: str, body: str) -> str:
     .review-collection-item.collection-item-needs-attention {{ background: #fff8f5; border-color: #c97767; box-shadow: 0 0 0 1px #c97767; }}
     .review-collection-item [aria-invalid='true'] {{ border-color: #a94f42 !important; box-shadow: 0 0 0 2px rgba(169,79,66,.14); }}
     .collection-item-error {{ color: #8a3d35; font-size: 13px; font-weight: 700; grid-column: 1 / -1; margin: 2px 0 0; }}
-    .industries-background {{ background: #f5f8f6; border-radius: 12px; margin-top: 20px; padding: 18px; }}
-    .industries-background .fact-group-items {{ margin-top: 12px; }}
+    .expertise-review-section > .skills-collection {{ border: 0; padding: 0; }}
+    .skills-collection .review-collection-items {{ align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }}
+    .expertise-compact-row {{ align-items: center; background: #eef6f2; border-color: #c9ded4; border-radius: 999px; display: inline-flex; flex: 0 1 auto; max-width: 100%; padding: 3px 4px 3px 12px; }}
+    .compact-row-main {{ align-items: center; display: flex; gap: 4px; min-width: 0; width: 100%; }}
+    .compact-expertise-value {{ margin: 0; }}
+    .compact-expertise-text {{ font-weight: 720; line-height: 1.4; margin: 0; overflow-wrap: anywhere; }}
+    .compact-expertise-value input {{ background: transparent !important; border: 0; box-shadow: none; font-weight: 720; max-width: calc(100vw - 154px); min-height: 38px !important; padding: 5px 2px; width: auto; }}
+    .compact-expertise-value input:focus-visible {{ outline: 2px solid #174d3b; outline-offset: 2px; }}
+    .expertise-undo {{ align-items: center; background: #f2f7f4; border-radius: 10px; color: #41504a; display: flex; font-size: 14px; gap: 10px; margin: 12px 0 0; padding: 8px 12px; width: fit-content; }}
+    .expertise-undo[hidden] {{ display: none; }}
+    .expertise-undo .button-quiet {{ min-height: 36px; padding: 3px 5px; }}
+    .expertise-reset {{ border-top: 1px solid #e5ebe8; margin-top: 18px; padding-top: 12px; }}
+    .expertise-reset-open {{ font-size: 13px; }}
+    .expertise-reset-confirm {{ background: #f7f9f8; border: 1px solid #dfe7e3; border-radius: 10px; margin-top: 10px; max-width: 560px; padding: 14px; }}
+    .expertise-reset-confirm p {{ line-height: 1.45; margin: 0 0 8px; }}
+    .expertise-reset-actions {{ align-items: center; display: flex; gap: 10px; justify-content: flex-end; }}
+    .compact-experience-grid {{ display: grid; gap: 12px; max-width: 440px; }}
+    .compact-experience-item {{ background: #f7f9f8; border-radius: 10px; display: grid; gap: 8px; padding: 14px; }}
+    .compact-experience-item .fact-meta {{ margin: 0; }}
+    .compact-experience-item .review-field {{ margin: 0; }}
+    .compact-experience-item .review-field > span {{ display: block; font-weight: 720; margin-bottom: 5px; }}
+    .compact-experience-item .review-field small {{ color: #66716c; display: block; line-height: 1.45; margin-top: 6px; }}
+    .background-review-continue {{ border-top: 1px solid #e5ebe8; margin-top: 30px; padding-top: 24px; }}
+    .background-review-continue button {{ min-height: 44px; min-width: 160px; }}
     .collection-add {{ margin-top: 12px; }}
     .collection-empty {{ color: #66716c; font-size: 14px; margin-bottom: 12px; }}
     .decision-field {{ display: grid; font-size: 13px; font-weight: 750; gap: 6px; margin-top: 14px; }}
@@ -2202,7 +2229,7 @@ def _page(title: str, body: str) -> str:
       .review-save-status {{ border-radius: 12px; margin: -8px 8px 14px; position: sticky; top: 8px; width: auto; }}
       .review-progress ol {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .intake-review-form .review-section {{ margin-top: 36px; padding-top: 36px; }}
-      .intake-review-form .choice-grid, .profile-grid, .review-grid {{ grid-template-columns: 1fr; }}
+      .intake-review-form .choice-grid, .profile-grid, .profile-basics-grid, .review-grid {{ grid-template-columns: 1fr; }}
       .fact-group-items {{ grid-template-columns: 1fr; }}
       .fact-group-item {{ gap: 8px; grid-template-columns: 1fr; padding: 12px; }}
       .review-profile-sections {{ gap: 28px; }}
@@ -2210,6 +2237,7 @@ def _page(title: str, body: str) -> str:
       .review-collection {{ padding: 16px; }}
       .review-collection-item {{ align-items: stretch; grid-template-columns: 1fr; }}
       .collection-item-controls {{ grid-template-columns: 1fr; }}
+      .compact-experience-grid {{ grid-template-columns: 1fr; }}
       .compensation-kind-guide {{ grid-template-columns: 1fr; }}
       .skills-collection .skill-token {{ max-width: 100%; }}
       .intake-review-form .job-interest-group > .choice-grid,

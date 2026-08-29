@@ -26,6 +26,7 @@ from wahojobs.persistent_profile_read_authorization import (
 from wahojobs.profile_intake.browser import (
     MAX_MULTIPART_BODY_BYTES,
     ProfileIntakeBrowserIntegration,
+    _collection_form_values_for_review,
     _preference_form_values_for_model,
 )
 from wahojobs.profile_intake.contracts import (
@@ -52,7 +53,9 @@ from wahojobs.profile_intake.runtime import (
     editable_profile_review,
     education_entry_values,
     managed_education_fact_indexes,
+    managed_review_collection_fact_indexes,
     profile_intake_csrf_proof,
+    review_collection_entries,
     review_value_for_form,
     update_editable_review,
 )
@@ -134,6 +137,127 @@ class _NoReadStream:
 
 
 class ReconciliationTests(unittest.TestCase):
+    def test_background_review_projection_deduplicates_without_merging_canonical_facts(self):
+        review = editable_profile_review(
+            reconcile_profile_extractions(
+                (
+                    _validated_source(
+                        DocumentKind.RESUME,
+                        RESUME_REFERENCE,
+                        _raw_fact("skills.normalized", "Customer experience"),
+                        _raw_fact(
+                            "experience.specialties",
+                            "customer experience",
+                            explicit=False,
+                        ),
+                        _raw_fact("experience.job_titles", "Support Specialist"),
+                        _raw_fact("experience.recent_roles", "support specialist"),
+                    ),
+                )
+            )
+        )
+
+        expertise = review_collection_entries(review, "skills")
+        self.assertEqual(len(expertise), 1)
+        self.assertEqual(
+            set(expertise[0]["field_paths"]),
+            {"skills.normalized", "experience.specialties"},
+        )
+        self.assertEqual(len(expertise[0]["members"]), 2)
+        self.assertTrue(expertise[0]["requires_confirmation"])
+        self.assertEqual(expertise[0]["decision"], "pending")
+        roles = review_collection_entries(review, "job_titles")
+        self.assertEqual(len(roles), 1)
+        self.assertEqual(
+            set(roles[0]["field_paths"]),
+            {"experience.job_titles", "experience.recent_roles"},
+        )
+        self.assertEqual(
+            {(fact.field_path, fact.value) for fact in review.facts},
+            {
+                ("skills.normalized", "Customer experience"),
+                ("experience.specialties", "customer experience"),
+                ("experience.job_titles", "Support Specialist"),
+                ("experience.recent_roles", "support specialist"),
+            },
+        )
+
+        values = tuple(review_value_for_form(fact.value) for fact in review.facts)
+        decisions = tuple(fact.decision for fact in review.facts)
+        inputs = {name: "" for name in review.missing_user_fields}
+        mixed = update_editable_review(
+            review,
+            values,
+            tuple(
+                "remove"
+                if fact.field_path == "skills.normalized"
+                else "accept"
+                if fact.field_path == "experience.specialties"
+                else fact.decision
+                for fact in review.facts
+            ),
+            inputs,
+        )
+        mixed_entry = review_collection_entries(mixed, "skills")[0]
+        self.assertTrue(mixed_entry["mixed_decisions"])
+        replayed = update_editable_review(
+            mixed,
+            values,
+            tuple(fact.decision for fact in mixed.facts),
+            inputs,
+            collection_updates={
+                "skills": ((mixed_entry["value"], mixed_entry["decision"]),),
+                "job_titles": (("Support Specialist", "keep"),),
+                "languages": (),
+            },
+        )
+        self.assertEqual(
+            {
+                fact.field_path: fact.decision
+                for fact in replayed.facts
+                if fact.field_path in {"skills.normalized", "experience.specialties"}
+            },
+            {"skills.normalized": "remove", "experience.specialties": "accept"},
+        )
+        collections = {
+            "skills": (("Customer experience", "keep"), ("SEO", "keep")),
+            "job_titles": (("Support Specialist", "keep"),),
+            "languages": (),
+        }
+        updated = update_editable_review(
+            review,
+            values,
+            decisions,
+            inputs,
+            collection_updates=collections,
+        )
+        self.assertEqual(
+            [(fact.collection_id, fact.field_path, fact.value) for fact in updated.user_facts],
+            [("skills", "skills.normalized", "SEO")],
+        )
+        self.assertEqual(
+            {
+                (fact.field_path, fact.value, fact.decision)
+                for fact in updated.facts
+                if fact.field_path in {"skills.normalized", "experience.specialties"}
+            },
+            {
+                ("skills.normalized", "Customer experience", "keep"),
+                ("experience.specialties", "customer experience", "accept"),
+            },
+        )
+        with self.assertRaisesRegex(ProfileIntakeError, "invalid_review_submission"):
+            update_editable_review(
+                review,
+                values,
+                decisions,
+                inputs,
+                collection_updates={
+                    **collections,
+                    "skills": (("Client experience", "keep"),),
+                },
+            )
+
     def test_supported_same_source_education_relationship_becomes_one_entry(self):
         review = editable_profile_review(
             reconcile_profile_extractions(
@@ -605,7 +729,7 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         page = integration.handle("GET", target, get_headers)
         self.assertEqual(page.status, 200)
         self.assertIn(b"Sources disagree", page.body)
-        self.assertIn(b"Found in both", page.body)
+        self.assertNotIn(b"Found in both", page.body)
         self.assertIn(b"Found in your resume", page.body)
         self.assertIn(b"Found in your LinkedIn profile", page.body)
         self.assertNotIn(b"doc_", page.body)
@@ -622,17 +746,26 @@ class MultiDocumentBrowserTests(unittest.TestCase):
             ),
         }
         accepted = False
+        managed_indexes = managed_review_collection_fact_indexes(snapshot.review)
         for index, fact in enumerate(snapshot.review.facts):
-            if fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS:
+            if (
+                index in managed_indexes
+                or fact.field_path in INTERNAL_INFERRED_CLASSIFICATION_FIELD_PATHS
+                or fact.field_path in {"experience.industries", "experience.seniority"}
+            ):
                 continue
             form[f"fact_{index}_value"] = review_value_for_form(fact.value)
             if fact.conflict_group and not accepted:
                 form[f"fact_{index}_decision"] = "accept"
                 accepted = True
-            elif fact.suggested:
+            elif fact.suggested and (
+                fact.conflict_group is not None
+                or not fact.field_path.startswith(("identity.", "location."))
+            ):
                 form[f"fact_{index}_decision"] = "reject"
-            else:
+            elif fact.conflict_group is not None:
                 form[f"fact_{index}_decision"] = "keep"
+        form.update(_collection_form_values_for_review(snapshot.review))
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
         form.update(_preference_form_values_for_model(snapshot.review.preference_model))
@@ -677,6 +810,7 @@ class MultiDocumentBrowserTests(unittest.TestCase):
                     _raw_fact("location.country", "Brazil"),
                     _raw_fact("experience.job_titles", "Support Specialist"),
                     _raw_fact("experience.job_titles", "Search Evaluator"),
+                    _raw_fact("experience.recent_roles", "Support Specialist"),
                     _raw_fact(
                         "experience.industries",
                         "Business services",
@@ -684,6 +818,17 @@ class MultiDocumentBrowserTests(unittest.TestCase):
                     ),
                     _raw_fact("skills.normalized", "Zendesk"),
                     _raw_fact("skills.normalized", "Data Annotation"),
+                    _raw_fact(
+                        "experience.specialties",
+                        "Customer experience",
+                        explicit=False,
+                    ),
+                    _raw_fact(
+                        "experience.specialties",
+                        "Search quality",
+                        explicit=False,
+                    ),
+                    _raw_fact("experience.seniority", "mid", explicit=False),
                     _raw_fact(
                         "experience.occupational_families",
                         "Customer Support",
@@ -717,25 +862,38 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertEqual(page.status, 200)
         self.assertEqual(page.body.count(b"data-review-collection='job_titles'"), 1)
         self.assertEqual(page.body.count(b"data-review-collection='skills'"), 1)
-        self.assertEqual(page.body.count(b"class='review-collection-item skill-token"), 3)
+        self.assertEqual(
+            page.body.count(b"class='review-collection-item expertise-compact-row"),
+            5,
+        )
         self.assertEqual(page.body.count(b"data-index='__INDEX__'"), 5)
         self.assertIn(b"data-review-collection='compensation'", page.body)
         self.assertEqual(page.body.count(b"Add another job title"), 1)
-        self.assertEqual(page.body.count(b"Add another skill"), 1)
+        self.assertEqual(page.body.count(b"Add another skill or area of expertise"), 1)
         self.assertNotIn(b"Type of work", page.body)
         self.assertNotIn(b"Areas of experience", page.body)
         self.assertNotIn(b"Occupational Families", page.body)
         self.assertNotIn(b"Professional Domains", page.body)
         self.assertIn(b"About you", page.body)
-        self.assertIn(b"class='review-field'>Name<input", page.body)
-        self.assertIn(b"class='review-field'>Based in<input", page.body)
-        self.assertIn(b"Based in means where you currently live.", page.body)
-        self.assertIn(b"Where you are legally eligible to work is asked separately.", page.body)
-        self.assertIn(b"Total years of professional experience", page.body)
-        self.assertIn(b"Industries in your experience", page.body)
-        self.assertIn(b"They do not limit the kinds of jobs Wahojobs can show you", page.body)
+        self.assertIn(b"<span>Name</span><input", page.body)
+        self.assertIn(b"<span>Based in</span><input", page.body)
+        self.assertIn(b"Based in means where you currently live", page.body)
+        self.assertIn(b"work eligibility is handled separately", page.body)
+        self.assertNotIn(b"Include this in your profile?", page.body)
+        self.assertNotIn(b">Include it<", page.body)
+        self.assertNotIn(b">Leave it out<", page.body)
+        self.assertIn(b"Approx. years of professional experience", page.body)
+        self.assertNotIn(b"Industries in your experience", page.body)
+        self.assertNotIn(b"Business services", page.body)
         self.assertNotIn(b"Add another industry", page.body)
-        self.assertNotIn(b"Suggested from your experience", page.body)
+        self.assertNotIn(b"Suggested from your background", page.body)
+        self.assertIn(b"Customer experience", page.body)
+        self.assertIn(b"Search quality", page.body)
+        self.assertNotIn(b"Overall career stage", page.body)
+        self.assertNotIn(b">Mid-level</option>", page.body)
+        self.assertNotIn(b">Keep</span>", page.body)
+        self.assertNotIn(b"Add this to your profile?", page.body)
+        self.assertNotIn(b"classification-fieldset", page.body)
         self.assertNotIn(b"Choose any that you want to add to your Job Interests.", page.body)
         self.assertNotIn(b"What do these choices mean?", page.body)
         self.assertNotIn(b"How to choose Job Interests", page.body)
@@ -749,7 +907,7 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertIn(b"Finish the highlighted item before it can be saved.", page.body)
         self.assertIn(b"scrollIntoView", page.body)
         self.assertIn(b"form.addEventListener('keydown'", page.body)
-        self.assertIn(b"event.preventDefault();validateCollections(true)", page.body)
+        self.assertIn(b"event.preventDefault();validateCollections(true,false)", page.body)
         self.assertNotIn(
             b"name='preference_job_interests_customer_support' value='selected'>",
             page.body,
@@ -760,6 +918,11 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         )
         self.assertIn(b"How your preferences affect matches", page.body)
         self.assertIn(b"Your background works differently.", page.body)
+        self.assertIn(b"What are you looking for?", page.body)
+        self.assertIn(b"Choose the work conditions you would consider.", page.body)
+        self.assertIn(b"<strong>No preference</strong>", page.body)
+        self.assertIn(b"I\xe2\x80\x99m open to any.", page.body)
+        self.assertIn(b"I have preferences", page.body)
 
         snapshot = integration._processing.vault.get(
             reference, self._grant(integration)
@@ -770,8 +933,8 @@ class MultiDocumentBrowserTests(unittest.TestCase):
             for index, fact in enumerate(snapshot.review.facts)
             if fact.review_field in {"job_titles", "skills"}
         ]
-        self.assertEqual(len(grouped_indexes), 4)
-        for collection, count in (("job_titles", 2), ("skills", 2)):
+        self.assertEqual(len(grouped_indexes), 5)
+        for collection, count in (("job_titles", 2), ("skills", 4)):
             for index in range(count):
                 self.assertIn(
                     f"name='review_collection_{collection}_{index}_value'".encode(),

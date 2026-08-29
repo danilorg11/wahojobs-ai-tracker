@@ -37,6 +37,7 @@ from wahojobs.profile_intake.browser import (
     ProfileIntakeBrowserIntegration,
     _CLASSIFICATION_DESCRIPTIONS,
     _SKIP_SUGGESTION_VALUE,
+    _collection_form_values_for_review,
     _preference_model_from_form,
     _preference_form_values_for_model,
     _render_education_entry,
@@ -498,7 +499,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         )
         self.assertNotIn("value='not_specified'", status_markup)
 
-    def test_classification_choice_confirms_or_leaves_out_without_contract_change(self):
+    def test_hidden_seniority_suggestion_is_not_rendered_or_confirmed_by_get(self):
         response = self._upload(
             _docx_bytes(paragraphs=("Synthetic Senior Software Engineer",))
         )
@@ -516,16 +517,17 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
 
         page = self.integration.handle("GET", target, self._headers(origin=False))
         self.assertEqual(page.status, 200)
-        self.assertIn(
-            f"type='hidden' name='fact_{index}_decision' value='accept'".encode(),
-            page.body,
-        )
-        self.assertNotIn(
-            f"<select name='fact_{index}_decision'>".encode(), page.body
-        )
-        self.assertIn(b"Leave this suggestion out", page.body)
-        self.assertIn(b"More classifications", page.body)
-        self.assertIn(b"class='suggestion-tag'>Suggested", page.body)
+        self.assertNotIn(b"Overall career stage", page.body)
+        self.assertNotIn(b"A broad summary of your experience.", page.body)
+        self.assertNotIn(f"name='fact_{index}_value'".encode(), page.body)
+        self.assertNotIn(f"name='fact_{index}_decision'".encode(), page.body)
+        after_get = self.integration._processing.vault.get(reference, self._grant())
+        self.assertEqual(after_get.version, snapshot.version)
+        self.assertEqual(after_get.review.facts[index].value, fact.value)
+        self.assertEqual(after_get.review.facts[index].decision, "pending")
+
+        # The shared presentation helper remains compatibility-only for
+        # existing persisted values; assisted intake no longer renders it.
         classification_markup = _review_fact_value_control(
             index,
             fact,
@@ -536,16 +538,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(classification_markup.count("<strong>Mid-level</strong>"), 1)
         self.assertIn("<strong>Advanced specialist</strong>", classification_markup)
         self.assertIn("<strong>Senior</strong>", classification_markup)
-        self.assertIn(
-            f"name='fact_{index}_value' value='entry-level'".encode(), page.body
-        )
-        self.assertNotIn(
-            f"name='fact_{index}_value' value='junior'".encode(), page.body
-        )
-        self.assertIn(f"name='fact_{index}_value' value='mid'".encode(), page.body)
-        self.assertNotIn(
-            f"name='fact_{index}_value' value='mid-level'".encode(), page.body
-        )
+        self.assertNotIn(f"<select name='fact_{index}_value'>".encode(), page.body)
 
         for legacy_value, expected_label in (
             ("junior", "Entry-level"),
@@ -559,111 +552,6 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
                 f"name='fact_{index}_value' value='{legacy_value}'", grouped
             )
             self.assertIn("class='suggestion-tag'>Suggested", grouped)
-
-        def submission(current, *, value, decision):
-            form = {
-                "action": "update",
-                "version": str(current.version),
-                "csrf": profile_intake_csrf_proof(
-                    self.session["csrf_secret"],
-                    "update",
-                    draft_reference=reference,
-                    version=current.version,
-                ),
-            }
-            for fact_index, current_fact in enumerate(current.review.facts):
-                form[f"fact_{fact_index}_value"] = (
-                    value
-                    if fact_index == index
-                    else review_value_for_form(current_fact.value)
-                )
-                form[f"fact_{fact_index}_decision"] = (
-                    decision
-                    if fact_index == index
-                    else ("keep" if not current_fact.suggested else "accept")
-                )
-            for name in current.review.missing_user_fields:
-                form["missing_" + name] = dict(current.review.user_inputs).get(
-                    name, ""
-                )
-            form.update(
-                _preference_form_values_for_model(
-                    current.review.preference_model
-                )
-            )
-            body = urlencode(form).encode()
-            return self.integration.handle(
-                "POST",
-                target,
-                self._headers(
-                    content_type="application/x-www-form-urlencoded",
-                    content_length=len(body),
-                ),
-                BytesIO(body),
-            )
-
-        accepted = submission(snapshot, value="lead", decision="accept")
-        self.assertEqual(accepted.status, 303)
-        accepted_snapshot = self.integration._processing.vault.get(
-            reference, self._grant()
-        )
-        self.assertEqual(accepted_snapshot.review.facts[index].value, "lead")
-        self.assertEqual(accepted_snapshot.review.facts[index].decision, "accept")
-
-        left_out = submission(
-            accepted_snapshot,
-            value=_SKIP_SUGGESTION_VALUE,
-            decision="accept",
-        )
-        self.assertEqual(left_out.status, 303)
-        rejected_snapshot = self.integration._processing.vault.get(
-            reference, self._grant()
-        )
-        self.assertEqual(rejected_snapshot.review.facts[index].value, "lead")
-        self.assertEqual(rejected_snapshot.review.facts[index].decision, "reject")
-
-        explicit_index = next(
-            fact_index
-            for fact_index, current_fact in enumerate(rejected_snapshot.review.facts)
-            if not current_fact.suggested
-        )
-        invalid_form = {
-            "action": "update",
-            "version": str(rejected_snapshot.version),
-            "csrf": profile_intake_csrf_proof(
-                self.session["csrf_secret"],
-                "update",
-                draft_reference=reference,
-                version=rejected_snapshot.version,
-            ),
-        }
-        for fact_index, current_fact in enumerate(rejected_snapshot.review.facts):
-            invalid_form[f"fact_{fact_index}_value"] = (
-                _SKIP_SUGGESTION_VALUE
-                if fact_index == explicit_index
-                else review_value_for_form(current_fact.value)
-            )
-            invalid_form[f"fact_{fact_index}_decision"] = current_fact.decision
-        for name in rejected_snapshot.review.missing_user_fields:
-            invalid_form["missing_" + name] = dict(
-                rejected_snapshot.review.user_inputs
-            ).get(name, "")
-        invalid_form.update(
-            _preference_form_values_for_model(
-                rejected_snapshot.review.preference_model
-            )
-        )
-        invalid_body = urlencode(invalid_form).encode()
-        invalid = self.integration.handle(
-            "POST",
-            target,
-            self._headers(
-                content_type="application/x-www-form-urlencoded",
-                content_length=len(invalid_body),
-            ),
-            BytesIO(invalid_body),
-        )
-        self.assertEqual(invalid.status, 400)
 
     def test_oversized_content_length_is_rejected_before_body_read(self):
         headers = self._headers(
@@ -1044,7 +932,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         page = self.integration.handle("GET", review_target, self._headers(origin=False))
         self.assertEqual(page.status, 200)
         self.assertIn(b"Found in your resume", page.body)
-        self.assertIn(b"Confirm our suggestions", page.body)
+        self.assertIn(b"Skills &amp; experience", page.body)
         self.assertIn(b"A few details only you can answer", page.body)
         self.assertIn(b"aria-label='Profile review steps'", page.body)
         self.assertIn(b"href='#review-found'", page.body)
@@ -1055,12 +943,11 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertIn(b"aria-labelledby='review-suggestions-title'", page.body)
         self.assertIn(b"aria-labelledby='review-preferences-title'", page.body)
         self.assertIn(b"aria-labelledby='review-finish-title'", page.body)
-        self.assertIn(b"Leave this suggestion out", page.body)
+        self.assertNotIn(b"Leave out", page.body)
         self.assertIn(b"data-review-collection='skills'", page.body)
-        self.assertIn(b"Add another skill", page.body)
-        self.assertIn(b"class='review-collection-item skill-token", page.body)
-        self.assertIn(b"aria-label='Remove this skill'", page.body)
-        self.assertIn(b"Keep item", page.body)
+        self.assertIn(b"Add another skill or area of expertise", page.body)
+        self.assertIn(b"class='review-collection-item expertise-compact-row", page.body)
+        self.assertIn(b"value='remove' data-collection-remove", page.body)
         self.assertNotIn(b"Use this suggestion?", page.body)
         self.assertNotIn(b"Document-supported prefill", page.body)
         self.assertNotIn(b"matcher decisions", page.body)
@@ -1076,11 +963,13 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
                 self.session["csrf_secret"], "update", draft_reference=reference, version=snapshot.version
             ),
         }
-        for index, fact in enumerate(snapshot.review.facts):
-            form[f"fact_{index}_value"] = (
-                "Platform Engineer" if index == 0 else review_value_for_form(fact.value)
-            )
-            form[f"fact_{index}_decision"] = "keep" if not fact.suggested else "accept"
+        job_title_index = next(
+            index
+            for index, fact in enumerate(snapshot.review.facts)
+            if fact.field_path == "experience.job_titles"
+        )
+        form.update(_collection_form_values_for_review(snapshot.review))
+        form["review_collection_job_titles_0_value"] = "Platform Engineer"
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
         form.update(_preference_form_values_for_model(snapshot.review.preference_model))
@@ -1093,8 +982,18 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         self.assertEqual(updated.status, 303)
         new_snapshot = self.integration._processing.vault.get(reference, grant)
         self.assertEqual(new_snapshot.version, 2)
-        self.assertEqual(new_snapshot.review.facts[0].value, "Platform Engineer")
-        self.assertEqual(new_snapshot.review.facts[1].decision, "accept")
+        self.assertEqual(
+            new_snapshot.review.facts[job_title_index].value,
+            "Platform Engineer",
+        )
+        self.assertEqual(
+            next(
+                fact.decision
+                for fact in new_snapshot.review.facts
+                if fact.field_path == "experience.seniority"
+            ),
+            "reject",
+        )
         self.assertNotIn("remote", dict(new_snapshot.review.user_inputs))
         self.assertEqual(
             new_snapshot.review.preference_model["compensation_expectations"],
@@ -1289,9 +1188,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
                 version=snapshot.version,
             ),
         }
-        for index, fact in enumerate(snapshot.review.facts):
-            form[f"fact_{index}_value"] = review_value_for_form(fact.value)
-            form[f"fact_{index}_decision"] = "keep" if not fact.suggested else "accept"
+        form.update(_collection_form_values_for_review(snapshot.review))
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
         form.update(_preference_form_values_for_model(model))
@@ -1580,7 +1477,13 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
         }
         for index, fact in enumerate(snapshot.review.facts):
             form[f"fact_{index}_value"] = "invalid" if fact.field_path == "experience.seniority" else review_value_for_form(fact.value)
-            form[f"fact_{index}_decision"] = "keep" if not fact.suggested else "accept"
+            if fact.conflict_group is not None or (
+                fact.suggested
+                and not fact.field_path.startswith(("identity.", "location."))
+            ):
+                form[f"fact_{index}_decision"] = (
+                    "keep" if not fact.suggested else "accept"
+                )
         for name in snapshot.review.missing_user_fields:
             form["missing_" + name] = ""
         form.update(_preference_form_values_for_model(snapshot.review.preference_model))

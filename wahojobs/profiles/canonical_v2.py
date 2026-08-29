@@ -680,13 +680,17 @@ def add_user_confirmed_education_entries_v1(
     unpaired_legacy: dict,
     *,
     source_ordinal_resolver,
+    source_authority_resolver=None,
 ) -> dict:
     """Add structured education entries over server-derived legacy shadows."""
 
     profile = validate_canonical_profile_v2(v2)
     if "entries" in profile["education"]:
         raise CanonicalProfileV2Error("education_entries_already_present")
-    if not callable(source_ordinal_resolver):
+    if not callable(source_ordinal_resolver) or (
+        source_authority_resolver is not None
+        and not callable(source_authority_resolver)
+    ):
         raise CanonicalProfileV2Error("invalid_source_resolver")
     try:
         canonical_entries = canonicalize_education_entries_v1(entries)
@@ -706,12 +710,29 @@ def add_user_confirmed_education_entries_v1(
     for path in _material_field_paths(profile):
         if not path.startswith("education.entries["):
             continue
+        source_kind = PROFILE_SOURCE_USER_CONFIRMATION
+        explicit = True
+        if source_authority_resolver is not None:
+            try:
+                authority = source_authority_resolver(path)
+            except CanonicalProfileV2Error:
+                raise
+            except Exception as exc:
+                raise CanonicalProfileV2Error("source_resolution_failed") from exc
+            if (
+                type(authority) is not tuple
+                or len(authority) != 2
+                or authority[0] not in PROFILE_SOURCES
+                or type(authority[1]) is not bool
+            ):
+                raise CanonicalProfileV2Error("invalid_source_authority")
+            source_kind, explicit = authority
         try:
             ordinals = _validated_ordinals(
                 source_ordinal_resolver(
                     path,
-                    PROFILE_SOURCE_USER_CONFIRMATION,
-                    True,
+                    source_kind,
+                    explicit,
                 )
             )
         except CanonicalProfileV2Error:
@@ -723,8 +744,8 @@ def add_user_confirmed_education_entries_v1(
                 "field_path": path,
                 "path_version": FIELD_PATH_VERSION,
                 "source_ordinals": ordinals,
-                "source_kind": PROFILE_SOURCE_USER_CONFIRMATION,
-                "explicit": True,
+                "source_kind": source_kind,
+                "explicit": explicit,
             }
         )
     profile["provenance"]["field_sources"].extend(new_sources)
