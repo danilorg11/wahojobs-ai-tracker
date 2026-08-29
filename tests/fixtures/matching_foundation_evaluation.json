@@ -1,0 +1,261 @@
+{
+  "schema_version": "matching_foundation_evaluation_v2",
+  "source_fixture": "tests/fixtures/matching_golden_set.json",
+  "source_fixture_version": 1,
+  "authority_policy": {
+    "authoritative_label_source": "human_reviewed",
+    "draft_label_source": "codex_draft",
+    "draft_labels_are_ground_truth": false,
+    "approval_actor_convention": "user_confirmation",
+    "approval_confirmed_at": "2026-08-29T21:25:03Z",
+    "note": "The 30 relevance labels, three eligibility interpretations, and three relationship judgments listed here are explicitly human-approved. Six separate language failures are derived regression rules and are not represented as general human-reviewed eligibility truth."
+  },
+  "authoritative_relevance_case_ids": [
+    "beginner_bilingual_no_degree_002",
+    "beginner_bilingual_no_degree_005",
+    "beginner_bilingual_no_degree_006",
+    "beginner_bilingual_no_degree_010",
+    "beginner_bilingual_no_degree_011",
+    "beginner_bilingual_no_degree_012",
+    "beginner_bilingual_no_degree_013",
+    "beginner_bilingual_no_degree_014",
+    "biology_or_medicine_academic_003",
+    "biology_or_medicine_academic_006",
+    "biology_or_medicine_academic_007",
+    "biology_or_medicine_academic_008",
+    "english_teacher_remote_008",
+    "english_teacher_remote_013",
+    "generalist_no_degree_007",
+    "generalist_no_degree_008",
+    "generalist_no_degree_013",
+    "lawyer_001",
+    "lawyer_002",
+    "lawyer_004",
+    "multilingual_translator_005",
+    "multilingual_translator_006",
+    "multilingual_translator_010",
+    "phd_history_researcher_005",
+    "phd_history_researcher_006",
+    "phd_history_researcher_011",
+    "phd_history_researcher_013",
+    "phd_history_researcher_014",
+    "portuguese_english_reviewer_010",
+    "software_engineer_009"
+  ],
+  "scenario_coverage": {
+    "strong_match": [
+      "lawyer_001",
+      "biology_or_medicine_academic_003",
+      "beginner_bilingual_no_degree_002"
+    ],
+    "plausible_or_adjacent_match": [
+      "software_engineer_009",
+      "generalist_no_degree_008",
+      "phd_history_researcher_005"
+    ],
+    "objective_hard_ineligibility": [
+      "english_teacher_remote_013",
+      "beginner_bilingual_no_degree_010",
+      "beginner_bilingual_no_degree_011",
+      "beginner_bilingual_no_degree_012",
+      "beginner_bilingual_no_degree_013",
+      "beginner_bilingual_no_degree_014"
+    ],
+    "missing_or_unknown_requirement": [
+      "beginner_bilingual_no_degree_002",
+      "biology_or_medicine_academic_008"
+    ],
+    "unresolved_duplicate_identity": [
+      "alignerr_software_engineer_unresolved_relationship"
+    ],
+    "eligibility_variant": [
+      "meridial_social_annotation_location_variants"
+    ],
+    "materially_different_similar_title": [
+      "handshake_biology_expert_material_variants"
+    ]
+  },
+  "eligibility_cases": [
+    {
+      "case_id": "english_teacher_remote_013",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "fail",
+      "authority": "derived_from_human_reviewed_relevance_rule",
+      "basis": "unsupported_explicit_language"
+    },
+    {
+      "case_id": "beginner_bilingual_no_degree_010",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "fail",
+      "authority": "derived_from_human_reviewed_relevance_rule",
+      "basis": "unsupported_explicit_language"
+    },
+    {
+      "case_id": "beginner_bilingual_no_degree_011",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "fail",
+      "authority": "derived_from_human_reviewed_relevance_rule",
+      "basis": "unsupported_explicit_language"
+    },
+    {
+      "case_id": "beginner_bilingual_no_degree_012",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "fail",
+      "authority": "derived_from_human_reviewed_relevance_rule",
+      "basis": "unsupported_explicit_language"
+    },
+    {
+      "case_id": "beginner_bilingual_no_degree_013",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "fail",
+      "authority": "derived_from_human_reviewed_relevance_rule",
+      "basis": "unsupported_explicit_language"
+    },
+    {
+      "case_id": "beginner_bilingual_no_degree_014",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "fail",
+      "authority": "derived_from_human_reviewed_relevance_rule",
+      "basis": "unsupported_explicit_language"
+    },
+    {
+      "case_id": "beginner_bilingual_no_degree_002",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "unknown",
+      "authority": "human_approved_interpretation",
+      "approved_by": "user_confirmation",
+      "approved_at": "2026-08-29T21:25:03Z",
+      "basis": "Reviewed rationale supports Spanish-English relevance, but the US locale/accent requirement is not confirmed by the profile and must remain unknown."
+    },
+    {
+      "case_id": "multilingual_translator_005",
+      "criterion_id": "eligibility.required_languages",
+      "expected_outcome": "pass",
+      "authority": "human_approved_interpretation",
+      "approved_by": "user_confirmation",
+      "approved_at": "2026-08-29T21:25:03Z",
+      "basis": "Reviewed rationale identifies the French role as relevant language work and the reviewed profile explicitly includes French without a narrower locale requirement."
+    },
+    {
+      "case_id": "biology_or_medicine_academic_008",
+      "criterion_id": "eligibility.credentials_licenses",
+      "expected_outcome": "unknown",
+      "authority": "human_approved_interpretation",
+      "approved_by": "user_confirmation",
+      "approved_at": "2026-08-29T21:25:03Z",
+      "basis": "Reviewed rationale says the role is relevant if credentials match; absence of structured credential evidence must not become pass or fail."
+    }
+  ],
+  "relationship_cases": [
+    {
+      "relationship_case_id": "alignerr_software_engineer_unresolved_relationship",
+      "left_job_id": 1413,
+      "right_job_id": 1414,
+      "expected_relationship": "unresolved_related",
+      "expected_distinguishing_fields": [],
+      "authority": "human_approved_relationship",
+      "approved_by": "user_confirmation",
+      "approved_at": "2026-08-29T21:25:03Z",
+      "left_expected": {
+        "canonical_opportunity_id": 70,
+        "company": "Alignerr",
+        "title": "Software Engineer (AI Training)",
+        "location": "Remote",
+        "expertise": "Coding"
+      },
+      "right_expected": {
+        "canonical_opportunity_id": 70,
+        "company": "Alignerr",
+        "title": "Software Engineer (AI Training)",
+        "location": "Remote",
+        "expertise": "Coding"
+      }
+    },
+    {
+      "relationship_case_id": "meridial_social_annotation_location_variants",
+      "left_job_id": 242,
+      "right_job_id": 243,
+      "expected_relationship": "eligibility_variant",
+      "expected_distinguishing_fields": [
+        "location"
+      ],
+      "authority": "human_approved_relationship",
+      "approved_by": "user_confirmation",
+      "approved_at": "2026-08-29T21:25:03Z",
+      "left_expected": {
+        "canonical_opportunity_id": 1092,
+        "company": "Meridial",
+        "title": "Social Media Annotation - Freelance AI Trainer Project",
+        "location": "United States of America",
+        "expertise": "Creative & Multi-Media"
+      },
+      "right_expected": {
+        "canonical_opportunity_id": 1092,
+        "company": "Meridial",
+        "title": "Social Media Annotation - Freelance AI Trainer Project",
+        "location": "United Kingdom",
+        "expertise": "Creative & Multi-Media"
+      }
+    },
+    {
+      "relationship_case_id": "handshake_biology_expert_material_variants",
+      "left_job_id": 9106,
+      "right_job_id": 9172,
+      "expected_relationship": "material_variant",
+      "expected_distinguishing_fields": [
+        "commitment",
+        "department",
+        "expertise",
+        "source_category"
+      ],
+      "authority": "human_approved_relationship",
+      "approved_by": "user_confirmation",
+      "approved_at": "2026-08-29T21:25:03Z",
+      "left_expected": {
+        "canonical_opportunity_id": 2904,
+        "company": "Handshake AI",
+        "title": "Biology Expert",
+        "location": "Unknown",
+        "expertise": "Biology",
+        "commitment": "Rate: $150/hr; Degree filters: Postdocs, Ph.Ds",
+        "source_category": "Biology"
+      },
+      "right_expected": {
+        "canonical_opportunity_id": 2970,
+        "company": "Handshake AI",
+        "title": "Biology Expert",
+        "location": "Unknown",
+        "expertise": "Plant Biology",
+        "commitment": "Rate: $55/hr; Degree filters: Master's",
+        "source_category": "Plant Biology"
+      }
+    }
+  ],
+  "acceptance_criteria": {
+    "initial_shortlist_size": 32,
+    "hard_safety_and_regression_requirements": {
+      "derived_eligibility_regression_accuracy_minimum": 1.0,
+      "human_approved_eligibility_accuracy_minimum": 1.0,
+      "human_approved_relationship_accuracy_minimum": 1.0,
+      "human_approved_unknown_preservation_minimum": 1.0,
+      "draft_labels_must_be_excluded_from_quality_metrics": true,
+      "all_authoritative_judgments_must_have_approval_metadata": true,
+      "versioned_inventory_snapshot_fingerprint_required": true
+    },
+    "sample_limited_quality_targets": {
+      "strong_recall_minimum": 1.0,
+      "strong_or_plausible_recall_minimum": 0.9,
+      "note": "Regression targets over 10 strong and 17 strong-or-plausible cases; not population estimates or production-quality claims."
+    },
+    "provisional_readiness_indicators": {
+      "threshold_status": "unset_pending_enrichment_milestone",
+      "metrics": [
+        "current_enrichment_coverage",
+        "source_identity_coverage",
+        "minimum_semantic_packet_coverage",
+        "structured_requirement_signal_coverage"
+      ],
+      "note": "Report these indicators and sample sizes, but do not treat them as proven production thresholds until the enrichment packet is specified and reviewed."
+    }
+  }
+}
