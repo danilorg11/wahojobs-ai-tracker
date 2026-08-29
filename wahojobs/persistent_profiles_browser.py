@@ -2206,9 +2206,19 @@ def _page(title: str, body: str) -> str:
     .compensation-kind-guide dd {{ color: #66716c; font-size: 13px; margin: 2px 0 0; }}
     .finish-section {{ padding-bottom: 0; }}
     .finish-panel {{ background: #eaf6f0; border-radius: 16px; padding: clamp(24px, 4vw, 36px); }}
+    .step-four-summary {{ background: rgba(255,255,255,.78); border: 1px solid #cfe2d9; border-radius: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 24px; overflow: hidden; }}
+    .step-four-summary-section {{ min-width: 0; padding: 20px; }}
+    .step-four-summary-section + .step-four-summary-section {{ border-left: 1px solid #d8e6df; }}
+    .step-four-summary-section h3 {{ font-size: 18px; margin: 0 0 12px; }}
+    .step-four-summary-values {{ display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }}
+    .step-four-summary-values li {{ color: #394740; line-height: 1.45; overflow-wrap: anywhere; }}
+    .step-four-edit-actions {{ display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 14px; }}
+    .step-four-edit-actions a {{ align-items: center; color: #174d3b; display: inline-flex; font-size: 13px; font-weight: 750; min-height: 44px; text-underline-offset: 3px; }}
+    .step-four-edit-actions a:focus-visible {{ outline: 3px solid #8dc6b1; outline-offset: 2px; }}
+    .step-four-important {{ border-left: 0 !important; border-top: 1px solid #d8e6df; grid-column: 1 / -1; }}
     .finish-actions {{ align-items: center; display: flex; flex-wrap: wrap; gap: 14px 18px; margin-top: 22px; }}
     .finish-actions .muted {{ font-size: 13px; max-width: 390px; }}
-    .intake-cancel-form {{ margin-top: 14px; text-align: center; }}
+    .intake-cancel-form {{ margin-top: 32px; text-align: center; }}
     .button-quiet {{ background: transparent; color: #59645f; font-weight: 650; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }}
     .button-quiet:hover {{ color: #202523; }}
     .button-quiet.destructive-action {{ color: #8a3d35; }}
@@ -2247,6 +2257,9 @@ def _page(title: str, body: str) -> str:
       .preference-disclosure > summary {{ padding: 13px 14px !important; }}
       .disclosure-body {{ padding: 0 14px 18px; }}
       .suggestion-tag {{ display: table; margin: 5px 0 0; }}
+      .step-four-summary {{ grid-template-columns: 1fr; }}
+      .step-four-summary-section + .step-four-summary-section {{ border-left: 0; border-top: 1px solid #d8e6df; }}
+      .step-four-summary-section {{ padding: 18px; }}
       .finish-actions {{ align-items: stretch; flex-direction: column; }}
     }}
     @media (prefers-reduced-motion: reduce) {{

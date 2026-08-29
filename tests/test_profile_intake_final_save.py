@@ -72,6 +72,7 @@ from wahojobs.profiles.canonical_v2 import (
     MAX_LANGUAGES,
     MAX_SKILL_ENTRIES,
 )
+from wahojobs.profiles.preference_model import empty_profile_preferences_v1
 
 
 PUBLIC_ORIGIN = "https://localhost:8443"
@@ -351,6 +352,22 @@ class _ShortLeaseFinalizer:
         return self.delegate.prepare(review, authority)
 
     def commit(self, grant, authority, confirmed):
+        return self.delegate.commit(grant, authority, confirmed)
+
+
+class _OneShotCommitProfileIntakeFailure:
+    def __init__(self, delegate, code):
+        self.delegate = delegate
+        self.code = code
+        self.fired = False
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+    def commit(self, grant, authority, confirmed):
+        if not self.fired:
+            self.fired = True
+            raise ProfileIntakeError(self.code)
         return self.delegate.commit(grant, authority, confirmed)
 
 
@@ -968,12 +985,88 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         self.assertEqual(page.status, 200)
         self.assertIn(b"<button type='submit'>Find my matches</button>", page.body)
         self.assertIn(
-            b"Your progress is saved as you review. Your profile is created only when you choose Find my matches",
+            b"This creates your Wahojobs profile using the information you reviewed. You can update it later.",
             page.body,
         )
         self.assertNotIn(row["attempt_id"].encode(), page.body)
         self.assertNotIn(row["reservation_id"].encode(), page.body)
         self.assertNotIn(b"private-sentinel", page.body)
+
+    def test_step_four_renders_resumed_v1_preferences_without_mutating_checkpoint(self):
+        reference = self._reference(self._upload())
+        grant = self._grant()
+        snapshot = self.integration._processing.vault.get(reference, grant)
+        legacy = empty_profile_preferences_v1()
+        legacy["employment_relationships"] = ["employee"]
+        legacy["workloads"] = ["full_time"]
+        legacy["schedule"]["time_windows"] = ["business_hours", "weekdays"]
+        legacy["accepted_phone_voice_modes"] = ["non_phone"]
+        legacy["job_interests"] = ["customer_support"]
+        legacy["compensation"] = {
+            "minimum_kind": "preferred",
+            "amount": "30",
+            "currency": "USD",
+            "period": "hour",
+        }
+        legacy_review = update_editable_review(
+            snapshot.review,
+            tuple(review_value_for_form(fact.value) for fact in snapshot.review.facts),
+            tuple(fact.decision for fact in snapshot.review.facts),
+            dict(snapshot.review.user_inputs),
+            preference_model=legacy,
+        )
+        save_state, saved = self.integration._processing.autosave(
+            reference,
+            grant,
+            expected_version=snapshot.version,
+            review=legacy_review,
+            review_step="review-finish",
+        )
+        self.assertEqual(save_state, "saved")
+        self.assertEqual(saved.review.preference_model, legacy)
+        extraction_calls = tuple(self.adapter.calls)
+
+        self.integration.close()
+        self.integration = self._build(self.adapter)
+        reference = self._reference(self._entry_action("continue"))
+        resumed_before = self.integration._processing.vault.get(reference, grant)
+        self.assertEqual(resumed_before.review.preference_model, legacy)
+        page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        self.assertEqual(page.status, 200)
+        self.assertIn(b"Employment relationship: Employee", page.body)
+        self.assertIn(b"Workload: Full-time", page.body)
+        self.assertIn(b"Days: Weekdays", page.body)
+        self.assertIn(b"Time of day: Business hours", page.body)
+        self.assertIn(b"Phone and voice work: Non-phone / non-voice", page.body)
+        self.assertIn(b"Existing job interests: Customer Support", page.body)
+        self.assertIn(b"Preferred minimum: USD 30/hour", page.body)
+        resumed_after = self.integration._processing.vault.get(reference, grant)
+        self.assertEqual(resumed_after.version, resumed_before.version)
+        self.assertEqual(resumed_after.review.preference_model, legacy)
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+
+        finalized = self._save(reference, self._save_body(reference))
+        self.assertEqual(finalized.status, 303)
+        self.assertEqual(dict(finalized.headers)["Location"], "/find-matches")
+        self.assertEqual(tuple(self.adapter.calls), extraction_calls)
+        with self._database() as connection:
+            self.assertEqual(database_counts(connection)["product_profiles"], 1)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM ai_profile_import_entitlements"
+                ).fetchone()[0],
+                "consumed",
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
 
     def test_review_renewal_stays_inside_durable_lease_and_does_not_consume(self):
         reference = self._reference(self._upload())
@@ -2271,6 +2364,22 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             self.assertIn(value.encode(), skills_markup)
         self.assertNotIn(b"Restore", skills_markup)
         self.assertIn(b"value='SEO'", skills_markup)
+        removed_review = self.integration._processing.vault.get(
+            reference, self._grant()
+        ).review
+        removed_visible_count = sum(
+            entry["decision"] not in {"remove", "reject", "pending"}
+            for entry in review_collection_entries(removed_review, "skills")
+        )
+        removed_summary = (
+            "1 skill or area of expertise"
+            if removed_visible_count == 1
+            else f"{removed_visible_count} skills and areas of expertise"
+        )
+        self.assertIn(
+            removed_summary.encode(),
+            page.body,
+        )
 
         extraction_calls = tuple(self.adapter.calls)
         self.integration.close()
@@ -2367,6 +2476,24 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             6,
         )
         self.assertEqual(after_reset.review.preference_model, initial_preferences)
+        after_reset_page = self.integration.handle(
+            "GET",
+            PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode({"draft": reference}),
+            self._headers(origin=False),
+        )
+        reset_visible_count = sum(
+            entry["decision"] not in {"remove", "reject", "pending"}
+            for entry in review_collection_entries(after_reset.review, "skills")
+        )
+        reset_summary = (
+            "1 skill or area of expertise"
+            if reset_visible_count == 1
+            else f"{reset_visible_count} skills and areas of expertise"
+        )
+        self.assertIn(
+            reset_summary.encode(),
+            after_reset_page.body,
+        )
         self.assertEqual(
             {
                 fact.value: fact.decision
@@ -4571,6 +4698,8 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         }
         unresolved = self._save(reference, self._save_body(reference, decisions=pending))
         self.assertEqual(unresolved.status, 409)
+        self.assertIn(b"A few details still need attention", unresolved.body)
+        self.assertNotIn(b"ai_import_review_unresolved", unresolved.body)
         with self._database() as connection:
             self.assertEqual(database_counts(connection)["product_profiles"], 0)
             self.assertEqual(
@@ -4605,6 +4734,153 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
         ]
         stale_body = urlencode({key: values[0] for key, values in stale_form.items()}).encode()
         self.assertEqual(self._save(reference, stale_body).status, 409)
+
+    def test_known_temporary_save_contention_reports_durable_progress_and_retries(self):
+        delegate = ProfileIntakeFinalizationService(
+            read_connection_provider=self.read_provider,
+            write_connection_provider=self.write_provider,
+            clock=lambda: self.now,
+        )
+        self.integration.close()
+        self.integration = self._build(
+            self.adapter,
+            finalizer_override=_OneShotCommitProfileIntakeFailure(
+                delegate,
+                "ai_import_temporary_contention",
+            ),
+        )
+        reference = self._reference(self._upload())
+        body = self._save_body(reference)
+        before_preferences = self.integration._processing.vault.get(
+            reference, self._grant()
+        ).review.preference_model
+        with self._database() as connection:
+            before_checkpoint = tuple(
+                connection.execute(
+                    "SELECT row_version,review_payload_json "
+                    "FROM ai_profile_intake_checkpoints"
+                ).fetchone()
+            )
+            before_entitlement = tuple(
+                connection.execute(
+                    "SELECT state,consumed_at FROM ai_profile_import_entitlements"
+                ).fetchone()
+            )
+
+        unavailable = self._save(reference, body)
+        self.assertEqual(unavailable.status, 503)
+        self.assertIn(
+            b"We couldn&#x27;t create your profile just now", unavailable.body
+        )
+        self.assertIn(b"Your progress is saved. Please try again.", unavailable.body)
+        self.assertNotIn(b"ai_import_temporary_contention", unavailable.body)
+        with self._database() as connection:
+            self.assertEqual(database_counts(connection)["product_profiles"], 0)
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT row_version,review_payload_json "
+                        "FROM ai_profile_intake_checkpoints"
+                    ).fetchone()
+                ),
+                before_checkpoint,
+            )
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT state,consumed_at FROM ai_profile_import_entitlements"
+                    ).fetchone()
+                ),
+                before_entitlement,
+            )
+        self.assertEqual(
+            self.integration._processing.vault.get(
+                reference, self._grant()
+            ).review.preference_model,
+            before_preferences,
+        )
+
+        retried = self._save(reference, body)
+        self.assertEqual(retried.status, 303)
+        self.assertEqual(dict(retried.headers)["Location"], "/find-matches")
+        with self._database() as connection:
+            self.assertEqual(database_counts(connection)["product_profiles"], 1)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT state FROM ai_profile_import_entitlements"
+                ).fetchone()[0],
+                "consumed",
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_profile_intake_checkpoints"
+                ).fetchone()[0],
+                0,
+            )
+
+    def test_unknown_profile_intake_save_error_uses_generic_nonleaking_fallback(self):
+        delegate = ProfileIntakeFinalizationService(
+            read_connection_provider=self.read_provider,
+            write_connection_provider=self.write_provider,
+            clock=lambda: self.now,
+        )
+        self.integration.close()
+        self.integration = self._build(
+            self.adapter,
+            finalizer_override=_OneShotCommitProfileIntakeFailure(
+                delegate,
+                "synthetic_unknown_save_failure_private_detail",
+            ),
+        )
+        reference = self._reference(self._upload())
+        body = self._save_body(reference)
+        before_preferences = self.integration._processing.vault.get(
+            reference, self._grant()
+        ).review.preference_model
+        with self._database() as connection:
+            before_checkpoint = tuple(
+                connection.execute(
+                    "SELECT row_version,review_payload_json "
+                    "FROM ai_profile_intake_checkpoints"
+                ).fetchone()
+            )
+            before_entitlement = tuple(
+                connection.execute(
+                    "SELECT state,consumed_at FROM ai_profile_import_entitlements"
+                ).fetchone()
+            )
+
+        unavailable = self._save(reference, body)
+        self.assertEqual(unavailable.status, 503)
+        self.assertIn(b"Profile intake unavailable", unavailable.body)
+        self.assertNotIn(b"Your progress is saved", unavailable.body)
+        self.assertNotIn(b"synthetic_unknown_save_failure", unavailable.body)
+        self.assertNotIn(b"private_detail", unavailable.body)
+        with self._database() as connection:
+            self.assertEqual(database_counts(connection)["product_profiles"], 0)
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT row_version,review_payload_json "
+                        "FROM ai_profile_intake_checkpoints"
+                    ).fetchone()
+                ),
+                before_checkpoint,
+            )
+            self.assertEqual(
+                tuple(
+                    connection.execute(
+                        "SELECT state,consumed_at FROM ai_profile_import_entitlements"
+                    ).fetchone()
+                ),
+                before_entitlement,
+            )
+        self.assertEqual(
+            self.integration._processing.vault.get(
+                reference, self._grant()
+            ).review.preference_model,
+            before_preferences,
+        )
 
     def test_exact_retry_and_post_commit_response_loss_create_no_second_state(self):
         failure = _OneShotSaveFailure("after_durable_commit")

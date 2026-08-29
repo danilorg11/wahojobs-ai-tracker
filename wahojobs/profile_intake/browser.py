@@ -204,6 +204,10 @@ _COMMON_JOB_INTEREST_CODES = (
     "translation_localization",
 )
 _COMMON_CURRENCIES = ("USD", "EUR", "GBP", "BRL", "CAD", "AUD", "INR", "JPY")
+_STEP_FOUR_MAX_JOB_TITLES = 2
+_STEP_FOUR_MAX_LANGUAGES = 3
+_STEP_FOUR_MAX_PREFERENCE_ROWS = 6
+_STEP_FOUR_DETAIL_LIMIT = 120
 _MISSING_USER_FIELD_COPY = {
     "work_authorization": (
         "What work authorization do you have?",
@@ -275,6 +279,7 @@ function activity(){lastActivity=Date.now();}
 function updateForm(target,version,proof){if(!target){return false;}var versionInput=target.querySelector('input[name=version]');var proofInput=target.querySelector('input[name=csrf]');if(!versionInput||!proofInput||!/^[0-9]+$/.test(version)||!proof){return false;}versionInput.value=version;proofInput.value=proof;return true;}
 function applyTokens(response){var version=response.headers.get('X-Wahojobs-Review-Version');return updateForm(form,version,response.headers.get('X-Wahojobs-CSRF-Save'))&&updateForm(autosave,version,response.headers.get('X-Wahojobs-CSRF-Autosave'))&&updateForm(renew,version,response.headers.get('X-Wahojobs-CSRF-Renew'))&&updateForm(discard,version,response.headers.get('X-Wahojobs-CSRF-Discard'));}
 function setStep(value){if(!step||reviewSteps.indexOf(value)<0||step.value===value){return;}step.value=value;activity();schedule();}
+function openStepFour(){setStep('review-finish');if(!autosave){window.location.hash='#review-finish';return;}window.clearTimeout(timer);flush().then(function(ok){if(ok){window.location.hash='#review-finish';window.location.reload();}});}
 function rememberSection(event){var section=event.target.closest&&event.target.closest('section.review-section');if(section){setStep(section.id);}}
 
 function replaceIndex(item,oldIndex,newIndex){
@@ -396,12 +401,12 @@ function confirmReviewStep(source,target){
   if(source==='review-suggestions'){clearExpertiseUndo();}
   reviewConfirm.disabled=false;reviewConfirm.value=source;if(step){step.value=target;}activity();dirty=true;window.clearTimeout(timer);
   if(!autosave){window.location.hash='#'+target;return;}
-  flush().then(function(ok){reviewConfirm.disabled=true;reviewConfirm.value='';if(ok){if(source==='review-found'){clearProfileBasicsPending();}else{clearBackgroundPending();}if(source==='review-found'&&profileBasicsNeedsConfirmation()){show('attention','Choose which document detail is correct before continuing.',false,false);return;}window.location.hash='#'+target;var heading=document.getElementById(target+'-title');if(heading){heading.focus({preventScroll:true});}}});
+  flush().then(function(ok){reviewConfirm.disabled=true;reviewConfirm.value='';if(ok){if(source==='review-found'){clearProfileBasicsPending();}else{clearBackgroundPending();}if(source==='review-found'&&profileBasicsNeedsConfirmation()){show('attention','Choose which document detail is correct before continuing.',false,false);return;}window.location.hash='#'+target;if(target==='review-finish'&&autosave){window.location.reload();return;}var heading=document.getElementById(target+'-title');if(heading){heading.focus({preventScroll:true});}}});
 }
 function requireReviewConfirmation(){if(profileBasicsNeedsConfirmation()){show('attention','Review your profile basics before finding matches.',false,false);if(profileBasicsContinue){profileBasicsContinue.focus();if(profileBasicsContinue.scrollIntoView){profileBasicsContinue.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}if(backgroundNeedsConfirmation()){show('attention','Review your skills and experience before finding matches.',false,false);if(backgroundContinue){backgroundContinue.focus();if(backgroundContinue.scrollIntoView){backgroundContinue.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}return true;}
 function focusFirstNativeInvalid(){var first=form.querySelector(':invalid');if(!first){return false;}var section=first.closest('section.review-section');if(section){section.classList.add('review-step-needs-attention');var link=document.querySelector('.review-progress a[href="#'+section.id+'"]');if(link){link.classList.add('needs-attention');var note=link.querySelector('[data-step-attention]');if(note){note.hidden=false;}}}show('attention','Finish the highlighted detail before finding matches.',false,false);first.focus();if(first.scrollIntoView){first.scrollIntoView({behavior:'smooth',block:'center'});}return true;}
 
-Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^="#review-"]'),function(link){link.addEventListener('click',function(event){var target=link.getAttribute('href').slice(1);if(step&&step.value==='review-found'&&target!=='review-found'&&profileBasicsNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-found',target);return;}if(step&&step.value==='review-suggestions'&&['review-preferences','review-finish'].indexOf(target)>=0&&backgroundNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-suggestions',target);return;}if(step&&step.value==='review-found'&&target!=='review-found'){clearWorkHistoryUndo();}if(step&&step.value==='review-suggestions'&&target!=='review-suggestions'){clearExpertiseUndo();}setStep(target);});});
+Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^="#review-"]'),function(link){link.addEventListener('click',function(event){var target=link.getAttribute('href').slice(1);if(step&&step.value==='review-found'&&target!=='review-found'&&profileBasicsNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-found',target);return;}if(step&&step.value==='review-suggestions'&&['review-preferences','review-finish'].indexOf(target)>=0&&backgroundNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-suggestions',target);return;}if(step&&step.value==='review-found'&&target!=='review-found'){clearWorkHistoryUndo();}if(step&&step.value==='review-suggestions'&&target!=='review-suggestions'){clearExpertiseUndo();}if(target==='review-finish'){event.preventDefault();openStepFour();return;}setStep(target);});});
 form.addEventListener('focusin',rememberSection);form.addEventListener('pointerdown',rememberSection);window.addEventListener('hashchange',function(){setStep(window.location.hash.slice(1));});
 form.addEventListener('click',function(event){
   var undo=event.target.closest&&event.target.closest('[data-expertise-undo-action]');if(undo){event.preventDefault();undoExpertise();return;}
@@ -424,7 +429,7 @@ form.addEventListener('submit',function(event){if(allowSubmit){return;}event.pre
 if(discard){discard.addEventListener('submit',function(event){window.clearTimeout(timer);dirty=false;if(allowDiscard||!saving){return;}event.preventDefault();Promise.resolve(current).then(function(){dirty=false;allowDiscard=true;if(discard.requestSubmit){discard.requestSubmit();}else{discard.submit();}allowDiscard=false;});});}
 if(retry){retry.addEventListener('click',function(){saveNow(false);});}
 function tick(){var now=Date.now();if(saving||document.visibilityState!=='visible'||!lastActivity||now-lastActivity>360000||now-lastRenewed<300000){return;}lastRenewed=now;var data=new URLSearchParams(new FormData(renew));window.fetch(renew.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);return;}if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);return;}if(!response.ok){return;}var remaining=Number(response.headers.get('X-Wahojobs-Review-Absolute-Seconds'));if(Number.isFinite(remaining)&&remaining<=600){show('warning','This review session closes in about '+Math.max(1,Math.ceil(remaining/60))+' minutes. Your saved progress will remain available.',false,false);}}).catch(function(){});}
-window.setInterval(tick,60000);window.addEventListener('pagehide',function(){if(dirty&&!saving){saveNow(true);}});updatePreferenceModes(null);updatePreferenceSummaries();show('saved',autosave?'Progress saved':'Review active',false,false);
+window.setInterval(tick,60000);window.addEventListener('pagehide',function(){if(dirty&&!saving){saveNow(true);}});updatePreferenceModes(null);updatePreferenceSummaries();show('saved',autosave?'Progress saved':'Review active',false,false);if(window.location.hash==='#review-finish'){window.setTimeout(function(){var finish=document.getElementById('review-finish');if(finish){finish.scrollIntoView({block:'start'});}},0);}
 }());""".replace(
     "__REVIEW_STEPS__",
     json.dumps(PROFILE_INTAKE_REVIEW_STEPS, ensure_ascii=True),
@@ -2018,10 +2023,11 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         else "Update temporary review"
     )
     persistence_note = (
-        "Your progress is saved as you review. Your profile is created only when you choose Find my matches."
+        "This creates your Wahojobs profile using the information you reviewed. You can update it later."
         if save_enabled
         else "You can update this preview, but it cannot be saved here."
     )
+    step_four_summary = _render_step_four_summary(snapshot.review)
     autosave_form = (
         f"<form id='profile-review-autosave' method='post' action='{target}' hidden>"
         f"<input type='hidden' name='action' value='autosave'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{autosave_proof}'>"
@@ -2207,7 +2213,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         {experience_summary}{suggestion_content}<div class='background-review-continue'><button type='button' data-confirm-background>Continue</button></div></section>
       <section class='review-section' id='review-preferences' aria-labelledby='review-preferences-title'><div class='section-heading'><p class='eyebrow'>Step 3 of 4</p><h2 id='review-preferences-title'>What are you looking for?</h2><p>Choose the work conditions you would consider.</p></div>{matching_explanation}{_render_preference_controls(snapshot.review.preference_model)}
         {missing_section}</section>
-      <section class='review-section finish-section' id='review-finish' aria-labelledby='review-finish-title'><div class='finish-panel'><p class='eyebrow'>Step 4 of 4</p><h2 id='review-finish-title'>Review &amp; find matches</h2><p>When everything looks right, see the opportunities that fit the profile you confirmed. You can update your profile later.</p><div class='finish-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></div></div></section>
+      <section class='review-section finish-section' id='review-finish' aria-labelledby='review-finish-title'><div class='finish-panel'><p class='eyebrow'>Step 4 of 4</p><h2 id='review-finish-title'>Ready to find matches</h2><p>Wahojobs will use the background and work preferences you reviewed to find relevant opportunities.</p>{step_four_summary}<div class='finish-actions'><button type='submit'>{primary_label}</button><span class='muted'>{persistence_note}</span></div></div></section>
     </form>
     <form id='profile-review-discard' class='intake-cancel-form' method='post' action='{target}'>
       <input type='hidden' name='action' value='cancel'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{cancel_proof}'><button class='button-quiet destructive-action' type='submit'>Discard saved progress</button>
@@ -2219,6 +2225,231 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     <script>{_REVIEW_STATE_SCRIPT}</script>
     """
     return _page("Review your profile", body)
+
+
+def _step_four_summary(review):
+    """Return a bounded, non-authoritative view of the current reviewed state."""
+
+    location_parts = []
+    residence = _active_review_strings(review, "location.residence")
+    if residence:
+        location_parts.extend(residence[:1])
+    else:
+        for path in ("location.city", "location.region", "location.country"):
+            location_parts.extend(_active_review_strings(review, path)[:1])
+    location = ", ".join(_unique_summary_strings(location_parts))
+
+    title_values = _active_collection_strings(review, "job_titles")
+    title_summary = _bounded_named_values(
+        title_values,
+        visible=_STEP_FOUR_MAX_JOB_TITLES,
+        singular="job title",
+        plural="job titles",
+    )
+    education = _active_education_summary(review)
+
+    language_names = []
+    for entry in review_collection_entries(review, "languages"):
+        if entry["decision"] != "keep" or type(entry["value"]) is not LanguageValue:
+            continue
+        language_names.append(entry["value"].language)
+    language_summary = _bounded_named_values(
+        _unique_summary_strings(language_names),
+        visible=_STEP_FOUR_MAX_LANGUAGES,
+        singular="language",
+        plural="languages",
+    )
+
+    skill_count = len(_active_collection_strings(review, "skills"))
+    skill_summary = (
+        "1 skill or area of expertise"
+        if skill_count == 1
+        else f"{skill_count} skills and areas of expertise"
+        if skill_count
+        else ""
+    )
+    background = tuple(
+        value
+        for value in (location, title_summary, education, language_summary, skill_summary)
+        if value
+    )
+
+    preference_rows, compensation_rows = _step_four_preference_rows(review)
+    if not preference_rows:
+        preference_rows = ("No specific work-condition preferences",)
+
+    inputs = dict(review.user_inputs)
+    important = []
+    for field, label in (
+        ("work_authorization", "Work authorization"),
+        ("eligible_countries", "Can work in"),
+        ("geographic_restrictions", "Location limits"),
+        ("hard_constraints", "Firm limits"),
+    ):
+        value = _bounded_step_four_text(inputs.get(field, ""))
+        if value:
+            important.append(f"{label}: {value}")
+    if _bounded_step_four_text(inputs.get("accessibility_constraints", "")):
+        important.append("Accessibility needs added")
+
+    return {
+        "background": background,
+        "preferences": tuple((*preference_rows, *compensation_rows)),
+        "important": tuple(important),
+    }
+
+
+def _render_step_four_summary(review):
+    summary = _step_four_summary(review)
+
+    def values(items):
+        return "".join(f"<li>{_safe_text(item)}</li>" for item in items)
+
+    important = (
+        "<section class='step-four-summary-section step-four-important' aria-labelledby='step-four-important-title'>"
+        "<h3 id='step-four-important-title'>Important details</h3>"
+        f"<ul class='step-four-summary-values'>{values(summary['important'])}</ul></section>"
+        if summary["important"]
+        else ""
+    )
+    return (
+        "<div class='step-four-summary'>"
+        "<section class='step-four-summary-section' aria-labelledby='step-four-background-title'>"
+        "<h3 id='step-four-background-title'>Your background</h3>"
+        f"<ul class='step-four-summary-values'>{values(summary['background'])}</ul>"
+        "<nav class='step-four-edit-actions' aria-label='Edit your background'>"
+        "<a href='#review-found'>Edit profile basics</a>"
+        "<a href='#review-suggestions'>Edit skills &amp; experience</a></nav></section>"
+        "<section class='step-four-summary-section' aria-labelledby='step-four-preferences-title'>"
+        "<h3 id='step-four-preferences-title'>Work preferences</h3>"
+        f"<ul class='step-four-summary-values'>{values(summary['preferences'])}</ul>"
+        "<nav class='step-four-edit-actions' aria-label='Edit your work preferences'>"
+        "<a href='#review-preferences'>Edit work preferences</a></nav></section>"
+        f"{important}</div>"
+    )
+
+
+def _active_review_strings(review, field_path):
+    return _unique_summary_strings(
+        fact.value
+        for fact in review.facts
+        if fact.field_path == field_path
+        and fact.decision in {"keep", "accept"}
+        and type(fact.value) is str
+    )
+
+
+def _active_collection_strings(review, collection_id):
+    return _unique_summary_strings(
+        entry["value"]
+        for entry in review_collection_entries(review, collection_id)
+        if entry["decision"] == "keep" and type(entry["value"]) is str
+    )
+
+
+def _unique_summary_strings(values):
+    result = []
+    seen = set()
+    for value in values:
+        if type(value) is not str:
+            continue
+        candidate = " ".join(value.split())
+        identity = candidate.casefold()
+        if not candidate or identity in seen:
+            continue
+        seen.add(identity)
+        result.append(candidate)
+    return tuple(result)
+
+
+def _bounded_named_values(values, *, visible, singular, plural):
+    values = tuple(values)
+    if not values:
+        return ""
+    shown = values[:visible]
+    if len(values) == 1:
+        return shown[0]
+    if len(values) <= visible:
+        return ", ".join(shown[:-1]) + " and " + shown[-1]
+    remaining = len(values) - visible
+    label = singular if remaining == 1 else plural
+    return ", ".join(shown) + f" +{remaining} more {label}"
+
+
+def _active_education_summary(review):
+    entries = tuple(
+        entry["value"]
+        for entry in education_entry_values(review)
+        if entry["decision"] == "keep"
+    )
+    if len(entries) > 1:
+        return f"{len(entries)} education entries reviewed"
+    if len(entries) == 1:
+        entry = entries[0]
+        for value in (
+            entry["qualification"],
+            _EDUCATION_KIND_LABELS.get(entry["kind"], "")
+            if entry["kind"] != "not_specified"
+            else "",
+            entry["field"],
+            entry["institution"],
+        ):
+            if type(value) is str and value.strip():
+                return " ".join(value.split())
+    legacy = _active_review_strings(review, "education.degrees")
+    if len(legacy) == 1:
+        return legacy[0]
+    if len(legacy) > 1:
+        return f"{len(legacy)} education qualifications reviewed"
+    return ""
+
+
+def _step_four_preference_rows(review):
+    model = preference_model_for_v2_editor(review.preference_model)
+    catalog = profile_preference_control_catalog_v2()
+    rows = []
+    for dimension in catalog["dimensions"]:
+        container = model
+        for part in dimension["path"]:
+            container = container[part]
+        if not container:
+            continue
+        labels = {
+            choice["code"]: choice["label"] for choice in dimension["choices"]
+        }
+        selected = tuple(labels[code] for code in container)
+        value = _bounded_named_values(
+            selected,
+            visible=3,
+            singular="choice",
+            plural="choices",
+        )
+        title = (
+            "Existing job interests"
+            if dimension["id"] == "job_interests"
+            else dimension["title"]
+        )
+        rows.append(f"{title}: {value}")
+    if len(rows) > _STEP_FOUR_MAX_PREFERENCE_ROWS:
+        remaining = len(rows) - (_STEP_FOUR_MAX_PREFERENCE_ROWS - 1)
+        rows = rows[: _STEP_FOUR_MAX_PREFERENCE_ROWS - 1]
+        rows.append(f"{remaining} more preferences reviewed")
+
+    compensation = tuple(
+        f"{expectation['minimum_kind'].title()} minimum: "
+        f"{expectation['currency']} {expectation['amount']}/{expectation['period']}"
+        for expectation in model["compensation_expectations"]
+    )
+    return tuple(rows), compensation
+
+
+def _bounded_step_four_text(value):
+    if type(value) is not str:
+        return ""
+    value = " ".join(value.split())
+    if len(value) <= _STEP_FOUR_DETAIL_LIMIT:
+        return value
+    return value[: _STEP_FOUR_DETAIL_LIMIT - 1].rstrip() + "…"
 
 
 def _render_found_fact_cards(fact_fields):
@@ -3014,7 +3245,7 @@ def _save_error_code(code):
         "ai_import_profile_exists": "existing_profile",
         "ai_import_ownership_stale": "authorization_denied",
         "ai_import_idempotency_conflict": "stale_review",
-        "ai_import_temporary_contention": "unavailable",
+        "ai_import_temporary_contention": "save_unavailable",
         "ai_import_checkpoint_expired": "expired_draft",
         "ai_import_checkpoint_available": "checkpoint_available",
         "ai_import_schema_unavailable": "durable_unavailable",
@@ -3049,19 +3280,20 @@ def _failure(code):
     status, title, message = {
         "invalid_request": (400, "Upload request unavailable", "This request is not valid."),
         "malformed_upload": (400, "Upload could not be read", "Choose one valid PDF or DOCX and try again."),
-        "invalid_review": (400, "Review could not be updated", "Check the values and try again."),
+        "invalid_review": (400, "A few details still need attention", "Return to your saved review, check the details, and try again."),
         "authentication_required": (401, "Authentication required", "Sign in to continue."),
         "csrf_denied": (403, "Request rejected", "Reload the page and try again."),
         "authorization_denied": (404, "Page not found", "This page is not available."),
         "not_found": (404, "Page not found", "This page is not available."),
         "invalid_draft": (400, "Draft request unavailable", "Start the import again."),
-        "expired_draft": (410, "Review session closed", "Your saved progress is still available. Return to the profile builder to continue."),
+        "expired_draft": (410, "Review session ended", "Your review session ended, but your saved progress is still available."),
         "expired_checkpoint": (410, "Saved progress expired", "This saved review has reached its 7-day limit. Start a new profile import when you are ready."),
         "stale_review": (409, "Newer progress is available", "This review was updated in another tab or session. Continue from the saved version before making more changes."),
-        "unresolved_review": (409, "Review needs confirmation", "Resolve every suggestion or source disagreement before saving."),
+        "unresolved_review": (409, "A few details still need attention", "Return to your saved review and resolve the highlighted details before finding matches."),
         "import_reserved": (409, "Import already in progress", "Finish or cancel the current import before starting another."),
         "checkpoint_available": (409, "Saved progress is available", "Continue your saved review or explicitly discard it before starting another import."),
         "durable_unavailable": (503, "Profile saving unavailable", "AI profile saving is not available in this environment. You can still create your profile manually."),
+        "save_unavailable": (503, "We couldn't create your profile just now", "Your progress is saved. Please try again."),
         "file_too_large": (413, "Document too large", "Choose a document no larger than 10 MiB."),
         "unsupported_format": (415, "Unsupported document", "Use a text-based PDF or DOCX. LinkedIn exports must be PDF."),
         "malformed_document": (422, "Document could not be read", "Export a fresh text-based PDF or DOCX and try again."),
