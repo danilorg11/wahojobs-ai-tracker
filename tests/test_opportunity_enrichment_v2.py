@@ -50,6 +50,7 @@ from wahojobs.opportunity_enrichment_schema import (
     attest_opportunity_enrichment_schema_extension,
 )
 from wahojobs.reporting.market import get_market_size_summary
+from wahojobs.source_capture import SourceCaptureContext
 from wahojobs.tracking.service import track_crawl_result
 
 
@@ -264,7 +265,13 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             + suffix
         )
 
-    def persist_rich_source(self, job_id, body=None, *, source_updated_at="v1"):
+    def persist_rich_source(
+        self,
+        job_id,
+        body=None,
+        *,
+        source_updated_at="2026-08-16T00:00:00+00:00",
+    ):
         row = self.conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         candidate = JobCandidate(
             external_id=row["external_id"],
@@ -274,19 +281,35 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             department=row["department"],
             expertise=row["expertise"],
             commitment=row["commitment"],
+            source_hash=row["source_hash"],
             source_body=body or self.rich_source_body(),
             source_body_format="text/plain",
             source_metadata={"provider_field": "provider value"},
             source_updated_at=source_updated_at,
         )
-        return upsert_job_source_content(
+        result = upsert_job_source_content(
             self.conn,
             job_id,
             "appen",
             "fixture",
             candidate,
             NOW,
+            capture_context=SourceCaptureContext(
+                crawl_run_id=None,
+                provider_outcome="success",
+                used_sample_data=False,
+                snapshot_complete=True,
+                pagination_complete=True,
+                empty_snapshot_validated=False,
+                raw_record_count=1,
+                normalized_record_count=1,
+                candidate_count=1,
+                rejected_record_count=0,
+                payload_shape="fixture:v1",
+                schema_fingerprint="fixture-v1",
+            ),
         )
+        return result.material_content_sha256
 
     def llm_payload_fixture(self):
         job_id, canonical_id = self.fallback_enriched_job()
@@ -818,6 +841,18 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         legacy.execute(
             "CREATE TABLE canonical_opportunities (id INTEGER PRIMARY KEY)"
         )
+        legacy.execute(
+            """
+            CREATE TABLE jobs (
+              id INTEGER PRIMARY KEY,
+              semantic_authority_state TEXT NOT NULL DEFAULT 'legacy_accepted'
+                CHECK (semantic_authority_state IN (
+                  'legacy_accepted', 'pending', 'versioned_accepted'
+                )),
+              authority_fixture_marker TEXT
+            )
+            """
+        )
         legacy.execute("INSERT INTO canonical_opportunities (id) VALUES (1)")
         old_enrichment_statement = OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS[1].replace(
             "      semantic_input_version TEXT,\n", ""
@@ -1089,7 +1124,10 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         )
         first_enrichment = enrich_canonical_opportunity(self.conn, canonical_id, now=NOW)
 
-        same_hash = self.persist_rich_source(job_id, source_updated_at="v2")
+        same_hash = self.persist_rich_source(
+            job_id,
+            source_updated_at="2026-08-17T00:00:00+00:00",
+        )
         second_enrichment = enrich_canonical_opportunity(
             self.conn, canonical_id, now="2026-08-17T00:00:00+00:00"
         )
@@ -1105,7 +1143,7 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         changed_hash = self.persist_rich_source(
             job_id,
             self.rich_source_body(" Materially new responsibility."),
-            source_updated_at="v3",
+            source_updated_at="2026-08-18T00:00:00+00:00",
         )
         changed = enrich_canonical_opportunity(
             self.conn, canonical_id, now="2026-08-18T00:00:00+00:00"
@@ -1176,6 +1214,7 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         self.persist_rich_source(
             job_id,
             self.rich_source_body(" The provider added new review work."),
+            source_updated_at="2026-08-18T00:00:00+00:00",
         )
         changed = enrich_canonical_opportunity(
             self.conn,
@@ -1418,6 +1457,7 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         self.persist_rich_source(
             job_id,
             self.rich_source_body(" The provider materially changed this role."),
+            source_updated_at="2026-08-17T00:00:00+00:00",
         )
         enrich_canonical_opportunity(
             self.conn,
@@ -1445,6 +1485,11 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         cursor.close()
 
     def test_exact_prior_v2_extension_is_accepted_for_additive_upgrade(self):
+        self.conn.execute("DROP TABLE job_source_content_acceptances")
+        self.conn.execute("DROP TABLE job_source_content_captures")
+        self.conn.execute(
+            "ALTER TABLE jobs DROP COLUMN semantic_authority_state"
+        )
         self.conn.execute("DROP TABLE opportunity_enrichment_run_diagnostics")
         self.conn.execute("DROP TABLE opportunity_enrichment_runs")
         self.conn.execute("DROP TABLE job_source_contents")
@@ -1712,6 +1757,9 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
                     location="Remote worldwide",
                     url="https://example.test/jobs/tracked-1",
                     expertise="AI Training",
+                    source_body="Complete authoritative tracking source body.",
+                    source_body_format="text/plain",
+                    source_updated_at=NOW,
                 )
             ],
             used_sample_data=False,

@@ -395,6 +395,14 @@ HOUSEHOLD_AGE_RESTRICTION_PATTERN = re.compile(
 
 
 def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
+    job_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    authority_filter = (
+        "AND j.semantic_authority_state != 'pending'"
+        if "semantic_authority_state" in job_columns
+        else ""
+    )
     canonical = conn.execute(
         """
         SELECT
@@ -415,8 +423,9 @@ def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
         )
 
     rows = conn.execute(
-        """
+        f"""
         SELECT
+          j.id AS job_id,
           j.title, j.location, j.department, j.expertise, j.commitment, j.url,
           j.external_id, j.source_hash, j.opportunity_kind, j.availability_basis,
           j.include_in_live_market_estimate, j.is_active,
@@ -428,6 +437,7 @@ def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
         FROM jobs j
         LEFT JOIN job_source_contents sc ON sc.job_id = j.id
         WHERE j.canonical_opportunity_id = ?
+          {authority_filter}
           AND j.title NOT LIKE '[SIMULATION]%'
         ORDER BY j.source_hash ASC, j.id ASC
         """,
@@ -435,6 +445,22 @@ def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
     ).fetchall()
     active_rows = [row for row in rows if row["is_active"]]
     selected = active_rows or list(rows)
+    capture_authority_installed = all(
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table,),
+        ).fetchone()
+        is not None
+        for table in (
+            "job_source_content_captures",
+            "job_source_content_acceptances",
+        )
+    )
+    if capture_authority_installed:
+        from wahojobs.db.repository import verify_job_source_acceptance_integrity
+
+        for row in selected:
+            verify_job_source_acceptance_integrity(conn, row["job_id"])
     variants = []
     seen = set()
     for row in selected:

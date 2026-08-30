@@ -17,6 +17,7 @@ from wahojobs.opportunity_enrichment_schema import (
     OPPORTUNITY_ENRICHMENT_SCHEMA_OBJECTS,
     OpportunityEnrichmentSchemaError,
     attest_opportunity_enrichment_schema_extension,
+    normalize_opportunity_enrichment_closed_schema_sql,
 )
 
 
@@ -144,6 +145,10 @@ def capture_closed_schema_identity(connection) -> ClosedSchemaIdentity:
                 if total_sql_bytes > _MAX_CLOSED_SCHEMA_SQL_BYTES:
                     raise ClosedSchemaAttestationError()
                 sql = raw[3].decode("utf-8", "strict")
+                sql = normalize_opportunity_enrichment_closed_schema_sql(
+                    name,
+                    sql,
+                )
             rows.append((kind, name, table_name, sql))
 
         marker_rows = cursor.execute(

@@ -1,6 +1,6 @@
-import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from wahojobs.classification import (
     DEFAULT_AVAILABILITY_BASIS,
@@ -36,6 +36,40 @@ from wahojobs.canonical.service import (
 from wahojobs.db.connection import get_connection
 from wahojobs.opportunity_enrichment_schema import (
     OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS,
+)
+from wahojobs.source_capture import (
+    EVIDENCE_STATE_ACCEPTED_CURRENT,
+    EVIDENCE_STATE_DEGRADED_LATEST,
+    EVIDENCE_STATE_LEGACY_ACCEPTED,
+    EVIDENCE_STATE_MISSING,
+    EVIDENCE_STATE_STALE_LAST_KNOWN_GOOD,
+    EVIDENCE_REASON_CAPTURE_CONTRACT_CHANGED,
+    EVIDENCE_REASON_LATEST_CAPTURE_NOT_ACCEPTED,
+    EVIDENCE_REASON_LATEST_SOURCE_ATTEMPT_FAILED,
+    EVIDENCE_REASON_PROMOTION_POLICY_CHANGED,
+    PROMOTION_DECISION_CONFIRMED,
+    PROMOTION_DECISION_PROMOTED,
+    SEMANTIC_AUTHORITY_LEGACY_ACCEPTED,
+    SEMANTIC_AUTHORITY_PENDING,
+    SEMANTIC_AUTHORITY_VERSIONED_ACCEPTED,
+    SOURCE_CAPTURE_CONTRACT_VERSION,
+    SOURCE_CAPTURE_CONTRACT_PREPARERS,
+    SOURCE_CAPTURE_EVIDENCE_VERSION,
+    SOURCE_PROMOTION_POLICY_VERSION,
+    SOURCE_PROMOTION_POLICY_DECIDERS,
+    SourceCapturePersistenceResult,
+    SourceCaptureContext,
+    SourcePromotionDecision,
+    canonical_semantic_job_fields_json,
+    canonical_source_metadata_json,
+    decide_source_promotion,
+    normalize_source_body,
+    parse_source_timestamp,
+    prepare_semantic_source_material,
+    prepare_source_capture,
+    semantic_job_fields_from_row,
+    semantic_source_material_sha256,
+    source_material_content_sha256,
 )
 
 
@@ -270,6 +304,24 @@ def ensure_job_optional_columns(conn):
         conn.execute("ALTER TABLE jobs ADD COLUMN commitment TEXT")
     if "canonical_opportunity_id" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN canonical_opportunity_id INTEGER")
+    ensure_job_semantic_authority_column(conn)
+
+
+def ensure_job_semantic_authority_column(conn):
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'jobs'"
+    ).fetchone() is None:
+        return
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    if "semantic_authority_state" not in columns:
+        conn.execute(
+            "ALTER TABLE jobs ADD COLUMN semantic_authority_state TEXT NOT NULL "
+            "DEFAULT 'legacy_accepted' CHECK (semantic_authority_state IN "
+            "('legacy_accepted', 'pending', 'versioned_accepted'))"
+        )
 
 
 def ensure_job_classification_columns(conn):
@@ -381,6 +433,7 @@ def ensure_canonical_schema(conn):
 
 
 def ensure_opportunity_enrichment_schema(conn):
+    ensure_job_semantic_authority_column(conn)
     for statement in OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS:
         conn.execute(statement)
     for table in ("opportunity_enrichments", "opportunity_enrichment_runs"):
@@ -471,16 +524,29 @@ def get_job_by_hash(conn, company_id, source_hash):
     ).fetchone()
 
 
-def insert_job(conn, company_id, candidate, now):
+def insert_job(
+    conn,
+    company_id,
+    candidate,
+    now,
+    *,
+    semantic_authority_state=SEMANTIC_AUTHORITY_LEGACY_ACCEPTED,
+):
+    if semantic_authority_state not in {
+        SEMANTIC_AUTHORITY_LEGACY_ACCEPTED,
+        SEMANTIC_AUTHORITY_PENDING,
+    }:
+        raise ValueError("New job semantic authority state is invalid.")
     classification = resolve_job_classification(conn, company_id, candidate)
     cursor = conn.execute(
         """
         INSERT INTO jobs (
           company_id, external_id, title, location, department, expertise, commitment, url, source_hash,
           opportunity_kind, availability_basis, include_in_live_market_estimate,
+          semantic_authority_state,
           first_seen_at, last_seen_at, is_active, removed_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?)
         """,
         (
             company_id,
@@ -495,6 +561,7 @@ def insert_job(conn, company_id, candidate, now):
             classification["opportunity_kind"],
             classification["availability_basis"],
             classification["include_in_live_market_estimate"],
+            semantic_authority_state,
             now,
             now,
             now,
@@ -503,14 +570,33 @@ def insert_job(conn, company_id, candidate, now):
     return cursor.lastrowid
 
 
-def update_seen_job(conn, job_id, candidate, now):
-    existing = conn.execute(
-        "SELECT company_id FROM jobs WHERE id = ?",
-        (job_id,),
-    ).fetchone()
-    if existing is None:
+def update_seen_job(conn, job_id, now):
+    """Advance lifecycle state without changing semantic authority."""
+
+    if conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone() is None:
         raise RuntimeError(f"Unknown job id: {job_id}")
-    classification = resolve_job_classification(conn, existing["company_id"], candidate)
+    conn.execute(
+        """
+        UPDATE jobs
+        SET last_seen_at = ?,
+            is_active = 1,
+            removed_at = NULL,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (now, now, job_id),
+    )
+
+
+def _promote_job_semantic_material(
+    conn,
+    job_id,
+    candidate,
+    classification,
+    now,
+):
+    """Materialize only semantic fields covered by an accepted capture."""
+
     conn.execute(
         """
         UPDATE jobs
@@ -524,9 +610,7 @@ def update_seen_job(conn, job_id, candidate, now):
             opportunity_kind = ?,
             availability_basis = ?,
             include_in_live_market_estimate = ?,
-            last_seen_at = ?,
-            is_active = 1,
-            removed_at = NULL,
+            semantic_authority_state = ?,
             updated_at = ?
         WHERE id = ?
         """,
@@ -541,7 +625,7 @@ def update_seen_job(conn, job_id, candidate, now):
             classification["opportunity_kind"],
             classification["availability_basis"],
             classification["include_in_live_market_estimate"],
-            now,
+            SEMANTIC_AUTHORITY_VERSIONED_ACCEPTED,
             now,
             job_id,
         ),
@@ -555,85 +639,826 @@ def upsert_job_source_content(
     source_type,
     candidate,
     now,
+    *,
+    capture_context,
 ):
-    """Persist the provider-faithful current source snapshot for one job."""
+    """Append one observation and promote it only when the policy permits."""
 
-    body = _normalize_source_body(candidate.source_body)
-    body_format = candidate.source_body_format if body is not None else None
-    if body is not None and body_format not in {
-        "text/plain",
-        "text/html",
-        "text/markdown",
-    }:
-        raise ValueError("Unsupported source body format.")
-    metadata = candidate.source_metadata or {}
-    if type(metadata) is not dict:
-        raise ValueError("Source metadata must be a dictionary.")
+    if not isinstance(capture_context, SourceCaptureContext):
+        raise TypeError("capture_context must be a SourceCaptureContext.")
+    provider = str(provider or "").strip()
+    source_type = str(source_type or "").strip()
+    prepared = prepare_source_capture(candidate)
+    savepoint = "job_source_capture_promotion"
+    started_transaction = not conn.in_transaction
+    if started_transaction:
+        conn.execute("BEGIN")
+    conn.execute(f"SAVEPOINT {savepoint}")
     try:
-        metadata_json = json.dumps(
-            metadata,
+        job = _validate_capture_identity_and_crawl_run(
+            conn,
+            job_id,
+            candidate,
+            capture_context.crawl_run_id,
+            provider,
+        )
+        classification = resolve_job_classification(
+            conn,
+            job["company_id"],
+            candidate,
+        )
+        prepared_semantic = prepare_semantic_source_material(
+            candidate,
+            classification,
+            prepared,
+            provider=provider,
+            source_type=source_type,
+        )
+        accepted = conn.execute(
+            "SELECT * FROM job_source_contents WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+        existing_acceptance = conn.execute(
+            """
+            SELECT accepted_capture_id, promotion_policy_version,
+                   accepted_at, last_confirmed_at
+            FROM job_source_content_acceptances
+            WHERE job_id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+        _accepted_capture, accepted_semantic_hash = _verify_source_acceptance(
+            conn,
+            job_id,
+            accepted,
+            existing_acceptance,
+            job=job,
+        )
+        decision = decide_source_promotion(
+            prepared,
+            capture_context,
+            accepted,
+            same_accepted_semantic_material=(
+                accepted_semantic_hash
+                == prepared_semantic.semantic_material_sha256
+            ),
+        )
+        if (
+            existing_acceptance is None
+            and accepted is not None
+            and decision.decision == PROMOTION_DECISION_CONFIRMED
+        ):
+            # The material is unchanged, but a legacy row has no replayable
+            # accepted predecessor.  Establish explicit provenance as a
+            # promotion instead of inventing a historical confirmation.
+            decision = SourcePromotionDecision(
+                PROMOTION_DECISION_PROMOTED,
+                decision.reasons,
+                decision.accepted_source_updated_at,
+            )
+        reasons_json = json.dumps(
+            list(decision.reasons),
             ensure_ascii=False,
-            sort_keys=True,
             separators=(",", ":"),
         )
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Source metadata must be JSON serializable.") from exc
-    material_payload = json.dumps(
-        {
-            "body": body,
-            "body_format": body_format,
-            "metadata": metadata,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
+        capture_id = conn.execute(
+            """
+            INSERT INTO job_source_content_captures (
+              job_id, crawl_run_id, provider, source_type, source_url,
+              external_id, body, body_format, metadata_json,
+              material_content_sha256, semantic_job_fields_json,
+              semantic_material_sha256, source_updated_at,
+              source_timestamp_status, capture_quality, provider_outcome,
+              used_sample_data, snapshot_complete, pagination_complete,
+              empty_snapshot_validated, raw_record_count,
+              normalized_record_count, candidate_count,
+              rejected_record_count, payload_shape, schema_fingerprint,
+              capture_contract_version, promotion_policy_version,
+              promotion_decision, decision_reasons_json, observed_at
+            )
+            VALUES (
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                job_id,
+                capture_context.crawl_run_id,
+                provider,
+                source_type,
+                candidate.url,
+                candidate.external_id,
+                prepared.body,
+                prepared.body_format,
+                prepared.metadata_json,
+                prepared.material_content_sha256,
+                prepared_semantic.job_fields_json,
+                prepared_semantic.semantic_material_sha256,
+                prepared.source_updated_at,
+                prepared.source_timestamp_status,
+                prepared.quality,
+                capture_context.provider_outcome,
+                int(capture_context.used_sample_data),
+                int(capture_context.snapshot_complete),
+                int(capture_context.pagination_complete),
+                int(capture_context.empty_snapshot_validated),
+                capture_context.raw_record_count,
+                capture_context.normalized_record_count,
+                capture_context.candidate_count,
+                capture_context.rejected_record_count,
+                capture_context.payload_shape,
+                capture_context.schema_fingerprint,
+                SOURCE_CAPTURE_CONTRACT_VERSION,
+                SOURCE_PROMOTION_POLICY_VERSION,
+                decision.decision,
+                reasons_json,
+                now,
+            ),
+        ).lastrowid
+
+        if decision.decision == PROMOTION_DECISION_PROMOTED:
+            conn.execute(
+                """
+                INSERT INTO job_source_contents (
+                  job_id, provider, source_type, source_url, external_id,
+                  body, body_format, metadata_json, material_content_sha256,
+                  source_updated_at, first_captured_at, last_captured_at,
+                  updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                  provider = excluded.provider,
+                  source_type = excluded.source_type,
+                  source_url = excluded.source_url,
+                  external_id = excluded.external_id,
+                  body = excluded.body,
+                  body_format = excluded.body_format,
+                  metadata_json = excluded.metadata_json,
+                  material_content_sha256 = excluded.material_content_sha256,
+                  source_updated_at = excluded.source_updated_at,
+                  last_captured_at = excluded.last_captured_at,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    job_id,
+                    provider,
+                    source_type,
+                    candidate.url,
+                    candidate.external_id,
+                    prepared.body,
+                    prepared.body_format,
+                    prepared.metadata_json,
+                    prepared.material_content_sha256,
+                    decision.accepted_source_updated_at,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+        elif decision.decision == PROMOTION_DECISION_CONFIRMED:
+            conn.execute(
+                """
+                UPDATE job_source_contents
+                SET source_updated_at = ?,
+                    last_captured_at = ?,
+                    updated_at = ?
+                WHERE job_id = ?
+                """,
+                (
+                    decision.accepted_source_updated_at,
+                    now,
+                    now,
+                    job_id,
+                ),
+            )
+
+        if decision.accepted:
+            _promote_job_semantic_material(
+                conn,
+                job_id,
+                candidate,
+                classification,
+                now,
+            )
+            accepted_at = (
+                existing_acceptance["accepted_at"]
+                if (
+                    decision.decision == PROMOTION_DECISION_CONFIRMED
+                    and existing_acceptance is not None
+                )
+                else now
+            )
+            conn.execute(
+                """
+                INSERT INTO job_source_content_acceptances (
+                  job_id, accepted_capture_id, promotion_policy_version,
+                  accepted_at, last_confirmed_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                  accepted_capture_id = excluded.accepted_capture_id,
+                  promotion_policy_version = excluded.promotion_policy_version,
+                  accepted_at = excluded.accepted_at,
+                  last_confirmed_at = excluded.last_confirmed_at,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    job_id,
+                    capture_id,
+                    SOURCE_PROMOTION_POLICY_VERSION,
+                    accepted_at,
+                    now,
+                    now,
+                ),
+            )
+        conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+    except Exception:
+        conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+        if started_transaction:
+            conn.rollback()
+        raise
+    return SourceCapturePersistenceResult(
+        capture_id=int(capture_id),
+        material_content_sha256=prepared.material_content_sha256,
+        semantic_material_sha256=prepared_semantic.semantic_material_sha256,
+        promotion_decision=decision.decision,
     )
-    material_hash = hashlib.sha256(material_payload.encode("utf-8")).hexdigest()
-    conn.execute(
+
+
+def get_job_source_capture_evidence(conn, job_id):
+    """Return capture/LKG state without changing semantic-input material."""
+
+    job = conn.execute(
         """
-        INSERT INTO job_source_contents (
-          job_id, provider, source_type, source_url, external_id,
-          body, body_format, metadata_json, material_content_sha256,
-          source_updated_at, first_captured_at, last_captured_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(job_id) DO UPDATE SET
-          provider = excluded.provider,
-          source_type = excluded.source_type,
-          source_url = excluded.source_url,
-          external_id = excluded.external_id,
-          body = excluded.body,
-          body_format = excluded.body_format,
-          metadata_json = excluded.metadata_json,
-          material_content_sha256 = excluded.material_content_sha256,
-          source_updated_at = excluded.source_updated_at,
-          last_captured_at = excluded.last_captured_at,
-          updated_at = excluded.updated_at
+        SELECT j.*, c.slug AS company_slug
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.id = ?
         """,
-        (
-            job_id,
-            str(provider or "").strip(),
-            str(source_type or "").strip(),
-            candidate.url,
-            candidate.external_id,
-            body,
-            body_format,
-            metadata_json,
-            material_hash,
-            candidate.source_updated_at,
-            now,
-            now,
-            now,
-        ),
+        (job_id,),
+    ).fetchone()
+    if job is None:
+        raise RuntimeError(f"Unknown job id: {job_id}")
+    accepted = conn.execute(
+        "SELECT * FROM job_source_contents WHERE job_id = ?",
+        (job_id,),
+    ).fetchone()
+    acceptance = conn.execute(
+        """
+        SELECT accepted_capture_id, promotion_policy_version,
+               accepted_at, last_confirmed_at
+        FROM job_source_content_acceptances
+        WHERE job_id = ?
+        """,
+        (job_id,),
+    ).fetchone()
+    latest = conn.execute(
+        """
+        SELECT id, material_content_sha256, semantic_material_sha256,
+               capture_quality,
+               promotion_decision, decision_reasons_json, observed_at,
+               capture_contract_version, promotion_policy_version
+        FROM job_source_content_captures
+        WHERE job_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (job_id,),
+    ).fetchone()
+
+    accepted_capture, accepted_semantic_hash = _verify_source_acceptance(
+        conn,
+        job_id,
+        accepted,
+        acceptance,
+        job=job,
     )
-    return material_hash
+
+    latest_crawl_run = conn.execute(
+        """
+        SELECT cr.id, cr.status, cr.used_sample_data
+        FROM jobs j
+        JOIN crawl_runs cr ON cr.company_id = j.company_id
+        WHERE j.id = ?
+        ORDER BY cr.id DESC
+        LIMIT 1
+        """,
+        (job_id,),
+    ).fetchone()
+    later_failed_observation = bool(
+        accepted_capture is not None
+        and accepted_capture["crawl_run_id"] is not None
+        and latest_crawl_run is not None
+        and latest_crawl_run["id"] > accepted_capture["crawl_run_id"]
+        and (
+            latest_crawl_run["status"] in {"failed", "partial", "contract_drift"}
+            or bool(latest_crawl_run["used_sample_data"])
+        )
+    )
+    evidence_stale_reasons = []
+    if acceptance is not None and accepted_capture is not None:
+        if accepted_capture["capture_contract_version"] != SOURCE_CAPTURE_CONTRACT_VERSION:
+            evidence_stale_reasons.append(EVIDENCE_REASON_CAPTURE_CONTRACT_CHANGED)
+        if (
+            acceptance["promotion_policy_version"]
+            != SOURCE_PROMOTION_POLICY_VERSION
+            or accepted_capture["promotion_policy_version"]
+            != SOURCE_PROMOTION_POLICY_VERSION
+        ):
+            evidence_stale_reasons.append(EVIDENCE_REASON_PROMOTION_POLICY_CHANGED)
+        if latest is None or latest["id"] != acceptance["accepted_capture_id"]:
+            evidence_stale_reasons.append(EVIDENCE_REASON_LATEST_CAPTURE_NOT_ACCEPTED)
+        if later_failed_observation:
+            evidence_stale_reasons.append(EVIDENCE_REASON_LATEST_SOURCE_ATTEMPT_FAILED)
+    elif accepted is not None and latest is not None:
+        evidence_stale_reasons.append(EVIDENCE_REASON_LATEST_CAPTURE_NOT_ACCEPTED)
+
+    if accepted is None:
+        state = (
+            EVIDENCE_STATE_DEGRADED_LATEST
+            if latest is not None
+            else EVIDENCE_STATE_MISSING
+        )
+        accepted_kind = "missing"
+    elif acceptance is None:
+        state = (
+            EVIDENCE_STATE_STALE_LAST_KNOWN_GOOD
+            if latest is not None
+            else EVIDENCE_STATE_LEGACY_ACCEPTED
+        )
+        accepted_kind = "legacy"
+    else:
+        state = (
+            EVIDENCE_STATE_ACCEPTED_CURRENT
+            if not evidence_stale_reasons
+            else EVIDENCE_STATE_STALE_LAST_KNOWN_GOOD
+        )
+        accepted_kind = "versioned"
+
+    return {
+        "evidence_version": SOURCE_CAPTURE_EVIDENCE_VERSION,
+        "job_id": int(job_id),
+        "state": state,
+        "accepted_kind": accepted_kind,
+        "accepted_capture_id": (
+            acceptance["accepted_capture_id"] if acceptance is not None else None
+        ),
+        "accepted_material_content_sha256": (
+            accepted["material_content_sha256"] if accepted is not None else None
+        ),
+        "accepted_semantic_material_sha256": accepted_semantic_hash,
+        "accepted_at": (
+            acceptance["accepted_at"] if acceptance is not None else None
+        ),
+        "stored_capture_contract_version": (
+            accepted_capture["capture_contract_version"]
+            if accepted_capture is not None
+            else None
+        ),
+        "stored_promotion_policy_version": (
+            acceptance["promotion_policy_version"]
+            if acceptance is not None
+            else None
+        ),
+        "current_capture_contract_version": SOURCE_CAPTURE_CONTRACT_VERSION,
+        "current_promotion_policy_version": SOURCE_PROMOTION_POLICY_VERSION,
+        "stale_reasons": evidence_stale_reasons,
+        "last_confirmed_at": (
+            acceptance["last_confirmed_at"] if acceptance is not None else None
+        ),
+        "latest_capture_id": latest["id"] if latest is not None else None,
+        "latest_material_content_sha256": (
+            latest["material_content_sha256"] if latest is not None else None
+        ),
+        "latest_semantic_material_sha256": (
+            latest["semantic_material_sha256"] if latest is not None else None
+        ),
+        "latest_capture_quality": (
+            latest["capture_quality"] if latest is not None else None
+        ),
+        "latest_promotion_decision": (
+            latest["promotion_decision"] if latest is not None else None
+        ),
+        "latest_decision_reasons": (
+            json.loads(latest["decision_reasons_json"])
+            if latest is not None
+            else []
+        ),
+        "latest_observed_at": latest["observed_at"] if latest is not None else None,
+        "latest_crawl_run_id": (
+            latest_crawl_run["id"] if latest_crawl_run is not None else None
+        ),
+        "latest_crawl_run_status": (
+            latest_crawl_run["status"] if latest_crawl_run is not None else None
+        ),
+    }
 
 
-def _normalize_source_body(value):
-    if value is None:
-        return None
-    value = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
-    return value or None
+def _verify_stored_source_material(row, label):
+    try:
+        metadata = json.loads(row["metadata_json"])
+        if type(metadata) is not dict:
+            raise ValueError("metadata is not an object")
+        canonical_metadata_json = canonical_source_metadata_json(metadata)
+        normalized_body = normalize_source_body(row["body"])
+        if row["body"] != normalized_body:
+            raise ValueError("body is not canonically normalized")
+        if row["metadata_json"] != canonical_metadata_json:
+            raise ValueError("metadata is not canonically serialized")
+        if (normalized_body is None) != (row["body_format"] is None):
+            raise ValueError("body format does not match body presence")
+        recomputed_hash = source_material_content_sha256(
+            normalized_body,
+            row["body_format"],
+            metadata,
+        )
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"{label} is inconsistent.") from exc
+    if recomputed_hash != row["material_content_sha256"]:
+        raise RuntimeError(f"{label} is inconsistent.")
+    return recomputed_hash, metadata
+
+
+def _semantic_material_hash_from_rows(job, source, metadata):
+    return semantic_source_material_sha256(
+        semantic_job_fields_from_row(job),
+        provider=source["provider"],
+        source_type=source["source_type"],
+        source_url=source["source_url"],
+        source_external_id=source["external_id"],
+        body=source["body"],
+        body_format=source["body_format"],
+        metadata=metadata,
+    )
+
+
+def _capture_context_from_row(row):
+    boolean_fields = (
+        "used_sample_data",
+        "snapshot_complete",
+        "pagination_complete",
+        "empty_snapshot_validated",
+    )
+    count_fields = (
+        "raw_record_count",
+        "normalized_record_count",
+        "candidate_count",
+        "rejected_record_count",
+    )
+    if any(
+        type(row[name]) is not int or row[name] not in {0, 1}
+        for name in boolean_fields
+    ):
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+    if any(type(row[name]) is not int or row[name] < 0 for name in count_fields):
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+    return SourceCaptureContext(
+        crawl_run_id=row["crawl_run_id"],
+        provider_outcome=row["provider_outcome"],
+        used_sample_data=bool(row["used_sample_data"]),
+        snapshot_complete=bool(row["snapshot_complete"]),
+        pagination_complete=bool(row["pagination_complete"]),
+        empty_snapshot_validated=bool(row["empty_snapshot_validated"]),
+        raw_record_count=row["raw_record_count"],
+        normalized_record_count=row["normalized_record_count"],
+        candidate_count=row["candidate_count"],
+        rejected_record_count=row["rejected_record_count"],
+        payload_shape=row["payload_shape"],
+        schema_fingerprint=row["schema_fingerprint"],
+    )
+
+
+def _expected_crawl_run_status(context):
+    if context.provider_outcome == "contract_drift":
+        return "contract_drift"
+    if context.used_sample_data:
+        return "success"
+    if not context.non_authoritative_reasons() and (
+        context.candidate_count > 0 or context.empty_snapshot_validated
+    ):
+        return "success"
+    return "partial"
+
+
+def _verify_capture_crawl_provenance(conn, job, row, context):
+    if row["crawl_run_id"] is None:
+        return
+    crawl_run = conn.execute(
+        """
+        SELECT company_id, status, started_at, finished_at, used_sample_data
+        FROM crawl_runs
+        WHERE id = ?
+        """,
+        (row["crawl_run_id"],),
+    ).fetchone()
+    if crawl_run is None or crawl_run["company_id"] != job["company_id"]:
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+
+    started_status, started_at = parse_source_timestamp(crawl_run["started_at"])
+    observed_status, observed_at = parse_source_timestamp(row["observed_at"])
+    if (
+        started_status != "valid"
+        or observed_status != "valid"
+        or observed_at < started_at
+    ):
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+
+    if crawl_run["status"] == "running":
+        if crawl_run["finished_at"] is not None:
+            raise RuntimeError("Accepted source capture provenance is inconsistent.")
+        return
+
+    finished_status, finished_at = parse_source_timestamp(crawl_run["finished_at"])
+    if (
+        finished_status != "valid"
+        or observed_at > finished_at
+        or crawl_run["status"] != _expected_crawl_run_status(context)
+        or bool(crawl_run["used_sample_data"]) != context.used_sample_data
+    ):
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+
+
+def _prepared_capture_from_row(row, metadata):
+    preparer = SOURCE_CAPTURE_CONTRACT_PREPARERS.get(
+        row["capture_contract_version"]
+    )
+    if preparer is None:
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+    try:
+        prepared = preparer(
+            SimpleNamespace(
+                source_body=row["body"],
+                source_body_format=row["body_format"],
+                source_metadata=metadata,
+                source_updated_at=row["source_updated_at"],
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "Accepted source capture provenance is inconsistent."
+        ) from exc
+    if (
+        prepared.body != row["body"]
+        or prepared.body_format != row["body_format"]
+        or prepared.metadata_json != row["metadata_json"]
+        or prepared.material_content_sha256 != row["material_content_sha256"]
+        or prepared.source_updated_at != row["source_updated_at"]
+        or prepared.source_timestamp_status != row["source_timestamp_status"]
+        or prepared.quality != row["capture_quality"]
+    ):
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+    return prepared
+
+
+def _captured_semantic_material(job, row, metadata):
+    try:
+        captured_job_fields = json.loads(row["semantic_job_fields_json"])
+        if (
+            canonical_semantic_job_fields_json(captured_job_fields)
+            != row["semantic_job_fields_json"]
+            or row["provider"] != job["company_slug"]
+            or row["external_id"] != captured_job_fields["external_id"]
+            or row["source_url"] != captured_job_fields["url"]
+            or captured_job_fields["external_id"] != job["external_id"]
+            or captured_job_fields["source_hash"] != job["source_hash"]
+        ):
+            raise ValueError("capture identity fields disagree")
+        semantic_hash = semantic_source_material_sha256(
+            captured_job_fields,
+            provider=row["provider"],
+            source_type=row["source_type"],
+            source_url=row["source_url"],
+            source_external_id=row["external_id"],
+            body=row["body"],
+            body_format=row["body_format"],
+            metadata=metadata,
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "Accepted source capture provenance is inconsistent."
+        ) from exc
+    if semantic_hash != row["semantic_material_sha256"]:
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+    return semantic_hash
+
+
+def _stored_decision_reasons(row):
+    try:
+        reasons = json.loads(row["decision_reasons_json"])
+        if type(reasons) is not list or any(
+            type(reason) is not str for reason in reasons
+        ):
+            raise ValueError("decision reasons are not a string list")
+        canonical = json.dumps(reasons, ensure_ascii=False, separators=(",", ":"))
+        if canonical != row["decision_reasons_json"]:
+            raise ValueError("decision reasons are not canonical")
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "Accepted source capture provenance is inconsistent."
+        ) from exc
+    return tuple(reasons)
+
+
+def _replay_source_capture_history(conn, job, accepted_capture_id):
+    captures = conn.execute(
+        """
+        SELECT *
+        FROM job_source_content_captures
+        WHERE job_id = ? AND id <= ?
+        ORDER BY id
+        """,
+        (job["id"], accepted_capture_id),
+    ).fetchall()
+    if not captures or captures[-1]["id"] != accepted_capture_id:
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+
+    accepted_state = None
+    for row in captures:
+        _material_hash, metadata = _verify_stored_source_material(
+            row,
+            "Accepted source capture history",
+        )
+        prepared = _prepared_capture_from_row(row, metadata)
+        semantic_hash = _captured_semantic_material(job, row, metadata)
+        context = _capture_context_from_row(row)
+        _verify_capture_crawl_provenance(conn, job, row, context)
+        decider = SOURCE_PROMOTION_POLICY_DECIDERS.get(
+            row["promotion_policy_version"]
+        )
+        if decider is None:
+            raise RuntimeError("Accepted source capture provenance is inconsistent.")
+        accepted_row = None
+        if accepted_state is not None:
+            accepted_row = {
+                "body": accepted_state["body"],
+                "material_content_sha256": accepted_state[
+                    "material_content_sha256"
+                ],
+                "source_updated_at": accepted_state["source_updated_at"],
+            }
+        decision = decider(
+            prepared,
+            context,
+            accepted_row,
+            same_accepted_semantic_material=(
+                accepted_state is not None
+                and accepted_state["semantic_material_sha256"] == semantic_hash
+            ),
+        )
+        if (
+            decision.decision != row["promotion_decision"]
+            or decision.reasons != _stored_decision_reasons(row)
+        ):
+            raise RuntimeError("Accepted source capture provenance is inconsistent.")
+        if decision.accepted:
+            if decision.decision == PROMOTION_DECISION_CONFIRMED:
+                if accepted_state is None:
+                    raise RuntimeError(
+                        "Accepted source capture provenance is inconsistent."
+                    )
+                accepted_at = accepted_state["accepted_at"]
+            else:
+                accepted_at = row["observed_at"]
+            accepted_state = {
+                "capture": row,
+                "body": prepared.body,
+                "material_content_sha256": prepared.material_content_sha256,
+                "semantic_material_sha256": semantic_hash,
+                "source_updated_at": decision.accepted_source_updated_at,
+                "accepted_at": accepted_at,
+                "last_confirmed_at": row["observed_at"],
+            }
+
+    if (
+        accepted_state is None
+        or accepted_state["capture"]["id"] != accepted_capture_id
+    ):
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+    return accepted_state
+
+
+def verify_job_source_acceptance_integrity(conn, job_id):
+    """Fail closed if versioned accepted semantic material has diverged."""
+
+    job = conn.execute(
+        """
+        SELECT j.*, c.slug AS company_slug
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.id = ?
+        """,
+        (job_id,),
+    ).fetchone()
+    if job is None:
+        raise RuntimeError(f"Unknown job id: {job_id}")
+    accepted = conn.execute(
+        "SELECT * FROM job_source_contents WHERE job_id = ?",
+        (job_id,),
+    ).fetchone()
+    acceptance = conn.execute(
+        """
+        SELECT accepted_capture_id, promotion_policy_version,
+               accepted_at, last_confirmed_at
+        FROM job_source_content_acceptances
+        WHERE job_id = ?
+        """,
+        (job_id,),
+    ).fetchone()
+    return _verify_source_acceptance(
+        conn,
+        job_id,
+        accepted,
+        acceptance,
+        job=job,
+    )
+
+
+def _verify_source_acceptance(conn, job_id, accepted, acceptance, *, job):
+    if accepted is None:
+        if acceptance is not None:
+            raise RuntimeError("Source acceptance exists without accepted content.")
+        if job["semantic_authority_state"] == SEMANTIC_AUTHORITY_VERSIONED_ACCEPTED:
+            raise RuntimeError("Versioned semantic authority lacks accepted content.")
+        return None, None
+    if job["semantic_authority_state"] == SEMANTIC_AUTHORITY_PENDING:
+        raise RuntimeError("Pending semantic authority has accepted content.")
+
+    _accepted_material_hash, accepted_metadata = _verify_stored_source_material(
+        accepted,
+        "Accepted source materialization",
+    )
+    accepted_semantic_hash = _semantic_material_hash_from_rows(
+        job,
+        accepted,
+        accepted_metadata,
+    )
+    if (
+        accepted["provider"] != job["company_slug"]
+        or accepted["external_id"] != job["external_id"]
+        or accepted["source_url"] != job["url"]
+    ):
+        raise RuntimeError("Accepted source materialization is inconsistent.")
+    if acceptance is None:
+        if job["semantic_authority_state"] != SEMANTIC_AUTHORITY_LEGACY_ACCEPTED:
+            raise RuntimeError("Accepted source provenance is inconsistent.")
+        return None, accepted_semantic_hash
+
+    replayed = _replay_source_capture_history(
+        conn,
+        job,
+        acceptance["accepted_capture_id"],
+    )
+    accepted_capture = replayed["capture"]
+    captured_semantic_hash = replayed["semantic_material_sha256"]
+    if (
+        job["semantic_authority_state"]
+        != SEMANTIC_AUTHORITY_VERSIONED_ACCEPTED
+        or accepted_semantic_hash != captured_semantic_hash
+        or accepted["source_updated_at"] != replayed["source_updated_at"]
+        or accepted["last_captured_at"] != accepted_capture["observed_at"]
+        or accepted_capture["promotion_policy_version"]
+        != acceptance["promotion_policy_version"]
+        or acceptance["accepted_at"] != replayed["accepted_at"]
+        or acceptance["last_confirmed_at"] != replayed["last_confirmed_at"]
+    ):
+        raise RuntimeError("Accepted source capture provenance is inconsistent.")
+    return accepted_capture, accepted_semantic_hash
+
+
+def _validate_capture_identity_and_crawl_run(
+    conn,
+    job_id,
+    candidate,
+    crawl_run_id,
+    provider,
+):
+    job = conn.execute(
+        """
+        SELECT j.*, c.slug AS company_slug
+        FROM jobs j
+        JOIN companies c ON c.id = j.company_id
+        WHERE j.id = ?
+        """,
+        (job_id,),
+    ).fetchone()
+    if job is None:
+        raise RuntimeError(f"Unknown job id: {job_id}")
+    if (
+        candidate.source_hash != job["source_hash"]
+        or candidate.external_id != job["external_id"]
+        or provider != job["company_slug"]
+    ):
+        raise ValueError("Capture candidate identity does not match the job.")
+    if crawl_run_id is None:
+        return job
+    crawl_run = conn.execute(
+        "SELECT company_id FROM crawl_runs WHERE id = ?",
+        (crawl_run_id,),
+    ).fetchone()
+    if crawl_run is None or crawl_run["company_id"] != job["company_id"]:
+        raise ValueError("Capture crawl run does not belong to the job's company.")
+    return job
 
 
 def resolve_job_classification(conn, company_id, candidate):

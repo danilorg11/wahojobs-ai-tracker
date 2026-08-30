@@ -32,7 +32,8 @@ SELECT
   is_active,
   removed_at,
   created_at,
-  updated_at
+  updated_at,
+  semantic_authority_state
 FROM jobs;
 
 DROP TABLE jobs;
@@ -95,6 +96,11 @@ CREATE TABLE jobs (
   removed_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  semantic_authority_state TEXT NOT NULL DEFAULT 'legacy_accepted' CHECK (
+    semantic_authority_state IN (
+      'legacy_accepted', 'pending', 'versioned_accepted'
+    )
+  ),
 
   FOREIGN KEY (company_id) REFERENCES companies(id),
   FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id),
@@ -121,7 +127,8 @@ INSERT INTO jobs (
   is_active,
   removed_at,
   created_at,
-  updated_at
+  updated_at,
+  semantic_authority_state
 )
 SELECT
   id,
@@ -143,7 +150,8 @@ SELECT
   is_active,
   removed_at,
   created_at,
-  updated_at
+  updated_at,
+  semantic_authority_state
 FROM jobs_m007_backup;
 
 CREATE INDEX idx_jobs_company_active

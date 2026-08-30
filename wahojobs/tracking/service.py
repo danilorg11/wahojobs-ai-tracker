@@ -32,6 +32,10 @@ from wahojobs.db.repository import (
 from wahojobs.matching.opportunity_trust import LIVE_FEED_MAX_AGE_HOURS
 from wahojobs.opportunity_enrichment import enrich_company_opportunities
 from wahojobs.opportunity_llm import tracking_openai_client
+from wahojobs.source_capture import (
+    SEMANTIC_AUTHORITY_PENDING,
+    SourceCaptureContext,
+)
 from wahojobs.tracking.normalize import with_source_hash
 
 
@@ -76,12 +80,22 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     jobs_new = 0
     jobs_reactivated = 0
     jobs_updated = 0
+    capture_context = SourceCaptureContext.from_crawl_result(
+        crawl_run_id,
+        crawl_result,
+    )
 
     for candidate in candidates:
         existing = get_job_by_hash(conn, company_id, candidate.source_hash)
 
         if existing is None:
-            job_id = insert_job(conn, company_id, candidate, now)
+            job_id = insert_job(
+                conn,
+                company_id,
+                candidate,
+                now,
+                semantic_authority_state=SEMANTIC_AUTHORITY_PENDING,
+            )
             upsert_job_source_content(
                 conn,
                 job_id,
@@ -89,7 +103,9 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
                 crawl_result.source_type,
                 candidate,
                 now,
+                capture_context=capture_context,
             )
+            update_seen_job(conn, job_id, now)
             create_job_event(conn, job_id, crawl_run_id, "discovered", now)
             jobs_new += 1
             continue
@@ -99,13 +115,18 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
             create_job_event(conn, existing["id"], crawl_run_id, "reactivated", now)
         else:
             jobs_updated += 1
-        update_seen_job(conn, existing["id"], candidate, now)
         upsert_job_source_content(
             conn,
             existing["id"],
             company["slug"],
             crawl_result.source_type,
             candidate,
+            now,
+            capture_context=capture_context,
+        )
+        update_seen_job(
+            conn,
+            existing["id"],
             now,
         )
 

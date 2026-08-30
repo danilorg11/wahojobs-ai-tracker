@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   removed_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  semantic_authority_state TEXT NOT NULL DEFAULT 'legacy_accepted' CHECK (
+    semantic_authority_state IN (
+      'legacy_accepted', 'pending', 'versioned_accepted'
+    )
+  ),
 
   FOREIGN KEY (company_id) REFERENCES companies(id),
   FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id),
@@ -179,6 +184,82 @@ CREATE TABLE IF NOT EXISTS crawl_runs (
   FOREIGN KEY (company_id) REFERENCES companies(id)
 );
 
+CREATE TABLE IF NOT EXISTS job_source_content_captures (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL,
+  crawl_run_id INTEGER,
+  provider TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  external_id TEXT,
+  body TEXT,
+  body_format TEXT CHECK (
+    body_format IS NULL
+    OR body_format IN ('text/plain', 'text/html', 'text/markdown')
+  ),
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  material_content_sha256 TEXT NOT NULL,
+  semantic_job_fields_json TEXT NOT NULL,
+  semantic_material_sha256 TEXT NOT NULL,
+  source_updated_at TEXT,
+  source_timestamp_status TEXT NOT NULL CHECK (
+    source_timestamp_status IN ('absent', 'valid', 'invalid')
+  ),
+  capture_quality TEXT NOT NULL CHECK (
+    capture_quality IN (
+      'healthy_body', 'metadata_only', 'empty', 'blocked_or_error'
+    )
+  ),
+  provider_outcome TEXT NOT NULL CHECK (
+    provider_outcome IN ('success', 'partial', 'anomalous', 'contract_drift')
+  ),
+  used_sample_data INTEGER NOT NULL CHECK (used_sample_data IN (0, 1)),
+  snapshot_complete INTEGER NOT NULL CHECK (snapshot_complete IN (0, 1)),
+  pagination_complete INTEGER NOT NULL CHECK (pagination_complete IN (0, 1)),
+  empty_snapshot_validated INTEGER NOT NULL CHECK (
+    empty_snapshot_validated IN (0, 1)
+  ),
+  raw_record_count INTEGER NOT NULL CHECK (raw_record_count >= 0),
+  normalized_record_count INTEGER NOT NULL CHECK (normalized_record_count >= 0),
+  candidate_count INTEGER NOT NULL CHECK (candidate_count >= 0),
+  rejected_record_count INTEGER NOT NULL CHECK (rejected_record_count >= 0),
+  payload_shape TEXT NOT NULL DEFAULT '',
+  schema_fingerprint TEXT NOT NULL DEFAULT '',
+  capture_contract_version TEXT NOT NULL,
+  promotion_policy_version TEXT NOT NULL,
+  promotion_decision TEXT NOT NULL CHECK (
+    promotion_decision IN (
+      'promoted', 'confirmed', 'held_degraded',
+      'held_non_authoritative', 'held_source_conflict'
+    )
+  ),
+  decision_reasons_json TEXT NOT NULL DEFAULT '[]',
+  observed_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (job_id) REFERENCES jobs(id),
+  FOREIGN KEY (crawl_run_id) REFERENCES crawl_runs(id) ON DELETE RESTRICT,
+  UNIQUE (id, job_id),
+  CHECK (
+    (body IS NULL AND body_format IS NULL)
+    OR (body IS NOT NULL AND body_format IS NOT NULL)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS job_source_content_acceptances (
+  job_id INTEGER PRIMARY KEY,
+  accepted_capture_id INTEGER NOT NULL,
+  promotion_policy_version TEXT NOT NULL,
+  accepted_at TEXT NOT NULL,
+  last_confirmed_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (job_id) REFERENCES jobs(id),
+  FOREIGN KEY (accepted_capture_id, job_id)
+    REFERENCES job_source_content_captures(id, job_id) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS job_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id INTEGER NOT NULL,
@@ -278,6 +359,12 @@ ON jobs(last_seen_at);
 
 CREATE INDEX IF NOT EXISTS idx_crawl_runs_company_started
 ON crawl_runs(company_id, started_at);
+
+CREATE INDEX IF NOT EXISTS idx_job_source_content_captures_job
+ON job_source_content_captures(job_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_job_source_content_captures_crawl_run
+ON job_source_content_captures(crawl_run_id, id);
 
 CREATE INDEX IF NOT EXISTS idx_job_events_job
 ON job_events(job_id);

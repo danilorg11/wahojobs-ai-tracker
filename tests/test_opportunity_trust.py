@@ -392,6 +392,9 @@ class OpportunityTrustSourceRunTests(unittest.TestCase):
             url="https://job-boards.eu.greenhouse.io/agency/jobs/4778238101",
             department="Language & Linguistics",
             expertise="Language & Linguistics",
+            source_body="Complete authoritative Greenhouse fixture body.",
+            source_body_format="text/plain",
+            source_updated_at=stale_time,
         )
         track_crawl_result(
             self.conn,

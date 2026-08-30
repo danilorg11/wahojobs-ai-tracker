@@ -87,6 +87,8 @@ PUBLIC_DATA_TABLES = frozenset(
 )
 EXPECTED_EMPTY_TABLES = frozenset(
     {
+        "job_source_content_acceptances",
+        "job_source_content_captures",
         "job_source_contents",
         "opportunity_enrichment_overrides",
         "opportunity_enrichment_runs",

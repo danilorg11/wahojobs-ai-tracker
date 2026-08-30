@@ -55,6 +55,7 @@ def sync_fallback_canonical_opportunities(conn, company_id):
         FROM jobs
         WHERE company_id = ?
           AND canonical_opportunity_id IS NULL
+          AND semantic_authority_state != 'pending'
           AND title NOT LIKE '[SIMULATION]%'
         ORDER BY first_seen_at ASC, id ASC
         """,
@@ -84,6 +85,7 @@ def sync_canonical_opportunities(conn, company_id, canonicalizer):
         SELECT *
         FROM jobs
         WHERE company_id = ?
+          AND semantic_authority_state != 'pending'
           AND title NOT LIKE '[SIMULATION]%'
         ORDER BY first_seen_at ASC, id ASC
         """,
@@ -194,23 +196,27 @@ def refresh_canonical_rollups(conn, company_id):
               SELECT MIN(j.first_seen_at)
               FROM jobs j
               WHERE j.canonical_opportunity_id = canonical_opportunities.id
+                AND j.semantic_authority_state != 'pending'
             ),
             last_seen_at = (
               SELECT MAX(j.last_seen_at)
               FROM jobs j
               WHERE j.canonical_opportunity_id = canonical_opportunities.id
+                AND j.semantic_authority_state != 'pending'
             ),
             is_active = CASE WHEN EXISTS (
               SELECT 1
               FROM jobs j
               WHERE j.canonical_opportunity_id = canonical_opportunities.id
                 AND j.is_active = 1
+                AND j.semantic_authority_state != 'pending'
             ) THEN 1 ELSE 0 END,
             variant_count = (
               SELECT COUNT(*)
               FROM jobs j
               WHERE j.canonical_opportunity_id = canonical_opportunities.id
                 AND j.is_active = 1
+                AND j.semantic_authority_state != 'pending'
             ),
             updated_at = CURRENT_TIMESTAMP
         WHERE company_id = ?
@@ -218,6 +224,7 @@ def refresh_canonical_rollups(conn, company_id):
             SELECT 1
             FROM jobs j
             WHERE j.canonical_opportunity_id = canonical_opportunities.id
+              AND j.semantic_authority_state != 'pending'
           )
         """,
         (company_id,),
@@ -233,6 +240,7 @@ def refresh_canonical_rollups(conn, company_id):
             SELECT 1
             FROM jobs j
             WHERE j.canonical_opportunity_id = canonical_opportunities.id
+              AND j.semantic_authority_state != 'pending'
           )
         """,
         (company_id,),

@@ -27,6 +27,9 @@ def candidate(external_id, title=None, location="Remote"):
         url=f"https://example.test/{external_id}",
         department="Generalist",
         expertise="Generalist",
+        source_body="Complete authoritative fixture source body.",
+        source_body_format="text/plain",
+        source_updated_at=NOW,
     )
 
 
@@ -168,6 +171,8 @@ class LifecycleSnapshotSafetyTests(unittest.TestCase):
         ):
             with self.subTest(label=label):
                 self.conn.execute("DELETE FROM job_events")
+                self.conn.execute("DELETE FROM job_source_content_acceptances")
+                self.conn.execute("DELETE FROM job_source_content_captures")
                 self.conn.execute("DELETE FROM jobs")
                 self.conn.commit()
                 self.seed_job("observed", title="Old title")
@@ -316,8 +321,8 @@ class LifecycleSnapshotSafetyTests(unittest.TestCase):
         crawl_result = result([candidate("new")])
         original_insert = tracking_service.insert_job
 
-        def insert_then_fail(conn, company_id, item, now):
-            original_insert(conn, company_id, item, now)
+        def insert_then_fail(conn, company_id, item, now, **kwargs):
+            original_insert(conn, company_id, item, now, **kwargs)
             raise RuntimeError("injected tracking failure")
 
         first, second = self.pipeline_patches(lambda _: crawl_result)

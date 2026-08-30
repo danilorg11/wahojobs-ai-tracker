@@ -66,6 +66,7 @@ JOB_COLUMNS = (
     "removed_at",
     "created_at",
     "updated_at",
+    "semantic_authority_state",
 )
 
 

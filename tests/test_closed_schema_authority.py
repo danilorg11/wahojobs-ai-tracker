@@ -173,6 +173,7 @@ class ClosedSchemaAuthorityTests(unittest.TestCase):
                         "opportunity_kind",
                         "availability_basis",
                         "include_in_live_market_estimate",
+                        "semantic_authority_state",
                     ),
                 )
                 self.assertEqual(
@@ -198,6 +199,7 @@ class ClosedSchemaAuthorityTests(unittest.TestCase):
                         "removed_at",
                         "created_at",
                         "updated_at",
+                        "semantic_authority_state",
                     ),
                 )
                 self.assertEqual(
@@ -251,6 +253,18 @@ class ClosedSchemaAuthorityTests(unittest.TestCase):
                         ),
                         ("crawl_runs", "companies", "company_id", "id"),
                         ("job_events", "jobs", "job_id", "id"),
+                        (
+                            "job_source_content_captures",
+                            "jobs",
+                            "job_id",
+                            "id",
+                        ),
+                        (
+                            "job_source_content_acceptances",
+                            "jobs",
+                            "job_id",
+                            "id",
+                        ),
                     },
                 )
                 company_indexes = _index_details(connection, "companies")
