@@ -383,6 +383,14 @@ def ensure_canonical_schema(conn):
 def ensure_opportunity_enrichment_schema(conn):
     for statement in OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS:
         conn.execute(statement)
+    for table in ("opportunity_enrichments", "opportunity_enrichment_runs"):
+        columns = {
+            row[1]
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for column in ("semantic_input_version", "derivation_fingerprint"):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
 
 
 def get_company_by_slug(conn, slug):

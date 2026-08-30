@@ -1,18 +1,35 @@
 import copy
 import json
 import re
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import wahojobs.opportunity_enrichment as opportunity_enrichment
 from wahojobs.canonical.service import sync_fallback_canonical_opportunities
 from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, ProviderOutcome
 from wahojobs.db.connection import get_connection
-from wahojobs.db.repository import install_base_schema, upsert_job_source_content
+from wahojobs.db.repository import (
+    ensure_opportunity_enrichment_schema,
+    install_base_schema,
+    upsert_job_source_content,
+)
 from wahojobs.opportunity_enrichment import (
+    DERIVATION_RECIPE_VERSION,
     EnrichmentValidationError,
+    EXTRACTOR_VERSION,
+    LEGACY_SEMANTIC_INPUT_VERSION,
+    SCHEMA_VERSION,
+    SEMANTIC_INPUT_VERSION,
+    STALE_REASON_DERIVATION_CONTRACT_CHANGED,
+    STALE_REASON_SOURCE_INPUT_CHANGED,
+    TAXONOMY_VERSION,
     apply_llm_semantic_acceptance_guards,
     blank_document,
+    classify_enrichment_freshness,
+    derivation_recipe_fingerprint,
     enrich_canonical_opportunity,
     import_reviewed_overlay,
     llm_source_packet,
@@ -21,12 +38,14 @@ from wahojobs.opportunity_enrichment import (
     normalize_llm_list_fields,
     resolve_effective_enrichment,
     save_override,
+    semantic_input_sha256,
     skill_is_task_description,
     source_body_text,
     validate_llm_payload,
 )
 from wahojobs.opportunity_llm import PROMPT_VERSION, StructuredEnrichmentResult
 from wahojobs.opportunity_enrichment_schema import (
+    OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS,
     OpportunityEnrichmentSchemaError,
     attest_opportunity_enrichment_schema_extension,
 )
@@ -747,7 +766,317 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
                 "model_provider",
                 "model_name",
                 "prompt_version",
+                "semantic_input_version",
+                "derivation_fingerprint",
             }.issubset(enrichment_columns)
+        )
+        run_columns = {
+            row["name"]
+            for row in self.conn.execute(
+                "PRAGMA table_info(opportunity_enrichment_runs)"
+            ).fetchall()
+        }
+        self.assertTrue(
+            {"semantic_input_version", "derivation_fingerprint"}.issubset(
+                run_columns
+            )
+        )
+
+    def test_new_rows_persist_explicit_input_and_derivation_identity(self):
+        _job_id, canonical_id = self.fallback_enriched_job()
+
+        result = enrich_canonical_opportunity(self.conn, canonical_id, now=NOW)
+        stored = dict(
+            self.conn.execute(
+                "SELECT * FROM opportunity_enrichments "
+                "WHERE canonical_opportunity_id = ?",
+                (canonical_id,),
+            ).fetchone()
+        )
+        freshness = classify_enrichment_freshness(
+            load_semantic_input(self.conn, canonical_id),
+            stored,
+        )
+
+        self.assertEqual(result["semantic_input_version"], SEMANTIC_INPUT_VERSION)
+        self.assertEqual(stored["semantic_input_version"], SEMANTIC_INPUT_VERSION)
+        self.assertEqual(
+            stored["derivation_fingerprint"],
+            derivation_recipe_fingerprint(),
+        )
+        self.assertEqual(
+            result["derivation_fingerprint"],
+            stored["derivation_fingerprint"],
+        )
+        self.assertEqual(freshness["freshness"], "current")
+        self.assertEqual(freshness["derivation_status"], "current")
+
+    def test_additive_version_columns_leave_legacy_rows_and_overrides_untouched(self):
+        legacy = sqlite3.connect(":memory:")
+        legacy.row_factory = sqlite3.Row
+        legacy.execute("PRAGMA foreign_keys = ON")
+        legacy.execute(
+            "CREATE TABLE canonical_opportunities (id INTEGER PRIMARY KEY)"
+        )
+        legacy.execute("INSERT INTO canonical_opportunities (id) VALUES (1)")
+        old_enrichment_statement = OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS[1].replace(
+            "      semantic_input_version TEXT,\n", ""
+        ).replace("      derivation_fingerprint TEXT,\n", "")
+        legacy.execute(old_enrichment_statement)
+        old_run_statement = OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS[2].replace(
+            "      semantic_input_version TEXT,\n", ""
+        ).replace("      derivation_fingerprint TEXT,\n", "")
+        legacy.execute(old_run_statement)
+        legacy.execute(OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS[4])
+        legacy.execute(
+            "INSERT INTO opportunity_enrichments ("
+            "canonical_opportunity_id, schema_version, taxonomy_version, "
+            "extractor_version, input_sha256, status, automatic_document_json, "
+            "generated_at) VALUES (1, ?, ?, 'deterministic_v1', ?, 'partial', '{}', ?)",
+            (SCHEMA_VERSION, TAXONOMY_VERSION, "a" * 64, NOW),
+        )
+        legacy.execute(
+            "INSERT INTO opportunity_enrichment_runs ("
+            "canonical_opportunity_id, input_sha256, outcome, model_provider, "
+            "model_name, prompt_version, started_at, finished_at) "
+            "VALUES (1, ?, 'failed', 'openai', 'legacy-model', 'legacy-prompt', ?, ?)",
+            ("a" * 64, NOW, NOW),
+        )
+        legacy.execute(
+            "INSERT INTO opportunity_enrichment_overrides ("
+            "canonical_opportunity_id, field_path, operation, value_json, actor, reason) "
+            "VALUES (1, 'attributes.requirements.languages', 'set', '[\"English\"]', "
+            "'reviewer', 'verified')"
+        )
+        override_before = dict(
+            legacy.execute("SELECT * FROM opportunity_enrichment_overrides").fetchone()
+        )
+
+        ensure_opportunity_enrichment_schema(legacy)
+
+        row = dict(legacy.execute("SELECT * FROM opportunity_enrichments").fetchone())
+        run = dict(
+            legacy.execute("SELECT * FROM opportunity_enrichment_runs").fetchone()
+        )
+        override_after = dict(
+            legacy.execute("SELECT * FROM opportunity_enrichment_overrides").fetchone()
+        )
+        self.assertIsNone(row["semantic_input_version"])
+        self.assertIsNone(row["derivation_fingerprint"])
+        self.assertIsNone(run["semantic_input_version"])
+        self.assertIsNone(run["derivation_fingerprint"])
+        self.assertEqual(row["extractor_version"], "deterministic_v1")
+        self.assertEqual(override_after, override_before)
+        cursor = legacy.cursor()
+        cursor.row_factory = None
+        self.assertTrue(attest_opportunity_enrichment_schema_extension(cursor))
+        cursor.close()
+        legacy.close()
+
+    def test_freshness_attributes_legacy_contract_debt_separately_from_source_change(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.persist_rich_source(job_id)
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        legacy_hash = semantic_input_sha256(
+            semantic_input,
+            LEGACY_SEMANTIC_INPUT_VERSION,
+        )
+        legacy = {
+            "schema_version": SCHEMA_VERSION,
+            "taxonomy_version": TAXONOMY_VERSION,
+            "extractor_version": "deterministic_v1",
+            "input_sha256": legacy_hash,
+            "model_provider": None,
+            "model_name": None,
+            "prompt_version": None,
+        }
+
+        contract_debt = classify_enrichment_freshness(semantic_input, legacy)
+
+        self.assertEqual(contract_debt["freshness"], "stale")
+        self.assertEqual(contract_debt["source_input_status"], "current")
+        self.assertEqual(
+            contract_debt["stale_reasons"],
+            [STALE_REASON_DERIVATION_CONTRACT_CHANGED],
+        )
+        self.assertEqual(
+            contract_debt["semantic_input_version_basis"],
+            "legacy_extractor_mapping",
+        )
+        self.assertEqual(contract_debt["comparable_input_sha256"], legacy_hash)
+        self.assertNotEqual(contract_debt["current_input_sha256"], legacy_hash)
+
+        current = {
+            **legacy,
+            "extractor_version": EXTRACTOR_VERSION,
+            "semantic_input_version": SEMANTIC_INPUT_VERSION,
+            "input_sha256": semantic_input_sha256(semantic_input),
+            "derivation_fingerprint": derivation_recipe_fingerprint(),
+        }
+        changed_input = copy.deepcopy(semantic_input)
+        changed_input["variants"][0]["title"] += " changed"
+        source_change = classify_enrichment_freshness(changed_input, current)
+
+        self.assertEqual(source_change["freshness"], "stale")
+        self.assertEqual(source_change["derivation_status"], "current")
+        self.assertEqual(
+            source_change["stale_reasons"],
+            [STALE_REASON_SOURCE_INPUT_CHANGED],
+        )
+
+    def test_historical_extractor_mappings_pin_literal_semantic_input_versions(self):
+        self.assertEqual(
+            opportunity_enrichment.LEGACY_SEMANTIC_INPUT_VERSION_BY_EXTRACTOR,
+            {
+                "deterministic_v1": "opportunity_semantic_input_v1",
+                "deterministic_plus_structured_llm_v1": (
+                    "opportunity_semantic_input_v2"
+                ),
+            },
+        )
+
+    def test_future_semantic_input_bump_stales_legacy_v2_without_source_change(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.persist_rich_source(job_id)
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        v2_hash = semantic_input_sha256(
+            semantic_input,
+            "opportunity_semantic_input_v2",
+        )
+        legacy_v2 = {
+            "schema_version": SCHEMA_VERSION,
+            "taxonomy_version": TAXONOMY_VERSION,
+            "extractor_version": "deterministic_plus_structured_llm_v1",
+            "input_sha256": v2_hash,
+            "model_provider": None,
+            "model_name": None,
+            "prompt_version": None,
+        }
+
+        before = classify_enrichment_freshness(semantic_input, legacy_v2)
+        future_input = copy.deepcopy(semantic_input)
+        future_input["future_semantic_signal"] = {"value": "v3-only"}
+        module_path = Path(opportunity_enrichment.__file__)
+        current_source = module_path.read_text(encoding="utf-8")
+        current_assignment = (
+            'SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v2"'
+        )
+        future_assignment = (
+            'SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v3"'
+        )
+        self.assertEqual(current_source.count(current_assignment), 1)
+        future_source = current_source.replace(
+            current_assignment,
+            future_assignment,
+            1,
+        )
+        future_module = {
+            "__name__": "wahojobs.opportunity_enrichment_future_contract_test",
+            "__package__": "wahojobs",
+            "__file__": str(module_path),
+        }
+        exec(compile(future_source, str(module_path), "exec"), future_module)
+        self.assertEqual(
+            future_module["LEGACY_SEMANTIC_INPUT_VERSION_BY_EXTRACTOR"][
+                "deterministic_plus_structured_llm_v1"
+            ],
+            "opportunity_semantic_input_v2",
+        )
+        after = future_module["classify_enrichment_freshness"](
+            future_input,
+            legacy_v2,
+        )
+
+        self.assertEqual(before["freshness"], "current")
+        self.assertEqual(before["derivation_status"], "legacy_compatible")
+        self.assertEqual(after["freshness"], "stale")
+        self.assertEqual(
+            after["stored_semantic_input_version"],
+            "opportunity_semantic_input_v2",
+        )
+        self.assertEqual(
+            after["current_semantic_input_version"],
+            "opportunity_semantic_input_v3",
+        )
+        self.assertEqual(after["derivation_status"], "changed")
+        self.assertEqual(after["source_input_status"], "current")
+        self.assertEqual(after["comparable_input_sha256"], v2_hash)
+        self.assertEqual(
+            after["stale_reasons"],
+            [STALE_REASON_DERIVATION_CONTRACT_CHANGED],
+        )
+
+    def test_future_recipe_bump_stales_fingerprintless_legacy_v2_independently(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.persist_rich_source(job_id)
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        legacy_v2 = {
+            "schema_version": SCHEMA_VERSION,
+            "taxonomy_version": TAXONOMY_VERSION,
+            "extractor_version": "deterministic_plus_structured_llm_v1",
+            "input_sha256": semantic_input_sha256(semantic_input),
+            "model_provider": None,
+            "model_name": None,
+            "prompt_version": None,
+        }
+
+        with patch.object(
+            opportunity_enrichment,
+            "DERIVATION_RECIPE_VERSION",
+            "opportunity_enrichment_derivation_v2",
+        ):
+            freshness = classify_enrichment_freshness(semantic_input, legacy_v2)
+
+        self.assertEqual(freshness["freshness"], "stale")
+        self.assertEqual(freshness["derivation_status"], "unknown")
+        self.assertEqual(freshness["source_input_status"], "current")
+        self.assertEqual(
+            freshness["stale_reasons"],
+            [STALE_REASON_DERIVATION_CONTRACT_CHANGED],
+        )
+
+    def test_unknown_historical_extractor_fails_conservatively(self):
+        job_id, canonical_id = self.fallback_enriched_job()
+        self.persist_rich_source(job_id)
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        unknown = {
+            "schema_version": SCHEMA_VERSION,
+            "taxonomy_version": TAXONOMY_VERSION,
+            "extractor_version": "unknown_historical_extractor",
+            "input_sha256": semantic_input_sha256(semantic_input),
+            "model_provider": None,
+            "model_name": None,
+            "prompt_version": None,
+        }
+
+        freshness = classify_enrichment_freshness(semantic_input, unknown)
+
+        self.assertEqual(freshness["freshness"], "stale")
+        self.assertEqual(freshness["semantic_input_version_basis"], "unknown")
+        self.assertIsNone(freshness["stored_semantic_input_version"])
+        self.assertEqual(freshness["source_input_status"], "not_comparable")
+        self.assertEqual(freshness["derivation_status"], "changed")
+        self.assertEqual(
+            freshness["stale_reasons"],
+            [STALE_REASON_DERIVATION_CONTRACT_CHANGED],
+        )
+
+    def test_derivation_fingerprint_changes_intentionally_with_recipe_inputs(self):
+        baseline = derivation_recipe_fingerprint()
+
+        self.assertNotEqual(
+            baseline,
+            derivation_recipe_fingerprint(
+                recipe_version=DERIVATION_RECIPE_VERSION + "_next"
+            ),
+        )
+        self.assertNotEqual(
+            baseline,
+            derivation_recipe_fingerprint(
+                model_provider="openai",
+                model_name="future-model",
+                prompt_version="future-prompt",
+            ),
         )
 
     def test_rich_source_content_is_persisted_with_provenance_and_material_hash(self):
@@ -1028,6 +1357,15 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(run["outcome"], "failed")
         self.assertEqual(run["error_type"], "EnrichmentValidationError")
+        self.assertEqual(run["semantic_input_version"], SEMANTIC_INPUT_VERSION)
+        self.assertEqual(
+            run["derivation_fingerprint"],
+            derivation_recipe_fingerprint(
+                model_provider=fake.provider,
+                model_name=fake.model,
+                prompt_version=fake.prompt_version,
+            ),
+        )
         diagnostic = json.loads(
             self.conn.execute(
                 "SELECT diagnostic_json FROM opportunity_enrichment_run_diagnostics WHERE run_id = ?",

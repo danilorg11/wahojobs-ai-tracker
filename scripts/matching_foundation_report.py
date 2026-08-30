@@ -47,16 +47,22 @@ from wahojobs.matching.typed_criteria import (  # noqa: E402
     bridge_existing_matcher_eligibility,
 )
 from wahojobs.opportunity_enrichment import (  # noqa: E402
+    DERIVATION_RECIPE_VERSION,
     FIELD_DEFAULTS,
+    LLM_ACCEPTANCE_GUARDS_VERSION,
+    SEMANTIC_INPUT_VERSION,
+    STALE_REASON_DERIVATION_CONTRACT_CHANGED,
+    STALE_REASON_MISSING_ENRICHMENT,
+    STALE_REASON_SOURCE_INPUT_CHANGED,
+    classify_enrichment_freshness,
     load_semantic_input,
     resolve_effective_enrichments,
-    semantic_input_sha256,
 )
 
 
 EVALUATION_SCHEMA_VERSION = "matching_foundation_evaluation_v2"
-INVENTORY_SNAPSHOT_SCHEMA_VERSION = "matching_foundation_inventory_snapshot_v1"
-REPORT_SCHEMA_VERSION = "matching_foundation_report_v2"
+INVENTORY_SNAPSHOT_SCHEMA_VERSION = "matching_foundation_inventory_snapshot_v2"
+REPORT_SCHEMA_VERSION = "matching_foundation_report_v3"
 DEFAULT_GOLDEN_PATH = ROOT / "tests" / "fixtures" / "matching_golden_set.json"
 DEFAULT_EVALUATION_PATH = (
     ROOT / "tests" / "fixtures" / "matching_foundation_evaluation.json"
@@ -715,8 +721,7 @@ def capture_enrichment_observation(
     )
     effective = resolve_effective_enrichments(connection, canonical_ids)
     stored_rows = connection.execute(
-        "SELECT canonical_opportunity_id, input_sha256, status, model_provider, "
-        "model_name FROM opportunity_enrichments"
+        "SELECT * FROM opportunity_enrichments"
     ).fetchall()
     stored = {
         int(row["canonical_opportunity_id"]): dict(row)
@@ -726,17 +731,14 @@ def capture_enrichment_observation(
     observations = []
     for canonical_id in canonical_ids:
         semantic_input = load_semantic_input(connection, canonical_id)
-        current_input_sha = semantic_input_sha256(semantic_input)
         persisted = stored.get(canonical_id)
         effective_item = effective.get(canonical_id)
-        if persisted is None or effective_item is None:
-            freshness = "missing"
-        elif persisted.get("input_sha256") == current_input_sha:
-            freshness = "current"
-        else:
-            freshness = "stale"
+        freshness_evidence = classify_enrichment_freshness(
+            semantic_input,
+            persisted if effective_item is not None else None,
+        )
         known_fields = []
-        if freshness == "current":
+        if freshness_evidence["freshness"] == "current":
             unknown_fields = set(
                 effective_item["document"].get("unknown_fields") or []
             )
@@ -744,16 +746,12 @@ def capture_enrichment_observation(
         observations.append(
             {
                 "canonical_opportunity_id": canonical_id,
-                "current_input_sha256": current_input_sha,
-                "stored_input_sha256": (
-                    persisted.get("input_sha256") if persisted is not None else None
-                ),
-                "freshness": freshness,
+                **freshness_evidence,
                 "stored_status": (
                     persisted.get("status") if persisted is not None else None
                 ),
                 "model_enriched": bool(
-                    freshness == "current"
+                    freshness_evidence["freshness"] == "current"
                     and persisted is not None
                     and persisted.get("model_provider")
                 ),
@@ -798,6 +796,15 @@ def analyze_enrichment_readiness(
     canonicals = observation["canonicals"]
     by_id = {item["canonical_opportunity_id"]: item for item in canonicals}
     freshness_counts = Counter(item["freshness"] for item in canonicals)
+    stale_reason_counts = Counter(
+        reason for item in canonicals for reason in item["stale_reasons"]
+    )
+    source_input_status_counts = Counter(
+        item["source_input_status"] for item in canonicals
+    )
+    derivation_status_counts = Counter(
+        item["derivation_status"] for item in canonicals
+    )
     field_rows = []
     for field_path, priority, purpose in READINESS_FIELD_SPECS:
         known = sum(field_known(item, field_path) for item in canonicals)
@@ -850,6 +857,35 @@ def analyze_enrichment_readiness(
         "freshness_counts": {
             key: freshness_counts.get(key, 0)
             for key in ("current", "stale", "missing")
+        },
+        "freshness_reason_counts": {
+            "current": freshness_counts.get("current", 0),
+            "contract_recipe_stale": stale_reason_counts.get(
+                STALE_REASON_DERIVATION_CONTRACT_CHANGED,
+                0,
+            ),
+            "source_changed": stale_reason_counts.get(
+                STALE_REASON_SOURCE_INPUT_CHANGED,
+                0,
+            ),
+            "missing": stale_reason_counts.get(
+                STALE_REASON_MISSING_ENRICHMENT,
+                0,
+            ),
+        },
+        "source_input_status_counts": {
+            key: source_input_status_counts.get(key, 0)
+            for key in ("current", "changed", "not_comparable", "missing")
+        },
+        "derivation_status_counts": {
+            key: derivation_status_counts.get(key, 0)
+            for key in (
+                "current",
+                "legacy_compatible",
+                "changed",
+                "unknown",
+                "missing",
+            )
         },
         "current_enrichment_coverage": ratio(
             freshness_counts["current"], len(canonicals)
@@ -1159,8 +1195,18 @@ def validate_enrichment_observation(observation: dict) -> None:
         raise EvaluationHarnessError("canonical observations must be sorted and unique")
     expected_fields = {
         "canonical_opportunity_id",
+        "current_semantic_input_version",
+        "stored_semantic_input_version",
+        "semantic_input_version_basis",
         "current_input_sha256",
+        "comparable_input_sha256",
         "stored_input_sha256",
+        "source_input_status",
+        "current_derivation_fingerprint",
+        "stored_derivation_fingerprint",
+        "derivation_status",
+        "changed_derivation_components",
+        "stale_reasons",
         "freshness",
         "stored_status",
         "model_enriched",
@@ -1170,14 +1216,52 @@ def validate_enrichment_observation(observation: dict) -> None:
     for item in canonicals:
         flags = item.get("source_fact_flags")
         known = item.get("known_fields")
+        stale_reasons = item.get("stale_reasons")
+        changed_components = item.get("changed_derivation_components")
+        optional_hashes = (
+            item.get("comparable_input_sha256"),
+            item.get("stored_input_sha256"),
+            item.get("stored_derivation_fingerprint"),
+        )
         if (
             set(item) != expected_fields
             or not _SHA256_RE.fullmatch(str(item.get("current_input_sha256") or ""))
-            or (
-                item.get("stored_input_sha256") is not None
-                and not _SHA256_RE.fullmatch(str(item["stored_input_sha256"]))
+            or not _SHA256_RE.fullmatch(
+                str(item.get("current_derivation_fingerprint") or "")
+            )
+            or any(
+                value is not None and not _SHA256_RE.fullmatch(str(value))
+                for value in optional_hashes
             )
             or item.get("freshness") not in {"current", "stale", "missing"}
+            or item.get("source_input_status")
+            not in {"current", "changed", "not_comparable", "missing"}
+            or item.get("derivation_status")
+            not in {"current", "legacy_compatible", "changed", "unknown", "missing"}
+            or item.get("semantic_input_version_basis")
+            not in {
+                "explicit",
+                "legacy_extractor_mapping",
+                "invalid_explicit",
+                "unknown",
+                "missing",
+            }
+            or type(item.get("current_semantic_input_version")) is not str
+            or (
+                item.get("stored_semantic_input_version") is not None
+                and type(item["stored_semantic_input_version"]) is not str
+            )
+            or type(stale_reasons) is not list
+            or stale_reasons != sorted(set(stale_reasons))
+            or not set(stale_reasons).issubset(
+                {
+                    STALE_REASON_DERIVATION_CONTRACT_CHANGED,
+                    STALE_REASON_SOURCE_INPUT_CHANGED,
+                    STALE_REASON_MISSING_ENRICHMENT,
+                }
+            )
+            or type(changed_components) is not list
+            or changed_components != sorted(set(changed_components))
             or type(item.get("model_enriched")) is not bool
             or type(flags) is not list
             or flags != sorted(flags)
@@ -1188,6 +1272,12 @@ def validate_enrichment_observation(observation: dict) -> None:
             or len(known) != len(set(known))
             or not set(known).issubset(FIELD_DEFAULTS)
             or (item["freshness"] != "current" and known)
+            or (item["freshness"] == "current" and stale_reasons)
+            or (item["freshness"] == "stale" and not stale_reasons)
+            or (
+                item["freshness"] == "missing"
+                and stale_reasons != [STALE_REASON_MISSING_ENRICHMENT]
+            )
         ):
             raise EvaluationHarnessError("canonical enrichment observation is invalid")
 
@@ -1386,6 +1476,9 @@ def build_report_data(
             "match_run_snapshot": MATCH_RUN_SNAPSHOT_SCHEMA_VERSION,
             "match_run_candidate_disposition": MATCH_RUN_CANDIDATE_DISPOSITION_SCHEMA_VERSION,
             "match_run_result": MATCH_RUN_RESULT_SCHEMA_VERSION,
+            "opportunity_semantic_input": SEMANTIC_INPUT_VERSION,
+            "opportunity_enrichment_derivation": DERIVATION_RECIPE_VERSION,
+            "opportunity_llm_acceptance_guards": LLM_ACCEPTANCE_GUARDS_VERSION,
             "score_or_bucket_fields": 0,
         },
         "authority": authority,
@@ -1499,6 +1592,7 @@ def render_markdown(report: dict) -> str:
             f"{item['actual_relationship']} | {fields} |"
         )
     freshness = enrichment["freshness_counts"]
+    freshness_reasons = enrichment["freshness_reason_counts"]
     lines.extend(
         [
             "",
@@ -1508,6 +1602,8 @@ def render_markdown(report: dict) -> str:
             f"- Current enrichments: {freshness['current']} ({percent(enrichment['current_enrichment_coverage'])})",
             f"- Stale enrichments: {freshness['stale']}",
             f"- Missing enrichments: {freshness['missing']}",
+            f"- Contract/recipe stale: {freshness_reasons['contract_recipe_stale']}",
+            f"- Source changed: {freshness_reasons['source_changed']}",
             f"- Current model-enriched documents: {enrichment['model_enriched_current']}",
             f"- Source identity coverage: {percent(enrichment['source_identity_coverage'])} ({enrichment['source_identity_ready_canonicals']}/{enrichment['active_canonical_opportunities']})",
             f"- Rich-source coverage: {percent(enrichment['rich_source_coverage'])} ({enrichment['rich_source_canonicals']}/{enrichment['active_canonical_opportunities']})",
@@ -1517,6 +1613,7 @@ def render_markdown(report: dict) -> str:
             f"- Legacy top-K refs with current enrichments: {enrichment['baseline_shortlist_current_enrichments']}",
             f"- Legacy top-K refs absent from the active canonical snapshot: {enrichment['baseline_shortlist_not_in_active_snapshot']}",
             "",
+            "Freshness compares source input under the row's stored or safely inferred semantic-input contract, independently from derivation compatibility. Reason counts can overlap when both changed.",
             "Only current enrichments contribute structured-field coverage. Stale and missing documents are reported as unavailable.",
             "The minimum packet requires source identity, current structured role/activity, and current responsibility or candidate-profile evidence. The requirement indicator means at least one current structured requirement signal; it is not a claim that all requirements are resolved.",
             "",

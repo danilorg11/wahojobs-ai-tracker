@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS opportunity_enrichments (
   generated_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  semantic_input_version TEXT,
+  derivation_fingerprint TEXT,
 
   FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
     ON DELETE CASCADE
@@ -143,6 +145,8 @@ CREATE TABLE IF NOT EXISTS opportunity_enrichment_runs (
   started_at TEXT NOT NULL,
   finished_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  semantic_input_version TEXT,
+  derivation_fingerprint TEXT,
 
   FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
     ON DELETE CASCADE

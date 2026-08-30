@@ -30,6 +30,48 @@ from wahojobs.matching.taxonomy import CAREER_LEVELS, OCCUPATIONAL_FAMILIES
 SCHEMA_VERSION = "opportunity_enrichment_v2"
 TAXONOMY_VERSION = "opportunity_taxonomy_v2_2026_08"
 EXTRACTOR_VERSION = "deterministic_plus_structured_llm_v1"
+SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v2"
+LEGACY_SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v1"
+DERIVATION_RECIPE_VERSION = "opportunity_enrichment_derivation_v1"
+LLM_ACCEPTANCE_GUARDS_VERSION = "opportunity_llm_acceptance_guards_v1"
+
+STALE_REASON_DERIVATION_CONTRACT_CHANGED = "derivation_contract_changed"
+STALE_REASON_SOURCE_INPUT_CHANGED = "source_input_changed"
+STALE_REASON_MISSING_ENRICHMENT = "missing_enrichment"
+
+# Historical semantic-input projections are immutable contracts.  Keeping both
+# versions literal means a future current-version bump cannot change the bytes
+# used to compare source evidence produced under V1 or V2.
+HISTORICAL_SEMANTIC_INPUT_FIELDS_BY_VERSION = {
+    "opportunity_semantic_input_v1": (
+        "company",
+        "canonical",
+        "source_fields",
+        "variants",
+    ),
+    "opportunity_semantic_input_v2": (
+        "company",
+        "canonical",
+        "source_fields",
+        "variants",
+        "rich_content",
+    ),
+}
+
+# Rows created before semantic-input versioning can only be interpreted from
+# version evidence they actually persisted.  Every key and value in this map
+# is a literal historical fact; neither side may inherit mutable current-version
+# constants.  This does not rewrite or backfill legacy rows.
+LEGACY_SEMANTIC_INPUT_VERSION_BY_EXTRACTOR = {
+    "deterministic_v1": "opportunity_semantic_input_v1",
+    "deterministic_plus_structured_llm_v1": "opportunity_semantic_input_v2",
+}
+# This literal is intentionally not derived from DERIVATION_RECIPE_VERSION: a
+# future recipe bump must make fingerprint-less rows stale instead of silently
+# extending their compatibility claim.
+LEGACY_DERIVATION_RECIPE_VERSION_BY_EXTRACTOR = {
+    "deterministic_plus_structured_llm_v1": "opportunity_enrichment_derivation_v1",
+}
 
 STATUS_COMPLETE = "complete"
 STATUS_PARTIAL = "partial"
@@ -473,8 +515,210 @@ def load_semantic_input(conn, canonical_opportunity_id: int) -> dict:
     }
 
 
-def semantic_input_sha256(semantic_input: dict) -> str:
-    return hashlib.sha256(canonical_json(semantic_input).encode("utf-8")).hexdigest()
+def semantic_input_for_version(semantic_input: dict, version: str) -> dict:
+    """Project current source evidence through an explicit input contract."""
+
+    historical_fields = HISTORICAL_SEMANTIC_INPUT_FIELDS_BY_VERSION.get(version)
+    if historical_fields is not None:
+        return {
+            field: copy.deepcopy(semantic_input[field])
+            for field in historical_fields
+            if field in semantic_input
+        }
+    if version == SEMANTIC_INPUT_VERSION:
+        return copy.deepcopy(semantic_input)
+    raise EnrichmentValidationError(f"Unsupported semantic input version: {version}")
+
+
+def semantic_input_sha256(
+    semantic_input: dict,
+    version: str = SEMANTIC_INPUT_VERSION,
+) -> str:
+    projected = semantic_input_for_version(semantic_input, version)
+    return hashlib.sha256(canonical_json(projected).encode("utf-8")).hexdigest()
+
+
+def derivation_recipe_fingerprint(
+    *,
+    semantic_input_version: str = SEMANTIC_INPUT_VERSION,
+    schema_version: str = SCHEMA_VERSION,
+    taxonomy_version: str = TAXONOMY_VERSION,
+    extractor_version: str = EXTRACTOR_VERSION,
+    model_provider: str | None = None,
+    model_name: str | None = None,
+    prompt_version: str | None = None,
+    recipe_version: str = DERIVATION_RECIPE_VERSION,
+    llm_acceptance_guards_version: str = LLM_ACCEPTANCE_GUARDS_VERSION,
+) -> str:
+    """Hash the recipe independently from the source payload it derives."""
+
+    model_values = (model_provider, model_name, prompt_version)
+    uses_llm = any(value is not None for value in model_values)
+    llm_recipe = None
+    if uses_llm:
+        llm_recipe = {
+            "provider": model_provider,
+            "model": model_name,
+            "prompt_version": prompt_version,
+            "acceptance_guards_version": llm_acceptance_guards_version,
+        }
+    recipe = {
+        "recipe_version": recipe_version,
+        "semantic_input_version": semantic_input_version,
+        "schema_version": schema_version,
+        "taxonomy_version": taxonomy_version,
+        "extractor_version": extractor_version,
+        "llm": llm_recipe,
+    }
+    return hashlib.sha256(canonical_json(recipe).encode("utf-8")).hexdigest()
+
+
+def _persisted_value(row, key):
+    if row is None:
+        return None
+    if type(row) is dict:
+        return row.get(key)
+    try:
+        if key not in row.keys():
+            return None
+        return row[key]
+    except (AttributeError, IndexError, KeyError, TypeError):
+        return None
+
+
+def persisted_semantic_input_version(row) -> tuple[str | None, str]:
+    """Return the stored or safely inferred input version and its evidence basis."""
+
+    explicit = _persisted_value(row, "semantic_input_version")
+    if explicit is not None:
+        if type(explicit) is str and explicit:
+            return explicit, "explicit"
+        return None, "invalid_explicit"
+    inferred = LEGACY_SEMANTIC_INPUT_VERSION_BY_EXTRACTOR.get(
+        _persisted_value(row, "extractor_version")
+    )
+    if inferred is not None:
+        return inferred, "legacy_extractor_mapping"
+    return None, "unknown"
+
+
+def classify_enrichment_freshness(semantic_input: dict, persisted) -> dict:
+    """Attribute freshness to source input and derivation evidence separately."""
+
+    current_input_sha256 = semantic_input_sha256(semantic_input)
+    current_derivation_fingerprint = derivation_recipe_fingerprint()
+    if persisted is None:
+        return {
+            "freshness": "missing",
+            "stale_reasons": [STALE_REASON_MISSING_ENRICHMENT],
+            "current_semantic_input_version": SEMANTIC_INPUT_VERSION,
+            "stored_semantic_input_version": None,
+            "semantic_input_version_basis": "missing",
+            "current_input_sha256": current_input_sha256,
+            "comparable_input_sha256": None,
+            "stored_input_sha256": None,
+            "source_input_status": "missing",
+            "current_derivation_fingerprint": current_derivation_fingerprint,
+            "stored_derivation_fingerprint": None,
+            "derivation_status": "missing",
+            "changed_derivation_components": [],
+        }
+
+    stored_input_version, input_version_basis = persisted_semantic_input_version(
+        persisted
+    )
+    comparable_input_sha256 = None
+    if (
+        stored_input_version in HISTORICAL_SEMANTIC_INPUT_FIELDS_BY_VERSION
+        or stored_input_version == SEMANTIC_INPUT_VERSION
+    ):
+        comparable_input_sha256 = semantic_input_sha256(
+            semantic_input,
+            stored_input_version,
+        )
+    stored_input_sha256 = _persisted_value(persisted, "input_sha256")
+    if comparable_input_sha256 is None:
+        source_input_status = "not_comparable"
+    elif stored_input_sha256 == comparable_input_sha256:
+        source_input_status = "current"
+    else:
+        source_input_status = "changed"
+
+    changed_components = []
+    for field, current_value in (
+        ("semantic_input_version", SEMANTIC_INPUT_VERSION),
+        ("schema_version", SCHEMA_VERSION),
+        ("taxonomy_version", TAXONOMY_VERSION),
+        ("extractor_version", EXTRACTOR_VERSION),
+    ):
+        stored_value = (
+            stored_input_version
+            if field == "semantic_input_version"
+            else _persisted_value(persisted, field)
+        )
+        if stored_value != current_value:
+            changed_components.append(field)
+
+    stored_derivation_fingerprint = _persisted_value(
+        persisted, "derivation_fingerprint"
+    )
+    model_values = tuple(
+        _persisted_value(persisted, field)
+        for field in ("model_provider", "model_name", "prompt_version")
+    )
+    has_model_derivation = any(value is not None for value in model_values)
+    if has_model_derivation:
+        from wahojobs.opportunity_llm import DEFAULT_MODEL, PROMPT_VERSION
+
+        current_derivation_fingerprint = derivation_recipe_fingerprint(
+            model_provider="openai",
+            model_name=DEFAULT_MODEL,
+            prompt_version=PROMPT_VERSION,
+        )
+    if changed_components:
+        derivation_status = "changed"
+    elif stored_derivation_fingerprint is not None:
+        if stored_derivation_fingerprint == current_derivation_fingerprint:
+            derivation_status = "current"
+        else:
+            derivation_status = "changed"
+            changed_components.append("derivation_fingerprint")
+    elif (
+        input_version_basis == "legacy_extractor_mapping"
+        and not has_model_derivation
+        and LEGACY_DERIVATION_RECIPE_VERSION_BY_EXTRACTOR.get(
+            _persisted_value(persisted, "extractor_version")
+        )
+        == DERIVATION_RECIPE_VERSION
+    ):
+        # The stored version tuple is sufficient to accept deterministic legacy
+        # output, but there is deliberately no invented stored fingerprint.
+        derivation_status = "legacy_compatible"
+    else:
+        derivation_status = "unknown"
+        changed_components.append("derivation_fingerprint")
+
+    stale_reasons = []
+    if derivation_status not in {"current", "legacy_compatible"}:
+        stale_reasons.append(STALE_REASON_DERIVATION_CONTRACT_CHANGED)
+    if source_input_status == "changed":
+        stale_reasons.append(STALE_REASON_SOURCE_INPUT_CHANGED)
+    freshness = "current" if not stale_reasons else "stale"
+    return {
+        "freshness": freshness,
+        "stale_reasons": stale_reasons,
+        "current_semantic_input_version": SEMANTIC_INPUT_VERSION,
+        "stored_semantic_input_version": stored_input_version,
+        "semantic_input_version_basis": input_version_basis,
+        "current_input_sha256": current_input_sha256,
+        "comparable_input_sha256": comparable_input_sha256,
+        "stored_input_sha256": stored_input_sha256,
+        "source_input_status": source_input_status,
+        "current_derivation_fingerprint": current_derivation_fingerprint,
+        "stored_derivation_fingerprint": stored_derivation_fingerprint,
+        "derivation_status": derivation_status,
+        "changed_derivation_components": sorted(changed_components),
+    }
 
 
 def extract_deterministic_document(semantic_input: dict) -> dict:
@@ -1479,6 +1723,11 @@ def build_enrichment(semantic_input: dict) -> tuple[str, dict, str]:
 
 
 def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client) -> bool:
+    derivation_fingerprint = derivation_recipe_fingerprint(
+        model_provider=llm_client.provider,
+        model_name=llm_client.model,
+        prompt_version=llm_client.prompt_version,
+    )
     return (
         conn.execute(
             """
@@ -1489,6 +1738,8 @@ def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client) ->
               AND model_provider = ?
               AND model_name = ?
               AND prompt_version = ?
+              AND semantic_input_version = ?
+              AND derivation_fingerprint = ?
             LIMIT 1
             """,
             (
@@ -1497,6 +1748,8 @@ def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client) ->
                 llm_client.provider,
                 llm_client.model,
                 llm_client.prompt_version,
+                SEMANTIC_INPUT_VERSION,
+                derivation_fingerprint,
             ),
         ).fetchone()
         is not None
@@ -1516,15 +1769,21 @@ def record_llm_run(
     error_type=None,
     diagnostic=None,
 ):
+    derivation_fingerprint = derivation_recipe_fingerprint(
+        model_provider=llm_client.provider,
+        model_name=llm_client.model,
+        prompt_version=llm_client.prompt_version,
+    )
     cursor = conn.execute(
         """
         INSERT INTO opportunity_enrichment_runs (
           canonical_opportunity_id, input_sha256, outcome,
           model_provider, model_name, prompt_version, response_id,
           input_tokens, output_tokens, total_tokens, estimated_cost_usd,
-          error_type, started_at, finished_at
+          error_type, started_at, finished_at, semantic_input_version,
+          derivation_fingerprint
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             canonical_opportunity_id,
@@ -1541,6 +1800,8 @@ def record_llm_run(
             error_type,
             started_at,
             finished_at,
+            SEMANTIC_INPUT_VERSION,
+            derivation_fingerprint,
         ),
     )
     conn.execute(
@@ -1614,12 +1875,29 @@ def enrich_canonical_opportunity(
         "SELECT * FROM opportunity_enrichments WHERE canonical_opportunity_id = ?",
         (canonical_opportunity_id,),
     ).fetchone()
+    freshness_evidence = classify_enrichment_freshness(semantic_input, existing)
+    stored_derivation_fingerprint = freshness_evidence[
+        "stored_derivation_fingerprint"
+    ]
+    stored_recipe_fingerprint = None
+    if existing is not None:
+        stored_recipe_fingerprint = derivation_recipe_fingerprint(
+            model_provider=existing["model_provider"],
+            model_name=existing["model_name"],
+            prompt_version=existing["prompt_version"],
+        )
     same_automatic_input = (
         existing is not None
-        and existing["input_sha256"] == input_sha256
+        and freshness_evidence["source_input_status"] == "current"
         and existing["schema_version"] == SCHEMA_VERSION
         and existing["taxonomy_version"] == TAXONOMY_VERSION
         and existing["extractor_version"] == EXTRACTOR_VERSION
+        and freshness_evidence["stored_semantic_input_version"]
+        == SEMANTIC_INPUT_VERSION
+        and (
+            stored_derivation_fingerprint is None
+            or stored_derivation_fingerprint == stored_recipe_fingerprint
+        )
     )
     should_attempt_llm = llm_client is not None and llm_eligible
     if same_automatic_input:
@@ -1651,6 +1929,12 @@ def enrich_canonical_opportunity(
                 "outcome": "unchanged",
                 "status": existing["status"],
                 "input_sha256": input_sha256,
+                "semantic_input_version": freshness_evidence[
+                    "stored_semantic_input_version"
+                ],
+                "derivation_fingerprint": freshness_evidence[
+                    "stored_derivation_fingerprint"
+                ],
                 "document": stored_document,
                 "llm": {
                     "eligible": llm_eligible,
@@ -1737,6 +2021,12 @@ def enrich_canonical_opportunity(
             "outcome": "unchanged",
             "status": existing["status"],
             "input_sha256": input_sha256,
+            "semantic_input_version": freshness_evidence[
+                "stored_semantic_input_version"
+            ],
+            "derivation_fingerprint": freshness_evidence[
+                "stored_derivation_fingerprint"
+            ],
             "document": stored_document,
             "llm": {
                 "eligible": llm_eligible,
@@ -1756,15 +2046,21 @@ def enrich_canonical_opportunity(
         }
 
     document_json = canonical_json(document)
+    derivation_fingerprint = derivation_recipe_fingerprint(
+        model_provider=model_provider,
+        model_name=model_name,
+        prompt_version=prompt_version,
+    )
     outcome = "created" if existing is None else "updated"
     conn.execute(
         """
         INSERT INTO opportunity_enrichments (
           canonical_opportunity_id, schema_version, taxonomy_version,
           extractor_version, input_sha256, status, automatic_document_json,
-          model_provider, model_name, prompt_version, generated_at, updated_at
+          model_provider, model_name, prompt_version, semantic_input_version,
+          derivation_fingerprint, generated_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(canonical_opportunity_id) DO UPDATE SET
           schema_version = excluded.schema_version,
           taxonomy_version = excluded.taxonomy_version,
@@ -1775,6 +2071,8 @@ def enrich_canonical_opportunity(
           model_provider = excluded.model_provider,
           model_name = excluded.model_name,
           prompt_version = excluded.prompt_version,
+          semantic_input_version = excluded.semantic_input_version,
+          derivation_fingerprint = excluded.derivation_fingerprint,
           generated_at = excluded.generated_at,
           updated_at = excluded.updated_at
         """,
@@ -1789,6 +2087,8 @@ def enrich_canonical_opportunity(
             model_provider,
             model_name,
             prompt_version,
+            SEMANTIC_INPUT_VERSION,
+            derivation_fingerprint,
             generated_at,
             generated_at,
         ),
@@ -1798,6 +2098,8 @@ def enrich_canonical_opportunity(
         "outcome": outcome,
         "status": status,
         "input_sha256": input_sha256,
+        "semantic_input_version": SEMANTIC_INPUT_VERSION,
+        "derivation_fingerprint": derivation_fingerprint,
         "document": document,
         "llm": {
             "eligible": llm_eligible,

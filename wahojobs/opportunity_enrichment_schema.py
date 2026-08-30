@@ -11,6 +11,52 @@ import re
 import sqlite3
 
 
+_PRE_VERSIONING_OPPORTUNITY_ENRICHMENTS_STATEMENT = """
+    CREATE TABLE IF NOT EXISTS opportunity_enrichments (
+      canonical_opportunity_id INTEGER PRIMARY KEY,
+      schema_version TEXT NOT NULL,
+      taxonomy_version TEXT NOT NULL,
+      extractor_version TEXT NOT NULL,
+      input_sha256 TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('complete', 'partial', 'failed')),
+      automatic_document_json TEXT NOT NULL,
+      model_provider TEXT,
+      model_name TEXT,
+      prompt_version TEXT,
+      generated_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
+        ON DELETE CASCADE
+    )
+    """
+
+_PRE_VERSIONING_OPPORTUNITY_ENRICHMENT_RUNS_STATEMENT = """
+    CREATE TABLE IF NOT EXISTS opportunity_enrichment_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_opportunity_id INTEGER NOT NULL,
+      input_sha256 TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed')),
+      model_provider TEXT NOT NULL,
+      model_name TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      response_id TEXT,
+      input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+      output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+      total_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
+      estimated_cost_usd REAL CHECK (
+        estimated_cost_usd IS NULL OR estimated_cost_usd >= 0
+      ),
+      error_type TEXT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
+        ON DELETE CASCADE
+    )
+    """
+
+
 OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS job_source_contents (
@@ -52,6 +98,8 @@ OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS = (
       generated_at TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      semantic_input_version TEXT,
+      derivation_fingerprint TEXT,
       FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
         ON DELETE CASCADE
     )
@@ -76,6 +124,8 @@ OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS = (
       started_at TEXT NOT NULL,
       finished_at TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      semantic_input_version TEXT,
+      derivation_fingerprint TEXT,
       FOREIGN KEY (canonical_opportunity_id) REFERENCES canonical_opportunities(id)
         ON DELETE CASCADE
     )
@@ -194,12 +244,41 @@ _EXPECTED_OBJECTS = {
     ),
 }
 
+_PRE_VERSIONING_EXPECTED_OBJECTS = dict(_EXPECTED_OBJECTS)
+_PRE_VERSIONING_EXPECTED_OBJECTS["opportunity_enrichments"] = (
+    "table",
+    "opportunity_enrichments",
+    _PRE_VERSIONING_OPPORTUNITY_ENRICHMENTS_STATEMENT,
+)
+_PRE_VERSIONING_EXPECTED_OBJECTS["opportunity_enrichment_runs"] = (
+    "table",
+    "opportunity_enrichment_runs",
+    _PRE_VERSIONING_OPPORTUNITY_ENRICHMENT_RUNS_STATEMENT,
+)
+
+_CURRENT_PRIOR_RICH_EXPECTED_OBJECTS = {
+    name: expected
+    for name, expected in _EXPECTED_OBJECTS.items()
+    if name != "opportunity_enrichment_run_diagnostics"
+}
+
+_CURRENT_LEGACY_EXPECTED_OBJECTS = {
+    name: _EXPECTED_OBJECTS[name]
+    for name in (
+        "idx_opportunity_enrichment_overrides_canonical",
+        "idx_opportunity_enrichments_status",
+        "opportunity_enrichment_overrides",
+        "opportunity_enrichments",
+        "sqlite_autoindex_opportunity_enrichment_overrides_1",
+    )
+}
+
 # Rich source persistence predates the sanitized run-diagnostics table.  Its
 # exact shape remains accepted so the next normal schema ensure can add the
 # companion table without rewriting existing run history.
 _PRIOR_RICH_EXPECTED_OBJECTS = {
     name: expected
-    for name, expected in _EXPECTED_OBJECTS.items()
+    for name, expected in _PRE_VERSIONING_EXPECTED_OBJECTS.items()
     if name != "opportunity_enrichment_run_diagnostics"
 }
 
@@ -207,7 +286,7 @@ _PRIOR_RICH_EXPECTED_OBJECTS = {
 # It remains an accepted read-only predecessor so upgraded runtimes can open an
 # existing database; the next normal schema ensure adds the four new objects.
 _LEGACY_EXPECTED_OBJECTS = {
-    name: _EXPECTED_OBJECTS[name]
+    name: _PRE_VERSIONING_EXPECTED_OBJECTS[name]
     for name in (
         "idx_opportunity_enrichment_overrides_canonical",
         "idx_opportunity_enrichments_status",
@@ -256,28 +335,43 @@ def attest_opportunity_enrichment_schema_extension(cursor) -> bool:
             actual[name] = (kind, table_name, sql)
     except (UnicodeError, ValueError):
         raise OpportunityEnrichmentSchemaError() from None
-    if set(actual) == set(_EXPECTED_OBJECTS):
-        expected_objects = _EXPECTED_OBJECTS
-    elif set(actual) == set(_PRIOR_RICH_EXPECTED_OBJECTS):
-        expected_objects = _PRIOR_RICH_EXPECTED_OBJECTS
-    elif set(actual) == set(_LEGACY_EXPECTED_OBJECTS):
-        expected_objects = _LEGACY_EXPECTED_OBJECTS
-    else:
+    candidates = [
+        expected_objects
+        for expected_objects in (
+            _EXPECTED_OBJECTS,
+            _PRE_VERSIONING_EXPECTED_OBJECTS,
+            _CURRENT_PRIOR_RICH_EXPECTED_OBJECTS,
+            _PRIOR_RICH_EXPECTED_OBJECTS,
+            _CURRENT_LEGACY_EXPECTED_OBJECTS,
+            _LEGACY_EXPECTED_OBJECTS,
+        )
+        if set(actual) == set(expected_objects)
+    ]
+    if not candidates:
         raise OpportunityEnrichmentSchemaError()
-    for name, (expected_kind, expected_table, expected_sql) in expected_objects.items():
-        kind, table_name, sql = actual[name]
-        if (
-            kind != expected_kind
-            or table_name != expected_table
-            or (
-                sql is not None
-                and expected_sql is not None
-                and _normalize_sql(sql) != _normalize_sql(expected_sql)
-            )
-            or ((sql is None) != (expected_sql is None))
-        ):
-            raise OpportunityEnrichmentSchemaError()
-    return True
+    for expected_objects in candidates:
+        matches = True
+        for name, (
+            expected_kind,
+            expected_table,
+            expected_sql,
+        ) in expected_objects.items():
+            kind, table_name, sql = actual[name]
+            if (
+                kind != expected_kind
+                or table_name != expected_table
+                or (
+                    sql is not None
+                    and expected_sql is not None
+                    and _normalize_sql(sql) != _normalize_sql(expected_sql)
+                )
+                or ((sql is None) != (expected_sql is None))
+            ):
+                matches = False
+                break
+        if matches:
+            return True
+    raise OpportunityEnrichmentSchemaError()
 
 
 def _normalize_sql(value: str) -> str:

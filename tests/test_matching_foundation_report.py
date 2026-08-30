@@ -149,6 +149,14 @@ class MatchingFoundationReportTests(unittest.TestCase):
             "not_assessed",
         )
         self.assertEqual(data["contracts"]["score_or_bucket_fields"], 0)
+        self.assertEqual(
+            data["contracts"]["opportunity_semantic_input"],
+            "opportunity_semantic_input_v2",
+        )
+        self.assertEqual(
+            data["contracts"]["opportunity_enrichment_derivation"],
+            "opportunity_enrichment_derivation_v1",
+        )
 
     def test_freshness_is_explicit_and_stale_fields_do_not_count_as_ready(self):
         data = report.build_report_data(
@@ -162,6 +170,34 @@ class MatchingFoundationReportTests(unittest.TestCase):
         self.assertEqual(
             enrichment["freshness_counts"],
             {"current": 572, "stale": 1958, "missing": 0},
+        )
+        self.assertEqual(
+            enrichment["freshness_reason_counts"],
+            {
+                "current": 572,
+                "contract_recipe_stale": 1958,
+                "source_changed": 0,
+                "missing": 0,
+            },
+        )
+        self.assertEqual(
+            enrichment["source_input_status_counts"],
+            {
+                "current": 2530,
+                "changed": 0,
+                "not_comparable": 0,
+                "missing": 0,
+            },
+        )
+        self.assertEqual(
+            enrichment["derivation_status_counts"],
+            {
+                "current": 0,
+                "legacy_compatible": 572,
+                "changed": 1958,
+                "unknown": 0,
+                "missing": 0,
+            },
         )
         self.assertAlmostEqual(
             enrichment["current_enrichment_coverage"],
