@@ -5,9 +5,13 @@ from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from wahojobs.crawler.types import (
+    BODY_OBSERVATION_EXPLICITLY_EMPTY,
+    BODY_OBSERVATION_NOT_OBSERVED,
+    BODY_OBSERVATION_PRESENT,
     CompanyCrawlResult,
     JobCandidate,
     ProviderOutcome,
+    RecordPromotionAttestation,
 )
 
 
@@ -89,6 +93,7 @@ class GreenhouseBoardConfig:
     root_department_id: int | None = None
     include_content: bool = True
     max_records: int = MAX_RECORDS
+    record_promotion_contract_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -407,6 +412,12 @@ def parse_inventory_record(record, config):
         source_body_format=("text/html" if greenhouse_source_body(record) else None),
         source_metadata=greenhouse_source_metadata(record),
         source_updated_at=updated_at,
+        record_promotion_attestation=greenhouse_record_promotion_attestation(
+            record,
+            config,
+            job_id=job_id,
+            updated_at=updated_at,
+        ),
     )
     return (
         ParsedInventoryJob(
@@ -820,6 +831,9 @@ def enrich_candidates(parsed_by_id, tree):
                 source_body_format=parsed.candidate.source_body_format,
                 source_metadata=parsed.candidate.source_metadata,
                 source_updated_at=parsed.candidate.source_updated_at,
+                record_promotion_attestation=(
+                    parsed.candidate.record_promotion_attestation
+                ),
             )
         )
     return jobs
@@ -845,6 +859,37 @@ def greenhouse_source_metadata(record):
 def greenhouse_source_body(record):
     value = record.get("content")
     return value if isinstance(value, str) and value.strip() else None
+
+
+def greenhouse_record_promotion_attestation(
+    record,
+    config,
+    *,
+    job_id,
+    updated_at,
+):
+    contract_id = config.record_promotion_contract_id
+    if contract_id is None:
+        return None
+    if "content" not in record:
+        body_observation = BODY_OBSERVATION_NOT_OBSERVED
+    elif greenhouse_source_body(record) is None:
+        body_observation = BODY_OBSERVATION_EXPLICITLY_EMPTY
+    else:
+        body_observation = BODY_OBSERVATION_PRESENT
+    return RecordPromotionAttestation(
+        contract_id=contract_id,
+        body_observation=body_observation,
+        authority_evidence={
+            "authoritative_endpoint": build_jobs_url(config),
+            "greenhouse_job_id": job_id,
+            "record_shape": "greenhouse-job-board-v1",
+            "required_record_shape_validated": True,
+            "schema_fingerprint": greenhouse_schema_fingerprint(),
+            "stable_identity_validated": True,
+            "updated_at": updated_at,
+        },
+    )
 
 
 def validate_job_url(url, job_id, config):

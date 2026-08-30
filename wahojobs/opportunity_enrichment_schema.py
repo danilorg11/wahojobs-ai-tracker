@@ -227,6 +227,11 @@ OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS = (
       rejected_record_count INTEGER NOT NULL CHECK (rejected_record_count >= 0),
       payload_shape TEXT NOT NULL DEFAULT '',
       schema_fingerprint TEXT NOT NULL DEFAULT '',
+      record_promotion_contract_id TEXT NOT NULL DEFAULT '',
+      body_observation TEXT NOT NULL DEFAULT 'not_observed' CHECK (
+        body_observation IN ('present', 'explicitly_empty', 'not_observed')
+      ),
+      authority_evidence_json TEXT NOT NULL DEFAULT '{}',
       capture_contract_version TEXT NOT NULL,
       promotion_policy_version TEXT NOT NULL,
       promotion_decision TEXT NOT NULL CHECK (
@@ -287,6 +292,30 @@ OPPORTUNITY_ENRICHMENT_SCHEMA_OBJECTS = (
     "opportunity_enrichments",
     "sqlite_autoindex_job_source_content_captures_1",
     "sqlite_autoindex_opportunity_enrichment_overrides_1",
+)
+
+_RECORD_PROMOTION_CAPTURE_COLUMN_SQL = """
+      record_promotion_contract_id TEXT NOT NULL DEFAULT '',
+      body_observation TEXT NOT NULL DEFAULT 'not_observed' CHECK (
+        body_observation IN ('present', 'explicitly_empty', 'not_observed')
+      ),
+      authority_evidence_json TEXT NOT NULL DEFAULT '{}',
+"""
+_PRE_RECORD_PROMOTION_CAPTURE_STATEMENT = (
+    OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS[9].replace(
+        _RECORD_PROMOTION_CAPTURE_COLUMN_SQL,
+        "",
+    )
+)
+_ALTERED_RECORD_PROMOTION_CAPTURE_STATEMENT = (
+    _PRE_RECORD_PROMOTION_CAPTURE_STATEMENT.replace(
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,",
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+        "record_promotion_contract_id TEXT NOT NULL DEFAULT '', "
+        "body_observation TEXT NOT NULL DEFAULT 'not_observed' CHECK ("
+        "body_observation IN ('present', 'explicitly_empty', 'not_observed')), "
+        "authority_evidence_json TEXT NOT NULL DEFAULT '{}',",
+    )
 )
 
 _EXPECTED_OBJECTS = {
@@ -366,6 +395,19 @@ _EXPECTED_OBJECTS = {
         None,
     ),
 }
+
+_PRE_RECORD_PROMOTION_EXPECTED_OBJECTS = dict(_EXPECTED_OBJECTS)
+_PRE_RECORD_PROMOTION_EXPECTED_OBJECTS["job_source_content_captures"] = (
+    "table",
+    "job_source_content_captures",
+    _PRE_RECORD_PROMOTION_CAPTURE_STATEMENT,
+)
+_ALTERED_RECORD_PROMOTION_EXPECTED_OBJECTS = dict(_EXPECTED_OBJECTS)
+_ALTERED_RECORD_PROMOTION_EXPECTED_OBJECTS["job_source_content_captures"] = (
+    "table",
+    "job_source_content_captures",
+    _ALTERED_RECORD_PROMOTION_CAPTURE_STATEMENT,
+)
 
 _SOURCE_CAPTURE_SCHEMA_OBJECTS = frozenset(
     {
@@ -509,6 +551,8 @@ def attest_opportunity_enrichment_schema_extension(cursor) -> bool:
         expected_objects
         for expected_objects in (
             _EXPECTED_OBJECTS,
+            _PRE_RECORD_PROMOTION_EXPECTED_OBJECTS,
+            _ALTERED_RECORD_PROMOTION_EXPECTED_OBJECTS,
             _PRE_VERSIONING_EXPECTED_OBJECTS,
             _PRE_CAPTURE_EXPECTED_OBJECTS,
             _PRE_CAPTURE_PRE_VERSIONING_EXPECTED_OBJECTS,

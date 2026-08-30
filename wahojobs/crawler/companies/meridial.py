@@ -2,6 +2,7 @@ from wahojobs.crawler.providers.greenhouse import (
     GreenhouseBoardConfig,
     fetch_greenhouse_snapshot,
 )
+from wahojobs.crawler.types import MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID
 
 
 MERIDIAL_GREENHOUSE_CONFIG = GreenhouseBoardConfig(
@@ -14,6 +15,7 @@ MERIDIAL_GREENHOUSE_CONFIG = GreenhouseBoardConfig(
     ),
     api_host="https://boards-api.greenhouse.io",
     root_department_id=4012485101,
+    record_promotion_contract_id=MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID,
 )
 
 

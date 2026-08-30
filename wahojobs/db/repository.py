@@ -49,6 +49,7 @@ from wahojobs.source_capture import (
     EVIDENCE_REASON_PROMOTION_POLICY_CHANGED,
     PROMOTION_DECISION_CONFIRMED,
     PROMOTION_DECISION_PROMOTED,
+    PreparedRecordPromotionAttestation,
     SEMANTIC_AUTHORITY_LEGACY_ACCEPTED,
     SEMANTIC_AUTHORITY_PENDING,
     SEMANTIC_AUTHORITY_VERSIONED_ACCEPTED,
@@ -65,8 +66,10 @@ from wahojobs.source_capture import (
     decide_source_promotion,
     normalize_source_body,
     parse_source_timestamp,
+    prepare_record_promotion_attestation,
     prepare_semantic_source_material,
     prepare_source_capture,
+    prepare_stored_record_promotion_attestation,
     semantic_job_fields_from_row,
     semantic_source_material_sha256,
     source_material_content_sha256,
@@ -436,6 +439,33 @@ def ensure_opportunity_enrichment_schema(conn):
     ensure_job_semantic_authority_column(conn)
     for statement in OPPORTUNITY_ENRICHMENT_SCHEMA_STATEMENTS:
         conn.execute(statement)
+    capture_columns = {
+        row[1]
+        for row in conn.execute(
+            "PRAGMA table_info(job_source_content_captures)"
+        ).fetchall()
+    }
+    record_attestation_columns = (
+        (
+            "record_promotion_contract_id",
+            "TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "body_observation",
+            "TEXT NOT NULL DEFAULT 'not_observed' CHECK ("
+            "body_observation IN ('present', 'explicitly_empty', 'not_observed'))",
+        ),
+        (
+            "authority_evidence_json",
+            "TEXT NOT NULL DEFAULT '{}'",
+        ),
+    )
+    for column, declaration in record_attestation_columns:
+        if column not in capture_columns:
+            conn.execute(
+                "ALTER TABLE job_source_content_captures ADD COLUMN "
+                f"{column} {declaration}"
+            )
     for table in ("opportunity_enrichments", "opportunity_enrichment_runs"):
         columns = {
             row[1]
@@ -674,6 +704,13 @@ def upsert_job_source_content(
             provider=provider,
             source_type=source_type,
         )
+        prepared_attestation = prepare_record_promotion_attestation(
+            candidate,
+            prepared,
+            capture_context,
+            provider=provider,
+            source_type=source_type,
+        )
         accepted = conn.execute(
             "SELECT * FROM job_source_contents WHERE job_id = ?",
             (job_id,),
@@ -687,12 +724,17 @@ def upsert_job_source_content(
             """,
             (job_id,),
         ).fetchone()
-        _accepted_capture, accepted_semantic_hash = _verify_source_acceptance(
+        accepted_capture, accepted_semantic_hash = _verify_source_acceptance(
             conn,
             job_id,
             accepted,
             existing_acceptance,
             job=job,
+        )
+        accepted_attestation = (
+            _prepared_record_attestation_from_row(accepted_capture)
+            if accepted_capture is not None
+            else None
         )
         decision = decide_source_promotion(
             prepared,
@@ -702,6 +744,8 @@ def upsert_job_source_content(
                 accepted_semantic_hash
                 == prepared_semantic.semantic_material_sha256
             ),
+            record_attestation=prepared_attestation,
+            accepted_record_attestation=accepted_attestation,
         )
         if (
             existing_acceptance is None
@@ -733,12 +777,14 @@ def upsert_job_source_content(
               empty_snapshot_validated, raw_record_count,
               normalized_record_count, candidate_count,
               rejected_record_count, payload_shape, schema_fingerprint,
+              record_promotion_contract_id, body_observation,
+              authority_evidence_json,
               capture_contract_version, promotion_policy_version,
               promotion_decision, decision_reasons_json, observed_at
             )
             VALUES (
               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -768,6 +814,9 @@ def upsert_job_source_content(
                 capture_context.rejected_record_count,
                 capture_context.payload_shape,
                 capture_context.schema_fingerprint,
+                prepared_attestation.contract_id,
+                prepared_attestation.body_observation,
+                prepared_attestation.authority_evidence_json,
                 SOURCE_CAPTURE_CONTRACT_VERSION,
                 SOURCE_PROMOTION_POLICY_VERSION,
                 decision.decision,
@@ -1129,6 +1178,14 @@ def _capture_context_from_row(row):
     )
 
 
+def _prepared_record_attestation_from_row(row):
+    return PreparedRecordPromotionAttestation(
+        contract_id=row["record_promotion_contract_id"],
+        body_observation=row["body_observation"],
+        authority_evidence_json=row["authority_evidence_json"],
+    )
+
+
 def _expected_crawl_run_status(context):
     if context.provider_outcome == "contract_drift":
         return "contract_drift"
@@ -1211,6 +1268,29 @@ def _prepared_capture_from_row(row, metadata):
     return prepared
 
 
+def _validated_record_attestation_from_row(row, prepared, context):
+    try:
+        captured_job_fields = json.loads(row["semantic_job_fields_json"])
+        return prepare_stored_record_promotion_attestation(
+            contract_id=row["record_promotion_contract_id"],
+            body_observation=row["body_observation"],
+            authority_evidence_json=row["authority_evidence_json"],
+            candidate=SimpleNamespace(
+                external_id=row["external_id"],
+                title=captured_job_fields["title"],
+                url=row["source_url"],
+            ),
+            prepared=prepared,
+            context=context,
+            provider=row["provider"],
+            source_type=row["source_type"],
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            "Accepted source capture provenance is inconsistent."
+        ) from exc
+
+
 def _captured_semantic_material(job, row, metadata):
     try:
         captured_job_fields = json.loads(row["semantic_job_fields_json"])
@@ -1282,6 +1362,11 @@ def _replay_source_capture_history(conn, job, accepted_capture_id):
         prepared = _prepared_capture_from_row(row, metadata)
         semantic_hash = _captured_semantic_material(job, row, metadata)
         context = _capture_context_from_row(row)
+        record_attestation = _validated_record_attestation_from_row(
+            row,
+            prepared,
+            context,
+        )
         _verify_capture_crawl_provenance(conn, job, row, context)
         decider = SOURCE_PROMOTION_POLICY_DECIDERS.get(
             row["promotion_policy_version"]
@@ -1304,6 +1389,12 @@ def _replay_source_capture_history(conn, job, accepted_capture_id):
             same_accepted_semantic_material=(
                 accepted_state is not None
                 and accepted_state["semantic_material_sha256"] == semantic_hash
+            ),
+            record_attestation=record_attestation,
+            accepted_record_attestation=(
+                accepted_state["record_attestation"]
+                if accepted_state is not None
+                else None
             ),
         )
         if (
@@ -1328,6 +1419,7 @@ def _replay_source_capture_history(conn, job, accepted_capture_id):
                 "source_updated_at": decision.accepted_source_updated_at,
                 "accepted_at": accepted_at,
                 "last_confirmed_at": row["observed_at"],
+                "record_attestation": record_attestation,
             }
 
     if (

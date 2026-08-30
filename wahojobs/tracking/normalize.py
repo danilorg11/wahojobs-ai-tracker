@@ -34,4 +34,5 @@ def with_source_hash(company_slug, candidate):
         source_body_format=candidate.source_body_format,
         source_metadata=candidate.source_metadata,
         source_updated_at=candidate.source_updated_at,
+        record_promotion_attestation=candidate.record_promotion_attestation,
     )

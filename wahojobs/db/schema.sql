@@ -225,6 +225,11 @@ CREATE TABLE IF NOT EXISTS job_source_content_captures (
   rejected_record_count INTEGER NOT NULL CHECK (rejected_record_count >= 0),
   payload_shape TEXT NOT NULL DEFAULT '',
   schema_fingerprint TEXT NOT NULL DEFAULT '',
+  record_promotion_contract_id TEXT NOT NULL DEFAULT '',
+  body_observation TEXT NOT NULL DEFAULT 'not_observed' CHECK (
+    body_observation IN ('present', 'explicitly_empty', 'not_observed')
+  ),
+  authority_evidence_json TEXT NOT NULL DEFAULT '{}',
   capture_contract_version TEXT NOT NULL,
   promotion_policy_version TEXT NOT NULL,
   promotion_decision TEXT NOT NULL CHECK (

@@ -549,7 +549,7 @@ class SafeSourceCaptureTests(unittest.TestCase):
 
         with patch(
             "wahojobs.db.repository.SOURCE_PROMOTION_POLICY_VERSION",
-            "job_source_promotion_v2",
+            "job_source_promotion_v3",
         ):
             evidence = get_job_source_capture_evidence(self.conn, self.job_id)
 
@@ -985,9 +985,13 @@ class SafeSourceCaptureTests(unittest.TestCase):
             ).fetchall()
         }
         self.assertTrue(
-            {"semantic_job_fields_json", "semantic_material_sha256"}.issubset(
-                capture_columns
-            )
+            {
+                "semantic_job_fields_json",
+                "semantic_material_sha256",
+                "record_promotion_contract_id",
+                "body_observation",
+                "authority_evidence_json",
+            }.issubset(capture_columns)
         )
         self.assertEqual(
             self.conn.execute("PRAGMA integrity_check").fetchone()[0],

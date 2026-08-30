@@ -7,12 +7,21 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
-from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
+from wahojobs.crawler.types import (
+    BODY_OBSERVATION_EXPLICITLY_EMPTY,
+    BODY_OBSERVATION_NOT_OBSERVED,
+    BODY_OBSERVATION_PRESENT,
+    BODY_OBSERVATION_STATES,
+    MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID,
+    CompanyCrawlResult,
+    ProviderOutcome,
+)
 
 
 SOURCE_CAPTURE_CONTRACT_VERSION = "job_source_capture_v1"
-SOURCE_PROMOTION_POLICY_VERSION = "job_source_promotion_v1"
+SOURCE_PROMOTION_POLICY_VERSION = "job_source_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
 
 SEMANTIC_AUTHORITY_LEGACY_ACCEPTED = "legacy_accepted"
@@ -78,6 +87,28 @@ REASON_SOURCE_TIMESTAMP_INVALID = "source_timestamp_invalid"
 REASON_SOURCE_TIMESTAMP_MISSING = "source_timestamp_missing"
 REASON_SOURCE_TIMESTAMP_REGRESSED = "source_timestamp_regressed"
 REASON_SOURCE_TIMESTAMP_CONFLICT = "source_timestamp_conflict"
+REASON_BODY_NOT_OBSERVED_CANNOT_REPLACE_BODY = (
+    "body_not_observed_cannot_replace_body"
+)
+REASON_EXPLICIT_EMPTY_CANNOT_REPLACE_BODY = (
+    "explicit_empty_cannot_replace_body"
+)
+REASON_BODY_OBSERVATION_REGRESSED = "body_observation_regressed"
+
+MERIDIAL_GREENHOUSE_SOURCE_TYPE = "greenhouse-job-board-v1"
+MERIDIAL_GREENHOUSE_PAYLOAD_SHAPE = (
+    "greenhouse-job-board-v1:jobs+department-tree"
+)
+MERIDIAL_GREENHOUSE_SCHEMA_FINGERPRINT = (
+    "greenhouse-job-board-v1:sha256:"
+    "c35550b212c2c7ee0a54f6fa770122ec73f99c9b00606561cb8c5b1590d79901"
+)
+MERIDIAL_GREENHOUSE_ENDPOINT = (
+    "https://boards-api.greenhouse.io/v1/boards/agency/jobs?content=true"
+)
+MERIDIAL_GREENHOUSE_JOB_HOSTS = frozenset(
+    {"job-boards.greenhouse.io", "job-boards.eu.greenhouse.io"}
+)
 
 _NUMERIC_TIMESTAMP = re.compile(r"^-?\d+(?:\.\d+)?$")
 _BLOCKED_MARKERS = (
@@ -170,6 +201,17 @@ class PreparedSourceCapture:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedRecordPromotionAttestation:
+    contract_id: str
+    body_observation: str
+    authority_evidence_json: str
+
+    @property
+    def authoritative(self) -> bool:
+        return bool(self.contract_id)
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedSemanticSourceMaterial:
     job_fields_json: str
     semantic_material_sha256: str
@@ -242,6 +284,206 @@ def prepare_source_capture_v1(candidate) -> PreparedSourceCapture:
         source_timestamp_status=timestamp_status,
         comparable_source_timestamp=comparable_timestamp,
     )
+
+
+def prepare_record_promotion_attestation(
+    candidate,
+    prepared: PreparedSourceCapture,
+    context: SourceCaptureContext,
+    *,
+    provider: str,
+    source_type: str,
+) -> PreparedRecordPromotionAttestation:
+    """Validate and canonicalize one provider-issued record attestation."""
+
+    attestation = getattr(candidate, "record_promotion_attestation", None)
+    if attestation is None:
+        return PreparedRecordPromotionAttestation(
+            contract_id="",
+            body_observation=(
+                BODY_OBSERVATION_PRESENT
+                if prepared.body is not None
+                else BODY_OBSERVATION_NOT_OBSERVED
+            ),
+            authority_evidence_json="{}",
+        )
+    try:
+        contract_id = attestation.contract_id
+        body_observation = attestation.body_observation
+        evidence = attestation.authority_evidence
+    except AttributeError as exc:
+        raise ValueError("Malformed record promotion attestation.") from exc
+    evidence_json = canonical_authority_evidence_json(evidence)
+    prepared_attestation = PreparedRecordPromotionAttestation(
+        contract_id=contract_id,
+        body_observation=body_observation,
+        authority_evidence_json=evidence_json,
+    )
+    _validate_record_promotion_attestation(
+        prepared_attestation,
+        candidate,
+        prepared,
+        context,
+        provider=provider,
+        source_type=source_type,
+    )
+    return prepared_attestation
+
+
+def prepare_stored_record_promotion_attestation(
+    *,
+    contract_id,
+    body_observation,
+    authority_evidence_json,
+    candidate,
+    prepared: PreparedSourceCapture,
+    context: SourceCaptureContext,
+    provider: str,
+    source_type: str,
+) -> PreparedRecordPromotionAttestation:
+    """Revalidate persisted evidence without consulting current provider code."""
+
+    if type(contract_id) is not str or type(body_observation) is not str:
+        raise ValueError("Malformed stored record promotion attestation.")
+    if body_observation not in BODY_OBSERVATION_STATES:
+        raise ValueError("Stored body observation is outside the closed contract.")
+    try:
+        evidence = json.loads(authority_evidence_json)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("Stored authority evidence is not valid JSON.") from exc
+    if canonical_authority_evidence_json(evidence) != authority_evidence_json:
+        raise ValueError("Stored authority evidence is not canonical.")
+    prepared_attestation = PreparedRecordPromotionAttestation(
+        contract_id=contract_id,
+        body_observation=body_observation,
+        authority_evidence_json=authority_evidence_json,
+    )
+    if not contract_id:
+        if evidence != {}:
+            raise ValueError("Unattested captures cannot carry authority evidence.")
+        return prepared_attestation
+    _validate_record_promotion_attestation(
+        prepared_attestation,
+        candidate,
+        prepared,
+        context,
+        provider=provider,
+        source_type=source_type,
+    )
+    return prepared_attestation
+
+
+def canonical_authority_evidence_json(evidence: dict) -> str:
+    if type(evidence) is not dict:
+        raise ValueError("Authority evidence must be a dictionary.")
+    try:
+        return json.dumps(
+            evidence,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Authority evidence must be JSON serializable.") from exc
+
+
+def _validate_record_promotion_attestation(
+    attestation: PreparedRecordPromotionAttestation,
+    candidate,
+    prepared: PreparedSourceCapture,
+    context: SourceCaptureContext,
+    *,
+    provider: str,
+    source_type: str,
+) -> None:
+    validator = RECORD_PROMOTION_CONTRACT_VALIDATORS.get(attestation.contract_id)
+    if validator is None:
+        raise ValueError("Unknown record promotion contract_id.")
+    if attestation.body_observation not in BODY_OBSERVATION_STATES:
+        raise ValueError("body_observation is outside the closed contract.")
+    body_present = prepared.body is not None
+    if (attestation.body_observation == BODY_OBSERVATION_PRESENT) != body_present:
+        raise ValueError("body_observation does not match captured body presence.")
+    validator(
+        attestation,
+        candidate,
+        prepared,
+        context,
+        provider=provider,
+        source_type=source_type,
+    )
+
+
+def _validate_meridial_greenhouse_record_v1(
+    attestation: PreparedRecordPromotionAttestation,
+    candidate,
+    prepared: PreparedSourceCapture,
+    context: SourceCaptureContext,
+    *,
+    provider: str,
+    source_type: str,
+) -> None:
+    try:
+        evidence = json.loads(attestation.authority_evidence_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Malformed Meridial Greenhouse authority evidence.") from exc
+    expected_keys = {
+        "authoritative_endpoint",
+        "greenhouse_job_id",
+        "record_shape",
+        "required_record_shape_validated",
+        "schema_fingerprint",
+        "stable_identity_validated",
+        "updated_at",
+    }
+    if set(evidence) != expected_keys:
+        raise ValueError("Meridial Greenhouse authority evidence is not closed.")
+    job_id = evidence["greenhouse_job_id"]
+    if type(job_id) is not int or job_id < 1:
+        raise ValueError("Greenhouse job identity is invalid.")
+    if (
+        provider != "meridial"
+        or source_type != MERIDIAL_GREENHOUSE_SOURCE_TYPE
+        or evidence["authoritative_endpoint"] != MERIDIAL_GREENHOUSE_ENDPOINT
+        or evidence["record_shape"] != MERIDIAL_GREENHOUSE_SOURCE_TYPE
+        or evidence["schema_fingerprint"]
+        != MERIDIAL_GREENHOUSE_SCHEMA_FINGERPRINT
+        or evidence["required_record_shape_validated"] is not True
+        or evidence["stable_identity_validated"] is not True
+        or context.payload_shape != MERIDIAL_GREENHOUSE_PAYLOAD_SHAPE
+        or context.schema_fingerprint != MERIDIAL_GREENHOUSE_SCHEMA_FINGERPRINT
+        or context.candidate_count < 1
+        or context.raw_record_count
+        != context.normalized_record_count + context.rejected_record_count
+        or str(job_id) != candidate.external_id
+        or evidence["updated_at"] != prepared.source_updated_at
+    ):
+        raise ValueError("Meridial Greenhouse authority evidence is inconsistent.")
+    if not isinstance(candidate.title, str) or not candidate.title.strip():
+        raise ValueError("Greenhouse title is not a valid observed record field.")
+    metadata = json.loads(prepared.metadata_json)
+    if (
+        type(metadata.get("departments")) is not list
+        or type(metadata.get("offices")) is not list
+    ):
+        raise ValueError("Greenhouse required record collections are missing.")
+    try:
+        parsed_url = urlparse(candidate.url)
+        port = parsed_url.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Greenhouse stable job URL is malformed.") from exc
+    if (
+        parsed_url.scheme != "https"
+        or (parsed_url.hostname or "").casefold()
+        not in MERIDIAL_GREENHOUSE_JOB_HOSTS
+        or port is not None
+        or parsed_url.username is not None
+        or parsed_url.password is not None
+        or parsed_url.query
+        or parsed_url.fragment
+        or parsed_url.path.rstrip("/") != f"/agency/jobs/{job_id}"
+    ):
+        raise ValueError("Greenhouse stable job identity is inconsistent.")
 
 
 def canonical_source_metadata_json(metadata: dict) -> str:
@@ -391,6 +633,8 @@ def decide_source_promotion_v1(
     accepted_row,
     *,
     same_accepted_semantic_material: bool = False,
+    record_attestation: PreparedRecordPromotionAttestation | None = None,
+    accepted_record_attestation: PreparedRecordPromotionAttestation | None = None,
 ) -> SourcePromotionDecision:
     """Decide whether this capture may replace or reconfirm accepted evidence."""
 
@@ -508,20 +752,157 @@ def decide_source_promotion_v1(
     )
 
 
+def decide_source_promotion_v2(
+    prepared: PreparedSourceCapture,
+    context: SourceCaptureContext,
+    accepted_row,
+    *,
+    same_accepted_semantic_material: bool = False,
+    record_attestation: PreparedRecordPromotionAttestation | None = None,
+    accepted_record_attestation: PreparedRecordPromotionAttestation | None = None,
+) -> SourcePromotionDecision:
+    """Add strict per-record authority while preserving generic V1 behavior."""
+
+    if record_attestation is None or not record_attestation.authoritative:
+        return decide_source_promotion_v1(
+            prepared,
+            context,
+            accepted_row,
+            same_accepted_semantic_material=same_accepted_semantic_material,
+        )
+    if record_attestation.contract_id != MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID:
+        raise ValueError("Promotion policy received an unsupported contract_id.")
+
+    if prepared.quality == CAPTURE_QUALITY_EMPTY:
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_DEGRADED,
+            (REASON_EMPTY_CONTENT,),
+            _accepted_timestamp(accepted_row),
+        )
+    if prepared.quality == CAPTURE_QUALITY_BLOCKED_OR_ERROR:
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_DEGRADED,
+            (REASON_BLOCKED_OR_ERROR_CONTENT,),
+            _accepted_timestamp(accepted_row),
+        )
+
+    record_authority_reasons = []
+    if context.used_sample_data:
+        record_authority_reasons.append(REASON_SAMPLE_DATA)
+    if context.normalized_record_count != context.candidate_count:
+        record_authority_reasons.append(REASON_RECORD_COUNT_MISMATCH)
+    if context.provider_outcome == ProviderOutcome.CONTRACT_DRIFT.value:
+        record_authority_reasons.append(REASON_PROVIDER_OUTCOME_NOT_SUCCESS)
+    if record_authority_reasons:
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_NON_AUTHORITATIVE,
+            tuple(record_authority_reasons),
+            _accepted_timestamp(accepted_row),
+        )
+
+    if prepared.source_timestamp_status != SOURCE_TIMESTAMP_VALID:
+        reason = (
+            REASON_SOURCE_TIMESTAMP_INVALID
+            if prepared.source_timestamp_status == SOURCE_TIMESTAMP_INVALID
+            else REASON_SOURCE_TIMESTAMP_MISSING
+        )
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_SOURCE_CONFLICT,
+            (reason,),
+            _accepted_timestamp(accepted_row),
+        )
+
+    if accepted_row is None:
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_PROMOTED,
+            (),
+            prepared.source_updated_at,
+        )
+
+    accepted_has_body = bool(normalize_source_body(accepted_row["body"]))
+    if accepted_has_body and record_attestation.body_observation != BODY_OBSERVATION_PRESENT:
+        reason = (
+            REASON_EXPLICIT_EMPTY_CANNOT_REPLACE_BODY
+            if record_attestation.body_observation
+            == BODY_OBSERVATION_EXPLICITLY_EMPTY
+            else REASON_BODY_NOT_OBSERVED_CANNOT_REPLACE_BODY
+        )
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_DEGRADED,
+            (reason,),
+            _accepted_timestamp(accepted_row),
+        )
+
+    accepted_status, accepted_timestamp = parse_source_timestamp(
+        _accepted_timestamp(accepted_row)
+    )
+    if (
+        accepted_status == SOURCE_TIMESTAMP_VALID
+        and prepared.comparable_source_timestamp < accepted_timestamp
+    ):
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_SOURCE_CONFLICT,
+            (REASON_SOURCE_TIMESTAMP_REGRESSED,),
+            _accepted_timestamp(accepted_row),
+        )
+
+    same_material = (
+        prepared.material_content_sha256
+        == accepted_row["material_content_sha256"]
+        and same_accepted_semantic_material
+    )
+    if (
+        not accepted_has_body
+        and accepted_record_attestation is not None
+        and accepted_record_attestation.body_observation
+        == BODY_OBSERVATION_EXPLICITLY_EMPTY
+        and record_attestation.body_observation == BODY_OBSERVATION_NOT_OBSERVED
+    ):
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_DEGRADED,
+            (REASON_BODY_OBSERVATION_REGRESSED,),
+            _accepted_timestamp(accepted_row),
+        )
+    if same_material:
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_CONFIRMED,
+            (),
+            prepared.source_updated_at,
+        )
+    if (
+        accepted_status == SOURCE_TIMESTAMP_VALID
+        and prepared.comparable_source_timestamp == accepted_timestamp
+    ):
+        return SourcePromotionDecision(
+            PROMOTION_DECISION_HELD_SOURCE_CONFLICT,
+            (REASON_SOURCE_TIMESTAMP_CONFLICT,),
+            _accepted_timestamp(accepted_row),
+        )
+    return SourcePromotionDecision(
+        PROMOTION_DECISION_PROMOTED,
+        (),
+        prepared.source_updated_at,
+    )
+
+
 # Historical capture and policy implementations are permanently pinned.  A
 # future current-version bump must add a new literal mapping rather than making
 # old captures follow mutable current behavior.
 SOURCE_CAPTURE_CONTRACT_PREPARERS = {
     "job_source_capture_v1": prepare_source_capture_v1,
 }
+RECORD_PROMOTION_CONTRACT_VALIDATORS = {
+    "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
+}
 SOURCE_PROMOTION_POLICY_DECIDERS = {
     "job_source_promotion_v1": decide_source_promotion_v1,
+    "job_source_promotion_v2": decide_source_promotion_v2,
 }
 
 # Current write aliases remain convenient for callers while replay uses the
 # literal historical maps above.
 prepare_source_capture = prepare_source_capture_v1
-decide_source_promotion = decide_source_promotion_v1
+decide_source_promotion = decide_source_promotion_v2
 
 
 def normalize_source_body(value) -> str | None:

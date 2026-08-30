@@ -2,6 +2,20 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+BODY_OBSERVATION_PRESENT = "present"
+BODY_OBSERVATION_EXPLICITLY_EMPTY = "explicitly_empty"
+BODY_OBSERVATION_NOT_OBSERVED = "not_observed"
+BODY_OBSERVATION_STATES = frozenset(
+    {
+        BODY_OBSERVATION_PRESENT,
+        BODY_OBSERVATION_EXPLICITLY_EMPTY,
+        BODY_OBSERVATION_NOT_OBSERVED,
+    }
+)
+
+MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID = "meridial_greenhouse_record_v1"
+
+
 class ProviderOutcome(str, Enum):
     SUCCESS = "success"
     PARTIAL = "partial"
@@ -21,6 +35,23 @@ LEGACY_CONTRACT_WARNING = (
 
 
 @dataclass(frozen=True)
+class RecordPromotionAttestation:
+    """Provider-issued, version-pinned evidence for one observed record."""
+
+    contract_id: str
+    body_observation: str
+    authority_evidence: dict
+
+    def __post_init__(self):
+        if type(self.contract_id) is not str or not self.contract_id.strip():
+            raise ValueError("record promotion contract_id must be non-empty.")
+        if self.body_observation not in BODY_OBSERVATION_STATES:
+            raise ValueError("body_observation is outside the closed contract.")
+        if type(self.authority_evidence) is not dict:
+            raise ValueError("authority_evidence must be a dictionary.")
+
+
+@dataclass(frozen=True)
 class JobCandidate:
     title: str
     location: str
@@ -37,6 +68,7 @@ class JobCandidate:
     source_body_format: str | None = None
     source_metadata: dict | None = None
     source_updated_at: str | None = None
+    record_promotion_attestation: RecordPromotionAttestation | None = None
 
     def __post_init__(self):
         if self.source_body is None and self.source_body_format is not None:
@@ -49,6 +81,21 @@ class JobCandidate:
             raise ValueError("source_body requires a supported source_body_format.")
         if self.source_metadata is not None and type(self.source_metadata) is not dict:
             raise ValueError("source_metadata must be a dictionary or None.")
+        attestation = self.record_promotion_attestation
+        if attestation is not None:
+            if not isinstance(attestation, RecordPromotionAttestation):
+                raise ValueError(
+                    "record_promotion_attestation must use the closed model."
+                )
+            body_present = bool(
+                self.source_body is not None and str(self.source_body).strip()
+            )
+            if (
+                attestation.body_observation == BODY_OBSERVATION_PRESENT
+            ) != body_present:
+                raise ValueError(
+                    "body_observation does not match source_body presence."
+                )
 
 
 @dataclass(frozen=True)
