@@ -1,0 +1,95 @@
+{
+  "schema_version": "matching_semantic_shadow_evaluation_fixture_v1",
+  "fixture_version": 1,
+  "authority": {
+    "profile_representation": "local_synthetic_grounded_profile_facts",
+    "opportunity_semantics": "existing_reviewed_oe_semantic_contract_v0_cases",
+    "quality_claim": "architecture_invariants_only",
+    "production_quality_claimed": false
+  },
+  "profile": {
+    "profile_revision_ref": "profile_revision:semantic_shadow_evaluation",
+    "semantic_terms": [
+      "advanced_degree",
+      "fact_checking",
+      "fluent",
+      "japanese"
+    ],
+    "signals": [
+      {
+        "signal_ref": "profile_signal:evaluation_education",
+        "semantic_kind": "education",
+        "semantic_terms": [
+          "advanced_degree"
+        ]
+      },
+      {
+        "signal_ref": "profile_signal:evaluation_capability",
+        "semantic_kind": "capability",
+        "semantic_terms": [
+          "fact_checking"
+        ]
+      },
+      {
+        "signal_ref": "profile_signal:evaluation_experience",
+        "semantic_kind": "experience",
+        "semantic_terms": [
+          "fact_checking"
+        ]
+      },
+      {
+        "signal_ref": "profile_signal:evaluation_language",
+        "semantic_kind": "language_proficiency",
+        "semantic_terms": [
+          "fluent",
+          "japanese"
+        ]
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "canonical_opportunity_id": 910001,
+      "legacy_rank": 1,
+      "selected_variant_ref": "fixture_variant:910001",
+      "reviewed_semantic_case_id": "advanced_degree_or_professional_standing"
+    },
+    {
+      "canonical_opportunity_id": 910002,
+      "legacy_rank": 2,
+      "selected_variant_ref": "fixture_variant:910002",
+      "reviewed_semantic_case_id": "required_capability_preferred_experience_control"
+    },
+    {
+      "canonical_opportunity_id": 910003,
+      "legacy_rank": 3,
+      "selected_variant_ref": "fixture_variant:910003",
+      "reviewed_semantic_case_id": null
+    },
+    {
+      "canonical_opportunity_id": 910004,
+      "legacy_rank": 4,
+      "selected_variant_ref": "fixture_variant:910004",
+      "reviewed_semantic_case_id": "bilingual_all_required_control"
+    }
+  ],
+  "expected": {
+    "legacy_order": [
+      "canonical_opportunity:910001",
+      "canonical_opportunity:910002",
+      "canonical_opportunity:910003",
+      "canonical_opportunity:910004"
+    ],
+    "semantic_shadow_order": [
+      "canonical_opportunity:910002",
+      "canonical_opportunity:910001",
+      "canonical_opportunity:910003",
+      "canonical_opportunity:910004"
+    ],
+    "preferred_support_changes_order": true,
+    "required_unknown_exclusion_count": 0,
+    "missing_packet_exclusion_count": 0,
+    "semantic_negative_ranking_factor_count": 0,
+    "survivor_count": 4
+  }
+}
