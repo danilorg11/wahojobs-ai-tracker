@@ -190,6 +190,56 @@ The result also carries an invariant proof and an isolation block declaring
 that runtime, `/find-matches`, candidate UI, lifecycle/trust, profile mutation,
 database persistence, network, and model consumption are unauthorized.
 
+### Provider-facing grounding closure
+
+An authorized live evaluation uses
+`wahojobs_semantic_shadow_grounding_request_v1` rather than exposing repository
+reference serialization to the provider. Each request creates a closed,
+request-local catalog:
+
+- `J###` identifies one supplied opportunity for that request;
+- `P###` identifies one atomic minimized profile fact or explicit grounding
+  limitation;
+- `O###` identifies one opportunity proposition, bounded relation/group,
+  accepted evidence excerpt, or variant scope object.
+
+The provider sees each opaque ID and its immutable structured meaning. Canonical
+opportunity paths, proposition/group IDs, evidence IDs, source hashes, packet
+hashes, and merge-back identities remain local. The strict response schema
+enumerates the exact request-local IDs, and local validation independently
+rejects invented IDs, serialized paths, duplicate IDs, and references belonging
+to another opportunity.
+
+Evidence-bearing output is structured rather than prose. The provider-visible
+schema preserves the catalog role of every opportunity reference through
+separate `proposition_reference_ids`, `group_reference_ids`,
+`evidence_reference_ids`, and `scope_reference_ids` fields. Every material
+finding also carries grounded `profile_reference_ids`, a closed relationship
+type, a finding type, and a non-numeric ranking effect. At least one proposition
+is mandatory, and a proposition in a bounded relation must carry exactly its
+group references. Evidence excerpts and scope material may corroborate or
+qualify a finding, but cannot substitute for proposition/group semantic
+grounding or promote raw evidence into semantic truth. Domain context is
+explicitly non-ranking; language or domain evidence cannot establish education;
+and only matching semantic dimensions may form positive support. Free-form
+evidentiary claims are not part of the output contract.
+
+The strict output schema is mode-specific. `relative_reranking` retains closed
+ordering groups over all request opportunities. In
+`single_opportunity_assessment`, `relative_ordering_groups` is structurally
+constrained to zero items, so a one-packet assessment cannot emit a relative
+rank claim. The local validator independently enforces the same reference-role,
+opportunity-ownership, relation-completeness, missingness, ranking-mode,
+authority, and variant-scope rules.
+
+Missingness states are permanently distinct: `not_grounded`, `not_specified`,
+`unknown`, `unresolved`, and `unavailable`. None asserts factual absence or
+negative fit. Missing profile entries cannot participate in findings. Incomplete
+or unresolved opportunity material can appear only as partial alignment with a
+matching structured, non-negative uncertainty. A survivor with no positive
+support can only remain in the final equivalence group alongside all other
+zero-support survivors; absence itself is never a negative sort factor.
+
 ## Offline evaluation
 
 `scripts/semantic_matching_shadow_report.py --verify` reads only local fixtures.
