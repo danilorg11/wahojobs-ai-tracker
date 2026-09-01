@@ -1,0 +1,1666 @@
+{
+  "fixture_version": "oe_semantic_contract_gold_v0",
+  "cases": [
+    {
+      "id": "advanced_degree_or_professional_standing",
+      "family": "mixed_kind_education_alternative",
+      "review_note": "The accepted source states an OR. Neither branch may become a standalone hard gate.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:641:elite-domain-mastery",
+          "authority": "accepted_capture",
+          "text": "Consultant Profile: Who We Are Looking To Partner With We are seeking independent business owners, freelancers, and academic leaders who possess: Elite Domain Mastery: Advanced degrees (PhD, MD, JD) or equivalent industry-recognized status (e.g., Senior Principal Engineer, Published Author, Award-Winning Creative).",
+          "text_sha256": "901a8efd6997fc47e11e73d984012f173de7a7c559c02897e198a3f917e38307",
+          "provenance": {
+            "accepted_capture_id": 641,
+            "job_id": 259,
+            "material_content_sha256": "1aa407708df81159a8676dd8870a7ee7ada0ee6703345fd98ea1bcbac83ac883",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4773890101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "advanced_degree",
+            "subject": "candidate",
+            "kind": "education",
+            "typed_payload": {
+              "level": "advanced_degree"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:641:elite-domain-mastery",
+                "start": 0,
+                "end": 316,
+                "quote": "Consultant Profile: Who We Are Looking To Partner With We are seeking independent business owners, freelancers, and academic leaders who possess: Elite Domain Mastery: Advanced degrees (PhD, MD, JD) or equivalent industry-recognized status (e.g., Senior Principal Engineer, Published Author, Award-Winning Creative)."
+              }
+            ]
+          },
+          {
+            "id": "industry_standing",
+            "subject": "candidate",
+            "kind": "professional_standing",
+            "typed_payload": {
+              "standing": "industry_recognized"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:641:elite-domain-mastery",
+                "start": 0,
+                "end": 316,
+                "quote": "Consultant Profile: Who We Are Looking To Partner With We are seeking independent business owners, freelancers, and academic leaders who possess: Elite Domain Mastery: Advanced degrees (PhD, MD, JD) or equivalent industry-recognized status (e.g., Senior Principal Engineer, Published Author, Award-Winning Creative)."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "advanced_degree"
+                ]
+              },
+              {
+                "all_of": [
+                  "industry_standing"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "logical_shape_not_representable"
+        ],
+        "knowledge_by_kind": {
+          "education": "grounded_unprojected",
+          "professional_standing": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "current_owner_operator_or_manager",
+      "family": "current_professional_status",
+      "review_note": "Active status is current, not historical experience; the OR is retained.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:776:owner-operator-manager",
+          "authority": "accepted_capture",
+          "text": "Core skillset includes: Demonstrable professional expertise as an active owner, operator, or primary manager of a business within the food/beverage, lodging, local service, or retail shopping sectors.",
+          "text_sha256": "e655daf0e3a6ed88872503b0907aa5bc9ef46eb76cd720e8be522da7dbd4d4fa",
+          "provenance": {
+            "accepted_capture_id": 776,
+            "job_id": 159,
+            "material_content_sha256": "6e5274f9cfed9bec3e3d82147b702fbf44cdd1de76755bdf84d321547779df0d",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4864072101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "active_owner",
+            "subject": "candidate",
+            "kind": "professional_status",
+            "typed_payload": {
+              "status": "owner",
+              "scope": "business"
+            },
+            "polarity": "affirmed",
+            "temporal": "current",
+            "evidence": [
+              {
+                "source_id": "accepted:776:owner-operator-manager",
+                "start": 0,
+                "end": 200,
+                "quote": "Core skillset includes: Demonstrable professional expertise as an active owner, operator, or primary manager of a business within the food/beverage, lodging, local service, or retail shopping sectors."
+              }
+            ]
+          },
+          {
+            "id": "active_operator",
+            "subject": "candidate",
+            "kind": "professional_status",
+            "typed_payload": {
+              "status": "operator",
+              "scope": "business"
+            },
+            "polarity": "affirmed",
+            "temporal": "current",
+            "evidence": [
+              {
+                "source_id": "accepted:776:owner-operator-manager",
+                "start": 0,
+                "end": 200,
+                "quote": "Core skillset includes: Demonstrable professional expertise as an active owner, operator, or primary manager of a business within the food/beverage, lodging, local service, or retail shopping sectors."
+              }
+            ]
+          },
+          {
+            "id": "active_primary_manager",
+            "subject": "candidate",
+            "kind": "professional_status",
+            "typed_payload": {
+              "status": "primary_manager",
+              "scope": "business"
+            },
+            "polarity": "affirmed",
+            "temporal": "current",
+            "evidence": [
+              {
+                "source_id": "accepted:776:owner-operator-manager",
+                "start": 0,
+                "end": 200,
+                "quote": "Core skillset includes: Demonstrable professional expertise as an active owner, operator, or primary manager of a business within the food/beverage, lodging, local service, or retail shopping sectors."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "active_owner"
+                ]
+              },
+              {
+                "all_of": [
+                  "active_operator"
+                ]
+              },
+              {
+                "all_of": [
+                  "active_primary_manager"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "logical_shape_not_representable"
+        ],
+        "knowledge_by_kind": {
+          "professional_status": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "current_consultant_or_freelancer",
+      "family": "current_professional_status",
+      "review_note": "Current independent practice is status, not prior experience.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:641:professional-autonomy",
+          "authority": "accepted_capture",
+          "text": "Professional Autonomy: You currently operate as an independent consultant or freelancer and have your own workflows, equipment, and professional methodology.",
+          "text_sha256": "34a8613a652fec30117e2bc1b7af56cea7dce2a4a56d58d8ff7e108ec39d12b4",
+          "provenance": {
+            "accepted_capture_id": 641,
+            "job_id": 259,
+            "material_content_sha256": "1aa407708df81159a8676dd8870a7ee7ada0ee6703345fd98ea1bcbac83ac883",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4773890101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "independent_consultant",
+            "subject": "candidate",
+            "kind": "professional_status",
+            "typed_payload": {
+              "status": "independent_consultant",
+              "scope": "professional_practice"
+            },
+            "polarity": "affirmed",
+            "temporal": "current",
+            "evidence": [
+              {
+                "source_id": "accepted:641:professional-autonomy",
+                "start": 0,
+                "end": 157,
+                "quote": "Professional Autonomy: You currently operate as an independent consultant or freelancer and have your own workflows, equipment, and professional methodology."
+              }
+            ]
+          },
+          {
+            "id": "freelancer",
+            "subject": "candidate",
+            "kind": "professional_status",
+            "typed_payload": {
+              "status": "freelancer",
+              "scope": "professional_practice"
+            },
+            "polarity": "affirmed",
+            "temporal": "current",
+            "evidence": [
+              {
+                "source_id": "accepted:641:professional-autonomy",
+                "start": 0,
+                "end": 157,
+                "quote": "Professional Autonomy: You currently operate as an independent consultant or freelancer and have your own workflows, equipment, and professional methodology."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "independent_consultant"
+                ]
+              },
+              {
+                "all_of": [
+                  "freelancer"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "logical_shape_not_representable"
+        ],
+        "knowledge_by_kind": {
+          "professional_status": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "professional_license_with_jurisdiction",
+      "family": "professional_credential",
+      "review_note": "A jurisdiction-bound professional credential remains distinct and unprojected when legacy output cannot retain jurisdiction or by-start timing.",
+      "evidence_catalog": [
+        {
+          "id": "review:credential:us-license-by-start",
+          "authority": "accepted_review_checkpoint",
+          "text": "A professional license in the United States is required by the engagement start.",
+          "text_sha256": "9f6ca4970608e4b14b4d679d889604f53730fad9e6bf4afbc4be3e98f34d050d",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "professional_license_with_jurisdiction"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "us_professional_license",
+            "subject": "candidate",
+            "kind": "professional_credential",
+            "typed_payload": {
+              "credential": "professional_license",
+              "jurisdiction": "united_states"
+            },
+            "polarity": "affirmed",
+            "temporal": "by_start",
+            "evidence": [
+              {
+                "source_id": "review:credential:us-license-by-start",
+                "start": 0,
+                "end": 80,
+                "quote": "A professional license in the United States is required by the engagement start."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "us_professional_license"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "credential_jurisdiction_not_legacy_projectable"
+        ],
+        "knowledge_by_kind": {
+          "professional_credential": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "contractor_registration",
+      "family": "regulatory_registration",
+      "review_note": "Registration is grounded but is not silently relabeled as a license or certification.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:641:contractor-registration",
+          "authority": "accepted_capture",
+          "text": "Global Compliance: Candidates must be properly registered to operate as independent contractors in their country of residence.",
+          "text_sha256": "8ae9dce1969c7da285970437bd96d48c6a5e6322736e0b18d3683f7b281fa4fb",
+          "provenance": {
+            "accepted_capture_id": 641,
+            "job_id": 259,
+            "material_content_sha256": "1aa407708df81159a8676dd8870a7ee7ada0ee6703345fd98ea1bcbac83ac883",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4773890101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "contractor_registration",
+            "subject": "candidate",
+            "kind": "regulatory_registration",
+            "typed_payload": {
+              "registration": "contractor_registration",
+              "jurisdiction": "candidate_jurisdiction"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:641:contractor-registration",
+                "start": 0,
+                "end": 126,
+                "quote": "Global Compliance: Candidates must be properly registered to operate as independent contractors in their country of residence."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "contractor_registration"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "regulatory_registration_has_no_exact_legacy_field"
+        ],
+        "knowledge_by_kind": {
+          "regulatory_registration": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "independent_work_authorization",
+      "family": "work_authorization",
+      "review_note": "A candidate-side authorization proposition is not converted into an eligibility decision or location gate.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:444:independent-authorization",
+          "authority": "accepted_capture",
+          "text": "By expressing interest in and accepting a Statement of Work (SOW), contractors confirm they are independently authorized to perform deliverables in their jurisdiction without sponsorship or support from Invisible.",
+          "text_sha256": "744732d0fb38b09f58db8955695c5c06979b6de8d7f90e00c2e4f4853d92f0ff",
+          "provenance": {
+            "accepted_capture_id": 444,
+            "job_id": 558,
+            "material_content_sha256": "6d9420e6c697063270baaf2e02e17a02d72d2c4182a4fc3aa85bf6ba519478ea",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4677212101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "independent_authorization",
+            "subject": "candidate",
+            "kind": "work_authorization",
+            "typed_payload": {
+              "authorization": "independent_without_sponsorship",
+              "jurisdiction": "candidate_jurisdiction"
+            },
+            "polarity": "affirmed",
+            "temporal": "current",
+            "evidence": [
+              {
+                "source_id": "accepted:444:independent-authorization",
+                "start": 0,
+                "end": 213,
+                "quote": "By expressing interest in and accepting a Statement of Work (SOW), contractors confirm they are independently authorized to perform deliverables in their jurisdiction without sponsorship or support from Invisible."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "independent_authorization"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "kind_not_legacy_projectable"
+        ],
+        "knowledge_by_kind": {
+          "work_authorization": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "required_asset_access",
+      "family": "asset_access",
+      "review_note": "Asset possession and management remains grounded and is never relabeled as professional status.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:776:google-business-profile",
+          "authority": "accepted_capture",
+          "text": "Required Asset: Must currently possess and actively manage a verified Google Business Profile associated with your enterprise.",
+          "text_sha256": "66b3913509dd84728990ee7b3cb8213306b8c02b9c079e6672526d277646ebad",
+          "provenance": {
+            "accepted_capture_id": 776,
+            "job_id": 159,
+            "material_content_sha256": "6e5274f9cfed9bec3e3d82147b702fbf44cdd1de76755bdf84d321547779df0d",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4864072101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "google_profile",
+            "subject": "candidate",
+            "kind": "asset_access",
+            "typed_payload": {
+              "asset": "google_business_profile",
+              "relation": "possess_and_manage"
+            },
+            "polarity": "affirmed",
+            "temporal": "current",
+            "evidence": [
+              {
+                "source_id": "accepted:776:google-business-profile",
+                "start": 0,
+                "end": 126,
+                "quote": "Required Asset: Must currently possess and actively manage a verified Google Business Profile associated with your enterprise."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "google_profile"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "asset_access_has_no_exact_legacy_field"
+        ],
+        "knowledge_by_kind": {
+          "asset_access": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "sports_background_or_interest",
+      "family": "mixed_kind_background_interest",
+      "review_note": "Historical background and present interest remain OR alternatives; experience is not made mandatory.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:437:sports-alternative",
+          "authority": "accepted_capture",
+          "text": "A background or strong interest in the sports industry is required.",
+          "text_sha256": "3245630618ace4f313a721c67ef1983b0278c128f8b0b7b223f026f8871486a9",
+          "provenance": {
+            "accepted_capture_id": 437,
+            "job_id": 78,
+            "material_content_sha256": "c2fc56b790eae1ec3f13017f4a08cea38c04cd328e4e62ff867700f7956489b8",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4675669101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "sports_background",
+            "subject": "candidate",
+            "kind": "experience",
+            "typed_payload": {
+              "area": "sports_industry"
+            },
+            "polarity": "affirmed",
+            "temporal": "prior",
+            "evidence": [
+              {
+                "source_id": "accepted:437:sports-alternative",
+                "start": 0,
+                "end": 67,
+                "quote": "A background or strong interest in the sports industry is required."
+              }
+            ]
+          },
+          {
+            "id": "sports_interest",
+            "subject": "candidate",
+            "kind": "interest_involvement",
+            "typed_payload": {
+              "domain": "sports",
+              "relation": "strong_interest"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:437:sports-alternative",
+                "start": 0,
+                "end": 67,
+                "quote": "A background or strong interest in the sports industry is required."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "sports_background"
+                ]
+              },
+              {
+                "all_of": [
+                  "sports_interest"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "logical_shape_not_representable"
+        ],
+        "knowledge_by_kind": {
+          "experience": "grounded_unprojected",
+          "interest_involvement": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "dialect_expertise_and_language_locale",
+      "family": "language_locale_dialect_identity",
+      "review_note": "Dialect expertise retains language, locale, and expertise type; language proficiency remains grounded because legacy output cannot carry proficiency.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:439:traditional-chinese-taiwan",
+          "authority": "accepted_capture",
+          "text": "Fluency in Traditional Chinese (Taiwan) is required, with strong reading and writing skills.",
+          "text_sha256": "03afe474556ac4ee06e215b6f836b4230159be235ade614359ae5a208df666ee",
+          "provenance": {
+            "accepted_capture_id": 439,
+            "job_id": 554,
+            "material_content_sha256": "96b54b93da72dbe3505d7d3d80f18626fb6a86e214ec9451b6a6fdb9bcdb4b8d",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4676514101"
+          }
+        },
+        {
+          "id": "review:dialect:cordobes-required",
+          "authority": "accepted_review_checkpoint",
+          "text": "Cordobes dialect expertise is required.",
+          "text_sha256": "d17055f2ea94b7487fc83c394fe05f4fcc9b923c14871dff482fc469f7ed4042",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "dialect_expertise_and_language_locale"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "chinese_taiwan",
+            "subject": "candidate",
+            "kind": "language_proficiency",
+            "typed_payload": {
+              "language": "chinese",
+              "locale": "taiwan",
+              "proficiency": "fluent"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:439:traditional-chinese-taiwan",
+                "start": 0,
+                "end": 92,
+                "quote": "Fluency in Traditional Chinese (Taiwan) is required, with strong reading and writing skills."
+              }
+            ]
+          },
+          {
+            "id": "cordobes_dialect",
+            "subject": "candidate",
+            "kind": "locale_dialect_expertise",
+            "typed_payload": {
+              "language": "spanish",
+              "locale": "cordobes",
+              "expertise": "dialect"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:dialect:cordobes-required",
+                "start": 0,
+                "end": 39,
+                "quote": "Cordobes dialect expertise is required."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "chinese_taiwan"
+                ]
+              }
+            ]
+          },
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "cordobes_dialect"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {
+          "attributes": {
+            "requirements": {
+              "skills_required": [
+                "Spanish (Cordobes) dialect expertise"
+              ]
+            }
+          }
+        },
+        "group_states": [
+          "grounded_unprojected",
+          "projected"
+        ],
+        "group_reasons": [
+          "language_proficiency_not_losslessly_legacy_projectable",
+          null
+        ],
+        "knowledge_by_kind": {
+          "language_proficiency": "grounded_unprojected",
+          "locale_dialect_expertise": "grounded_projected"
+        }
+      }
+    },
+    {
+      "id": "latex_capability_without_math_domain",
+      "family": "capability_domain_separation",
+      "review_note": "LaTeX/typesetting is a capability. Mathematical formatting does not manufacture mathematics expertise.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:274:latex-typesetting",
+          "authority": "accepted_capture",
+          "text": "We’re looking for LaTeX specialists who live and breathe document typesetting, mathematical formatting, bibliographic management, package customization, template development, and cross-referencing techniques.",
+          "text_sha256": "2c83e051a477a81717804c2534202da1fbadc0a84a69170275fbc7bde303f087",
+          "provenance": {
+            "accepted_capture_id": 274,
+            "job_id": 278,
+            "material_content_sha256": "9439982cac8cd0c94278193aab3e824676212798140158fdf9dbee1457104528",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4651798101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "latex_typesetting",
+            "subject": "candidate",
+            "kind": "capability",
+            "typed_payload": {
+              "capability": "latex_typesetting"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:274:latex-typesetting",
+                "start": 0,
+                "end": 208,
+                "quote": "We’re looking for LaTeX specialists who live and breathe document typesetting, mathematical formatting, bibliographic management, package customization, template development, and cross-referencing techniques."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "latex_typesetting"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {
+          "attributes": {
+            "requirements": {
+              "skills_required": [
+                "LaTeX/typesetting"
+              ]
+            }
+          }
+        },
+        "group_states": [
+          "projected"
+        ],
+        "group_reasons": [
+          null
+        ],
+        "knowledge_by_kind": {
+          "capability": "grounded_projected",
+          "domain_expertise": "unknown"
+        }
+      }
+    },
+    {
+      "id": "finance_and_insurance_domain_expertise",
+      "family": "domain_expertise_conjunction",
+      "review_note": "Both named expertise domains remain a grounded conjunction; the compatibility layer does not flatten the group into unrelated legacy fields.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:750:finance-insurance-expertise",
+          "authority": "accepted_capture",
+          "text": "Core skillset includes: Demonstrable professional expertise within the Finance and Insurance sectors, with a deep understanding of industry standards, terminology, and high-level deliverables.",
+          "text_sha256": "5d34c6a4fee78e60966369d27317d213c4fd40acfcfc972ce7cb4a35bab3d774",
+          "provenance": {
+            "accepted_capture_id": 750,
+            "job_id": 360,
+            "material_content_sha256": "6d9cb030128d0ceb0411c3acbb2abdb6281167df98788d49abf66ecea1c644e5",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4842757101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "finance_expertise",
+            "subject": "candidate",
+            "kind": "domain_expertise",
+            "typed_payload": {"domain": "finance"},
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [{"source_id": "accepted:750:finance-insurance-expertise", "start": 0, "end": 192, "quote": "Core skillset includes: Demonstrable professional expertise within the Finance and Insurance sectors, with a deep understanding of industry standards, terminology, and high-level deliverables."}]
+          },
+          {
+            "id": "insurance_expertise",
+            "subject": "candidate",
+            "kind": "domain_expertise",
+            "typed_payload": {"domain": "insurance"},
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [{"source_id": "accepted:750:finance-insurance-expertise", "start": 0, "end": 192, "quote": "Core skillset includes: Demonstrable professional expertise within the Finance and Insurance sectors, with a deep understanding of industry standards, terminology, and high-level deliverables."}]
+          }
+        ],
+        "constraint_groups": [{"modality": "required", "any_of": [{"all_of": ["finance_expertise", "insurance_expertise"]}]}]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": ["grounded_unprojected"],
+        "group_reasons": ["logical_shape_not_representable"],
+        "knowledge_by_kind": {"domain_expertise": "grounded_unprojected"}
+      }
+    },
+    {
+      "id": "generic_qa_fact_checking",
+      "family": "role_activity_artifact_precision",
+      "review_note": "QA and fact-checking over generated tasks/scoring criteria are not software testing.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:750:qa-fact-checking",
+          "authority": "accepted_capture",
+          "text": "Quality Assurance & Fact-Checking: Ensuring all generated tasks and scoring criteria reflect strict, real-world industry standards and regulatory realities.",
+          "text_sha256": "92cc93adbb73b32918f5a7449d3837c74211739a329f6243cddc1c193e9c3c20",
+          "provenance": {
+            "accepted_capture_id": 750,
+            "job_id": 360,
+            "material_content_sha256": "6d9cb030128d0ceb0411c3acbb2abdb6281167df98788d49abf66ecea1c644e5",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4842757101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "quality_assurance",
+            "subject": "role",
+            "kind": "role_activity",
+            "typed_payload": {
+              "activity": "quality_assurance",
+              "artifact": "generated_task"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:750:qa-fact-checking",
+                "start": 0,
+                "end": 156,
+                "quote": "Quality Assurance & Fact-Checking: Ensuring all generated tasks and scoring criteria reflect strict, real-world industry standards and regulatory realities."
+              }
+            ]
+          },
+          {
+            "id": "fact_checking",
+            "subject": "role",
+            "kind": "role_activity",
+            "typed_payload": {
+              "activity": "fact_checking",
+              "artifact": "scoring_criteria"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:750:qa-fact-checking",
+                "start": 0,
+                "end": 156,
+                "quote": "Quality Assurance & Fact-Checking: Ensuring all generated tasks and scoring criteria reflect strict, real-world industry standards and regulatory realities."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "descriptive",
+            "any_of": [
+              {
+                "all_of": [
+                  "quality_assurance",
+                  "fact_checking"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "logical_shape_not_representable"
+        ],
+        "knowledge_by_kind": {
+          "role_activity": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "genuine_software_testing",
+      "family": "role_activity_artifact_precision",
+      "review_note": "Both a testing action and a software/platform artifact are directly evidenced.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:776:platform-feature-testing",
+          "authority": "accepted_capture",
+          "text": "Expected deliverables include: Feature Testing & UX Evaluation: Independently testing newly deployed platform features, digital storefront tools, or AI recommendations designed for local business management and customer engagement.",
+          "text_sha256": "65edaf684210fb792fd1443d4cb0bd3f50231cdfcc02700652315b23e0d148a6",
+          "provenance": {
+            "accepted_capture_id": 776,
+            "job_id": 159,
+            "material_content_sha256": "6e5274f9cfed9bec3e3d82147b702fbf44cdd1de76755bdf84d321547779df0d",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4864072101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "platform_testing",
+            "subject": "role",
+            "kind": "role_activity",
+            "typed_payload": {
+              "activity": "software_testing",
+              "artifact": "platform_feature"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:776:platform-feature-testing",
+                "start": 0,
+                "end": 231,
+                "quote": "Expected deliverables include: Feature Testing & UX Evaluation: Independently testing newly deployed platform features, digital storefront tools, or AI recommendations designed for local business management and customer engagement."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "descriptive",
+            "any_of": [
+              {
+                "all_of": [
+                  "platform_testing"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "role_activity_artifact_not_legacy_projectable"
+        ],
+        "knowledge_by_kind": {
+          "role_activity": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "genuine_historical_experience",
+      "family": "experience_temporal_semantics",
+      "review_note": "Explicit historical experience remains prior and projects to the experience family.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:294:litigation-experience",
+          "authority": "accepted_capture",
+          "text": "Significant litigation experience—whether in trial, appellate, or complex dispute resolution—is expected.",
+          "text_sha256": "2b9ee44cbd5f8a1840841bce80bb78eea339a82d1b988fd9579805b3d26c646d",
+          "provenance": {
+            "accepted_capture_id": 294,
+            "job_id": 740,
+            "material_content_sha256": "62bbb6e82184fddc7f60f873697680281b312ff79886ccc3d0a2c278a6233931",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4654185101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "litigation_experience",
+            "subject": "candidate",
+            "kind": "experience",
+            "typed_payload": {
+              "area": "litigation"
+            },
+            "polarity": "affirmed",
+            "temporal": "prior",
+            "evidence": [
+              {
+                "source_id": "accepted:294:litigation-experience",
+                "start": 0,
+                "end": 105,
+                "quote": "Significant litigation experience—whether in trial, appellate, or complex dispute resolution—is expected."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "litigation_experience"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {
+          "attributes": {
+            "requirements": {
+              "experience_required": [
+                "Litigation experience"
+              ]
+            }
+          }
+        },
+        "group_states": [
+          "projected"
+        ],
+        "group_reasons": [
+          null
+        ],
+        "knowledge_by_kind": {
+          "experience": "grounded_projected"
+        }
+      }
+    },
+    {
+      "id": "required_capability_preferred_experience_control",
+      "family": "required_preferred_and_temporal_control",
+      "review_note": "A current required capability and preferred prior experience remain distinct typed propositions and legacy paths.",
+      "evidence_catalog": [
+        {
+          "id": "review:control:fact-check-capability",
+          "authority": "accepted_review_checkpoint",
+          "text": "Fact-checking capability is required.",
+          "text_sha256": "8ae8c2ea1c3f7c212b33a5acbf27e83fad22ef65b585796f3ce1a176563d41d8",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "required_capability_preferred_experience_control"
+          }
+        },
+        {
+          "id": "review:control:fact-check-experience",
+          "authority": "accepted_review_checkpoint",
+          "text": "Prior fact-checking experience is preferred.",
+          "text_sha256": "dd09bdda4c7645c068969e2fd55370629894ddfa7fac8961dfac839917b4da13",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "required_capability_preferred_experience_control"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "fact_check_capability",
+            "subject": "candidate",
+            "kind": "capability",
+            "typed_payload": {
+              "capability": "fact_checking"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:control:fact-check-capability",
+                "start": 0,
+                "end": 37,
+                "quote": "Fact-checking capability is required."
+              }
+            ]
+          },
+          {
+            "id": "fact_check_experience",
+            "subject": "candidate",
+            "kind": "experience",
+            "typed_payload": {
+              "area": "fact_checking"
+            },
+            "polarity": "affirmed",
+            "temporal": "prior",
+            "evidence": [
+              {
+                "source_id": "review:control:fact-check-experience",
+                "start": 0,
+                "end": 44,
+                "quote": "Prior fact-checking experience is preferred."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "fact_check_capability"
+                ]
+              }
+            ]
+          },
+          {
+            "modality": "preferred",
+            "any_of": [
+              {
+                "all_of": [
+                  "fact_check_experience"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {
+          "attributes": {
+            "requirements": {
+              "experience_preferred": [
+                "Fact-checking experience"
+              ],
+              "skills_required": [
+                "Fact-checking"
+              ]
+            }
+          }
+        },
+        "group_states": [
+          "projected",
+          "projected"
+        ],
+        "group_reasons": [
+          null,
+          null
+        ],
+        "knowledge_by_kind": {
+          "capability": "grounded_projected",
+          "experience": "grounded_projected"
+        }
+      }
+    },
+    {
+      "id": "bilingual_all_required_control",
+      "family": "language_and_control",
+      "review_note": "The language conjunction stays in the proposition contract because legacy output cannot preserve proficiency.",
+      "evidence_catalog": [
+        {
+          "id": "accepted:438:korean-japanese",
+          "authority": "accepted_capture",
+          "text": "Fluency in both Korean and Japanese is required, with strong reading, writing, and communication skills in each.",
+          "text_sha256": "44a7228a7a042a6e78051aa7d070e200e68bb6e07ef88f100a1adb811d0b01b9",
+          "provenance": {
+            "accepted_capture_id": 438,
+            "job_id": 553,
+            "material_content_sha256": "b417ae1db385760c1c852535b3973ce2b78178155c3124b5ca51beba3807359b",
+            "source_url": "https://job-boards.eu.greenhouse.io/agency/jobs/4676507101"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "japanese",
+            "subject": "candidate",
+            "kind": "language_proficiency",
+            "typed_payload": {
+              "language": "japanese",
+              "locale": null,
+              "proficiency": "fluent"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:438:korean-japanese",
+                "start": 0,
+                "end": 112,
+                "quote": "Fluency in both Korean and Japanese is required, with strong reading, writing, and communication skills in each."
+              }
+            ]
+          },
+          {
+            "id": "korean",
+            "subject": "candidate",
+            "kind": "language_proficiency",
+            "typed_payload": {
+              "language": "korean",
+              "locale": null,
+              "proficiency": "fluent"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "accepted:438:korean-japanese",
+                "start": 0,
+                "end": 112,
+                "quote": "Fluency in both Korean and Japanese is required, with strong reading, writing, and communication skills in each."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "korean",
+                  "japanese"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "logical_shape_not_representable"
+        ],
+        "knowledge_by_kind": {
+          "language_proficiency": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "language_or_control",
+      "family": "language_or_control",
+      "review_note": "The language OR remains grounded because the legacy shape cannot preserve proficiency.",
+      "evidence_catalog": [
+        {
+          "id": "review:control:english-or-french",
+          "authority": "accepted_review_checkpoint",
+          "text": "Fluency in English or French is required.",
+          "text_sha256": "256c4d4e9a99bea5742832c037f41650e51ca2b3772417f443f68325b08b7328",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "language_or_control"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "english",
+            "subject": "candidate",
+            "kind": "language_proficiency",
+            "typed_payload": {
+              "language": "english",
+              "locale": null,
+              "proficiency": "fluent"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:control:english-or-french",
+                "start": 0,
+                "end": 41,
+                "quote": "Fluency in English or French is required."
+              }
+            ]
+          },
+          {
+            "id": "french",
+            "subject": "candidate",
+            "kind": "language_proficiency",
+            "typed_payload": {
+              "language": "french",
+              "locale": null,
+              "proficiency": "fluent"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:control:english-or-french",
+                "start": 0,
+                "end": 41,
+                "quote": "Fluency in English or French is required."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "english"
+                ]
+              },
+              {
+                "all_of": [
+                  "french"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "grounded_unprojected"
+        ],
+        "group_reasons": [
+          "logical_shape_not_representable"
+        ],
+        "knowledge_by_kind": {
+          "language_proficiency": "grounded_unprojected"
+        }
+      }
+    },
+    {
+      "id": "education_required_preferred_control",
+      "family": "education_modality_control",
+      "review_note": "Required and preferred education use separate non-exclusionary legacy paths.",
+      "evidence_catalog": [
+        {
+          "id": "review:control:bachelor-required",
+          "authority": "accepted_review_checkpoint",
+          "text": "A bachelor's degree is required.",
+          "text_sha256": "42a72252f1c72aa2a3875731313c8949f8062dddcdd2579b62b5c210199b615e",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "education_required_preferred_control"
+          }
+        },
+        {
+          "id": "review:control:master-preferred",
+          "authority": "accepted_review_checkpoint",
+          "text": "A master's degree is preferred.",
+          "text_sha256": "0fa1b746c240188290e7bec7f591b68b9563134baaa3461ea252a0deb000dddd",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "education_required_preferred_control"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "bachelor_required",
+            "subject": "candidate",
+            "kind": "education",
+            "typed_payload": {
+              "level": "bachelor"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:control:bachelor-required",
+                "start": 0,
+                "end": 32,
+                "quote": "A bachelor's degree is required."
+              }
+            ]
+          },
+          {
+            "id": "master_preferred",
+            "subject": "candidate",
+            "kind": "education",
+            "typed_payload": {
+              "level": "master"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:control:master-preferred",
+                "start": 0,
+                "end": 31,
+                "quote": "A master's degree is preferred."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "bachelor_required"
+                ]
+              }
+            ]
+          },
+          {
+            "modality": "preferred",
+            "any_of": [
+              {
+                "all_of": [
+                  "master_preferred"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {
+          "attributes": {
+            "requirements": {
+              "education": {
+                "minimum_level": "bachelor",
+                "preferred_levels": [
+                  "master"
+                ]
+              }
+            }
+          }
+        },
+        "group_states": [
+          "projected",
+          "projected"
+        ],
+        "group_reasons": [
+          null,
+          null
+        ],
+        "knowledge_by_kind": {
+          "education": "grounded_projected"
+        }
+      }
+    },
+    {
+      "id": "conflicting_polarity_control",
+      "family": "conflict_control",
+      "review_note": "Opposing grounded propositions remain conflicted and produce no hard projection.",
+      "evidence_catalog": [
+        {
+          "id": "review:control:python-required",
+          "authority": "accepted_review_checkpoint",
+          "text": "Python programming capability is required.",
+          "text_sha256": "3a5bf149becf9add12385d8d89a758695cd44b8794c06e0a280fccfe4a3afb04",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "conflicting_polarity_control"
+          }
+        },
+        {
+          "id": "review:control:python-negated",
+          "authority": "accepted_review_checkpoint",
+          "text": "Candidates must not have Python programming capability.",
+          "text_sha256": "aff34d52b8a2d489a59bc7e74354dcf73c32aa887f326455a746f881feb80daf",
+          "provenance": {
+            "review_id": "oe-semantic-contract-v0-gold",
+            "case_id": "conflicting_polarity_control"
+          }
+        }
+      ],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [
+          {
+            "id": "python_affirmed",
+            "subject": "candidate",
+            "kind": "capability",
+            "typed_payload": {
+              "capability": "python_programming"
+            },
+            "polarity": "affirmed",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:control:python-required",
+                "start": 0,
+                "end": 42,
+                "quote": "Python programming capability is required."
+              }
+            ]
+          },
+          {
+            "id": "python_negated",
+            "subject": "candidate",
+            "kind": "capability",
+            "typed_payload": {
+              "capability": "python_programming"
+            },
+            "polarity": "negated",
+            "temporal": "unspecified",
+            "evidence": [
+              {
+                "source_id": "review:control:python-negated",
+                "start": 0,
+                "end": 55,
+                "quote": "Candidates must not have Python programming capability."
+              }
+            ]
+          }
+        ],
+        "constraint_groups": [
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "python_affirmed"
+                ]
+              }
+            ]
+          },
+          {
+            "modality": "required",
+            "any_of": [
+              {
+                "all_of": [
+                  "python_negated"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [
+          "conflicted",
+          "conflicted"
+        ],
+        "group_reasons": [
+          "contradictory_required_assertions",
+          "contradictory_required_assertions"
+        ],
+        "knowledge_by_kind": {
+          "capability": "conflicted"
+        }
+      }
+    },
+    {
+      "id": "model_silence_control",
+      "family": "unknown_control",
+      "review_note": "No atoms means unknown. It never means a known-empty list.",
+      "evidence_catalog": [],
+      "contract": {
+        "contract_version": "oe_semantic_contract_v0",
+        "atoms": [],
+        "constraint_groups": []
+      },
+      "expected": {
+        "legacy_patch": {},
+        "group_states": [],
+        "group_reasons": [],
+        "knowledge_by_kind": {
+          "capability": "unknown",
+          "experience": "unknown",
+          "language_proficiency": "unknown",
+          "role_activity": "unknown"
+        }
+      }
+    }
+  ]
+}

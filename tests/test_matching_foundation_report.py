@@ -151,11 +151,11 @@ class MatchingFoundationReportTests(unittest.TestCase):
         self.assertEqual(data["contracts"]["score_or_bucket_fields"], 0)
         self.assertEqual(
             data["contracts"]["opportunity_semantic_input"],
-            "opportunity_semantic_input_v2",
+            "opportunity_semantic_input_v3",
         )
         self.assertEqual(
             data["contracts"]["opportunity_enrichment_derivation"],
-            "opportunity_enrichment_derivation_v1",
+            "opportunity_enrichment_derivation_v8",
         )
 
     def test_freshness_is_explicit_and_stale_fields_do_not_count_as_ready(self):
@@ -217,6 +217,23 @@ class MatchingFoundationReportTests(unittest.TestCase):
         self.assertEqual(role_family["unknown_current"], 231)
         self.assertEqual(role_family["unavailable_stale"], 1958)
         self.assertEqual(role_family["unavailable_missing"], 0)
+
+    def test_semantic_readiness_separates_mechanical_population_from_quality_approval(self):
+        item = {
+            "freshness": "current",
+            "source_fact_flags": ["company_name", "canonical_title"],
+            "known_fields": [
+                report.CORE_SEMANTIC_IDENTITY_FIELDS[0],
+                report.CORE_SEMANTIC_IDENTITY_FIELDS[1],
+                report.CORE_SEMANTIC_CONTENT_FIELDS[0],
+            ],
+            "semantic_quality_status": "unreviewed",
+        }
+
+        self.assertTrue(report.mechanically_complete_semantic_packet(item))
+        self.assertFalse(report.semantic_packet_ready(item))
+        item["semantic_quality_status"] = "approved"
+        self.assertTrue(report.semantic_packet_ready(item))
 
     def test_legacy_recall_is_reproduced_from_versioned_ordering(self):
         data = report.build_report_data(

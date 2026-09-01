@@ -1,0 +1,390 @@
+{
+  "schema_version": "oe_semantic_extraction_v0_fresh_preregistration_v1",
+  "preregistration_version": "oe_semantic_two_stage_fresh_canary_preregistration_v1",
+  "created_at_utc": "2026-08-31T19:12:49.5909148Z",
+  "status": "preregistered_unopened",
+  "purpose": "Prospective, metadata-only selection for the first OE Semantic Two-Stage fresh canary.",
+  "semantic_content_inspection": {
+    "inspected": false,
+    "statement": "No selected title, job-description body, responsibility, qualification, taxonomy, semantic enrichment field, role, category, domain, language, or location was opened or used during selection.",
+    "provider_calls": 0,
+    "network_calls": 0
+  },
+  "database_snapshot": {
+    "path": "data/wahojobs.sqlite",
+    "sha256": "40a8294b5938448d65be9370459859fbc6842eab23dce8e4b4aa68e574f5fc43",
+    "size_bytes": 40284160,
+    "mtime_ns": 1788106040895461100,
+    "access_mode": "sqlite_uri_mode_ro_immutable_1_with_pragma_query_only"
+  },
+  "frozen_identities": {
+    "semantic_contract_version": "oe_semantic_contract_v0",
+    "extraction_contract_version": "oe_semantic_extraction_v0",
+    "prompt_version": "oe_semantic_extraction_v0_prompt_v3",
+    "prompt_sha256": "434092fe85c6043df3ea2c134bc914584ce07ef26d7c66c09ed00e9f86fe537d",
+    "schema_version": "oe_semantic_extraction_v0_schema_v1",
+    "schema_sha256": "ba1766f4f00fc782d0e8a63bc208d2e3c73d8462fd0a8e4c96776c6167440124",
+    "validator_version": "oe_semantic_extraction_v0_validator_v1",
+    "evaluation_criteria_version": "oe_semantic_extraction_v0_evaluation_v1",
+    "evaluation_criteria_sha256": "68d87f35373dd00ff83062d5e313e98f02e725acfc379d6eacf5539fcc30f7e0",
+    "evaluation_criteria": {
+      "maximum_unsafe_hard_gate_projections": 0,
+      "maximum_unsupported_survivors": 0,
+      "minimum_atom_kind_accuracy": 0.95,
+      "minimum_atom_precision": 0.95,
+      "minimum_atom_recall": 0.9,
+      "minimum_group_structure_accuracy": 0.9,
+      "minimum_payload_accuracy": 0.95,
+      "minimum_polarity_accuracy": 0.95,
+      "minimum_projection_on_correct_groups_accuracy": 1.0,
+      "minimum_projection_precision": 1.0,
+      "minimum_required_preferred_accuracy": 0.9,
+      "minimum_temporal_accuracy": 0.95
+    },
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "low",
+    "max_output_tokens": 12000
+  },
+  "frozen_two_stage_pipeline": {
+    "atom_extraction_prompt_version": "oe_semantic_extraction_v0_prompt_v3",
+    "atom_extraction_prompt_sha256": "434092fe85c6043df3ea2c134bc914584ce07ef26d7c66c09ed00e9f86fe537d",
+    "atom_extraction_schema_version": "oe_semantic_extraction_v0_schema_v1",
+    "atom_extraction_schema_sha256": "ba1766f4f00fc782d0e8a63bc208d2e3c73d8462fd0a8e4c96776c6167440124",
+    "grouping_prompt_version": "oe_semantic_grouping_v0_prompt_v1",
+    "grouping_prompt_sha256": "7875a3db9a1687bebacf7270ebe80f422cf2150db95dd86cd73b766e95784773",
+    "grouping_schema_version": "oe_semantic_grouping_v0_schema_v1",
+    "grouping_schema_sha256": "48819e9887548ef0e446c818e4b923ac34b3c5533672b3e1597546507db14700",
+    "grouping_validator_version": "oe_semantic_grouping_v0_validator_v1",
+    "hybrid_grouping_strategy_version": "oe_semantic_grouping_v0_hybrid_safe_singleton_v1",
+    "safe_singleton_completer_version": "oe_semantic_grouping_v0_safe_singleton_completer_v1",
+    "semantic_contract_version": "oe_semantic_contract_v0",
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "low",
+    "store": false
+  },
+  "eligibility_criteria": [
+    "Canonical belongs to companies.slug = meridial.",
+    "Canonical is active (canonical_opportunities.is_active = 1).",
+    "At least one pipeline-selected job variant has semantic_authority_state = versioned_accepted.",
+    "At least one such variant has an accepted capture, material and semantic-material hashes, and a non-empty persisted source body as measured only by character count.",
+    "Canonical is absent from the frozen exclusion set.",
+    "Single versus multi stratum is determined only from canonical_opportunities.variant_count: exactly 1 is single_variant; greater than 1 is multi_variant."
+  ],
+  "allowed_metadata_fields_used_for_selection": [
+    "companies.slug",
+    "canonical_opportunities.id",
+    "canonical_opportunities.is_active",
+    "canonical_opportunities.variant_count",
+    "jobs.id",
+    "jobs.canonical_opportunity_id",
+    "jobs.is_active",
+    "jobs.semantic_authority_state",
+    "jobs.source_hash",
+    "job_source_content_acceptances.accepted_capture_id",
+    "job_source_contents.material_content_sha256",
+    "length(job_source_contents.body)",
+    "job_source_content_captures.semantic_material_sha256"
+  ],
+  "prohibited_metadata_fields_confirmed_unused": [
+    "canonical title or normalized title",
+    "job title",
+    "job-description or source body content",
+    "responsibilities or qualifications",
+    "role, category, domain, language, or location",
+    "taxonomy fields",
+    "semantic enrichment fields"
+  ],
+  "exclusion_artifacts": [
+    {
+      "identity": "exports/opportunity_enrichment_vnext_canary.json",
+      "sha256": "7ebbf630c68473cfed27ed7c9a3100474c4dc4811e5996d8e799f75eb942c8a7",
+      "population": "original_32_case_meridial_canary",
+      "resolved_canonical_ids": [1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040]
+    },
+    {
+      "identity": "scripts/__pycache__/_opportunity_enrichment_second_fresh_canary.cpython-312.pyc",
+      "sha256": "17351de043965605d096835b8c32888ee8a556ef5969261743a80258ceddfe3d",
+      "population": "two_prior_12_case_fresh_canaries_recovered_from_repository_checkpoint",
+      "first_fresh_canonical_ids": [1046, 1070, 1081, 1099, 1113, 1150, 1160, 1364, 1410, 1450, 1460, 1520],
+      "second_fresh_canonical_ids": [1041, 1045, 1047, 1082, 1093, 1096, 1097, 1100, 1110, 1126, 1154, 1521]
+    },
+    {
+      "identity": "tests/fixtures/opportunity_semantic_contract_v0.json",
+      "sha256": "d4be2862bf30b22a9c60a3c56c08bb23ccf3253e5b17be30ee2319c4b080a108",
+      "population": "semantic_contract_gold_numeric_provenance_resolved_read_only",
+      "resolved_canonical_ids": [1024, 1046, 1096, 1109, 1160, 1342, 1343, 1347, 1460]
+    },
+    {
+      "identity": "exports/opportunity_semantic_extraction_v0_evaluation.json",
+      "sha256": "1a2e9a66004749d482e33a3f342fff74171a083c3c5342e48915a256f2ed270a",
+      "population": "semantic_extraction_v1_reviewed_gold_numeric_provenance_resolved_read_only",
+      "resolved_canonical_ids": [1024, 1046, 1096, 1109, 1160, 1342, 1343, 1347, 1460]
+    },
+    {
+      "identity": "exports/opportunity_semantic_extraction_v0_evaluation_v2.json",
+      "sha256": "110e1fcd0c449cfa97f72f8e18e4a10163047d8334ccbe9a1395776b5e3f2ebf",
+      "population": "semantic_extraction_v2_reviewed_gold_numeric_provenance_resolved_read_only",
+      "resolved_canonical_ids": [1024, 1046, 1096, 1109, 1160, 1342, 1343, 1460]
+    },
+    {
+      "identity": "exports/opportunity_semantic_extraction_v0_evaluation_v3.json",
+      "sha256": "2433402c2378511026c33193d62513e4dba33d8261ffb0c4cc1a6ce6a39704f0",
+      "population": "semantic_extraction_v3_reviewed_gold_numeric_provenance_resolved_read_only",
+      "resolved_canonical_ids": [1024, 1046, 1096, 1109, 1160, 1343, 1347, 1460]
+    },
+    {
+      "identity": "exports/opportunity_semantic_grouping_v0_evaluation.json",
+      "sha256": "ea0e5e8cf1e6eeb595919976b70b804241dcf361791eb892a3ab44d534fa6b8c",
+      "population": "semantic_grouping_v1_gold_numeric_provenance_resolved_read_only",
+      "resolved_canonical_ids": [1024, 1046, 1096, 1109, 1160, 1342, 1343, 1347, 1460]
+    },
+    {
+      "identity": "exports/opportunity_semantic_grouping_v0_gold_closure.json",
+      "sha256": "353cdd9125745c840cecffb893de5ba1e3ca517b46f6e48bc6dfe031ece6663d",
+      "population": "semantic_grouping_v2_gold_numeric_provenance_resolved_read_only",
+      "resolved_canonical_ids": [1024, 1046, 1096, 1109, 1160, 1342, 1343, 1347, 1460]
+    },
+    {
+      "identity": "exports/opportunity_semantic_grouping_v0_hybrid_gold_closure.json",
+      "sha256": "2cc095745672496ca8c5d7b177ad13314b049a2223527606bcd9d4e16051a671",
+      "population": "semantic_grouping_hybrid_gold_numeric_provenance_resolved_read_only",
+      "resolved_canonical_ids": [1024, 1046, 1096, 1109, 1160, 1342, 1343, 1347, 1460]
+    },
+    {
+      "identity": "current_task_context/prior_semantic_development_controls_v1",
+      "sha256": "616621a3c07ac223b230553c58ab0c2f4f47bc7b9a08f728397a31d77870dabc",
+      "hash_basis": "canonical JSON: {\"canonical_ids\":[1064,1512],\"version\":\"prior_semantic_development_controls_v1\"}",
+      "population": "other_previously_inspected_semantic_development_controls",
+      "resolved_canonical_ids": [1064, 1512]
+    }
+  ],
+  "excluded_canonical_count": 62,
+  "excluded_canonical_ids": [1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1045, 1046, 1047, 1064, 1070, 1081, 1082, 1093, 1096, 1097, 1099, 1100, 1109, 1110, 1113, 1126, 1150, 1154, 1160, 1342, 1343, 1347, 1364, 1410, 1450, 1460, 1512, 1520, 1521],
+  "selection_policy": {
+    "selection_seed": "oe-semantic-two-stage-fresh-v0|2026-08-31|seed-001",
+    "seed_frozen_before_eligible_id_enumeration": true,
+    "algorithm_version": "oe_semantic_fresh_canary_metadata_stratified_sha256_v1",
+    "algorithm": [
+      "Open the recorded database snapshot with SQLite mode=ro, immutable=1, and PRAGMA query_only=ON.",
+      "Apply the recorded eligibility criteria and frozen exclusion set using only allowed metadata fields.",
+      "Partition eligible canonicals by canonical_opportunities.variant_count into single_variant (=1) and multi_variant (>1).",
+      "Within each variant stratum, sort by total accepted-body character count ascending and canonical ID ascending.",
+      "Assign empirical quartiles with zero-based rank r and stratum size n using bucket=min(3,floor(r*4/n)).",
+      "Within each variant stratum and quartile, rank canonicals lexicographically by SHA-256(seed + '|' + stratum + '|' + quartile_label + '|' + canonical_id).",
+      "Select the two lowest hashes from each of four quartiles in each variant stratum.",
+      "Sort the final 16 fixture cases by canonical ID."
+    ],
+    "sample_size": 16,
+    "per_variant_stratum": 8,
+    "per_length_quartile_within_variant_stratum": 2
+  },
+  "eligible_pool_count": 478,
+  "eligible_strata": {
+    "single_variant": {
+      "eligible_count": 395,
+      "accepted_body_length_bucket_counts": {"Q1": 99, "Q2": 99, "Q3": 99, "Q4": 98},
+      "selected_count": 8
+    },
+    "multi_variant": {
+      "eligible_count": 83,
+      "accepted_body_length_bucket_counts": {"Q1": 21, "Q2": 21, "Q3": 21, "Q4": 20},
+      "selected_count": 8
+    }
+  },
+  "diversity": {
+    "basis": "non_semantic_variant_count_and_accepted_body_length_only",
+    "single_variant_count": 8,
+    "multi_variant_count": 8,
+    "selected_per_bucket_per_stratum": {"Q1": 2, "Q2": 2, "Q3": 2, "Q4": 2}
+  },
+  "cases": [
+    {
+      "canonical_opportunity_id": 1068,
+      "variant_count": 2,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q2",
+      "selection_score_sha256": "0a1af7ca3f2612e79efc127ebe88343185df578c2e622b24f8d4a317f4ea4054",
+      "accepted_evidence": [
+        {"job_id": 193, "source_ref": "source_hash:4711a73216a6fdf7a40bdbf90b25cf40f40fc9884b4443ef7fa9ff11dceada77", "accepted_capture_id": 188, "material_content_sha256": "c50e84ea24e98accdda7caae800d388c5fe2add03d7ce61b7840ebef45fdde9d", "semantic_material_sha256": "e234efe61b0c529937f0e625ffd5cfcfc3c440f7e3948fbdadaf5a2da9d2433c"},
+        {"job_id": 200, "source_ref": "source_hash:53bc7e15c037cec6782ceacfda3b99b406b06aa58e7494aa9326010fbe996ca8", "accepted_capture_id": 195, "material_content_sha256": "3b6586f535edd2f92635a5cd168d15035aff876dde40fa456e8d61a2925ab1a5", "semantic_material_sha256": "412eb95fc58832d245b7e8a5f38aa138067cdf1dca2590c8713a7ff9a2e828a6"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1075,
+      "variant_count": 7,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q4",
+      "selection_score_sha256": "2025311108ce09f10cda199b1ac7746cc684fbe39087734d40652a963d2da1f5",
+      "accepted_evidence": [
+        {"job_id": 208, "source_ref": "source_hash:e89db2ecb5b36ffe7736c7c4719c99d6d285acdf748ce84c9e18439331155c9a", "accepted_capture_id": 514, "material_content_sha256": "80401481c03278515d5d0d365c4968277696a5785faeafc2b5b7794f8e13b0e8", "semantic_material_sha256": "4cbf870fa7e88080b7355f29bad693021f7429094efb7b4505de851a261ca4dd"},
+        {"job_id": 209, "source_ref": "source_hash:f3b42068d68c0c97b3c8b7fe758ddb920674c1428b5382c0c9f36998d821f518", "accepted_capture_id": 546, "material_content_sha256": "c52d93c245683c8c07c0a9b8ab262b53d5ab2045fdcbd10b13f1d7910f25a694", "semantic_material_sha256": "09b20a114f91bde8bf00de32e3449e65bfd8c63e86eafb4a09fcf13955ce4c79"},
+        {"job_id": 210, "source_ref": "source_hash:99b1f7c911ec2ca6d92d5c38a9c271890bc1b2123e25419555d8060317377ea4", "accepted_capture_id": 547, "material_content_sha256": "e5b87f14b6b357390ba8434fb2a920903dd9159d110948bf2a4cc51e5d84d586", "semantic_material_sha256": "cf051dba2e60d63677009a44ade80bc4ea095d39ca3a0dbc4d090261aefd797a"},
+        {"job_id": 211, "source_ref": "source_hash:bf2ba09b1fcbb5376145329b97d205ef7e892db6dbe3a463ea7c4d2b16d5d23d", "accepted_capture_id": 548, "material_content_sha256": "2fdc96d12637aaaf5c9a7b0fca7ae9e68dd6bd40eacc2da9e1eb14eacdebe5ab", "semantic_material_sha256": "5783e9740876194f90a965e33e7eb7e4e9a867bb737b2ac249ed208751bc0428"},
+        {"job_id": 212, "source_ref": "source_hash:74aa41f6d33bd62c7118b2b54acbbce363a63091d02fe640abab27188b84446c", "accepted_capture_id": 549, "material_content_sha256": "8078b4e22b2b4c98394e60ace0cec1e971e57d2f74f8c1d454c9ebaf846c2f0a", "semantic_material_sha256": "f063170c3e43b1001c221f45db69f9e7d74294de5b77104e003b4dc60b2c2bcc"},
+        {"job_id": 213, "source_ref": "source_hash:70b9aa7dfb71a520b4d71665f2c42fe4aa3e3b05b6dfa7f97664e4e9ec7a1bc9", "accepted_capture_id": 550, "material_content_sha256": "0d8a22d0a6e51a26d81570c015f0f2f0ffce4556aa1b8a3e10962c168876dceb", "semantic_material_sha256": "4f57057faf82545e8e0e754c7552ac9ddfd0046630c7ff730f5fa5b917af136f"},
+        {"job_id": 214, "source_ref": "source_hash:99fff5945080c5c98087f00be392f5cd3d361c4be0f07a56c4ea5466f058db5e", "accepted_capture_id": 551, "material_content_sha256": "89112b32d38d632d6b9f240ec471464a488589390777d136f9a97dd23d14db37", "semantic_material_sha256": "d6b6b64ede68e043b9ce83d1f9832a8f49a1fd82ed33275853735c5f9f580d08"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1102,
+      "variant_count": 2,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q2",
+      "selection_score_sha256": "1c694e05162e0ad4906608e99cd5eb5e2c4e7e3d29bcee600cf3fb566b5b25a6",
+      "accepted_evidence": [
+        {"job_id": 270, "source_ref": "source_hash:133e3e9bd3aa131a09a64a38d29be79327bc42a4c7db0c813d78729e98693c7b", "accepted_capture_id": 17, "material_content_sha256": "ee6f36f67ff81449ab8c936c2778ea54bcd7e20dbd87b17cc4aeccc213464d9b", "semantic_material_sha256": "22f8cc1647611bcbee4586b62ce7bc9aa5b2660a3287f56aa09eba298e988634"},
+        {"job_id": 276, "source_ref": "source_hash:35115e29057c5ddafb2b57282f77281ab1a4ac54ea4b1c4e5da548a92ece02f2", "accepted_capture_id": 173, "material_content_sha256": "d091c5de381a2817b098cc25019bf291338d48187e4cb5c7830924faecf8d117", "semantic_material_sha256": "69dd59ce277124da4a747f9903101a857fae930a6b7b20b85b4f84a8005cfb79"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1116,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q3",
+      "selection_score_sha256": "028b56464e1db4d91c962c4191fe8c651a6398f0070aa78f6bdf7b27d6d7ae29",
+      "accepted_evidence": [
+        {"job_id": 291, "source_ref": "source_hash:d63e2a95d023c3aff72262a8f9987ee147f971c9eb9803138a76d185a7c3fa6d", "accepted_capture_id": 287, "material_content_sha256": "ea0b8b7112f7dc36c07fbf9630121a25fb2c489053510b57ecd50e00bda89e0f", "semantic_material_sha256": "c3fff677c72ca1b08d35b1d9fcc7e782316e8770c183cb7f67115781285f6736"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1117,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q3",
+      "selection_score_sha256": "00ec773d7ff1c66f109728da3f8831d9993daa9110b007259bd4e8620fe718ec",
+      "accepted_evidence": [
+        {"job_id": 292, "source_ref": "source_hash:a672a8b0ff4f20ea3417dd1f7d0c1717a7c50d882a8aaaf271cedc294fc38863", "accepted_capture_id": 288, "material_content_sha256": "50471acca667588419499c1a8f9a1e8a7ac3ef1903e197ebddeaddea43795c07", "semantic_material_sha256": "76b72ecea1ea20754e902e4a2419ea6efc88877274aeba8907fa4fd498425fe3"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1133,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q4",
+      "selection_score_sha256": "06aa5f99191a42cc87c431dbc6254d7ebcaba343dc9ce02b1315863f582a3387",
+      "accepted_evidence": [
+        {"job_id": 323, "source_ref": "source_hash:1d7b65e9b46f3bdfaa76bdbda66a235faa64d4cc9918b97963252c76e1b74e52", "accepted_capture_id": 763, "material_content_sha256": "1cbf3f85f14147272fc2bd13f1b2dd7508f4bae383b4d9b0c596e077943aa2e3", "semantic_material_sha256": "ed86ba93dcba4c6ccea9e650b54778e22668dc8b669673d9e8b6d8df6b168bdc"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1206,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q1",
+      "selection_score_sha256": "00dd65650a251427786c4bbae91e64cf9387518462381ffb37e75fdb52e5c7b5",
+      "accepted_evidence": [
+        {"job_id": 410, "source_ref": "source_hash:5c230a59c799f46b217de37091e97a17d49b13c4982a82a1213664f05e57b2de", "accepted_capture_id": 200, "material_content_sha256": "b096265f0e2b6212e577160ddaf1966d70519230e169305515165169bda15aa6", "semantic_material_sha256": "a8f201c55c7238389af80707cab59f621a04e27b3339cff6e85488ad58b695f1"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1319,
+      "variant_count": 2,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q1",
+      "selection_score_sha256": "05544611df01173636487dc22a9679b60f80a16768fd0a66482de7f4d2d7ec59",
+      "accepted_evidence": [
+        {"job_id": 530, "source_ref": "source_hash:6312c0613b468832823df2b39e49eb348813f9d43862d2d615dbbd73b57c1c76", "accepted_capture_id": 397, "material_content_sha256": "3bceef9c4aeb0bd1912a495502d73acbec6793426237603f2c1da43aa03631a5", "semantic_material_sha256": "56c0ea707c7d30b084f5354dedc01c27fbedbabf241db1b427a9e487e2b45225"},
+        {"job_id": 575, "source_ref": "source_hash:51a6dffcf43d1f49128ca8f76a1ce752795089389be8071cbff3fd4e14c3b10c", "accepted_capture_id": 498, "material_content_sha256": "f59cb76a6b3b3e665e056b275409b730fbe6c9e5c2eafad50e809899330839cb", "semantic_material_sha256": "57d641843ff8e3b13001353ebf711af6144b0f53584bfa1570132d287747f0fb"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1335,
+      "variant_count": 2,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q1",
+      "selection_score_sha256": "023da063b3a80de8c4c820d3ab2f0ce654840b6bb03ff5845cbb1e6575510523",
+      "accepted_evidence": [
+        {"job_id": 546, "source_ref": "source_hash:23d0c7da996cb5f4335f1dda03ba649b49f8ad8ee1d2c3330b530183e979ff05", "accepted_capture_id": 413, "material_content_sha256": "d77cf2d6947a749be54943340c32c0d34edda28b7491f41e494070fa83035227", "semantic_material_sha256": "61feca8b0b70fd990d942d968994df0e377be294e38148d6b0b714afaf2b6569"},
+        {"job_id": 584, "source_ref": "source_hash:2ac039f863018ac8c62168514f446e4874f1aa97dcb1d8a35ac2db46276d13ce", "accepted_capture_id": 507, "material_content_sha256": "096fd84cb910147e4a0cd21f17b3db3698fd39c49700ad7dd4bebc9fa03c5757", "semantic_material_sha256": "13374a67d207bc24390cc82b40a19666f1c1a79f82ac51f258a7cabc76ca944c"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1341,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q1",
+      "selection_score_sha256": "039ba288abd5ec87342bff87f1124482e205e42a620c83ed41bcb19802fc0b51",
+      "accepted_evidence": [
+        {"job_id": 552, "source_ref": "source_hash:02e86ed58ea34e81e84d743089e2d7b020c596682b40f489d7c2f74152e8f17e", "accepted_capture_id": 419, "material_content_sha256": "aeb3c1dd0adb9c4da2a1bc4e9bfc60be59efa709879c382cd439598388c00719", "semantic_material_sha256": "3c10fa866b2a4c96580b88fc80698c3c030c692387a96e56d18b6d70b008a7c2"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1360,
+      "variant_count": 3,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q3",
+      "selection_score_sha256": "0338d37cbc7f10e234ec9d900d88c7a4074555df4709c8b2680786f893909ebc",
+      "accepted_evidence": [
+        {"job_id": 572, "source_ref": "source_hash:81e6481ae655ac7bd22f136245880de172b83abc4886c22e28c41af8f21b1641", "accepted_capture_id": 482, "material_content_sha256": "5be59d061f8afe3607092d2bfbb042768aa14c76ca480c5a759098981710690a", "semantic_material_sha256": "ee05eb3b41d51f339ea4e9d3069fec9b5768a4b1834ebb26e6a765dd5e85b18a"},
+        {"job_id": 574, "source_ref": "source_hash:d78345556cb7426c0ec0f5116cb55e774f8ba93fe0082cbef2428f9dd5091c17", "accepted_capture_id": 497, "material_content_sha256": "a8eb712641a7fd189e6aaee749c33fe816e014c46ad3beac2fc28c15226e1ae6", "semantic_material_sha256": "57486f0c1eff2e46a6659729a2463f26bf224cec8a65a2ca7a25fa0e1d2ff159"},
+        {"job_id": 587, "source_ref": "source_hash:198eb977640d10deaaa742d69ae42e15b5d7fc0b6057c52fa82b225175eac6af", "accepted_capture_id": 510, "material_content_sha256": "580d83830cc9a08e988821ea46fb86d9a96fff7204f8b6e9e8bb52e439f16a39", "semantic_material_sha256": "2cd52549beba15ce08d0a5d3e42a84a0129586a1449ebdf997f02d5f29f3836e"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1422,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q2",
+      "selection_score_sha256": "05062724d6a27e4d13ebc976dcf07ea2758183fb093e5bb2076ef79a3d1bef98",
+      "accepted_evidence": [
+        {"job_id": 696, "source_ref": "source_hash:1db12fbee024a702dec0d4280037fc4d98b3385d18cf15447ced65af01a345e1", "accepted_capture_id": 717, "material_content_sha256": "7daa6ad83f9199a72dfdfdf14e9f704e1a2b8b35f794967cf421fc72ce759fe0", "semantic_material_sha256": "376c06f1dd8fb096501a0acd25762a1c9c8dc3510a97534da87b79aa40a4b0d5"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1443,
+      "variant_count": 2,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q4",
+      "selection_score_sha256": "25dbb5d03daa91de473d097890a4bc400895831ac574ddcf597f4123f6a6d490",
+      "accepted_evidence": [
+        {"job_id": 720, "source_ref": "source_hash:82f763aff9d6f88bf8dc2d63b8a8af2a231600ebaff16ee5982cdd2d360f4b4b", "accepted_capture_id": 768, "material_content_sha256": "673437c8ce7fb85b485371ab11c5fd3fec50c4c9a841f7f7742668763e66c3e5", "semantic_material_sha256": "d2788a2e5eeb4d0e456ecc6d1e70971455965909b80281dd0db0ad953ffb92a8"},
+        {"job_id": 721, "source_ref": "source_hash:63d92d7728727b32815af22b553c8f48aa76803c47e4b2d277d79979ee5275db", "accepted_capture_id": 769, "material_content_sha256": "25920452fc881962621b123508fe2096f988939fca66c115bee91dbec04c3edb", "semantic_material_sha256": "8d38f5cc5b97974f1fde794128eb17037491e239b068aef1b5960751df6ff72d"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1446,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q4",
+      "selection_score_sha256": "089fbdfdc033792464c49cf6e176396d68c4893e60bf2078f2934a676d1e53b5",
+      "accepted_evidence": [
+        {"job_id": 725, "source_ref": "source_hash:c1cad8c6374411eebd0320b03c4a37aac7519736d921de42aa6c64251b03a179", "accepted_capture_id": 780, "material_content_sha256": "e4392c15d8a337b993bb0d1d4bbb6bec9d43b632f518c010784b572e1254f415", "semantic_material_sha256": "d2568e95c70f7eb7927d21b5a2e25b87940ad4ca94f74bb51fae5dfac0ff9470"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1484,
+      "variant_count": 2,
+      "variant_count_stratum": "multi_variant",
+      "accepted_body_length_bucket": "Q3",
+      "selection_score_sha256": "03b64e2a694677d9c76582b2c2ab72f1ed2b9f26f4f7db747662c433c87664fa",
+      "accepted_evidence": [
+        {"job_id": 770, "source_ref": "source_hash:85f7247821bc9ec8ba6a65fadc29a42bcae56623cbf3813212abded889dcc1fd", "accepted_capture_id": 128, "material_content_sha256": "b23ef5801919dcddd52b123f426f32f14175174bdced4565ba7e8c3eb1939594", "semantic_material_sha256": "8c48480f178d4be005392648dba509743d8279540273ccebf195e0f316a93683"},
+        {"job_id": 771, "source_ref": "source_hash:755d52bfc79b2003473c47402b142d34f841714277bc0fa327998d0530846364", "accepted_capture_id": 129, "material_content_sha256": "11d831251b99d9e99f24fb563e062e1a42d28dc61aa2276947aa313eee88ecce", "semantic_material_sha256": "f37192cff88ee0e3314a6548de3e1c49754af96d6f7ddcd5233612015fd11bde"}
+      ]
+    },
+    {
+      "canonical_opportunity_id": 1519,
+      "variant_count": 1,
+      "variant_count_stratum": "single_variant",
+      "accepted_body_length_bucket": "Q2",
+      "selection_score_sha256": "0035dde2a657148acb45ed6b55e51f5b1e6db4abf4de64838949f4e7aea94438",
+      "accepted_evidence": [
+        {"job_id": 811, "source_ref": "source_hash:09b3b7aa678cad1fcc5ceae5f94354b83f24f51575f07a4aa08a432d7493b416", "accepted_capture_id": 2, "material_content_sha256": "7d9d65bdefd32e5d730e3888e447a98eb1052b6a470a645272a810cc6320d44b", "semantic_material_sha256": "2abed128465fac78886461e5182e79e960ffc704ab97ebe558d64f8b62c59b34"}
+      ]
+    }
+  ],
+  "selected_canonical_ids": [1068, 1075, 1102, 1116, 1117, 1133, 1206, 1319, 1335, 1341, 1360, 1422, 1443, 1446, 1484, 1519],
+  "validation_expectations": {
+    "selected_count": 16,
+    "single_variant_count": 8,
+    "multi_variant_count": 8,
+    "excluded_overlap_count": 0,
+    "all_selected_have_accepted_lkg_evidence": true,
+    "semantic_content_fields_used": false,
+    "reproducible_exactly_from_recorded_snapshot_rules_exclusions_strata_and_seed": true
+  },
+  "fixture_fingerprint": {
+    "algorithm": "SHA-256 of UTF-8 canonical JSON (sorted keys, compact separators, ensure_ascii=false) after setting fixture_fingerprint.sha256 to null",
+    "sha256": "5b9d19fd9d38676b4ce481604e1441e07ff81994e8e80f5daa78d4ca2940fbba"
+  }
+}

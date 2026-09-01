@@ -1,0 +1,446 @@
+{
+  "blocked_phase": "primary_terra",
+  "durable_accounting": {
+    "accounting_version": "oe_semantic_verifier_v0_accounting_v1",
+    "completed_requests": 109,
+    "dispatched_requests": 129,
+    "event_count": 389,
+    "failed_requests": 20,
+    "journal_sha256": "b91096487208f22c5fa98229970eeba5ab76df1611a2ec7552ebd7881b450088",
+    "provider_wall_latency_seconds": 0.0,
+    "registered_tasks": 129,
+    "run_id": "b818f2ff328749db857695c32bc3cef9",
+    "status_counts": {
+      "completed": 109,
+      "failed": 20
+    }
+  },
+  "failures": {
+    "primary:atom:1068:a10": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1183,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0060355,
+        "http_status": 200,
+        "input_tokens": 1186,
+        "latency_seconds": 6.301831100136042,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_05d9b5bd79d325b1016a962491265887d2803422643b067a96",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1442,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1068:a11": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "http_status": 200,
+        "input_tokens": 0,
+        "latency_seconds": 5.482945500174537,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+        "response_id": "resp_0013aacb54022e64016a96249150b887d2bddebb79a7f9711f",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 0,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1068:a3": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1559,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0069755,
+        "http_status": 200,
+        "input_tokens": 1562,
+        "latency_seconds": 6.073851099936292,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_01be79febb6f33a2016a9624911a4487d2a2b65d07d63673f6",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1818,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1068:a4": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1548,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006948,
+        "http_status": 200,
+        "input_tokens": 1551,
+        "latency_seconds": 6.122893499908969,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_0e279cfb255cec65016a9624911c1087d28d4fa91fbf6cf629",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1807,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1075:a2": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1206,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006093,
+        "http_status": 200,
+        "input_tokens": 1209,
+        "latency_seconds": 4.498244600137696,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_04f45fcbda8a2565016a9624958b7c87d299fe8e4904d2ebd9",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1465,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1102:a2": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1194,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006063,
+        "http_status": 200,
+        "input_tokens": 1197,
+        "latency_seconds": 4.024108199868351,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_05e1ba94e1c948ee016a962496601c87d2b836396cff7bf3e0",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1453,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1102:a4": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1314,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006363,
+        "http_status": 200,
+        "input_tokens": 1317,
+        "latency_seconds": 4.995500199962407,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_08fc57a1ede728fe016a9624981ba887d2baac4bbdc7bfb9df",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1573,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1102:a5": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1336,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006418,
+        "http_status": 200,
+        "input_tokens": 1339,
+        "latency_seconds": 4.75698160007596,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_04600efae32d75e4016a96249821ac87d2aa819c310b3b192c",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1595,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1102:a6": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1344,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006438,
+        "http_status": 200,
+        "input_tokens": 1347,
+        "latency_seconds": 4.267134899972007,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_070ec75888a5b01b016a9624984dc887d2bcfd880ee81412f3",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1603,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1102:a7": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1228,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006148,
+        "http_status": 200,
+        "input_tokens": 1231,
+        "latency_seconds": 4.222641099942848,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_085843d9b1f416f5016a96249931b887d29d59fcfb54615a88",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1487,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1117:a10": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 0,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "http_status": 200,
+        "input_tokens": 0,
+        "latency_seconds": 3.823964900104329,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+        "response_id": "resp_0f72f839e5025e11016a96249ce8b487d29c0bd14535c9d45a",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 0,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1117:a5": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1708,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.007348,
+        "http_status": 200,
+        "input_tokens": 1711,
+        "latency_seconds": 4.196803600061685,
+        "output_tokens": 256,
+        "reasoning_tokens": 233,
+        "response_id": "resp_0016d1d2910fff54016a96249e9d0087d29905110d288e0127",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1967,
+        "visible_output_tokens": 23
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1117:a6": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1706,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.007343,
+        "http_status": 200,
+        "input_tokens": 1709,
+        "latency_seconds": 4.335727599915117,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_0a31481420326872016a96249ee8a487d2a7b7a2518e612520",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1965,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1360:a3": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1105,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0058405,
+        "http_status": 200,
+        "input_tokens": 1108,
+        "latency_seconds": 4.413243500050157,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_096554bbfa1d6d38016a9624a4c0c087d29ea7260a5dd45916",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1364,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1422:a4": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1195,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0060655,
+        "http_status": 200,
+        "input_tokens": 1198,
+        "latency_seconds": 3.9476573998108506,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_0b0dc0c95b8355f2016a9624a6115087d281ae5cfa1876df07",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1454,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1443:a1": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1053,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0057105,
+        "http_status": 200,
+        "input_tokens": 1056,
+        "latency_seconds": 4.455041900044307,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_0130861bcb09ae8e016a9624a6964c87d2ba50fb94a1f253aa",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1312,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1446:a1": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1183,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0060355,
+        "http_status": 200,
+        "input_tokens": 1186,
+        "latency_seconds": 3.644697899930179,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_0183fa0580c39e9d016a9624a7ee6887d2ad6beba409c762c3",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1442,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1519:a1": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1483,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0067855,
+        "http_status": 200,
+        "input_tokens": 1486,
+        "latency_seconds": 4.099421599879861,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_0b5847b8576716e6016a9624ab379087d29233a80d87a50a55",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1742,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:atom:1519:a5": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1194,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.006063,
+        "http_status": 200,
+        "input_tokens": 1197,
+        "latency_seconds": 6.529447800014168,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_0075741c1a05e248016a9624acf03887d2922f1df1ddb2e962",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1453,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    },
+    "primary:relation:1068:r004": {
+      "category": "provider_incomplete",
+      "diagnostics": {
+        "cache_write_input_tokens": 1447,
+        "cached_input_tokens": 0,
+        "estimated_cost_usd": 0.0066955,
+        "http_status": 200,
+        "input_tokens": 1450,
+        "latency_seconds": 3.733363199979067,
+        "output_tokens": 256,
+        "reasoning_tokens": 256,
+        "response_id": "resp_012a344d0b0008ba016a9624af822c87d29a5b5c81fe6596ac",
+        "response_model": "gpt-5.6-terra",
+        "response_status": "incomplete",
+        "schema_validation_outcome": "not_reached",
+        "total_tokens": 1706,
+        "visible_output_tokens": 0
+      },
+      "exception_type": "SemanticVerifierError",
+      "message": "OpenAI exact verification was incomplete"
+    }
+  },
+  "manifest_sha256": "8d807c1ddb595522c2b121973e8347e7d7cedfff49a3503adb287b3fd45a28d6",
+  "mode": "execution_blocked_before_complete_semantic_scoring",
+  "report_sha256": "af76160a3e7b9c48a79f5432289dd31675f3b9af1cbf8e9f7847b50648238558",
+  "report_version": "oe_semantic_verifier_v1_exact_claim_evaluation_v1",
+  "semantic_results_evaluable": false,
+  "verdict": "BLOCKED"
+}

@@ -1,0 +1,131 @@
+{
+  "artifacts": {
+    "preregistration_expected_sha256": "177574a22812a1f6122b3a03e640848fd6f211a9d19476ff416ed7330f6fbd38",
+    "preregistration_fixture_sha256": "177574a22812a1f6122b3a03e640848fd6f211a9d19476ff416ed7330f6fbd38",
+    "raw_artifact_expected_sha256": "37d6e7bea857274477ad08a89fef81023b3c1502c5064242ba4fe34c5540daf4",
+    "raw_artifact_sha256": "37d6e7bea857274477ad08a89fef81023b3c1502c5064242ba4fe34c5540daf4",
+    "review_fixture_sha256": "0cb380b248b310b6fd5819b17cff7f884f016b9efcd21e8aa66ea7b866dc8325"
+  },
+  "controls": {
+    "candidate_profile_or_user_data": false,
+    "database_access": false,
+    "new_extraction_calls": 0,
+    "new_grouping_calls": 0,
+    "one_claim_per_provider_call": true,
+    "provider_tools": [],
+    "reasoning_effort": "low",
+    "runtime_integration": false,
+    "store": false
+  },
+  "evaluator_version": "oe_semantic_verifier_v0_evaluator_v2",
+  "fresh_evidence_claimed": false,
+  "frozen_acceptance_gates": {
+    "atom_verifier": {
+      "maximum_reviewed_unsupported_hard_assurance": 0,
+      "minimum_entailment_precision": 0.95,
+      "minimum_qualifier_semantic_accuracy": 0.95,
+      "minimum_supported_recall": 0.95
+    },
+    "final_safety": {
+      "maximum_projection_from_incomplete_relations": 0,
+      "maximum_source_value_substitutions": 0,
+      "maximum_unsupported_deterministic_hard_gates": 0,
+      "required_conditional_projection_precision": 1.0
+    },
+    "relation_verifier": {
+      "maximum_incomplete_relation_promoted_complete": 0,
+      "maximum_or_and_weakening": 0,
+      "minimum_review_bound_relation_decision_accuracy": 0.95,
+      "required_source_branch_accounting": 1.0
+    }
+  },
+  "identities": {
+    "model_configuration_sha256": "3ed9d85a29e7dc94c077b6c5ad336e9a214521b779011925cd26f705d500d963",
+    "prompt_sha256": "11ccf12bdd149a387e84fb4b05bea412e065d56e21f3b8cec3b9803270b56a1b",
+    "provider_schema_identities": {
+      "atom": {
+        "schema_name": "oe_semantic_verifier_v0_atom",
+        "schema_sha256": "b467148acceee71a14d88af1f2ea750e9b62eef0b96fb5f7101a3fc590a661bc"
+      },
+      "relation": {
+        "schema_name": "oe_semantic_verifier_v0_relation",
+        "schema_sha256": "b242c1543dd4edd2528e8cfc50213dcacd04e57b6bbfa6606f195be685edfef5"
+      }
+    },
+    "schema_sha256": "1ec1e5e4207019e219c47ef07bdeda557561d6acaf93f835c728c903c92a7068"
+  },
+  "manifest_sha256": "30388809a0dc32b86093c455c47a9de2a76f1d2ad52bc33237a56e4c9cf59e6a",
+  "manifest_version": "oe_semantic_verifier_v0_schema_repaired_manifest_v2",
+  "mode": "already_opened_16_case_development_regression_set",
+  "population": {
+    "atom_claim_count": 80,
+    "case_count": 16,
+    "provider_call_count": 129,
+    "relation_claim_count": 49,
+    "selected_canonical_ids": [
+      1068,
+      1075,
+      1102,
+      1116,
+      1117,
+      1133,
+      1206,
+      1319,
+      1335,
+      1341,
+      1360,
+      1422,
+      1443,
+      1446,
+      1484,
+      1519
+    ],
+    "source_branch_count": 77,
+    "task_identity_set_sha256": "07502a40512534a98e22aa418e7fcddfbd24474c417295bf4937e9d82e51aa66"
+  },
+  "provider_configuration": {
+    "endpoint": "https://api.openai.com/v1/responses",
+    "max_output_tokens": 2048,
+    "model": "gpt-5.6-terra",
+    "prompt_sha256": "11ccf12bdd149a387e84fb4b05bea412e065d56e21f3b8cec3b9803270b56a1b",
+    "prompt_version": "oe_semantic_verifier_v0_prompt_v1",
+    "provider": "openai",
+    "provider_schema_identities": {
+      "atom": {
+        "schema_name": "oe_semantic_verifier_v0_atom",
+        "schema_sha256": "b467148acceee71a14d88af1f2ea750e9b62eef0b96fb5f7101a3fc590a661bc"
+      },
+      "relation": {
+        "schema_name": "oe_semantic_verifier_v0_relation",
+        "schema_sha256": "b242c1543dd4edd2528e8cfc50213dcacd04e57b6bbfa6606f195be685edfef5"
+      }
+    },
+    "reasoning_effort": "low",
+    "schema_sha256": "1ec1e5e4207019e219c47ef07bdeda557561d6acaf93f835c728c903c92a7068",
+    "schema_version": "oe_semantic_verifier_v0_schema_v2",
+    "store": false,
+    "verifier_contract_version": "oe_semantic_verifier_v0"
+  },
+  "review_reference": {
+    "atom_counts": {
+      "contradicts": 2,
+      "entails": 72,
+      "not_established": 6,
+      "total": 80
+    },
+    "atom_qualifier_reference_basis": "the frozen eight reviewed unsupported proposals are kind/payload meaning errors; polarity and temporal remain entails",
+    "atom_qualifier_reference_sha256": "43851eaf7b3d9e17ea97940d37fa97782d8bf5eece5dd920189f23bfa1cafaf0",
+    "relation_decision_counts": {
+      "contradicts": 2,
+      "entails": 36,
+      "not_established": 11
+    },
+    "relation_reference_basis": "derived before provider calls from frozen human atom labels, immutable raw relations, authenticated source branches, and the already-passed deterministic staging policy; not a separate independent human relation annotation",
+    "relation_reference_sha256": "771501380134f5562e0ba0d1d62cbb99f430c577f0f965854ed886de5b6f2ab5",
+    "relation_state_counts": {
+      "complete_verified": 35,
+      "grounded_incomplete": 7,
+      "invalid_proposal": 7
+    }
+  }
+}

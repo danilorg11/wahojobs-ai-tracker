@@ -88,9 +88,16 @@ READINESS_FIELD_SPECS = (
     ("attributes.requirements.skills_preferred", "important", "semantic fit"),
     ("attributes.requirements.education.minimum_level", "critical", "objective requirements"),
     ("attributes.requirements.education.accepted_alternatives", "important", "objective requirements"),
+    ("attributes.requirements.education.preferred_levels", "important", "semantic fit"),
     ("attributes.requirements.credentials", "critical", "objective requirements"),
+    ("attributes.requirements.credentials_preferred", "important", "semantic fit"),
     ("attributes.requirements.licenses", "critical", "objective requirements"),
+    ("attributes.requirements.licenses_preferred", "important", "semantic fit"),
+    ("attributes.requirements.experience_required", "critical", "objective requirements"),
+    ("attributes.requirements.experience_preferred", "important", "semantic fit"),
+    ("attributes.requirements.current_status_requirements", "critical", "objective requirements"),
     ("attributes.requirements.years_experience_min", "critical", "objective requirements"),
+    ("attributes.requirements.years_experience_preferred_min", "important", "semantic fit"),
     ("attributes.requirements.languages", "critical", "objective requirements"),
     ("attributes.work_arrangement.workplace_mode", "important", "actionability"),
     ("attributes.work_arrangement.location_scope", "critical", "objective requirements"),
@@ -120,6 +127,8 @@ STRUCTURED_REQUIREMENT_SIGNAL_FIELDS = (
     "attributes.requirements.education.minimum_level",
     "attributes.requirements.credentials",
     "attributes.requirements.licenses",
+    "attributes.requirements.experience_required",
+    "attributes.requirements.current_status_requirements",
     "attributes.requirements.years_experience_min",
     "attributes.requirements.languages",
     "attributes.work_arrangement.location_scope",
@@ -757,6 +766,7 @@ def capture_enrichment_observation(
                 ),
                 "source_fact_flags": semantic_source_flags(semantic_input),
                 "known_fields": known_fields,
+                "semantic_quality_status": "unreviewed",
             }
         )
     return {"canonicals": observations}
@@ -769,7 +779,7 @@ def field_known(item: dict, field_path: str) -> bool:
     )
 
 
-def semantic_packet_ready(item: dict) -> bool:
+def mechanically_complete_semantic_packet(item: dict) -> bool:
     source_identity = {
         "company_name",
         "canonical_title",
@@ -781,6 +791,15 @@ def semantic_packet_ready(item: dict) -> bool:
         field_known(item, field) for field in CORE_SEMANTIC_CONTENT_FIELDS
     )
     return source_identity and structured_identity and structured_content
+
+
+def semantic_packet_ready(item: dict) -> bool:
+    """Return readiness only for a mechanically complete, quality-approved packet."""
+
+    return (
+        mechanically_complete_semantic_packet(item)
+        and item.get("semantic_quality_status") == "approved"
+    )
 
 
 def structured_requirement_signal(item: dict) -> bool:
@@ -828,6 +847,9 @@ def analyze_enrichment_readiness(
         {"company_name", "canonical_title"}.issubset(item["source_fact_flags"])
         for item in canonicals
     )
+    mechanical_semantic_ready = sum(
+        mechanically_complete_semantic_packet(item) for item in canonicals
+    )
     semantic_ready = sum(semantic_packet_ready(item) for item in canonicals)
     requirement_signal = sum(
         structured_requirement_signal(item) for item in canonicals
@@ -840,6 +862,7 @@ def analyze_enrichment_readiness(
     )
     shortlist_refs = sorted(shortlist_opportunity_refs)
     shortlist_semantic_ready = 0
+    shortlist_mechanical_semantic_ready = 0
     shortlist_requirement_signal = 0
     shortlist_current = 0
     shortlist_not_in_snapshot = 0
@@ -850,6 +873,9 @@ def analyze_enrichment_readiness(
             shortlist_not_in_snapshot += 1
             continue
         shortlist_current += item["freshness"] == "current"
+        shortlist_mechanical_semantic_ready += mechanically_complete_semantic_packet(
+            item
+        )
         shortlist_semantic_ready += semantic_packet_ready(item)
         shortlist_requirement_signal += structured_requirement_signal(item)
     return {
@@ -902,6 +928,10 @@ def analyze_enrichment_readiness(
         ),
         "minimum_semantic_packet_ready_canonicals": semantic_ready,
         "minimum_semantic_packet_coverage": ratio(semantic_ready, len(canonicals)),
+        "mechanically_complete_semantic_packet_canonicals": mechanical_semantic_ready,
+        "mechanically_complete_semantic_packet_coverage": ratio(
+            mechanical_semantic_ready, len(canonicals)
+        ),
         "structured_requirement_signal_canonicals": requirement_signal,
         "structured_requirement_signal_coverage": ratio(
             requirement_signal, len(canonicals)
@@ -909,6 +939,9 @@ def analyze_enrichment_readiness(
         "baseline_shortlist_opportunities": len(shortlist_refs),
         "baseline_shortlist_current_enrichments": shortlist_current,
         "baseline_shortlist_minimum_semantic_packet_ready": shortlist_semantic_ready,
+        "baseline_shortlist_mechanically_complete_semantic_packet": (
+            shortlist_mechanical_semantic_ready
+        ),
         "baseline_shortlist_structured_requirement_signal": shortlist_requirement_signal,
         "baseline_shortlist_not_in_active_snapshot": shortlist_not_in_snapshot,
         "field_readiness": field_rows,
@@ -1607,7 +1640,8 @@ def render_markdown(report: dict) -> str:
             f"- Current model-enriched documents: {enrichment['model_enriched_current']}",
             f"- Source identity coverage: {percent(enrichment['source_identity_coverage'])} ({enrichment['source_identity_ready_canonicals']}/{enrichment['active_canonical_opportunities']})",
             f"- Rich-source coverage: {percent(enrichment['rich_source_coverage'])} ({enrichment['rich_source_canonicals']}/{enrichment['active_canonical_opportunities']})",
-            f"- Minimum semantic packet: {percent(enrichment['minimum_semantic_packet_coverage'])} ({enrichment['minimum_semantic_packet_ready_canonicals']}/{enrichment['active_canonical_opportunities']})",
+            f"- Mechanically complete semantic packet: {percent(enrichment['mechanically_complete_semantic_packet_coverage'])} ({enrichment['mechanically_complete_semantic_packet_canonicals']}/{enrichment['active_canonical_opportunities']})",
+            f"- Quality-approved minimum semantic packet: {percent(enrichment['minimum_semantic_packet_coverage'])} ({enrichment['minimum_semantic_packet_ready_canonicals']}/{enrichment['active_canonical_opportunities']})",
             f"- Structured requirement signal: {percent(enrichment['structured_requirement_signal_coverage'])} ({enrichment['structured_requirement_signal_canonicals']}/{enrichment['active_canonical_opportunities']})",
             f"- Legacy top-K unique opportunity refs: {enrichment['baseline_shortlist_opportunities']}",
             f"- Legacy top-K refs with current enrichments: {enrichment['baseline_shortlist_current_enrichments']}",
@@ -1615,7 +1649,7 @@ def render_markdown(report: dict) -> str:
             "",
             "Freshness compares source input under the row's stored or safely inferred semantic-input contract, independently from derivation compatibility. Reason counts can overlap when both changed.",
             "Only current enrichments contribute structured-field coverage. Stale and missing documents are reported as unavailable.",
-            "The minimum packet requires source identity, current structured role/activity, and current responsibility or candidate-profile evidence. The requirement indicator means at least one current structured requirement signal; it is not a claim that all requirements are resolved.",
+            "Mechanical completeness requires source identity, current structured role/activity, and current responsibility or candidate-profile evidence. Scale readiness additionally requires an explicit semantic quality approval; mechanically populated packets are not treated as approved. The requirement indicator means at least one current structured requirement signal; it is not a claim that all requirements are resolved.",
             "",
             "| Structured field | Current known | Current unknown | Stale unavailable | Missing unavailable | All-active coverage |",
             "|---|---:|---:|---:|---:|---:|",

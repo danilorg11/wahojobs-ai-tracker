@@ -17,6 +17,9 @@ from wahojobs.opportunity_enrichment import (
     COMPENSATION_PERIODS as OPPORTUNITY_COMPENSATION_PERIODS,
     validate_enrichment_document,
 )
+from wahojobs.opportunity_fact_authority import (
+    evidence_record_has_objective_exclusion_authority,
+)
 from wahojobs.profiles.canonical_v2 import validate_canonical_profile_v2
 from wahojobs.profiles.preference_model import (
     ACCEPTED_CAREER_LEVELS,
@@ -971,7 +974,7 @@ def project_opportunity_criteria_v1(
     effective_enrichment: dict | None = None,
     inventory_row=None,
 ) -> OpportunityCriteriaV1:
-    """Project only reliable structured opportunity facts; never parse free text."""
+    """Project only exclusion-authoritative facts; never parse free text."""
     if effective_enrichment is None:
         return _project_inventory_row(inventory_row)
     if type(effective_enrichment) is not dict:
@@ -1906,18 +1909,27 @@ class _EvidenceContext:
         self.field_sources = field_sources
         self.stale_fields = stale_fields
         self.unknown_fields = set(document.get("unknown_fields") or [])
-        self.high_evidence = {
-            item["field_path"]
-            for item in document.get("field_evidence") or []
-            if item.get("confidence") == "high"
+        evidence_by_path = {}
+        for item in document.get("field_evidence") or []:
+            evidence_by_path.setdefault(item["field_path"], []).append(item)
+        self.exclusion_authoritative_evidence = {
+            path
+            for path, records in evidence_by_path.items()
+            if records
+            and all(
+                evidence_record_has_objective_exclusion_authority(record)
+                for record in records
+            )
         }
 
     def reliable(self, path):
         if path in self.unknown_fields or path in self.stale_fields:
             return False
+        # Confidence is not authority. Model-derived semantic/LLM evidence is
+        # intentionally unavailable to this removal-capable projection.
         return (
             self.field_sources.get(path) == "human_override"
-            or path in self.high_evidence
+            or path in self.exclusion_authoritative_evidence
         )
 
 

@@ -894,6 +894,55 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(after, before)
         self.assertNotIn("_typed_preference_enforcement", unchanged)
 
+    def test_llm_typed_fact_cannot_remove_candidate_but_objective_fact_can(self):
+        model = empty_profile_preferences_v1()
+        model["schedule"]["flexibility_modes"] = ["fixed"]
+        authoritative = validate_canonical_profile_v2(
+            with_preference_model(self.profile_v2, model)
+        )
+
+        cases = (
+            ("llm_source_evidence", "keep", "unknown", [1081]),
+            ("source_explicit", "exclude", "fail", []),
+        )
+        for evidence_basis, admission, outcome, visible_ids in cases:
+            with self.subTest(evidence_basis=evidence_basis):
+                context = self._presentation_context([1081])
+                row = self._row(job_id=1081)
+                enforced = matches_module._apply_typed_preference_enforcement_v1(
+                    authoritative,
+                    context,
+                    [row],
+                    {
+                        1081: typed_enrichment(
+                            schedule_type="flexible",
+                            evidence_basis=evidence_basis,
+                            evidence_confidence="high",
+                        )
+                    },
+                )
+                evaluation = enforced["_typed_preference_enforcement"][
+                    "evaluations"
+                ][0]
+                schedule = next(
+                    item
+                    for item in evaluation["outcomes"]
+                    if item["criterion_id"]
+                    == "preferences.schedule.flexibility_modes"
+                )
+
+                self.assertEqual(evaluation["admission"]["status"], admission)
+                self.assertEqual(schedule["outcome"], outcome)
+                self.assertEqual(
+                    [
+                        item["job_id"]
+                        for item in matches_module._primary_presentation_matches(
+                            enforced
+                        )
+                    ],
+                    visible_ids,
+                )
+
     def test_soft_enforcement_filters_ranked_pool_then_backfills_display_limit(self):
         model = empty_profile_preferences_v1()
         model["workloads"] = ["full_time"]

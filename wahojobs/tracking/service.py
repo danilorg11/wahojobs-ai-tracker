@@ -30,9 +30,10 @@ from wahojobs.db.repository import (
     update_seen_job,
 )
 from wahojobs.matching.opportunity_trust import LIVE_FEED_MAX_AGE_HOURS
-from wahojobs.opportunity_enrichment import enrich_company_opportunities
+from wahojobs.opportunity_enrichment import enrich_selected_opportunities
 from wahojobs.opportunity_llm import tracking_openai_client
 from wahojobs.source_capture import (
+    PROMOTION_DECISION_PROMOTED,
     SEMANTIC_AUTHORITY_PENDING,
     SourceCaptureContext,
 )
@@ -80,6 +81,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     jobs_new = 0
     jobs_reactivated = 0
     jobs_updated = 0
+    semantically_changed_job_ids = set()
     capture_context = SourceCaptureContext.from_crawl_result(
         crawl_run_id,
         crawl_result,
@@ -96,7 +98,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
                 now,
                 semantic_authority_state=SEMANTIC_AUTHORITY_PENDING,
             )
-            upsert_job_source_content(
+            capture = upsert_job_source_content(
                 conn,
                 job_id,
                 company["slug"],
@@ -105,6 +107,8 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
                 now,
                 capture_context=capture_context,
             )
+            if capture.accepted:
+                semantically_changed_job_ids.add(job_id)
             update_seen_job(conn, job_id, now)
             create_job_event(conn, job_id, crawl_run_id, "discovered", now)
             jobs_new += 1
@@ -115,7 +119,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
             create_job_event(conn, existing["id"], crawl_run_id, "reactivated", now)
         else:
             jobs_updated += 1
-        upsert_job_source_content(
+        capture = upsert_job_source_content(
             conn,
             existing["id"],
             company["slug"],
@@ -124,6 +128,11 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
             now,
             capture_context=capture_context,
         )
+        if (
+            existing["is_active"] == 0
+            or capture.promotion_decision == PROMOTION_DECISION_PROMOTED
+        ):
+            semantically_changed_job_ids.add(existing["id"])
         update_seen_job(
             conn,
             existing["id"],
@@ -134,8 +143,14 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     if removal_authorization.authorized:
         removed_job_ids = mark_missing_jobs_inactive(conn, company_id, seen_hashes, now)
         jobs_removed = len(removed_job_ids)
+        semantically_changed_job_ids.update(removed_job_ids)
         for job_id in removed_job_ids:
             create_job_event(conn, job_id, crawl_run_id, "removed", now)
+
+    affected_canonical_ids = canonical_ids_for_jobs(
+        conn,
+        semantically_changed_job_ids,
+    )
 
     if company["slug"] == "alignerr":
         sync_alignerr_canonical_opportunities(conn, company_id)
@@ -157,11 +172,15 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     # Preserve every provider-specific canonicalization above, then give only
     # the remaining non-simulation jobs conservative one-job identities.
     sync_fallback_canonical_opportunities(conn, company_id)
-    enrich_company_opportunities(
-        conn,
-        company_id,
-        llm_client=tracking_openai_client(),
+    affected_canonical_ids.update(
+        canonical_ids_for_jobs(conn, semantically_changed_job_ids)
     )
+    if affected_canonical_ids:
+        enrich_selected_opportunities(
+            conn,
+            affected_canonical_ids,
+            llm_client=tracking_openai_client(),
+        )
 
     active_jobs_total = count_active_jobs(conn, company_id)
 
@@ -316,6 +335,29 @@ def has_fresh_mindrift_guard_baseline(conn, company_id, now):
         (evaluated_at - observed_at).total_seconds() / 3600,
     )
     return age_hours <= LIVE_FEED_MAX_AGE_HOURS
+
+
+def canonical_ids_for_jobs(conn, job_ids):
+    ids = sorted({int(job_id) for job_id in job_ids})
+    if not ids:
+        return set()
+    canonical_ids = set()
+    for offset in range(0, len(ids), 500):
+        chunk = ids[offset : offset + 500]
+        placeholders = ",".join("?" for _item in chunk)
+        canonical_ids.update(
+            int(row["canonical_opportunity_id"])
+            for row in conn.execute(
+                f"""
+                SELECT DISTINCT canonical_opportunity_id
+                FROM jobs
+                WHERE id IN ({placeholders})
+                  AND canonical_opportunity_id IS NOT NULL
+                """,
+                chunk,
+            ).fetchall()
+        )
+    return canonical_ids
 
 
 def parse_utc_datetime(value):

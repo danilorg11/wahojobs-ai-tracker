@@ -1,0 +1,113 @@
+{
+  "schema_version": "oe_semantic_staging_v0_reviewed_canary_v1",
+  "raw_artifact_sha256": "37d6e7bea857274477ad08a89fef81023b3c1502c5064242ba4fe34c5540daf4",
+  "preregistration_fixture_sha256": "177574a22812a1f6122b3a03e640848fd6f211a9d19476ff416ed7330f6fbd38",
+  "review_basis": "frozen_human_review_of_the_already_opened_16_case_canary",
+  "reviewed_atom_counts": {
+    "total": 80,
+    "entails": 72,
+    "contradicts": 2,
+    "not_established": 6
+  },
+  "cases": {
+    "1068": {
+      "entails": ["a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1075": {
+      "entails": ["a1", "a2", "a3", "a4"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1102": {
+      "entails": ["a1", "a2", "a3", "a4", "a5", "a6", "a7"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1116": {
+      "entails": ["a1", "a2", "a4", "a5", "a6"],
+      "contradicts": ["a3"],
+      "not_established": []
+    },
+    "1117": {
+      "entails": ["a1", "a2", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11"],
+      "contradicts": ["a3"],
+      "not_established": []
+    },
+    "1133": {
+      "entails": ["a1", "a2"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1206": {
+      "entails": ["a1", "a2", "a3"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1319": {
+      "entails": ["a1", "a2"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1335": {
+      "entails": ["a2", "a3"],
+      "contradicts": [],
+      "not_established": ["a1"]
+    },
+    "1341": {
+      "entails": ["a1", "a2"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1360": {
+      "entails": ["a1", "a2", "a3"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1422": {
+      "entails": ["a1", "a2", "a3", "a4", "a5"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1443": {
+      "entails": ["a2", "a3"],
+      "contradicts": [],
+      "not_established": ["a1"]
+    },
+    "1446": {
+      "entails": ["a1", "a2", "a3"],
+      "contradicts": [],
+      "not_established": []
+    },
+    "1484": {
+      "entails": ["a3", "a5", "a6", "a7"],
+      "contradicts": [],
+      "not_established": ["a1", "a2", "a4"]
+    },
+    "1519": {
+      "entails": ["a1", "a2", "a4", "a5", "a6", "a7", "a8"],
+      "contradicts": [],
+      "not_established": ["a3"]
+    }
+  },
+  "source_value_expectations": {
+    "1116:a3": ["Italian"],
+    "1117:a3": ["Indonesian"],
+    "1117:a6": ["Physics"],
+    "1117:a9": ["Physics"],
+    "1519:a1": ["chemistry"],
+    "1519:a2": ["chemistry"]
+  },
+  "acceptance": {
+    "minimum_supported_retention": 0.95,
+    "required_provisional_atom_accounting": 1.0,
+    "required_source_branch_accounting": 1.0,
+    "required_conditional_projection_precision": 1.0,
+    "maximum_source_value_substitutions_or_qualifier_losses_in_final_contract": 0,
+    "maximum_logic_weakening_cases": 0,
+    "maximum_projection_from_incomplete_relations": 0,
+    "maximum_reviewed_unsupported_projected_atoms": 0,
+    "maximum_unsafe_hard_gates": 0
+  }
+}

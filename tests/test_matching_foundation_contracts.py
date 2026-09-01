@@ -28,10 +28,26 @@ from wahojobs.opportunity_enrichment import FIELD_DEFAULTS
 
 
 class MatchingFoundationContractTests(unittest.TestCase):
-    def test_pinned_opportunity_fact_projection_matches_existing_enrichment_contract(self):
+    def test_pinned_v1_projection_does_not_silently_adopt_vnext_fields(self):
+        vnext_only_fields = frozenset(
+            {
+                "attributes.requirements.credentials_preferred",
+                "attributes.requirements.current_status_requirements",
+                "attributes.requirements.education.preferred_levels",
+                "attributes.requirements.experience_preferred",
+                "attributes.requirements.experience_required",
+                "attributes.requirements.licenses_preferred",
+                "attributes.requirements.years_experience_preferred_min",
+            }
+        )
         self.assertEqual(
             OPPORTUNITY_ENRICHMENT_FACT_FIELD_PATHS_V1,
-            frozenset(FIELD_DEFAULTS),
+            frozenset(FIELD_DEFAULTS) - vnext_only_fields,
+        )
+        self.assertTrue(
+            OPPORTUNITY_ENRICHMENT_FACT_FIELD_PATHS_V1.isdisjoint(
+                vnext_only_fields
+            )
         )
 
     def test_eligibility_aggregation_preserves_unknown_and_fail(self):

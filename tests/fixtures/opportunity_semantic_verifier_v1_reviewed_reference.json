@@ -1,0 +1,117 @@
+{
+  "schema_version": "oe_semantic_verifier_v1_reviewed_reference_v1",
+  "review_locked_before_provider_calls": true,
+  "development_regression_not_fresh_evidence": true,
+  "raw_artifact_sha256": "37d6e7bea857274477ad08a89fef81023b3c1502c5064242ba4fe34c5540daf4",
+  "preregistration_fixture_sha256": "177574a22812a1f6122b3a03e640848fd6f211a9d19476ff416ed7330f6fbd38",
+  "atom_reference": {
+    "source_fixture": "opportunity_semantic_staging_v0_reviewed_canary.json",
+    "source_fixture_sha256": "0cb380b248b310b6fd5819b17cff7f884f016b9efcd21e8aa66ea7b866dc8325",
+    "basis": "The already-reviewed 80 provisional atoms are reinterpreted as complete immutable exact claims without changing any atom label.",
+    "counts": {
+      "entails": 72,
+      "contradicts": 2,
+      "not_established": 6,
+      "total": 80
+    }
+  },
+  "relation_reference": {
+    "basis": "Direct manual review of each complete immutable relation against its authenticated evidence, referenced atoms, AND/OR structure, modality, and source branches. These are explicit relation-level targets and are not derived from provider results or from atom-label combination logic.",
+    "counts": {
+      "entails": 33,
+      "contradicts": 2,
+      "not_established": 14,
+      "total": 49
+    },
+    "cases": {
+      "1068": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"},
+        "r002": {"decision": "not_established", "class": "incomplete_source_relation"},
+        "r003": {"decision": "entails", "class": "exact_supported"},
+        "r004": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1075": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"},
+        "r002": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1102": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"},
+        "r002": {"decision": "not_established", "class": "incomplete_source_relation"},
+        "r003": {"decision": "not_established", "class": "incomplete_source_relation"},
+        "r004": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1116": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"},
+        "r002": {"decision": "contradicts", "class": "direct_contradiction"},
+        "r003": {"decision": "entails", "class": "exact_supported"},
+        "r004": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1117": {
+        "r000": {"decision": "contradicts", "class": "direct_contradiction"},
+        "r001": {"decision": "not_established", "class": "incomplete_source_relation"}
+      },
+      "1133": {
+        "r000": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1206": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1319": {
+        "r000": {"decision": "not_established", "class": "narrowed_conjunction"},
+        "r001": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1335": {
+        "r000": {"decision": "not_established", "class": "unsupported_member"},
+        "r001": {"decision": "not_established", "class": "narrowed_conjunction"},
+        "r002": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1341": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "not_established", "class": "narrowed_conjunction"}
+      },
+      "1360": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1422": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"},
+        "r002": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1443": {
+        "r000": {"decision": "not_established", "class": "unsupported_member"},
+        "r001": {"decision": "not_established", "class": "narrowed_conjunction"}
+      },
+      "1446": {
+        "r000": {"decision": "entails", "class": "exact_supported"},
+        "r001": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1484": {
+        "r000": {"decision": "not_established", "class": "incomplete_source_relation_and_unsupported_member"},
+        "r001": {"decision": "entails", "class": "exact_supported"},
+        "r002": {"decision": "not_established", "class": "extra_speculative_member"},
+        "r003": {"decision": "entails", "class": "exact_supported"},
+        "r004": {"decision": "entails", "class": "exact_supported"}
+      },
+      "1519": {
+        "r000": {"decision": "not_established", "class": "incomplete_source_relation"},
+        "r001": {"decision": "not_established", "class": "extra_speculative_member"},
+        "r002": {"decision": "entails", "class": "exact_supported"},
+        "r003": {"decision": "entails", "class": "exact_supported"},
+        "r004": {"decision": "entails", "class": "exact_supported"}
+      }
+    },
+    "direct_review_notes": {
+      "1068:r003": "The evidence directly establishes secure computer AND high-speed internet; a prior derived source-logic ordering artifact is not a semantic failure.",
+      "1319:r000": "The source requires secure computer AND stable internet, while the relation contains only secure computer.",
+      "1335:r001": "The source requires secure computer AND stable internet, while the relation contains only secure computer.",
+      "1341:r001": "The source requires secure computer AND stable internet, while the relation contains only secure computer.",
+      "1443:r001": "The source requires secure computer AND professional recording equipment AND high-speed internet; the relation omits recording equipment."
+    }
+  }
+}

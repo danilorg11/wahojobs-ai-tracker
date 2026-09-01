@@ -1,6 +1,7 @@
 import json
 import unittest
 
+from wahojobs.opportunity_enrichment import blank_llm_payload
 from wahojobs.opportunity_llm import (
     MAX_OUTPUT_TOKENS,
     OPENAI_RESPONSES_URL,
@@ -24,19 +25,10 @@ class FakeResponse:
             raise self.json_error
         if self.data is not None:
             return self.data
-        payload = {
-            "role_family": {"value": None, "evidence": []},
-            "professional_domains": [],
-            "work_activities": [],
-            "skills_required": [],
-            "skills_preferred": [],
-            "responsibilities": [],
-            "candidate_profile": {"value": None, "evidence": []},
-            "quick_take": {"value": None, "evidence": []},
-            "caveats": [],
-        }
+        payload = blank_llm_payload()
         return {
             "id": "resp_fixture",
+            "model": "gpt-5-mini-2025-08-07",
             "status": "completed",
             "output": [
                 {
@@ -120,6 +112,7 @@ class OpportunityLLMTests(unittest.TestCase):
         )
         self.assertEqual(client.prompt_version, PROMPT_VERSION)
         self.assertEqual(result.response_id, "resp_fixture")
+        self.assertEqual(result.response_model, "gpt-5-mini-2025-08-07")
         self.assertEqual(result.response_status, "completed")
         self.assertEqual(result.http_status, 200)
         self.assertEqual(result.total_tokens, 2_500)
@@ -151,9 +144,18 @@ class OpportunityLLMTests(unittest.TestCase):
             "Normal pay, schedule, remote status",
             "Unsupported or ambiguous classifications",
             "Role family must agree with the title and substantive work activities",
+            "authority_class",
+            "source language is not a candidate language requirement",
+            "bare currency symbol",
+            "experience fields, not in skills",
+            "ordinary review or evaluation is insufficient",
+            "current_status_requirements",
+            "complete OR qualification",
+            "both named languages",
+            "directly describe the action",
         ):
             self.assertIn(requirement, prompt)
-        self.assertEqual(PROMPT_VERSION, "opportunity_semantic_v4_4")
+        self.assertEqual(PROMPT_VERSION, "opportunity_semantic_vnext_v4")
 
     def test_schema_reuses_allowed_aliases_and_enforces_scalar_evidence(self):
         aliases = ["E2222222222222222", "E1111111111111111"]
@@ -165,6 +167,10 @@ class OpportunityLLMTests(unittest.TestCase):
         serialized = json.dumps(schema, sort_keys=True)
         for alias in aliases:
             self.assertEqual(serialized.count(alias), 1)
+        self.assertEqual(
+            schema["properties"]["current_status_requirements"],
+            {"type": "array", "items": schema["properties"]["skills_required"]["items"]},
+        )
 
         for field in ("role_family", "candidate_profile", "quick_take"):
             nonnull, null = schema["properties"][field]["anyOf"]
@@ -290,32 +296,20 @@ class OpportunityLLMTests(unittest.TestCase):
         self.assertEqual(missing.response_metadata.response_id, "resp_missing")
         self.assertEqual(invalid.response_metadata.response_id, "resp_invalid")
 
-    def test_contract_excludes_factual_constraint_fields(self):
+    def test_contract_includes_grounded_factual_constraint_fields(self):
         properties = set(structured_output_schema()["properties"])
-        self.assertEqual(
-            properties,
-            {
-                "role_family",
-                "professional_domains",
-                "work_activities",
-                "skills_required",
-                "skills_preferred",
-                "responsibilities",
-                "candidate_profile",
-                "quick_take",
-                "caveats",
-            },
-        )
+        self.assertEqual(properties, set(blank_llm_payload()))
         serialized = json.dumps(structured_output_schema(), sort_keys=True)
-        for forbidden in (
-            "pay",
-            "geographic_eligibility",
-            "degree_requirements",
+        for required in (
+            "compensation_disclosed",
+            "eligible_countries",
+            "education_minimum_level",
             "licenses",
-            "hours",
-            "employment_type",
+            "hours_per_week_min",
+            "engagement_type",
+            "known_empty_fields",
         ):
-            self.assertNotIn(forbidden, serialized)
+            self.assertIn(required, serialized)
 
 
 if __name__ == "__main__":

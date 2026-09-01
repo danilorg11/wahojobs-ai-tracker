@@ -86,6 +86,9 @@ def enrichment(
     period="hour",
     amount_type="range",
     stale_fields=(),
+    evidence_basis="deterministic_parse",
+    evidence_confidence="high",
+    field_sources=None,
 ):
     document = blank_document()
     role = document["attributes"]["role"]
@@ -130,8 +133,8 @@ def enrichment(
             path,
             "synthetic_fixture",
             "synthetic evidence",
-            "deterministic_parse",
-            "high",
+            evidence_basis,
+            evidence_confidence,
         )
     document["field_evidence"] = sorted(
         document["field_evidence"],
@@ -143,7 +146,7 @@ def enrichment(
     )
     return {
         "document": document,
-        "field_sources": {},
+        "field_sources": dict(field_sources or {}),
         "stale_override_fields": list(stale_fields),
     }
 
@@ -830,6 +833,92 @@ class TypedMatchCriteriaTests(unittest.TestCase):
             projected.schedule_flexibility_modes.reason_code,
             "schedule_flexibility_unknown",
         )
+
+    def test_llm_evidence_cannot_exclude_schedule_or_compensation(self):
+        criteria = match_criteria_v1_from_profile(profile_v2())
+        opportunity = project_opportunity_criteria_v1(
+            effective_enrichment=enrichment(
+                schedule_type="flexible",
+                amount_min=20,
+                amount_max=20,
+                amount_type="exact",
+                evidence_basis="llm_source_evidence",
+                evidence_confidence="high",
+            )
+        )
+        outcomes = {
+            item.criterion_id: item
+            for item in evaluate_match_criteria_shadow(
+                criteria,
+                opportunity,
+            ).outcomes
+        }
+
+        self.assertEqual(opportunity.schedule_flexibility_modes.status, "unknown")
+        self.assertEqual(opportunity.compensation.status, "unknown")
+        self.assertEqual(
+            outcomes["preferences.schedule.flexibility_modes"].outcome,
+            "unknown",
+        )
+        self.assertEqual(
+            outcomes["preferences.compensation.minimum"].outcome,
+            "unknown",
+        )
+        self.assertEqual(
+            evaluate_primary_preference_admission_v1(
+                criteria,
+                tuple(outcomes.values()),
+            ).status,
+            "keep",
+        )
+
+    def test_objective_and_human_override_typed_facts_remain_authoritative(self):
+        criteria = match_criteria_v1_from_profile(profile_v2())
+        schedule_path = "attributes.work_arrangement.schedule_type"
+        cases = (
+            ("deterministic_parse", {}, "automatic deterministic parse"),
+            ("source_explicit", {}, "source-explicit evidence"),
+            (
+                "llm_source_evidence",
+                {schedule_path: "human_override"},
+                "human override",
+            ),
+        )
+
+        for evidence_basis, field_sources, label in cases:
+            with self.subTest(authority=label):
+                opportunity = project_opportunity_criteria_v1(
+                    effective_enrichment=enrichment(
+                        schedule_type="flexible",
+                        amount_min=40,
+                        amount_max=40,
+                        amount_type="exact",
+                        evidence_basis=evidence_basis,
+                        field_sources=field_sources,
+                    )
+                )
+                outcomes = evaluate_match_criteria_shadow(
+                    criteria,
+                    opportunity,
+                ).outcomes
+                schedule = next(
+                    item
+                    for item in outcomes
+                    if item.criterion_id
+                    == "preferences.schedule.flexibility_modes"
+                )
+                self.assertEqual(
+                    opportunity.schedule_flexibility_modes.values,
+                    ("flexible",),
+                )
+                self.assertEqual(schedule.outcome, "fail")
+                self.assertEqual(
+                    evaluate_primary_preference_admission_v1(
+                        criteria,
+                        outcomes,
+                    ).status,
+                    "exclude",
+                )
 
     def test_shadow_outcomes_are_stable_and_class_controlled(self):
         criteria = match_criteria_v1_from_profile(profile_v2())

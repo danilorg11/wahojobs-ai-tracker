@@ -1,0 +1,183 @@
+{
+  "report_version": "oe_semantic_verifier_v0_regression_evaluation_blocked_v1",
+  "observed_at_utc": "2026-08-31T23:15:06.9998725Z",
+  "mode": "single_live_attempt_on_already_opened_16_case_development_regression_set",
+  "fresh_evidence_claimed": false,
+  "status": "blocked_before_population_metrics",
+  "verdict": "BLOCKED",
+  "blocker": {
+    "stage": "semantic_verifier_output_validation",
+    "code": "verifier_qualifier_set_is_invalid",
+    "observed_behavior": "One provider response passed local validation. The next completed response used a qualifier set that was not applicable to its claim type and was rejected by the server-side closed validator.",
+    "fail_closed": true,
+    "provider_output_admitted_to_staging": false,
+    "prompt_or_schema_revised_after_attempt": false,
+    "reasoning_effort_changed_after_attempt": false,
+    "fix_implemented_after_attempt": false,
+    "live_evaluation_retried": false
+  },
+  "identities": {
+    "manifest_version": "oe_semantic_verifier_v0_frozen_manifest_v1",
+    "manifest_sha256": "df02ff4d6b5e1088ef071a91d69c60d19781bc59943fecc115281ee7c8bb731f",
+    "manifest_file_sha256": "8436fa322879772601f6247dc73039cee4a20ccdbeff72bd4e73e5fdccfaac5a",
+    "verifier_contract_version": "oe_semantic_verifier_v0",
+    "prompt_version": "oe_semantic_verifier_v0_prompt_v1",
+    "prompt_sha256": "11ccf12bdd149a387e84fb4b05bea412e065d56e21f3b8cec3b9803270b56a1b",
+    "schema_version": "oe_semantic_verifier_v0_schema_v1",
+    "schema_sha256": "9744abab8629337ec044ef23100970fa413d05e7533e76577c338991b5a35224",
+    "model_configuration_sha256": "10067b56a188af4cca73a3cba817fa5ad2a10fbff77551871d45f3e1cd469aca",
+    "task_identity_set_sha256": "07502a40512534a98e22aa418e7fcddfbd24474c417295bf4937e9d82e51aa66"
+  },
+  "provider_configuration": {
+    "provider": "openai",
+    "endpoint": "https://api.openai.com/v1/responses",
+    "model": "gpt-5.6-terra",
+    "reasoning_effort": "low",
+    "store": false,
+    "tools": [],
+    "max_output_tokens": 2048,
+    "one_claim_per_call": true
+  },
+  "frozen_population": {
+    "case_count": 16,
+    "atom_claim_count": 80,
+    "relation_claim_count": 49,
+    "source_branch_count": 77,
+    "planned_provider_call_count": 129,
+    "reviewed_atom_counts": {
+      "entails": 72,
+      "contradicts": 2,
+      "not_established": 6,
+      "total": 80
+    },
+    "reference_relation_decision_counts": {
+      "entails": 36,
+      "contradicts": 2,
+      "not_established": 11
+    },
+    "reference_relation_state_counts": {
+      "complete_verified": 35,
+      "grounded_incomplete": 7,
+      "invalid_proposal": 7
+    }
+  },
+  "live_attempt": {
+    "process_wall_seconds_before_failure": 10.0509732,
+    "worker_concurrency": 8,
+    "provider_calls": {
+      "exact": null,
+      "lower_bound": 8,
+      "upper_bound": 129,
+      "reason_exact_is_unavailable": "Concurrent requests were not durably recorded before whole-population aggregation. Eight workers had dispatched initial requests; cancellation followed the first validation exception. Other completed or in-flight calls were discarded without persisted diagnostics."
+    },
+    "locally_validated_completed_results": 1,
+    "locally_rejected_completed_results_observed": 1,
+    "input_tokens": null,
+    "visible_output_tokens": null,
+    "reasoning_tokens": null,
+    "total_output_tokens": null,
+    "total_tokens": null,
+    "estimated_cost_usd": null,
+    "returned_model_aliases": null,
+    "usage_unavailable_reason": "Per-call diagnostics were held in process memory and the run stopped before the evidence-free result artifact was written."
+  },
+  "atom_verifier_metrics": {
+    "entailment_precision": null,
+    "entailment_recall": null,
+    "supported_claims_marked_entails": null,
+    "supported_claims_marked_not_established": null,
+    "supported_claims_incorrectly_contradicted": null,
+    "unsupported_claims_incorrectly_marked_entails": null,
+    "unsupported_claims_safely_rejected_or_unresolved": null,
+    "qualifier_level_accuracy": null,
+    "gate_status": "not_evaluable"
+  },
+  "relation_verifier_metrics": {
+    "decision_accuracy": null,
+    "source_branch_accounting": null,
+    "or_and_weakening": null,
+    "incomplete_relation_promoted_complete": null,
+    "gate_status": "not_evaluable",
+    "reference_basis": "Frozen human atom labels plus immutable raw relations, authenticated source branches, and the already-passed deterministic staging policy; not a separate independent human relation annotation."
+  },
+  "normalization_and_unmapped_values": {
+    "provider_inputs_contained_normalized_values": false,
+    "frozen_raw_values_present": [
+      "Italian",
+      "Indonesian",
+      "Physics",
+      "chemistry"
+    ],
+    "live_population_behavior": "not_evaluable_after_early_failure",
+    "deterministic_normalization_code_changed": false
+  },
+  "staging_finalization_and_projection": {
+    "live_provider_results_admitted": 0,
+    "hard_projection_authorized_created_by_attempt": 0,
+    "runtime_projection_executed": false,
+    "conditional_projection_precision": null,
+    "projection_from_incomplete_relations": null,
+    "unsupported_deterministic_hard_gates": null,
+    "gate_status": "not_evaluable"
+  },
+  "error_attribution": {
+    "extraction_quality": "not_rerun_and_not_scored",
+    "deterministic_authentication": "all_129_frozen_inputs_built_and_validated_locally_before_provider_calls",
+    "normalization": "unchanged_and_not_provider_authority",
+    "semantic_verifier": "blocked_on_wrong_applicable_qualifier_set",
+    "relation_verifier": "population_metrics_not_reached",
+    "finalization_assurance": "not_reached_by_live_results",
+    "projection": "not_reached_by_live_results",
+    "remaining_verifier_error_families": [
+      "The shared strict schema permits any three qualifiers from the atom/relation union, while the local validator correctly requires the claim-type-specific set. A provider response selected a structurally allowed but inapplicable set."
+    ]
+  },
+  "role_activity_controls": {
+    "permanent_local_fact_checking_plus_ai_output": "passed",
+    "permanent_local_generic_qa_not_software_testing": "passed",
+    "permanent_local_actual_software_proposition_required": "passed",
+    "live_regression_population": "not_evaluable_after_early_failure",
+    "ids_or_phrases_special_cased_in_implementation": false
+  },
+  "frozen_acceptance_gates": {
+    "atom_verifier": {
+      "minimum_entailment_precision": 0.95,
+      "minimum_supported_recall": 0.95,
+      "maximum_reviewed_unsupported_hard_assurance": 0,
+      "minimum_qualifier_semantic_accuracy": 0.95
+    },
+    "relation_verifier": {
+      "minimum_review_bound_relation_decision_accuracy": 0.95,
+      "required_source_branch_accounting": 1.0,
+      "maximum_or_and_weakening": 0,
+      "maximum_incomplete_relation_promoted_complete": 0
+    },
+    "final_safety": {
+      "maximum_source_value_substitutions": 0,
+      "maximum_projection_from_incomplete_relations": 0,
+      "required_conditional_projection_precision": 1.0,
+      "maximum_unsupported_deterministic_hard_gates": 0
+    }
+  },
+  "validation": {
+    "permanent_local_oe_semantic_tests": 95,
+    "permanent_local_oe_semantic_tests_passed": 95,
+    "frozen_manifest_created_before_provider_calls": true,
+    "raw_artifact_sha256": "37d6e7bea857274477ad08a89fef81023b3c1502c5064242ba4fe34c5540daf4",
+    "preregistration_fixture_sha256": "177574a22812a1f6122b3a03e640848fd6f211a9d19476ff416ed7330f6fbd38",
+    "review_fixture_sha256": "0cb380b248b310b6fd5819b17cff7f884f016b9efcd21e8aa66ea7b866dc8325"
+  },
+  "preservation": {
+    "new_extraction_calls": 0,
+    "new_grouping_calls": 0,
+    "database_reads_by_evaluator": 0,
+    "database_writes_by_evaluator": 0,
+    "workspace_database_hashes_unchanged": true,
+    "runtime_integration": false,
+    "persistence_integration": false,
+    "matching_integration": false,
+    "ui_integration": false,
+    "commit_created": false,
+    "push_performed": false
+  }
+}

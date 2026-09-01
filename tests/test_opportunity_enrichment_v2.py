@@ -27,18 +27,22 @@ from wahojobs.opportunity_enrichment import (
     STALE_REASON_SOURCE_INPUT_CHANGED,
     TAXONOMY_VERSION,
     apply_llm_semantic_acceptance_guards,
+    blank_llm_payload,
     blank_document,
     classify_enrichment_freshness,
     derivation_recipe_fingerprint,
     enrich_canonical_opportunity,
+    extract_deterministic_document,
     import_reviewed_overlay,
     llm_source_packet,
     llm_usage_observability,
     load_semantic_input,
+    merge_llm_payload,
     normalize_llm_list_fields,
     resolve_effective_enrichment,
     save_override,
     semantic_input_sha256,
+    semantic_variant_refs,
     skill_is_task_description,
     source_body_text,
     validate_llm_payload,
@@ -85,7 +89,8 @@ class FakeStructuredLLM:
         alternate_block_id = next(
             item["evidence_block_id"]
             for item in packet["evidence_blocks"]
-            if item["evidence_block_id"] != block_id
+            if item["kind"] == "listing_field"
+            and item["label"] == "listing.title"
         )
 
         def evidence(_quote):
@@ -93,7 +98,8 @@ class FakeStructuredLLM:
                 return ["evidence:invented"]
             return [block_id]
 
-        payload = {
+        payload = blank_llm_payload()
+        payload.update({
             "role_family": {
                 "value": "software_engineering",
                 "evidence": evidence("Build and review Python services."),
@@ -137,7 +143,7 @@ class FakeStructuredLLM:
                 "evidence": evidence("Build and review Python services."),
             },
             "caveats": [],
-        }
+        })
         if self.invalid_schema:
             payload.pop("quick_take")
         if self.duplicate_work_activity:
@@ -484,6 +490,14 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         self.assertTrue(
             any(item["kind"] == "listing_field" for item in first_blocks.values())
         )
+        self.assertEqual(
+            {item["authority_class"] for item in first_blocks.values()},
+            {
+                "accepted_body_evidence",
+                "page_metadata_context",
+                "variant_listing_evidence",
+            },
+        )
 
         changed_input = copy.deepcopy(semantic_input)
         changed_input["rich_content"][0]["body"] = (
@@ -643,7 +657,7 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
 
         self.assertEqual(
             [item["value"] for item in guarded["professional_domains"]],
-            ["legal"],
+            [],
         )
         self.assertEqual(
             [item["value"] for item in guarded["work_activities"]],
@@ -663,6 +677,938 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             ],
         )
         self.assertEqual(guarded["caveats"][1]["evidence"], ["E5"])
+
+    def test_semantic_guards_reject_context_metadata_and_unsupported_currency(self):
+        blocks = {
+            "ELANG": {
+                "kind": "metadata_field",
+                "label": "metadata.language",
+                "content": "metadata.language: en",
+            },
+            "EOFFICE": {
+                "kind": "metadata_field",
+                "label": "metadata.offices.0.name",
+                "content": "metadata.offices.0.name: Worldwide - Remote",
+            },
+            "EPAY": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "Pay is $20 per hour.",
+            },
+        }
+        payload = blank_llm_payload()
+        payload["languages"] = [
+            {
+                "value": {
+                    "language": "english",
+                    "locale": None,
+                    "requirement_mode": "single",
+                },
+                "evidence": ["ELANG"],
+            }
+        ]
+        payload["compensation_currency"] = {
+            "value": "USD",
+            "evidence": ["EPAY"],
+        }
+        payload["workplace_mode"] = {
+            "value": "remote",
+            "evidence": ["EOFFICE"],
+        }
+        payload["location_scope"] = {
+            "value": "remote_worldwide",
+            "evidence": ["EOFFICE"],
+        }
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload,
+            blocks,
+            blank_document(),
+        )
+
+        self.assertEqual(guarded["languages"], [])
+        self.assertEqual(
+            guarded["compensation_currency"],
+            {"value": None, "evidence": []},
+        )
+        self.assertEqual(
+            guarded["workplace_mode"],
+            {"value": None, "evidence": []},
+        )
+        self.assertEqual(
+            guarded["location_scope"],
+            {"value": None, "evidence": []},
+        )
+
+    def test_semantic_guards_preserve_explicit_sensitive_facts(self):
+        blocks = {
+            "ELANG": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "Candidates must be fluent in English.",
+            },
+            "ELOC": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": "This remote role is open only to candidates in the United States.",
+            },
+            "EPAY": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 3",
+                "content": "Pay is USD 20 per hour.",
+            },
+        }
+        payload = blank_llm_payload()
+        payload["languages"] = [
+            {
+                "value": {
+                    "language": "english",
+                    "locale": None,
+                    "requirement_mode": "single",
+                },
+                "evidence": ["ELANG"],
+            }
+        ]
+        payload["compensation_currency"] = {
+            "value": "USD",
+            "evidence": ["EPAY"],
+        }
+        payload["location_scope"] = {
+            "value": "remote_restricted",
+            "evidence": ["ELOC"],
+        }
+        payload["eligible_countries"] = [
+            {"value": "United States", "evidence": ["ELOC"]}
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload,
+            blocks,
+            blank_document(),
+        )
+
+        self.assertEqual(len(guarded["languages"]), 1)
+        self.assertEqual(guarded["compensation_currency"]["value"], "USD")
+        self.assertEqual(guarded["location_scope"]["value"], "remote_restricted")
+        self.assertEqual(
+            [item["value"] for item in guarded["eligible_countries"]],
+            ["United States"],
+        )
+
+    def test_semantic_guards_reclassify_modality_and_experience(self):
+        blocks = {
+            "EFOUNDER": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "Founder experience is ideal, but it is not required.",
+            },
+            "ECOMM": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": "Clear metacognitive communication is essential.",
+            },
+            "EYEARS": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 3",
+                "content": (
+                    "Minimum of 2 years of retirement plan administration "
+                    "experience is required."
+                ),
+            },
+        }
+        payload = blank_llm_payload()
+        payload["skills_required"] = [
+            {"value": "Founder experience", "evidence": ["EFOUNDER"]}
+        ]
+        payload["skills_preferred"] = [
+            {"value": "Clear metacognitive communication", "evidence": ["ECOMM"]}
+        ]
+        payload["years_experience_min"] = {
+            "value": 2,
+            "evidence": ["EYEARS"],
+        }
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload,
+            blocks,
+            blank_document(),
+        )
+
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_required"]],
+            ["Clear metacognitive communication"],
+        )
+        self.assertEqual(guarded["skills_preferred"], [])
+        self.assertEqual(
+            [item["value"] for item in guarded["experience_preferred"]],
+            ["Founder experience"],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["experience_required"]],
+            ["retirement plan administration experience"],
+        )
+
+    def test_semantic_guards_require_experiential_value_before_changing_family(self):
+        blocks = {
+            "ETRAITS": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "No prior AI or technical experience is necessary; what matters "
+                    "is curiosity, strong communication, attention to detail, and "
+                    "willingness to engage thoughtfully with the work."
+                ),
+            },
+            "EFAMILIAR": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": (
+                    "Prior research experience is a plus, and familiarity with "
+                    "inspection workflows is strongly valued."
+                ),
+            },
+        }
+        payload = blank_llm_payload()
+        payload["skills_required"] = [
+            {"value": value, "evidence": ["ETRAITS"]}
+            for value in (
+                "Curiosity",
+                "Strong communication",
+                "Attention to detail",
+                "Willingness to engage thoughtfully",
+            )
+        ]
+        payload["skills_preferred"] = [
+            {
+                "value": "Familiarity with inspection workflows",
+                "evidence": ["EFAMILIAR"],
+            }
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload,
+            blocks,
+            blank_document(),
+        )
+
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_required"]],
+            [
+                "Curiosity",
+                "Strong communication",
+                "Attention to detail",
+                "Willingness to engage thoughtfully",
+            ],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_preferred"]],
+            ["Familiarity with inspection workflows"],
+        )
+        self.assertEqual(guarded["experience_required"], [])
+        self.assertEqual(guarded["experience_preferred"], [])
+
+    def test_semantic_guards_preserve_real_experience_and_its_modality(self):
+        blocks = {
+            "ELAW": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "Current or former law enforcement professionals must have "
+                    "real-world law enforcement experience."
+                ),
+            },
+            "EPYTHON": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": "Real-world Python experience is a strong signal of fit.",
+            },
+            "EYEARS": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 3",
+                "content": (
+                    "A minimum of 2 years of retirement plan administration "
+                    "experience is required."
+                ),
+            },
+        }
+        payload = blank_llm_payload()
+        payload["experience_required"] = [
+            {
+                "value": "Real-world law enforcement experience",
+                "evidence": ["ELAW"],
+            }
+        ]
+        payload["skills_required"] = [
+            {"value": "Real-world Python experience", "evidence": ["EPYTHON"]},
+            {
+                "value": (
+                    "At least 2 years of retirement plan administration experience"
+                ),
+                "evidence": ["EYEARS"],
+            },
+        ]
+        payload["years_experience_min"] = {
+            "value": 2,
+            "evidence": ["EYEARS"],
+        }
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload,
+            blocks,
+            blank_document(),
+        )
+
+        self.assertEqual(guarded["skills_required"], [])
+        self.assertEqual(
+            [item["value"] for item in guarded["experience_required"]],
+            [
+                "Real-world law enforcement experience",
+                "At least 2 years of retirement plan administration experience",
+            ],
+        )
+        self.assertEqual(guarded["years_experience_min"]["value"], 2)
+        self.assertEqual(
+            [item["value"] for item in guarded["experience_preferred"]],
+            ["Real-world Python experience"],
+        )
+
+    def test_language_modes_reconcile_by_meaning_without_invalid_duplicates(self):
+        one_language = opportunity_enrichment._resolve_language_requirement_values(
+            [
+                {"language": "french", "locale": None, "requirement_mode": "single"},
+                {
+                    "language": "french",
+                    "locale": None,
+                    "requirement_mode": "all_required",
+                },
+            ]
+        )
+        bilingual = opportunity_enrichment._resolve_language_requirement_values(
+            [
+                {"language": "french", "locale": None, "requirement_mode": "single"},
+                {
+                    "language": "french",
+                    "locale": None,
+                    "requirement_mode": "all_required",
+                },
+                {
+                    "language": "english",
+                    "locale": None,
+                    "requirement_mode": "all_required",
+                },
+            ]
+        )
+        irreconcilable = opportunity_enrichment._resolve_language_requirement_values(
+            [
+                {"language": "french", "locale": None, "requirement_mode": "single"},
+                {
+                    "language": "french",
+                    "locale": None,
+                    "requirement_mode": "any_supported",
+                },
+            ]
+        )
+        locale_narrowed = opportunity_enrichment._resolve_language_requirement_values(
+            [
+                {"language": "chinese", "locale": None, "requirement_mode": "single"},
+                {
+                    "language": "chinese",
+                    "locale": "Mandarin",
+                    "requirement_mode": "all_required",
+                },
+            ]
+        )
+        distinct_locales = opportunity_enrichment._resolve_language_requirement_values(
+            [
+                {"language": "spanish", "locale": None, "requirement_mode": "single"},
+                {"language": "spanish", "locale": "Cordobes", "requirement_mode": "single"},
+                {"language": "spanish", "locale": "Rioplatense", "requirement_mode": "single"},
+            ]
+        )
+
+        self.assertEqual(one_language[0]["requirement_mode"], "single")
+        self.assertEqual(
+            {item["requirement_mode"] for item in bilingual},
+            {"all_required"},
+        )
+        self.assertEqual(irreconcilable[0]["requirement_mode"], "ambiguous")
+        self.assertEqual(
+            locale_narrowed,
+            [
+                {
+                    "language": "chinese",
+                    "locale": "mandarin",
+                    "requirement_mode": "single",
+                }
+            ],
+        )
+        self.assertEqual(
+            [(item["language"], item["locale"]) for item in distinct_locales],
+            [
+                ("spanish", None),
+                ("spanish", "cordobes"),
+                ("spanish", "rioplatense"),
+            ],
+        )
+
+    def test_language_guard_accepts_explicit_bilingual_work_not_page_language(self):
+        blocks = {
+            "EBODY": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "On a typical day, you will converse with the model in both "
+                    "English and French."
+                ),
+            },
+            "EMETA": {
+                "kind": "metadata_field",
+                "label": "metadata.language",
+                "content": "metadata.language: English",
+            },
+        }
+        payload = blank_llm_payload()
+        payload["languages"] = [
+            {
+                "value": {
+                    "language": language,
+                    "locale": None,
+                    "requirement_mode": "all_required",
+                },
+                "evidence": [evidence],
+            }
+            for language, evidence in (
+                ("english", "EBODY"),
+                ("french", "EBODY"),
+                ("english", "EMETA"),
+            )
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(len(guarded["languages"]), 2)
+        self.assertEqual(
+            {item["value"]["language"] for item in guarded["languages"]},
+            {"english", "french"},
+        )
+
+    def test_language_guard_uses_locale_evidence_but_not_preferred_dialect_fluency(self):
+        blocks = {
+            "EMANDARIN": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "Verified Mandarin language proficiency of C1 or C2.",
+            },
+            "ECORDOBES": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": (
+                    "Native-level Cordobes fluency is preferred, but Cordobes "
+                    "dialect expertise is required."
+                ),
+            },
+        }
+        payload = blank_llm_payload()
+        payload["languages"] = [
+            {
+                "value": {
+                    "language": "chinese",
+                    "locale": "Mandarin",
+                    "requirement_mode": "single",
+                },
+                "evidence": ["EMANDARIN"],
+            },
+            {
+                "value": {
+                    "language": "spanish",
+                    "locale": "Cordobes",
+                    "requirement_mode": "single",
+                },
+                "evidence": ["ECORDOBES"],
+            },
+        ]
+        payload["skills_required"] = [
+            {"value": "Cordobes dialect expertise", "evidence": ["ECORDOBES"]}
+        ]
+        payload["skills_preferred"] = [
+            {"value": "Native-level Cordobes fluency", "evidence": ["ECORDOBES"]}
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(
+            [item["value"] for item in guarded["languages"]],
+            [
+                {
+                    "language": "chinese",
+                    "locale": "Mandarin",
+                    "requirement_mode": "single",
+                }
+            ],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_required"]],
+            ["Cordobes dialect expertise"],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_preferred"]],
+            ["Native-level Cordobes fluency"],
+        )
+
+    def test_mixed_background_or_interest_is_not_required_experience(self):
+        blocks = {
+            "ESPORT": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "Candidates need a sports-industry background or strong "
+                    "interest in sports."
+                ),
+            }
+        }
+        payload = blank_llm_payload()
+        payload["experience_required"] = [
+            {
+                "value": "Sports-industry background or strong interest in sports",
+                "evidence": ["ESPORT"],
+            }
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(guarded["experience_required"], [])
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_required"]],
+            ["Sports-industry background or strong interest in sports"],
+        )
+
+    def test_current_professional_status_has_its_own_required_field(self):
+        blocks = {
+            "EOWNER": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "We're looking for current small-business owners and co-owners "
+                    "to advise on real operational decisions."
+                ),
+            }
+        }
+        payload = blank_llm_payload()
+        payload["experience_preferred"] = [
+            {
+                "value": "Small-business owner or co-owner",
+                "evidence": ["EOWNER"],
+            }
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(guarded["experience_required"], [])
+        self.assertEqual(guarded["experience_preferred"], [])
+        self.assertEqual(
+            [item["value"] for item in guarded["current_status_requirements"]],
+            ["Small-business owner or co-owner"],
+        )
+
+    def test_current_status_accepts_equivalent_owning_verb(self):
+        blocks = {
+            "EOWNER": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "We're looking for current owners and co-owners.",
+            }
+        }
+        payload = blank_llm_payload()
+        payload["current_status_requirements"] = [
+            {
+                "value": "Currently own or co-own a small business",
+                "evidence": ["EOWNER"],
+            }
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(len(guarded["current_status_requirements"]), 1)
+
+    def test_current_status_asset_and_experience_families_keep_separate_authority(self):
+        blocks = {
+            "EOWNER": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "Demonstrable professional expertise as an active owner or "
+                    "operator of a local business."
+                ),
+            },
+            "EASSET": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": (
+                    "Required asset: must currently possess and actively manage "
+                    "a verified business profile."
+                ),
+            },
+            "EEXPERTISE": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 3",
+                "content": "Contractors must possess deep finance expertise.",
+            },
+            "EMIXED": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 4",
+                "content": (
+                    "Contractors must possess direct operational experience and "
+                    "verified digital storefront assets."
+                ),
+            },
+            "EHISTORY": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 5",
+                "content": "Prior work experience operating retail stores is required.",
+            },
+        }
+        payload = blank_llm_payload()
+        payload["experience_required"] = [
+            {
+                "value": "Professional expertise as an active owner or operator",
+                "evidence": ["EOWNER"],
+            },
+            {
+                "value": "Deep finance expertise",
+                "evidence": ["EEXPERTISE"],
+            },
+            {
+                "value": "Direct operational experience and verified digital storefront assets",
+                "evidence": ["EMIXED"],
+            },
+            {
+                "value": "Prior work experience operating retail stores",
+                "evidence": ["EHISTORY"],
+            },
+        ]
+        payload["current_status_requirements"] = [
+            {
+                "value": "Currently possess and manage a verified business profile",
+                "evidence": ["EASSET"],
+            },
+            {
+                "value": "Direct operational experience as an active owner or operator",
+                "evidence": ["EOWNER"],
+            },
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(
+            [item["value"] for item in guarded["current_status_requirements"]],
+            [
+                "Currently possess and manage a verified business profile",
+                "Active owner or operator",
+                "Professional expertise as an active owner or operator",
+            ],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_required"]],
+            ["Deep finance expertise"],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["experience_required"]],
+            ["Prior work experience operating retail stores"],
+        )
+
+    def test_targeted_domain_specialist_expertise_is_required_without_inference(self):
+        blocks = {
+            "EINSURANCE": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "We're looking for insurance specialists to evaluate "
+                    "insurance-domain model responses, especially with deep "
+                    "knowledge of regulations in French-speaking regions."
+                ),
+            }
+        }
+        payload = blank_llm_payload()
+        payload["skills_required"] = [
+            {
+                "value": (
+                    "Insurance expertise, including deep knowledge of regulations "
+                    "in French-speaking regions"
+                ),
+                "evidence": ["EINSURANCE"],
+            }
+        ]
+        document = blank_document()
+        document["source"]["canonical_title"] = "Insurance Specialist - French"
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, document
+        )
+
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_required"]],
+            ["Insurance expertise"],
+        )
+        self.assertEqual(
+            [item["value"] for item in guarded["skills_preferred"]],
+            [
+                "Insurance expertise, including deep knowledge of regulations "
+                "in French-speaking regions"
+            ],
+        )
+        self.assertEqual(guarded["experience_required"], [])
+        self.assertEqual(guarded["credentials"], [])
+
+    def test_nearby_preference_modifier_controls_its_fact_not_role_identity(self):
+        blocks = {
+            "EEDUCATION": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "We're looking for education specialists with curriculum knowledge, "
+                    "especially with experience in French-speaking education systems."
+                ),
+            }
+        }
+        payload = blank_llm_payload()
+        payload["experience_preferred"] = [
+            {
+                "value": "Experience in French-speaking education systems",
+                "evidence": ["EEDUCATION"],
+            }
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(guarded["experience_required"], [])
+        self.assertEqual(
+            [item["value"] for item in guarded["experience_preferred"]],
+            ["Experience in French-speaking education systems"],
+        )
+
+    def test_domain_expertise_is_not_dropped_as_compensation_metadata(self):
+        blocks = {
+            "EHR": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "We're looking for HR specialists with expertise in talent "
+                    "acquisition, compensation and benefits, and employee relations."
+                ),
+            }
+        }
+        payload = blank_llm_payload()
+        payload["skills_required"] = [
+            {
+                "value": (
+                    "HR expertise in talent acquisition, compensation and benefits, "
+                    "and employee relations"
+                ),
+                "evidence": ["EHR"],
+            }
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(len(guarded["skills_required"]), 1)
+
+    def test_activity_guard_keeps_only_direct_action_evidence(self):
+        blocks = {
+            "EAI": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": "You will converse with the model and verify factual accuracy.",
+            },
+            "EOPS": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": "Manage client onboarding workflows and monitor progress.",
+            },
+            "EANNOTATE": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 3",
+                "content": "Review AI-generated content and annotate errors.",
+            },
+            "ECONTEXT": {
+                "kind": "listing_field",
+                "label": "listing.title",
+                "content": "AI Operations and Data Specialist",
+            },
+            "EUNSUPPORTED": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 4",
+                "content": "Join the data collection team for this project.",
+            },
+        }
+        payload = blank_llm_payload()
+        payload["work_activities"] = [
+            {"value": "ai_training_evaluation", "evidence": ["EAI", "ECONTEXT"]},
+            {"value": "operations", "evidence": ["EOPS", "ECONTEXT"]},
+            {"value": "data_annotation", "evidence": ["EANNOTATE", "ECONTEXT"]},
+            {"value": "data_collection", "evidence": ["EUNSUPPORTED"]},
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(
+            [item["value"] for item in guarded["work_activities"]],
+            ["ai_training_evaluation", "operations", "data_annotation"],
+        )
+        self.assertEqual(
+            [item["evidence"] for item in guarded["work_activities"]],
+            [["EAI"], ["EOPS"], ["EANNOTATE"]],
+        )
+
+    def test_domain_and_activity_guards_require_role_coherent_body_actions(self):
+        blocks = {
+            "EQA": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 1",
+                "content": (
+                    "Quality Assurance and Fact-Checking: ensure generated tasks "
+                    "and scoring criteria reflect industry standards."
+                ),
+            },
+            "EFEATURE": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 2",
+                "content": "Test newly deployed platform features and digital tools.",
+            },
+            "ELATEX": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 3",
+                "content": (
+                    "LaTeX specialists perform document typesetting, mathematical "
+                    "formatting, and package troubleshooting."
+                ),
+            },
+            "EMATH": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 4",
+                "content": (
+                    "Mathematics specialists apply mathematical reasoning and "
+                    "proof analysis to evaluate model answers."
+                ),
+            },
+            "ERESOURCE": {
+                "kind": "body_paragraph",
+                "label": "body paragraph 5",
+                "content": (
+                    "Develop educational resources and feedback documentation "
+                    "from observed quality trends."
+                ),
+            },
+        }
+        payload = blank_llm_payload()
+        payload["professional_domains"] = [
+            {"value": "mathematics", "evidence": ["ELATEX", "EMATH"]}
+        ]
+        payload["work_activities"] = [
+            {"value": "software_testing", "evidence": ["EQA", "EFEATURE"]},
+            {"value": "writing_editing", "evidence": ["ERESOURCE"]},
+        ]
+
+        guarded = apply_llm_semantic_acceptance_guards(
+            payload, blocks, blank_document()
+        )
+
+        self.assertEqual(
+            guarded["professional_domains"],
+            [{"value": "mathematics", "evidence": ["EMATH"]}],
+        )
+        self.assertEqual(
+            guarded["work_activities"],
+            [
+                {"value": "software_testing", "evidence": ["EFEATURE"]},
+                {"value": "writing_editing", "evidence": ["ERESOURCE"]},
+            ],
+        )
+
+    def test_vnext_conflicts_clear_canonical_projection_and_preserve_scoped_facts(self):
+        canonical_id = self.insert_canonical(
+            key="provider::conflicting-location",
+            title="English Language Specialist",
+        )
+        job_id = self.insert_job(
+            "conflicting-location",
+            "English Language Specialist",
+            canonical_id=canonical_id,
+            location="World Wide - Remote",
+        )
+        self.persist_rich_source(
+            job_id,
+            body=(
+                "Workplace type: Remote US Only. "
+                + "Review language data against the supplied rubric. " * 12
+            ),
+        )
+
+        document = extract_deterministic_document(
+            load_semantic_input(self.conn, canonical_id)
+        )
+
+        self.assertEqual(
+            document["attributes"]["work_arrangement"]["location_scope"],
+            "unknown",
+        )
+        self.assertEqual(
+            {
+                fact["value"]
+                for fact in document["variant_facts"]
+                if fact["field_path"]
+                == "attributes.work_arrangement.location_scope"
+            },
+            {"remote_restricted", "remote_worldwide"},
+        )
+        self.assertIn(
+            "attributes.work_arrangement.location_scope",
+            document["unknown_fields"],
+        )
+
+    def test_vnext_compensation_range_accepts_nonbreaking_hyphen(self):
+        canonical_id = self.insert_canonical(
+            key="provider::nonbreaking-pay",
+            title="Python Coding Specialist",
+        )
+        job_id = self.insert_job(
+            "nonbreaking-pay",
+            "Python Coding Specialist",
+            canonical_id=canonical_id,
+        )
+        self.persist_rich_source(
+            job_id,
+            body=(
+                "Pay range: $8‑to‑$65 per hour. "
+                + "Review Python solutions against project requirements. " * 12
+            ),
+        )
+
+        document = extract_deterministic_document(
+            load_semantic_input(self.conn, canonical_id)
+        )
+        compensation = document["attributes"]["compensation"]
+
+        self.assertEqual(compensation["amount_min"], 8)
+        self.assertEqual(compensation["amount_max"], 65)
+        self.assertIsNone(compensation["currency"])
 
     def test_skill_task_distinction_fixtures(self):
         fixtures = {
@@ -970,34 +1916,33 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             },
         )
 
-    def test_future_semantic_input_bump_stales_legacy_v2_without_source_change(self):
+    def test_future_semantic_input_bump_stales_current_v3_without_source_change(self):
         job_id, canonical_id = self.fallback_enriched_job()
         self.persist_rich_source(job_id)
         semantic_input = load_semantic_input(self.conn, canonical_id)
-        v2_hash = semantic_input_sha256(
-            semantic_input,
-            "opportunity_semantic_input_v2",
-        )
-        legacy_v2 = {
+        v3_hash = semantic_input_sha256(semantic_input)
+        current_v3 = {
             "schema_version": SCHEMA_VERSION,
             "taxonomy_version": TAXONOMY_VERSION,
-            "extractor_version": "deterministic_plus_structured_llm_v1",
-            "input_sha256": v2_hash,
+            "extractor_version": EXTRACTOR_VERSION,
+            "semantic_input_version": SEMANTIC_INPUT_VERSION,
+            "input_sha256": v3_hash,
+            "derivation_fingerprint": derivation_recipe_fingerprint(),
             "model_provider": None,
             "model_name": None,
             "prompt_version": None,
         }
 
-        before = classify_enrichment_freshness(semantic_input, legacy_v2)
+        before = classify_enrichment_freshness(semantic_input, current_v3)
         future_input = copy.deepcopy(semantic_input)
         future_input["future_semantic_signal"] = {"value": "v3-only"}
         module_path = Path(opportunity_enrichment.__file__)
         current_source = module_path.read_text(encoding="utf-8")
         current_assignment = (
-            'SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v2"'
+            'SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v3"'
         )
         future_assignment = (
-            'SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v3"'
+            'SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v4"'
         )
         self.assertEqual(current_source.count(current_assignment), 1)
         future_source = current_source.replace(
@@ -1019,37 +1964,39 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         )
         after = future_module["classify_enrichment_freshness"](
             future_input,
-            legacy_v2,
+            current_v3,
         )
 
         self.assertEqual(before["freshness"], "current")
-        self.assertEqual(before["derivation_status"], "legacy_compatible")
+        self.assertEqual(before["derivation_status"], "current")
         self.assertEqual(after["freshness"], "stale")
         self.assertEqual(
             after["stored_semantic_input_version"],
-            "opportunity_semantic_input_v2",
+            "opportunity_semantic_input_v3",
         )
         self.assertEqual(
             after["current_semantic_input_version"],
-            "opportunity_semantic_input_v3",
+            "opportunity_semantic_input_v4",
         )
         self.assertEqual(after["derivation_status"], "changed")
         self.assertEqual(after["source_input_status"], "current")
-        self.assertEqual(after["comparable_input_sha256"], v2_hash)
+        self.assertEqual(after["comparable_input_sha256"], v3_hash)
         self.assertEqual(
             after["stale_reasons"],
             [STALE_REASON_DERIVATION_CONTRACT_CHANGED],
         )
 
-    def test_future_recipe_bump_stales_fingerprintless_legacy_v2_independently(self):
+    def test_future_recipe_bump_stales_current_v3_independently(self):
         job_id, canonical_id = self.fallback_enriched_job()
         self.persist_rich_source(job_id)
         semantic_input = load_semantic_input(self.conn, canonical_id)
-        legacy_v2 = {
+        current_v3 = {
             "schema_version": SCHEMA_VERSION,
             "taxonomy_version": TAXONOMY_VERSION,
-            "extractor_version": "deterministic_plus_structured_llm_v1",
+            "extractor_version": EXTRACTOR_VERSION,
+            "semantic_input_version": SEMANTIC_INPUT_VERSION,
             "input_sha256": semantic_input_sha256(semantic_input),
+            "derivation_fingerprint": derivation_recipe_fingerprint(),
             "model_provider": None,
             "model_name": None,
             "prompt_version": None,
@@ -1057,13 +2004,13 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
 
         with patch.object(
             opportunity_enrichment,
-            "DERIVATION_RECIPE_VERSION",
-            "opportunity_enrichment_derivation_v2",
+            "derivation_recipe_fingerprint",
+            return_value="f" * 64,
         ):
-            freshness = classify_enrichment_freshness(semantic_input, legacy_v2)
+            freshness = classify_enrichment_freshness(semantic_input, current_v3)
 
         self.assertEqual(freshness["freshness"], "stale")
-        self.assertEqual(freshness["derivation_status"], "unknown")
+        self.assertEqual(freshness["derivation_status"], "changed")
         self.assertEqual(freshness["source_input_status"], "current")
         self.assertEqual(
             freshness["stale_reasons"],
@@ -1246,7 +2193,7 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
             if item["field_path"] == "attributes.role.work_activities"
             and item["basis"] == "llm_source_evidence"
         ]
-        self.assertEqual(len(llm_evidence), 2)
+        self.assertEqual(len(llm_evidence), 1)
 
     def test_new_prompt_version_reprocesses_unchanged_source_once(self):
         job_id, canonical_id = self.fallback_enriched_job()
@@ -1785,6 +2732,116 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         self.assertIsNotNone(row["canonical_opportunity_id"])
         self.assertEqual(row["status"], "partial")
 
+    def test_tracking_refreshes_only_materially_changed_semantic_inputs(self):
+        def candidate(external_id, body, source_updated_at):
+            return JobCandidate(
+                external_id=external_id,
+                title=f"Tracked role {external_id}",
+                location="Remote worldwide",
+                url=f"https://example.test/jobs/{external_id}",
+                expertise="AI Training",
+                source_body=body,
+                source_body_format="text/plain",
+                source_updated_at=source_updated_at,
+            )
+
+        stable_body = "Complete accepted body for the stable opportunity."
+        changed_body = "Complete accepted body before its material revision."
+
+        def crawl(jobs):
+            return CompanyCrawlResult(
+                jobs=jobs,
+                used_sample_data=False,
+                source_message="fixture",
+                source_type="fixture",
+                outcome=ProviderOutcome.SUCCESS,
+                snapshot_complete=True,
+                pagination_complete=True,
+                raw_record_count=2,
+                normalized_record_count=2,
+            )
+
+        first_run_id = self.conn.execute(
+            "INSERT INTO crawl_runs (company_id, status, started_at) VALUES (?, 'running', ?)",
+            (self.company_id, NOW),
+        ).lastrowid
+        with patch(
+            "wahojobs.tracking.service.tracking_openai_client",
+            return_value=None,
+        ):
+            track_crawl_result(
+                self.conn,
+                self.company_id,
+                first_run_id,
+                crawl(
+                    [
+                        candidate("changed", changed_body, NOW),
+                        candidate("stable", stable_body, NOW),
+                    ]
+                ),
+                NOW,
+            )
+
+        canonical_ids = {
+            row["external_id"]: row["canonical_opportunity_id"]
+            for row in self.conn.execute(
+                "SELECT external_id, canonical_opportunity_id FROM jobs"
+            ).fetchall()
+        }
+        stable_id = canonical_ids["stable"]
+        changed_id = canonical_ids["changed"]
+        self.conn.execute(
+            """
+            UPDATE opportunity_enrichments
+            SET schema_version = 'recipe_migration_sentinel'
+            WHERE canonical_opportunity_id = ?
+            """,
+            (stable_id,),
+        )
+
+        later = "2026-08-17T12:00:00+00:00"
+        second_run_id = self.conn.execute(
+            "INSERT INTO crawl_runs (company_id, status, started_at) VALUES (?, 'running', ?)",
+            (self.company_id, later),
+        ).lastrowid
+        with patch(
+            "wahojobs.tracking.service.tracking_openai_client",
+            return_value=None,
+        ):
+            track_crawl_result(
+                self.conn,
+                self.company_id,
+                second_run_id,
+                crawl(
+                    [
+                        candidate(
+                            "changed",
+                            changed_body + " Materially changed requirements.",
+                            later,
+                        ),
+                        candidate("stable", stable_body, later),
+                    ]
+                ),
+                later,
+            )
+
+        stored_versions = {
+            row["canonical_opportunity_id"]: row["schema_version"]
+            for row in self.conn.execute(
+                """
+                SELECT canonical_opportunity_id, schema_version
+                FROM opportunity_enrichments
+                WHERE canonical_opportunity_id IN (?, ?)
+                """,
+                (changed_id, stable_id),
+            ).fetchall()
+        }
+        self.assertEqual(stored_versions[changed_id], SCHEMA_VERSION)
+        self.assertEqual(
+            stored_versions[stable_id],
+            "recipe_migration_sentinel",
+        )
+
     def test_fallback_does_not_change_live_market_counting_policy(self):
         self.insert_job("market-count", "Unlinked Appen role")
         before = get_market_size_summary(self.conn)["estimated_market_opportunities"]
@@ -1792,6 +2849,247 @@ class OpportunityEnrichmentV2Tests(unittest.TestCase):
         after = get_market_size_summary(self.conn)["estimated_market_opportunities"]
         self.assertEqual(before, 1)
         self.assertEqual(after, before)
+
+    def test_vnext_objective_parser_uses_accepted_body_with_exact_evidence(self):
+        canonical_id = self.insert_canonical(
+            key="provider::objective",
+            title="Operations Reviewer",
+        )
+        job_id = self.insert_job(
+            "objective-body",
+            "Operations Reviewer",
+            canonical_id=canonical_id,
+            location="Brazil - Remote",
+        )
+        body = (
+            "Minimum of 3 years of operations experience is required.\n\n"
+            "A bachelor's degree is required.\n\n"
+            "A master's degree is preferred but not required.\n\n"
+            "Hours: 20-30 hours per week.\n\n"
+            "Pay range: USD 25 to USD 35 per hour.\n\n"
+            "Employment type: Contract. Workplace type: Remote."
+        )
+        self.persist_rich_source(job_id, body=body)
+
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        document = extract_deterministic_document(semantic_input)
+        attributes = document["attributes"]
+
+        self.assertEqual(
+            attributes["requirements"]["education"]["minimum_level"],
+            "bachelor",
+        )
+        self.assertEqual(
+            attributes["requirements"]["education"]["preferred_levels"],
+            ["master"],
+        )
+        self.assertEqual(attributes["requirements"]["years_experience_min"], 3)
+        self.assertEqual(attributes["work_arrangement"]["hours_per_week_min"], 20)
+        self.assertEqual(attributes["work_arrangement"]["hours_per_week_max"], 30)
+        self.assertEqual(attributes["work_arrangement"]["engagement_type"], "contract")
+        self.assertEqual(attributes["compensation"]["currency"], "USD")
+        self.assertEqual(attributes["compensation"]["amount_min"], 25)
+        self.assertEqual(attributes["compensation"]["amount_max"], 35)
+        body_evidence = [
+            item
+            for item in document["field_evidence"]
+            if item["field_path"]
+            == "attributes.requirements.years_experience_min"
+        ]
+        self.assertEqual(len(body_evidence), 1)
+        self.assertRegex(body_evidence[0]["evidence_block_id"], r"^E[0-9a-f]{16}$")
+        self.assertTrue(
+            any(
+                item.startswith("source_content:")
+                for item in body_evidence[0]["authority_refs"]
+            )
+        )
+        self.assertEqual(
+            body_evidence[0]["variant_refs"], semantic_variant_refs(semantic_input)
+        )
+        listing_evidence = next(
+            item
+            for item in document["field_evidence"]
+            if item["field_path"]
+            == "attributes.work_arrangement.eligible_countries"
+        )
+        self.assertTrue(
+            any(
+                item.startswith("semantic_source:")
+                for item in listing_evidence["authority_refs"]
+            )
+        )
+        self.assertFalse(
+            any(
+                item.startswith("source_content:")
+                for item in listing_evidence["authority_refs"]
+            )
+        )
+
+    def test_vnext_does_not_promote_conflicting_variant_compensation(self):
+        canonical_id = self.insert_canonical(
+            key="provider::variant-pay",
+            title="Payroll Reviewer",
+        )
+        first_job = self.insert_job(
+            "variant-pay-br",
+            "Payroll Reviewer",
+            canonical_id=canonical_id,
+            location="Brazil",
+        )
+        second_job = self.insert_job(
+            "variant-pay-ph",
+            "Payroll Reviewer",
+            canonical_id=canonical_id,
+            location="Philippines",
+        )
+        common = (
+            "Review payroll records and document discrepancies for the operations team. "
+            + "Use accepted source evidence carefully. " * 12
+        )
+        self.persist_rich_source(first_job, body=common + " Pay rate: $5 per hour.")
+        self.persist_rich_source(second_job, body=common + " Pay rate: $7 per hour.")
+
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        document = extract_deterministic_document(semantic_input)
+
+        self.assertTrue(document["attributes"]["compensation"]["disclosed"])
+        self.assertIsNone(document["attributes"]["compensation"]["amount_min"])
+        self.assertIn(
+            "attributes.compensation.amount_min", document["unknown_fields"]
+        )
+        scoped_amounts = {
+            fact["value"]
+            for fact in document["variant_facts"]
+            if fact["field_path"] == "attributes.compensation.amount_min"
+        }
+        self.assertEqual(scoped_amounts, {5, 7})
+        self.assertEqual(
+            len(
+                {
+                    variant_ref
+                    for fact in document["variant_facts"]
+                    if fact["field_path"] == "attributes.compensation.amount_min"
+                    for variant_ref in fact["variant_refs"]
+                }
+            ),
+            2,
+        )
+
+    def test_vnext_llm_fact_scope_is_derived_from_evidence_variants(self):
+        canonical_id = self.insert_canonical(
+            key="provider::variant-semantic",
+            title="Operations Reviewer",
+        )
+        first_job = self.insert_job(
+            "variant-semantic-one",
+            "Operations Reviewer",
+            canonical_id=canonical_id,
+            location="Brazil",
+        )
+        second_job = self.insert_job(
+            "variant-semantic-two",
+            "Operations Reviewer",
+            canonical_id=canonical_id,
+            location="Philippines",
+        )
+        shared = "Review payroll records and document discrepancies."
+        filler = " Use accepted evidence and follow the published workflow." * 12
+        self.persist_rich_source(first_job, body=shared + filler)
+        self.persist_rich_source(second_job, body=shared + filler)
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        document = extract_deterministic_document(semantic_input)
+        packet, blocks = llm_source_packet(semantic_input)
+        shared_block = next(
+            item
+            for item in packet["evidence_blocks"]
+            if shared in item["content"]
+        )
+        self.assertEqual(
+            shared_block["variant_refs"], semantic_variant_refs(semantic_input)
+        )
+        payload = blank_llm_payload()
+        payload["responsibilities"] = [
+            {
+                "value": "Review payroll records and document discrepancies",
+                "evidence": [shared_block["evidence_block_id"]],
+            }
+        ]
+        validate_llm_payload(payload, blocks)
+
+        merged = merge_llm_payload(
+            document,
+            payload,
+            blocks,
+            all_variant_refs=semantic_variant_refs(semantic_input),
+        )
+
+        self.assertEqual(
+            merged["attributes"]["content"]["responsibilities"],
+            ["Review payroll records and document discrepancies"],
+        )
+        self.assertNotIn(
+            "attributes.content.responsibilities", merged["unknown_fields"]
+        )
+
+    def test_vnext_known_empty_is_distinct_from_unknown(self):
+        canonical_id = self.insert_canonical(
+            key="provider::known-empty",
+            title="General Reviewer",
+        )
+        job_id = self.insert_job(
+            "known-empty-source",
+            "General Reviewer",
+            canonical_id=canonical_id,
+        )
+        body = (
+            "No specific software skills are required for this opportunity. "
+            + "Candidates will receive clear task instructions and examples. " * 12
+        )
+        self.persist_rich_source(job_id, body=body)
+        semantic_input = load_semantic_input(self.conn, canonical_id)
+        document = extract_deterministic_document(semantic_input)
+        packet, blocks = llm_source_packet(semantic_input)
+        block = next(
+            item
+            for item in packet["evidence_blocks"]
+            if "No specific software skills" in item["content"]
+        )
+        payload = blank_llm_payload()
+        payload["known_empty_fields"] = [
+            {
+                "field_path": "attributes.requirements.skills_required",
+                "evidence": [block["evidence_block_id"]],
+            }
+        ]
+        contradictory = copy.deepcopy(payload)
+        contradictory["skills_required"] = [
+            {
+                "value": "Python",
+                "evidence": [block["evidence_block_id"]],
+            }
+        ]
+        with self.assertRaises(EnrichmentValidationError):
+            validate_llm_payload(contradictory, blocks)
+        validate_llm_payload(payload, blocks)
+
+        merged = merge_llm_payload(
+            document,
+            payload,
+            blocks,
+            all_variant_refs=semantic_variant_refs(semantic_input),
+        )
+
+        self.assertEqual(merged["attributes"]["requirements"]["skills_required"], [])
+        self.assertNotIn(
+            "attributes.requirements.skills_required", merged["unknown_fields"]
+        )
+        known_empty = next(
+            fact
+            for fact in merged["variant_facts"]
+            if fact["field_path"] == "attributes.requirements.skills_required"
+        )
+        self.assertEqual(known_empty["knowledge_state"], "known_empty")
 
 
 if __name__ == "__main__":

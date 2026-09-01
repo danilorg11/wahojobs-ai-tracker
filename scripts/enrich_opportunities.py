@@ -39,7 +39,7 @@ def main():
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Create deterministic V2 enrichment for canonical opportunities."
+        description="Create Opportunity Enrichment vNext for canonical opportunities."
     )
     parser.add_argument(
         "--database",
@@ -138,7 +138,7 @@ def run_backfill(
 def print_report(result: dict) -> None:
     enrichment = result["enrichment"]
     coverage = result["coverage"]
-    print("Opportunity enrichment V2 backfill")
+    print("Opportunity Enrichment vNext backfill")
     print(f"Database: {result['database']}")
     print(f"Fallback jobs linked: {result['fallback_jobs_linked']}")
     print(
