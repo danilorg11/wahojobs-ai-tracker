@@ -1,0 +1,407 @@
+{
+  "manifest_version": "wahojobs_pre_v2_semantic_method_freeze_v1",
+  "frozen_method_version": "wahojobs_semantic_ranking_method_v1",
+  "implementation_version": "matching_semantic_development_v1",
+  "selected_integration": "ties_only",
+  "status": "FORMAL_PRE_V2_METHOD_FREEZE",
+  "parent_source_commit": "1f7d689c0da5ab81b14498a660a46bf518fdebee",
+  "freeze_timestamp_utc": "2026-09-03T19:01:08.622220+00:00",
+  "commit_identity": "The commit containing this manifest is the freeze provenance anchor; self-commit hash is intentionally not embedded.",
+  "hash_policy": {
+    "files": "SHA256 of UTF-8 repository text bytes after CRLF-to-LF normalization only; original audited byte digests also recorded.",
+    "functions": "SHA256 UTF-8 ast.get_source_segment of the named top-level function after CRLF-to-LF normalization.",
+    "objects": "SHA256 UTF-8 JSON, sort_keys=true, ensure_ascii=false, separators comma/colon, allow_nan=false.",
+    "manifest_self_hash": "Sealed by the enclosing git commit and reported separately; no circular self-hash."
+  },
+  "files": {
+    "scripts/semantic_development_core.py": {
+      "role": "unchanged audited semantic runtime",
+      "sha256_lf": "a105aad8ae750ad44762b8e99044a37b7c77b5affe0fef60b4017c62684bfb4f",
+      "audited_file_sha256": "a105aad8ae750ad44762b8e99044a37b7c77b5affe0fef60b4017c62684bfb4f"
+    },
+    "scripts/frozen_semantic_ranking_v1.py": {
+      "role": "canonical aliases and fixed ties_only selection",
+      "sha256_lf": "c453fd188b14a43b213e3ac1e320d50b7ec90f3e55e2e92cdc6c4a8b47f35782",
+      "audited_file_sha256": "c453fd188b14a43b213e3ac1e320d50b7ec90f3e55e2e92cdc6c4a8b47f35782"
+    },
+    "wahojobs/__init__.py": {
+      "role": "runtime package initializer",
+      "sha256_lf": "a3f36402044c7b202c509cf9a9fc8661a5a24adabc48691086b34ec6989148b6",
+      "audited_file_sha256": "a3f36402044c7b202c509cf9a9fc8661a5a24adabc48691086b34ec6989148b6"
+    },
+    "wahojobs/matching/__init__.py": {
+      "role": "runtime package initializer",
+      "sha256_lf": "b63007a882b41a5cb764f54a4640465272b9d778753dd2137e265d0a2ada8f5b",
+      "audited_file_sha256": "b63007a882b41a5cb764f54a4640465272b9d778753dd2137e265d0a2ada8f5b"
+    },
+    "wahojobs/matching/semantic_shadow_grounding.py": {
+      "role": "opaque profile/evidence/reference request catalogs",
+      "sha256_lf": "f7cf986f9e7f6d89731f14539355e17134a992d3409fb6ea536c0365281ffc3b",
+      "audited_file_sha256": "f7cf986f9e7f6d89731f14539355e17134a992d3409fb6ea536c0365281ffc3b"
+    },
+    "wahojobs/opportunity_semantic_authority.py": {
+      "role": "authenticated packet validation and authority policy",
+      "sha256_lf": "4d02fb2bb9f7c51158c737d8b265d819ef871bc41aa9ec63b16a2e4b3ec82d7e",
+      "audited_file_sha256": "4d02fb2bb9f7c51158c737d8b265d819ef871bc41aa9ec63b16a2e4b3ec82d7e"
+    },
+    "wahojobs/opportunity_semantic_contract.py": {
+      "role": "typed vocabularies, normalization and packet contract",
+      "sha256_lf": "6251127b77cde407d6a46d6f6f8558f45333053efc74d98f6609bc2a5b321c51",
+      "audited_file_sha256": "6251127b77cde407d6a46d6f6f8558f45333053efc74d98f6609bc2a5b321c51"
+    },
+    "wahojobs/opportunity_fact_authority.py": {
+      "role": "authority states",
+      "sha256_lf": "b675eff8036129eb4f672b034d4a77e5f3a20378960f3215d5425c0f0e4deefa",
+      "audited_file_sha256": "b675eff8036129eb4f672b034d4a77e5f3a20378960f3215d5425c0f0e4deefa"
+    },
+    "scripts/semantic_ranker_development.py": {
+      "role": "unchanged v1 replay/journal compatibility; not canonical runtime input loader",
+      "sha256_lf": "f21b5dfd7885025eb293c2db6ccd9d53b4565e6eae5fec196a52aa3d3757be72",
+      "audited_file_sha256": "f21b5dfd7885025eb293c2db6ccd9d53b4565e6eae5fec196a52aa3d3757be72"
+    },
+    "scripts/verify_semantic_method_freeze.py": {
+      "role": "offline hash/config verification and saved-v1 replay",
+      "sha256_lf": "6670ae02093c33deb0f372252dcff0d08a8011e56338ce320ded058718e06f8b",
+      "audited_file_sha256": "6670ae02093c33deb0f372252dcff0d08a8011e56338ce320ded058718e06f8b"
+    },
+    "tests/test_frozen_semantic_ranking_v1.py": {
+      "role": "portable freeze enforcement tests",
+      "sha256_lf": "8204a016f24cc07f7bcfdf9317c09b5dbb113107cc1129cdc878d8a37f07c6a4",
+      "audited_file_sha256": "8204a016f24cc07f7bcfdf9317c09b5dbb113107cc1129cdc878d8a37f07c6a4"
+    },
+    "tests/fixtures/opportunity_semantic_contract_v0.json": {
+      "role": "existing synthetic-test contract source, not runtime data",
+      "sha256_lf": "69b114add107cc84c5153a9e260c6c78b450a15d22ad48ef792550815b9c2cd3",
+      "audited_file_sha256": "d4be2862bf30b22a9c60a3c56c08bb23ccf3253e5b17be30ee2319c4b080a108"
+    },
+    "docs/semantic_ranking_development_v1.md": {
+      "role": "unchanged audited implementation specification",
+      "sha256_lf": "ab2d82976295e85cebed33d0edd1f0cfd33f472e4f59fbc33de67e035ce479c9",
+      "audited_file_sha256": "ab2d82976295e85cebed33d0edd1f0cfd33f472e4f59fbc33de67e035ce479c9"
+    },
+    "docs/semantic_ranking_method_v1_freeze.md": {
+      "role": "canonical freeze note and invalidation rules",
+      "sha256_lf": "b443bdcfedd1a878ca6b7c526783b7bd2a7ce9be32c42736cdb781a863451888",
+      "audited_file_sha256": "b443bdcfedd1a878ca6b7c526783b7bd2a7ce9be32c42736cdb781a863451888"
+    }
+  },
+  "components": {
+    "adapt_profile": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "adapt_profile",
+      "sha256": "9326e46f078ac0b15001eb8ddf3d3a895172868a0a4f873f90d88f3362c08eaf"
+    },
+    "prepare_request": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "prepare_request",
+      "sha256": "e5cd431cb75daf7ab15408a22b07e5777f67547de68d4a67b8c24a7c09142e74"
+    },
+    "provider_body": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "provider_body",
+      "sha256": "03126785df3adce341467e32a2393f853291dd532d8aa0659611aed72910a8bc"
+    },
+    "output_schema": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "output_schema",
+      "sha256": "26c0d02fe13eef1fcc29cf2f9df857a49b7a4a5d5502028b618f58f6f3085252"
+    },
+    "validate_schema": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "validate_schema",
+      "sha256": "aa46bd46b12d01619b814a941468c678863cf1648c587eb85235913659030320"
+    },
+    "validate_output": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "validate_output",
+      "sha256": "6254f3e94cc38648fbb9a2db84dfd6aa2672a158adae1bef3de85960fc6ad086"
+    },
+    "integrate": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "integrate",
+      "sha256": "d907c86c08717a55ada9ec2deec346c6d1c2bebcc12e2d6b004f66209504b19a"
+    },
+    "call_provider": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "call_provider",
+      "sha256": "136522d7df3f720f94bd9cd2d3a4b1a70b99c18fc028df35204df29c64347a4d"
+    },
+    "canonical_integration": {
+      "file": "scripts/frozen_semantic_ranking_v1.py",
+      "function": "integrate",
+      "sha256": "f014f000898afca61b0bdf444821db6473cd48f15aa78a46e96592f1542c6740"
+    },
+    "evidence_catalog_adapter": {
+      "file": "wahojobs/matching/semantic_shadow_grounding.py",
+      "function": "_packet_catalog",
+      "sha256": "26540396eb04c3f1218b6139b0991050c40249152200c49864aeefd6e4eca181"
+    },
+    "profile_reference_adapter": {
+      "file": "wahojobs/matching/semantic_shadow_grounding.py",
+      "function": "_profile_catalog",
+      "sha256": "212224a33437f9263c78e225c3e61f2e0a3e10fd8c55a74e4a19ccb45e97c23a"
+    },
+    "opaque_request_builder": {
+      "file": "wahojobs/matching/semantic_shadow_grounding.py",
+      "function": "build_semantic_shadow_grounding_request_v1",
+      "sha256": "d1ff0c5fb7b055d9befafc62de7b2023e963b223fb4897b035c50036d65bfb82"
+    }
+  },
+  "provider": {
+    "endpoint": "https://api.openai.com/v1/responses",
+    "family": "OpenAI Responses API",
+    "configuration": {
+      "model": "gpt-5.6-terra",
+      "reasoning": {
+        "effort": "low"
+      },
+      "store": false,
+      "max_output_tokens": 9000
+    },
+    "configuration_sha256": "73ab0b4db1f17716066781791dca55083ae96f5813310522bd14b10d2e179245",
+    "temperature": "omitted; provider default",
+    "other_generation_parameters": "No explicit seed, top_p or alternative generation controls. Strict JSON schema is sent under text.format.",
+    "http_timeout_seconds": [
+      10,
+      180
+    ],
+    "allow_redirects": false,
+    "attempts_per_profile": 1,
+    "automatic_retries": 0,
+    "repair_calls": 0,
+    "model_search": false,
+    "storage": false,
+    "authorization": "No calls authorized by this freeze; each future experiment needs separate bounded authorization.",
+    "journal_rule": "Persist a pre-dispatch attempt marker, then raw response. Never automatically resend an uncertain attempt. Reuse existing raw results without a provider call."
+  },
+  "prompt": {
+    "version": "matching_semantic_development_prompt_v1",
+    "source": "scripts/semantic_development_core.py:PROMPT",
+    "sha256": "3b4db3e2197c81f65611b51fc668bc488c854c18f84b8c1612b49bb2e98bccbf"
+  },
+  "schema": {
+    "version": "matching_semantic_fit_output_v1",
+    "builder": "scripts/semantic_development_core.py:output_schema",
+    "builder_sha256": "26c0d02fe13eef1fcc29cf2f9df857a49b7a4a5d5502028b618f58f6f3085252",
+    "probe_request": {
+      "provider_input": {
+        "profile_reference_catalog": [
+          {
+            "reference_id": "P001",
+            "state": "grounded"
+          }
+        ],
+        "opportunities": [
+          {
+            "opportunity_id": "J001",
+            "reference_catalog": [
+              {
+                "reference_id": "O001",
+                "reference_type": "proposition"
+              },
+              {
+                "reference_id": "O002",
+                "reference_type": "group"
+              },
+              {
+                "reference_id": "O003",
+                "reference_type": "evidence"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "probe_schema_sha256": "60c166316cf0871c1c0a8e6cd4ba6ad3b8a91eddc5012729f576e4ba2b848832",
+    "dynamic_ids": "Schemas enumerate exact request-local IDs. Freeze builder plus probe; record generated schema hash for every future request.",
+    "v1_schema_hashes": {
+      "P001": "ab9c45d2eba174bd9bad64fb108a73f2ec049a59e2ebdcc2fd5983adc7002a11",
+      "P002": "94c11f2cd73cbf1f68bb7ddc61587f4a44241bca798cd3035dd5a9a8d94c2a72",
+      "P003": "9d8d480d32c14e3a5c14a55b9c5e37d2ec22f9768f8f49e731163c06119c9d30",
+      "P004": "064a6e0322d56c9ba18c0544448eecb65fb97d73100928c54fad92e45c8b4680",
+      "P005": "08bf665f56d565f6ae2fab9c50f22769949627af61a4754fbd8a254926461631",
+      "P006": "9382665b743de16a8790da628cd8f74f3bab36f77f599c1f6d7b792efd2fa123"
+    }
+  },
+  "class_precedence": {
+    "direct": 3,
+    "adjacent": 2,
+    "contextual": 1,
+    "unestablished": 0,
+    "explicit_conflict": 0
+  },
+  "profile_fields": {
+    "summary": "summary",
+    "education_level": "education",
+    "degrees_or_domains": "domains",
+    "languages": "languages",
+    "skills": "skills",
+    "work_preferences": "work_conditions",
+    "constraints": "constraints",
+    "target_opportunity_types": "target_work",
+    "location": "location",
+    "work_authorization": "work_authorization",
+    "experience": "experience",
+    "experience_years": "experience_years"
+  },
+  "stable_ids": {
+    "order_seed": "matching-semantic-development-v1-provider-order",
+    "candidate_order": "SHA256([order_seed, ordinary opportunity_ref]); independent of supplied candidate order and legacy rank",
+    "scope": "Opaque profile/opportunity/evidence IDs are deterministic within the same frozen request, not global IDs.",
+    "maximum_candidates_per_profile_request": 32
+  },
+  "integration_rules": "Preserve admitted population and existing eligibility. Partition inherited total order into contiguous equal-legacy-score blocks. Sort covered candidates only in available slots of each block by descending semantic value, then inherited legacy index, then ordinary identity safeguard. No comparison across unequal-score blocks.",
+  "equal_class_rule": "Retain legacy total order for equal fit values. Final ranks form a total order; raw class ties reported separately.",
+  "packet_fallback": "Retain inherited legacy slot, do not call provider for that record; covered candidates sort only through remaining slots.",
+  "provider_validation_fallback": "Exactly one HTTP attempt/profile; no automatic retry, redirection, repair or alternative model. Transport/status/refusal/incomplete/schema/reference failure restores entire profile's exact legacy order.",
+  "authority": {
+    "type": "semantic_non_exclusionary",
+    "hard_exclusions": 0,
+    "canonical_fact_promotion": false,
+    "eligibility_changes": false,
+    "missingness": "Missing evidence is not proof of mismatch; preserve incomplete/unresolved evidence."
+  },
+  "runtime_boundary": {
+    "entrypoint": "scripts/frozen_semantic_ranking_v1.py",
+    "input": "Ordinary literal profile facts, titles and already-authenticated semantic packets; ordinary admitted legacy order/scores are supplied separately to local integration only.",
+    "human_review_artifacts_required": false,
+    "evaluation_modules_required": false,
+    "database_reads": false,
+    "runtime_export_reads": false,
+    "provider_inputs": "Fixed prompt/schema/config and provider_input only; never local legacy, benchmark mapping, labels, notes, metrics or prior error analysis.",
+    "production_integration": false
+  },
+  "environment": {
+    "python": "3.12.6",
+    "unicode_database": "15.0.0",
+    "http_dependency_versions": {
+      "requests": "2.34.2",
+      "urllib3": "2.7.0",
+      "certifi": "2026.7.22",
+      "charset-normalizer": "3.4.9",
+      "idna": "3.18"
+    },
+    "dependency_lock_reference": {
+      "commit": "1f7d689c0da5ab81b14498a660a46bf518fdebee",
+      "path": "requirements.lock",
+      "git_blob_sha256": "6d31238784399dceee5b16156cbc72cbbd6c134ba0bca5cec17fa773d1e90c25"
+    },
+    "scope": "Only listed HTTP dependencies and Python/Unicode are behavioral runtime pins; unrelated dependencies in the historical lock are not new semantic dependencies."
+  },
+  "additional_dependency_audit": {
+    "newly_explicit": [
+      "wahojobs/__init__.py",
+      "wahojobs/matching/__init__.py",
+      "Python patch/Unicode versions",
+      "requests transitive HTTP dependencies"
+    ],
+    "semantic_runtime_source_closure": "No further nonstandard project imports or external taxonomy/config files are read by the core path.",
+    "upstream_boundary": "Packet extraction and ordinary eligibility/legacy production are upstream, not newly invoked by this ranker. Their input contracts and frozen v2 inputs/base ordering must remain fixed during evaluation; no upstream change may alter an in-progress v2 universe."
+  },
+  "development_references": {
+    "classification": "HUMAN_LABELED_DEVELOPMENT_CALIBRATION_ONLY",
+    "prospective_or_unbiased_effectiveness_claim": false,
+    "directory": "exports/prospective_semantic_ranking_benchmark_v1_human_review/semantic_ranker_development_20260903/candidate_01",
+    "audited_freeze_ready_contract_sha256": "227b89f99163c8ff95e269c3cedf15630e70e10125a4d2efded251d85ffb2f66",
+    "human_label_sha256": "f283abe2b3431d06f870e0877f6abc0ac9209cdb045b465198ad86ac5a27fdb6",
+    "selected_ranking_sha256": "ec012d94659d8abfa74a37aa50b00cffbca998c5fa03a31bca559ef62ec7a1e7",
+    "completed_bundle_checksum_manifest_sha256": "7b48544aaebe70dff9075e20690156da5b9dfe400f08ff85c7c4ed143996d5d3",
+    "replay_inputs": [
+      {
+        "profile": "P001",
+        "execution_input_sha256": "e35024565e1af5a263efac176b389f976a6ec28c7b68c8a725e33e5fc417c37c",
+        "provider_body_sha256": "a02d8b0bc5acc769d1db7ebffec5e24697957abce44079c0ea733aabcc123ee8",
+        "request_input_sha256": "29270138f3d8fef58440f4ce99b3e19e8327dc7a5a96d2fd79eb898224057573",
+        "schema_sha256": "ab9c45d2eba174bd9bad64fb108a73f2ec049a59e2ebdcc2fd5983adc7002a11",
+        "provider_opportunities": 9,
+        "fallback_opportunities": {
+          "canonical_opportunity:1026": "packet_empty"
+        },
+        "raw_output_sha256": "5ecd4696c8d5a46d823268d2402bb8ea8e7e1be15b5b1b40e610e76167ea1683"
+      },
+      {
+        "profile": "P002",
+        "execution_input_sha256": "19d0f4eca682f90d12cf01be32d09697d6bea465d60efe569c7fc7f310e77594",
+        "provider_body_sha256": "15e0a873e9f31bfae3596f954ee8ada14a28b38f7cadde8350bc3168b0455904",
+        "request_input_sha256": "6d91847467f07d8bedfc10a9e2b119ffcfdb787f482e62663da5805fdcd5349b",
+        "schema_sha256": "94c11f2cd73cbf1f68bb7ddc61587f4a44241bca798cd3035dd5a9a8d94c2a72",
+        "provider_opportunities": 9,
+        "fallback_opportunities": {
+          "canonical_opportunity:1089": "packet_empty"
+        },
+        "raw_output_sha256": "e9c8e182beca0841fc6cbaaed4afa6069fba044317177f24579474c0622daa80"
+      },
+      {
+        "profile": "P003",
+        "execution_input_sha256": "6ba7e6c415080d37c50cf14ba01a080f54df00869dfe7ecf904668527e9a39f7",
+        "provider_body_sha256": "8f77e0239c4d64b019e1188f61f27c87258fc88af606267c9a41148c64702c91",
+        "request_input_sha256": "4780a6e7680adf543687026ea97043661a30485205efbd6b59f9d93d9785c392",
+        "schema_sha256": "9d8d480d32c14e3a5c14a55b9c5e37d2ec22f9768f8f49e731163c06119c9d30",
+        "provider_opportunities": 10,
+        "fallback_opportunities": {},
+        "raw_output_sha256": "0276acd8ffae83879d3415bbbe83d17081f05f09d114b17c9ff49cd6098216d9"
+      },
+      {
+        "profile": "P004",
+        "execution_input_sha256": "edbad82fb8e77243b35c3a5426191e9edaf91dd744d387f809492e005d01b5c5",
+        "provider_body_sha256": "af5a637f8f901b9a2fd1b81c7e581d8f8d79b658ac9024ad0b4143a9d69af721",
+        "request_input_sha256": "474ded5542539380b7a6eb7c6bc74270aa08bd98e5db2d874a2e8d23a8e0e121",
+        "schema_sha256": "064a6e0322d56c9ba18c0544448eecb65fb97d73100928c54fad92e45c8b4680",
+        "provider_opportunities": 10,
+        "fallback_opportunities": {},
+        "raw_output_sha256": "9b7f581ae62580e6f2f5f4dd4a17168ea0779aff3b3a885d7828c953537ea521"
+      },
+      {
+        "profile": "P005",
+        "execution_input_sha256": "eb694cf75a11dd2faab8e9174fcbc7ab3247376cfed56665b69aa95ff8ac0cb0",
+        "provider_body_sha256": "d39925e4bbfa0c1cd5afb3a12cd3e808ac442919752bbc43b7b02d20a19559cb",
+        "request_input_sha256": "7cf73fc201d37d23ed3b11a66733d9a93bfa404447eb3a0b6658511a26dae42c",
+        "schema_sha256": "08bf665f56d565f6ae2fab9c50f22769949627af61a4754fbd8a254926461631",
+        "provider_opportunities": 9,
+        "fallback_opportunities": {
+          "canonical_opportunity:1037": "packet_empty"
+        },
+        "raw_output_sha256": "882246e8c419204c0f1b6701cde7536a1523f38f0ee94ed24dd0ef768141d06e"
+      },
+      {
+        "profile": "P006",
+        "execution_input_sha256": "6a03a8f06f965d0d08499604d91e921cbeccc51caf4c4cbbbcd5662ddd1f5bfd",
+        "provider_body_sha256": "8555e8136dd23b10a633a34c3d91f9171178045b6ebd461ab20c1949a74e55a5",
+        "request_input_sha256": "784cd222d446960a55ad253e3c842ce794b7c6b659499073e617c8ee194f896d",
+        "schema_sha256": "9382665b743de16a8790da628cd8f74f3bab36f77f599c1f6d7b792efd2fa123",
+        "provider_opportunities": 10,
+        "fallback_opportunities": {},
+        "raw_output_sha256": "3304d7b4bd2eba7df4c8770c334ad7fe738aa32799bb43825228e8244230097d"
+      }
+    ],
+    "generated_artifacts_policy": "Preserve local content/hashes; do not commit bulk raw responses, labels, detailed analysis or reviewer UI. The optional v1 replay does not read labels or metrics."
+  },
+  "v2_status_at_freeze": {
+    "sampled": false,
+    "generated": false,
+    "inspected": false,
+    "exposed": false,
+    "opportunities_in_this_manifest": 0
+  },
+  "immutability_rule": {
+    "until": "Benchmark v2 has been completely human-reviewed and unblinded",
+    "immutable": [
+      "semantic ranking behavior",
+      "prompt",
+      "schema builder and fields",
+      "model/configuration",
+      "profile/evidence adapters",
+      "integration",
+      "class precedence",
+      "fallback behavior",
+      "stable ID and request ordering behavior"
+    ],
+    "behavior_change_action": [
+      "invalidate and discard any in-progress v2 benchmark, including a partially reviewed one",
+      "create a new method freeze commit",
+      "generate a fresh v2 universe from scratch only afterward"
+    ],
+    "no_v1_retuning_before_v2": true,
+    "v2_protocol": "Freeze sampling/evaluation rules before population selection. This manifest neither samples nor defines the opportunity membership of v2."
+  }
+}
