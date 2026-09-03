@@ -1,0 +1,715 @@
+{
+  "manifest_version": "wahojobs_complete_semantic_pipeline_freeze_v1",
+  "method_identity": "wahojobs_semantic_pipeline_method_v2",
+  "selected_integration": "ties_only",
+  "status": "COMPLETE_PRE_REPLACEMENT_V2_METHOD_FREEZE",
+  "parent_commit": "391bb7a89fa10cb6bd82b7a41e0c56bcc558d783",
+  "freeze_timestamp_utc": "2026-09-03T20:51:03.854748+00:00",
+  "commit_identity": "The commit containing this manifest is the provenance anchor; its own SHA is not embedded.",
+  "historical_downstream_freeze": {
+    "method": "wahojobs_semantic_ranking_method_v1",
+    "commit": "391bb7a89fa10cb6bd82b7a41e0c56bcc558d783",
+    "manifest": {
+      "path": "docs/semantic_ranking_method_v1.freeze.json",
+      "sha256": "efc38e195e26ad066acc318b6ddd38dab1854d8d3f31f241a3a5806cb41a2b75"
+    },
+    "status": "Historical downstream-only freeze; upstream provisioning was omitted. Preserved without alteration."
+  },
+  "methodological_status": {
+    "v1": "Human-labeled development/calibration only, not unbiased effectiveness evidence.",
+    "previous_v2": "INVALIDATED before provider execution or human exposure; not eligible for effectiveness evaluation.",
+    "previous_v2_provider_calls": 0,
+    "previous_v2_human_labels": 0,
+    "previous_v2_exposed": false,
+    "replacement_v2_sampled": false,
+    "replacement_v2_inspected": false,
+    "forbidden_development_inputs_used": false,
+    "external_calls_during_freeze": 0
+  },
+  "boundary": [
+    "frozen canonical accepted/LKG evidence",
+    "authenticated evidence binding",
+    "opportunity-only extraction provisioning or exact compatible cache replay",
+    "extraction validation",
+    "provisional staging and deterministic relations",
+    "packet/provenance validation",
+    "profile plus packet assessment",
+    "strict structured-output validation",
+    "ties_only integration with separate legacy base",
+    "complete final ranking"
+  ],
+  "runtime_seeds": [
+    "scripts/semantic_pipeline_evidence.py",
+    "scripts/semantic_pipeline_v2.py"
+  ],
+  "runtime_dependency_closure": [
+    "scripts/frozen_semantic_ranking_v1.py",
+    "scripts/semantic_development_core.py",
+    "scripts/semantic_pipeline_evidence.py",
+    "scripts/semantic_pipeline_v2.py",
+    "wahojobs/__init__.py",
+    "wahojobs/canonical/__init__.py",
+    "wahojobs/canonical/alignerr.py",
+    "wahojobs/canonical/dataforce.py",
+    "wahojobs/canonical/meridial.py",
+    "wahojobs/canonical/micro1.py",
+    "wahojobs/canonical/mindrift.py",
+    "wahojobs/canonical/oneforma.py",
+    "wahojobs/canonical/service.py",
+    "wahojobs/canonical/turing.py",
+    "wahojobs/canonical/welocalize.py",
+    "wahojobs/classification.py",
+    "wahojobs/config.py",
+    "wahojobs/crawler/__init__.py",
+    "wahojobs/crawler/types.py",
+    "wahojobs/db/__init__.py",
+    "wahojobs/db/connection.py",
+    "wahojobs/db/repository.py",
+    "wahojobs/matching/__init__.py",
+    "wahojobs/matching/domains.py",
+    "wahojobs/matching/languages.py",
+    "wahojobs/matching/locations.py",
+    "wahojobs/matching/metadata_overlay.py",
+    "wahojobs/matching/semantic_shadow_grounding.py",
+    "wahojobs/matching/specializations.py",
+    "wahojobs/matching/taxonomy.py",
+    "wahojobs/opportunity_enrichment.py",
+    "wahojobs/opportunity_enrichment_schema.py",
+    "wahojobs/opportunity_fact_authority.py",
+    "wahojobs/opportunity_llm.py",
+    "wahojobs/opportunity_semantic_authority.py",
+    "wahojobs/opportunity_semantic_contract.py",
+    "wahojobs/opportunity_semantic_extraction.py",
+    "wahojobs/opportunity_semantic_staging.py",
+    "wahojobs/profiles/__init__.py",
+    "wahojobs/profiles/canonical.py",
+    "wahojobs/profiles/countries.py",
+    "wahojobs/profiles/normalizer.py",
+    "wahojobs/profiles/preference_model.py",
+    "wahojobs/profiles/seniority_presentation.py",
+    "wahojobs/source_capture.py"
+  ],
+  "hash_policy": {
+    "files": "SHA256 bytes after CRLF-to-LF normalization only",
+    "components": "SHA256 UTF-8 ast.get_source_segment after CRLF-to-LF normalization",
+    "objects": "SHA256 UTF-8 canonical JSON sort_keys=true, ensure_ascii=false, compact comma/colon, allow_nan=false",
+    "manifest": "Own hash reported externally and sealed by containing Git commit; no circular self-hash."
+  },
+  "files": {
+    "docs/semantic_pipeline_method_v2.md": {
+      "role": "new generic orchestration/specification/test",
+      "sha256_lf": "21b4b004649842b1e63c30f50fd6666eb88beafad0c8ecc211448e5380d23504"
+    },
+    "docs/semantic_ranking_development_v1.md": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "ab2d82976295e85cebed33d0edd1f0cfd33f472e4f59fbc33de67e035ce479c9"
+    },
+    "docs/semantic_ranking_method_v1.freeze.json": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "efc38e195e26ad066acc318b6ddd38dab1854d8d3f31f241a3a5806cb41a2b75"
+    },
+    "docs/semantic_ranking_method_v1_freeze.md": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "b443bdcfedd1a878ca6b7c526783b7bd2a7ce9be32c42736cdb781a863451888"
+    },
+    "scripts/frozen_semantic_ranking_v1.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "c453fd188b14a43b213e3ac1e320d50b7ec90f3e55e2e92cdc6c4a8b47f35782"
+    },
+    "scripts/semantic_development_core.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "a105aad8ae750ad44762b8e99044a37b7c77b5affe0fef60b4017c62684bfb4f"
+    },
+    "scripts/semantic_pipeline_evidence.py": {
+      "role": "new generic orchestration/specification/test",
+      "sha256_lf": "5b3379bea3cbb6dd62428de6a4043a7ea880cc2cea7f8c868700e8ae7e478231"
+    },
+    "scripts/semantic_pipeline_v2.py": {
+      "role": "new generic orchestration/specification/test",
+      "sha256_lf": "de3f6426b24b6c38b0159cae999c04b29fd844cc300bf2120463929cf099a716"
+    },
+    "scripts/semantic_ranker_development.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "f21b5dfd7885025eb293c2db6ccd9d53b4565e6eae5fec196a52aa3d3757be72"
+    },
+    "scripts/verify_semantic_method_freeze.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "6670ae02093c33deb0f372252dcff0d08a8011e56338ce320ded058718e06f8b"
+    },
+    "scripts/verify_semantic_pipeline_freeze.py": {
+      "role": "new generic orchestration/specification/test",
+      "sha256_lf": "986c7f647893fd98b61b8a49332175cf1ef15750d54d046641679f3fb804d2a5"
+    },
+    "tests/fixtures/opportunity_semantic_contract_v0.json": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "69b114add107cc84c5153a9e260c6c78b450a15d22ad48ef792550815b9c2cd3"
+    },
+    "tests/test_frozen_semantic_ranking_v1.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "8204a016f24cc07f7bcfdf9317c09b5dbb113107cc1129cdc878d8a37f07c6a4"
+    },
+    "tests/test_semantic_pipeline_freeze.py": {
+      "role": "new generic orchestration/specification/test",
+      "sha256_lf": "be69a0d11219840df7e0920334b03b77a2418447b778ef6e3647296ca5dd78ab"
+    },
+    "tests/test_semantic_pipeline_v2.py": {
+      "role": "new generic orchestration/specification/test",
+      "sha256_lf": "598c9a9a10d8fd59d29c81b90b326c16c5e59843a4a8842de1bf8e2ff76beb6e"
+    },
+    "wahojobs/__init__.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "a3f36402044c7b202c509cf9a9fc8661a5a24adabc48691086b34ec6989148b6"
+    },
+    "wahojobs/canonical/__init__.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "wahojobs/canonical/alignerr.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "f53d979705a44072d6294dcbef42bb4666ae1e2047c99c17204cddff07aa31e3"
+    },
+    "wahojobs/canonical/dataforce.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "eadfeb2fede933dfd9e3a2606eaa521c44435cfda719e23f0145a981aaf687f6"
+    },
+    "wahojobs/canonical/meridial.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "b507c496f09d7592fa4473da5ce4dd69dab610c6b7396bd805760a978976ec4a"
+    },
+    "wahojobs/canonical/micro1.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "47efbbb8e222632d1115622708f04cc610491a255187487e7c3612b6c5f6e850"
+    },
+    "wahojobs/canonical/mindrift.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "ab03a1f803f0eac387a84e2d8cdd7e5e0a82108b039bf392b281474228690fc9"
+    },
+    "wahojobs/canonical/oneforma.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "0a25793e2e6cf68a7c8a0b1c30d721c8a215cafeb3eae9f3eee561483d345087"
+    },
+    "wahojobs/canonical/service.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "6c20582311a63054f4d39556c4fcd984a8fb2bc1b3e413c0a66553b57b35c559"
+    },
+    "wahojobs/canonical/turing.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "917630346506b6fe439101482a5b953914a03815cefb4b3f64825fc5be0895a9"
+    },
+    "wahojobs/canonical/welocalize.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "62215e739adcd0536035046c0b113209cd186da3197a5b365678f307471ae09e"
+    },
+    "wahojobs/classification.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "3e5ecee5d8c59f1cb7ae73a04c3c05544deb5942b7b79078846a447ec21701a8"
+    },
+    "wahojobs/config.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "f7923bb6adf6cbefc87b63512f4ad91922adae8d4b9b3e176a3ed659605192fa"
+    },
+    "wahojobs/crawler/__init__.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "0f09faaea5602fb34d08682068c186a45befc47f23dfc22bf1d755869cadb31a"
+    },
+    "wahojobs/crawler/types.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "911a8fb5fa1772d6c2bedebdc94c8d184c1f925c475ddcb9e67e67a863c2c3a3"
+    },
+    "wahojobs/db/__init__.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "f3edcc22e681e8ad1fe5d26e5997de66ee0a133e80d71a312e1405e21ff6210c"
+    },
+    "wahojobs/db/connection.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "72f0071d536e422b33bd9de3df16d94b6d7b1b2288146e41ebffc795bd637bd1"
+    },
+    "wahojobs/db/repository.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "c7b7c1546fb6a8d5ea3fcdba1517a64761c2a71eb1184a4c5b56aa8d32972cf2"
+    },
+    "wahojobs/db/schema.sql": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "4f55c959d070aed7b9e0de6908b4135f3f602d215cd17eb5cc135caed0be75b4"
+    },
+    "wahojobs/matching/__init__.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "b63007a882b41a5cb764f54a4640465272b9d778753dd2137e265d0a2ada8f5b"
+    },
+    "wahojobs/matching/domains.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "dd40cd6796e6bb7dc451254d8391f34a80a1f5aeaee966f43b1785e900b591c5"
+    },
+    "wahojobs/matching/languages.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "0add67e520ef6d681a7fb3f7fcf3d7fb0a49546357dde969529ca06451528be7"
+    },
+    "wahojobs/matching/locations.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "708b8ba3e3a44dfad170505f4861cb1ecbf18bc28239026ccb566a3f595d96e1"
+    },
+    "wahojobs/matching/metadata_overlay.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "9c32a233196a004d6951cbbd6ed1e939da6a61a7fc382020cbc1ea5d1a92b97e"
+    },
+    "wahojobs/matching/semantic_shadow_grounding.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "f7cf986f9e7f6d89731f14539355e17134a992d3409fb6ea536c0365281ffc3b"
+    },
+    "wahojobs/matching/specializations.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "ca7af9ee707bbe4e1f3f6d3712893682356a60b540e322f00ec4c6e069358e44"
+    },
+    "wahojobs/matching/taxonomy.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "94253019e74c96c0b9a7e0b3c9db69b7f2a55fbb28c7cb0a5178ee9745dcdeee"
+    },
+    "wahojobs/opportunity_enrichment.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "e45261765e59f519e691ee7f8c877ea2ec347b257cc158d648cb9ba3c7dbb320"
+    },
+    "wahojobs/opportunity_enrichment_schema.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "b8228521e2389c78cf93836f83c9d24f7ccc8abb9b195496220bdf87fb72ed99"
+    },
+    "wahojobs/opportunity_fact_authority.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "b675eff8036129eb4f672b034d4a77e5f3a20378960f3215d5425c0f0e4deefa"
+    },
+    "wahojobs/opportunity_llm.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "173db30174173ec0022643ab2310b0c2e8cc2215a6c7f69e46b0d4428943c630"
+    },
+    "wahojobs/opportunity_semantic_authority.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "4d02fb2bb9f7c51158c737d8b265d819ef871bc41aa9ec63b16a2e4b3ec82d7e"
+    },
+    "wahojobs/opportunity_semantic_contract.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "6251127b77cde407d6a46d6f6f8558f45333053efc74d98f6609bc2a5b321c51"
+    },
+    "wahojobs/opportunity_semantic_extraction.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "7c35bc82713fdc955cde76a2fd8b50f17e4605e470e22e5a2f15729ab14785bf"
+    },
+    "wahojobs/opportunity_semantic_staging.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "66bc7a82963b175bf2d073a58ff4c7fc8e3c0ac8457bd2eb74b26a0e647ac772"
+    },
+    "wahojobs/profiles/__init__.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "44b42474ef787e35f84567ca2fc7ff4b4137a747dd1059a3c6e5f366b1740cab"
+    },
+    "wahojobs/profiles/canonical.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "7e0c5c0739822652639f9305a14bf4b3583eaa07848732227061bfe83aec6d0d"
+    },
+    "wahojobs/profiles/countries.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "50643fe99bb4a9454fea6909eef1baca8351425265113b31e6824b59220b39df"
+    },
+    "wahojobs/profiles/normalizer.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "bc2d0cd8d7263e39002ddaa625700d77c407fb051ad958fc863f8bda6a71e1bf"
+    },
+    "wahojobs/profiles/preference_model.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "8321b809844237659884efa056709a133350d12a2e3904a63b6a924a402fbdb7"
+    },
+    "wahojobs/profiles/seniority_presentation.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "16031449e7af6ed934c2a3b01afeb49f806f43cb1cc92ab10d217954eeb19207"
+    },
+    "wahojobs/source_capture.py": {
+      "role": "unchanged transitive runtime or historical verification dependency",
+      "sha256_lf": "6bc5a2c5f33a384a3d996184ec054e16be57317fc64f472884a0ec857b1e7c37"
+    }
+  },
+  "components": {
+    "scripts/semantic_pipeline_evidence.py:open_immutable_database": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "open_immutable_database",
+      "sha256": "eab156b816f07338be498325bc931fa36044bbb957190b8023a5184b001932ae"
+    },
+    "scripts/semantic_pipeline_evidence.py:_acceptance_rows": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "_acceptance_rows",
+      "sha256": "42632cadd13747b3ff55412f3c49a96b8e09c2775a9a87b66e438e52c934e07c"
+    },
+    "scripts/semantic_pipeline_evidence.py:capture_opportunity": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "capture_opportunity",
+      "sha256": "b46b472e0830535de471ad391a5c07754d8c8e3ccfa3502016eeb202a65284d4"
+    },
+    "scripts/semantic_pipeline_evidence.py:seal_evidence": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "seal_evidence",
+      "sha256": "58f565d5afc004fac1b49327cdec86d20c538982600be308271afc5fda5a7a1c"
+    },
+    "scripts/semantic_pipeline_evidence.py:validate_frozen_evidence": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "validate_frozen_evidence",
+      "sha256": "cb81cbef703040ded1e462b81c2ff4c715d7c13bd65922fa94777419dd86baad"
+    },
+    "scripts/semantic_pipeline_evidence.py:provider_evidence": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "provider_evidence",
+      "sha256": "395efe6ec14f540ad8f032f01500876f72fbf7b3179c7f5b196fd344cc341cc8"
+    },
+    "scripts/semantic_pipeline_evidence.py:accepted_bindings": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "accepted_bindings",
+      "sha256": "619f03ea91c771299b6798c6bf8ebbec59b014a47e8056203a9f87341d40547f"
+    },
+    "scripts/semantic_pipeline_evidence.py:build_packet": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "build_packet",
+      "sha256": "5a27985d297b4153bd2b9538e3b36806a18bdb34b73a450bf5e6439ba4495e7b"
+    },
+    "scripts/semantic_pipeline_evidence.py:validate_packet_provenance": {
+      "file": "scripts/semantic_pipeline_evidence.py",
+      "function": "validate_packet_provenance",
+      "sha256": "1b4db4f05e249cb6092228fc3eb1e7cc22ea6310e1a4267b9823c3f96cecebdd"
+    },
+    "scripts/semantic_pipeline_v2.py:extraction_body": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "extraction_body",
+      "sha256": "ffed90fc2703c44ce4848ba9632044f814b3b0a2f4cfd5f09bbb7efa145c1e97"
+    },
+    "scripts/semantic_pipeline_v2.py:compatibility": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "compatibility",
+      "sha256": "5c9d52fe54c60b3a2651dbf05a41d7fe9951d30f6b7c261d05cfac621697e450"
+    },
+    "scripts/semantic_pipeline_v2.py:request_identity": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "request_identity",
+      "sha256": "023b56a9922e20875149e6ee52aceb5fe94cbb3318c58a6124524c9a38228f72"
+    },
+    "scripts/semantic_pipeline_v2.py:_load_cache": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "_load_cache",
+      "sha256": "361133b7e981b78783d91521272a9fb7c662a70782d3a358bc3ed55e6c62ba53"
+    },
+    "scripts/semantic_pipeline_v2.py:prepare_provisioning": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "prepare_provisioning",
+      "sha256": "533c9d16721248643a5b791083c24457b7bbda67af4db621b62d4ab18cb0aabf"
+    },
+    "scripts/semantic_pipeline_v2.py:finish_provisioning": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "finish_provisioning",
+      "sha256": "17739520f43d439b581d2728c1955152c07f857c38689691af9bc534bc20e226"
+    },
+    "scripts/semantic_pipeline_v2.py:prepare_assessments": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "prepare_assessments",
+      "sha256": "07e3e94ee053e8c834258b2e32e6254629bf2f3ac52300225ae4808cfd26bd06"
+    },
+    "scripts/semantic_pipeline_v2.py:integrate_rankings": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "integrate_rankings",
+      "sha256": "b2e440fa7d27c888cb2b05204061bd9eb5f4aff2be62ca41407eca2f71098822"
+    },
+    "scripts/semantic_pipeline_v2.py:execute_prepared": {
+      "file": "scripts/semantic_pipeline_v2.py",
+      "function": "execute_prepared",
+      "sha256": "a82f58044d0c10db1c95da41fb860919f13c02854bca65a0728e1e4534f9e55d"
+    },
+    "wahojobs/opportunity_enrichment.py:load_semantic_input": {
+      "file": "wahojobs/opportunity_enrichment.py",
+      "function": "load_semantic_input",
+      "sha256": "2ab67ac982facf1159eecf0f91ec2d427d41afc5045ab8e7214357114b042550"
+    },
+    "wahojobs/opportunity_enrichment.py:semantic_input_sha256": {
+      "file": "wahojobs/opportunity_enrichment.py",
+      "function": "semantic_input_sha256",
+      "sha256": "5995cc92e075b716971eb1229f3ced1f8c91179fc62861be6cbdb4faa7d4359f"
+    },
+    "wahojobs/opportunity_enrichment.py:llm_source_packet": {
+      "file": "wahojobs/opportunity_enrichment.py",
+      "function": "llm_source_packet",
+      "sha256": "98228c5efdf5799eba98d9584854c1a0c1eadc75d26c79ac906f5ecc20bbc7a2"
+    },
+    "wahojobs/opportunity_semantic_extraction.py:system_prompt": {
+      "file": "wahojobs/opportunity_semantic_extraction.py",
+      "function": "system_prompt",
+      "sha256": "4e1a10447f500c684d8f462988fc955033be92b30bdf25fda18b1f86712d106a"
+    },
+    "wahojobs/opportunity_semantic_extraction.py:semantic_extraction_schema": {
+      "file": "wahojobs/opportunity_semantic_extraction.py",
+      "function": "semantic_extraction_schema",
+      "sha256": "3e21071dde9fc61262ed7e04962c00220b8d2d4661d9a10f7861be9c1b77a380"
+    },
+    "wahojobs/opportunity_semantic_extraction.py:validate_model_extraction": {
+      "file": "wahojobs/opportunity_semantic_extraction.py",
+      "function": "validate_model_extraction",
+      "sha256": "001a385819c84c5a22352097debce266c293ad5150fee148f7fe6a21b8e6f87e"
+    },
+    "wahojobs/opportunity_semantic_extraction.py:validate_accepted_evidence_bindings": {
+      "file": "wahojobs/opportunity_semantic_extraction.py",
+      "function": "validate_accepted_evidence_bindings",
+      "sha256": "de654cefb357b316faffdd2d50b0a939b74ec38588711833691d125dc0942b6d"
+    },
+    "wahojobs/opportunity_semantic_staging.py:stage_provisional_atoms": {
+      "file": "wahojobs/opportunity_semantic_staging.py",
+      "function": "stage_provisional_atoms",
+      "sha256": "bf8009e8d6e4a6543c5f8bd0cacd0c2e7214feebbb8e4ca9e69257b2591a5d66"
+    },
+    "wahojobs/opportunity_semantic_staging.py:construct_relations": {
+      "file": "wahojobs/opportunity_semantic_staging.py",
+      "function": "construct_relations",
+      "sha256": "ba7651a587240baee5380e2e62f7385151ff7d64bdfff2da409f4953124697bc"
+    },
+    "wahojobs/opportunity_semantic_authority.py:build_semantic_matching_packet_from_staging": {
+      "file": "wahojobs/opportunity_semantic_authority.py",
+      "function": "build_semantic_matching_packet_from_staging",
+      "sha256": "310e85b818ed26d1a16c9efadf8a248934cae65772a8b074299db15853f3e20c"
+    },
+    "wahojobs/opportunity_semantic_authority.py:validate_semantic_matching_packet": {
+      "file": "wahojobs/opportunity_semantic_authority.py",
+      "function": "validate_semantic_matching_packet",
+      "sha256": "9ad562d4a1791473e9b72910e976ed67fe4f41c1dbd1cd55589e131c53fe3980"
+    },
+    "scripts/semantic_development_core.py:adapt_profile": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "adapt_profile",
+      "sha256": "9326e46f078ac0b15001eb8ddf3d3a895172868a0a4f873f90d88f3362c08eaf"
+    },
+    "scripts/semantic_development_core.py:prepare_request": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "prepare_request",
+      "sha256": "e5cd431cb75daf7ab15408a22b07e5777f67547de68d4a67b8c24a7c09142e74"
+    },
+    "scripts/semantic_development_core.py:provider_body": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "provider_body",
+      "sha256": "03126785df3adce341467e32a2393f853291dd532d8aa0659611aed72910a8bc"
+    },
+    "scripts/semantic_development_core.py:validate_output": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "validate_output",
+      "sha256": "6254f3e94cc38648fbb9a2db84dfd6aa2672a158adae1bef3de85960fc6ad086"
+    },
+    "scripts/semantic_development_core.py:integrate": {
+      "file": "scripts/semantic_development_core.py",
+      "function": "integrate",
+      "sha256": "d907c86c08717a55ada9ec2deec346c6d1c2bebcc12e2d6b004f66209504b19a"
+    }
+  },
+  "extraction": {
+    "endpoint": "https://api.openai.com/v1/responses",
+    "configuration": {
+      "model": "gpt-5.6-terra",
+      "reasoning": {
+        "effort": "low"
+      },
+      "store": false,
+      "max_output_tokens": 12000
+    },
+    "configuration_sha256": "b2f29dde3af0a2a655c5a16acf39d0d924d77fc11af4e9a156e8c68b486262d8",
+    "prompt_version": "oe_semantic_extraction_v0_prompt_v3",
+    "prompt_sha256": "434092fe85c6043df3ea2c134bc914584ce07ef26d7c66c09ed00e9f86fe537d",
+    "schema_version": "oe_semantic_extraction_v0_schema_v1",
+    "base_schema_sha256": "ba1766f4f00fc782d0e8a63bc208d2e3c73d8462fd0a8e4c96776c6167440124",
+    "validator_version": "oe_semantic_extraction_v0_validator_v1",
+    "provider": "OpenAI Responses",
+    "temperature": "omitted; provider default not invented",
+    "responses_format_name": "oe_semantic_extraction_v0",
+    "schema_binding": "Per-request enum of authenticated accepted-body evidence aliases; exact schema and body hashes in prepared plan.",
+    "timeout_seconds": [
+      10,
+      120
+    ],
+    "grouping_provider_calls": 0,
+    "requests": "one per unique canonical opportunity exact cache miss; shared opportunities once",
+    "prior_implementation_commit": "29086ec6a45142beefc52db06a372a05b9943238",
+    "assembly_provenance": "September 2 opportunity-only v1 provisioning recipe: generic helpers promoted; benchmark population, call cap and manual replay lookup removed."
+  },
+  "evidence": {
+    "version": "semantic_pipeline_frozen_evidence_v1",
+    "source": "Explicit immutable local snapshot; active variants or all nonpending nonsimulation variants if none active, via existing load_semantic_input. No sampling or refresh.",
+    "acceptance": "verify_job_source_acceptance_integrity plus complete versioned_accepted, healthy_body, promoted, nonsample, body-present accepted/LKG bindings.",
+    "authentication": "Canonical scope, input/source/capture hashes, exact body equality, capture provenance and accepted quote/alias validation.",
+    "provider_blinding": "Original v1 allowlist and evidence text; neutral opportunity:Vnnn local variant aliases; no global IDs or provider metadata.",
+    "trust_boundary": "Server-created frozen evidence only. Caller preserves source snapshot/hash and verifies freeze manifest before preparation/execution; no uncheckpointed WAL source.",
+    "missing": "Unavailable packet; no new eligibility gate or repair."
+  },
+  "cache": {
+    "version": "semantic_pipeline_extraction_cache_v1",
+    "key": "SHA256 compatibility() canonical object",
+    "identity_fields": [
+      "method/cache version",
+      "canonical identity",
+      "full frozen evidence hash",
+      "semantic input version/hash",
+      "source packet hash",
+      "accepted bindings hash",
+      "endpoint",
+      "complete extraction configuration",
+      "prompt/schema versions and hashes",
+      "exact body hash",
+      "packet recipe version",
+      "direct recipe source hashes"
+    ],
+    "additional_immutability": "All transitive dependencies/environment pinned by this method identity and verified before execution.",
+    "hit": "Only exact key; verify identity, receipt, raw-output/integrity hashes; rebuild packet and preserve provenance; valid empty results are hits.",
+    "miss": "Missing, stale, incompatible or corrupt artifact; no approximate lookup/manual selection; prepare one extraction.",
+    "cache_admission": "Completed provider receipt matching exact endpoint/model-requested/config/body; explicit replay fixture without this provenance is never automatically admitted.",
+    "existing_entries": "Never overwrite. Failed cache write does not remove the packet.",
+    "historical_replay": "Explicit checksum-allowlisted saved fixture replay only; no automatic grandfathering of benchmark-prefixed request aliases."
+  },
+  "packet": {
+    "contract": "oe_semantic_matching_packet_v1",
+    "recipe_version": "semantic_pipeline_historical_packet_recipe_v1",
+    "semantic_grouping_version": null,
+    "grouping_proposals": null,
+    "descriptive_signals": [],
+    "verifier_dependency": "none",
+    "unresolved_behavior": "Existing staging/relations preserve incomplete and rejected proposals; no supplement or inferred mismatch."
+  },
+  "assessment": {
+    "endpoint": "https://api.openai.com/v1/responses",
+    "configuration": {
+      "model": "gpt-5.6-terra",
+      "reasoning": {
+        "effort": "low"
+      },
+      "store": false,
+      "max_output_tokens": 9000
+    },
+    "configuration_sha256": "73ab0b4db1f17716066781791dca55083ae96f5813310522bd14b10d2e179245",
+    "prompt_version": "matching_semantic_development_prompt_v1",
+    "prompt_sha256": "3b4db3e2197c81f65611b51fc668bc488c854c18f84b8c1612b49bb2e98bccbf",
+    "schema_version": "matching_semantic_fit_output_v1",
+    "schema": {
+      "version": "matching_semantic_fit_output_v1",
+      "builder": "scripts/semantic_development_core.py:output_schema",
+      "builder_sha256": "26c0d02fe13eef1fcc29cf2f9df857a49b7a4a5d5502028b618f58f6f3085252",
+      "probe_request": {
+        "provider_input": {
+          "profile_reference_catalog": [
+            {
+              "reference_id": "P001",
+              "state": "grounded"
+            }
+          ],
+          "opportunities": [
+            {
+              "opportunity_id": "J001",
+              "reference_catalog": [
+                {
+                  "reference_id": "O001",
+                  "reference_type": "proposition"
+                },
+                {
+                  "reference_id": "O002",
+                  "reference_type": "group"
+                },
+                {
+                  "reference_id": "O003",
+                  "reference_type": "evidence"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "probe_schema_sha256": "60c166316cf0871c1c0a8e6cd4ba6ad3b8a91eddc5012729f576e4ba2b848832",
+      "dynamic_ids": "Schemas enumerate exact request-local IDs. Freeze builder plus probe; record generated schema hash for every future request.",
+      "v1_schema_hashes": {
+        "P001": "ab9c45d2eba174bd9bad64fb108a73f2ec049a59e2ebdcc2fd5983adc7002a11",
+        "P002": "94c11f2cd73cbf1f68bb7ddc61587f4a44241bca798cd3035dd5a9a8d94c2a72",
+        "P003": "9d8d480d32c14e3a5c14a55b9c5e37d2ec22f9768f8f49e731163c06119c9d30",
+        "P004": "064a6e0322d56c9ba18c0544448eecb65fb97d73100928c54fad92e45c8b4680",
+        "P005": "08bf665f56d565f6ae2fab9c50f22769949627af61a4754fbd8a254926461631",
+        "P006": "9382665b743de16a8790da628cd8f74f3bab36f77f599c1f6d7b792efd2fa123"
+      }
+    },
+    "downstream_method": "wahojobs_semantic_ranking_method_v1",
+    "implementation": "matching_semantic_development_v1",
+    "temperature": "omitted; provider default not invented",
+    "timeout_seconds": [
+      10,
+      180
+    ],
+    "requests": "One per supplied profile batch with nonempty packets, maximum 32 covered candidates; none for all-empty profiles. Prepared only after provisioning settles."
+  },
+  "class_precedence": {
+    "direct": 3,
+    "adjacent": 2,
+    "contextual": 1,
+    "unestablished": 0,
+    "explicit_conflict": 0
+  },
+  "stable_ids": {
+    "order_seed": "matching-semantic-development-v1-provider-order",
+    "candidate_order": "SHA256([order_seed, ordinary opportunity_ref]); independent of supplied candidate order and legacy rank",
+    "scope": "Opaque profile/opportunity/evidence IDs are deterministic within the same frozen request, not global IDs.",
+    "maximum_candidates_per_profile_request": 32
+  },
+  "integration": "Unchanged frozen ties_only: reorder covered slots only in contiguous equal legacy-score blocks; equal semantic values stable; empty/unavailable/invalid slots pinned.",
+  "failure": {
+    "source_extraction_packet": "Unavailable canonical packet retained; normal downstream positional fallback. Valid empty packet retained and reusable. No silent omission.",
+    "assessment_provider_or_validation": "Restore entire profile legacy ranking.",
+    "invalid_caller_inputs": "Reject before execution; caller retains legacy base, no implicit repair/substitution.",
+    "dispatch": "Exact endpoint/request allowlist and credential required; exclusive durable preclaim; no retry/redirect/repair. Completed matching journal replay only; uncertain prior attempt/result blocks resend.",
+    "result_persistence": "Failure retained, attempt claim prevents repeat; no ranking success asserted from an unpersisted response."
+  },
+  "authority": {
+    "class": "semantic_non_exclusionary",
+    "hard_exclusions": 0,
+    "missing_evidence_is_mismatch": false
+  },
+  "runtime_leakage_boundary": {
+    "forbidden": [
+      "human labels",
+      "reviewer notes",
+      "benchmark metrics",
+      "expected rankings",
+      "error analysis",
+      "selection strata",
+      "aborted v2 artifacts"
+    ],
+    "legacy": "Only separate final integration input, never either provider request.",
+    "benchmark_dependency": false
+  },
+  "environment": {
+    "python": "3.12.6",
+    "unicode_database": "15.0.0",
+    "sqlite": "3.45.3",
+    "package_versions": {
+      "requests": "2.34.2",
+      "urllib3": "2.7.0",
+      "certifi": "2026.7.22",
+      "charset-normalizer": "3.4.9",
+      "idna": "3.18"
+    },
+    "model_reproducibility": "Provider alias server revision is outside repository control; exact deterministic replay uses frozen raw responses."
+  },
+  "offline_replay": {
+    "prelabel_manifest": {
+      "path": "exports/prospective_semantic_ranking_benchmark_v1/benchmark_manifest.json",
+      "sha256": "7183c60f894b3808a54748f73cefb310794c8d07bdbdc718a8b32cb027f124ce"
+    },
+    "legacy_baseline": {
+      "path": "exports/prospective_semantic_ranking_benchmark_v1/frozen_legacy_baseline.json",
+      "sha256": "b6b30e49568169c291849d144d7fa41de5ee958150f3bc90f92cdbc61a14e774"
+    },
+    "provision_directory": "exports/prospective_semantic_ranking_benchmark_v1_packet_viability",
+    "provision_checksums": {
+      "path": "exports/prospective_semantic_ranking_benchmark_v1_packet_viability/SHA256SUMS.txt",
+      "sha256": "b0b3dbbfd8dc8547c7c4b69831a1e182cb9df3f9a5874d43cf01fe349c4d52f8"
+    },
+    "assessment_directory": "exports/prospective_semantic_ranking_benchmark_v1_human_review/semantic_ranker_development_20260903/candidate_01",
+    "assessment_fixture_hashes": "Pinned by unchanged historical downstream manifest development_references.replay_inputs.",
+    "expected_packets": 52,
+    "expected_nonempty_packets": 49,
+    "expected_empty_packets": 3,
+    "expected_assessment_requests": 6,
+    "expected_judgments": 60,
+    "selected_ranking_sha256": "ec012d94659d8abfa74a37aa50b00cffbca998c5fa03a31bca559ef62ec7a1e7",
+    "human_label_files_required": false
+  },
+  "holdout_rule": "From the containing freeze commit until a fresh replacement v2 is fully reviewed and unblinded, all evidence selection/binding, extraction prompt/schema/config/reuse, packets, assessment prompt/schema/config, validation, fit interpretation, integration, failures/fallbacks and model configurations are immutable. Any behavioral change after sampling requires invalidation, a new freeze commit, then a fresh universe."
+}
