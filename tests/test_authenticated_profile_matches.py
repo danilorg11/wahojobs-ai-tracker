@@ -633,6 +633,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         authority = self._authority(profile_v2=self.profile_v2)
         real_projection = matches_module.project_v2_to_matcher_v1
         real_shadow = matches_module.run_typed_match_criteria_shadow
+        real_context_builder = profile_preview.build_preview_context_from_canonical_rows
         fallback_error = AssertionError("local/default inventory fallback used")
 
         with (
@@ -657,6 +658,11 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 "run_typed_match_criteria_shadow",
                 wraps=real_shadow,
             ) as shadow,
+            mock.patch.object(
+                profile_preview,
+                "build_preview_context_from_canonical_rows",
+                wraps=real_context_builder,
+            ) as context_builder,
             mock.patch.object(
                 matches_module,
                 "_apply_typed_preference_enforcement_v1",
@@ -711,6 +717,10 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         resolve.assert_called_once()
         project.assert_called_once()
         shadow.assert_not_called()
+        context_builder.assert_called_once()
+        self.assertIsNone(
+            context_builder.call_args.kwargs["evaluated_match_sink"]
+        )
         legacy_enforcement.assert_not_called()
         self.assertEqual(project.call_args.args[0], self.profile_v2)
         self.assertEqual(
@@ -766,6 +776,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             criteria_shadow_sink=captured.append,
         )
         real_shadow = matches_module.run_typed_match_criteria_shadow
+        real_context_builder = profile_preview.build_preview_context_from_canonical_rows
         with (
             mock.patch.object(
                 AuthenticatedProfileMatchesService,
@@ -782,6 +793,11 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 "run_typed_match_criteria_shadow",
                 wraps=real_shadow,
             ) as shadow,
+            mock.patch.object(
+                profile_preview,
+                "build_preview_context_from_canonical_rows",
+                wraps=real_context_builder,
+            ) as context_builder,
         ):
             response = integration.handle(
                 "GET",
@@ -792,6 +808,10 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(len(query_calls), 1)
         shadow.assert_called_once()
+        context_builder.assert_called_once()
+        self.assertTrue(
+            callable(context_builder.call_args.kwargs["evaluated_match_sink"])
+        )
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0]["schema_version"], "match_criteria_shadow_diagnostic_v1")
         outcomes = {

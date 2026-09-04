@@ -1696,7 +1696,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 rows, overlay_status = self._load_inventory()
                 inventory_count = len(rows)
                 evaluated_at = _trusted_utc(self._now())
-                authoritative_matches = []
+                authoritative_matches = (
+                    [] if self._criteria_shadow_sink is not None else None
+                )
                 context = profile_preview.build_preview_context_from_canonical_rows(
                     projected,
                     inventory_rows=rows,
@@ -1706,7 +1708,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     normalization_warnings=[],
                     extraction_quality="reviewed",
                     evaluated_at=evaluated_at,
-                    evaluated_match_sink=authoritative_matches.append,
+                    evaluated_match_sink=(
+                        authoritative_matches.append
+                        if authoritative_matches is not None
+                        else None
+                    ),
                 )
                 effective_enrichments = {}
                 if _has_authoritative_preference_model(profile_v2):
@@ -1714,12 +1720,13 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         effective_enrichments = self._load_shadow_enrichments(rows)
                     except Exception:
                         effective_enrichments = {}
-                self._emit_criteria_shadow(
-                    profile_v2,
-                    rows,
-                    authoritative_matches,
-                    effective_enrichments=effective_enrichments,
-                )
+                if authoritative_matches is not None:
+                    self._emit_criteria_shadow(
+                        profile_v2,
+                        rows,
+                        authoritative_matches,
+                        effective_enrichments=effective_enrichments,
+                    )
                 if _has_authoritative_preference_model(profile_v2):
                     context = _apply_typed_preference_enforcement_v1(
                         profile_v2,
