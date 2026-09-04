@@ -9,6 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+import hashlib
 import math
 
 from wahojobs.matching.taxonomy import CAREER_LEVELS
@@ -48,6 +49,9 @@ PRIMARY_PREFERENCE_ADMISSION_SCHEMA_VERSION = (
 )
 SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION = (
     "single_criterion_relaxation_counterfactuals_v1"
+)
+_REQUEST_SCOPED_OPPORTUNITY_PROJECTION_CACHE_VERSION = (
+    "request_scoped_opportunity_projection_cache_v1"
 )
 
 CRITERION_CLASSES = frozenset(
@@ -1845,6 +1849,7 @@ def run_typed_match_criteria_shadow(
     preference_criteria = criteria.all_criteria()
     if not preference_criteria and not authority_by_job_id:
         return ()
+    projection_cache = _RequestScopedOpportunityProjectionCache()
     records = []
     for row in inventory_rows:
         outcomes = []
@@ -1856,7 +1861,7 @@ def run_typed_match_criteria_shadow(
         )
         if preference_criteria:
             try:
-                opportunity = project_opportunity_criteria_v1(
+                opportunity = projection_cache.project(
                     effective_enrichment=effective,
                     inventory_row=row,
                 )
@@ -1901,6 +1906,155 @@ def run_typed_match_criteria_shadow(
             except Exception:
                 pass
     return tuple(deepcopy(records))
+
+
+class _ProjectionCacheKeyUnavailable(TypeError):
+    pass
+
+
+def _update_projection_cache_digest(digest, value):
+    """Hash an exact built-in value without conflating Python container types."""
+    value_type = type(value)
+    if value is None:
+        digest.update(b"N")
+        return
+    if value_type is bool:
+        digest.update(b"B1" if value else b"B0")
+        return
+    if value_type is int:
+        encoded = str(value).encode("ascii")
+        digest.update(b"I" + len(encoded).to_bytes(8, "big") + encoded)
+        return
+    if value_type is float:
+        encoded = value.hex().encode("ascii")
+        digest.update(b"F" + len(encoded).to_bytes(8, "big") + encoded)
+        return
+    if value_type in {str, bytes}:
+        encoded = value.encode("utf-8") if value_type is str else value
+        digest.update(
+            (b"S" if value_type is str else b"Y")
+            + len(encoded).to_bytes(8, "big")
+            + encoded
+        )
+        return
+    if value_type in {list, tuple}:
+        digest.update(
+            (b"L" if value_type is list else b"T")
+            + len(value).to_bytes(8, "big")
+        )
+        for item in value:
+            _update_projection_cache_digest(digest, item)
+        return
+    if value_type is dict:
+        # Dict insertion order is retained deliberately. Treating two equivalent
+        # inputs as different is safe; conflating behaviorally different inputs
+        # is not.
+        digest.update(b"D" + len(value).to_bytes(8, "big"))
+        for key, item in value.items():
+            _update_projection_cache_digest(digest, key)
+            _update_projection_cache_digest(digest, item)
+        return
+    if value_type in {set, frozenset}:
+        item_digests = []
+        for item in value:
+            item_digest = hashlib.sha256()
+            _update_projection_cache_digest(item_digest, item)
+            item_digests.append(item_digest.digest())
+        digest.update(
+            (b"E" if value_type is set else b"R")
+            + len(item_digests).to_bytes(8, "big")
+        )
+        for item_digest in sorted(item_digests):
+            digest.update(item_digest)
+        return
+    raise _ProjectionCacheKeyUnavailable()
+
+
+def _opportunity_projection_cache_key(effective_enrichment):
+    """Return the complete behavior key for one enriched projection input."""
+    digest = hashlib.sha256()
+    _update_projection_cache_digest(
+        digest,
+        (
+            _REQUEST_SCOPED_OPPORTUNITY_PROJECTION_CACHE_VERSION,
+            OPPORTUNITY_CRITERIA_SCHEMA_VERSION,
+            effective_enrichment,
+        ),
+    )
+    return (
+        _REQUEST_SCOPED_OPPORTUNITY_PROJECTION_CACHE_VERSION,
+        OPPORTUNITY_CRITERIA_SCHEMA_VERSION,
+        id(project_opportunity_criteria_v1),
+        id(validate_enrichment_document),
+        digest.digest(),
+    )
+
+
+class _RequestScopedOpportunityProjectionCache:
+    """Reuse pure, frozen projections inside one shadow render only.
+
+    The effective-enrichment map is privately constructed for a render and the
+    projection/evaluation path never mutates it. Strong references make the
+    identity fast path safe for that request while the reusable key itself is a
+    full structural digest, not a canonical/document identifier.
+    """
+
+    def __init__(self):
+        self._entries = {}
+        self._identity_keys = {}
+        self.hits = 0
+        self.misses = 0
+        self.uncacheable = 0
+        self.row_fallbacks = 0
+
+    @property
+    def size(self):
+        return len(self._entries)
+
+    def _key(self, effective_enrichment):
+        identity = id(effective_enrichment)
+        memoized = self._identity_keys.get(identity)
+        if memoized is not None and memoized[0] is effective_enrichment:
+            return memoized[1]
+        try:
+            key = _opportunity_projection_cache_key(effective_enrichment)
+        except _ProjectionCacheKeyUnavailable:
+            return None
+        self._identity_keys[identity] = (effective_enrichment, key)
+        return key
+
+    def project(self, *, effective_enrichment=None, inventory_row=None):
+        if effective_enrichment is None:
+            self.row_fallbacks += 1
+            return project_opportunity_criteria_v1(
+                effective_enrichment=None,
+                inventory_row=inventory_row,
+            )
+        key = self._key(effective_enrichment)
+        if key is None:
+            self.uncacheable += 1
+            return project_opportunity_criteria_v1(
+                effective_enrichment=effective_enrichment,
+                inventory_row=inventory_row,
+            )
+        cached = self._entries.get(key)
+        if cached is not None:
+            self.hits += 1
+            status, value = cached
+            if status == "ok":
+                return value
+            raise TypedCriteriaError(*value)
+        self.misses += 1
+        try:
+            projected = project_opportunity_criteria_v1(
+                effective_enrichment=effective_enrichment,
+                inventory_row=inventory_row,
+            )
+        except TypedCriteriaError as exc:
+            self._entries[key] = ("error", exc.reason_codes)
+            raise
+        self._entries[key] = ("ok", projected)
+        return projected
 
 
 class _EvidenceContext:

@@ -1,10 +1,12 @@
 import unittest
 from copy import deepcopy
 from dataclasses import replace
+from unittest import mock
 
 from scripts import profile_match_digest as matcher
 from tests.test_canonical_profile_v2 import load_cases, ordinal_resolver, persistent_id
 from tests.test_profile_preference_model import with_preference_model
+from wahojobs.matching import typed_criteria as typed_criteria_module
 from wahojobs.matching.typed_criteria import (
     CriterionOutcomeV1,
     MatchCriteriaV1,
@@ -1523,6 +1525,166 @@ class TypedMatchCriteriaTests(unittest.TestCase):
         self.assertEqual(effective, before_effective)
         self.assertEqual(visible_after, visible_before)
         self.assertNotIn("30", repr(first))
+
+    def test_shadow_projection_cache_reuses_complete_shared_document_input(self):
+        rows = [
+            matcher_row(job_id=7002),
+            matcher_row(job_id=7003),
+            matcher_row(job_id=7004),
+        ]
+        shared = enrichment()
+        equivalent_copy = deepcopy(shared)
+        effective = {7002: shared, 7003: shared, 7004: equivalent_copy}
+        real_validator = typed_criteria_module.validate_enrichment_document
+
+        with mock.patch.object(
+            typed_criteria_module,
+            "validate_enrichment_document",
+            wraps=real_validator,
+        ) as validator:
+            records = run_typed_match_criteria_shadow(
+                profile_v2(),
+                rows,
+                effective,
+            )
+
+        self.assertEqual(len(records), 3)
+        self.assertEqual(validator.call_count, 1)
+        self.assertEqual(records[0]["outcomes"], records[1]["outcomes"])
+        self.assertEqual(records[1]["outcomes"], records[2]["outcomes"])
+
+    def test_shadow_projection_cache_key_covers_every_projection_input(self):
+        base = enrichment()
+        document_change = deepcopy(base)
+        document_change["document"]["attributes"]["role"]["seniority"] = "mid"
+        field_source_change = deepcopy(base)
+        field_source_change["field_sources"] = {
+            "attributes.role.seniority": "human_override"
+        }
+        stale_change = deepcopy(base)
+        stale_change["stale_override_fields"] = ["attributes.role.seniority"]
+        inputs = (base, document_change, field_source_change, stale_change)
+        real_validator = typed_criteria_module.validate_enrichment_document
+
+        with mock.patch.object(
+            typed_criteria_module,
+            "validate_enrichment_document",
+            wraps=real_validator,
+        ) as validator:
+            run_typed_match_criteria_shadow(
+                profile_v2(),
+                [matcher_row(job_id=7100 + index) for index in range(len(inputs))],
+                {7100 + index: value for index, value in enumerate(inputs)},
+            )
+
+        self.assertEqual(validator.call_count, len(inputs))
+
+    def test_shadow_projection_cache_is_request_scoped_and_profile_evaluation_remains_live(self):
+        rows = [matcher_row(job_id=7201), matcher_row(job_id=7202)]
+        shared = enrichment(engagement_type="full_time")
+        effective = {7201: shared, 7202: shared}
+        second_profile = profile_v2()
+        second_profile["preferences"]["preference_model"]["workloads"] = [
+            "part_time"
+        ]
+        second_profile = validate_canonical_profile_v2(second_profile)
+        real_validator = typed_criteria_module.validate_enrichment_document
+
+        with mock.patch.object(
+            typed_criteria_module,
+            "validate_enrichment_document",
+            wraps=real_validator,
+        ) as validator:
+            first = run_typed_match_criteria_shadow(profile_v2(), rows, effective)
+            second = run_typed_match_criteria_shadow(second_profile, rows, effective)
+
+        self.assertEqual(validator.call_count, 2)
+        first_workload = next(
+            item for item in first[0]["outcomes"]
+            if item["criterion_id"] == "preferences.workloads"
+        )
+        second_workload = next(
+            item for item in second[0]["outcomes"]
+            if item["criterion_id"] == "preferences.workloads"
+        )
+        self.assertEqual(first_workload["outcome"], "pass")
+        self.assertEqual(second_workload["outcome"], "fail")
+
+    def test_shadow_projection_cache_preserves_shared_failure_and_row_fallback(self):
+        invalid = enrichment()
+        invalid["document"]["schema_version"] = "invalid"
+        rows = [
+            matcher_row(job_id=7301),
+            matcher_row(job_id=7302),
+            matcher_row(job_id=7303),
+        ]
+        real_validator = typed_criteria_module.validate_enrichment_document
+
+        with mock.patch.object(
+            typed_criteria_module,
+            "validate_enrichment_document",
+            wraps=real_validator,
+        ) as validator:
+            records = run_typed_match_criteria_shadow(
+                profile_v2(),
+                rows,
+                {7301: invalid, 7302: invalid},
+            )
+
+        self.assertEqual(validator.call_count, 1)
+        self.assertEqual(len(records), 3)
+        for record in records[:2]:
+            self.assertTrue(record["outcomes"])
+            self.assertEqual(
+                {item["reason_code"] for item in record["outcomes"]},
+                {"opportunity_projection_failed"},
+            )
+        self.assertNotEqual(records[2]["outcomes"], records[0]["outcomes"])
+
+    def test_cached_shadow_runner_matches_uncached_reference_path_exactly(self):
+        rows = [
+            matcher_row(job_id=7401),
+            matcher_row(job_id=7402),
+            matcher_row(job_id=7403),
+        ]
+        shared = enrichment()
+        invalid = enrichment()
+        invalid["document"]["schema_version"] = "invalid"
+        effective = {7401: shared, 7402: shared, 7403: invalid}
+        authoritative = [
+            {
+                "job_id": 7401,
+                "language_eligibility_reason": "no_explicit_language_requirement",
+                "location_eligibility_status": "not_applicable",
+                "location_eligibility_reason": "no_explicit_location_restriction",
+                "preview_credential_requirement": "none",
+                "preview_domain_hard_gate_applied": False,
+                "professional_domain_hard_gate_applied": False,
+                "actionability_cap_reasons": [],
+            }
+        ]
+        uncached = lambda _cache, **kwargs: project_opportunity_criteria_v1(
+            **kwargs
+        )
+        with mock.patch.object(
+            typed_criteria_module._RequestScopedOpportunityProjectionCache,
+            "project",
+            uncached,
+        ):
+            expected = run_typed_match_criteria_shadow(
+                profile_v2(),
+                rows,
+                effective,
+                authoritative_matches=authoritative,
+            )
+        actual = run_typed_match_criteria_shadow(
+            profile_v2(),
+            rows,
+            effective,
+            authoritative_matches=authoritative,
+        )
+
+        self.assertEqual(actual, expected)
 
 
 if __name__ == "__main__":
