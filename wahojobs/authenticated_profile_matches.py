@@ -202,11 +202,6 @@ _SECURITY_HEADERS = (
 _NO_REFERRER_POLICY = "no-referrer"
 _SAME_ORIGIN_REFERRER_POLICY = "same-origin"
 
-
-def _discard_criteria_shadow_diagnostic(_record):
-    return None
-
-
 def _has_authoritative_preference_model(profile_v2):
     preferences = profile_v2.get("preferences")
     return (
@@ -669,11 +664,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._completed_replay_authenticator = (
             completed_profile_confirmation_authenticator
         )
-        self._criteria_shadow_sink = (
-            criteria_shadow_sink
-            if criteria_shadow_sink is not None
-            else _discard_criteria_shadow_diagnostic
-        )
+        # A sink is the explicit diagnostic-mode opt-in.  The normal browser
+        # path keeps observational criteria-shadow work off its critical path.
+        self._criteria_shadow_sink = criteria_shadow_sink
         self._public_origin = origin
         self._public_authority = authority
         self._public_seo_policy = public_seo_policy
@@ -1809,6 +1802,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         effective_enrichments=None,
     ):
         """Best-effort diagnostics that cannot affect the visible match context."""
+        if self._criteria_shadow_sink is None:
+            return
         try:
             if effective_enrichments is None:
                 effective = {}

@@ -710,12 +710,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(len(query_calls), 1)
         resolve.assert_called_once()
         project.assert_called_once()
-        shadow.assert_called_once()
+        shadow.assert_not_called()
         legacy_enforcement.assert_not_called()
-        self.assertEqual(shadow.call_args.args[0], self.profile_v2)
-        self.assertEqual(shadow.call_args.args[1], [safe, unsafe])
-        self.assertEqual(shadow.call_args.args[2], {})
-        self.assertTrue(shadow.call_args.kwargs["authoritative_matches"])
         self.assertEqual(project.call_args.args[0], self.profile_v2)
         self.assertEqual(
             project.call_args.kwargs["matcher_profile_id"],
@@ -769,6 +765,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             ephemeral_identity_factory=lambda: "ephemeral_matcher",
             criteria_shadow_sink=captured.append,
         )
+        real_shadow = matches_module.run_typed_match_criteria_shadow
         with (
             mock.patch.object(
                 AuthenticatedProfileMatchesService,
@@ -780,6 +777,11 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 "query_preview_rows",
                 side_effect=self._query_rows([row], query_calls),
             ),
+            mock.patch.object(
+                matches_module,
+                "run_typed_match_criteria_shadow",
+                wraps=real_shadow,
+            ) as shadow,
         ):
             response = integration.handle(
                 "GET",
@@ -789,6 +791,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         self.assertEqual(len(query_calls), 1)
+        shadow.assert_called_once()
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0]["schema_version"], "match_criteria_shadow_diagnostic_v1")
         outcomes = {
