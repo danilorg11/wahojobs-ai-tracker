@@ -106,6 +106,10 @@ def parse_mercor_listing(listing, *, attest=False):
                     "qualifications",
                     "payRate",
                     "payRateFrequency",
+                    "eligibleLocation",
+                    "eligibleResidenceLocation",
+                    "ineligibleLocation",
+                    "ineligibleResidenceLocation",
                 ),
             )
         ),

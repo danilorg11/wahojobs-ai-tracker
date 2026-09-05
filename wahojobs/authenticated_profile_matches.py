@@ -49,6 +49,7 @@ from wahojobs.matching.recommendation_validity import (
     database_commit_token,
     inventory_deadline,
 )
+from wahojobs.matching.source_geography import apply_mercor_applicant_geography
 from wahojobs.matching.typed_criteria import (
     SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION,
     aggregate_single_criterion_relaxations_v1,
@@ -1877,6 +1878,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 connection.execute("BEGIN")
                 try:
                     rows = profile_preview.query_preview_rows(connection)
+                    rows = apply_mercor_applicant_geography(connection, rows)
                 finally:
                     if connection.in_transaction:
                         connection.rollback()

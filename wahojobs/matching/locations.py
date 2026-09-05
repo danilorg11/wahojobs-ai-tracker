@@ -89,6 +89,8 @@ class LocationEligibility:
 
 
 def location_eligibility(profile: dict, row: dict) -> LocationEligibility:
+    if row.get("applicant_country_requirements"):
+        return explicit_country_eligibility(profile, row)
     profile_location = explicit_profile_location(profile)
     profile_location_status = PROFILE_LOCATION_KNOWN if profile_location else PROFILE_LOCATION_UNKNOWN
     stored_requirements = row.get("applicant_location_requirements") or row.get("location")
@@ -185,6 +187,61 @@ def location_eligibility(profile: dict, row: dict) -> LocationEligibility:
         job_location_scope=scope,
         job_remote_status=remote_status,
         actionability_cap_required=False,
+    )
+
+
+def explicit_country_eligibility(profile: dict, row: dict) -> LocationEligibility:
+    """Conjoin mandatory dimensions; alternatives within an allow-list are OR.
+
+    Reuse LocationEligibility and its existing hard/unknown gates. An explicit
+    country requirement takes precedence over generic Remote/Worldwide text.
+    Residence never borrows work authorization, nationality or current location.
+    """
+    requirements = row["applicant_country_requirements"]
+    conflicts, unknowns, descriptions = [], [], []
+    positive = False
+    for requirement in requirements:
+        dimension, mode = requirement["dimension"], requirement["mode"]
+        if dimension not in {"location", "residence"} or mode not in {"allow", "exclude"}:
+            raise ValueError("unsupported applicant-country requirement")
+        raw_profile = (profile.get("country", profile.get("location", ""))
+                       if dimension == "location" else profile.get("residence", ""))
+        try:
+            country = normalize_country(raw_profile)
+        except ValueError:
+            country = ""
+        countries = set(requirement["countries"])
+        field = requirement["source_field"]
+        label = ", ".join(sorted(countries)) or "unresolved countries"
+        description = f"Source {field}: applicant {dimension} {mode} {label}"
+        descriptions.append(description)
+        if not country:
+            unknowns.append(f"Applicant {dimension} is unconfirmed for {field}.")
+        elif mode == "exclude" and country in countries:
+            conflicts.append(f"{description}; profile {dimension} is {country} (excluded).")
+        elif mode == "allow" and country not in countries and not requirement["unresolved"]:
+            conflicts.append(f"{description}; profile {dimension} is {country} (not included).")
+        elif (mode == "allow" and country not in countries) or (
+            mode == "exclude" and requirement["unresolved"]
+        ):
+            unknowns.append(f"{field} contains unresolved country evidence.")
+        if mode == "allow" and country in countries:
+            positive = True
+    status = (LOCATION_INCOMPATIBLE if conflicts else LOCATION_UNKNOWN if unknowns or not positive
+              else LOCATION_ELIGIBLE)
+    reason = " ".join(conflicts or unknowns) or (
+        "Profile satisfies the explicit applicant country/residence requirements."
+        if positive else "No explicit exclusion matches; broader geographic eligibility remains unconfirmed."
+    )
+    profile_location = explicit_profile_location(profile)
+    remote = classify_job_location(row.get("location"))[1]
+    return LocationEligibility(
+        status=status, reason=reason, profile_location=profile_location,
+        profile_location_status=PROFILE_LOCATION_KNOWN if profile_location else PROFILE_LOCATION_UNKNOWN,
+        applicant_location_requirements="; ".join(descriptions),
+        restriction_type=RESTRICTION_OPAQUE if unknowns else RESTRICTION_CONCRETE,
+        job_location_scope=LOCATION_SCOPE_REMOTE_RESTRICTED if remote == REMOTE_STATUS_REMOTE else LOCATION_SCOPE_RESTRICTED,
+        job_remote_status=remote, actionability_cap_required=bool(unknowns) and not conflicts,
     )
 
 
