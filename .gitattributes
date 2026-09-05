@@ -5,3 +5,4 @@ deploy/vercel-production-gateway/*.json text eol=lf
 deploy/production-exact-route-v1/*.json text eol=lf
 tests/fixtures/opportunity_semantic_extraction_v0_fresh_canary.json -text
 tests/fixtures/opportunity_semantic_staging_v0_fresh_canary_raw.json -text
+tests/fixtures/source_detail_recovery/*.html -text

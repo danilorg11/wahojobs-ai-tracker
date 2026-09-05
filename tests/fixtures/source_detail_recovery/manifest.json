@@ -1,0 +1,72 @@
+[
+  {
+    "rank": 1,
+    "provider": "alignerr",
+    "external_id": "43cc3db4-ae8e-40d2-bb61-f948318ee41c",
+    "title": "Biology Expert (Masters/PhDs)",
+    "url": "https://www.alignerr.com/jobs/43cc3db4-ae8e-40d2-bb61-f948318ee41c",
+    "observed_at": "2026-09-05T12:57:48.991449+00:00",
+    "source_response_sha256": "0d573933e5354f47a987ab81cd9650c98f72d3ca6a3b4a7b6d46b98aa070e931",
+    "file": "card_01.html"
+  },
+  {
+    "rank": 2,
+    "provider": "alignerr",
+    "external_id": "4ca8241e-8f00-4050-aaa9-0406cb067b59",
+    "title": "Biology Expert or Specialist",
+    "url": "https://www.alignerr.com/jobs/4ca8241e-8f00-4050-aaa9-0406cb067b59",
+    "observed_at": "2026-09-05T12:57:49.335908+00:00",
+    "source_response_sha256": "2260c9a6a0040f81f461ab63fb76006fca1b60668739d8981d8e0a10e8aec677",
+    "file": "card_02.html"
+  },
+  {
+    "rank": 3,
+    "provider": "alignerr",
+    "external_id": "131311fa-44ec-4dc7-9aa6-f1f25abe4090",
+    "title": "Biology Masters",
+    "url": "https://www.alignerr.com/jobs/131311fa-44ec-4dc7-9aa6-f1f25abe4090",
+    "observed_at": "2026-09-05T12:57:49.613330+00:00",
+    "source_response_sha256": "d72aabd8a2cbb0717c70c40e006b797dabfc48e3edf43a7ab0684d19a81da295",
+    "file": "card_03.html"
+  },
+  {
+    "rank": 4,
+    "provider": "alignerr",
+    "external_id": "6aa6dfdf-c9c7-45ad-a73b-529e423a5ec7",
+    "title": "Biology Researcher (Masters/PhDs)",
+    "url": "https://www.alignerr.com/jobs/6aa6dfdf-c9c7-45ad-a73b-529e423a5ec7",
+    "observed_at": "2026-09-05T12:57:49.886372+00:00",
+    "source_response_sha256": "26da21a790cb7055c81d472c3c6cbfffab3da3903f01282d8e48df0ea71909f6",
+    "file": "card_04.html"
+  },
+  {
+    "rank": 5,
+    "provider": "alignerr",
+    "external_id": "08b03b04-a591-44a0-a99a-385e9169f7b8",
+    "title": "Biology Specialist (Masters/PhDs)",
+    "url": "https://www.alignerr.com/jobs/08b03b04-a591-44a0-a99a-385e9169f7b8",
+    "observed_at": "2026-09-05T12:57:50.125111+00:00",
+    "source_response_sha256": "30e73fd11ce48b6c9d91b2d9dea219931bdd4bfc58717f912395c4bb6d5255e8",
+    "file": "card_05.html"
+  },
+  {
+    "rank": 6,
+    "provider": "alignerr",
+    "external_id": "c4bdfc22-f7d9-46ba-8909-3e8f8b96eb10",
+    "title": "Biology Subject Matter Expert - AI Content Specialist",
+    "url": "https://www.alignerr.com/jobs/c4bdfc22-f7d9-46ba-8909-3e8f8b96eb10",
+    "observed_at": "2026-09-05T12:57:50.392765+00:00",
+    "source_response_sha256": "34cf792ef106bff536ab0bbec0ecb0dcb53b5f5eeb77fbdae0a0bcbf4749669b",
+    "file": "card_06.html"
+  },
+  {
+    "rank": 10,
+    "provider": "micro1",
+    "external_id": "5136fd03-6ff0-45c0-8e36-2126cc5b21c7",
+    "title": "Biology Expert (PhD)",
+    "url": "https://jobs.micro1.ai/post/5136fd03-6ff0-45c0-8e36-2126cc5b21c7?utm_source=micro1&utm_medium=job_portal",
+    "observed_at": "2026-09-05T12:57:50.834481+00:00",
+    "source_response_sha256": "9b78d454ba0cf73b05a6449bc7ebe8749b9d93f998b4d92e96f483ea0a39d765",
+    "file": "card_10.html"
+  }
+]

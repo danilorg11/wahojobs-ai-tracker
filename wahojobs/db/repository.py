@@ -22,7 +22,7 @@ from wahojobs.classification import (
     include_in_live_market_estimate_for_policy,
 )
 from wahojobs.config import DB_PATH
-from wahojobs.crawler.types import MERCOR_RECORD_CONTRACT_ID
+from wahojobs.crawler.types import MERCOR_RECORD_CONTRACT_ID, PROVIDER_DETAIL_RECORD_CONTRACT_ID
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
@@ -59,6 +59,7 @@ from wahojobs.source_capture import (
     SOURCE_CAPTURE_EVIDENCE_VERSION,
     SOURCE_PROMOTION_POLICY_VERSION,
     MERCOR_PROMOTION_POLICY_VERSION,
+    PROVIDER_DETAIL_PROMOTION_POLICY_VERSION,
     SOURCE_PROMOTION_POLICY_DECIDERS,
     SourceCapturePersistenceResult,
     SourceCaptureContext,
@@ -714,7 +715,9 @@ def upsert_job_source_content(
             source_type=source_type,
         )
         promotion_policy_version = (
-            MERCOR_PROMOTION_POLICY_VERSION
+            PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
+            if prepared_attestation.contract_id == PROVIDER_DETAIL_RECORD_CONTRACT_ID
+            else MERCOR_PROMOTION_POLICY_VERSION
             if prepared_attestation.contract_id == MERCOR_RECORD_CONTRACT_ID
             else SOURCE_PROMOTION_POLICY_VERSION
         )
@@ -743,9 +746,14 @@ def upsert_job_source_content(
             if accepted_capture is not None
             else None
         )
+        if (accepted_attestation is not None
+                and accepted_attestation.contract_id == PROVIDER_DETAIL_RECORD_CONTRACT_ID
+                and provider in {"alignerr", "micro1"}):
+            # Later catalog teasers/failures must not overwrite accepted details.
+            promotion_policy_version = PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
         policy_decider = (
             SOURCE_PROMOTION_POLICY_DECIDERS[promotion_policy_version]
-            if prepared_attestation.contract_id == MERCOR_RECORD_CONTRACT_ID
+            if promotion_policy_version in {MERCOR_PROMOTION_POLICY_VERSION, PROVIDER_DETAIL_PROMOTION_POLICY_VERSION}
             else decide_source_promotion
         )
         decision = policy_decider(
@@ -1019,7 +1027,10 @@ def get_job_source_capture_evidence(conn, job_id):
     )
     evidence_stale_reasons = []
     current_promotion_policy_version = (
-        MERCOR_PROMOTION_POLICY_VERSION
+        PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
+        if accepted_capture is not None
+        and accepted_capture["record_promotion_contract_id"] == PROVIDER_DETAIL_RECORD_CONTRACT_ID
+        else MERCOR_PROMOTION_POLICY_VERSION
         if accepted_capture is not None
         and accepted_capture["record_promotion_contract_id"] == MERCOR_RECORD_CONTRACT_ID
         else SOURCE_PROMOTION_POLICY_VERSION

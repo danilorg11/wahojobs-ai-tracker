@@ -15,6 +15,7 @@ BODY_OBSERVATION_STATES = frozenset(
 
 MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID = "meridial_greenhouse_record_v1"
 MERCOR_RECORD_CONTRACT_ID = "mercor_public_active_record_v1"
+PROVIDER_DETAIL_RECORD_CONTRACT_ID = "provider_detail_content_v1"
 
 
 class ProviderOutcome(str, Enum):

@@ -16,6 +16,7 @@ from wahojobs.crawler.types import (
     BODY_OBSERVATION_STATES,
     MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID,
     MERCOR_RECORD_CONTRACT_ID,
+    PROVIDER_DETAIL_RECORD_CONTRACT_ID,
     CompanyCrawlResult,
     ProviderOutcome,
 )
@@ -24,6 +25,7 @@ from wahojobs.crawler.types import (
 SOURCE_CAPTURE_CONTRACT_VERSION = "job_source_capture_v1"
 SOURCE_PROMOTION_POLICY_VERSION = "job_source_promotion_v2"
 MERCOR_PROMOTION_POLICY_VERSION = "mercor_record_promotion_v1"
+PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
 
 SEMANTIC_AUTHORITY_LEGACY_ACCEPTED = "legacy_accepted"
@@ -518,6 +520,52 @@ def _validate_mercor_public_active_record_v1(
         raise ValueError("Mercor public active record evidence is inconsistent.")
 
 
+def _validate_provider_detail_content_v1(attestation, candidate, prepared, context, *, provider, source_type):
+    from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
+    evidence = json.loads(attestation.authority_evidence_json)
+    metadata = json.loads(prepared.metadata_json)
+    detail = metadata.get(DETAIL_KEY, {})
+    expected_type = {"alignerr": "alignerr-marketplace", "micro1": "micro1-marketplace"}.get(provider)
+    if (set(evidence) != {"url", "external_id", "response_sha256", "observed_at", "content_only"}
+            or not expected_type or source_type != expected_type
+            or evidence["content_only"] is not True
+            or evidence["url"] != candidate.url or evidence["external_id"] != candidate.external_id
+            or detail.get("url") != candidate.url or detail.get("external_id") != candidate.external_id
+            or detail.get("provider") != provider or detail.get("version") != 1
+            or detail.get("http_status") != 200 or not prepared.body
+            or detail.get("response_sha256") != evidence["response_sha256"]
+            or not re.fullmatch(r"[a-f0-9]{64}", str(evidence["response_sha256"]))
+            or detail.get("observed_at") != evidence["observed_at"]
+            or parse_source_timestamp(evidence["observed_at"])[0] != SOURCE_TIMESTAMP_VALID
+            or context.crawl_run_id is not None or context.snapshot_complete or context.pagination_complete
+            or context.empty_snapshot_validated or context.used_sample_data
+            or context.provider_outcome != ProviderOutcome.PARTIAL.value
+            or (context.raw_record_count, context.normalized_record_count, context.candidate_count,
+                context.rejected_record_count) != (1, 1, 1, 0)
+            or context.payload_shape != PROVIDER_DETAIL_RECORD_CONTRACT_ID
+            or context.schema_fingerprint != PROVIDER_DETAIL_RECORD_CONTRACT_ID):
+        raise ValueError("Provider detail content evidence is inconsistent")
+    validate_detail_url(provider, candidate.external_id, candidate.url)
+    record = detail.get("record", {})
+    if provider == "alignerr":
+        if record.get("id") != candidate.external_id or record.get("isActive") is not True:
+            raise ValueError("Alignerr detail record identity/status is invalid")
+        body = record.get("longDescription") or record.get("htmlLongDescription")
+    else:
+        if record.get("client_job_id") != candidate.external_id or record.get("job_status") != "open":
+            raise ValueError("micro1 detail record identity/status is invalid")
+        from html import escape
+        body = record.get("job_description")
+        questions = detail.get("screening_questions")
+        if not isinstance(body, str) or not isinstance(questions, list):
+            raise ValueError("micro1 detail content is incomplete")
+        if questions:
+            body += "<h2>Application screening questions</h2><ol>" + "".join(
+                "<li>" + escape(q["question_text"]) + "</li>" for q in questions) + "</ol>"
+    if normalize_source_body(body) != prepared.body:
+        raise ValueError("Detail body differs from its source record")
+
+
 def canonical_source_metadata_json(metadata: dict) -> str:
     if type(metadata) is not dict:
         raise ValueError("Source metadata must be a dictionary.")
@@ -948,6 +996,22 @@ def decide_mercor_record_promotion_v1(
     )
 
 
+def decide_provider_detail_content_promotion_v1(
+    prepared, context, accepted_row, *, same_accepted_semantic_material=False,
+    record_attestation=None, accepted_record_attestation=None,
+):
+    if record_attestation is None or record_attestation.contract_id != PROVIDER_DETAIL_RECORD_CONTRACT_ID:
+        if (accepted_record_attestation is None
+                or accepted_record_attestation.contract_id != PROVIDER_DETAIL_RECORD_CONTRACT_ID):
+            raise ValueError("Detail promotion requires validated content authority")
+        return SourcePromotionDecision(PROMOTION_DECISION_HELD_DEGRADED,
+                                       ("catalog_cannot_replace_accepted_detail",),
+                                       _accepted_timestamp(accepted_row))
+    # Authority is for this content only. It gives no removal or availability permission.
+    return _decide_source_material_promotion(prepared, accepted_row,
+        same_accepted_semantic_material=same_accepted_semantic_material, authority_reasons=())
+
+
 # Historical capture and policy implementations are permanently pinned.  A
 # future current-version bump must add a new literal mapping rather than making
 # old captures follow mutable current behavior.
@@ -957,11 +1021,13 @@ SOURCE_CAPTURE_CONTRACT_PREPARERS = {
 RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,
+    "provider_detail_content_v1": _validate_provider_detail_content_v1,
 }
 SOURCE_PROMOTION_POLICY_DECIDERS = {
     "job_source_promotion_v1": decide_source_promotion_v1,
     "job_source_promotion_v2": decide_source_promotion_v2,
     "mercor_record_promotion_v1": decide_mercor_record_promotion_v1,
+    "provider_detail_content_promotion_v1": decide_provider_detail_content_promotion_v1,
 }
 
 # Current write aliases remain convenient for callers while replay uses the

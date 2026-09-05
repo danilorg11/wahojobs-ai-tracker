@@ -1217,6 +1217,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 workflow_status=status,
                 catalog_return_to=catalog_return_to,
             )
+            from wahojobs.authenticated_source_detail import append_authenticated_source_detail
+            content = append_authenticated_source_detail(content, job, authenticated=authenticated)
             return _html_response(
                 HTTPStatus.OK,
                 content,

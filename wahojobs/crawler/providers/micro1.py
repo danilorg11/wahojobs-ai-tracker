@@ -253,7 +253,7 @@ def parse_micro1_job(job):
     return JobCandidate(
         external_id=clean_value(job.get("job_id")),
         title=clean_value(job.get("job_name")),
-        location=clean_value(job.get("location_type")) or "Remote",
+        location=clean_value(job.get("location_type")),
         url=clean_value(job.get("apply_url")),
         department=category,
         expertise=category,
