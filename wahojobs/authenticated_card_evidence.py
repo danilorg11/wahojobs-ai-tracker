@@ -18,12 +18,13 @@ _QUALIFICATION_HEADINGS = {
 }
 _TERMS_HEADINGS = {'engagement', 'role details', 'more about the opportunity',
                    'commitment', 'equipment', 'equipment requirements',
-                   'screening questions', 'additional requirements'}
+                   'screening questions', 'application screening questions', 'additional requirements'}
 # Plain headings retained by the accepted detail formatter. Formatting only:
 # boundaries prevent later compensation/screening text inheriting a qualification label.
 _SOURCE_HEADINGS = {'scope of work', 'compensation structure',
                     'start timeline & availability', 'application screening questions',
-                    'other published fields (read alongside the description)'}
+                    'other published fields (read alongside the description)',
+                    'other published fields (not additional applicant requirements)'}
 
 
 def load_card_sources(connection, matches):
@@ -33,7 +34,7 @@ def load_card_sources(connection, matches):
         return {}
     cursor = connection.execute(f"""
         SELECT j.id AS job_id, j.canonical_opportunity_id, j.external_id,
-               j.url, j.commitment, c.slug AS source_slug,
+               j.url, j.commitment, j.location, c.slug AS source_slug,
                sc.external_id AS content_external_id, sc.source_url,
                sc.body, sc.body_format, sc.metadata_json, sc.last_captured_at,
                sc.material_content_sha256
@@ -57,7 +58,7 @@ def _blocks(text):
             if lines:
                 blocks.append({'heading': heading, 'text': '\n'.join(lines).strip()})
             heading, lines = label, []
-        elif stripped:
+        elif stripped or lines:
             lines.append(line)
     if lines:
         blocks.append({'heading': heading, 'text': '\n'.join(lines).strip()})
@@ -121,62 +122,123 @@ def prepare_card_evidence(match, source, profile):
                  and any(d.casefold() in f.casefold() for d in domains)), '')
     reason = (f'Your profile lists {fact}. The existing comparison found {", ".join(domains[:2])} overlap.'
               if fact else '')
-    task = next((b for b in blocks if b['heading'].casefold() not in _QUALIFICATION_HEADINGS | _TERMS_HEADINGS), None)
-    conditions = [b for b in blocks if b['heading'].casefold() in _QUALIFICATION_HEADINGS | _TERMS_HEADINGS]
-    # A short source quote, not a normalized schedule or candidate verdict.
-    workload_lines = [line.strip() for b in blocks for line in b['text'].splitlines()
+    from wahojobs.candidate_source_display import plain, pay_facts
+    metadata = json.loads(source.get('metadata_json') or '{}')
+    detail = metadata.get(DETAIL_KEY)
+    detail = detail if isinstance(detail, dict) else {}
+    record = detail.get('record')
+    record = record if isinstance(record, dict) else {}
+    task_headings = {"what you'll do", "what you’ll do", 'scope of work', 'responsibilities',
+                     'key responsibilities'}
+    task = next((b for b in blocks if (b['heading'].casefold().rstrip(':') in task_headings or
+                  re.fullmatch(r'about .+ projects', b['heading'], re.I))), None)
+    if task is None:
+        task = next((b for b in blocks if b['heading'].casefold() == 'role overview'), None)
+    summary = ''
+    if task:
+        lines = [plain(re.sub(r'^\s*(?:[-*+] |\d+[.)] )', '', line))
+                 for line in task['text'].splitlines() if line.strip()]
+        bullets = [plain(re.sub(r'^\s*[-*+] ', '', line))
+                   for line in task['text'].splitlines() if re.match(r'^\s*[-*+] ', line)]
+        chosen = bullets[:1] if bullets else lines[:1]
+        summary = ' '.join(line.rstrip('.') + '.' for line in chosen)
+    # A generic subject overlap adds nothing to a subject-specific title/task.
+    # Retain comparison evidence in the packet, but do not repeat it on every card.
+    conditions = [b for b in blocks if b['heading'].casefold().rstrip(':') in
+                  _QUALIFICATION_HEADINGS | _TERMS_HEADINGS]
+    workload_lines = [plain(line).lstrip('- ').strip() for line in text.splitlines()
                       if re.search(r'\b(?:hours|hrs)\b.{0,20}\b(?:week|weekly)\b', line, re.I)
                       and len(line.strip()) <= 240]
-    workload = next((line for line in workload_lines if re.search(r'\d', line)),
-                    workload_lines[0] if workload_lines else '')
+    workload = next((line for line in workload_lines if re.search(r'\d', line)), '')
+    workload = re.sub(r'^(?:expected )?commitment:\s*', '', workload, flags=re.I)
+    hours = re.search(r'\b\d+(?:\s*[-–]\s*\d+)?\+?\s*(?:hours|hrs)\+?\s*(?:/|per )\s*week\b', workload, re.I)
+    short_workload = hours.group() if hours else workload
+    if short_workload and re.search(r'\btypical', workload, re.I):
+        short_workload = 'Typically ' + short_workload
+    if re.search(r'\b(?:or|if|not|up to|at most|at least|approximately|minimum|maximum)\b|\?', workload, re.I):
+        # A short numeric snippet must not erase alternatives or qualifiers.
+        short_workload = workload
+    if '?' in workload:
+        # Keep the complete screening question (including any OR alternative)
+        # in the disclosure; a question is not a settled contract term.
+        short_workload = 'Weekly commitment to confirm'
+        if not any(workload in plain(b['text']) for b in conditions):
+            conditions.append({'heading': 'Workload question', 'text': workload,
+                               'reference': 'source workload wording'})
+    country = profile.get('location', {}).get('country') or ''
     location = match.get('location_eligibility_status', 'unknown')
-    geography = ({'eligible': 'The existing geographic check supports your location; other conditions remain unassessed.',
-                  'incompatible': 'The existing geographic check found a source/profile conflict.'}.get(location)
-                 or 'Applicant-location eligibility is unresolved; remote does not establish worldwide eligibility.')
+    geography = ({'eligible': '',
+                  'incompatible': 'The applicant-location restriction conflicts with your profile.'}.get(location)
+                 if location in ('eligible', 'incompatible') else
+                 (f"Eligibility from {country} needs confirmation." if country else 'Applicant-location eligibility isn’t specified.'))
+    pay = pay_facts(metadata, text)
+    # Formatting of explicit arrangement labels is separate from eligibility.
+    arrangement = ''
+    for line in text.splitlines():
+        line = plain(line).lstrip('- ').strip()
+        if re.fullmatch(r'Location:\s*Remote', line, re.I):
+            arrangement = 'Remote'; break
+    if not arrangement and str(source.get('location') or '').casefold() == 'remote':
+        arrangement = 'Remote'
+    engagement = next((plain(line).lstrip('- ').split(':', 1)[1].strip()
+                       for line in text.splitlines()
+                       if re.match(r'^(?:- )?(?:Type|Role Type):\s*(?:Hourly Contract|Contractor|Contract|Part-time|Full-time)\s*$', plain(line), re.I)), '')
+    if not engagement and (source.get('commitment') or '').lower() in ('part-time', 'full-time', 'contract'):
+        engagement = source['commitment'].capitalize()
+    if not engagement and re.match(r'(?:part-time|full-time)\b', workload, re.I):
+        engagement = workload.split(',')[0].capitalize()
+    caveats = [geography] if geography else []
+    caveats += pay['notes']
+    commitment = source.get('commitment') or ''
+    if (commitment.casefold() in ('full-time', 'part-time') and
+            re.search(r'\b' + ('part-time' if commitment.casefold() == 'full-time' else 'full-time') + r'\b', text, re.I)):
+        caveats.append(f'The listing says {commitment}; the description gives different workload terms. Confirm the schedule.')
+    fields = []
+    for label, value in [('Pay', pay['label'] or 'Confirm with employer'), ('Work arrangement', arrangement),
+                         ('Workload', short_workload), ('Engagement', engagement)]:
+        if value:
+            fields.append((label, value))
+    duration = next((plain(line).lstrip('- ').split(':', 1)[1].strip()
+                     for line in text.splitlines() if re.match(r'^(?:- )?Duration:', plain(line), re.I)), '')
+    if duration:
+        fields.append(('Duration', duration))
+    # An opaque source location does not establish residence permission.
+    source_location = record.get('location')
+    if isinstance(source_location, str) and source_location and arrangement == 'Remote' and source_location.lower() != 'remote':
+        if geography in caveats:
+            caveats.remove(geography)
+        caveats.append(f'Listing location: {source_location}. ' + geography)
     return {'job_id': source['job_id'], 'url': source['url'], 'external_id': source['external_id'],
             'source_hash': source['material_content_sha256'], 'captured_at': source['last_captured_at'],
-            'reason': reason, 'task': task, 'conditions': conditions, 'blocks': blocks,
-            'kind': kind, 'kind_quote': kind_quote, 'geography': geography,
-            'workload': workload, 'listing_commitment': source.get('commitment') or ''}
+            'reason': reason, 'task': task, 'summary': summary, 'conditions': conditions, 'blocks': blocks,
+            'kind': kind, 'kind_quote': kind_quote, 'geography': geography, 'text': text,
+            'workload': workload, 'listing_commitment': commitment, 'facts': fields,
+            'pay': pay, 'caveats': caveats}
+
+
+def render_conditions(evidence, card_id):
+    from wahojobs.candidate_source_display import markdown
+    if not evidence or not evidence['conditions']:
+        return ''
+    blocks = ''.join('<h4>' + escape(b['heading']) + '</h4>' + markdown(b['text'], heading_level=5)
+                     for b in evidence['conditions'])
+    return (f"<details class='candidate-conditions card-source-disclosure'><summary id='{escape(card_id)}-source-summary'>"
+            "Qualifications &amp; conditions</summary><div class='source-description'>"
+            "<p class='candidate-note'>From the employer. Not assessed against your profile.</p>"
+            + blocks + '</div></details>')
 
 
 def render_card_evidence(evidence, card_id):
-    e = lambda value: escape(str(value or ''), quote=True)
     if evidence is None:
-        return ("<section class='card-evidence'><h4>Why this appeared</h4>"
-                "<p>A specific profile-to-task connection cannot be substantiated from the available source evidence.</p>"
-                "<h4>What to check before applying</h4><p>Source conditions and opportunity type remain unresolved. "
-                "Application acceptance has not been verified.</p></section>")
-    why = evidence['reason'] or 'The available comparison does not establish a specific profile-to-task connection.'
-    fit_limit = ' This supports topical fit only.' if evidence['reason'] else ''
-    task = evidence['task']
-    # Excerpt boundaries are explicit; complete wording stays in the disclosure.
-    excerpt = (' '.join(task['text'].split()) if task else '')
-    if len(excerpt) > 210:
-        excerpt = excerpt[:210].rsplit(' ', 1)[0] + '…'
-    source_blocks = ''.join(
-        f"<section><h5>{e(b['heading'])}</h5><p class='source-reference'>{e(b['reference'])} · Unassessed source wording</p>"
-        f"<blockquote>{e(b['text'])}</blockquote></section>" for b in evidence['blocks'])
-    return (
-        f"<section class='card-evidence' data-source-variant='{e(evidence['job_id'])}'>"
-        f"<p class='opportunity-type'>{e(evidence['kind'])}</p>"
-        "<h4>Why this appeared</h4>"
-        f"<p>{e(why)}{fit_limit}</p>"
-        + (f"<p class='source-task'><strong>Source excerpt:</strong> “{e(excerpt)}”</p>" if excerpt else '')
-        + "<h4>What to check before applying</h4>"
-        f"<p>{e(evidence['geography'])}</p>"
-        + (f"<p class='source-workload'><strong>Source workload wording:</strong> {e(evidence['workload'])}</p>"
-           if evidence['workload'] else '')
-        + "<p>Source conditions below have not been assessed against your profile.</p>"
-        f"<details class='card-source-disclosure'><summary id='{e(card_id)}-source-summary'>Qualifications &amp; source conditions</summary>"
-        "<div class='card-source-body'>"
-        "<p>Original labels, preferences and alternatives are retained. These quotations are not eligibility verdicts.</p>"
-        + (f"<p><strong>Source listing commitment field:</strong> {e(evidence['listing_commitment'])}. "
-           "This field and the description wording have not been reconciled or compared to your availability.</p>"
-           if evidence['listing_commitment'] else '')
-        + source_blocks
-        + f"<p>Source record: {e(evidence['external_id'])}. Captured {e(evidence['captured_at'])}.</p>"
-        f"<p><a href='{e(evidence['url'])}' rel='noopener noreferrer'>Original source for this variant</a></p>"
-        "</div></details><p class='application-uncertainty'>Application acceptance has not been verified. "
-        "A catalog observation does not establish an active vacancy.</p></section>"
-    )
+        return "<p class='candidate-note'>Full requirements aren’t available in the saved listing. Check the source before applying.</p>"
+    kind = evidence['kind']
+    kind_html = (f"<p class='candidate-kind'>{escape(kind)}</p>"
+                 if kind in ('Talent network — future consideration', 'Ongoing recruiting') else '')
+    if kind == 'Talent network — future consideration':
+        kind_html += "<p class='candidate-note'>Join for future projects; this is not a specific job posting.</p>"
+    summary = (f"<p class='candidate-overview'>{escape(evidence['summary'])}</p>" if evidence['summary'] else '')
+    caveats = ''.join('<li>' + escape(c) + '</li>' for c in evidence['caveats'])
+    return (f"<section class='card-evidence' data-source-variant='{evidence['job_id']}'>"
+            + kind_html + summary
+            + (f"<ul class='candidate-caveats'>{caveats}</ul>" if caveats else '')
+            + render_conditions(evidence, card_id) + '</section>')

@@ -1249,23 +1249,19 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 if record is not None:
                     status = local_product.readable_status(record["status"])
 
-            content = public_job_page.render_public_job_page(
-                job,
-                public_origin=self._public_origin,
-                authenticated=authenticated,
-                navigation=_public_navigation(
-                    authenticated=authenticated,
-                    current="job",
-                ),
-                workflow_controls=controls,
-                workflow_status=status,
-                catalog_return_to=catalog_return_to,
-            )
-            from wahojobs.authenticated_source_detail import append_authenticated_source_detail
-            content = append_authenticated_source_detail(content, job, authenticated=authenticated)
             if authenticated:
-                from wahojobs.authenticated_variant_details import append_variant_notice
-                content = append_variant_notice(content, job)
+                from wahojobs.authenticated_source_detail import render_authenticated_job_page
+                content = render_authenticated_job_page(
+                    job, profile=profile_v2,
+                    navigation=_public_navigation(authenticated=True, current="job"),
+                    workflow_controls=controls, workflow_status=status,
+                    catalog_return_to=catalog_return_to,
+                    return_run_id=match_run_id if membership_known else None)
+            else:
+                content = public_job_page.render_public_job_page(
+                    job, public_origin=self._public_origin, authenticated=False,
+                    navigation=_public_navigation(authenticated=False, current="job"),
+                    catalog_return_to=catalog_return_to)
             return _html_response(
                 HTTPStatus.OK,
                 content,
@@ -3309,8 +3305,8 @@ def _render_match_results(
                 "Availability is not recently verified. Confirm it on the application page.",
                 caution,
             )))
-        compensation = _presented_match_compensation(match)
-        description = _presented_match_description(match)
+        compensation = {"note": ""}
+        description = ""
         title = match.get("display_title") or match.get("title") or "Opportunity"
         card_id = "match-" + str(len(cards) + 1)
         record = (
@@ -3334,18 +3330,16 @@ def _render_match_results(
             if record is not None
             else ""
         )
-        expertise = _bounded_presentation_text(match.get("expertise"), 80)
-        meta = [
-            (
-                "Location",
-                _bounded_presentation_text(match.get("location"), 120)
-                or "Location not listed",
-                "location",
-            )
-        ]
-        if expertise:
-            meta.append(("Work area", expertise, "work-area"))
-        meta.append(("Pay", compensation["label"], compensation["state"]))
+        evidence = (context.get("_card_evidence") or {}).get(match.get("job_id"))
+        if evidence is not None:
+            meta = [(label, value, "source-fact") for label, value in evidence['facts']]
+            # Source facts replace the lossy enrichment summary only in the view.
+            description = ""
+            compensation = {"note": ""}
+        else:
+            # Missing exact-source evidence is unknown in both card and detail.
+            meta = []
+            description = ""
         meta_markup = "".join(
             "<li class='match-meta-item match-meta-"
             + _safe(state)
@@ -3357,10 +3351,9 @@ def _render_match_results(
             for label, value, state in meta
         )
         from wahojobs.authenticated_card_evidence import render_card_evidence
-        evidence_markup = render_card_evidence(
-            (context.get("_card_evidence") or {}).get(match.get("job_id")), card_id)
+        evidence_markup = render_card_evidence(evidence, card_id)
         cards.append(
-            f"<article class='match-card' data-action-card aria-labelledby='{card_id}-title'>"
+            f"<article class='match-card' id='opportunity-{match['job_id']}' data-action-card aria-labelledby='{card_id}-title'>"
             "<div class='match-card-main'>"
             f"<p class='match-rank-label'>Match {len(cards) + 1}</p>"
             f"<h3 id='{card_id}-title'>{_safe(title)}</h3>"
@@ -3410,7 +3403,7 @@ def _render_match_results(
             )
         low_result_note = (
             "<aside class='low-result-note'><strong>A focused list is useful.</strong> "
-            "These are the opportunities that fit your profile right now. "
+            "Review the requirements before deciding which to pursue. "
             "New matches can appear as available jobs change.</aside>"
             if count <= 3 and not has_unverified_availability
             else ""
@@ -3443,7 +3436,6 @@ def _render_match_results(
         )
     profile_context = (
         "<aside class='matches-profile-context'>"
-        "<div><strong>Based on your saved profile</strong><span>Your details and preferences shape this list.</span></div>"
         f"<a href='{_safe(profile_target)}'>Review profile &amp; preferences</a>"
         "</aside>"
         if cards
@@ -3452,7 +3444,6 @@ def _render_match_results(
     body = f"""
     {_navigation(match_run_id=match_run_id)}
     <header class='matches-hero'>
-      <p class='eyebrow'>Chosen for your profile</p>
       <h1>Your matches</h1>
       <p class='matches-summary'>{_safe(summary)}</p>
     </header>
@@ -3477,8 +3468,8 @@ _INTERNAL_PRESENTATION_MARKERS = (
 
 def _visible_match_summary(count):
     if count == 1:
-        return "We found 1 opportunity that looks like a good fit right now."
-    return f"We found {count} opportunities that look like good fits right now."
+        return "1 opportunity to review."
+    return f"{count} opportunities to review."
 
 
 def _bounded_presentation_text(value, limit):
@@ -3706,6 +3697,7 @@ def _public_navigation(*, authenticated, current, auth_routes_enabled=True):
 
 
 def _page(title, body, *, workflow=False):
+    from wahojobs.candidate_source_display import DISPLAY_CSS
     return f"""<!doctype html>
 <html lang='en'>
 <head>
@@ -3820,7 +3812,7 @@ def _page(title, body, *, workflow=False):
       .relaxation-actions .button {{ align-items: center; display: flex; justify-content: center; min-height: 48px; }}
       .review-grid, .language-review-row {{ grid-template-columns: 1fr; }}
     }}
-    @media (max-width: 410px) {{ .match-meta {{ grid-template-columns: 1fr; }} .match-meta-item:last-child:nth-child(odd) {{ grid-column: auto; }} }}
+    @media (max-width: 410px) {{ .match-meta {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} .match-meta-item {{ min-width: 0; }} }}
     @media (prefers-reduced-motion: reduce) {{ html {{ scroll-behavior: auto; }} }}
 
 .card-evidence {{ min-width: 0; overflow-wrap: anywhere; }}
@@ -3835,6 +3827,7 @@ def _page(title, body, *, workflow=False):
 .card-source-body h5 {{ margin: 14px 0 4px; font-size: .93rem; }}
 .card-source-body blockquote {{ white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; padding-left: 12px; border-left: 2px solid #cadbd0; }}
 .source-reference, .application-uncertainty {{ font-size: .8rem; color: #5c6d65; }}
+{DISPLAY_CSS}
 </style>
 </head>
 <body><main>{body}</main></body>

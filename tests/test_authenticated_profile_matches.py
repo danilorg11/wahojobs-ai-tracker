@@ -744,10 +744,10 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         )
         self.assertIn("<h1>Your matches</h1>", body)
         self.assertIn(
-            "We found 1 opportunity that looks like a good fit right now.", body
+            "1 opportunity to review.", body
         )
-        self.assertIn("Why this appeared", body)
-        self.assertIn("Pay not disclosed", body)
+        self.assertNotIn("Why this appeared", body)
+        self.assertNotIn("Pay not disclosed", body)
         self.assertIn("View job details", body)
         for forbidden in ("My Jobs", "/action", "tracker", "demo persona"):
             self.assertNotIn(forbidden, body)
@@ -891,7 +891,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertNotIn("typed_preference_enforcement", body)
         self.assertNotIn("preferences.workloads", body)
         self.assertIn(
-            "We found 1 opportunity that looks like a good fit right now.",
+            "1 opportunity to review.",
             body,
         )
 
@@ -1796,17 +1796,17 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             [match["display_title"] for match in matches],
         )
         self.assertIn(
-            "We found 3 opportunities that look like good fits right now.", body
+            "3 opportunities to review.", body
         )
         # A supplied conclusion alone is no longer source-grounded evidence.
         for match in matches:
             self.assertNotIn(match["affirmative_fit_why"][0], body)
-        self.assertEqual(body.count("Why this appeared"), 3)
-        self.assertEqual(body.count("cannot be substantiated"), 3)
-        self.assertIn("USD 25–USD 40 per hour", body)
-        self.assertIn("USD 500 per project", body)
-        self.assertIn("Pay not disclosed", body)
-        self.assertIn("pay format can&#x27;t be compared directly", body)
+        self.assertEqual(body.count("Why this appeared"), 0)
+        self.assertEqual(body.count("Full requirements"), 3)
+        self.assertNotIn("USD 25–USD 40 per hour", body)
+        self.assertNotIn("USD 500 per project", body)
+        self.assertNotIn("Pay not disclosed", body)
+        self.assertNotIn("pay format can&#x27;t be compared directly", body)
         for forbidden in (
             "hard-gate survivors",
             "threshold",

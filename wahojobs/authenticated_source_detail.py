@@ -1,9 +1,148 @@
 """Display already-prepared source wording only on signed-in detail pages."""
 from html import escape
 import json
+from urllib.parse import urlencode
 
 from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
 from wahojobs.opportunity_enrichment import source_body_paragraphs
+
+
+def prepare_detail_display(job, profile):
+    """Use the same exact-source display packet as cards, with no new reads."""
+    from wahojobs.authenticated_card_evidence import prepare_card_evidence
+    source = {
+        'job_id': job['job_id'], 'canonical_opportunity_id': job['canonical_opportunity_id'],
+        'external_id': job['external_id'], 'url': job['official_url'],
+        'source_slug': job['company_slug'], 'commitment': job.get('source_commitment'),
+        'location': job.get('source_location'), 'content_external_id': job.get('rich_external_id'),
+        'source_url': job.get('rich_source_url'), 'body': job.get('rich_body'),
+        'body_format': job.get('rich_body_format'), 'metadata_json': job.get('rich_metadata_json'),
+        'last_captured_at': job.get('last_captured_at'), 'material_content_sha256': job.get('material_content_sha256'),
+    }
+    if job.get('rich_provider') != job['company_slug']:
+        return None
+    local = job.get('_authenticated_local_checks') or {}
+    match = dict(local.get('match') or job.get('_authenticated_recommendation') or {})
+    match.update({k: source[k] for k in ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')})
+    return prepare_card_evidence(match, source, profile)
+
+
+def render_authenticated_job_page(job, *, profile, navigation, workflow_controls='',
+                                  workflow_status='', catalog_return_to=None, return_run_id=None):
+    """Normal signed-in job page. Availability and recommendation proof are inputs.
+
+    Local eligibility is not list membership. Neither is inferred by this view;
+    the resolver's diagnostic fields remain intact on ``job``.
+    """
+    from wahojobs import public_job_page as public
+    from wahojobs.candidate_source_display import DISPLAY_CSS, markdown
+    from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS
+    packet = prepare_detail_display(job, profile)
+    current = job['public_state'] == public.PUBLIC_JOB_STATE_LIVE
+    recommended = job.get('_authenticated_recommendation') is not None and current
+    title = job.get('source_title') or job.get('canonical_title') or 'Opportunity'
+    company = job.get('company_name') or ''
+    url = public.first_human_facing_url(job.get('official_url'))
+    facts = public.render_fact_grid(packet['facts']) if packet else ''
+    kind = packet['kind'] if packet else ''
+    if kind == 'Opportunity type not established':
+        kind = ''
+    if kind == 'Advertised role/project':
+        kind = 'Advertised opportunity'
+    kind_html = f"<p class='candidate-kind'>{escape(kind)}</p>" if kind else ''
+    if kind == 'Talent network — future consideration':
+        kind_html += "<p class='candidate-note'>Join for future projects; this is not a specific job posting.</p>"
+    status = ''
+    if not current:
+        status = ("<aside class='candidate-status'><strong>Opportunity unavailable</strong>"
+                  "<p>This saved listing is no longer current. Its description is shown for reference.</p></aside>")
+    local = job.get('_authenticated_local_checks') or {}
+    location = (local.get('match') or job.get('_authenticated_recommendation') or {}).get('location_eligibility_status')
+    caveats = list(packet['caveats']) if packet else []
+    if not packet:
+        if location == 'incompatible':
+            caveats.append('The applicant-location restriction conflicts with your profile.')
+        elif location != 'eligible':
+            country = profile.get('location', {}).get('country')
+            caveats.append(f'Eligibility from {country} needs confirmation.' if country else 'Applicant-location eligibility isn’t specified.')
+    caveat_html = ''.join('<li>' + escape(c) + '</li>' for c in caveats)
+    blocks = _blocks(packet['text']) if packet else []
+    qualification_block = next((i for i, block in enumerate(blocks)
+                                if block['heading'].casefold().rstrip(':') in _QUALIFICATION_HEADINGS), None)
+    qualification_link = ("<p class='candidate-note'><a href='#employer-qualifications'>Review qualifications</a>"
+                          " — these still need checking against your experience.</p>"
+                          if qualification_block is not None else '')
+    checks = ("<section class='candidate-checks'><h2>Before you apply</h2>"
+              + (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else '')
+              + qualification_link + '</section>'
+              if qualification_link or caveats else '')
+    overview = (f"<p class='candidate-overview'>{escape(packet['summary'])}</p>"
+                if packet and packet['summary'] else '')
+    description = ''
+    if packet:
+        # Plain headings from accepted HTML captures receive the same formatting
+        # as Markdown headings. No sections or requirements are manufactured.
+        sections = []
+        for index, block in enumerate(blocks):
+            heading, wording = block['heading'], block['text']
+            if heading.casefold() == 'other published fields (read alongside the description)':
+                # The accepted capture appends these fields for completeness.
+                # Present their meaning without the diagnostic labels/JSON repr.
+                heading = 'Additional information'
+                wording = '\n\n'.join(line for line in wording.splitlines()
+                                       if not line.startswith('Published hourly-rate fields:'))
+                wording = wording.replace("Source page's structured applicant-location list:", 'Locations listed by the employer:')
+            elif heading.casefold() == 'other published fields (not additional applicant requirements)':
+                heading = 'Additional information'
+                # These are formatter-added field labels, not qualification prose.
+                # Hide duplicate raw bounds only when the shared pay view has a rate.
+                wording = '\n\n'.join(line for line in wording.splitlines()
+                                       if not (packet['pay']['wording'] and
+                                               line.startswith(('Hourly range minimum:', 'Hourly range maximum:'))))
+                wording = wording.replace('Engagement type:', 'Engagement:')
+            anchor = " id='employer-qualifications'" if index == qualification_block else ''
+            sections.append((f"<h3{anchor}>{escape(heading)}</h3>" if heading != 'Source wording' else '') + markdown(wording))
+        description = ''.join(sections)
+        description = "<section class='content-section source-description'><h2>Employer description</h2>" + description + '</section>'
+    else:
+        description = "<p>Full requirements aren’t available in the saved listing. Check the original source before applying.</p>"
+    pay_wording = ''
+    if packet and (len(packet['pay']['wording']) > 1 or packet['pay']['notes']):
+        pay_wording = ("<details class='candidate-conditions'><summary>Pay wording from the source</summary><div class='source-description'><ul>"
+                       + ''.join('<li>' + escape(p) + '</li>' for p in packet['pay']['wording'])
+                       + '</ul></div></details>')
+    action = ''
+    if url and current and job['job_is_active'] and job['canonical_is_active']:
+        action_label = 'Apply on company site' if recommended else 'View source listing'
+        action = (f"<a class='button button-primary' href='{escape(url, quote=True)}' target='_blank' "
+                  f"rel='noopener noreferrer nofollow'>{action_label}</a>")
+    workflow = ''
+    if workflow_controls:
+        workflow = ("<aside class='workflow-card' data-action-card><h2>My Jobs</h2>"
+                    f"<p class='pill js-card-status'>{escape(workflow_status)}</p>"
+                    f"<div class='js-card-controls workflow-controls'>{workflow_controls}</div></aside>")
+    source_link = (f"<a href='{escape(url, quote=True)}' target='_blank' rel='noopener noreferrer nofollow'>Original listing at {escape(company)}</a>"
+                   if url else escape(company))
+    back = public.safe_catalog_return_target(catalog_return_to)
+    if not back:
+        # An anchor restores the candidate's place, not recommendation membership.
+        # Only the route may supply a proven-valid, owner-bound run reference.
+        back = '/find-matches'
+        if return_run_id:
+            back += '?' + urlencode({'run': return_run_id})
+        back += '#opportunity-' + str(job['job_id'])
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'><meta name='robots' content='noindex,follow'>
+<title>{escape(title)} at {escape(company)} | Wahojobs</title>
+<style>{public.PUBLIC_JOB_CSS}\n{DISPLAY_CSS}</style></head><body class='candidate-detail'>
+<header class='site-header'><a class='brand' href='/jobs'>Wahojobs</a>{navigation}</header>
+<main><p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← Back to opportunities</a></p>
+<article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
+<p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
+{checks}<div class='hero-actions'>{action}</div></div>{workflow}</header>
+<div id='action-feedback' aria-live='polite'></div><div class='job-description'>{pay_wording}{description}</div>
+<footer class='verification-footer'>{source_link}<p>Based on saved source information. Confirm current terms and application availability with the employer.</p></footer>
+</article></main></body></html>"""
 
 
 def append_authenticated_source_detail(content, job, *, authenticated):

@@ -82,7 +82,7 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
         reply = self.f.get(path)
         self.assertEqual(reply.status, 200)
         self.assertIn(b'Opportunity unavailable', reply.body)
-        self.assertIn(b'Catalog availability is not current', reply.body)
+        self.assertIn(b'This saved listing is no longer current', reply.body)
         self.assertNotIn(b'This is the source variant shown in your current matches.', reply.body)
         self.assertNotIn(b'Apply on company site</a>', reply.body)
         return reply
@@ -102,8 +102,8 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
             self.assertNotIn(b'Opportunity unavailable', response.body)
             self.assertIn(self.returned['url'], unescape(response.body.decode()))
-            self.assertIn(b'Catalog availability passes', response.body)
-            self.assertIn(self.observed.encode(), response.body)
+            self.assertIn(b'Confirm current terms and application availability', response.body)
+            self.assertNotIn(self.observed.encode(), response.body)  # raw dates stay out of the candidate view
         with self.f.provider() as conn:
             public = public_job_page.load_public_job(conn, self.path().split('?')[0], now=self.f.now)
         self.assertEqual(public['public_state'], 'temporarily_unavailable')

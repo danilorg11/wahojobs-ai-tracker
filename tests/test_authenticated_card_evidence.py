@@ -28,27 +28,27 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
     def test_coding_source_required_preferred_alternatives_and_unassessed_tools(self):
         evidence = self.prepared(11242)
         body = render_card_evidence(evidence, 'match-9')
-        self.assertIn('PhD in Molecular Biology', body)
-        self.assertIn('topical fit only', body)
-        self.assertIn('<h5>Required</h5>', body)
-        self.assertIn('<h5>Preferred</h5>', body)
+        self.assertNotIn('Your profile lists', body)
+        self.assertNotIn('topical fit only', body)
+        self.assertIn('<h4>Required</h4>', body)
+        self.assertIn('<h4>Preferred</h4>', body)
         self.assertIn('Python, R, or another relevant programming language', body)
         self.assertIn('Git/GitHub and running code in Docker', body)
         self.assertIn('depth in at least two', body)
         self.assertIn('20+ hours per week', body)
-        self.assertIn('have not been assessed against your profile', body)
+        self.assertIn('Not assessed against your profile', body)
         self.assertNotIn('you satisfy', body)
         self.assertNotIn('you lack', body)
 
     def test_ideal_qualification_and_conditional_degree_are_not_promoted_to_required(self):
         body = render_card_evidence(self.prepared(11271), 'match-7')
-        self.assertIn('<h5>Ideal Qualifications</h5>', body)
-        self.assertNotIn('<h5>Required</h5>', body)
+        self.assertIn('<h4>Ideal Qualifications</h4>', body)
+        self.assertNotIn('<h4>Required</h4>', body)
         self.assertIn('doctoral candidate', body)
         self.assertIn('exceptional depth in a specific subdomain', body)
         self.assertIn('strong plus', body)
         self.assertIn('10+ hours/week', body)
-        self.assertIn('Applicant-location eligibility is unresolved', body)
+        self.assertIn('Applicant-location eligibility isn’t specified.', body)
 
     def test_future_network_is_source_supported_and_title_independent(self):
         evidence = self.prepared(1039)
@@ -58,9 +58,9 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
         self.assertEqual(prepare_card_evidence(match, source, PROFILE)['kind'], evidence['kind'])
         body = render_card_evidence(evidence, 'match-8')
         self.assertIn('not a specific job posting', body)
-        self.assertIn('future contract opportunities', body)
-        self.assertIn('15-30 hours per week', body)
-        self.assertIn('Application acceptance has not been verified', body)
+        self.assertIn('future projects', body)
+        self.assertIn('15-30 hours per week', str(evidence['facts']))
+        self.assertNotIn('Application acceptance has been verified', body)
 
     def test_variant_identity_mismatch_never_decorates_another_card(self):
         source = deepcopy(SOURCES[11242])
@@ -76,7 +76,7 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
         source['metadata_json'] = '[]'
         self.assertIsNone(prepare_card_evidence(card(source), source, PROFILE))
         body = render_card_evidence(None, 'match-1')
-        self.assertIn('cannot be substantiated', body)
+        self.assertIn('Full requirements', body)
         self.assertNotIn('PhD', body)
         source = deepcopy(SOURCES[11242]); match = card(source); match['matched_core_domains'] = []
         evidence = prepare_card_evidence(match, source, PROFILE)
@@ -103,7 +103,7 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
         self.assertIn('Full-time', body)
         self.assertIn('Part-time, 10 hours/week', body)
         self.assertIn('OR an approved alternative', body)
-        self.assertIn('have not been reconciled or compared to your availability', body)
+        self.assertIn('Confirm the schedule', body)
 
     def test_recovered_micro1_plain_headings_do_not_extend_preferred_label(self):
         from tests.test_provider_detail_recovery import CASES, candidate, response
@@ -124,7 +124,7 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
         self.assertEqual(recovered.source_metadata[DETAIL_KEY]['observed_at'], case['observed_at'])
 
     def test_source_text_is_escaped_and_native_disclosure_is_keyboard_accessible(self):
-        source = deepcopy(SOURCES[11242]); source['body'] += '\n\n<script>alert(1)</script>'
+        source = deepcopy(SOURCES[11242]); source['body'] += '\n\n**Equipment**\n<script>alert(1)</script>'
         body = render_card_evidence(prepare_card_evidence(card(source), source, PROFILE), 'match-1')
         self.assertNotIn('<script>', body)
         self.assertIn('&lt;script&gt;', body)
