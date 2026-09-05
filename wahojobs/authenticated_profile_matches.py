@@ -45,6 +45,10 @@ from wahojobs.matching.metadata_overlay import (
     OpportunityMetadataOverlay,
     apply_overlay_to_rows,
 )
+from wahojobs.matching.recommendation_validity import (
+    database_commit_token,
+    inventory_deadline,
+)
 from wahojobs.matching.typed_criteria import (
     SINGLE_CRITERION_RELAXATION_SCHEMA_VERSION,
     aggregate_single_criterion_relaxations_v1,
@@ -600,6 +604,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_public_origin",
         "_public_seo_policy",
         "_registry",
+        "_reuse_namespace",
         "_service",
     )
 
@@ -679,6 +684,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._now = now
         self._ephemeral_identity_factory = ephemeral_identity_factory
         self._registry = registry
+        self._reuse_namespace = secrets.token_hex(16)
         self._closed = False
 
     def matches_route(self, path):
@@ -1681,13 +1687,21 @@ class AuthenticatedProfileMatchesBrowserIntegration:
 
     def _render_persistent_matches(self, authority, *, run=None):
         try:
-            if run is not None and run.recommendation_context is not None:
+            profile_v2 = authority.trusted_profile_v2()
+            if run is not None:
+                expected_owner = authority.candidate_workflow_authority()[4]
+                if not hmac.compare_digest(run.owner_profile_id, expected_owner):
+                    raise ValueError("candidate_match_run_owner_mismatch")
+            inputs = self._recommendation_input_key(profile_v2, authority)
+            before = self._inventory_commit_token() if inputs is not None else None
+            evaluated_at = _trusted_utc(self._now())
+            reused = self._can_reuse_recommendations(run, inputs, before, evaluated_at)
+            if reused:
                 context = run.recommendation_context
                 inventory_count = context.get("_authenticated_inventory_count")
                 if type(inventory_count) is not int or inventory_count < 0:
                     raise ValueError("candidate_match_run_inventory_unavailable")
             else:
-                profile_v2 = authority.trusted_profile_v2()
                 matcher_profile_id = self._ephemeral_identity_factory()
                 projected = project_v2_to_matcher_v1(
                     profile_v2,
@@ -1695,7 +1709,6 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 )
                 rows, overlay_status = self._load_inventory()
                 inventory_count = len(rows)
-                evaluated_at = _trusted_utc(self._now())
                 authoritative_matches = (
                     [] if self._criteria_shadow_sink is not None else None
                 )
@@ -1715,11 +1728,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     ),
                 )
                 effective_enrichments = {}
-                if _has_authoritative_preference_model(profile_v2):
+                enrichment_read_succeeded = True
+                if (_has_authoritative_preference_model(profile_v2)
+                        or self._criteria_shadow_sink is not None):
                     try:
-                        effective_enrichments = self._load_shadow_enrichments(rows)
+                        enrichment_rows = (
+                            rows if self._criteria_shadow_sink is not None
+                            else _typed_preference_candidate_rows(context, rows)
+                        )
+                        effective_enrichments = self._load_shadow_enrichments(enrichment_rows)
                     except Exception:
                         effective_enrichments = {}
+                        enrichment_read_succeeded = False
                 if authoritative_matches is not None:
                     self._emit_criteria_shadow(
                         profile_v2,
@@ -1734,11 +1754,33 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         rows,
                         effective_enrichments,
                     )
+                after = self._inventory_commit_token() if inputs is not None else None
+                if before is not None and after is not None and before != after:
+                    # Do not publish a computation spanning different commits.
+                    # The next request can retry against the new inventory.
+                    raise ValueError("candidate_match_inventory_changed_during_evaluation")
+                if before is not None and before == after and enrichment_read_succeeded:
+                    context["_authenticated_reuse"] = {
+                        "inputs": inputs,
+                        "inventory": after,
+                        "evaluated_at": evaluated_at,
+                        "valid_until": inventory_deadline(
+                            rows, evaluated_at,
+                            recent_cache_hours=local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
+                        ),
+                    }
             if self._write_connection_provider is None:
                 content = _render_match_results(context, inventory_count=inventory_count)
             else:
                 records = self._load_pipeline_records(authority)
-                if run is None or run.recommendation_context is None:
+                proof = context.get("_authenticated_reuse")
+                if (type(proof) is dict
+                        and proof["valid_until"] > proof["evaluated_at"]
+                        and not proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
+                    # A clock boundary crossed during calculation/render preparation.
+                    # Do not publish or register a result evaluated before that boundary.
+                    raise ValueError("candidate_match_expired_during_evaluation")
+                if not reused:
                     context["_authenticated_inventory_count"] = inventory_count
                     run = self._registry.create(
                         owner_profile_id=authority.candidate_workflow_authority()[4],
@@ -1770,6 +1812,56 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Matches temporarily unavailable",
                 "Matches cannot be loaded safely right now.",
             )
+
+    def _recommendation_input_key(self, profile_v2, authority):
+        if self._write_connection_provider is None or self._criteria_shadow_sink is not None:
+            return None
+        owner = authority.candidate_workflow_authority()
+        # Hash the small trusted profile/configuration, never the inventory.
+        document = {
+            "profile": profile_v2,
+            "overlay": self._metadata_overlay.records_by_key,
+            "overlay_path": str(self._metadata_overlay.path),
+            "preview_limit": local_product.PREVIEW_MATCH_LIMIT,
+            "presentation_limit": MATCH_PRESENTATION_LIMIT,
+            "recent_cache_hours": local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
+        }
+        digest = hashlib.sha256(json.dumps(
+            document, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")).hexdigest()
+        return (self._reuse_namespace, id(self._connection_provider),
+                owner[:3], owner[4], digest)
+
+    def _inventory_commit_token(self):
+        try:
+            with self._connection_provider() as connection:
+                if (not isinstance(connection, sqlite3.Connection)
+                        or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+                        or connection.execute("PRAGMA query_only").fetchone()[0] != 1
+                        or connection.in_transaction):
+                    return None
+                connection.execute("BEGIN")
+                try:
+                    return database_commit_token(connection)
+                finally:
+                    connection.rollback()
+        except (OSError, sqlite3.Error, ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _can_reuse_recommendations(run, inputs, inventory, now):
+        if run is None or inputs is None or inventory is None:
+            return False
+        proof = (run.recommendation_context or {}).get("_authenticated_reuse")
+        try:
+            return (type(proof) is dict
+                    and proof.get("inputs") == inputs
+                    and proof.get("inventory") == inventory
+                    and type(proof.get("evaluated_at")) is datetime
+                    and type(proof.get("valid_until")) is datetime
+                    and proof["evaluated_at"] <= now < proof["valid_until"])
+        except (TypeError, ValueError):
+            return False
 
     def _load_inventory(self):
         connection = None
@@ -1867,6 +1959,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             return True
         self._closed = True
         self._registry = None
+        self._reuse_namespace = None
         self._service = None
         self._connection_provider = None
         self._write_connection_provider = None
@@ -2620,6 +2713,22 @@ def _unique_inventory_rows_by_job_id(rows):
     return result
 
 
+def _typed_preference_candidate_rows(context, inventory_rows):
+    """Use exactly the same reference/variant resolution as typed admission.
+
+    Both primary admission and all single-criterion relaxations consume this
+    entire pre-admission pool, including candidates past the final UI limit.
+    Duplicate job IDs stay unresolved rather than selecting arbitrary evidence.
+    """
+    rows_by_job_id = _unique_inventory_rows_by_job_id(inventory_rows)
+    return [
+        rows_by_job_id[job_id]
+        for match in _ranked_presentation_eligible_pool(context)
+        if _typed_presentation_reference(match) is not None
+        and (job_id := _typed_match_job_id(match)) in rows_by_job_id
+    ]
+
+
 def _typed_match_job_id(match):
     job_id = match.get("job_id")
     if type(job_id) is int and job_id > 0:
@@ -3099,6 +3208,10 @@ def _render_relaxation_preview_card(match, scenario_index, item_index):
     location = _bounded_presentation_text(match.get("location"), 120) or "Location not listed"
     compensation = _presented_match_compensation(match)["label"]
     card_id = f"relaxation-{scenario_index}-opportunity-{item_index}"
+    availability_note = (
+        "<p>Availability is not recently verified. Confirm it on the application page.</p>"
+        if match.get("presentation_data_status") == "recently_cached" else ""
+    )
     return (
         f"<article class='relaxation-preview-card' aria-labelledby='{card_id}-title'>"
         "<div><p class='relaxation-preview-label'>Additional opportunity</p>"
@@ -3106,7 +3219,7 @@ def _render_relaxation_preview_card(match, scenario_index, item_index):
         f"<p>{_safe(match.get('source') or 'Opportunity')}</p>"
         "<ul aria-label='Job details'>"
         f"<li>{_safe(location)}</li><li>{_safe(compensation)}</li>"
-        "</ul></div>"
+        f"</ul>{availability_note}</div>"
         f"<a href='{_safe(url)}'>View job details</a></article>"
     )
 
@@ -3126,6 +3239,11 @@ def _render_match_results(
             continue
         explanations = _candidate_match_explanations(match)
         caution = _candidate_match_caution(match)
+        if match.get("presentation_data_status") == "recently_cached":
+            caution = " ".join(filter(None, (
+                "Availability is not recently verified. Confirm it on the application page.",
+                caution,
+            )))
         compensation = _presented_match_compensation(match)
         description = _presented_match_description(match)
         title = match.get("display_title") or match.get("title") or "Opportunity"
@@ -3225,11 +3343,21 @@ def _render_match_results(
     if cards:
         count = len(cards)
         summary = _visible_match_summary(count)
+        has_unverified_availability = any(
+            match.get("presentation_data_status") == "recently_cached"
+            for match in matches
+        )
+        if has_unverified_availability:
+            summary = (
+                "We found 1 opportunity to review. It needs availability confirmation."
+                if count == 1 else
+                f"We found {count} opportunities to review. Some need availability confirmation."
+            )
         low_result_note = (
             "<aside class='low-result-note'><strong>A focused list is useful.</strong> "
             "These are the opportunities that fit your profile right now. "
             "New matches can appear as available jobs change.</aside>"
-            if count <= 3
+            if count <= 3 and not has_unverified_availability
             else ""
         )
         content = (

@@ -365,20 +365,24 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         with mock.patch.object(
             AuthenticatedProfileMatchesBrowserIntegration,
             "_load_inventory",
-            side_effect=AssertionError("current MatchRun must not regenerate matches"),
-        ):
+            return_value=([], {}),
+        ) as inventory:
             current_matches = self.integration.handle(
                 "GET",
                 f"/find-matches?run={run.match_run_id}",
                 self._headers(self.first),
             )
+        # This hand-built historical run has no current-input validity proof.
+        # Navigation must regenerate instead of trusting its saved context.
+        inventory.assert_called_once()
         current_page = current_matches.body.decode("utf-8")
         self.assertEqual(current_matches.status, 200)
         self.assertEqual(
             dict(current_matches.headers)["Referrer-Policy"],
             "same-origin",
         )
-        self.assertIn(run.match_run_id, current_page)
+        current_run_id = re.search(r"/account/profile\?run=([A-Za-z0-9_-]+)", current_page).group(1)
+        self.assertNotEqual(run.match_run_id, current_run_id)
         self.assertIn("Current matches", page)
 
         profile_target = self.integration.current_matches_target(
@@ -387,7 +391,7 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(profile_target, f"/find-matches?run={run.match_run_id}")
         self.assertIn(
-            f"href='/account/profile?run={run.match_run_id}'>My profile</a>",
+            f"href='/account/profile?run={current_run_id}'>My profile</a>",
             current_page,
         )
 
