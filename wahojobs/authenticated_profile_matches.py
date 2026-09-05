@@ -1825,6 +1825,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
                     raise ValueError("candidate_match_expired_during_detail_selection")
                 return context
+            context = self._with_card_evidence(context, profile_v2)
             if self._write_connection_provider is None:
                 content = _render_match_results(context, inventory_count=inventory_count)
             else:
@@ -1868,6 +1869,30 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Matches temporarily unavailable",
                 "Matches cannot be loaded safely right now.",
             )
+
+    def _with_card_evidence(self, context, profile_v2):
+        # Presentation-only enrichment of the final visible IDs, never the pool.
+        from wahojobs.authenticated_card_evidence import load_card_sources, prepare_card_evidence
+        matches = _primary_presentation_matches(context)
+        sources = {}
+        if matches:
+            try:
+                with self._connection_provider() as connection:
+                    if (connection.in_transaction
+                            or connection.execute("PRAGMA query_only").fetchone()[0] != 1):
+                        raise ValueError("card_evidence_read_unavailable")
+                    connection.execute("BEGIN")
+                    try:
+                        sources = load_card_sources(connection, matches)
+                    finally:
+                        connection.rollback()
+            except (sqlite3.Error, ValueError, TypeError):
+                # Missing evidence changes the explanation, never admission.
+                sources = {}
+        return dict(context, _card_evidence={
+            match["job_id"]: prepare_card_evidence(match, sources.get(match["job_id"]), profile_v2)
+            for match in matches
+        })
 
     def _recommendation_input_key(self, profile_v2, authority):
         if self._write_connection_provider is None or self._criteria_shadow_sink is not None:
@@ -3278,7 +3303,6 @@ def _render_match_results(
         url = variant_detail_url(match, run_id=match_run_id)
         if url is None:
             continue
-        explanations = _candidate_match_explanations(match)
         caution = _candidate_match_caution(match)
         if match.get("presentation_data_status") == "recently_cached":
             caution = " ".join(filter(None, (
@@ -3332,9 +3356,9 @@ def _render_match_results(
             + "</strong></li>"
             for label, value, state in meta
         )
-        explanation_markup = "".join(
-            f"<li>{_safe(explanation)}</li>" for explanation in explanations
-        )
+        from wahojobs.authenticated_card_evidence import render_card_evidence
+        evidence_markup = render_card_evidence(
+            (context.get("_card_evidence") or {}).get(match.get("job_id")), card_id)
         cards.append(
             f"<article class='match-card' data-action-card aria-labelledby='{card_id}-title'>"
             "<div class='match-card-main'>"
@@ -3343,17 +3367,7 @@ def _render_match_results(
             f"<p class='match-company'>{_safe(match.get('source') or 'Opportunity')}</p>"
             f"<ul class='match-meta' aria-label='Job details'>{meta_markup}</ul>"
             + (f"<p class='match-description'>{_safe(description)}</p>" if description else "")
-            + (
-                "<section class='why-match' aria-labelledby='"
-                + card_id
-                + "-why'><h4 id='"
-                + card_id
-                + "-why'>Why it matches you</h4><ul>"
-                + explanation_markup
-                + "</ul></section>"
-                if explanation_markup
-                else ""
-            )
+            + evidence_markup
             + (
                 f"<p class='pay-note'>{_safe(compensation['note'])}</p>"
                 if compensation["note"]
@@ -3808,7 +3822,20 @@ def _page(title, body, *, workflow=False):
     }}
     @media (max-width: 410px) {{ .match-meta {{ grid-template-columns: 1fr; }} .match-meta-item:last-child:nth-child(odd) {{ grid-column: auto; }} }}
     @media (prefers-reduced-motion: reduce) {{ html {{ scroll-behavior: auto; }} }}
-  </style>
+
+.card-evidence {{ min-width: 0; overflow-wrap: anywhere; }}
+.card-evidence h4 {{ margin: 14px 0 5px; font-size: .95rem; }}
+.card-evidence p {{ margin: 7px 0; }}
+.opportunity-type {{ font-size: .82rem; font-weight: 750; color: #355447; }}
+.source-task, .source-workload {{ font-size: .91rem; color: #3e564b; }}
+.card-source-disclosure {{ margin: 12px 0; border: 1px solid #d6e3dc; border-radius: 8px; }}
+.card-source-disclosure summary {{ padding: 10px 12px; cursor: pointer; font-weight: 700; }}
+.card-source-disclosure summary:focus-visible, .card-evidence a:focus-visible {{ outline: 3px solid #146149; outline-offset: 3px; }}
+.card-source-body {{ padding: 0 12px 12px; }}
+.card-source-body h5 {{ margin: 14px 0 4px; font-size: .93rem; }}
+.card-source-body blockquote {{ white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; padding-left: 12px; border-left: 2px solid #cadbd0; }}
+.source-reference, .application-uncertainty {{ font-size: .8rem; color: #5c6d65; }}
+</style>
 </head>
 <body><main>{body}</main></body>
 </html>"""

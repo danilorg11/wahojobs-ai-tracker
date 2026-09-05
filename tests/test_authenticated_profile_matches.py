@@ -712,7 +712,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             dict(response.headers)["X-Robots-Tag"],
             "noindex, nofollow",
         )
-        self.assertEqual(self.provider.calls, 1)
+        self.assertEqual(self.provider.calls, 2)
         self.assertEqual(len(query_calls), 1)
         resolve.assert_called_once()
         project.assert_called_once()
@@ -746,7 +746,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertIn(
             "We found 1 opportunity that looks like a good fit right now.", body
         )
-        self.assertIn("Why it matches you", body)
+        self.assertIn("Why this appeared", body)
         self.assertIn("Pay not disclosed", body)
         self.assertIn("View job details", body)
         for forbidden in ("My Jobs", "/action", "tracker", "demo persona"):
@@ -1798,9 +1798,11 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertIn(
             "We found 3 opportunities that look like good fits right now.", body
         )
+        # A supplied conclusion alone is no longer source-grounded evidence.
         for match in matches:
-            self.assertIn(match["affirmative_fit_why"][0], body)
-        self.assertEqual(body.count("Why it matches you"), 3)
+            self.assertNotIn(match["affirmative_fit_why"][0], body)
+        self.assertEqual(body.count("Why this appeared"), 3)
+        self.assertEqual(body.count("cannot be substantiated"), 3)
         self.assertIn("USD 25–USD 40 per hour", body)
         self.assertIn("USD 500 per project", body)
         self.assertIn("Pay not disclosed", body)
@@ -1903,7 +1905,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual((get_response.status, head_response.status), (200, 200))
         self.assertEqual(before, after)
         self.assertEqual(len(query_calls), 2)
-        self.assertEqual(self.provider.calls, 2)
+        self.assertEqual(self.provider.calls, 4)
         check = sqlite3.connect(self.database_path)
         try:
             self.assertEqual(

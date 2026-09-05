@@ -1,0 +1,47 @@
+[
+  {
+    "job_id": 1039,
+    "canonical_opportunity_id": 2665,
+    "external_id": "list_AAABnJ0CrCN6LLqupi9Bf6jc",
+    "url": "https://work.mercor.com/jobs/list_AAABnJ0CrCN6LLqupi9Bf6jc",
+    "commitment": "part-time",
+    "source_slug": "mercor",
+    "content_external_id": "list_AAABnJ0CrCN6LLqupi9Bf6jc",
+    "source_url": "https://work.mercor.com/jobs/list_AAABnJ0CrCN6LLqupi9Bf6jc",
+    "body": "**About Mercor’s talent network**\n\nJoin our Biologist Expert Network to connect with leading AI labs and companies seeking your expertise. **This is an open application for future contract opportunities that match your background and interests.**\n\nOnce you complete your profile and pass our AI interview, you'll be eligible for relevant projects as they become available. We match experts to opportunities on a rolling basis.\n\n**About Mercor projects**\n\nExperts in our network contribute to:\n\n- Training and evaluating AI models in Biology\n    \n- Creating tasks and deliverables based on real-world scenarios\n    \n- Providing domain-specific feedback to advance frontier AI research\n    \n\nProjects vary in scope and duration, with typical commitments ranging from 15-30 hours per week.\n\n**What we're looking for:**\n\n- Professional experience in molecular & cellular biology techniques, experimental design & lab research, data analysis in life sciences\n    \n- Strong communication skills\n    \n- Ability to work independently in a remote environment\n    \n\n**How it works:**\n\nThis is not a specific job posting. By applying, you're joining our Biologist talent network. \n\n- Apply once: Complete your profile by uploading your resume and confirming your work location.\n    \n- Get verified: We review your credentials and approve qualified experts.\n    \n- Stay connected: When projects need Biology expertise, we match you to opportunities based on your expertise and project needs.\n    \n- Start working: Be invited to interview for opportunities that align with your schedule and interests. You will earn competitive rates while working remotely on your own schedule.",
+    "body_format": "text/plain",
+    "metadata_json": "{\"eligibleLocation\":[],\"eligibleResidenceLocation\":[],\"ineligibleLocation\":[],\"ineligibleResidenceLocation\":[],\"listingDomain\":\"Life, Physical, and Social Science\",\"payRateFrequency\":\"hourly\"}",
+    "last_captured_at": "2026-09-05T00:57:11.035749+00:00",
+    "material_content_sha256": "0e941ccd62a8e0bc3b32d244402d07d30cb18772a1f20849d86c9a650fd0b915"
+  },
+  {
+    "job_id": 11242,
+    "canonical_opportunity_id": 3809,
+    "external_id": "list_AAABoCsEpVgw9J3DAXxPH6BU",
+    "url": "https://work.mercor.com/jobs/list_AAABoCsEpVgw9J3DAXxPH6BU",
+    "commitment": "hourly",
+    "source_slug": "mercor",
+    "content_external_id": "list_AAABoCsEpVgw9J3DAXxPH6BU",
+    "source_url": "https://work.mercor.com/jobs/list_AAABoCsEpVgw9J3DAXxPH6BU",
+    "body": "Mercor is hiring PhD and Master's scientists to author AI evaluation tasks (Sci Code)\n\nMercor is partnering with leading AI labs on a new benchmark for scientific computing. You will author original, executable research problems that today's frontier models cannot solve.\n\n**Domains — depth required in at least two subdomains (with a coding focus)**\n\n- Biology — ecology, biochemistry, genetics\n    \n\n**What you'll do**\n\n- Source your own material: a published paper, a Kaggle dataset, an open-source repository, or a scenario you design\n    \n- Write scientific prompts based on the input\n    \n- Build the grading criteria that define a correct answer\n    \n- Calibrate against frontier models — a task ships only when strong models fail it more often than they succeed\n    \n\n**Required**\n\n- PhD in biology, biological sciences, biochemistry, genetics, ecology, or a closely related field\n    \n- Demonstrated depth in at least two of the following subdomains: ecology, biochemistry, genetics\n    \n- Working proficiency in Python, R, or another relevant programming language for scientific computing\n    \n- Comfortable with Git/GitHub and running code in Docker — authoring runs through a pull-request workflow with automated quality checks\n    \n\n**Preferred**\n\n- Publications in peer-reviewed journals\n    \n- Prior scientific software or research engineering experience\n    \n\n**Engagement**\n\n- Duration: 6 weeks\n    \n- Commitment: part-time, 20+ hours per week\n    \n- Start date: immediate\n    \n\n**Process**\n\n1. Upload your resume and application form\n    \n2. A 25-minute conversational interview covering your background, experience, and motivations\n    \n3. Follow up within a few days with next steps and onboarding\n    \n\nApply today and put your research expertise to work building the next generation of scientific AI.",
+    "body_format": "text/plain",
+    "metadata_json": "{\"eligibleLocation\":[],\"eligibleResidenceLocation\":[],\"ineligibleLocation\":[],\"ineligibleResidenceLocation\":[],\"listingDomain\":\"Life, Physical, and Social Science\",\"payRateFrequency\":\"hourly\"}",
+    "last_captured_at": "2026-09-05T00:57:11.035749+00:00",
+    "material_content_sha256": "85910b42af7c3ade2bd44fb5a2bc8f512dc1827a78de80a7ab924ed4b05603de"
+  },
+  {
+    "job_id": 11271,
+    "canonical_opportunity_id": 3837,
+    "external_id": "list_AAABn_yKH9AkxGRKEzlBBqUb",
+    "url": "https://work.mercor.com/jobs/list_AAABn_yKH9AkxGRKEzlBBqUb",
+    "commitment": "hourly",
+    "source_slug": "mercor",
+    "content_external_id": "list_AAABn_yKH9AkxGRKEzlBBqUb",
+    "source_url": "https://work.mercor.com/jobs/list_AAABn_yKH9AkxGRKEzlBBqUb",
+    "body": "**Role Overview**\n\nWe are seeking expert biologists to author and review high-quality academic assessment content for an AI research initiative. You will write and verify rigorous multiple-choice questions across core biology domains, evaluate solution quality, and help establish gold-standard benchmarks used to advance AI capabilities.\n\nYou will be assigned one of two task types:\n\n- **Question Authoring** — Create original, challenging multiple-choice questions in your area of biology expertise, rate their difficulty, and submit them for review.\n    \n- **Question Verification** — Review pre-written questions for accuracy, clarity, and rigor. Edit where needed, rate difficulty, and document any changes made.\n    \n\n**Biology Domains Covered**\n\nPharmaceutical Manufacturing, Industrial and Synthetic Biology, Medical Research & Drug Discovery, Agricultural, Environmental & Food Biology.\n\n**Key Responsibilities**\n\n- Author original biology questions that test deep conceptual understanding, not surface-level recall\n    \n- Ensure questions are unambiguous, self-contained, and precisely defined — all necessary information must be in the problem statement\n    \n- Rate each question's difficulty: Medium (intro undergraduate), Hard (advanced undergraduate), or Expert (post-graduate and above)\n    \n- Provide 1 correct answer and 9 plausible but subtly incorrect alternatives that challenge expert-level solvers\n    \n- Write step-by-step Chain-of-Thought solutions with clear, concise intermediate steps in markdown format\n    \n- Supply 1–5 academic references per question from reputable sources (peer-reviewed journals, university repositories)\n    \n- For verification tasks: flag issues with clarity, completeness, precision, or solvability and justify any edits made\n    \n\n**Ideal Qualifications**\n\n- PhD or doctoral candidate in Biology, Molecular Biology, Biochemistry, Neuroscience, or a closely related field\n    \n- Master's degree considered for candidates with exceptional depth in a specific subdomain\n    \n- Strong command of graduate-level biological concepts, experimental design, and data interpretation\n    \n- Research publications or laboratory experience in biological sciences is a strong plus\n    \n- Excellent written English and ability to express complex ideas clearly and concisely\n    \n\n**More About the Opportunity**\n\n- Expected commitment: 10+ hours/week\n    \n- Asynchronous, fully remote work",
+    "body_format": "text/plain",
+    "metadata_json": "{\"eligibleLocation\":null,\"eligibleResidenceLocation\":null,\"ineligibleLocation\":null,\"ineligibleResidenceLocation\":null,\"listingDomain\":\"Life, Physical, and Social Science\",\"payRateFrequency\":\"hourly\"}",
+    "last_captured_at": "2026-09-05T00:57:11.035749+00:00",
+    "material_content_sha256": "2d790f3eb296b8c5c12d74c3e1a3db2cdb64727481bab5d1901c3356edc0c23b"
+  }
+]
