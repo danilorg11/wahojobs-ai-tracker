@@ -1,7 +1,8 @@
 import json
 import re
 from collections import Counter
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_catalog as urlopen
 
 from wahojobs.crawler.types import (
     BODY_OBSERVATION_NOT_OBSERVED, BODY_OBSERVATION_PRESENT,

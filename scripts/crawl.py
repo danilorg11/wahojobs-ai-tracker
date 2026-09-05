@@ -1,6 +1,7 @@
 import sys
 import argparse
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -22,10 +23,22 @@ def main(argv=None):
         from wahojobs.crawler.local_inventory import inspect_refresh
         print(json.dumps(inspect_refresh(args.db, args.sources, details=args.details), indent=2))
         return
-    for company_slug in dict.fromkeys(args.sources):
-        options = {} if args.db is None else {"db_path": args.db, "details": args.details}
-        company, summary = run_crawl(company_slug, **options)
-        print_crawl_summary(company, summary)
+    from wahojobs.crawler.local_inventory import refresh_request_budget
+    with (refresh_request_budget() if args.db is not None else nullcontext()) as budget:
+        try:
+            for company_slug in dict.fromkeys(args.sources):
+                options = {} if args.db is None else {"db_path": args.db, "details": args.details}
+                try:
+                    company, summary = run_crawl(company_slug, **options)
+                except OSError as exc:
+                    if budget is None: raise
+                    # The pipeline has already recorded this failed source.
+                    # Continue the explicitly selected batch, never retry it.
+                    print(json.dumps(dict(source=company_slug, outcome='failed', error=type(exc).__name__)))
+                    continue
+                print_crawl_summary(company, summary)
+        finally:
+            if budget is not None: print(json.dumps(dict(request_usage=budget.summary())))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 import hashlib
 import json
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_catalog as urlopen, RequestBudgetExceeded
 
 from wahojobs.crawler.types import (
     CompanyCrawlResult,
@@ -65,7 +66,10 @@ SENSITIVE_ADDITIVE_RECORD_FIELDS = {
 
 
 def fetch_alignerr_snapshot(api_url):
-    first_payload = request_json(add_pagination(api_url, MAX_PAGE_SIZE, 0))
+    try:
+        first_payload = request_json(add_pagination(api_url, MAX_PAGE_SIZE, 0))
+    except RequestBudgetExceeded:
+        return partial_v2_result(api_url, [], 0, 0, ['Batch HTTP ceiling reached before Alignerr retrieval'])
     if isinstance(first_payload, list):
         return parse_legacy_snapshot(first_payload, api_url)
     if not isinstance(first_payload, dict):
@@ -321,7 +325,11 @@ def fetch_paginated_v2_snapshot(api_url, first_payload):
                 warnings,
             )
         requested_offset = next_offset
-        payload = request_json(add_pagination(api_url, page_size, requested_offset))
+        try:
+            payload = request_json(add_pagination(api_url, page_size, requested_offset))
+        except RequestBudgetExceeded:
+            warnings.append('Batch HTTP ceiling reached before Alignerr completeness')
+            return partial_v2_result(api_url, list(jobs_by_id.values()), raw_record_count, rejected_record_count, warnings)
 
 
 def parse_legacy_snapshot(records, api_url):

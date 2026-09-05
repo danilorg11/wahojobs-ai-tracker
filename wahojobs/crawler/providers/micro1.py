@@ -1,7 +1,8 @@
 import json
 from hashlib import sha256
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_catalog as urlopen, RequestBudgetExceeded
 
 from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, ProviderOutcome
 from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
@@ -25,6 +26,8 @@ REQUEST_BODY = {
 PAYLOAD_SHAPE = "micro1-job-portal:v1:paginated-object"
 SOURCE_TYPE = "micro1-marketplace"
 PAGE_LIMIT = 100
+MAX_PAGES = 50
+MAX_RECORDS = 5000
 
 
 def fetch_micro1_jobs(api_url):
@@ -40,8 +43,18 @@ def fetch_micro1_snapshot(api_url):
     page = 1
     rejected_count = 0
 
+    def limited(reason):
+        return build_snapshot_result(api_url, jobs, raw_records, page_payloads,
+                                     rejected_count, outcome=ProviderOutcome.PARTIAL,
+                                     warning=reason)
+
     while total is None or len(raw_records) < total:
-        data = fetch_page(api_url, page, PAGE_LIMIT)
+        if page > MAX_PAGES or len(raw_records) >= MAX_RECORDS:
+            return limited('micro1 page/returned-record ceiling reached before completeness')
+        try:
+            data = fetch_page(api_url, page, min(PAGE_LIMIT, MAX_RECORDS-len(raw_records)))
+        except RequestBudgetExceeded:
+            return limited('Batch HTTP ceiling reached before micro1 completeness')
         page_payloads.append(data)
         page_total = validated_total(data)
         if total is None:
@@ -64,6 +77,10 @@ def fetch_micro1_snapshot(api_url):
         if not isinstance(page_jobs, list):
             raise ValueError("micro1 response data was not a job list.")
         raw_records.extend(page_jobs)
+        # Count every returned record before normalization or deduplication.
+        # An oversized response is observed but not promoted as a complete list.
+        if len(raw_records) > MAX_RECORDS:
+            return limited('micro1 response exceeded the returned-record ceiling')
 
         for job in page_jobs:
             if not should_include_job(job):
@@ -85,6 +102,9 @@ def fetch_micro1_snapshot(api_url):
                 )
             seen_external_ids.add(candidate.external_id)
             jobs.append(candidate)
+
+        if total > MAX_RECORDS:
+            return limited('micro1 declared total exceeds the returned-record ceiling')
 
         if len(raw_records) > total:
             return build_snapshot_result(

@@ -55,12 +55,19 @@ def fetch_detail(provider, candidate):
         "User-Agent": "Mozilla/5.0 (compatible; WahojobsTracker/0.1)",
         "Accept": "text/html",
     })
-    with build_opener(_NoRedirect()).open(request, timeout=25) as response:
-        body = response.read(MAX_DETAIL_BYTES + 1)
-        if len(body) > MAX_DETAIL_BYTES:
-            raise ValueError("Detail response exceeds size limit")
-        return DetailResponse(candidate.url, body,
-                              datetime.now(timezone.utc).isoformat(), response.status)
+    from wahojobs.crawler.local_inventory import reserve_http_request
+    entry = reserve_http_request(request, detail=True)
+    try:
+        with build_opener(_NoRedirect()).open(request, timeout=25) as response:
+            if entry is not None: entry['status'] = response.status
+            body = response.read(MAX_DETAIL_BYTES + 1)
+            if len(body) > MAX_DETAIL_BYTES:
+                raise ValueError("Detail response exceeds size limit")
+            return DetailResponse(candidate.url, body,
+                                  datetime.now(timezone.utc).isoformat(), response.status)
+    except OSError as exc:
+        if entry is not None: entry.update(status=getattr(exc, 'code', None), error=type(exc).__name__)
+        raise
 
 
 class _Scripts(HTMLParser):
@@ -381,7 +388,8 @@ def update_returned_details(connection, provider, company_id, crawl_run_id, cand
     from wahojobs.db.repository import get_job_source_capture_evidence
     from wahojobs.canonical.service import sync_alignerr_canonical_opportunities, sync_micro1_canonical_opportunities, sync_fallback_canonical_opportunities
     from wahojobs.opportunity_enrichment import enrich_selected_opportunities
-    counts = dict(reused=0, accepted=0, held=0, failed=0)
+    from wahojobs.crawler.local_inventory import RequestBudgetExceeded
+    counts = dict(reused=0, accepted=0, held=0, failed=0, pending=0)
     seen = set()
     for candidate in candidates:
         if candidate.external_id in seen:
@@ -417,6 +425,8 @@ def update_returned_details(connection, provider, company_id, crawl_run_id, cand
                     if canonical is not None:
                         enrich_selected_opportunities(connection, {canonical}, llm_client=None)
             counts['accepted' if outcome.accepted else 'held'] += 1
+        except RequestBudgetExceeded:
+            counts['pending'] += 1
         except (OSError, ValueError):
             # The original accepted content and source clocks remain intact.
             # Corrupt accepted provenance / database failures are not swallowed.

@@ -66,8 +66,24 @@ With the standard source configuration, the external scope is:
 
 Recorded query parameters on detail URLs are retained. Each detail request is one
 GET with no redirect, retry, asset fetch, application traversal, or model call.
-Existing catalog pagination and redirect behavior is unchanged; there is no new
-fixed transaction cap. This command selects only these three sources. Existing
+Catalog redirects are rejected before dispatch. This explicit development batch
+permits at most 1,000 HTTP transactions, including at most 500 detail requests
+shared across Alignerr and micro1, with no retries. Attempts are counted before
+dispatch, including failed attempts. The CLI prints the request ledger/counts on
+exit; it never retries a failed source. A transport failure is recorded by the
+pipeline and the remaining explicitly selected sources may still run.
+
+Alignerr retains its 100-page/20,000-record safety bounds and 90-second timeout.
+Mercor makes one catalog request with a 30-second timeout. micro1 is limited to
+50 pages and 5,000 returned records (before deduplication), with its existing
+60-second timeout. An oversized declared total stops collection early as partial;
+an unexpectedly oversized response is reported as observed, not silently truncated
+or promoted as complete. Reaching a catalog ceiling withholds completeness and
+absence-removal authority. Detail requests retain their 25-second timeout and
+2 MB response limit. Detail-budget exhaustion reports `pending`, preserves accepted
+content and does not alter the catalog's completeness decision.
+
+This command selects only these three sources. Existing
 other-provider inventory is retained; the initializer's additional configured
 sources are not automatically refreshed. Other sources require their own explicit
 selection and scope review. No external refresh was performed to validate this
@@ -131,7 +147,9 @@ an old context is presented in a supported composition.
 - Failed, empty, truncated or mismatched detail responses preserve valid accepted
   content. Held/failed/reused/accepted counts appear in the crawl summary. A fatal
   catalog or integrity error stops execution; previously completed source updates
-  are not rolled back as a multi-source transaction. Do not rerun sources blindly.
+  are not rolled back as a multi-source transaction. Failed network attempts are
+  reported without retry; subsequent selected sources may run within the same
+  shared budget. Do not rerun sources blindly.
 - Original qualification wording, alternatives, preferred/required distinctions,
   opportunity type and exact application destination remain source evidence.
   Unknown fields stay unknown. Freshness still uses genuine catalog observations

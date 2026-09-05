@@ -2,6 +2,82 @@
 from contextlib import contextmanager, closing
 from pathlib import Path
 import sqlite3
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
+
+
+MAX_DETAIL_REQUESTS = 500
+MAX_HTTP_TRANSACTIONS = 1000
+_REQUEST_BUDGET = ContextVar('local_refresh_request_budget', default=None)
+
+
+class RequestBudgetExceeded(OSError):
+    pass
+
+
+@dataclass
+class RefreshRequestBudget:
+    transactions: list = field(default_factory=list)
+    detail_requests: int = 0
+
+    def reserve(self, request, *, detail=False):
+        if len(self.transactions) >= MAX_HTTP_TRANSACTIONS:
+            raise RequestBudgetExceeded('Batch HTTP transaction ceiling reached')
+        if detail and self.detail_requests >= MAX_DETAIL_REQUESTS:
+            raise RequestBudgetExceeded('Batch detail request ceiling reached')
+        entry = dict(url=request.full_url, method=request.get_method(),
+                     kind='detail' if detail else 'catalog',
+                     observed_at=datetime.now(timezone.utc).isoformat())
+        self.transactions.append(entry)
+        self.detail_requests += int(detail)
+        return entry
+
+    def summary(self):
+        return dict(http_transactions=len(self.transactions), detail_requests=self.detail_requests,
+                    catalog_requests=len(self.transactions)-self.detail_requests,
+                    retries=0, redirected_requests=0, requests=self.transactions)
+
+
+@contextmanager
+def refresh_request_budget():
+    budget = RefreshRequestBudget()
+    token = _REQUEST_BUDGET.set(budget)
+    try:
+        yield budget
+    finally:
+        _REQUEST_BUDGET.reset(token)
+
+
+def reserve_http_request(request, *, detail=False):
+    budget = _REQUEST_BUDGET.get()
+    return budget.reserve(request, detail=detail) if budget is not None else None
+
+
+def open_catalog(request, *, timeout):
+    # Reuse the detail transport's existing no-redirect handler. A 3xx raises
+    # before a second request; the final URL is not a substitute for this check.
+    from urllib.request import build_opener
+    from wahojobs.crawler.provider_details import _NoRedirect
+    parsed = urlsplit(request.full_url)
+    allowed = {('www.alignerr.com', '/api/jobs'): 'GET',
+               ('aws.api.mercor.com', '/work/listings-explore-page'): 'GET',
+               ('prod-api.micro1.ai', '/api/v1/job/portal'): 'POST'}
+    if (parsed.scheme != 'https' or parsed.port is not None or parsed.username
+            or parsed.password or parsed.fragment
+            or allowed.get((parsed.hostname, parsed.path)) != request.get_method()):
+        raise ValueError('Catalog destination/method is outside the supported scope')
+    entry = reserve_http_request(request)
+    try:
+        response = build_opener(_NoRedirect()).open(request, timeout=timeout)
+    except OSError as exc:
+        if entry is not None:
+            entry.update(status=getattr(exc, 'code', None), error=type(exc).__name__)
+        raise
+    if entry is not None:
+        entry['status'] = response.status
+    return response
 
 
 def local_database_path(value):
@@ -47,6 +123,9 @@ def inspect_refresh(value, sources, *, details=None):
     target = local_database_path(value)
     result = {"database": str(target), "read_only": True, "network_requests": 0,
               "model_calls": False, "details": details, "sources": [],
+              "limits": {"http_transactions": MAX_HTTP_TRANSACTIONS, "detail_requests": MAX_DETAIL_REQUESTS,
+                         "detail_timeout_seconds": 25, "detail_response_bytes": 2000000,
+                         "retries": 0, "catalog_redirects": "rejected before dispatch", "detail_redirects": "rejected before dispatch"},
               "app_configuration": "Use this same path as database_path in the normal durable Google-login configuration. Stop that target's app before refresh; never replace its database file.",
               "detail_policy": "needed: reuse dated, identity-verified accepted details when catalog material has no observed change; fetch missing/changed returned records. all: refetch all returned records. One exact official GET each, no redirects/retries. Future returned URLs/counts are unknown until catalog retrieval; no application-page traversal.",
               "failure_policy": "Failed catalog retrieval does not update jobs. Removal requires the existing complete-snapshot authorization. Detail errors retain accepted content and do not establish availability. Accounts/profiles are not refreshed."}
@@ -69,17 +148,20 @@ def inspect_refresh(value, sources, *, details=None):
                 raise ValueError("Mercor endpoint differs from the supported observation contract")
             item = {"source": slug, "catalog_url": company['careers_url'], **request}
             if slug == "alignerr":
-                from wahojobs.crawler.providers.alignerr import add_pagination, MAX_PAGE_SIZE
+                from wahojobs.crawler.providers.alignerr import add_pagination, MAX_PAGE_SIZE, MAX_PAGES, MAX_RECORDS, REQUEST_TIMEOUT_SECONDS
                 item['first_request_url'] = add_pagination(company['careers_url'], MAX_PAGE_SIZE, 0)
+                item['limits'] = dict(pages=MAX_PAGES, records=MAX_RECORDS, timeout_seconds=REQUEST_TIMEOUT_SECONDS)
             elif slug == "micro1":
                 from urllib.parse import urlencode
-                from wahojobs.crawler.providers.micro1 import PAGE_LIMIT, REQUEST_BODY
+                from wahojobs.crawler.providers.micro1 import PAGE_LIMIT, REQUEST_BODY, MAX_PAGES, MAX_RECORDS
                 separator = '&' if '?' in company['careers_url'] else '?'
                 item['first_request_url'] = company['careers_url'] + separator + urlencode(dict(page=1, limit=PAGE_LIMIT, keyword=''))
                 item['body'] = REQUEST_BODY
+                item['limits'] = dict(pages=MAX_PAGES, records=MAX_RECORDS, timeout_seconds=60)
             else:
                 item['first_request_url'] = company['careers_url']
-            item['catalog_transport'] = "Existing adapter pagination/redirect behavior is unchanged; this is an inspection, not a fixed transaction cap."
+                if slug == 'mercor': item['limits'] = dict(pages=1, timeout_seconds=30)
+            item['catalog_transport'] = "Alignerr/Mercor/micro1: no retries; redirects rejected before dispatch. Batch ceilings are shared across these catalog and detail requests."
             if details and slug in {"alignerr", "micro1"}:
                 urls=[]
                 for row in conn.execute("SELECT external_id,url FROM jobs WHERE company_id=? AND is_active=1 ORDER BY id", (company['id'],)):
