@@ -11,6 +11,13 @@ from urllib.parse import urlsplit
 MAX_DETAIL_REQUESTS = 500
 MAX_HTTP_TRANSACTIONS = 1000
 _REQUEST_BUDGET = ContextVar('local_refresh_request_budget', default=None)
+DETAIL_HOSTS = {'www.alignerr.com': 'alignerr', 'jobs.micro1.ai': 'micro1'}
+
+
+def detail_allocations(sources):
+    selected = sorted(set(sources) & set(DETAIL_HOSTS.values()))
+    return {source: MAX_DETAIL_REQUESTS // len(selected) + int(index < MAX_DETAIL_REQUESTS % len(selected))
+            for index, source in enumerate(selected)}
 
 
 class RequestBudgetExceeded(OSError):
@@ -21,28 +28,53 @@ class RequestBudgetExceeded(OSError):
 class RefreshRequestBudget:
     transactions: list = field(default_factory=list)
     detail_requests: int = 0
+    source_details: dict = field(default_factory=dict)
+
+    def finish_source(self, source):
+        if source not in self.source_details or self.source_details[source]['finished']:
+            return
+        state = self.source_details[source]
+        state['finished'] = True
+        unused = state['allocation'] - state['requests']
+        remaining = sorted(name for name, item in self.source_details.items() if not item['finished'])
+        if remaining:
+            state['released'] = unused
+            for index, name in enumerate(remaining):
+                self.source_details[name]['allocation'] += unused // len(remaining) + int(index < unused % len(remaining))
 
     def reserve(self, request, *, detail=False):
         if len(self.transactions) >= MAX_HTTP_TRANSACTIONS:
             raise RequestBudgetExceeded('Batch HTTP transaction ceiling reached')
         if detail and self.detail_requests >= MAX_DETAIL_REQUESTS:
             raise RequestBudgetExceeded('Batch detail request ceiling reached')
+        source = DETAIL_HOSTS.get(urlsplit(request.full_url).hostname) if detail else None
+        state = self.source_details.get(source)
+        if detail and self.source_details:
+            if state is None or state['finished'] or state['requests'] >= state['allocation']:
+                raise RequestBudgetExceeded('Source detail allocation exhausted or unavailable')
         entry = dict(url=request.full_url, method=request.get_method(),
                      kind='detail' if detail else 'catalog',
                      observed_at=datetime.now(timezone.utc).isoformat())
         self.transactions.append(entry)
         self.detail_requests += int(detail)
+        if state is not None:
+            state['requests'] += 1
         return entry
 
     def summary(self):
         return dict(http_transactions=len(self.transactions), detail_requests=self.detail_requests,
                     catalog_requests=len(self.transactions)-self.detail_requests,
+                    detail_allocations={name: dict(item, unused=item['allocation']-item['requests']-item['released'])
+                                        for name, item in self.source_details.items()},
                     retries=0, redirected_requests=0, requests=self.transactions)
 
 
 @contextmanager
-def refresh_request_budget():
-    budget = RefreshRequestBudget()
+def refresh_request_budget(*, sources=()):
+    allocations = detail_allocations(sources)
+    budget = RefreshRequestBudget(source_details={
+        name: dict(initial_allocation=amount, allocation=amount, requests=0, released=0,
+                   finished=False, recovery=None) for name, amount in allocations.items()})
     token = _REQUEST_BUDGET.set(budget)
     try:
         yield budget
@@ -53,6 +85,12 @@ def refresh_request_budget():
 def reserve_http_request(request, *, detail=False):
     budget = _REQUEST_BUDGET.get()
     return budget.reserve(request, detail=detail) if budget is not None else None
+
+
+def record_detail_recovery(source, counts):
+    budget = _REQUEST_BUDGET.get()
+    if budget is not None and source in budget.source_details:
+        budget.source_details[source]['recovery'] = dict(counts)
 
 
 def open_catalog(request, *, timeout):
@@ -129,6 +167,8 @@ def inspect_refresh(value, sources, *, details=None):
               "app_configuration": "Use this same path as database_path in the normal durable Google-login configuration. Stop that target's app before refresh; never replace its database file.",
               "detail_policy": "needed: reuse dated, identity-verified accepted details when catalog material has no observed change; fetch missing/changed returned records. all: refetch all returned records. One exact official GET each, no redirects/retries. Future returned URLs/counts are unknown until catalog retrieval; no application-page traversal.",
               "failure_policy": "Failed catalog retrieval does not update jobs. Removal requires the existing complete-snapshot authorization. Detail errors retain accepted content and do not establish availability. Accounts/profiles are not refreshed."}
+    result['detail_allocations'] = detail_allocations(sources) if details else {}
+    result['detail_allocation_policy'] = "Equal reserved HTTP allowances by selected detail source; remainder by source name. Unused allowance passes to sources still awaiting their turn. No second pass. Compatible reuse costs no allowance; missing usable details precede rechecks. Global ceilings still apply; pending counts are reported after ingestion, not inferred from stored catalog size."
     with closing(sqlite3.connect(target.as_uri() + "?mode=ro", uri=True)) as conn:
         conn.row_factory = sqlite3.Row
         for slug in dict.fromkeys(sources):

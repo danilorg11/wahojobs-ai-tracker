@@ -126,6 +126,22 @@ an old context is presented in a supported composition.
 
 ## Evidence and failure behavior
 
+- Detail HTTP allowance is reserved equally for selected detail-capable sources:
+  Alignerr and micro1 receive 250 each; a single selected source receives 500.
+  Duplicate source arguments do not reserve extra allowance. Any integer remainder
+  is assigned by source name. Failed attempts consume allowance; compatible reuse
+  does not. Missing usable exact-variant details precede rechecks of accepted
+  content within each source. No regional/canonical content sharing is introduced.
+- The existing sequential refresh releases unused allowance to sources still
+  awaiting their turn, including when a catalog fails. It does not revisit a source
+  already processed, so unused allowance from the last source can remain unused.
+  Both global ceilings still apply, including catalog transactions. An exhausted
+  total budget can prevent later details even with a reserved detail allowance.
+  Inspection shows initial allocations; the final request-usage report shows each
+  source's effective allocation, requests, released/unused allowance and recovery
+  counts. `pending` means skipped for budget; `failed`/`held` remain separate.
+  `recovery: null` means detail processing was not reached, not zero backlog.
+
 - Mercor remains a partial listing source. Only returned records satisfying its
   accepted individual-observation contract advance. Missing/invalid lifecycle
   evidence does not gain authority from HTTP success. Absent records are neither

@@ -388,9 +388,10 @@ def update_returned_details(connection, provider, company_id, crawl_run_id, cand
     from wahojobs.db.repository import get_job_source_capture_evidence
     from wahojobs.canonical.service import sync_alignerr_canonical_opportunities, sync_micro1_canonical_opportunities, sync_fallback_canonical_opportunities
     from wahojobs.opportunity_enrichment import enrich_selected_opportunities
-    from wahojobs.crawler.local_inventory import RequestBudgetExceeded
+    from wahojobs.crawler.local_inventory import RequestBudgetExceeded, record_detail_recovery
     counts = dict(reused=0, accepted=0, held=0, failed=0, pending=0)
     seen = set()
+    pending = []
     for candidate in candidates:
         if candidate.external_id in seen:
             continue
@@ -404,24 +405,29 @@ def update_returned_details(connection, provider, company_id, crawl_run_id, cand
         get_job_source_capture_evidence(connection, row['id'])
         detail = json.loads(row['metadata_json'] or '{}').get(DETAIL_KEY, {})
         baseline = connection.execute("SELECT semantic_material_sha256,source_updated_at FROM job_source_content_captures WHERE job_id=? AND crawl_run_id IS NOT NULL AND id<? ORDER BY id DESC LIMIT 1", (row['id'], row['accepted_capture_id'] or 0)).fetchone()
-        if (mode == "needed" and detail.get('url') == candidate.url and detail.get('external_id') == candidate.external_id
-                and detail.get('provider') == provider and detail.get('version') == 1
+        same_detail = (detail.get('url') == candidate.url and detail.get('external_id') == candidate.external_id
+                       and detail.get('provider') == provider and detail.get('version') == 1)
+        if (mode == "needed" and same_detail
                 and baseline is not None and baseline['semantic_material_sha256'] == current['semantic_material_sha256']
                 and baseline['source_updated_at'] == current['source_updated_at']):
             counts['reused'] += 1
             continue
+        # Retain exact-variant compatibility checks. Missing usable detail takes
+        # precedence over a recheck of accepted detail; catalog order breaks ties.
+        pending.append((bool(same_detail and detail.get('display_text')), candidate, row['id'], current['id']))
+    for _, candidate, job_id, capture_id in sorted(pending, key=lambda item: item[0]):
         try:
             # Short reads have finished. No write transaction across HTTP.
             if connection.in_transaction:
                 raise RuntimeError("Detail retrieval cannot hold a write transaction")
             response = fetch_detail(provider, candidate)
             with connection:
-                outcome = reprocess_saved_detail(connection, row['id'], response, catalog_capture_id=current['id'])
+                outcome = reprocess_saved_detail(connection, job_id, response, catalog_capture_id=capture_id)
                 if outcome.accepted:
                     sync = sync_alignerr_canonical_opportunities if provider == 'alignerr' else sync_micro1_canonical_opportunities
                     sync(connection, company_id)
                     sync_fallback_canonical_opportunities(connection, company_id)
-                    canonical = connection.execute("SELECT canonical_opportunity_id FROM jobs WHERE id=?", (row['id'],)).fetchone()[0]
+                    canonical = connection.execute("SELECT canonical_opportunity_id FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
                     if canonical is not None:
                         enrich_selected_opportunities(connection, {canonical}, llm_client=None)
             counts['accepted' if outcome.accepted else 'held'] += 1
@@ -431,4 +437,5 @@ def update_returned_details(connection, provider, company_id, crawl_run_id, cand
             # The original accepted content and source clocks remain intact.
             # Corrupt accepted provenance / database failures are not swallowed.
             counts['failed'] += 1
+    record_detail_recovery(provider, counts)
     return "Detail recovery (content only): " + ", ".join(f"{key}={value}" for key, value in counts.items())

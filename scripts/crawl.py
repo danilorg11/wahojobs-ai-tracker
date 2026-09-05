@@ -24,7 +24,7 @@ def main(argv=None):
         print(json.dumps(inspect_refresh(args.db, args.sources, details=args.details), indent=2))
         return
     from wahojobs.crawler.local_inventory import refresh_request_budget
-    with (refresh_request_budget() if args.db is not None else nullcontext()) as budget:
+    with (refresh_request_budget(sources=args.sources if args.details else ()) if args.db is not None else nullcontext()) as budget:
         try:
             for company_slug in dict.fromkeys(args.sources):
                 options = {} if args.db is None else {"db_path": args.db, "details": args.details}
@@ -36,6 +36,9 @@ def main(argv=None):
                     # Continue the explicitly selected batch, never retry it.
                     print(json.dumps(dict(source=company_slug, outcome='failed', error=type(exc).__name__)))
                     continue
+                finally:
+                    if budget is not None:
+                        budget.finish_source(company_slug)
                 print_crawl_summary(company, summary)
         finally:
             if budget is not None: print(json.dumps(dict(request_usage=budget.summary())))
