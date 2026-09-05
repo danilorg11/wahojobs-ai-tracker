@@ -81,6 +81,26 @@ def load_scoped_snapshot(connection, canonical_id, requested_id, *, now):
     rows = apply_mercor_applicant_geography(connection, rows)
     detail_evidence = public_job_page.load_public_job_evidence(
         connection, public_job_page.public_job_path(canonical_id))
+    # Admission's scoped rows already contain the authoritative observation
+    # selection (including validated per-record provenance and its fallback).
+    # Reuse those inputs for detail trust; do not substitute source-wide dates
+    # or interpret a capture/HTTP success as a new availability observation.
+    if detail_evidence is not None:
+        availability = {row['job_id']: row for row in rows}
+        if len(availability) != len(rows):
+            raise ValueError('ambiguous_scoped_availability')
+        for detail in detail_evidence['rows']:
+            row = availability.get(detail['job_id'])
+            if row is None:
+                # Inactive/historical records keep the existing unavailable path.
+                continue
+            if (row['canonical_opportunity_id'] != detail['canonical_opportunity_id']
+                    or row['source_slug'] != detail['company_slug']
+                    or row['url'] != detail['listing_url']):
+                raise ValueError('scoped_availability_identity_mismatch')
+            for field in ('source_run_id', 'source_run_started_at',
+                          'latest_successful_source_run_at', 'source_run_qualifies'):
+                detail[field] = row[field]
     effective = ((detail_evidence or {}).get("effective"))
     effective = {canonical_id: effective} if effective is not None else {}
     try:
@@ -178,15 +198,26 @@ def append_variant_notice(content, job):
         location = "Applicant-location eligibility remains unresolved. Remote work does not establish worldwide eligibility."
     if job["public_state"] != public_job_page.PUBLIC_JOB_STATE_LIVE:
         checks = "This source record is not currently available under the existing availability checks."
+    observation = escape(str(job.get('latest_successful_source_run_at') or 'not established'))
+    availability = (
+        "Catalog availability passes the existing verification checks."
+        if job['public_state'] == public_job_page.PUBLIC_JOB_STATE_LIVE else
+        "Catalog availability is not current under the existing verification checks."
+    )
     reasons = "".join("<li>" + escape(reason) + "</li>"
                       for reason in _candidate_match_explanations(match or evidence)
                       if current or local.get("passes"))
     if not current:
         content = content.replace("Apply on company site</a>", "View source listing</a>")
+    # The public template's timestamp may be a content capture, not the
+    # qualifying availability observation. Keep those claims separate here.
+    content = content.replace('<strong>Last verified:</strong>', '<strong>Source record timestamp:</strong>')
     source = escape(str(job.get("external_id") or job["job_id"]))
     section = (
         "<section class='content-section' aria-label='Recommendation source'>"
         f"<p><strong>{escape(status)}</strong></p><p>{escape(checks)}</p><p>{escape(location)}</p>"
+        f"<p>{availability} Qualifying observation: {observation}. "
+        "This does not establish an active vacancy, project or application acceptance.</p>"
         f"<p>Source record: {source}</p>"
         + (f"<ul>{reasons}</ul>" if reasons else "")
         + "<p>Application acceptance has not been verified by this view.</p>"
