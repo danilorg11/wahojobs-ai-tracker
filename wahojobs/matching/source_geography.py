@@ -184,7 +184,7 @@ def apply_mercor_applicant_geography(connection, rows):
     wanted = {r["job_id"] for r in rows if r.get("source_slug") == "mercor"}
     if not wanted:
         return rows
-    cursor = connection.execute("""
+    cursor = connection.execute(f"""
         SELECT sc.job_id, sc.id AS capture_id, sc.metadata_json,
                sc.source_url, sc.observed_at, sc.material_content_sha256
         FROM job_source_content_acceptances a
@@ -193,7 +193,8 @@ def apply_mercor_applicant_geography(connection, rows):
         JOIN jobs j ON j.id = sc.job_id
         JOIN companies c ON c.id = j.company_id
         JOIN crawl_runs cr ON cr.id = sc.crawl_run_id AND cr.company_id = c.id
-        WHERE c.slug = 'mercor' AND sc.provider = 'mercor'
+        WHERE sc.job_id IN ({','.join('?' for _ in wanted)})
+          AND c.slug = 'mercor' AND sc.provider = 'mercor'
           AND sc.source_type = 'mercor-marketplace'
           AND sc.record_promotion_contract_id = 'mercor_public_active_record_v1'
           AND sc.promotion_policy_version = 'mercor_record_promotion_v1'
@@ -201,7 +202,7 @@ def apply_mercor_applicant_geography(connection, rows):
           AND sc.provider_outcome IN ('success', 'partial')
           AND sc.used_sample_data = 0 AND cr.used_sample_data = 0
           AND cr.status IN ('success', 'partial')
-    """)
+    """, sorted(wanted))
     columns = [column[0] for column in cursor.description]
     evidence = {}
     for raw in cursor:

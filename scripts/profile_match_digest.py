@@ -749,13 +749,19 @@ LEFT JOIN job_source_content_captures record_observation
 """
 
 
-def get_active_rows(conn, policy=None, policy_not=None, inventory_models=None):
+def get_active_rows(conn, policy=None, policy_not=None, inventory_models=None, *, canonical_opportunity_id=None):
     where = [
         "j.is_active = 1",
         "j.title NOT LIKE '[SIMULATION]%'",
         "c.source_tier != ?",
     ]
     params = [SOURCE_TIER_EXPERIMENTAL]
+
+    if canonical_opportunity_id is not None:
+        if type(canonical_opportunity_id) is not int or canonical_opportunity_id <= 0:
+            raise ValueError("invalid_canonical_opportunity_id")
+        where.append("j.canonical_opportunity_id = ?")
+        params.append(canonical_opportunity_id)
 
     if policy:
         where.append("c.market_count_policy = ?")

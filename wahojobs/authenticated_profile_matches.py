@@ -1111,27 +1111,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         authority = self._optional_public_authority(header_items)
         options = dict(catalog_return_to=catalog_return_to, selected_job_id=selected_job_id,
                        match_run_id=match_run_id, authority=authority)
-        if authority is None or authority.state != "profile":
-            return self._render_public_job_variant(path, header_items, **options)
-        # Keep selection and source rendering on the same inventory state even
-        # when a runtime cannot establish the optional cross-request reuse token.
-        # The supported durable runtime uses rollback-journal SQLite. This read
-        # lock prevents concurrent inventory/profile commits, without writing or
-        # changing its authorization/connection guards.
-        try:
-            with self._connection_provider() as guard:
-                if (guard.in_transaction or guard.execute("PRAGMA query_only").fetchone()[0] != 1
-                        or guard.execute("PRAGMA journal_mode").fetchone()[0] not in {"delete", "truncate", "persist"}):
-                    raise ValueError("detail_snapshot_unavailable")
-                guard.execute("BEGIN")
-                try:
-                    guard.execute("SELECT rootpage FROM sqlite_schema LIMIT 1").fetchone()
-                    return self._render_public_job_variant(path, header_items, **options)
-                finally:
-                    guard.rollback()
-        except (sqlite3.Error, ValueError):
-            return _failure_response(HTTPStatus.SERVICE_UNAVAILABLE, "Opportunity unavailable",
-                                     "Reload to view the current source evidence.")
+        return self._render_public_job_variant(path, header_items, **options)
 
     def _render_public_job_variant(self, path, header_items, *, catalog_return_to=None,
                                   selected_job_id=None, match_run_id=None, authority=None):
@@ -1144,20 +1124,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 return _failure_response(HTTPStatus.UNAUTHORIZED, "Sign in required",
                                          "Sign in to view this recommendation.")
             selected_match = None
-            current_context = None
-            if authenticated and canonical_opportunity_id is not None:
+            snapshot = None
+            local_checks = None
+            membership_known = False
+            evaluated_at = _trusted_utc(self._now())
+            run = None
+            if authenticated:
                 run = self._authorized_run(match_run_id, authority) if match_run_id else None
                 if match_run_id and run is None:
                     return _failure_response(HTTPStatus.NOT_FOUND, "Saved matches unavailable",
                                              "Return to your current matches.")
-                current_context = self._render_persistent_matches(authority, run=run, return_context=True)
-                if type(current_context) is not dict:
-                    return current_context
-                from wahojobs.authenticated_variant_details import find_presented_variant
-                selected_match = find_presented_variant(current_context, canonical_opportunity_id,
-                                                        selected_job_id)
-                if selected_job_id is None and selected_match is not None:
-                    selected_job_id = selected_match["job_id"]
+                profile_v2 = authority.trusted_profile_v2()
+                inputs = self._recommendation_input_key(profile_v2, authority)
             with self._connection_provider() as connection:
                 if (
                     not isinstance(connection, sqlite3.Connection)
@@ -1195,12 +1173,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     elif route_decision is not None and route_decision.kind != "serve":
                         job = None
                     elif canonical_opportunity_id is not None:
-                        job = public_job_page.load_public_job(
-                            connection,
-                            public_job_page.public_job_path(canonical_opportunity_id),
-                            now=self._now(),
-                            selected_job_id=selected_job_id,
-                        )
+                        if authenticated:
+                            from wahojobs.authenticated_variant_details import load_scoped_snapshot
+                            snapshot = load_scoped_snapshot(connection, canonical_opportunity_id,
+                                                            selected_job_id, now=evaluated_at)
+                            job = None
+                        else:
+                            job = public_job_page.load_public_job(
+                                connection, public_job_page.public_job_path(canonical_opportunity_id),
+                                now=evaluated_at, selected_job_id=selected_job_id)
                         if job is not None and route_decision is not None:
                             job["path"] = route_decision.primary_path
                     else:
@@ -1208,6 +1189,17 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 finally:
                     if connection.in_transaction:
                         connection.rollback()
+            if snapshot is not None:
+                from wahojobs.authenticated_variant_details import resolve_scoped_variant, find_presented_variant
+                job, local_checks = resolve_scoped_variant(
+                    snapshot, profile_v2, self._metadata_overlay, selected_job_id, now=evaluated_at)
+                membership_known = self._can_reuse_recommendations(
+                    run, inputs, snapshot["token"], _trusted_utc(self._now()))
+                if job is not None and membership_known:
+                    selected_match = find_presented_variant(
+                        run.recommendation_context, canonical_opportunity_id, job["job_id"])
+                if job is not None and route_decision is not None:
+                    job["path"] = route_decision.primary_path
             if route_decision is not None:
                 if public_job_page.parse_public_job_path(path) is not None:
                     return _permanent_redirect_response(route_decision.primary_path)
@@ -1224,7 +1216,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
 
             if authenticated:
                 from wahojobs.authenticated_variant_details import prepare_variant_notice
-                prepare_variant_notice(job, selected_match)
+                prepare_variant_notice(job, selected_match, local=local_checks,
+                                       membership_known=membership_known)
             controls = ""
             status = ""
             if (

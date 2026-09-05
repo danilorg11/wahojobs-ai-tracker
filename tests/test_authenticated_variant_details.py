@@ -87,12 +87,14 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
         r = self.f.get('/job/opportunity-7002')
         self.assertEqual(r.status, 200)
         self.assertIn(b'Source record: synthetic-part-time', r.body)
-        self.assertIn(b'This is the source variant shown in your current matches.', r.body)
+        self.assertIn(b'recommendation-list membership has not been established', r.body)
+        self.assertIn(b'passes the current local eligibility', r.body)
         # An explicitly inspected excluded variant remains a source record,
         # with no claim that it is still a recommendation.
         old = self.f.get('/job/opportunity-7002?variant=7003')
         self.assertEqual(old.status, 200)
-        self.assertIn(b'This source variant is not in your current recommendations.', old.body)
+        self.assertIn(b'recommendation-list membership has not been established', old.body)
+        self.assertIn(b'restriction conflicts with your current profile location', old.body)
         self.assertNotIn(b'Apply on company site</a>', old.body)
         self.assertIn(b'View source listing</a>', old.body)
 
@@ -112,7 +114,8 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
         self.f.update_inventory("UPDATE jobs SET location='Remote - United States' WHERE id=7006")
         stale = self.f.get(link)
         self.assertEqual(stale.status, 200)
-        self.assertIn(b'not in your current recommendations', stale.body)
+        self.assertIn(b'recommendation-list membership has not been established', stale.body)
+        self.assertIn(b'restriction conflicts with your current profile location', stale.body)
         self.assertNotIn(b'Apply on company site</a>', stale.body)
         fresh = self.f.get('/find-matches?run=' + run.match_run_id)
         self.assertNotIn(b"class='match-card'", fresh.body)
@@ -147,14 +150,18 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
 
     def test_relaxation_link_keeps_exact_variant_and_is_not_a_main_match_claim(self):
         self.f.set_preferences('part_time')
-        r, _, visible = self.matches()
+        r, run, visible = self.matches()
         self.assertEqual(visible, [])
         self.assertIn(b'More opportunities if', r.body)
         link = unescape(re.search(r"href='([^']+)'>View job details", r.body.decode()).group(1))
         self.assertIn('variant=7006', link)
         detail = self.f.get(link)
         self.assertEqual(detail.status, 200)
-        self.assertIn(b'preference-relaxation preview', detail.body)
+        self.assertIn(b'recommendation-list membership has not been established', detail.body)
+        self.assertIn(b'does not pass the current local recommendation checks', detail.body)
+        # Membership may only come from the original valid run, not a scoped list.
+        proven = self.f.get(link + '&run=' + run.match_run_id)
+        self.assertIn(b'preference-relaxation preview', proven.body)
 
     def test_public_navigation_is_unchanged_and_unknown_queries_are_rejected(self):
         with self.f.provider() as conn:
@@ -164,16 +171,18 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
         self.assertEqual(exact['job_id'], 7006)
         self.assertIsNone(parse_variant_query('unknown=1'))
 
-    def test_no_reuse_token_still_uses_consistent_read_transaction(self):
+    def test_no_reuse_token_does_not_invent_membership_or_ineligibility(self):
         r, _, _ = self.matches()
-        with patch.object(browser.AuthenticatedProfileMatchesBrowserIntegration,
-                          '_inventory_commit_token', return_value=None):
+        with patch('wahojobs.matching.recommendation_validity.database_commit_token', return_value=None):
             detail = self.f.get(self.card_link(r))
         self.assertEqual(detail.status, 200)
         self.assertIn(b'Source record: synthetic-part-time', detail.body)
+        self.assertIn(b'membership has not been established', detail.body)
+        self.assertIn(b'passes the current local eligibility', detail.body)
+        self.assertNotIn(b'not in your current recommendations', detail.body)
 
     def test_concurrent_inventory_commit_cannot_split_selection_from_details(self):
-        original = public_job_page.load_public_job
+        original = public_job_page.load_public_job_evidence
         attempts = []
         def concurrent(*args, **kwargs):
             with closing(sqlite3.connect(self.f.path, timeout=0)) as writer:
@@ -183,11 +192,137 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
                 writer.rollback()
                 attempts.append(True)
             return original(*args, **kwargs)
-        with patch.object(public_job_page, 'load_public_job', side_effect=concurrent):
+        with patch.object(public_job_page, 'load_public_job_evidence', side_effect=concurrent):
             self.assertEqual(self.f.get('/job/opportunity-7002?variant=7006').status, 200)
-        self.assertEqual(attempts, [True])
+        self.assertTrue(attempts)
         # Lock is released on exit; no persistent lock or background machinery.
         self.f.update_inventory("UPDATE jobs SET is_active=0")
+
+    def test_detail_scores_only_the_requested_group_after_releasing_read_transaction(self):
+        from contextlib import contextmanager
+        calls, connections, queries = [], [], []
+        original_provider = self.f.provider
+        @contextmanager
+        def traced():
+            with original_provider() as conn:
+                conn.set_trace_callback(queries.append)
+                connections.append(conn)
+                try:
+                    yield conn
+                finally:
+                    connections.remove(conn)
+        self.f.integration._connection_provider = traced
+        score = browser.profile_preview.matcher.score_opportunity
+        def scoped(profile, row):
+            self.assertEqual(row['canonical_opportunity_id'], 7002)
+            self.assertFalse(any(c.in_transaction for c in connections))
+            calls.append(row['job_id'])
+            return score(profile, row)
+        for target in ('/job/opportunity-7002?variant=7006', '/job/opportunity-7002'):
+            calls.clear(); queries.clear()
+            with (patch.object(browser.AuthenticatedProfileMatchesBrowserIntegration, '_load_inventory', side_effect=AssertionError('full catalog')),
+                  patch.object(browser.AuthenticatedProfileMatchesBrowserIntegration, '_render_persistent_matches', side_effect=AssertionError('full matching')),
+                  patch.object(browser.profile_preview.matcher, 'score_opportunity', side_effect=scoped)):
+                self.assertEqual(self.f.get(target).status, 200)
+            self.assertCountEqual(calls, [7003, 7006])
+            inventory_queries = [q for q in queries if 'j.id AS job_id' in q and 'NULL AS required_languages' in q]
+            self.assertEqual(len(inventory_queries), 3)
+            self.assertTrue(all('j.canonical_opportunity_id = 7002' in q for q in inventory_queries))
+
+    def test_scoped_representative_equals_existing_group_logic(self):
+        from wahojobs.authenticated_variant_details import load_scoped_snapshot, resolve_scoped_variant
+        for alternative in ('Remote - Portugal', 'Remote', 'Remote - United States'):
+            self.f.update_inventory('UPDATE jobs SET location=? WHERE id=7006', (alternative,))
+            _, run, _ = self.matches()
+            full = [m for values in run.recommendation_context['matches'].values() for m in values
+                    if m.get('canonical_opportunity_id') == 7002]
+            self.assertEqual(len(full), 1)
+            with self.f.provider() as conn:
+                conn.execute('BEGIN')
+                snapshot = load_scoped_snapshot(conn, 7002, None, now=self.f.now)
+                conn.rollback()
+            job, _ = resolve_scoped_variant(snapshot, self.f.profile, self.f.integration._metadata_overlay, None, now=self.f.now)
+            self.assertEqual(job['job_id'], full[0]['job_id'])
+
+    def test_profile_preference_and_configuration_changes_invalidate_membership_only(self):
+        from copy import deepcopy
+        from wahojobs.matching.metadata_overlay import OpportunityMetadataOverlay
+        r, _, _ = self.matches(); link = self.card_link(r)
+        original = deepcopy(self.f.profile)
+        self.f.profile['location']['country'] = 'United States'
+        body = self.f.get(link).body
+        self.assertIn(b'restriction conflicts with your current profile location', body)
+        self.assertIn(b'membership has not been established', body)
+        self.f.profile = original
+        self.f.set_preferences('part_time')
+        body = self.f.get(link).body
+        self.assertIn(b'does not pass the current local recommendation checks', body)
+        self.assertIn(b'membership has not been established', body)
+        self.f.set_preferences('full_time')
+        overlay = self.f.integration._metadata_overlay
+        self.f.integration._metadata_overlay = OpportunityMetadataOverlay(overlay.path.with_suffix('.other'), {})
+        body = self.f.get(link).body
+        self.assertIn(b'passes the current local eligibility', body)
+        self.assertIn(b'membership has not been established', body)
+
+    def test_unrelated_inventory_commit_invalidates_list_proof_without_local_ineligibility(self):
+        r, _, _ = self.matches(); link = self.card_link(r)
+        self.f.update_inventory("UPDATE canonical_opportunities SET canonical_title=canonical_title || ' updated' WHERE id=7005")
+        body = self.f.get(link).body
+        self.assertIn(b'membership has not been established', body)
+        self.assertIn(b'passes the current local eligibility', body)
+
+    def test_writer_can_commit_during_evaluation_and_render_in_delete_and_wal_modes(self):
+        from wahojobs import authenticated_variant_details as variants
+        for journal_mode in ('delete', 'wal'):
+            with closing(sqlite3.connect(self.f.path)) as writer:
+                self.assertEqual(writer.execute('PRAGMA journal_mode=' + journal_mode).fetchone()[0], journal_mode)
+            self.f.update_inventory("UPDATE jobs SET location='Remote - Portugal', url='https://jobs.example.test/synthetic-part-time' WHERE id=7006")
+            original = variants.resolve_scoped_variant
+            committed = []
+            def concurrent(*args, **kwargs):
+                with closing(sqlite3.connect(self.f.path, timeout=0)) as writer, writer:
+                    writer.execute("UPDATE jobs SET location='Remote - United States', url='https://jobs.example.test/changed' WHERE id=7006")
+                committed.append(True)
+                return original(*args, **kwargs)
+            render = public_job_page.render_public_job_page
+            def render_with_write(*args, **kwargs):
+                self.f.update_inventory("UPDATE jobs SET department='Changed after snapshot' WHERE id=7006")
+                return render(*args, **kwargs)
+            with patch.object(variants, 'resolve_scoped_variant', side_effect=concurrent), patch.object(public_job_page, 'render_public_job_page', side_effect=render_with_write):
+                response = self.f.get('/job/opportunity-7002?variant=7006')
+            self.assertEqual(response.status, 200)
+            self.assertEqual(committed, [True])
+            self.assertIn(b"href='https://jobs.example.test/synthetic-part-time'", response.body)
+            self.assertIn(b'Applicant-location compatibility is supported', response.body)
+            current = self.f.get('/job/opportunity-7002?variant=7006')
+            self.assertIn(b"href='https://jobs.example.test/changed'", current.body)
+            self.assertIn(b'restriction conflicts with your current profile location', current.body)
+
+    def test_expired_old_run_and_missing_run_do_not_restore_membership(self):
+        r, _, _ = self.matches(); link = self.card_link(r)
+        self.f.advance(193)
+        result = self.f.get(link)
+        self.assertEqual(result.status, 200)
+        self.assertIn(b'membership has not been established', result.body)
+        self.assertIn(b'not currently available', result.body)
+        self.assertNotIn(b'Apply on company site</a>', result.body)
+        missing = self.f.get('/job/opportunity-7002?variant=7006&run=' + 'z'*24)
+        self.assertEqual(missing.status, 404)
+
+    def test_valid_list_proof_can_exclude_a_locally_eligible_unselected_variant(self):
+        self.f.update_inventory("UPDATE jobs SET location='Remote - Portugal' WHERE id=7003")
+        _, run, visible = self.matches()
+        alternate = ({7003, 7006} - {visible[0]['job_id']}).pop()
+        response = self.f.get('/job/opportunity-7002?variant=' + str(alternate) + '&run=' + run.match_run_id)
+        self.assertEqual(response.status, 200)
+        self.assertIn(b'not in your current recommendations', response.body)
+        self.assertIn(b'passes the current local eligibility', response.body)
+        self.f.update_inventory('UPDATE jobs SET is_active=0')
+        closed = self.f.get('/job/opportunity-7002')
+        self.assertEqual(closed.status, 200)
+        self.assertIn(b'not currently available', closed.body)
+        self.assertIn(b'membership has not been established', closed.body)
 
 
 if __name__ == '__main__':

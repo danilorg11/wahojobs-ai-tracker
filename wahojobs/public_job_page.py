@@ -154,14 +154,15 @@ def parse_public_job_path(path):
 
 
 def load_public_job(connection, path, *, now=None, selected_job_id=None):
-    """Load one durable canonical opportunity and its best source variant."""
+    """Load one canonical opportunity; preserve the default public selection."""
+    evidence = load_public_job_evidence(connection, path)
+    return prepare_public_job(evidence, now=now, selected_job_id=selected_job_id)
 
+
+def load_public_job_evidence(connection, path):
+    """Copy one canonical group's source rows and enrichment in one read phase."""
     canonical_opportunity_id = parse_public_job_path(path)
     if canonical_opportunity_id is None:
-        return None
-    if selected_job_id is not None and (
-        type(selected_job_id) is not int or not 0 < selected_job_id <= MAX_SQLITE_INTEGER
-    ):
         return None
     rows = connection.execute(
         """
@@ -242,6 +243,20 @@ def load_public_job(connection, path, *, now=None, selected_job_id=None):
         """,
         (canonical_opportunity_id,),
     ).fetchall()
+    return {"canonical_opportunity_id": canonical_opportunity_id,
+            "rows": [dict(row) for row in rows],
+            "effective": resolve_effective_enrichment(connection, canonical_opportunity_id) if rows else None}
+
+
+def prepare_public_job(evidence, *, now=None, selected_job_id=None):
+    """Prepare copied evidence without retaining a database connection."""
+    if evidence is None:
+        return None
+    if selected_job_id is not None and (
+        type(selected_job_id) is not int or not 0 < selected_job_id <= MAX_SQLITE_INTEGER
+    ):
+        return None
+    rows = evidence["rows"]
     variant_count = len(rows)
     historical = [
         dict(row)
@@ -262,10 +277,7 @@ def load_public_job(connection, path, *, now=None, selected_job_id=None):
         else PUBLIC_JOB_STATE_TEMPORARILY_UNAVAILABLE
     )
 
-    effective = resolve_effective_enrichment(
-        connection,
-        int(result["canonical_opportunity_id"]),
-    )
+    effective = evidence["effective"]
     document = effective["document"] if effective is not None else blank_document()
     if selected_job_id is not None and variant_count > 1:
         # Canonical summaries are not evidence for an arbitrary regional offer.

@@ -641,19 +641,22 @@ def load_preview_rows(use_overlay: bool = True) -> tuple[list[dict], dict]:
     }
 
 
-def query_preview_rows(connection) -> list[dict]:
+def query_preview_rows(connection, *, canonical_opportunity_id=None) -> list[dict]:
     """Query the preview inventory through one explicitly supplied connection."""
     live_rows = matcher.get_active_rows(
         connection,
+        canonical_opportunity_id=canonical_opportunity_id,
         policy=MARKET_COUNT_POLICY_COUNT_LIVE,
     )
     evergreen_rows = matcher.get_active_rows(
         connection,
+        canonical_opportunity_id=canonical_opportunity_id,
         policy_not=MARKET_COUNT_POLICY_COUNT_LIVE,
         inventory_models=(INVENTORY_MODEL_EVERGREEN_APPLICATION,),
     )
     public_rows = matcher.get_active_rows(
         connection,
+        canonical_opportunity_id=canonical_opportunity_id,
         policy_not=MARKET_COUNT_POLICY_COUNT_LIVE,
         inventory_models=(INVENTORY_MODEL_PUBLIC_INVENTORY, INVENTORY_MODEL_MIXED),
     )
