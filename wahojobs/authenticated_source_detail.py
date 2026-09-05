@@ -37,6 +37,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     from wahojobs import public_job_page as public
     from wahojobs.candidate_source_display import DISPLAY_CSS, markdown
     from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS
+    from wahojobs.candidate_condition_comparisons import render_comparisons
     packet = prepare_detail_display(job, profile)
     current = job['public_state'] == public.PUBLIC_JOB_STATE_LIVE
     recommended = job.get('_authenticated_recommendation') is not None and current
@@ -69,8 +70,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     blocks = _blocks(packet['text']) if packet else []
     qualification_block = next((i for i, block in enumerate(blocks)
                                 if block['heading'].casefold().rstrip(':') in _QUALIFICATION_HEADINGS), None)
-    qualification_link = ("<p class='candidate-note'><a href='#employer-qualifications'>Review qualifications</a>"
-                          " — these still need checking against your experience.</p>"
+    qualification_link = ("<p class='candidate-note'><a href='#employer-qualifications'>Review qualifications and comparisons</a></p>"
                           if qualification_block is not None else '')
     checks = ("<section class='candidate-checks'><h2>Before you apply</h2>"
               + (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else '')
@@ -101,7 +101,8 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
                                                line.startswith(('Hourly range minimum:', 'Hourly range maximum:'))))
                 wording = wording.replace('Engagement type:', 'Engagement:')
             anchor = " id='employer-qualifications'" if index == qualification_block else ''
-            sections.append((f"<h3{anchor}>{escape(heading)}</h3>" if heading != 'Source wording' else '') + markdown(wording))
+            sections.append((f"<h3{anchor}>{escape(heading)}</h3>" if heading != 'Source wording' else '')
+                            + render_comparisons(packet, block_reference=block['reference']) + markdown(wording))
         description = ''.join(sections)
         description = "<section class='content-section source-description'><h2>Employer description</h2>" + description + '</section>'
     else:
@@ -139,6 +140,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
 <main><p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← Back to opportunities</a></p>
 <article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
 <p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
+{render_comparisons(packet, highlights=True) if packet else ''}
 {checks}<div class='hero-actions'>{action}</div></div>{workflow}</header>
 <div id='action-feedback' aria-live='polite'></div><div class='job-description'>{pay_wording}{description}</div>
 <footer class='verification-footer'>{source_link}<p>Based on saved source information. Confirm current terms and application availability with the employer.</p></footer>

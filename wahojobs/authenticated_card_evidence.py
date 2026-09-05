@@ -208,27 +208,37 @@ def prepare_card_evidence(match, source, profile):
         if geography in caveats:
             caveats.remove(geography)
         caveats.append(f'Listing location: {source_location}. ' + geography)
-    return {'job_id': source['job_id'], 'url': source['url'], 'external_id': source['external_id'],
+    packet = {'job_id': source['job_id'], 'url': source['url'], 'external_id': source['external_id'],
             'source_hash': source['material_content_sha256'], 'captured_at': source['last_captured_at'],
             'reason': reason, 'task': task, 'summary': summary, 'conditions': conditions, 'blocks': blocks,
             'kind': kind, 'kind_quote': kind_quote, 'geography': geography, 'text': text,
             'workload': workload, 'listing_commitment': commitment, 'facts': fields,
             'pay': pay, 'caveats': caveats}
+    from wahojobs.candidate_condition_comparisons import compare_conditions
+    packet['comparisons'] = compare_conditions(packet, profile)
+    return packet
 
 
 def render_conditions(evidence, card_id):
     from wahojobs.candidate_source_display import markdown
+    from wahojobs.candidate_condition_comparisons import render_comparisons
     if not evidence or not evidence['conditions']:
         return ''
-    blocks = ''.join('<h4>' + escape(b['heading']) + '</h4>' + markdown(b['text'], heading_level=5)
+    blocks = ''.join('<h4>' + escape(b['heading']) + '</h4>'
+                     + render_comparisons(evidence, block_reference=b['reference'])
+                     + markdown(b['text'], heading_level=5)
                      for b in evidence['conditions'])
+    note = ('Compared points are noted below. Other conditions still need your review.'
+            if any(r['message'] for r in evidence.get('comparisons', [])) else
+            'From the employer. Not assessed against your profile.')
     return (f"<details class='candidate-conditions card-source-disclosure'><summary id='{escape(card_id)}-source-summary'>"
             "Qualifications &amp; conditions</summary><div class='source-description'>"
-            "<p class='candidate-note'>From the employer. Not assessed against your profile.</p>"
+            f"<p class='candidate-note'>{note}</p>"
             + blocks + '</div></details>')
 
 
 def render_card_evidence(evidence, card_id):
+    from wahojobs.candidate_condition_comparisons import render_comparisons
     if evidence is None:
         return "<p class='candidate-note'>Full requirements aren’t available in the saved listing. Check the source before applying.</p>"
     kind = evidence['kind']
@@ -240,5 +250,6 @@ def render_card_evidence(evidence, card_id):
     caveats = ''.join('<li>' + escape(c) + '</li>' for c in evidence['caveats'])
     return (f"<section class='card-evidence' data-source-variant='{evidence['job_id']}'>"
             + kind_html + summary
+            + render_comparisons(evidence, highlights=True)
             + (f"<ul class='candidate-caveats'>{caveats}</ul>" if caveats else '')
             + render_conditions(evidence, card_id) + '</section>')

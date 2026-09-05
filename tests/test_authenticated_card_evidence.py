@@ -36,7 +36,8 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
         self.assertIn('Git/GitHub and running code in Docker', body)
         self.assertIn('depth in at least two', body)
         self.assertIn('20+ hours per week', body)
-        self.assertIn('Not assessed against your profile', body)
+        self.assertIn('Other conditions still need your review', body)
+        self.assertIn('requested proficiency', body)
         self.assertNotIn('you satisfy', body)
         self.assertNotIn('you lack', body)
 
