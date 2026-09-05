@@ -38,6 +38,8 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     from wahojobs.candidate_source_display import DISPLAY_CSS, markdown
     from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS
     from wahojobs.candidate_condition_comparisons import render_comparisons
+    from wahojobs.profile_opportunity_navigation import render_profile_update
+    from wahojobs.authenticated_variant_details import variant_detail_url
     packet = prepare_detail_display(job, profile)
     current = job['public_state'] == public.PUBLIC_JOB_STATE_LIVE
     recommended = job.get('_authenticated_recommendation') is not None and current
@@ -141,7 +143,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
 <article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
 <p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
 {render_comparisons(packet, highlights=True) if packet else ''}
-{checks}<div class='hero-actions'>{action}</div></div>{workflow}</header>
+{checks}{render_profile_update(packet, variant_detail_url(job, run_id=return_run_id))}<div class='hero-actions'>{action}</div></div>{workflow}</header>
 <div id='action-feedback' aria-live='polite'></div><div class='job-description'>{pay_wording}{description}</div>
 <footer class='verification-footer'>{source_link}<p>Based on saved source information. Confirm current terms and application availability with the employer.</p></footer>
 </article></main></body></html>"""

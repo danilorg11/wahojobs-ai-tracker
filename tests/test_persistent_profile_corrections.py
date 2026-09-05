@@ -1331,7 +1331,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         self.assertEqual(after_matches.status, 200)
         self.assertIn("Distinctive Portuguese Data Annotation Reviewer", after_body)
         self.assertIn(
-            "href='/job/opportunity-8102'",
+            "href='/job/opportunity-8102?variant=8103'",
             after_body,
         )
         self.assertNotIn(
@@ -2840,7 +2840,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
                     target,
                     self._browser_headers(self.session),
                 )
-                self.assertEqual(get_response.status, 400)
+                self.assertEqual(get_response.status, 404)
                 probe = _ReadProbe(legacy_body)
                 post_response = browser.handle(
                     "POST",
@@ -2848,7 +2848,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
                     self._browser_headers(self.session, body=legacy_body),
                     probe,
                 )
-                self.assertEqual((post_response.status, probe.read_count), (400, 0))
+                self.assertEqual((post_response.status, probe.read_count), (404, 0))
 
     def test_correction_has_zero_egress_and_later_session_reads_same_updated_profile(self):
         browser = self._build_browser(with_matches=True)

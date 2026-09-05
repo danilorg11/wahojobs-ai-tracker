@@ -4417,6 +4417,7 @@ def render_structured_profile_review(
     back_url=None,
     submit_label="Find my matches",
     include_draft_fingerprint=True,
+    focus_field=None,
 ):
     location = canonical.get("location") or {}
     education = canonical.get("education") or {}
@@ -4501,7 +4502,7 @@ def render_structured_profile_review(
         <div class="review-section-heading"><div><h2>Education</h2><p>Only confirmed education is used for specialist roles.</p></div>{source_notes['education']}</div>
         <div class="review-grid review-grid-three">
           {review_select('education_level', 'Highest level', education.get('education_level'), EDUCATION_LEVELS)}
-          {review_text_field('degrees', 'Degree names', review_csv(education.get('degrees')))}
+          {review_text_field('degrees', 'Degree names', review_csv(education.get('degrees')), extra='autofocus' if focus_field == 'education' else '')}
           {review_text_field('education_fields', 'Fields of study', review_csv(education.get('fields_or_domains')))}
           {review_text_field('institutions', 'Institution', review_csv(education.get('institutions')))}
           {review_text_field('education_status', 'Completed or in progress', education.get('completion_status'))}
@@ -4511,11 +4512,11 @@ def render_structured_profile_review(
       <section class="review-section">
         <div class="review-section-heading"><div><h2>Skills</h2><p>Keep only skills you would be comfortable using at work.</p></div>{source_notes['skills']}</div>
         {review_text_field('skills', 'Skills', review_csv(skills.get('normalized')))}
-        <details class="review-more">
+        <details class="review-more"{' open' if focus_field == 'software_tools' else ''}>
           <summary>Organize skills by type</summary>
           <div class="review-grid">
             {review_text_field('technical_skills', 'Technical skills', review_csv(skills.get('technical')))}
-            {review_text_field('software_tools', 'Software and tools', review_csv(skills.get('software_tools')))}
+            {review_text_field('software_tools', 'Software and tools', review_csv(skills.get('software_tools')), extra='autofocus' if focus_field == 'software_tools' else '')}
             {review_text_field('writing_research_skills', 'Writing and research', review_csv(skills.get('writing_research')))}
             {review_text_field('administrative_support_skills', 'Administrative and support', review_csv(skills.get('administrative_support')))}
             {review_text_field('domain_specific_skills', 'Domain-specific skills', review_csv(skills.get('domain_specific')))}

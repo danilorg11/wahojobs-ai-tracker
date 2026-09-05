@@ -237,8 +237,9 @@ def render_conditions(evidence, card_id):
             + blocks + '</div></details>')
 
 
-def render_card_evidence(evidence, card_id):
+def render_card_evidence(evidence, card_id, *, profile_return_to=None):
     from wahojobs.candidate_condition_comparisons import render_comparisons
+    from wahojobs.profile_opportunity_navigation import render_profile_update
     if evidence is None:
         return "<p class='candidate-note'>Full requirements aren’t available in the saved listing. Check the source before applying.</p>"
     kind = evidence['kind']
@@ -252,4 +253,5 @@ def render_card_evidence(evidence, card_id):
             + kind_html + summary
             + render_comparisons(evidence, highlights=True)
             + (f"<ul class='candidate-caveats'>{caveats}</ul>" if caveats else '')
-            + render_conditions(evidence, card_id) + '</section>')
+            + render_conditions(evidence, card_id)
+            + render_profile_update(evidence, profile_return_to) + '</section>')

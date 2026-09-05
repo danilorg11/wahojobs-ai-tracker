@@ -3351,7 +3351,7 @@ def _render_match_results(
             for label, value, state in meta
         )
         from wahojobs.authenticated_card_evidence import render_card_evidence
-        evidence_markup = render_card_evidence(evidence, card_id)
+        evidence_markup = render_card_evidence(evidence, card_id, profile_return_to=url)
         cards.append(
             f"<article class='match-card' id='opportunity-{match['job_id']}' data-action-card aria-labelledby='{card_id}-title'>"
             "<div class='match-card-main'>"

@@ -8,6 +8,9 @@ import html
 from http import HTTPStatus
 import re
 from urllib.parse import parse_qs, unquote_to_bytes, urlsplit
+from wahojobs.profile_opportunity_navigation import (
+    correction_entry_navigation, navigation_from_fields, navigation_fields, cancel_link,
+)
 
 from wahojobs.persistent_profiles_application import (
     BrowserRequestContext,
@@ -370,12 +373,17 @@ class PersistentProfileBrowserIntegration:
                     body_stream,
                 )
             return self._handle_create(target, authentication_input, body_stream)
-        correction_target = _parse_correction_get_target(target)
+        try:
+            correction_base, navigation = correction_entry_navigation(target)
+        except ValueError:
+            return _correction_failure_response(HTTPStatus.BAD_REQUEST)
+        correction_target = _parse_correction_get_target(correction_base)
         if correction_target is not None:
             return self._handle_correction_get(
                 method,
                 correction_target,
                 authentication_input,
+                navigation=navigation,
             )
         cursor, current_run_id, request_valid = _parse_request_target(target)
         if not request_valid:
@@ -426,7 +434,7 @@ class PersistentProfileBrowserIntegration:
             )
         return _response(status, content)
 
-    def _handle_correction_get(self, method, correction_target, headers):
+    def _handle_correction_get(self, method, correction_target, headers, *, navigation=None):
         if self._correction_service is None:
             return _correction_failure_response(HTTPStatus.NOT_FOUND)
         grant, _header_items, csrf_secret, failure = self._authorize_correction(
@@ -440,7 +448,7 @@ class PersistentProfileBrowserIntegration:
             return _form_page_response(
                 HTTPStatus.OK,
                 _render_correction_start(
-                    _correction_action_target(csrf_secret, "start")
+                    _correction_action_target(csrf_secret, "start"), navigation=navigation,
                 ),
             )
         run, failure = self._authorized_correction_run(
@@ -450,6 +458,7 @@ class PersistentProfileBrowserIntegration:
         )
         if failure is not None:
             return failure
+        navigation = run.recommendation_context.get('correction_navigation')
         if stage == "review":
             return _form_page_response(
                 HTTPStatus.OK,
@@ -476,6 +485,7 @@ class PersistentProfileBrowserIntegration:
             back_url=_correction_view_target("review", run),
             submit_label="Review changes",
             include_draft_fingerprint=False,
+            focus_field=navigation.get('focus') if navigation else None,
         )
         return _form_page_response(
             HTTPStatus.OK,
@@ -486,7 +496,7 @@ class PersistentProfileBrowserIntegration:
                 "<h1>Edit your profile</h1>"
                 "<p>Correct the fields below, then review the complete result before applying it.</p>"
                 "</section>"
-                + review_form,
+                + review_form + cancel_link(navigation),
             ),
         )
 
@@ -618,6 +628,7 @@ class PersistentProfileBrowserIntegration:
         reviewed_profile,
         raw_about_you,
         preparation,
+        navigation=None,
     ):
         if type(preparation) is not PreparedProfileCorrectionReview:
             raise ValueError("invalid_profile_correction_preparation")
@@ -628,12 +639,17 @@ class PersistentProfileBrowserIntegration:
             recommendation_context={
                 "correction_actor_binding": grant.actor_profile_binding(),
                 "correction_preparation": preparation,
+                "correction_navigation": navigation,
             },
             canonical_profile=reviewed_profile,
             profile_confirmed=False,
         )
 
     def _start_correction(self, grant, form):
+        try:
+            form, navigation = navigation_from_fields(form)
+        except ValueError:
+            return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         if form != {"intent": ["update_profile"]}:
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         try:
@@ -652,6 +668,7 @@ class PersistentProfileBrowserIntegration:
                 reviewed_profile=authoritative_draft,
                 raw_about_you=raw_about_you,
                 preparation=preparation,
+                navigation=navigation,
             )
         except (KeyboardInterrupt, SystemExit, GeneratorExit):
             raise
@@ -718,6 +735,7 @@ class PersistentProfileBrowserIntegration:
                 reviewed_profile=reviewed,
                 raw_about_you=validated_run.raw_input,
                 preparation=next_preparation,
+                navigation=context.get('correction_navigation'),
             )
         except (KeyboardInterrupt, SystemExit, GeneratorExit):
             raise
@@ -820,10 +838,15 @@ class PersistentProfileBrowserIntegration:
             _render_correction_apply(
                 offer,
                 action_target=_correction_action_target(csrf_secret, "apply"),
+                navigation=context.get('correction_navigation'),
             ),
         )
 
     def _apply_correction(self, grant, csrf_secret, form):
+        try:
+            form, navigation = navigation_from_fields(form, allow_focus=False)
+        except ValueError:
+            return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         if set(form) != {"artifact", "csrf"}:
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         artifact = _strict_form_value(form, "artifact")
@@ -848,7 +871,7 @@ class PersistentProfileBrowserIntegration:
             return _correction_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
         if type(outcome) is not ProfileCorrectionOutcome:
             return _correction_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
-        return _correction_response_for_outcome(outcome.state)
+        return _correction_response_for_outcome(outcome.state, navigation=navigation)
 
     def issue_confirmed_artifact(
         self,
@@ -1215,12 +1238,12 @@ def _correction_redirect(location, title):
     )
 
 
-def _correction_response_for_outcome(state):
+def _correction_response_for_outcome(state, *, navigation=None):
     if state == "corrected":
         return _response(
             HTTPStatus.SEE_OTHER,
             _generic_page("Profile updated", "Your updated profile is ready."),
-            extra_headers=(("Location", FIND_MATCHES_ROUTE),),
+            extra_headers=(("Location", navigation['return_to'] if navigation else FIND_MATCHES_ROUTE),),
         )
     return _correction_failure_response(
         {
@@ -1233,7 +1256,7 @@ def _correction_response_for_outcome(state):
     )
 
 
-def _render_correction_start(action_target):
+def _render_correction_start(action_target, *, navigation=None):
     return _page(
         "Update profile",
         _authenticated_navigation()
@@ -1242,13 +1265,15 @@ def _render_correction_start(action_target):
         "<p>Begin with your current saved profile, correct only what needs changing, "
         "and review the complete result before it is applied.</p>"
         f"<form method='post' action='{_safe_text(action_target)}'>"
+        + navigation_fields(navigation) +
         "<input type='hidden' name='intent' value='update_profile'>"
         "<button type='submit'>Update profile</button>"
-        "</form></section>",
+        "</form>" + cancel_link(navigation) + "</section>",
     )
 
 
 def _render_correction_review(run, *, edit_target, confirm_target):
+    navigation = run.recommendation_context.get('correction_navigation')
     canonical = run.canonical_profile.to_mapping()
     identity = canonical.get("identity") or {}
     title = _safe_text(identity.get("display_name") or "My profile")
@@ -1285,7 +1310,7 @@ def _render_correction_review(run, *, edit_target, confirm_target):
         "I confirm these profile details, including licenses and certifications, "
         "are accurate.</label>"
         "<p><button type='submit'>Prepare profile update</button></p>"
-        "</form></section>",
+        "</form>" + cancel_link(navigation) + "</section>",
     )
 
 
@@ -1352,7 +1377,7 @@ def _correction_summary_key_visible(key):
     )
 
 
-def _render_correction_apply(offer, *, action_target):
+def _render_correction_apply(offer, *, action_target, navigation=None):
     return _page(
         "Apply profile correction",
         _authenticated_navigation()
@@ -1361,10 +1386,11 @@ def _render_correction_apply(offer, *, action_target):
         "<p>Apply this reviewed correction to update your persistent profile. "
         "The previous saved revision will not be changed.</p>"
         f"<form method='post' action='{_safe_text(action_target)}'>"
+        + navigation_fields(navigation, include_focus=False) +
         f"<input type='hidden' name='artifact' value='{_safe_text(offer.artifact_reference)}'>"
         f"<input type='hidden' name='csrf' value='{_safe_text(offer.csrf_proof)}'>"
         "<button type='submit'>Apply profile update</button>"
-        "</form></section>",
+        "</form>" + cancel_link(navigation) + "</section>",
     )
 
 
