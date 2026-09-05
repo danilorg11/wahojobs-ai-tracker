@@ -2055,7 +2055,13 @@ class DurableGoogleLoginBrowserIntegration:
     def matches_route(self, path: str) -> bool:
         self._require_current_process()
         with self._lifecycle_condition:
-            return self._accepting_requests and path in _AUTH_ROUTES
+            return self._accepting_requests and (path in _AUTH_ROUTES or self._delegated_job_route(path))
+
+    def _delegated_job_route(self, path):
+        from wahojobs.public_job_page import parse_public_job_path
+        return (parse_public_job_path(path) is not None
+                and self._profile_integration is not None
+                and self._profile_integration.matches_route(path) is True)
 
     def issue_confirmed_profile_artifact(self, **kwargs):
         """Private server composition hook; it is not an HTTP route."""
@@ -2282,13 +2288,14 @@ class DurableGoogleLoginBrowserIntegration:
                 "Request unavailable",
                 "This sign-in request is not valid.",
             )
-        if path not in _AUTH_ROUTES:
+        job_route = self._delegated_job_route(path)
+        if path not in _AUTH_ROUTES and not job_route:
             return _failure_response(
                 HTTPStatus.NOT_FOUND,
                 "Page not found",
                 "This page is not available.",
             )
-        if path in _DELEGATED_ACCOUNT_ROUTES:
+        if path in _DELEGATED_ACCOUNT_ROUTES or job_route:
             return self._profile_integration.handle(
                 method,
                 target,

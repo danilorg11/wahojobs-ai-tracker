@@ -300,7 +300,7 @@ Dates from different source representations are not silently substituted.
                    source_metadata=metadata, location=location)
 
 
-def reprocess_saved_detail(connection, job_id, response):
+def reprocess_saved_detail(connection, job_id, response, *, catalog_capture_id=None):
     """Reprocess one accepted catalog record using a separately dated detail.
 
     Retain the historical catalog capture as provenance, but use a separately
@@ -333,9 +333,26 @@ def reprocess_saved_detail(connection, job_id, response):
                              source_body_format=capture["body_format"],
                              source_metadata=json.loads(capture["metadata_json"]),
                              source_updated_at=capture["source_updated_at"])
+    previous = (candidate.source_metadata or {}).get(DETAIL_KEY, {})
+    if catalog_capture_id is not None:
+        # The ordinary refresh may have held a new catalog teaser to protect a
+        # fuller accepted detail. Use its verified record fields for the new
+        # detail, retaining the original catalog provenance below.
+        from wahojobs.db.repository import (
+            _verify_stored_source_material, _captured_semantic_material,
+            _capture_context_from_row, _verify_capture_crawl_provenance,
+        )
+        current = connection.execute("SELECT * FROM job_source_content_captures WHERE id=? AND job_id=? AND crawl_run_id IS NOT NULL", (catalog_capture_id, job_id)).fetchone()
+        if current is None:
+            raise ValueError("Missing matching catalog capture")
+        _, metadata = _verify_stored_source_material(current, "catalog")
+        catalog_job = dict(job, company_slug=job['provider'])
+        _captured_semantic_material(catalog_job, current, metadata)
+        _verify_capture_crawl_provenance(connection, catalog_job, current, _capture_context_from_row(current))
+        current_fields = json.loads(current['semantic_job_fields_json'])
+        candidate = JobCandidate(**current_fields, source_body=current['body'], source_body_format=current['body_format'], source_metadata=metadata, source_updated_at=current['source_updated_at'])
     recovered = recover_detail(job["provider"], candidate, response)
     # Keep the first listing capture as the catalog baseline on repeated recovery.
-    previous = (candidate.source_metadata or {}).get(DETAIL_KEY, {})
     recovered.source_metadata[DETAIL_KEY]["catalog_baseline_capture_id"] = previous.get(
         "catalog_baseline_capture_id", capture["id"])
     recovered.source_metadata[DETAIL_KEY]["catalog_observed_at"] = previous.get(
@@ -353,3 +370,55 @@ def reprocess_saved_detail(connection, job_id, response):
     return upsert_job_source_content(connection, job_id, job["provider"],
                                      capture["source_type"], recovered, response.observed_at,
                                      capture_context=context)
+
+
+def update_returned_details(connection, provider, company_id, crawl_run_id, candidates, *, mode="needed"):
+    """Ordinary post-catalog content update; never fetch for absent records.
+
+    Reuse means retaining dated accepted evidence, not declaring that a public
+    page is unchanged now. `all` explicitly checks detail-only changes.
+    """
+    from wahojobs.db.repository import get_job_source_capture_evidence
+    from wahojobs.canonical.service import sync_alignerr_canonical_opportunities, sync_micro1_canonical_opportunities, sync_fallback_canonical_opportunities
+    from wahojobs.opportunity_enrichment import enrich_selected_opportunities
+    counts = dict(reused=0, accepted=0, held=0, failed=0)
+    seen = set()
+    for candidate in candidates:
+        if candidate.external_id in seen:
+            continue
+        seen.add(candidate.external_id)
+        row = connection.execute("SELECT j.id, a.accepted_capture_id, s.metadata_json FROM jobs j LEFT JOIN job_source_contents s ON s.job_id=j.id LEFT JOIN job_source_content_acceptances a ON a.job_id=j.id WHERE j.company_id=? AND j.external_id=? AND j.is_active=1", (company_id, candidate.external_id)).fetchone()
+        if row is None:
+            continue
+        current = connection.execute("SELECT * FROM job_source_content_captures WHERE job_id=? AND crawl_run_id=? ORDER BY id DESC LIMIT 1", (row['id'], crawl_run_id)).fetchone()
+        if current is None:
+            raise ValueError("Returned detail has no catalog observation")
+        get_job_source_capture_evidence(connection, row['id'])
+        detail = json.loads(row['metadata_json'] or '{}').get(DETAIL_KEY, {})
+        baseline = connection.execute("SELECT semantic_material_sha256,source_updated_at FROM job_source_content_captures WHERE job_id=? AND crawl_run_id IS NOT NULL AND id<? ORDER BY id DESC LIMIT 1", (row['id'], row['accepted_capture_id'] or 0)).fetchone()
+        if (mode == "needed" and detail.get('url') == candidate.url and detail.get('external_id') == candidate.external_id
+                and detail.get('provider') == provider and detail.get('version') == 1
+                and baseline is not None and baseline['semantic_material_sha256'] == current['semantic_material_sha256']
+                and baseline['source_updated_at'] == current['source_updated_at']):
+            counts['reused'] += 1
+            continue
+        try:
+            # Short reads have finished. No write transaction across HTTP.
+            if connection.in_transaction:
+                raise RuntimeError("Detail retrieval cannot hold a write transaction")
+            response = fetch_detail(provider, candidate)
+            with connection:
+                outcome = reprocess_saved_detail(connection, row['id'], response, catalog_capture_id=current['id'])
+                if outcome.accepted:
+                    sync = sync_alignerr_canonical_opportunities if provider == 'alignerr' else sync_micro1_canonical_opportunities
+                    sync(connection, company_id)
+                    sync_fallback_canonical_opportunities(connection, company_id)
+                    canonical = connection.execute("SELECT canonical_opportunity_id FROM jobs WHERE id=?", (row['id'],)).fetchone()[0]
+                    if canonical is not None:
+                        enrich_selected_opportunities(connection, {canonical}, llm_client=None)
+            counts['accepted' if outcome.accepted else 'held'] += 1
+        except (OSError, ValueError):
+            # The original accepted content and source clocks remain intact.
+            # Corrupt accepted provenance / database failures are not swallowed.
+            counts['failed'] += 1
+    return "Detail recovery (content only): " + ", ".join(f"{key}={value}" for key, value in counts.items())

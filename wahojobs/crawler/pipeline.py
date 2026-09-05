@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 
 from wahojobs.crawler.companies.alignerr import crawl_alignerr
 from wahojobs.crawler.companies.appen import crawl_appen
@@ -59,13 +60,20 @@ CRAWLERS = {
 }
 
 
-def run_crawl(company_slug="appen"):
+def run_crawl(company_slug="appen", *, db_path=None, details=None):
+    if details not in (None, "needed", "all"):
+        raise ValueError("Unknown detail recovery mode")
+    if details and db_path is None:
+        raise ValueError("Detail recovery requires an explicit local database")
     registry_entry = assert_production_dispatch_allowed(company_slug)
-    with get_connection() as conn:
+    from wahojobs.crawler.local_inventory import local_inventory_connection
+    connection = get_connection() if db_path is None else local_inventory_connection(db_path)
+    with connection as conn:
         company = get_company_by_slug(conn, company_slug)
         if company is None:
+            preparation = "Initialize this selected development inventory first." if db_path is not None else "Run scripts/init_db.py first."
             raise RuntimeError(
-                f"Company '{company_slug}' is not configured. Run scripts/init_db.py first."
+                f"Company '{company_slug}' is not configured. {preparation}"
             )
 
         started_at = utc_now()
@@ -103,12 +111,14 @@ def run_crawl(company_slug="appen"):
                 savepoint_name = f"crawl_lifecycle_{int(crawl_run_id)}"
                 conn.execute(f"SAVEPOINT {savepoint_name}")
                 savepoint_active = True
+                tracking_options = {} if db_path is None else {"model_enrichment": False}
                 summary = track_crawl_result(
                     conn,
                     company["id"],
                     crawl_run_id,
                     crawl_result,
                     utc_now(),
+                    **tracking_options,
                 )
                 conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
                 savepoint_active = False
@@ -126,7 +136,6 @@ def run_crawl(company_slug="appen"):
                 error_message=non_success_diagnostic(crawl_run_status, summary),
             )
             conn.commit()
-            return company, summary
         except Exception as exc:
             if savepoint_active and savepoint_name:
                 try:
@@ -138,6 +147,14 @@ def run_crawl(company_slug="appen"):
             fail_crawl_run(conn, crawl_run_id, str(exc), utc_now())
             conn.commit()
             raise
+
+        # Catalog lifecycle is committed before separately dated, content-only
+        # detail recovery. Detail failures cannot undo or renew observations.
+        if details and company_slug in {"alignerr", "micro1"} and not crawl_result.used_sample_data and crawl_result.outcome in {ProviderOutcome.SUCCESS, ProviderOutcome.PARTIAL}:
+            from wahojobs.crawler.provider_details import update_returned_details
+            report = update_returned_details(conn, company_slug, company["id"], crawl_run_id, crawl_result.jobs, mode=details)
+            summary = replace(summary, warnings=(*summary.warnings, report))
+        return company, summary
 
 
 def non_success_diagnostic(crawl_run_status, summary):

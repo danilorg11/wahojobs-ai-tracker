@@ -8,6 +8,10 @@ See [Durable Google Login Browser Activation](docs/durable_google_login_browser.
 for the exact configuration, route, cookie, delivery-boundary, demo, and
 deployment limitations.
 
+See [Local development inventory refresh](docs/local_development_inventory.md)
+for explicit database selection, request inspection, accepted detail recovery,
+and using the refreshed inventory through the authenticated launcher.
+
 The production-grade, guest-only origin and isolated Vercel preview proof for
 the public jobs catalog and its exact registry-backed details are documented in
 [Preview-only public catalog and job-detail release](docs/production_origin_preview.md).

@@ -45,7 +45,7 @@ MINDRIFT_MIN_REMOVALS_FOR_GUARD = 50
 MINDRIFT_BASELINE_SUCCESS_RUNS = 3
 
 
-def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCrawlResult, now):
+def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCrawlResult, now, *, model_enrichment=True):
     ensure_opportunity_enrichment_schema(conn)
     company = conn.execute(
         "SELECT slug FROM companies WHERE id = ?",
@@ -179,7 +179,7 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         enrich_selected_opportunities(
             conn,
             affected_canonical_ids,
-            llm_client=tracking_openai_client(),
+            llm_client=tracking_openai_client() if model_enrichment else None,
         )
 
     active_jobs_total = count_active_jobs(conn, company_id)
