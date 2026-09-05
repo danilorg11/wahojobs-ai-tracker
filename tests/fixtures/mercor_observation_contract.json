@@ -1,0 +1,25 @@
+{
+  "provenance": {
+    "source": "exports/production_availability_checkpoint_phase2_20260904/inventory.sqlite3",
+    "capture_id": 7127,
+    "material": "existing normalized capture, not a raw HTTP payload",
+    "synthetic_fields": [
+      "status",
+      "deletedAt",
+      "isPrivate"
+    ],
+    "limitations": "Raw lifecycle fields and response pagination were not retained; these test values are synthetic and do not certify live source completeness."
+  },
+  "listing": {
+    "listingDomain": "Software Engineering",
+    "payRateFrequency": "hourly",
+    "listingId": "list_AAABlzI3p6G_LDaGWuNNEa6l",
+    "title": "Open Source Applied Engineer Talent Network",
+    "location": "Remote",
+    "commitment": "part-time",
+    "description": "Mercor is seeking an exceptional open source contributor with deep expertise in Python, Java, C, JavaScript, or TypeScript to collaborate on high-impact projects with global reach. This role is ideal for engineers with a strong command of core programming fundamentals and a proven track record of consistent, high-quality contributions to leading open-source repositories.\n\n**Key Responsibilities:**\n\n- Design and oversee the creation of evaluations for a wide range of coding tasks across multiple languages, including JavaScript, TypeScript, Python, Java, and C.\n    \n- Develop test cases to accurately assess system performance in diverse engineering scenarios.\n    \n- Analyze system behavior on real-world user use cases to uncover strengths and improvement areas.\n    \n- Communicate evaluation results effectively to the research team to support continued development and optimization.\n    \n\n**You're a great fit if you have:**\n\n- A strong GitHub (or similar) presence with frequent, high-quality contributions to top open-source projects in the last 12 months.\n    \n- Expertise in one or more of the following languages: Python, Java, C, JavaScript, or TypeScript.\n    \n- Deep familiarity with widely-used libraries, frameworks, and tools in your language(s) of choice.\n    \n- Excellent understanding of software architecture, performance tuning, and scalable code patterns.\n    \n- Strong collaboration skills and experience working within distributed, asynchronous teams.\n    \n- Confidence in independently identifying areas for contribution and executing improvements with minimal oversight.\n    \n- Comfortable using Git, CI/CD systems, and participating in open-source governance workflows.",
+    "status": "active",
+    "deletedAt": null,
+    "isPrivate": false
+  }
+}

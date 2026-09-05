@@ -22,6 +22,7 @@ from wahojobs.classification import (
     include_in_live_market_estimate_for_policy,
 )
 from wahojobs.config import DB_PATH
+from wahojobs.crawler.types import MERCOR_RECORD_CONTRACT_ID
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
@@ -57,6 +58,7 @@ from wahojobs.source_capture import (
     SOURCE_CAPTURE_CONTRACT_PREPARERS,
     SOURCE_CAPTURE_EVIDENCE_VERSION,
     SOURCE_PROMOTION_POLICY_VERSION,
+    MERCOR_PROMOTION_POLICY_VERSION,
     SOURCE_PROMOTION_POLICY_DECIDERS,
     SourceCapturePersistenceResult,
     SourceCaptureContext,
@@ -711,6 +713,11 @@ def upsert_job_source_content(
             provider=provider,
             source_type=source_type,
         )
+        promotion_policy_version = (
+            MERCOR_PROMOTION_POLICY_VERSION
+            if prepared_attestation.contract_id == MERCOR_RECORD_CONTRACT_ID
+            else SOURCE_PROMOTION_POLICY_VERSION
+        )
         accepted = conn.execute(
             "SELECT * FROM job_source_contents WHERE job_id = ?",
             (job_id,),
@@ -736,7 +743,12 @@ def upsert_job_source_content(
             if accepted_capture is not None
             else None
         )
-        decision = decide_source_promotion(
+        policy_decider = (
+            SOURCE_PROMOTION_POLICY_DECIDERS[promotion_policy_version]
+            if prepared_attestation.contract_id == MERCOR_RECORD_CONTRACT_ID
+            else decide_source_promotion
+        )
+        decision = policy_decider(
             prepared,
             capture_context,
             accepted,
@@ -818,7 +830,7 @@ def upsert_job_source_content(
                 prepared_attestation.body_observation,
                 prepared_attestation.authority_evidence_json,
                 SOURCE_CAPTURE_CONTRACT_VERSION,
-                SOURCE_PROMOTION_POLICY_VERSION,
+                promotion_policy_version,
                 decision.decision,
                 reasons_json,
                 now,
@@ -914,7 +926,7 @@ def upsert_job_source_content(
                 (
                     job_id,
                     capture_id,
-                    SOURCE_PROMOTION_POLICY_VERSION,
+                    promotion_policy_version,
                     accepted_at,
                     now,
                     now,
@@ -1006,14 +1018,20 @@ def get_job_source_capture_evidence(conn, job_id):
         )
     )
     evidence_stale_reasons = []
+    current_promotion_policy_version = (
+        MERCOR_PROMOTION_POLICY_VERSION
+        if accepted_capture is not None
+        and accepted_capture["record_promotion_contract_id"] == MERCOR_RECORD_CONTRACT_ID
+        else SOURCE_PROMOTION_POLICY_VERSION
+    )
     if acceptance is not None and accepted_capture is not None:
         if accepted_capture["capture_contract_version"] != SOURCE_CAPTURE_CONTRACT_VERSION:
             evidence_stale_reasons.append(EVIDENCE_REASON_CAPTURE_CONTRACT_CHANGED)
         if (
             acceptance["promotion_policy_version"]
-            != SOURCE_PROMOTION_POLICY_VERSION
+            != current_promotion_policy_version
             or accepted_capture["promotion_policy_version"]
-            != SOURCE_PROMOTION_POLICY_VERSION
+            != current_promotion_policy_version
         ):
             evidence_stale_reasons.append(EVIDENCE_REASON_PROMOTION_POLICY_CHANGED)
         if latest is None or latest["id"] != acceptance["accepted_capture_id"]:
@@ -1071,7 +1089,7 @@ def get_job_source_capture_evidence(conn, job_id):
             else None
         ),
         "current_capture_contract_version": SOURCE_CAPTURE_CONTRACT_VERSION,
-        "current_promotion_policy_version": SOURCE_PROMOTION_POLICY_VERSION,
+        "current_promotion_policy_version": current_promotion_policy_version,
         "stale_reasons": evidence_stale_reasons,
         "last_confirmed_at": (
             acceptance["last_confirmed_at"] if acceptance is not None else None

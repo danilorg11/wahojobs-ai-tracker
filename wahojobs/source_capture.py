@@ -15,6 +15,7 @@ from wahojobs.crawler.types import (
     BODY_OBSERVATION_PRESENT,
     BODY_OBSERVATION_STATES,
     MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID,
+    MERCOR_RECORD_CONTRACT_ID,
     CompanyCrawlResult,
     ProviderOutcome,
 )
@@ -22,6 +23,7 @@ from wahojobs.crawler.types import (
 
 SOURCE_CAPTURE_CONTRACT_VERSION = "job_source_capture_v1"
 SOURCE_PROMOTION_POLICY_VERSION = "job_source_promotion_v2"
+MERCOR_PROMOTION_POLICY_VERSION = "mercor_record_promotion_v1"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
 
 SEMANTIC_AUTHORITY_LEGACY_ACCEPTED = "legacy_accepted"
@@ -486,6 +488,36 @@ def _validate_meridial_greenhouse_record_v1(
         raise ValueError("Greenhouse stable job identity is inconsistent.")
 
 
+def _validate_mercor_public_active_record_v1(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    evidence = json.loads(attestation.authority_evidence_json)
+    if set(evidence) != {
+        "authoritative_endpoint", "listing_id", "status", "deleted_at",
+        "is_private", "required_record_shape_validated",
+    }:
+        raise ValueError("Mercor record authority evidence is not closed.")
+    identity = evidence["listing_id"]
+    if (
+        provider != "mercor" or source_type != "mercor-marketplace"
+        or evidence["authoritative_endpoint"] != "https://aws.api.mercor.com/work/listings-explore-page"
+        or not isinstance(identity, str)
+        or re.fullmatch(r"[A-Za-z0-9_-]+", identity) is None
+        or identity != candidate.external_id
+        or candidate.url != f"https://work.mercor.com/jobs/{identity}"
+        or evidence["status"] != "active"
+        or evidence["deleted_at"] is not None
+        or evidence["is_private"] is not False
+        or evidence["required_record_shape_validated"] is not True
+        or not isinstance(candidate.title, str) or not candidate.title.strip()
+        or context.payload_shape != "mercor-marketplace:listings:v1"
+        or context.schema_fingerprint != "mercor-public-active-record:v1"
+        or context.candidate_count < 1
+        or context.raw_record_count != context.normalized_record_count + context.rejected_record_count
+    ):
+        raise ValueError("Mercor public active record evidence is inconsistent.")
+
+
 def canonical_source_metadata_json(metadata: dict) -> str:
     if type(metadata) is not dict:
         raise ValueError("Source metadata must be a dictionary.")
@@ -637,6 +669,16 @@ def decide_source_promotion_v1(
     accepted_record_attestation: PreparedRecordPromotionAttestation | None = None,
 ) -> SourcePromotionDecision:
     """Decide whether this capture may replace or reconfirm accepted evidence."""
+    return _decide_source_material_promotion(
+        prepared, accepted_row,
+        same_accepted_semantic_material=same_accepted_semantic_material,
+        authority_reasons=context.non_authoritative_reasons(),
+    )
+
+
+def _decide_source_material_promotion(
+    prepared, accepted_row, *, same_accepted_semantic_material, authority_reasons,
+):
 
     if prepared.quality == CAPTURE_QUALITY_EMPTY:
         return SourcePromotionDecision(
@@ -651,7 +693,6 @@ def decide_source_promotion_v1(
             _accepted_timestamp(accepted_row),
         )
 
-    authority_reasons = context.non_authoritative_reasons()
     if authority_reasons:
         return SourcePromotionDecision(
             PROMOTION_DECISION_HELD_NON_AUTHORITATIVE,
@@ -885,6 +926,28 @@ def decide_source_promotion_v2(
     )
 
 
+def decide_mercor_record_promotion_v1(
+    prepared, context, accepted_row, *, same_accepted_semantic_material=False,
+    record_attestation=None, accepted_record_attestation=None,
+):
+    if record_attestation is None or record_attestation.contract_id != MERCOR_RECORD_CONTRACT_ID:
+        raise ValueError("Mercor promotion requires validated record authority.")
+    reasons = []
+    if context.used_sample_data:
+        reasons.append(REASON_SAMPLE_DATA)
+    if context.provider_outcome not in {ProviderOutcome.SUCCESS.value, ProviderOutcome.PARTIAL.value}:
+        reasons.append(REASON_PROVIDER_OUTCOME_NOT_SUCCESS)
+    if context.normalized_record_count != context.candidate_count:
+        reasons.append(REASON_RECORD_COUNT_MISMATCH)
+    # Availability was directly observed even when the source supplies no content
+    # timestamp. Preserve the existing material/timestamp conflict safeguards.
+    return _decide_source_material_promotion(
+        prepared, accepted_row,
+        same_accepted_semantic_material=same_accepted_semantic_material,
+        authority_reasons=tuple(reasons),
+    )
+
+
 # Historical capture and policy implementations are permanently pinned.  A
 # future current-version bump must add a new literal mapping rather than making
 # old captures follow mutable current behavior.
@@ -893,10 +956,12 @@ SOURCE_CAPTURE_CONTRACT_PREPARERS = {
 }
 RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
+    "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,
 }
 SOURCE_PROMOTION_POLICY_DECIDERS = {
     "job_source_promotion_v1": decide_source_promotion_v1,
     "job_source_promotion_v2": decide_source_promotion_v2,
+    "mercor_record_promotion_v1": decide_mercor_record_promotion_v1,
 }
 
 # Current write aliases remain convenient for callers while replay uses the
