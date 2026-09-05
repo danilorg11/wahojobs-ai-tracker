@@ -153,11 +153,15 @@ def parse_public_job_path(path):
     return identifier if identifier <= MAX_SQLITE_INTEGER else None
 
 
-def load_public_job(connection, path, *, now=None):
+def load_public_job(connection, path, *, now=None, selected_job_id=None):
     """Load one durable canonical opportunity and its best source variant."""
 
     canonical_opportunity_id = parse_public_job_path(path)
     if canonical_opportunity_id is None:
+        return None
+    if selected_job_id is not None and (
+        type(selected_job_id) is not int or not 0 < selected_job_id <= MAX_SQLITE_INTEGER
+    ):
         return None
     rows = connection.execute(
         """
@@ -170,6 +174,7 @@ def load_public_job(connection, path, *, now=None):
           j.commitment AS source_commitment,
           j.url AS listing_url,
           j.external_id,
+          j.source_hash,
           j.opportunity_kind,
           j.availability_basis,
           j.include_in_live_market_estimate,
@@ -237,10 +242,12 @@ def load_public_job(connection, path, *, now=None):
         """,
         (canonical_opportunity_id,),
     ).fetchall()
+    variant_count = len(rows)
     historical = [
         dict(row)
         for row in rows
         if public_historical_inventory_is_eligible(dict(row))
+        and (selected_job_id is None or row["job_id"] == selected_job_id)
     ]
     if not historical:
         return None
@@ -260,6 +267,16 @@ def load_public_job(connection, path, *, now=None):
         int(result["canonical_opportunity_id"]),
     )
     document = effective["document"] if effective is not None else blank_document()
+    if selected_job_id is not None and variant_count > 1:
+        # Canonical summaries are not evidence for an arbitrary regional offer.
+        # Use the existing scoped-fact projection; otherwise retain unknowns.
+        from wahojobs.opportunity_enrichment import project_variant_facts
+        reference = "source_hash:" + result["source_hash"]
+        scoped = blank_document()
+        facts = [fact for fact in document.get("variant_facts", [])
+                 if reference in fact.get("variant_refs", [])]
+        project_variant_facts(scoped, facts, [reference])
+        document = scoped
     official_url = first_human_facing_url(
         result["rich_source_url"],
         result["listing_url"],

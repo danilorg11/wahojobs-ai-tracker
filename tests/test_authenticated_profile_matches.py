@@ -596,7 +596,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                     body,
                 )
                 self.assertIn(
-                    "href='/job/opportunity-7002'",
+                    "href='/job/opportunity-7002?variant=7003'",
                     body,
                 )
                 self.assertNotIn("href='https://jobs.example.test/distinctive-bilingual-reviewer'", body)
@@ -606,7 +606,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                         "/account/profile",
                         "/logout",
                         "/account/profile",
-                        "/job/opportunity-7002",
+                        "/job/opportunity-7002?variant=7003",
                     ],
                 )
                 self.assertNotIn(state.profile_id, body)
@@ -729,7 +729,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         )
         self.assertNotIn(self.profile_v2["identity"]["profile_id"], body)
         self.assertIn("Distinctive Python Backend AI Coding Evaluator", body)
-        self.assertIn("href='/job/opportunity-901'", body)
+        self.assertIn("href='/job/opportunity-901?variant=901'", body)
         self.assertNotIn("href='https://jobs.example.test/distinctive-python'", body)
         self.assertNotIn("javascript:", body)
         self.assertNotIn("Unsafe Protocol Python Evaluator", body)
@@ -739,7 +739,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 "/account/profile",
                 "/logout",
                 "/account/profile",
-                "/job/opportunity-901",
+                "/job/opportunity-901?variant=901",
             ],
         )
         self.assertIn("<h1>Your matches</h1>", body)

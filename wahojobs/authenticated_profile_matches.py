@@ -795,6 +795,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 route,
                 header_items,
                 catalog_return_to=params.get("return_to"),
+                selected_job_id=params.get("variant"),
+                match_run_id=params.get("run"),
             )
         if route != AUTHENTICATED_MATCHES_ROUTE and self._write_connection_provider is None:
             return _failure_response(HTTPStatus.NOT_FOUND, "Page not found", "This page is not available.")
@@ -1104,11 +1106,58 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             message = "The action could not be completed safely."
         return _workflow_failure(status, message, header_items, wants_json=wants_json)
 
-    def _handle_public_job(self, path, header_items, *, catalog_return_to=None):
+    def _handle_public_job(self, path, header_items, *, catalog_return_to=None,
+                           selected_job_id=None, match_run_id=None):
+        authority = self._optional_public_authority(header_items)
+        options = dict(catalog_return_to=catalog_return_to, selected_job_id=selected_job_id,
+                       match_run_id=match_run_id, authority=authority)
+        if authority is None or authority.state != "profile":
+            return self._render_public_job_variant(path, header_items, **options)
+        # Keep selection and source rendering on the same inventory state even
+        # when a runtime cannot establish the optional cross-request reuse token.
+        # The supported durable runtime uses rollback-journal SQLite. This read
+        # lock prevents concurrent inventory/profile commits, without writing or
+        # changing its authorization/connection guards.
+        try:
+            with self._connection_provider() as guard:
+                if (guard.in_transaction or guard.execute("PRAGMA query_only").fetchone()[0] != 1
+                        or guard.execute("PRAGMA journal_mode").fetchone()[0] not in {"delete", "truncate", "persist"}):
+                    raise ValueError("detail_snapshot_unavailable")
+                guard.execute("BEGIN")
+                try:
+                    guard.execute("SELECT rootpage FROM sqlite_schema LIMIT 1").fetchone()
+                    return self._render_public_job_variant(path, header_items, **options)
+                finally:
+                    guard.rollback()
+        except (sqlite3.Error, ValueError):
+            return _failure_response(HTTPStatus.SERVICE_UNAVAILABLE, "Opportunity unavailable",
+                                     "Reload to view the current source evidence.")
+
+    def _render_public_job_variant(self, path, header_items, *, catalog_return_to=None,
+                                  selected_job_id=None, match_run_id=None, authority=None):
         try:
             connection = None
             route_decision = None
             canonical_opportunity_id = public_job_page.parse_public_job_path(path)
+            authenticated = authority is not None and authority.state == "profile"
+            if (selected_job_id is not None or match_run_id is not None) and not authenticated:
+                return _failure_response(HTTPStatus.UNAUTHORIZED, "Sign in required",
+                                         "Sign in to view this recommendation.")
+            selected_match = None
+            current_context = None
+            if authenticated and canonical_opportunity_id is not None:
+                run = self._authorized_run(match_run_id, authority) if match_run_id else None
+                if match_run_id and run is None:
+                    return _failure_response(HTTPStatus.NOT_FOUND, "Saved matches unavailable",
+                                             "Return to your current matches.")
+                current_context = self._render_persistent_matches(authority, run=run, return_context=True)
+                if type(current_context) is not dict:
+                    return current_context
+                from wahojobs.authenticated_variant_details import find_presented_variant
+                selected_match = find_presented_variant(current_context, canonical_opportunity_id,
+                                                        selected_job_id)
+                if selected_job_id is None and selected_match is not None:
+                    selected_job_id = selected_match["job_id"]
             with self._connection_provider() as connection:
                 if (
                     not isinstance(connection, sqlite3.Connection)
@@ -1150,6 +1199,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             connection,
                             public_job_page.public_job_path(canonical_opportunity_id),
                             now=self._now(),
+                            selected_job_id=selected_job_id,
                         )
                         if job is not None and route_decision is not None:
                             job["path"] = route_decision.primary_path
@@ -1172,8 +1222,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     "This opportunity page is not available.",
                 )
 
-            authority = self._optional_public_authority(header_items)
-            authenticated = authority is not None and authority.state == "profile"
+            if authenticated:
+                from wahojobs.authenticated_variant_details import prepare_variant_notice
+                prepare_variant_notice(job, selected_match)
             controls = ""
             status = ""
             if (
@@ -1219,6 +1270,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             )
             from wahojobs.authenticated_source_detail import append_authenticated_source_detail
             content = append_authenticated_source_detail(content, job, authenticated=authenticated)
+            if authenticated:
+                from wahojobs.authenticated_variant_details import append_variant_notice
+                content = append_variant_notice(content, job)
             return _html_response(
                 HTTPStatus.OK,
                 content,
@@ -1688,7 +1742,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             return None
         return run
 
-    def _render_persistent_matches(self, authority, *, run=None):
+    def _render_persistent_matches(self, authority, *, run=None, return_context=False):
         try:
             profile_v2 = authority.trusted_profile_v2()
             if run is not None:
@@ -1696,7 +1750,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 if not hmac.compare_digest(run.owner_profile_id, expected_owner):
                     raise ValueError("candidate_match_run_owner_mismatch")
             inputs = self._recommendation_input_key(profile_v2, authority)
-            before = self._inventory_commit_token() if inputs is not None else None
+            before = self._inventory_commit_token() if inputs is not None or return_context else None
             evaluated_at = _trusted_utc(self._now())
             reused = self._can_reuse_recommendations(run, inputs, before, evaluated_at)
             if reused:
@@ -1757,7 +1811,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         rows,
                         effective_enrichments,
                     )
-                after = self._inventory_commit_token() if inputs is not None else None
+                after = self._inventory_commit_token() if inputs is not None or return_context else None
                 if before is not None and after is not None and before != after:
                     # Do not publish a computation spanning different commits.
                     # The next request can retry against the new inventory.
@@ -1772,6 +1826,12 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             recent_cache_hours=local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
                         ),
                     }
+            if return_context:
+                proof = context.get("_authenticated_reuse")
+                if (type(proof) is dict and not
+                        proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
+                    raise ValueError("candidate_match_expired_during_detail_selection")
+                return context
             if self._write_connection_provider is None:
                 content = _render_match_results(context, inventory_count=inventory_count)
             else:
@@ -2328,27 +2388,9 @@ def _parse_target(
         public_job_page.parse_public_job_path(parsed.path) is not None
         or public_job_canary_gate.owns_candidate_path(parsed.path)
     ):
-        if not parsed.query:
-            return parsed.path, {}
-        try:
-            raw = parse_qs(
-                parsed.query,
-                keep_blank_values=True,
-                strict_parsing=True,
-                max_num_fields=1,
-            )
-        except (UnicodeError, ValueError):
-            return None
-        if set(raw) != {"return_to"} or len(raw["return_to"]) != 1:
-            return None
-        return_to = public_jobs_catalog.validate_catalog_return_target(
-            raw["return_to"][0]
-        )
-        return (
-            (parsed.path, {"return_to": return_to})
-            if return_to is not None
-            else None
-        )
+        from wahojobs.authenticated_variant_details import parse_variant_query
+        params = parse_variant_query(parsed.query)
+        return (parsed.path, params) if params is not None else None
     if parsed.path == public_jobs_catalog.PUBLIC_JOBS_ROUTE:
         params = public_jobs_catalog.parse_catalog_query(parsed.query)
         if params is not None:
@@ -3207,7 +3249,8 @@ def _render_relaxation_scenario(scenario, index, profile_target):
 
 
 def _render_relaxation_preview_card(match, scenario_index, item_index):
-    url = public_job_page.public_job_path_for_match(match)
+    from wahojobs.authenticated_variant_details import variant_detail_url
+    url = variant_detail_url(match)
     title = match.get("display_title") or match.get("title") or "Opportunity"
     location = _bounded_presentation_text(match.get("location"), 120) or "Location not listed"
     compensation = _presented_match_compensation(match)["label"]
@@ -3238,7 +3281,8 @@ def _render_match_results(
     matches = _primary_presentation_matches(context)
     cards = []
     for match in matches:
-        url = public_job_page.public_job_path_for_match(match)
+        from wahojobs.authenticated_variant_details import variant_detail_url
+        url = variant_detail_url(match, run_id=match_run_id)
         if url is None:
             continue
         explanations = _candidate_match_explanations(match)
