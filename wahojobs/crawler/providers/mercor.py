@@ -9,6 +9,9 @@ from wahojobs.crawler.types import (
     ProviderOutcome, RecordPromotionAttestation,
 )
 from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
+from wahojobs.matching.source_geography import (
+    DESCRIPTION_GEOGRAPHY_KEY, prepare_mercor_description_geography,
+)
 
 
 REQUEST_HEADERS = {
@@ -84,6 +87,9 @@ def parse_mercor_listing(listing, *, attest=False):
         listing,
         ("description", "jobDescription", "descriptionText", "details"),
     )
+    body_field = next((field for field in ("description", "jobDescription", "descriptionText", "details")
+                       if source_body is not None and listing.get(field) == source_body), None)
+    description_geography = prepare_mercor_description_geography(source_body, body_field, listing)
     return JobCandidate(
         external_id=listing_id,
         title=clean_value(listing.get("title")),
@@ -95,7 +101,7 @@ def parse_mercor_listing(listing, *, attest=False):
         source_body=source_body,
         source_body_format="text/plain" if source_body else None,
         source_metadata=nonempty_metadata(
-            selected_metadata(
+            {**selected_metadata(
                 listing,
                 (
                     "listingDomain",
@@ -111,7 +117,7 @@ def parse_mercor_listing(listing, *, attest=False):
                     "ineligibleLocation",
                     "ineligibleResidenceLocation",
                 ),
-            )
+            ), **({DESCRIPTION_GEOGRAPHY_KEY: description_geography} if description_geography else {})}
         ),
         source_updated_at=clean_value(listing.get("updatedAt")),
         record_promotion_attestation=(RecordPromotionAttestation(

@@ -214,7 +214,15 @@ def explicit_country_eligibility(profile: dict, row: dict) -> LocationEligibilit
         field = requirement["source_field"]
         label = ", ".join(sorted(countries)) or "unresolved countries"
         description = f"Source {field}: applicant {dimension} {mode} {label}"
+        if requirement.get("source_quote"):
+            description += f' ("{requirement["source_quote"].strip()}")'
         descriptions.append(description)
+        if requirement.get("source_conflict"):
+            unknowns.append(f"Conflicting source applicant {dimension} statements: {description}.")
+            continue
+        if requirement.get("ambiguous_statement"):
+            unknowns.append(f"Unresolved applicant scope or modality: {description}.")
+            continue
         if not country:
             unknowns.append(f"Applicant {dimension} is unconfirmed for {field}.")
         elif mode == "exclude" and country in countries:

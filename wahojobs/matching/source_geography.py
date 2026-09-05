@@ -1,8 +1,11 @@
 """Project accepted Mercor record evidence into the existing location gate."""
 
+import hashlib
 import json
+import re
 
 from wahojobs.profiles.countries import COUNTRY_BY_CODE, normalize_country
+from wahojobs.source_capture import normalize_source_body
 
 
 MERCOR_GEOGRAPHY_FIELDS = {
@@ -11,6 +14,135 @@ MERCOR_GEOGRAPHY_FIELDS = {
     "ineligibleLocation": ("location", "exclude"),
     "ineligibleResidenceLocation": ("residence", "exclude"),
 }
+DESCRIPTION_GEOGRAPHY_KEY = "wahojobs_applicant_description_geography_v1"
+_ELIGIBILITY_SECTIONS = {"role details", "eligibility", "applicant eligibility",
+                         "who can apply", "applicant location", "location requirements"}
+_APPLICANT = r"(?:applicants|candidates|contributors|workers)"
+_PLACE = r"(?P<place>be based in|be located in|reside in|live in|be residents of)"
+_MANDATORY = re.compile(rf"{_APPLICANT} (?:must|are required to) (?P<not>not )?{_PLACE} (?P<countries>.+)", re.I)
+_ELIGIBLE = re.compile(rf"(?P<only>only )?{_APPLICANT} (?P<place>based in|located in|residing in|living in) "
+                       r"(?P<countries>.+?) (?P<result>are eligible|may apply|can apply|are not eligible|cannot apply|are ineligible)", re.I)
+_PREFERRED = re.compile(rf"{_APPLICANT} (?P<place>based in|located in|residing in|living in) (?P<countries>.+?) (?:are )?preferred", re.I)
+_NOT_REQUIRED = re.compile(rf"{_APPLICANT} (?:are not required to|need not) {_PLACE} (?P<countries>.+)", re.I)
+_UNRELATED = re.compile(r"\b(headquarters|customers?|clients?|markets?|timezones?|time zones?|nationality|citizenship|citizens|nationals|authorization|authorised|authorized|visa|passport)\b", re.I)
+
+
+def _description_countries(text):
+    # Exact country vocabulary only. Unknown alternatives cannot support a veto.
+    text = re.sub(r"\bU\.S(?:\.A)?\.?(?=\s|$)", "USA", text, flags=re.I).strip(" .")
+    text = re.sub(r"^the\s+", "", text, flags=re.I)
+    try:
+        return [normalize_country(text)], False
+    except ValueError:
+        pass
+    tokens = re.split(r"\s*(?:,|/|\bor\b|\band\b)\s*", text, flags=re.I)
+    countries, unresolved = set(), False
+    for token in tokens:
+        try:
+            countries.add(normalize_country(re.sub(r"^the\s+", "", token, flags=re.I)))
+        except ValueError:
+            unresolved = True
+    return sorted(countries), unresolved
+
+
+def prepare_mercor_description_geography(body, source_field, structured):
+    """Prepare a bounded grammar at ingestion, never while serving matches.
+
+    Match whole statements, retaining exact accepted-body lines and modality.
+    A bare country-only bullet requires a known applicant/role-details section.
+    Unsupported qualifiers/conditional variants remain opaque, not hard gates.
+    """
+    body = normalize_source_body(body)
+    if not body:
+        return None
+    clauses, section, code = [], "", False
+    for line_number, raw in enumerate(body.splitlines(), 1):
+        text = raw.strip()
+        if text.startswith("```"):
+            code = not code
+        if code or not text or text.startswith((">", "```")):
+            continue
+        if (text.startswith("#") or re.fullmatch(r"\*\*[^*]+\*\*:?", text)
+                or re.fullmatch(r"[A-Za-z][A-Za-z /&()-]{1,60}:", text)):
+            section = text.strip("# *:").casefold()
+            continue
+        text = re.sub(r"^(?:[-*•]\s+)", "", text).strip().rstrip(".")
+        # Country mentions about a different dimension are never location rules.
+        if _UNRELATED.search(text):
+            continue
+        dimension, mode, modality, countries, unresolved = "location", "allow", "mandatory", [], False
+        match = _NOT_REQUIRED.fullmatch(text)
+        if match:
+            modality = "not_required"
+        else:
+            match = _PREFERRED.fullmatch(text)
+            if match:
+                modality = "preferred"
+            else:
+                match = _MANDATORY.fullmatch(text)
+                if match:
+                    mode = "exclude" if match['not'] else "allow"
+                else:
+                    match = _ELIGIBLE.fullmatch(text)
+                    if match:
+                        if match['result'].lower() in {"are not eligible", "cannot apply", "are ineligible"}:
+                            mode = "exclude"
+                        elif not match['only']:
+                            # A positive invitation need not be an exhaustive list.
+                            modality = "invitation"
+        if match:
+            dimension = "residence" if re.search(r"resid|liv", match['place'], re.I) else "location"
+            countries, unresolved = _description_countries(match['countries'])
+        elif re.fullmatch(rf"{_APPLICANT} (?:from|in) (?:all countries|any country|anywhere|worldwide) (?:are eligible|may apply|can apply)", text, re.I):
+            modality = "unrestricted"
+        else:
+            only = re.fullmatch(r"(?P<countries>.+?) only", text, re.I)
+            if only and not re.search(r"\b(not|except|unless|preferred|if|for)\b", text, re.I):
+                countries, unresolved = _description_countries(only['countries'])
+                # A recognized country alone is insufficient outside this context.
+                if not countries:
+                    continue
+                if section not in _ELIGIBILITY_SECTIONS:
+                    modality = "unresolved"
+            elif (re.search(_APPLICANT, text, re.I) and re.search(r"\b(based|located|reside|residents|living)\b", text, re.I)):
+                # Includes conditional/variant-specific and compound statements.
+                modality, unresolved = "unresolved", True
+            else:
+                continue
+        if modality == "unresolved" and re.search(r"\b(?:a preference, not a requirement|preferred)\b", text, re.I):
+            modality = "preferred"
+        if section in {"preferred qualifications", "preferred locations", "nice to have", "preferences"}:
+            if modality == "mandatory":
+                # Mandatory phrasing inside a preference section is ambiguous.
+                modality = "unresolved"
+            elif modality == "unresolved" and not re.search(r"\b(must|required)\b", text, re.I):
+                modality = "preferred"
+        clauses.append({"dimension": dimension, "mode": mode, "countries": countries,
+                        "unresolved": unresolved, "modality": modality,
+                        "source_field": f"{source_field}:line {line_number}",
+                        "source_quote": raw, "section": section})
+    if not clauses:
+        return None
+    # Detect contradictions involving newly prepared description evidence. Leave
+    # existing structured-only policy untouched; do not silently pick a source.
+    structured_requirements = [_country_requirement(f, v) for f, v in structured.items()
+                               if f in MERCOR_GEOGRAPHY_FIELDS and v not in (None, [])]
+    conflicts = []
+    for dimension in ("location", "residence"):
+        described = [c for c in clauses if c['dimension'] == dimension]
+        mandatory = [c for c in described if c['modality'] == 'mandatory' and not c['unresolved']]
+        required = mandatory + [c for c in structured_requirements if c['dimension'] == dimension and not c['unresolved']]
+        allowed = [set(c['countries']) for c in required if c['mode'] == 'allow']
+        excluded = set().union(*(set(c['countries']) for c in required if c['mode'] == 'exclude'))
+        impossible = bool(mandatory and allowed and not (set.intersection(*allowed) - excluded))
+        released = any(c['modality'] == 'unrestricted' and required for c in described)
+        released |= any(c['modality'] == 'not_required' and any(a <= set(c['countries']) for a in allowed) for c in described)
+        invitation_conflict = any(c['modality'] == 'invitation' and not c['unresolved'] and
+                                  (bool(set(c['countries']) & excluded) or any(not set(c['countries']) <= a for a in allowed)) for c in described)
+        if impossible or released or invitation_conflict:
+            conflicts.append(dimension)
+    return {"version": 1, "body_sha256": hashlib.sha256(body.encode()).hexdigest(),
+            "clauses": clauses, "conflicting_dimensions": conflicts}
 # Mercor supplies alpha-3 tokens. Decode these standard country identifiers;
 # an unsupported token remains unresolved, never a guessed country or exclusion.
 # XKX is the provider's Kosovo token (the existing country vocabulary uses XK).
@@ -44,8 +176,9 @@ def _country_requirement(field, value):
 def apply_mercor_applicant_geography(connection, rows):
     """Attach only each variant's accepted source capture; never canonical union.
 
-    No body inference, preferred/employer locations, timezone, nationality or
-    work-authorization inference. Null/empty fields do not grant worldwide access.
+    Description evidence was prepared during ingestion and shares this accepted
+    capture's hash/provenance. No description parsing occurs on the request path.
+    Null/empty fields do not grant worldwide access.
     The caller holds the same read transaction as its inventory query.
     """
     wanted = {r["job_id"] for r in rows if r.get("source_slug") == "mercor"}
@@ -81,8 +214,24 @@ def apply_mercor_applicant_geography(connection, rows):
         fields = {f: metadata[f] for f in MERCOR_GEOGRAPHY_FIELDS if f in metadata}
         requirements = [_country_requirement(f, v) for f, v in fields.items()
                         if v is not None and v != []]
+        description = metadata.get(DESCRIPTION_GEOGRAPHY_KEY)
+        if description:
+            if description.get("version") != 1:
+                raise ValueError("unsupported prepared Mercor description geography")
+            for clause in description["clauses"]:
+                if clause["modality"] in {"mandatory", "unresolved"}:
+                    requirements.append({**clause, "ambiguous_statement": clause["modality"] == "unresolved"})
+            for dimension in description["conflicting_dimensions"]:
+                affected = [r for r in requirements if r["dimension"] == dimension]
+                if not affected:
+                    raise ValueError("conflicting geography lacks restriction evidence")
+                for requirement in affected:
+                    requirement["source_conflict"] = True
         if requirements:
-            evidence[capture["job_id"]] = (requirements, {**capture, "fields": fields})
+            provenance = {**capture, "fields": fields}
+            if description:
+                provenance["description"] = description
+            evidence[capture["job_id"]] = (requirements, provenance)
     return [dict(row, applicant_country_requirements=evidence[row["job_id"]][0],
                  applicant_geography_evidence=evidence[row["job_id"]][1])
             if row["job_id"] in evidence else row for row in rows]
