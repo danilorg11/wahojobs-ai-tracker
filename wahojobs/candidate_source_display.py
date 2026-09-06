@@ -84,7 +84,7 @@ def markdown(text, *, heading_level=3):
 _RATE = re.compile(
     r'(?<![\w.])(?:(?:up to|from|starting at|at least)\s+)?'
     r'(?:(?:USD|EUR|GBP|CAD|AUD)\s*|[\$€£])?\d+(?:[,.]\d+)*\+?'
-    r'(?:\s*[-–—]\s*(?:(?:USD|EUR|GBP|CAD|AUD)\s*|[\$€£])?\d+(?:[,.]\d+)*\+?)?'
+    r'(?:\s*(?:[-–—]\s*to\s*[-–—]|to\b|[-–—])\s*(?:(?:USD|EUR|GBP|CAD|AUD)\s*|[\$€£])?\d+(?:[,.]\d+)*\+?)?'
     r'\s*(?:(?:USD|EUR|GBP|CAD|AUD)\s*)?(?:/\s*|per\s+)'
     r'(?:accepted\s+)?(?:hour|hr|month|year|project|task)s?\b', re.I)
 
