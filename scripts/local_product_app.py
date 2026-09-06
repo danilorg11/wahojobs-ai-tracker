@@ -4102,7 +4102,7 @@ def build_ranked_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
     return ranked
 
 
-def build_browser_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
+def build_browser_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT, *, conditional_only=False):
     """Return verified matches plus a bounded recent-cache fallback."""
     ranked = []
     seen_identities = set()
@@ -4110,17 +4110,21 @@ def build_browser_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
     for data_status in ("recently_verified", "recently_cached"):
         for section in ACTIONABLE_PRESENTATION_SECTIONS:
             for match in matches_by_section.get(section, []):
+                from wahojobs.matching.source_task_fit import is_conditional_task_fit
+                conditional = conditional_only and is_conditional_task_fit(match)
+                if conditional_only and not conditional:
+                    continue
                 if data_status == "recently_verified":
                     eligible = (
                         match.get("opportunity_trust_status") == "trusted"
-                        and match.get("primary_recommendation_eligible", True)
+                        and (conditional or match.get("primary_recommendation_eligible", True))
                     )
                 else:
-                    eligible = recent_cached_match_is_usable(match)
+                    eligible = recent_cached_match_is_usable(match, allow_conditional_task_fit=conditional)
                 if (
                     not eligible
-                    or browser_match_rejection_reasons(match)
-                    or match.get("affirmative_fit_status") != "supported"
+                    or browser_match_rejection_reasons(match, allow_conditional_task_fit=conditional)
+                    or (not conditional and match.get("affirmative_fit_status") != "supported")
                 ):
                     continue
                 identity = stable_opportunity_identity(match)
@@ -4137,10 +4141,10 @@ def build_browser_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT):
     return ranked
 
 
-def recent_cached_match_is_usable(match):
+def recent_cached_match_is_usable(match, *, allow_conditional_task_fit=False):
     if match.get("opportunity_trust_status") != "stale_source":
         return False
-    if browser_match_rejection_reasons(match):
+    if browser_match_rejection_reasons(match, allow_conditional_task_fit=allow_conditional_task_fit):
         return False
     age_hours = (match.get("opportunity_trust") or {}).get("source_age_hours")
     try:
@@ -4149,7 +4153,7 @@ def recent_cached_match_is_usable(match):
         return False
 
 
-def browser_match_rejection_reasons(match):
+def browser_match_rejection_reasons(match, *, allow_conditional_task_fit=False):
     reasons = []
     if stable_opportunity_identity(match) is None:
         reasons.append("invalid_stable_identity")
@@ -4161,7 +4165,9 @@ def browser_match_rejection_reasons(match):
         reasons.append("professional_domain_hard_gate")
     if match.get("location_eligibility_status") == "incompatible":
         reasons.append("incompatible_location")
-    if match.get("affirmative_fit_status") != "supported":
+    from wahojobs.matching.source_task_fit import is_conditional_task_fit
+    if (match.get("affirmative_fit_status") != "supported"
+            and not (allow_conditional_task_fit and is_conditional_task_fit(match))):
         reasons.append("affirmative_fit_not_supported")
     cap_reasons = set(match.get("actionability_cap_reasons") or [])
     if cap_reasons - {"opportunity_trust_stale_source", "opportunity_trust_unverified_source"}:

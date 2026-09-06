@@ -1773,6 +1773,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         else None
                     ),
                 )
+                context = self._with_source_task_fit(context, profile_v2)
                 effective_enrichments = {}
                 enrichment_read_succeeded = True
                 if (_has_authoritative_preference_model(profile_v2)
@@ -1866,10 +1867,33 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Matches cannot be loaded safely right now.",
             )
 
+    def _with_source_task_fit(self, context, profile_v2):
+        from wahojobs.authenticated_card_evidence import load_card_sources
+        from wahojobs.matching.source_task_fit import apply_source_task_fit
+        # Existing pre-admission representatives, including those below the UI
+        # limit. No catalog re-scoring or inference from another variant.
+        candidates = [m for m in _ranked_presentation_eligible_pool(context)
+                      if m.get("matched_languages")]
+        if not candidates:
+            return context
+        with self._connection_provider() as connection:
+            if connection.in_transaction or connection.execute("PRAGMA query_only").fetchone()[0] != 1:
+                raise ValueError("source_task_evidence_read_unavailable")
+            connection.execute("BEGIN")
+            try:
+                sources = load_card_sources(connection, candidates)
+            finally:
+                connection.rollback()
+        ids = {m["job_id"] for m in candidates}
+        return dict(context, matches={section: [
+            apply_source_task_fit(m, sources.get(m.get("job_id")), profile_v2)
+            if m.get("job_id") in ids else m for m in values]
+            for section, values in context["matches"].items()})
+
     def _with_card_evidence(self, context, profile_v2):
         # Presentation-only enrichment of the final visible IDs, never the pool.
         from wahojobs.authenticated_card_evidence import load_card_sources, prepare_card_evidence
-        matches = _primary_presentation_matches(context)
+        matches = _primary_presentation_matches(context) + _conditional_presentation_matches(context)
         sources = {}
         if matches:
             try:
@@ -1902,6 +1926,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "preview_limit": local_product.PREVIEW_MATCH_LIMIT,
             "presentation_limit": MATCH_PRESENTATION_LIMIT,
             "recent_cache_hours": local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
+            "source_task_fit_version": 1,
         }
         digest = hashlib.sha256(json.dumps(
             document, sort_keys=True, separators=(",", ":"), allow_nan=False,
@@ -2656,7 +2681,7 @@ def _apply_typed_preference_enforcement_v1(
     criteria = match_criteria_v1_from_profile(profile_v2)
     if criteria.source_status != "present":
         return context
-    ranked_pool = _ranked_presentation_eligible_pool(context)
+    ranked_pool = _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context)
     rows_by_job_id = _unique_inventory_rows_by_job_id(inventory_rows)
     candidate_references = []
     surviving_references = []
@@ -2703,7 +2728,7 @@ def _apply_typed_preference_enforcement_v1(
             # The existing matcher result remains the eligibility authority.
             # A bridge diagnostic failure must not invent a new gate.
             pass
-        if opportunity is not None and eligibility_outcomes:
+        if opportunity is not None and eligibility_outcomes and not match.get("conditional_task_fit"):
             try:
                 relaxation_candidates.extend(
                     evaluate_single_criterion_relaxations_v1(
@@ -2783,7 +2808,7 @@ def _typed_preference_candidate_rows(context, inventory_rows):
     rows_by_job_id = _unique_inventory_rows_by_job_id(inventory_rows)
     return [
         rows_by_job_id[job_id]
-        for match in _ranked_presentation_eligible_pool(context)
+        for match in _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context)
         if _typed_presentation_reference(match) is not None
         and (job_id := _typed_match_job_id(match)) in rows_by_job_id
     ]
@@ -2863,6 +2888,33 @@ def _primary_presentation_matches(context):
         for match in _ranked_presentation_eligible_pool(context)
         if _typed_presentation_reference(match) in survivor_set
     ][:MATCH_PRESENTATION_LIMIT]
+
+
+def _conditional_presentation_pool(context):
+    bound = sum(len(v) for v in ((context or {}).get("matches") or {}).values())
+    return (local_product.build_browser_presentation_matches(context, limit=bound, conditional_only=True)
+            if bound else [])
+
+
+def _conditional_presentation_matches(context):
+    pool = _conditional_presentation_pool(context)
+    enforcement = (context or {}).get("_typed_preference_enforcement")
+    if enforcement is not None:
+        # Use the same validated survivor document as main admission. The
+        # conditional pool is evaluated by the same typed preference policy.
+        if (not isinstance(enforcement, dict)
+                or enforcement.get("schema_version") != TYPED_PREFERENCE_ENFORCEMENT_SCHEMA_VERSION):
+            return []
+        survivors = enforcement.get("surviving_references", [])
+        candidates = enforcement.get("candidate_references", [])
+        if (not isinstance(survivors, list) or not isinstance(candidates, list)
+                or any(not isinstance(v, str) for v in survivors + candidates)
+                or len(set(candidates)) != len(candidates)
+                or len(set(survivors)) != len(survivors)
+                or not set(survivors).issubset(candidates)):
+            return []
+        pool = [m for m in pool if _typed_presentation_reference(m) in survivors]
+    return pool[:MATCH_PRESENTATION_LIMIT]
 
 
 def _presented_relaxation_scenarios(context):
@@ -3292,6 +3344,7 @@ def _render_match_results(
     tracked=None,
     match_run_id=None,
 ):
+    from wahojobs.authenticated_variant_details import variant_detail_url
     matches = _primary_presentation_matches(context)
     cards = []
     for match in matches:
@@ -3388,6 +3441,26 @@ def _render_match_results(
         context,
         profile_target="/account/profile?correction=start",
     )
+    conditional_cards = []
+    for index, match in enumerate(_conditional_presentation_matches(context), 1):
+        url = variant_detail_url(match, run_id=match_run_id)
+        if url is None:
+            continue
+        packet = (context.get("_card_evidence") or {}).get(match["job_id"]) or {}
+        pay = next((value for label, value in packet.get("facts", []) if label == "Pay"), "")
+        conditional_cards.append(
+            f"<article class='relaxation-preview-card' id='opportunity-{match['job_id']}'><div>"
+            f"<h3>{_safe(match.get('display_title') or match.get('title'))}</h3>"
+            f"<p>{_safe(match.get('source'))}</p>"
+            + (f"<p>{_safe(pay)}</p>" if pay else "")
+            + f"<p>{_safe(match['source_task_fit']['candidate_note'])}</p>"
+            + ("<p>Availability needs confirmation.</p>" if match.get('presentation_data_status') == 'recently_cached' else "")
+            + f"</div><a href='{_safe(url)}'>View job details</a></article>")
+    if conditional_cards:
+        relaxation_section = (
+            "<details class='relaxation-scenario'><summary>Possibilities if you have related experience</summary>"
+            "<div class='relaxation-preview-list'>" + "".join(conditional_cards) + "</div></details>"
+            + relaxation_section)
     if cards:
         count = len(cards)
         summary = _visible_match_summary(count)

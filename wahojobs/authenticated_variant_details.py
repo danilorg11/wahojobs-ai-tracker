@@ -52,9 +52,10 @@ def parse_variant_query(query):
 
 def find_presented_variant(context, canonical_id, job_id=None):
     from wahojobs.authenticated_profile_matches import (
-        _primary_presentation_matches, _presented_relaxation_scenarios,
+        _primary_presentation_matches, _presented_relaxation_scenarios, _conditional_presentation_matches,
     )
     groups = [(_primary_presentation_matches(context), "main")]
+    groups.append((_conditional_presentation_matches(context), "conditional"))
     groups.extend((scenario["matches"], "relaxation")
                   for scenario in _presented_relaxation_scenarios(context))
     for matches, section in groups:
@@ -77,6 +78,7 @@ def load_scoped_snapshot(connection, canonical_id, requested_id, *, now):
     from scripts import profile_to_matches_preview as preview
     from wahojobs.matching.source_geography import apply_mercor_applicant_geography
     from wahojobs.matching.recommendation_validity import database_commit_token
+    from wahojobs.authenticated_card_evidence import load_card_sources
     rows = preview.query_preview_rows(connection, canonical_opportunity_id=canonical_id)
     rows = apply_mercor_applicant_geography(connection, rows)
     detail_evidence = public_job_page.load_public_job_evidence(
@@ -108,7 +110,8 @@ def load_scoped_snapshot(connection, canonical_id, requested_id, *, now):
     except (OSError, sqlite3.Error, ValueError, TypeError):
         # No token means unproven membership, never a reason to compute a list.
         token = None
-    return {"rows": rows, "detail_evidence": detail_evidence, "effective": effective, "token": token}
+    return {"rows": rows, "detail_evidence": detail_evidence, "effective": effective, "token": token,
+            "task_sources": load_card_sources(connection, rows)}
 
 
 def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now):
@@ -128,6 +131,9 @@ def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now):
             projected, inventory_rows=rows, metadata_overlay_status={},
             limit=max(1, len(rows)), evaluated_at=now,
             evaluated_match_sink=evaluated.append)
+    from wahojobs.matching.source_task_fit import apply_source_task_fit
+    evaluated = [apply_source_task_fit(m, snapshot.get("task_sources", {}).get(m["job_id"]), profile_v2)
+                 for m in evaluated]
     by_id = {match["job_id"]: match for match in evaluated}
     if len(by_id) != len(evaluated):
         raise ValueError("ambiguous_scoped_variant")

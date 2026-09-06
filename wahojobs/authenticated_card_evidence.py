@@ -188,6 +188,9 @@ def prepare_card_evidence(match, source, profile):
     if not engagement and re.match(r'(?:part-time|full-time)\b', workload, re.I):
         engagement = workload.split(',')[0].capitalize()
     caveats = [geography] if geography else []
+    task_note = (match.get('source_task_fit') or {}).get('candidate_note')
+    if task_note:
+        caveats.append(task_note)
     caveats += pay['notes']
     commitment = source.get('commitment') or ''
     if (commitment.casefold() in ('full-time', 'part-time') and
