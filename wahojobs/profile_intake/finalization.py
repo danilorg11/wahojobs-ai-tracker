@@ -21,6 +21,7 @@ from wahojobs.ai_profile_import import (
     AI_PROFILE_IMPORT_RESERVATION_GENERATION_MAX,
     ConfirmedAIProfileImport,
     prepare_confirmed_ai_profile_import,
+    actionable_review_validation_issue,
 )
 from wahojobs.profile_intake.contracts import ProfileIntakeError
 from wahojobs.profile_intake.runtime import (
@@ -328,6 +329,11 @@ class ProfileIntakeFinalizationService:
                 bound.source_metadata_for_service(),
             )
         except AIProfileImportError as exc:
+            if exc.code == "content_rejected":
+                issue = actionable_review_validation_issue(review)
+                raise ProfileIntakeError(
+                    "review_field_invalid", diagnostics=issue or {"kind": "review"}
+                ) from None
             raise ProfileIntakeError(_browser_code(exc.code)) from None
 
     def commit(self, grant, bound, confirmed):

@@ -59,6 +59,7 @@ from wahojobs.profile_intake.runtime import (
     review_value_for_form,
     serialize_profile_intake_checkpoint,
     update_editable_review,
+    review_collection_entries,
     reviewed_display_name,
     valid_review_display_name,
 )
@@ -73,6 +74,8 @@ from wahojobs.profiles.canonical import (
 )
 from wahojobs.profiles.canonical_v2 import (
     CanonicalProfileV2Error,
+    MAX_DYNAMIC_LABEL_LENGTH,
+    _validate_string_list,
     add_user_confirmed_education_entries_v1,
     add_user_confirmed_preference_model_v1,
     add_user_confirmed_preference_model_v2,
@@ -1432,7 +1435,7 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         + b"\x00"
         + source_metadata.canonical_json.encode("ascii")
     ).hexdigest()
-    return ConfirmedAIProfileImport._issue(
+    confirmed = ConfirmedAIProfileImport._issue(
         _AUTHORITY_ISSUER,
         reviewed,
         source_metadata,
@@ -1442,6 +1445,36 @@ def prepare_confirmed_ai_profile_import(review, source_metadata):
         education_field_authority,
         unpaired_education,
     )
+    # Validate the actual proposed payload with the same builder used at commit,
+    # before starting an atomic save or consuming an entitlement. Only its future
+    # durable identity is provisional; no candidate content is substituted.
+    from wahojobs.persistent_profiles import generate_profile_id
+    try:
+        _confirmed_profile_v2(confirmed, generate_profile_id())
+    except CanonicalProfileV2Error:
+        raise AIProfileImportError("content_rejected") from None
+    return confirmed
+
+
+def actionable_review_validation_issue(review):
+    """Locate supported editable failures using the authoritative validators."""
+    for index, fact in enumerate(review.facts):
+        if fact.decision not in {"keep", "accept"}:
+            continue
+        if fact.field_path in {"location.country", "location.residence"}:
+            try:
+                normalize_country(fact.value, allow_missing=True)
+            except (TypeError, ValueError):
+                return {"kind": "country", "index": index}
+    for index, entry in enumerate(review_collection_entries(review, "skills")):
+        if entry["decision"] != "keep":
+            continue
+        errors = []
+        _validate_string_list([entry["value"]], errors)
+        if errors:
+            return {"kind": "skill", "index": index, "limit": MAX_DYNAMIC_LABEL_LENGTH,
+                    "reason": "length" if len(entry["value"]) > MAX_DYNAMIC_LABEL_LENGTH else "characters"}
+    return None
 
 
 def _confirmed_review_v1(
@@ -1660,57 +1693,60 @@ def _apply_review_fact_provenance(field_sources, canonical, facts):
         apply("location.residence", by_path["location.country"][0])
 
 
+def _confirmed_profile_v2(confirmed, profile_id):
+    education_authorities = confirmed.education_field_authorities_for_service()
+
+    def education_source_authority(path):
+        match = re.fullmatch(
+            r"education\.entries\[([0-9]+)\]\."
+            r"(kind|qualification|field|institution|status|completion_year)",
+            path,
+        )
+        if match is None:
+            raise CanonicalProfileV2Error("invalid_education_source_path")
+        index = int(match.group(1))
+        if not 0 <= index < len(education_authorities):
+            raise CanonicalProfileV2Error("invalid_education_source_path")
+        detail = education_authorities[index][match.group(2)]
+        return detail["source_kind"], detail["explicit"]
+
+    profile_v2 = convert_v1_to_v2(
+        confirmed.reviewed_profile.bind_durable_profile_id(profile_id),
+        persistent_profile_id=profile_id,
+        source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
+    )
+    profile_v2 = add_user_confirmed_education_entries_v1(
+        profile_v2,
+        confirmed.education_entries_for_service(),
+        confirmed.unpaired_education_for_service(),
+        source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
+        source_authority_resolver=education_source_authority,
+    )
+    preference_model = confirmed.preference_model_for_service()
+    writer = (
+        add_user_confirmed_preference_model_v2
+        if preference_model["schema_version"] == PREFERENCE_V2_SCHEMA_VERSION
+        else add_user_confirmed_preference_model_v1
+    )
+    return writer(
+        profile_v2,
+        preference_model,
+        source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
+    )
+
+
 def _create_command(confirmed, authority, reservation, now):
     source = UserConfirmedAIImportSourceDraft.from_metadata(
         confirmed.source_metadata.to_mapping(),
         confirmed_at=now,
     )
 
-    def builder(profile_id):
-        education_authorities = confirmed.education_field_authorities_for_service()
-
-        def education_source_authority(path):
-            match = re.fullmatch(
-                r"education\.entries\[([0-9]+)\]\."
-                r"(kind|qualification|field|institution|status|completion_year)",
-                path,
-            )
-            if match is None:
-                raise CanonicalProfileV2Error("invalid_education_source_path")
-            index = int(match.group(1))
-            if not 0 <= index < len(education_authorities):
-                raise CanonicalProfileV2Error("invalid_education_source_path")
-            detail = education_authorities[index][match.group(2)]
-            return detail["source_kind"], detail["explicit"]
-
-        profile_v2 = convert_v1_to_v2(
-            confirmed.reviewed_profile.bind_durable_profile_id(profile_id),
-            persistent_profile_id=profile_id,
-            source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
-        )
-        profile_v2 = add_user_confirmed_education_entries_v1(
-            profile_v2,
-            confirmed.education_entries_for_service(),
-            confirmed.unpaired_education_for_service(),
-            source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
-            source_authority_resolver=education_source_authority,
-        )
-        preference_model = confirmed.preference_model_for_service()
-        writer = (
-            add_user_confirmed_preference_model_v2
-            if preference_model["schema_version"] == PREFERENCE_V2_SCHEMA_VERSION
-            else add_user_confirmed_preference_model_v1
-        )
-        return writer(
-            profile_v2,
-            preference_model,
-            source_ordinal_resolver=lambda _path, _source, _explicit: (1,),
-        )
-
     try:
         return CreatePersistentProfileCommand.prepare(
             principal=authority[5],
-            canonical_profile_v2=_create_canonical_profile_v2_draft(builder),
+            canonical_profile_v2=_create_canonical_profile_v2_draft(
+                lambda profile_id: _confirmed_profile_v2(confirmed, profile_id)
+            ),
             sources=(source,),
             normalizer_version=AI_PROFILE_IMPORT_NORMALIZER_VERSION,
             reviewer_version=AI_PROFILE_IMPORT_REVIEWER_VERSION,

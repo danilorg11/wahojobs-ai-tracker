@@ -1894,6 +1894,23 @@ class ProfileIntakeProcessingService:
             with self._guard:
                 self._in_flight.discard(binding)
 
+    def review_validation_issue(self, reference, grant):
+        """Recheck an owned draft for feedback without beginning finalization."""
+        state, snapshot = self.lookup(reference, grant)
+        if state != "active" or snapshot is None or self._durable is None:
+            return None
+        authority = self._vault.save_authority(
+            reference, grant, expected_version=snapshot.version,
+        )
+        if authority is None:
+            return None
+        try:
+            self._durable.prepare(snapshot.review, authority)
+        except ProfileIntakeError as exc:
+            if exc.code == "review_field_invalid":
+                return exc.diagnostics
+        return None
+
     def save(
         self,
         reference,

@@ -38,6 +38,7 @@ from wahojobs.profile_intake.contracts import (
     ProfileIntakeError,
     _FIELD_SPECS,
 )
+from wahojobs.profiles.countries import CANONICAL_COUNTRIES
 from wahojobs.profile_intake.runtime import (
     PROFILE_INTAKE_REVIEW_COLLECTIONS,
     PROFILE_INTAKE_REVIEW_ROUTE,
@@ -414,6 +415,9 @@ function showDisplayNameError(){var error=document.getElementById('display-name-
 function validateDisplayName(){var fields=form.querySelectorAll('[data-display-name]');var valid=Array.prototype.some.call(fields,function(field){return !!field.value.trim()&&field.value.trim().length<=160&&field.value!==invalidNameValue;});var error=document.getElementById('display-name-error');if(error){error.hidden=valid;}Array.prototype.forEach.call(fields,function(field){if(valid){field.removeAttribute('aria-invalid');}else{field.setAttribute('aria-invalid','true');}});if(!valid){show('attention','Enter the display name you would like us to use.',false,false);focusDisplayName();}return valid;}
 var nameLink=form.querySelector('[data-focus-display-name]');if(nameLink){nameLink.addEventListener('click',function(event){event.preventDefault();focusDisplayName();});}
 var nameError=document.getElementById('display-name-error');if(nameError&&!nameError.hidden){window.setTimeout(focusDisplayName,0);}
+var fieldErrorLink=form.querySelector('[data-review-error-target]');
+if(fieldErrorLink){var errorField=document.getElementById(fieldErrorLink.dataset.reviewErrorTarget);var fieldError=document.getElementById('profile-field-error');if(errorField&&fieldError){errorField.setAttribute('aria-invalid','true');errorField.setAttribute('aria-describedby','profile-field-error');var errorItem=errorField.closest('[data-collection-item]')||errorField.closest('label');if(errorItem){errorItem.insertAdjacentElement('afterend',fieldError);fieldError.style.flexBasis='100%';fieldError.style.minWidth='0';fieldError.style.maxWidth='100%';}function focusReviewError(){var parent=errorField.parentElement;while(parent&&parent!==form){if(parent.tagName==='DETAILS'){parent.open=true;}parent=parent.parentElement;}errorField.focus();errorField.scrollIntoView({block:'center'});}fieldErrorLink.addEventListener('click',function(event){event.preventDefault();focusReviewError();});window.setTimeout(focusReviewError,0);}}
+
 
 Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^="#review-"]'),function(link){link.addEventListener('click',function(event){var target=link.getAttribute('href').slice(1);if(step&&step.value==='review-found'&&target!=='review-found'&&profileBasicsNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-found',target);return;}if(step&&step.value==='review-suggestions'&&['review-preferences','review-finish'].indexOf(target)>=0&&backgroundNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-suggestions',target);return;}if(step&&step.value==='review-found'&&target!=='review-found'){clearWorkHistoryUndo();}if(step&&step.value==='review-suggestions'&&target!=='review-suggestions'){clearExpertiseUndo();}if(target==='review-finish'){event.preventDefault();openStepFour();return;}setStep(target);});});
 form.addEventListener('focusin',rememberSection);form.addEventListener('pointerdown',rememberSection);window.addEventListener('hashchange',function(){setStep(window.location.hash.slice(1));});
@@ -727,7 +731,10 @@ class ProfileIntakeBrowserIntegration:
 
     def _review(self, method, parsed, headers, authentication_input, body_stream, session_token, csrf_secret):
         parameters = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
-        if parsed.fragment or set(parameters) != {"draft"} or len(parameters["draft"]) != 1:
+        allowed = {"draft", "check"} if method in {"GET", "HEAD"} else {"draft"}
+        if (parsed.fragment or not {"draft"} <= set(parameters) <= allowed
+                or len(parameters["draft"]) != 1
+                or ("check" in parameters and parameters["check"] != ["1"])):
             return _failure("invalid_draft")
         reference = parameters["draft"][0]
         if _OPAQUE.fullmatch(reference) is None:
@@ -747,6 +754,9 @@ class ProfileIntakeBrowserIntegration:
                 return _matches_redirect()
             if state != "active" or snapshot is None:
                 return _failure("expired_draft")
+            issue = None
+            if "check" in parameters:
+                issue = self._processing.review_validation_issue(reference, grant)
             return _form_page_response(
                 HTTPStatus.OK,
                 _review_page(
@@ -754,6 +764,7 @@ class ProfileIntakeBrowserIntegration:
                     snapshot,
                     csrf_secret,
                     save_enabled=self._processing.durable_save_enabled,
+                    validation_issue=issue,
                 ),
                 script_sha256=_REVIEW_STATE_SCRIPT_HASH,
                 script_connect_self=True,
@@ -910,6 +921,25 @@ class ProfileIntakeBrowserIntegration:
                     request_digest=request_digest,
                 )
             except ProfileIntakeError as exc:
+                if exc.code == "review_field_invalid":
+                    try:
+                        _state, updated = self._processing.autosave(
+                            reference, grant, expected_version=version,
+                            review=review, review_step=review_step,
+                        )
+                    except ProfileIntakeError as save_error:
+                        return _failure(_save_error_code(save_error.code))
+                    # Post/redirect/get keeps reload from resubmitting an old
+                    # version. GET derives field feedback from the owned draft;
+                    # the URL never carries a field value or a trusted verdict.
+                    location = PROFILE_INTAKE_REVIEW_ROUTE + "?" + urlencode(
+                        {"draft": reference, "check": "1"}
+                    )
+                    return _response(
+                        HTTPStatus.SEE_OTHER,
+                        _message_page("Review saved", "Check the highlighted information before finishing."),
+                        extra_headers=(("Location", location),),
+                    )
                 failure_code = _save_error_code(exc.code)
                 if failure_code == "existing_profile":
                     return _matches_redirect()
@@ -1950,7 +1980,7 @@ def _upload_page(proof):
     return _page("Create your profile", body)
 
 
-def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False, display_name_error=False):
+def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False, display_name_error=False, validation_issue=None):
     snapshot = replace(snapshot, review=review_with_display_name_input(snapshot.review))
     fact_fields = []
     education_fact_indexes = managed_education_fact_indexes(snapshot.review)
@@ -2231,6 +2261,10 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False, displa
         "AI training and evaluation opportunities that fit you. You don’t need to choose every job area or task type yourself.</p>"
         "</div></details>"
     )
+    field_feedback = _review_field_feedback(validation_issue)
+    country_options = "<datalist id='profile-country-options'>" + "".join(
+        f"<option value='{_safe_text(country)}'></option>" for country in CANONICAL_COUNTRIES
+    ) + "</datalist>"
     source_kinds = {source.document_kind for source in snapshot.review.sources}
     if source_kinds == {DocumentKind.RESUME}:
         profile_basics_copy = "Found in your resume. Check the details and add anything important we missed."
@@ -2258,6 +2292,7 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False, displa
       <a id='profile-review-save-resume' href='{PROFILE_INTAKE_ROUTE}' hidden>Continue saved progress</a>
     </div>
     <form id='profile-review-form' class='profile-review-form intake-review-form' method='post' action='{target}' novalidate>
+      {field_feedback}{country_options}
       <input type='hidden' name='action' value='{primary_action}'><input type='hidden' name='version' value='{snapshot.version}'><input type='hidden' name='csrf' value='{primary_proof}'><input type='hidden' name='review_step' value='{_safe_text(snapshot.review_step)}'><input type='hidden' name='{_REVIEW_CONFIRM_FIELD}' value='' disabled><input type='hidden' name='{_SECTION_RESET_FIELD}' value='' data-section-reset-field disabled>
       <section class='review-section' id='review-found' aria-labelledby='review-found-title'><div class='section-heading'><p class='eyebrow'>Step 1 of 4</p><h2 id='review-found-title'>Your profile basics</h2><p>{_safe_text(profile_basics_copy)}</p></div>
         <div class='review-profile-sections'>
@@ -2286,6 +2321,43 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False, displa
     <script>{_REVIEW_STATE_SCRIPT}</script>
     """
     return _page("Review your profile", body)
+
+
+def _review_field_feedback(issue):
+    if not issue:
+        return ""
+    index = issue.get("index")
+    if issue.get("kind") == "review":
+        return (
+            "<p id='profile-field-error' class='intake-callout' role='alert'>"
+            "Your draft is saved, but some information still needs correction before you finish. "
+            "<a href='#review-found'>Review your details</a></p>"
+        )
+    if type(index) is not int or index < 0:
+        return ""
+    if issue.get("kind") == "skill":
+        target = f"review-collection-skills-{index}-value"
+        message = (
+            (f"This item is too long ({issue['limit']} characters maximum). "
+             if issue.get("reason") == "length" else "Remove unsupported characters from this item. ")
+            + "If it lists several skills, use Add another skill or area of expertise "
+            "to enter them separately."
+        )
+        label = "Review this item"
+    elif issue.get("kind") == "country":
+        target = f"review-fact-{index}-value"
+        message = (
+            "Enter one country name or two-letter code, for example Brazil or BR. "
+            "If you are not sure which country applies, keep your draft and confirm it before finishing."
+        )
+        label = "Review this country"
+    else:
+        return ""
+    return (
+        "<p id='profile-field-error' class='intake-callout' role='alert'>"
+        f"{_safe_text(message)} <a href='#{target}' data-review-error-target='{target}'>"
+        f"{label}</a></p>"
+    )
 
 
 def _step_four_summary(review):
@@ -2925,6 +2997,10 @@ def _review_fact_value_control(index, fact, raw_value, label):
         )
         if fact.field_path == "identity.display_name":
             label = "Display name"
+        if fact.field_path == "location.residence":
+            label = "Country of residence"
+        if fact.field_path in {"location.country", "location.residence"}:
+            name_attributes += f" id='review-fact-{index}-value' list='profile-country-options'"
         return (
             f"<label class='review-field'><span>{_safe_text(label)}</span>"
             f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='{maxlength}'{required}{name_attributes}></label>"
