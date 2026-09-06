@@ -839,7 +839,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             sources["location.city"]["source_kind"], "resume_extraction"
         )
 
-    def test_required_name_rejects_blank_while_optional_location_can_be_cleared(self):
+    def test_required_name_can_be_drafted_blank_while_optional_location_can_be_cleared(self):
         self.integration.close()
         self.adapter = _FinalSaveAdapter(
             self.path,
@@ -861,10 +861,10 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
                 confirm_background=False,
             ),
         )
-        self.assertEqual(blank_name.status, 400)
+        self.assertEqual(blank_name.status, 204)
         self.assertEqual(
             self.integration._processing.vault.get(reference, self._grant()).version,
-            snapshot.version,
+            snapshot.version + 1,
         )
         cleared = self._post_review(
             reference,

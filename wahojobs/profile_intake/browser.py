@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import replace
 import hashlib
 from http import HTTPStatus
 import json
@@ -54,6 +55,9 @@ from wahojobs.profile_intake.runtime import (
     review_reset_section_available,
     review_value_for_form,
     update_editable_review,
+    review_with_display_name_input,
+    reviewed_display_name,
+    valid_review_display_name,
     _parse_review_value,
     _review_reset_section_for_fact,
 )
@@ -259,7 +263,7 @@ var retry=document.getElementById('profile-review-save-retry');
 var resume=document.getElementById('profile-review-save-resume');
 if(!form||!renew||!status||!label||!window.fetch){return;}
 var dirty=false;var saving=false;var current=null;var timer=null;
-var allowSubmit=false;var allowDiscard=false;var lastActivity=0;var lastRenewed=Date.now();
+var invalidNameValue=null;var allowSubmit=false;var submitting=false;var allowDiscard=false;var lastActivity=0;var lastRenewed=Date.now();
 var step=form.querySelector('input[name=review_step]');
 var reviewConfirm=form.querySelector('input[name=review_confirm_step]');
 var profileBasicsContinue=form.querySelector('[data-confirm-profile-basics]');
@@ -383,7 +387,7 @@ function schedule(){if(!autosave){return;}dirty=true;window.clearTimeout(timer);
 function saveNow(keepalive){
   if(!autosave||!dirty){return current||Promise.resolve(true);}if(saving){return current;}if(!validateCollections(false,true)||!validatePreferenceModes(false,false)){dirty=true;return Promise.resolve(false);}
   saving=true;dirty=false;show('saving','Saving…',false,false);var material=autosaveMaterial();var data=material.data;data.set('action','autosave');data.set('version',autosave.querySelector('input[name=version]').value);data.set('csrf',autosave.querySelector('input[name=csrf]').value);
-  current=window.fetch(form.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',keepalive:!!keepalive,headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===204&&applyTokens(response)){Array.prototype.forEach.call(material.submittedNew,function(item){item.removeAttribute('data-collection-new');});show('saved','Progress saved',false,false);return true;}dirty=true;if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);}else if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);}else if(response.status===400){show('error','Check the highlighted details, then retry saving.',true,false);}else{show('error','We could not save your progress. Try again.',true,false);}return false;}).catch(function(){dirty=true;show('error','We could not save your progress. Try again.',true,false);return false;}).finally(function(){saving=false;current=null;});return current;
+  current=window.fetch(form.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',keepalive:!!keepalive,headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===204&&applyTokens(response)){Array.prototype.forEach.call(material.submittedNew,function(item){item.removeAttribute('data-collection-new');});var invalidField=response.headers.get('X-Wahojobs-Review-Invalid-Field');if(invalidField){invalidNameValue=data.get(invalidField);showDisplayNameError();if(submitting){focusDisplayName();}return false;}if(invalidNameValue!==null){invalidNameValue=null;validateDisplayName();}show('saved','Progress saved',false,false);return true;}dirty=true;if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);}else if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);}else if(response.status===400){show('error','Check the highlighted details, then retry saving.',true,false);}else{show('error','We could not save your progress. Try again.',true,false);}return false;}).catch(function(){dirty=true;show('error','We could not save your progress. Try again.',true,false);return false;}).finally(function(){saving=false;current=null;});return current;
 }
 function flush(){return saveNow(false).then(function(ok){return ok&&dirty?flush():ok;});}
 function profileBasicsNeedsConfirmation(){return !!form.querySelector('#review-found [data-profile-basics-pending]');}
@@ -405,6 +409,11 @@ function confirmReviewStep(source,target){
 }
 function requireReviewConfirmation(){if(profileBasicsNeedsConfirmation()){show('attention','Review your profile basics before finding matches.',false,false);if(profileBasicsContinue){profileBasicsContinue.focus();if(profileBasicsContinue.scrollIntoView){profileBasicsContinue.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}if(backgroundNeedsConfirmation()){show('attention','Review your skills and experience before finding matches.',false,false);if(backgroundContinue){backgroundContinue.focus();if(backgroundContinue.scrollIntoView){backgroundContinue.scrollIntoView({behavior:'smooth',block:'center'});}}return false;}return true;}
 function focusFirstNativeInvalid(){var first=form.querySelector(':invalid');if(!first){return false;}var section=first.closest('section.review-section');if(section){section.classList.add('review-step-needs-attention');var link=document.querySelector('.review-progress a[href="#'+section.id+'"]');if(link){link.classList.add('needs-attention');var note=link.querySelector('[data-step-attention]');if(note){note.hidden=false;}}}show('attention','Finish the highlighted detail before finding matches.',false,false);first.focus();if(first.scrollIntoView){first.scrollIntoView({behavior:'smooth',block:'center'});}return true;}
+function focusDisplayName(){var field=form.querySelector('[data-display-name]');if(field){field.focus();field.scrollIntoView({block:'center'});}}
+function showDisplayNameError(){var error=document.getElementById('display-name-error');if(error){error.hidden=false;}Array.prototype.forEach.call(form.querySelectorAll('[data-display-name]'),function(field){field.setAttribute('aria-invalid','true');});show('attention','Check your display name. Your other edits are saved.',false,false);}
+function validateDisplayName(){var fields=form.querySelectorAll('[data-display-name]');var valid=Array.prototype.some.call(fields,function(field){return !!field.value.trim()&&field.value.trim().length<=160&&field.value!==invalidNameValue;});var error=document.getElementById('display-name-error');if(error){error.hidden=valid;}Array.prototype.forEach.call(fields,function(field){if(valid){field.removeAttribute('aria-invalid');}else{field.setAttribute('aria-invalid','true');}});if(!valid){show('attention','Enter the display name you would like us to use.',false,false);focusDisplayName();}return valid;}
+var nameLink=form.querySelector('[data-focus-display-name]');if(nameLink){nameLink.addEventListener('click',function(event){event.preventDefault();focusDisplayName();});}
+var nameError=document.getElementById('display-name-error');if(nameError&&!nameError.hidden){window.setTimeout(focusDisplayName,0);}
 
 Array.prototype.forEach.call(document.querySelectorAll('.review-progress a[href^="#review-"]'),function(link){link.addEventListener('click',function(event){var target=link.getAttribute('href').slice(1);if(step&&step.value==='review-found'&&target!=='review-found'&&profileBasicsNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-found',target);return;}if(step&&step.value==='review-suggestions'&&['review-preferences','review-finish'].indexOf(target)>=0&&backgroundNeedsConfirmation()){event.preventDefault();confirmReviewStep('review-suggestions',target);return;}if(step&&step.value==='review-found'&&target!=='review-found'){clearWorkHistoryUndo();}if(step&&step.value==='review-suggestions'&&target!=='review-suggestions'){clearExpertiseUndo();}if(target==='review-finish'){event.preventDefault();openStepFour();return;}setStep(target);});});
 form.addEventListener('focusin',rememberSection);form.addEventListener('pointerdown',rememberSection);window.addEventListener('hashchange',function(){setStep(window.location.hash.slice(1));});
@@ -424,8 +433,8 @@ form.addEventListener('click',function(event){
 });
 form.addEventListener('change',function(event){if(event.target.matches&&event.target.matches('[data-collection-remove]')&&event.target.checked){removeCollectionItem(event.target);}else{if(expertiseEditor&&expertiseEditor.contains(event.target)){clearExpertiseUndo();}if(workHistoryEditor&&workHistoryEditor.contains(event.target)){clearWorkHistoryUndo();}}activity();updatePreferenceModes(event.target);updatePreferenceSummaries();validateCollections(false,true);schedule();});
 form.addEventListener('input',function(event){if(expertiseEditor&&expertiseEditor.contains(event.target)){clearExpertiseUndo();}if(workHistoryEditor&&workHistoryEditor.contains(event.target)){clearWorkHistoryUndo();}activity();updatePreferenceSummaries();validateCollections(false,true);schedule();});
-form.addEventListener('keydown',function(event){if(event.key==='Enter'&&event.target.matches&&event.target.matches('input:not([type=submit]):not([type=button])')){event.preventDefault();validateCollections(true,false);}});
-form.addEventListener('submit',function(event){if(allowSubmit){return;}event.preventDefault();var submitter=event.submitter;if(!submitter){return;}if(!validateCollections(true,false)||!validatePreferenceModes(true,true)||!requireReviewConfirmation()){return;}clearWorkHistoryUndo();clearExpertiseUndo();dropEmptyPlaceholders();if(!form.checkValidity()){form.reportValidity();focusFirstNativeInvalid();return;}flush().then(function(ok){if(!ok){return;}allowSubmit=true;if(form.requestSubmit){form.requestSubmit(submitter);}else{form.submit();}allowSubmit=false;});});
+form.addEventListener('keydown',function(event){if(event.key==='Enter'&&event.target.matches&&event.target.matches('input:not([type=submit]):not([type=button])')&&event.target.closest('[data-collection-item]')){event.preventDefault();validateCollections(true,false);}});
+form.addEventListener('submit',function(event){if(allowSubmit){return;}event.preventDefault();if(submitting){return;}var submitter=event.submitter||form.querySelector('button[type=submit]');if(!submitter){return;}if(!validateDisplayName()||!validateCollections(true,false)||!validatePreferenceModes(true,true)||!requireReviewConfirmation()){return;}clearWorkHistoryUndo();clearExpertiseUndo();dropEmptyPlaceholders();if(!form.checkValidity()){form.reportValidity();focusFirstNativeInvalid();return;}submitting=true;flush().then(function(ok){if(!ok){submitting=false;return;}window.setTimeout(function(){allowSubmit=true;form.setAttribute('aria-busy','true');show('saving','Creating your profile…',false,false);if(form.requestSubmit){form.requestSubmit(submitter);}else{form.submit();}allowSubmit=false;},0);}).catch(function(){submitting=false;show('error','We could not submit your profile. Your review is saved; please try again.',true,false);});});
 if(discard){discard.addEventListener('submit',function(event){window.clearTimeout(timer);dirty=false;if(allowDiscard||!saving){return;}event.preventDefault();Promise.resolve(current).then(function(){dirty=false;allowDiscard=true;if(discard.requestSubmit){discard.requestSubmit();}else{discard.submit();}allowDiscard=false;});});}
 if(retry){retry.addEventListener('click',function(){saveNow(false);});}
 function tick(){var now=Date.now();if(saving||document.visibilityState!=='visible'||!lastActivity||now-lastActivity>360000||now-lastRenewed<300000){return;}lastRenewed=now;var data=new URLSearchParams(new FormData(renew));window.fetch(renew.getAttribute('action'),{method:'POST',body:data.toString(),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(response){if(response.status===409){show('conflict','Newer progress was saved in another tab.',false,true);return;}if(response.status===410){show('expired','Your active review closed. Continue from your saved progress.',false,true);return;}if(!response.ok){return;}var remaining=Number(response.headers.get('X-Wahojobs-Review-Absolute-Seconds'));if(Number.isFinite(remaining)&&remaining<=600){show('warning','This review session closes in about '+Math.max(1,Math.ceil(remaining/60))+' minutes. Your saved progress will remain available.',false,false);}}).catch(function(){});}
@@ -827,6 +836,22 @@ class ProfileIntakeBrowserIntegration:
                 _message_page("Import cancelled", "Return to profile creation when you are ready."),
                 extra_headers=(("Location", "/account/profile"),),
             )
+        # Reject unsafe name input without losing the rest of the review or
+        # persisting contact details as a display name. Final validation below
+        # returns the editable form with its field-specific error.
+        invalid_name_field = None
+        if action in {"save", "autosave"}:
+            name_fields = [
+                f"fact_{index}_value" for index, fact in enumerate(snapshot.review.facts)
+                if fact.field_path == "identity.display_name"
+            ] or ["missing_display_name"]
+            form = dict(form)
+            for name_field in name_fields:
+                value = _single(form, name_field)
+                if value is not None and not valid_review_display_name(value):
+                    form[name_field] = [""]
+                    if value.strip():
+                        invalid_name_field = name_field
         try:
             review_step = normalize_profile_intake_review_step(
                 _single(form, "review_step")
@@ -856,9 +881,26 @@ class ProfileIntakeBrowserIntegration:
                     csrf_secret,
                     reference,
                     updated.version,
-                ),
+                ) + ((("X-Wahojobs-Review-Invalid-Field", invalid_name_field),)
+                     if invalid_name_field else ()),
             )
         if action == "save":
+            if not valid_review_display_name(reviewed_display_name(review)):
+                try:
+                    _state, updated = self._processing.autosave(
+                        reference, grant, expected_version=version,
+                        review=review, review_step="review-found",
+                    )
+                except ProfileIntakeError as exc:
+                    return _failure(_save_error_code(exc.code))
+                return _form_page_response(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    _review_page(reference, updated, csrf_secret,
+                                 save_enabled=self._processing.durable_save_enabled,
+                                 display_name_error=True),
+                    script_sha256=_REVIEW_STATE_SCRIPT_HASH,
+                    script_connect_self=True,
+                )
             try:
                 self._processing.save(
                     reference,
@@ -1136,6 +1178,7 @@ def _parse_review_form(headers, body_stream):
 
 
 def _review_from_form(review, form, *, allow_pending=False):
+    review = review_with_display_name_input(review)
     if type(allow_pending) is not bool:
         raise ProfileIntakeError("invalid_review_submission")
     expected = {"action", "version", "csrf"}
@@ -1245,8 +1288,6 @@ def _review_from_form(review, form, *, allow_pending=False):
             if value is None:
                 raise ProfileIntakeError("invalid_review_submission")
             if not value.strip():
-                if fact.field_path == "identity.display_name":
-                    raise ProfileIntakeError("invalid_review_submission")
                 value = review_value_for_form(fact.value)
                 decision = "reject" if fact.suggested else "remove"
             elif fact.suggested:
@@ -1301,8 +1342,11 @@ def _review_from_form(review, form, *, allow_pending=False):
     user_inputs = {}
     for name in review.missing_user_fields:
         key = "missing_" + name
-        expected.add(key)
         value = _single(form, key)
+        if name == "display_name" and value is None:
+            user_inputs[name] = ""
+            continue
+        expected.add(key)
         if value is None:
             raise ProfileIntakeError("invalid_review_submission")
         user_inputs[name] = value
@@ -1906,7 +1950,8 @@ def _upload_page(proof):
     return _page("Create your profile", body)
 
 
-def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
+def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False, display_name_error=False):
+    snapshot = replace(snapshot, review=review_with_display_name_input(snapshot.review))
     fact_fields = []
     education_fact_indexes = managed_education_fact_indexes(snapshot.review)
     for index, fact in enumerate(snapshot.review.facts):
@@ -1976,6 +2021,8 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
     missing = []
     existing_inputs = dict(snapshot.review.user_inputs)
     for name in snapshot.review.missing_user_fields:
+        if name == "display_name":
+            continue
         label, help_text = _MISSING_USER_FIELD_COPY.get(
             name,
             (name.replace("_", " ").title(), "Add this only if it matters to your search."),
@@ -2047,6 +2094,20 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False):
         and item[0].field_path != "experience.industries"
     )
     about_cards = _render_found_fact_cards(about_facts)
+    if "display_name" in snapshot.review.missing_user_fields:
+        about_cards = (
+            "<label class='review-field'><span>Display name</span>"
+            "<small>What would you like us to call you? This doesn’t need to be your legal name.</small>"
+            "<input id='profile-display-name' data-display-name name='missing_display_name' "
+            f"value='{_safe_text(existing_inputs.get('display_name', ''))}' maxlength='160' required "
+            "aria-describedby='display-name-error'></label>"
+        ) + about_cards
+    name_feedback = (
+        f"<p id='display-name-error' role='alert'{' hidden' if not display_name_error else ''}>"
+        "Enter a display name of 1–160 characters, without contact details. "
+        "<a href='#review-found' data-focus-display-name>Go to display name</a></p>"
+    )
+    about_cards = name_feedback + about_cards
     remaining_found_cards = _render_found_fact_cards(other_facts)
     about_section = (
         "<section class='review-concept-section review-about-you' aria-labelledby='review-about-you-title'>"
@@ -2854,11 +2915,19 @@ def _collection_source_label(attributions):
 def _review_fact_value_control(index, fact, raw_value, label):
     spec = _FIELD_SPECS.get(fact.field_path)
     if spec is None or spec.kind != "enum" or spec.multiple:
+        if _uses_direct_profile_fact(fact) and fact.decision in {"remove", "reject"}:
+            raw_value = ""
         required = " required" if fact.field_path == "identity.display_name" else ""
         maxlength = "160" if fact.field_path == "identity.display_name" else "512"
+        name_attributes = (
+            f" id='profile-display-name-{index}' data-display-name aria-describedby='display-name-error'"
+            if fact.field_path == "identity.display_name" else ""
+        )
+        if fact.field_path == "identity.display_name":
+            label = "Display name"
         return (
             f"<label class='review-field'><span>{_safe_text(label)}</span>"
-            f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='{maxlength}'{required}></label>"
+            f"<input name='fact_{index}_value' value='{_safe_text(raw_value)}' maxlength='{maxlength}'{required}{name_attributes}></label>"
         )
 
     compact_suggestion = _uses_compact_suggestion_choice(fact)

@@ -1975,7 +1975,7 @@ def editable_profile_review(draft):
         if name not in _TYPED_PREFERENCE_REPLACED_USER_FIELDS
     )
     preference_model = empty_profile_preferences_v2()
-    return EditableProfileReview(
+    return review_with_display_name_input(EditableProfileReview(
         schema_version=draft.schema_version,
         sources=draft.sources,
         facts=facts,
@@ -1985,7 +1985,7 @@ def editable_profile_review(draft):
         _preference_model_json=_preference_model_json(preference_model),
         education_entries=_associate_education_entries(facts),
         reset_baseline=_reset_baseline_for_facts(facts),
-    )
+    ))
 
 
 def _reset_baseline_for_facts(facts):
@@ -2523,6 +2523,38 @@ def update_editable_review(
         _preference_model_json=_preference_model_json(canonical_preferences),
         user_facts=user_facts,
         education_entries=education_entries,
+    )
+
+
+def review_with_display_name_input(review):
+    """Supply a user-owned name input without inventing an extraction fact."""
+    if any(fact.field_path == "identity.display_name" for fact in review.facts):
+        return review
+    if "display_name" in review.missing_user_fields:
+        return review
+    return replace(
+        review,
+        missing_user_fields=(*review.missing_user_fields, "display_name"),
+        user_inputs=(*review.user_inputs, ("display_name", "")),
+    )
+
+
+def reviewed_display_name(review):
+    names = [
+        fact.value for fact in review.facts
+        if fact.field_path == "identity.display_name"
+        and fact.decision in {"keep", "accept"}
+    ]
+    if not any(fact.field_path == "identity.display_name" for fact in review.facts):
+        names = [dict(review.user_inputs).get("display_name", "")]
+    return names[0] if len(names) == 1 else ""
+
+
+def valid_review_display_name(value):
+    return (
+        type(value) is str and 0 < len(" ".join(value.split())) <= 160
+        and not any(ord(char) < 32 for char in value)
+        and not contains_detectable_contact_pii(value)
     )
 
 
@@ -3211,7 +3243,7 @@ def hydrate_profile_intake_checkpoint(payload_json: str) -> EditableProfileRevie
         raise ProfileIntakeError("invalid_checkpoint_content")
     missing = payload["missing_user_fields"]
     user_inputs = payload["user_inputs"]
-    allowed_missing = set(_USER_ONLY_REVIEW_FIELDS) - _TYPED_PREFERENCE_REPLACED_USER_FIELDS
+    allowed_missing = (set(_USER_ONLY_REVIEW_FIELDS) | {"display_name"}) - _TYPED_PREFERENCE_REPLACED_USER_FIELDS
     if (
         type(missing) is not list
         or any(type(item) is not str or item not in allowed_missing for item in missing)

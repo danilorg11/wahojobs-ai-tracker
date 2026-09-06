@@ -59,6 +59,8 @@ from wahojobs.profile_intake.runtime import (
     review_value_for_form,
     serialize_profile_intake_checkpoint,
     update_editable_review,
+    reviewed_display_name,
+    valid_review_display_name,
 )
 from wahojobs.profiles.canonical import (
     PROFILE_SOURCE_RESUME,
@@ -1452,8 +1454,8 @@ def _confirmed_review_v1(
     values = {}
     for fact in (*facts, *user_facts):
         values.setdefault(fact.field_path, []).append(fact.value)
-    display_name = _singleton(values, "identity.display_name", "")
-    if not display_name:
+    display_name = reviewed_display_name(review)
+    if not valid_review_display_name(display_name):
         raise AIProfileImportError("review_unresolved")
     inputs = dict(review.user_inputs)
     remaining_missing = [
@@ -1502,6 +1504,10 @@ def _confirmed_review_v1(
             continue
         if name in {"education_level", "completion_status"}:
             unpaired_education[name] = _singleton(values, path, None)
+        elif name == "graduation_years":
+            # The extraction contract represents completion years as integers.
+            # Leave their validation to the existing education contract.
+            unpaired_education[name] = list(values[path])
         else:
             unpaired_education[name] = _unique(values[path])
     try:
