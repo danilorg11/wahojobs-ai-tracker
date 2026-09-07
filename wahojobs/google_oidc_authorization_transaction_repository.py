@@ -1244,6 +1244,17 @@ def _attest(connection):
         or attestation.get("blocking") is not False
         or attestation.get("migration_marker_present") is not True
     ):
+        # M006's migration-time prerequisite check predates the approved
+        # WorkOS/intake successors. Accept those only through the existing
+        # exact whole-schema authority (including markers and temp cleanliness).
+        from wahojobs.closed_schema_authority import (
+            ClosedSchemaAttestationError, current_closed_schema_is_exact,
+        )
+        try:
+            if current_closed_schema_is_exact(connection) is True:
+                return
+        except ClosedSchemaAttestationError:
+            pass
         raise _RepositoryFailure("unavailable")
 
 

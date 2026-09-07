@@ -1336,6 +1336,7 @@ def make_real_gateway(
     expose_transport_as_fake_provider=False,
     invitation_lookup_key=None,
     configure_account_native_bootstrap=True,
+    environment_namespace="test",
 ):
     clock = clock or ManualClock()
     gateway = None
@@ -1360,7 +1361,7 @@ def make_real_gateway(
             client_id=client_id,
             client_secret=secret,
             redirect_uri=redirect_uri,
-            environment_namespace="test",
+            environment_namespace=environment_namespace,
         )
         if invitation_lookup_key is not None:
             _gateway._configure_invitation_provisioning(
