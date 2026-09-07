@@ -3350,7 +3350,7 @@ def _render_match_results(
     match_run_id=None,
 ):
     from wahojobs.authenticated_variant_details import variant_detail_url
-    from wahojobs.authenticated_card_evidence import render_conditions
+    from wahojobs.authenticated_card_evidence import render_conditions, render_opportunity_kind
     matches = _primary_presentation_matches(context)
     cards = []
     for match in matches:
@@ -3458,8 +3458,10 @@ def _render_match_results(
             f"<article class='relaxation-preview-card' id='opportunity-{match['job_id']}'><div>"
             f"<h3>{_safe(match.get('display_title') or match.get('title'))}</h3>"
             f"<p>{_safe(match.get('source'))}</p>"
+            + render_opportunity_kind(packet)
             + (f"<p>{_safe(pay)}</p>" if pay else "")
             + f"<p>{_safe(match['source_task_fit']['candidate_note'])}</p>"
+            + ''.join(f"<p>{_safe(note)}</p>" for note in packet.get('language_notes', []))
             + (f"<p>{_safe(packet['geography'])}</p>" if packet.get('geography') else "")
             + render_conditions(packet, f"conditional-{match['job_id']}")
             + ("<p>Availability needs confirmation.</p>" if match.get('presentation_data_status') == 'recently_cached' else "")

@@ -357,7 +357,8 @@ def prepare_language_conditions(quote: str, modality: str) -> list[dict]:
     """
     text = re.sub(r'[*#]', '', quote).replace('\u2011', '-').replace('\u2010', '-')
     pattern = re.compile(
-        r'\b(?P<level>native(?:-level)?(?: or near-native)?|near-native|fluent)'
+        r'\b(?P<level>native(?:-level)?(?: or near-native)?|near-native|fluent|'
+        r'bilingual|working fluency|working proficiency)'
         r'(?:\s+(?:fluency|proficiency|command))?(?:\s+(?:in|of))?\s+', re.I)
     results = []
     for found in pattern.finditer(text):
@@ -395,7 +396,7 @@ def prepare_language_conditions(quote: str, modality: str) -> list[dict]:
         # Cross-level OR, conditions and exceptions cannot become cumulative
         # hard gates. Intra-language "native or near-native" is handled above.
         remainder = re.sub(r'\bnative or near-native\b', 'native', text, flags=re.I)
-        if re.search(r'\b(?:unless|except|only if|if)\b|\bor (?:fluent|native|near-native)\b', remainder, re.I):
+        if re.search(r'\b(?:unless|except|only if|if)\b|\bor (?:fluent|native|near-native|bilingual|working fluency|working proficiency)\b', remainder, re.I):
             mode = 'unresolved'
         if re.search(r'\band\b', span) and re.search(r'\bor\b', span):
             mode = 'unresolved'
@@ -432,9 +433,11 @@ def compare_language_condition(profile: dict, requirement: dict) -> dict:
         elif len(levels) != 1:
             status = 'unresolved'
         elif next(iter(levels)) in requirement['levels'] or (
-                levels == {'native'} and requirement['levels'] == ['fluent']):
+                levels == {'native'} and requirement['levels'] in
+                (['fluent'], ['bilingual'], ['working fluency'], ['working proficiency'])):
             status = 'supported'
-        elif levels == {'basic'} and set(requirement['levels']) <= {'native', 'near-native', 'fluent'}:
+        elif levels == {'basic'} and set(requirement['levels']) <= {
+                'native', 'near-native', 'fluent', 'bilingual', 'working fluency', 'working proficiency'}:
             status = 'contradicted'
         else:
             status = 'unresolved'  # advanced/fluent is not equated with near-native

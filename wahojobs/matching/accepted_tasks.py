@@ -14,7 +14,7 @@ from wahojobs.profiles.normalizer import term_is_negated
 
 
 TASK_PROJECTION_VERSION = 2
-SOURCE_ELIGIBILITY_VERSION = 1
+SOURCE_ELIGIBILITY_VERSION = 2
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)

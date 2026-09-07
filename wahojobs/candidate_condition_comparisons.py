@@ -15,7 +15,8 @@ from wahojobs.profiles.preference_model import WORKLOADS
 
 _LEVEL = r"Ph\.?D\.?|doctorate|doctoral candidate|Master['’]s(?: degree)?|Bachelor['’]s(?: degree)?"
 _TOOLS = r'Python|R|GitHub|Git|Docker|another relevant programming language'
-_REQUIRED = {'required', 'requirements', 'required qualifications', 'minimum qualifications'}
+_REQUIRED = {'required', 'requirements', 'required qualifications', 'minimum qualifications',
+             'required skills and qualifications'}
 _PREFERRED = {'preferred', 'preferred qualifications', 'ideal qualifications', 'nice to have'}
 
 

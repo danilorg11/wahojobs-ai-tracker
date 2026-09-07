@@ -13,6 +13,7 @@ from wahojobs.opportunity_enrichment import source_body_paragraphs
 
 _QUALIFICATION_HEADINGS = {
     'required', 'requirements', 'required qualifications', 'minimum qualifications',
+    'required skills and qualifications',
     'qualifications', 'key qualifications', 'education & experience',
     'ideal qualifications', 'preferred', 'preferred qualifications',
     'nice to have', 'who you are', "what we're looking for", 'what we are looking for',
@@ -112,7 +113,10 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
     paragraphs = [b for b in blocks if b['text']]
     kind, kind_quote = 'Opportunity type not established', ''
     for b in paragraphs:
-        if re.search(r'\b(?:not a specific job posting|open application for future (?:contract )?opportunities)\b', b['text'], re.I):
+        future_pool = (re.search(r'\b(?:join|become part of) (?:our |an? )?(?:exclusive )?talent pool\b', b['text'], re.I)
+                       and re.search(r'\b(?:upcoming|future) (?:roles|projects|opportunities)\b', b['text'], re.I)
+                       and not re.search(r'\b(?:not|never|don.t)\b', b['text'], re.I))
+        if future_pool or re.search(r'\b(?:not a specific job posting|open application for future (?:contract )?opportunities)\b', b['text'], re.I):
             kind, kind_quote = 'Talent network — future consideration', b['text']
             break
     if not kind_quote:
@@ -224,12 +228,22 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
         if geography in caveats:
             caveats.remove(geography)
         caveats.append(f'Listing location: {source_location}. ' + geography)
+    language_notes = []
+    for check in match.get('source_language_checks') or []:
+        ref = check.get('source_reference') or {}
+        if (ref.get('job_id') == source['job_id'] and ref.get('source_url') == source['url']
+                and ref.get('material_content_sha256') == source['material_content_sha256']
+                and check.get('modality') in ('required', 'unresolved')
+                and check.get('status') in ('not_established', 'unresolved')
+                and isinstance(check.get('message'), str)):
+            language_notes.append(check['message'])
+    caveats.extend(note for note in language_notes if note not in caveats)
     packet = {'job_id': source['job_id'], 'url': source['url'], 'external_id': source['external_id'],
             'source_hash': source['material_content_sha256'], 'captured_at': source['last_captured_at'],
             'reason': reason, 'task': task, 'summary': summary, 'conditions': conditions, 'blocks': blocks,
             'kind': kind, 'kind_quote': kind_quote, 'geography': geography, 'text': text,
             'workload': workload, 'listing_commitment': commitment, 'facts': fields,
-            'pay': pay, 'caveats': caveats}
+            'pay': pay, 'caveats': caveats, 'language_notes': language_notes}
     from wahojobs.candidate_condition_comparisons import compare_conditions
     packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience)
     return packet
@@ -253,16 +267,21 @@ def render_conditions(evidence, card_id):
             + blocks + '</div></details>')
 
 
+def render_opportunity_kind(evidence):
+    kind = (evidence or {}).get('kind')
+    html = (f"<p class='candidate-kind'>{escape(kind)}</p>"
+            if kind in ('Talent network — future consideration', 'Ongoing recruiting') else '')
+    if kind == 'Talent network — future consideration':
+        html += "<p class='candidate-note'>Join for future projects; this is not a specific job posting.</p>"
+    return html
+
+
 def render_card_evidence(evidence, card_id, *, profile_return_to=None):
     from wahojobs.candidate_condition_comparisons import render_comparisons
     from wahojobs.profile_opportunity_navigation import render_profile_update
     if evidence is None:
         return "<p class='candidate-note'>Full requirements aren’t available in the saved listing. Check the source before applying.</p>"
-    kind = evidence['kind']
-    kind_html = (f"<p class='candidate-kind'>{escape(kind)}</p>"
-                 if kind in ('Talent network — future consideration', 'Ongoing recruiting') else '')
-    if kind == 'Talent network — future consideration':
-        kind_html += "<p class='candidate-note'>Join for future projects; this is not a specific job posting.</p>"
+    kind_html = render_opportunity_kind(evidence)
     summary = (f"<p class='candidate-overview'>{escape(evidence['summary'])}</p>" if evidence['summary'] else '')
     caveats = ''.join('<li>' + escape(c) + '</li>' for c in evidence['caveats'])
     return (f"<section class='card-evidence' data-source-variant='{evidence['job_id']}'>"
