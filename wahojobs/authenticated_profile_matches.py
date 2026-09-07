@@ -1872,8 +1872,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         from wahojobs.matching.source_task_fit import apply_source_task_fit
         # Existing pre-admission representatives, including those below the UI
         # limit. No catalog re-scoring or inference from another variant.
-        candidates = [m for m in _ranked_presentation_eligible_pool(context)
-                      if m.get("matched_languages")]
+        candidates = [m for m in _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context)
+                      if m.get("matched_languages") or m.get("accepted_task_fit")]
         if not candidates:
             return context
         with self._connection_provider() as connection:
@@ -1915,6 +1915,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         })
 
     def _recommendation_input_key(self, profile_v2, authority):
+        from wahojobs.matching.accepted_tasks import TASK_PROJECTION_VERSION, SOURCE_ELIGIBILITY_VERSION
         if self._write_connection_provider is None or self._criteria_shadow_sink is not None:
             return None
         owner = authority.candidate_workflow_authority()
@@ -1926,7 +1927,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "preview_limit": local_product.PREVIEW_MATCH_LIMIT,
             "presentation_limit": MATCH_PRESENTATION_LIMIT,
             "recent_cache_hours": local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
-            "source_task_fit_version": 1,
+            "source_task_fit_version": 2,
+            "confirmed_activity_signal_version": 1,
+            "accepted_task_projection_version": TASK_PROJECTION_VERSION,
+            "accepted_task_admission_version": 2,
+            "accepted_source_eligibility_version": SOURCE_ELIGIBILITY_VERSION,
         }
         digest = hashlib.sha256(json.dumps(
             document, sort_keys=True, separators=(",", ":"), allow_nan=False,
@@ -3345,6 +3350,7 @@ def _render_match_results(
     match_run_id=None,
 ):
     from wahojobs.authenticated_variant_details import variant_detail_url
+    from wahojobs.authenticated_card_evidence import render_conditions
     matches = _primary_presentation_matches(context)
     cards = []
     for match in matches:
@@ -3454,11 +3460,13 @@ def _render_match_results(
             f"<p>{_safe(match.get('source'))}</p>"
             + (f"<p>{_safe(pay)}</p>" if pay else "")
             + f"<p>{_safe(match['source_task_fit']['candidate_note'])}</p>"
+            + (f"<p>{_safe(packet['geography'])}</p>" if packet.get('geography') else "")
+            + render_conditions(packet, f"conditional-{match['job_id']}")
             + ("<p>Availability needs confirmation.</p>" if match.get('presentation_data_status') == 'recently_cached' else "")
             + f"</div><a href='{_safe(url)}'>View job details</a></article>")
     if conditional_cards:
         relaxation_section = (
-            "<details class='relaxation-scenario'><summary>Possibilities if you have related experience</summary>"
+            "<details class='relaxation-scenario'><summary>Possibilities with conditions to check</summary>"
             "<div class='relaxation-preview-list'>" + "".join(conditional_cards) + "</div></details>"
             + relaxation_section)
     if cards:

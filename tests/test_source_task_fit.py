@@ -96,7 +96,7 @@ class SourceTaskFitTests(unittest.TestCase):
         found = find_presented_variant(context, m['canonical_opportunity_id'], m['job_id'])
         self.assertEqual(found['_detail_recommendation_section'], 'conditional')
         html = browser._render_match_results(context, inventory_count=1)
-        self.assertIn('Possibilities if you have related experience', html)
+        self.assertIn('Possibilities with conditions to check', html)
         self.assertIn(variant_detail_url(m).replace('&', '&amp;'), html)
         self.assertNotIn("class='match-card'", html)
 

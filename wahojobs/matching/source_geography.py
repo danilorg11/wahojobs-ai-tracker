@@ -45,6 +45,33 @@ def _description_countries(text):
     return sorted(countries), unresolved
 
 
+def prepare_applicant_residence_clause(quote, modality, reference):
+    """Accepted qualification clauses only; compound speaker/residence wording.
+
+    Reuse the existing country-list contract. A residence requirement never
+    borrows employer location, nationality or work permission.
+    """
+    text = re.sub(r'[*#]', '', quote).strip().rstrip('.')
+    if modality != 'required' or _UNRELATED.search(text):
+        return None
+    start = (r'(?:(?:Applicants|Candidates|Contributors|Workers) (?:must|are required to) |Must )?'
+             r'(?:be )?(?:currently )?')
+    compound = (r'(?:Native(?:-level)?(?: or near-native)?|Near-native|Fluent) '
+                r'[A-Za-z -]+? speakers? ')
+    match = re.fullmatch(rf'(?:{start}|{compound})(?P<place>based|located|residing|living|reside|live) in (?P<countries>.+)', text, re.I)
+    if not match:
+        return None
+    value = match['countries']
+    if re.search(r'\b(?:not|except|unless|if|preferred|encouraged)\b', value, re.I):
+        return None  # preserve unsupported negation/condition as unassessed
+    countries, unresolved = _description_countries(value)
+    if not countries:
+        return None
+    return dict(dimension='residence' if re.search(r'resid|liv', match['place']) else 'location',
+                mode='allow', countries=countries, unresolved=unresolved,
+                source_field=reference, source_quote=quote)
+
+
 def prepare_mercor_description_geography(body, source_field, structured):
     """Prepare a bounded grammar at ingestion, never while serving matches.
 

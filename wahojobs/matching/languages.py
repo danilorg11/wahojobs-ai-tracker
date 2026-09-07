@@ -349,6 +349,114 @@ def language_variants(language: str) -> list[str]:
     return variants or [canonical]
 
 
+def prepare_language_conditions(quote: str, modality: str) -> list[dict]:
+    """Bounded applicant-proficiency clauses, never titles or country adjectives.
+
+    The caller supplies accepted qualification context. Unsupported logical
+    scope stays unresolved; no CEFR equivalences or inferred expertise.
+    """
+    text = re.sub(r'[*#]', '', quote).replace('\u2011', '-').replace('\u2010', '-')
+    pattern = re.compile(
+        r'\b(?P<level>native(?:-level)?(?: or near-native)?|near-native|fluent)'
+        r'(?:\s+(?:fluency|proficiency|command))?(?:\s+(?:in|of))?\s+', re.I)
+    results = []
+    for found in pattern.finditer(text):
+        # Do not match the tail of "non-native" or "near-native" a second time.
+        if found.start() and text[found.start()-1] == '-':
+            continue
+        tail = text[found.end():]
+        mentions = find_language_mentions(tail)
+        if not mentions or mentions[0]['start'] != 0:
+            continue
+        normalized = normalize_language_text(tail)
+        group = [mentions[0]]
+        for mention in mentions[1:]:
+            if mention['start'] < group[-1]['end']:
+                continue  # locale aliases do not create another requirement
+            between = normalized[group[-1]['end']:mention['start']].strip()
+            if between not in {'or', 'and', 'and or', 'or in', 'and in'}:
+                break
+            group.append(mention)
+        span = normalized[:group[-1]['end']]
+        if re.match(r'\s+(?:citizens?|nationals?|customers?|clients?|markets?|companies|employers?|headquarters)\b',
+                    normalized[group[-1]['end']:]):
+            continue  # nationality/customer geography is not applicant proficiency
+        operator = 'any_of' if re.search(r'\bor\b', span) else 'all_of'
+        prefix = text[:found.start()]
+        primary = re.split(r'\s+[—–\ufffd]\s+|[,;.]', tail, maxsplit=1)[0]
+        mode = modality
+        if re.search(r'\b(?:not|no|need not|non)\s*$', prefix, re.I) or re.search(
+                r'\b(?:not required|not necessary|not needed|not mandatory)\b', primary, re.I):
+            mode = 'not_required'
+        elif re.search(r'\b(?:preferred|encouraged|optional|a plus)\b', primary, re.I):
+            mode = 'preferred' if modality != 'required' else 'unresolved'
+        elif re.search(r'\b(?:must|required)\b', prefix + primary, re.I):
+            mode = 'required' if modality != 'preferred' else 'unresolved'
+        # Cross-level OR, conditions and exceptions cannot become cumulative
+        # hard gates. Intra-language "native or near-native" is handled above.
+        remainder = re.sub(r'\bnative or near-native\b', 'native', text, flags=re.I)
+        if re.search(r'\b(?:unless|except|only if|if)\b|\bor (?:fluent|native|near-native)\b', remainder, re.I):
+            mode = 'unresolved'
+        if re.search(r'\band\b', span) and re.search(r'\bor\b', span):
+            mode = 'unresolved'
+        results.append(dict(languages=sorted({m['language'] for m in group}),
+                            levels=['native', 'near-native'] if ' or ' in found['level'].lower()
+                            else [found['level'].lower().replace('-level', '')],
+                            operator=operator, modality=mode, quote=quote))
+    return results
+
+
+def compare_language_condition(profile: dict, requirement: dict) -> dict:
+    """Presence and stated proficiency are separate facts, including unknowns."""
+    entries = profile.get('languages') or []
+    facts = []
+    by_language = {}
+    if entries and isinstance(entries[0], dict):
+        for index, entry in enumerate(entries):
+            key = normalize_language_name(entry.get('language'))
+            fact = dict(path=f'languages[{index}].proficiency', language=entry.get('language'),
+                        proficiency=entry.get('proficiency', 'unknown'))
+            by_language.setdefault(key, []).append(fact)
+    else:
+        for language, level in (profile.get('language_proficiency') or {}).items():
+            key = normalize_language_name(language)
+            by_language.setdefault(key, []).append(dict(path=f'language_proficiency.{language}',
+                                                       language=language, proficiency=level))
+    statuses = []
+    for language in requirement['languages']:
+        values = by_language.get(language, [])
+        facts.extend(values)
+        levels = {f['proficiency'] for f in values} - {'unknown', 'unspecified', '', None}
+        if not levels:
+            status = 'not_established'
+        elif len(levels) != 1:
+            status = 'unresolved'
+        elif next(iter(levels)) in requirement['levels'] or (
+                levels == {'native'} and requirement['levels'] == ['fluent']):
+            status = 'supported'
+        elif levels == {'basic'} and set(requirement['levels']) <= {'native', 'near-native', 'fluent'}:
+            status = 'contradicted'
+        else:
+            status = 'unresolved'  # advanced/fluent is not equated with near-native
+        statuses.append(status)
+    if requirement['operator'] == 'any_of':
+        status = ('supported' if 'supported' in statuses else 'contradicted'
+                  if all(s == 'contradicted' for s in statuses) else 'unresolved')
+    else:
+        status = ('contradicted' if 'contradicted' in statuses else 'supported'
+                  if all(s == 'supported' for s in statuses) else 'unresolved')
+    if requirement['modality'] == 'unresolved':
+        status = 'unresolved'
+    label = (' or ' if requirement['operator'] == 'any_of' else ' and ').join(requirement['languages'])
+    message = {
+        'supported': f'Your stated {label} level supports this language condition.',
+        'contradicted': f'This asks for {" or ".join(requirement["levels"])} {label}; your confirmed level is basic.',
+        'not_established': f'Your {label} proficiency is not stated.',
+        'unresolved': f'Confirm whether your stated {label} level meets the source requirement.',
+    }[status]
+    return dict(requirement, status=status, profile_facts=facts, message=message)
+
+
 def row_language_text(row: dict) -> str:
     values = [
         row_value(row, "required_languages"),

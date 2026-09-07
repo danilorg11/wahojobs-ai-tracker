@@ -13,8 +13,10 @@ from wahojobs.opportunity_enrichment import source_body_paragraphs
 
 _QUALIFICATION_HEADINGS = {
     'required', 'requirements', 'required qualifications', 'minimum qualifications',
-    'qualifications', 'ideal qualifications', 'preferred', 'preferred qualifications',
+    'qualifications', 'key qualifications', 'education & experience',
+    'ideal qualifications', 'preferred', 'preferred qualifications',
     'nice to have', 'who you are', "what we're looking for", 'what we are looking for',
+    'what we’re looking for',
 }
 _TERMS_HEADINGS = {'engagement', 'role details', 'more about the opportunity',
                    'commitment', 'equipment', 'equipment requirements',
@@ -35,7 +37,7 @@ def load_card_sources(connection, matches):
     cursor = connection.execute(f"""
         SELECT j.id AS job_id, j.canonical_opportunity_id, j.external_id,
                j.url, j.commitment, j.location, c.slug AS source_slug,
-               sc.external_id AS content_external_id, sc.source_url,
+               sc.external_id AS content_external_id, sc.provider AS content_provider, sc.source_url,
                sc.body, sc.body_format, sc.metadata_json, sc.last_captured_at,
                sc.material_content_sha256
         FROM jobs j JOIN companies c ON c.id=j.company_id
@@ -65,7 +67,7 @@ def _blocks(text):
     return [dict(b, reference=f'source block {i}') for i, b in enumerate(blocks, 1)]
 
 
-def _source_text(source):
+def _source_text(source, *, include_structured_lists=True):
     metadata = json.loads(source.get('metadata_json') or '{}')
     if not isinstance(metadata, dict):
         raise ValueError('invalid_source_metadata')
@@ -74,10 +76,21 @@ def _source_text(source):
             and detail.get('provider') == source['source_slug']
             and detail.get('url') == source['url']
             and isinstance(detail.get('display_text'), str)):
-        return detail['display_text']
-    body = source.get('body') or ''
-    return ('\n\n'.join(source_body_paragraphs(body, 'text/html'))
-            if source.get('body_format') == 'text/html' else body)
+        text = detail['display_text']
+    else:
+        text = source.get('body') or ''
+    # Some accepted feeds label HTML as text. The same safe paragraph reader
+    # must feed task recognition, conditions and presentation.
+    if source.get('body_format') == 'text/html' or re.match(r'\s*<(?:p|div|h[1-6]|ul|section)\b', text, re.I):
+        text = '\n\n'.join(source_body_paragraphs(text, 'text/html'))
+    if include_structured_lists and isinstance(metadata.get('lists'), list):
+        for block in metadata['lists']:
+            if not isinstance(block, dict) or not all(isinstance(block.get(k), str) for k in ('text', 'content')):
+                continue
+            paragraphs = source_body_paragraphs(block['content'], 'text/html')
+            if paragraphs and not all(p in text for p in paragraphs):
+                text += '\n\n## ' + block['text'] + '\n\n' + '\n\n'.join(paragraphs)
+    return text
 
 
 def prepare_card_evidence(match, source, profile):

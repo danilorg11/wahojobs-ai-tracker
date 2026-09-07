@@ -298,7 +298,7 @@ def matcher_profile_to_canonical(profile, *, source_inputs=None, extracted_from=
     return canonical
 
 
-def canonical_to_matcher_profile(canonical_profile):
+def canonical_to_matcher_profile(canonical_profile, *, include_task_evidence=False):
     """Project reviewed canonical fields into the legacy matcher contract.
 
     The embedded matcher-compatible block is retained for fixture compatibility
@@ -385,7 +385,52 @@ def canonical_to_matcher_profile(canonical_profile):
             constraints.get("negative_constraints") or []
         ),
     }
+    _connect_confirmed_ai_work_signal(canonical_profile, matcher_profile,
+                                      include_evidence=include_task_evidence)
     return matcher_profile
+
+
+def _connect_confirmed_ai_work_signal(canonical, matcher_profile, *, include_evidence=False):
+    """Connect reviewed activities to an existing task signal, not expertise.
+
+    Only declared activity/skill fields are evidence here. Summary text can
+    contain aspirations, employer names and titles, so it is not a substitute.
+    No canonical facts, domains, proficiency or experience duration are added.
+    """
+    if canonical.get('provenance', {}).get('reviewed') is not True:
+        return
+    from scripts.profile_match_digest import AI_EVALUATION_SIGNAL
+    from wahojobs.profiles.normalizer import (
+        contains_affirmative_qualification_term, contains_positive_term,
+        normalize_language_text,
+    )
+    reason, keywords, points = AI_EVALUATION_SIGNAL
+    facts = []
+    values = [(f'experience.specialties[{i}]', value)
+              for i, value in enumerate(canonical['experience'].get('specialties') or [])]
+    values.extend((f'skills.normalized[{i}]', value)
+                  for i, value in enumerate(canonical['skills'].get('normalized') or []))
+    for path, value in values:
+        text = normalize_language_text(value)
+        # Unqualified evaluation can mean clinical, financial or other work.
+        # The accepted annotation/AI vocabulary supplies task context only.
+        if not any(contains_positive_term(text, term)
+                   for term in ('ai', 'llm', 'model', 'annotation', 'rater')):
+            continue
+        # The field supplies declared experience/skill context; the existing
+        # clause validator still rejects negation and aspirations inside it.
+        if any(contains_affirmative_qualification_term('experience in ' + text, term)
+               for term in keywords):
+            facts.append(dict(path=path, text=value))
+    if not facts:
+        return
+    # Runtime evidence only: no saved profile/schema change. Both scoring and
+    # substantive fit consume these same confirmed facts, not summary text.
+    if include_evidence:
+        matcher_profile['confirmed_ai_work_evidence'] = facts
+    if not any(signal[2] > 0 and set(signal[1]) & set(keywords)
+               for signal in matcher_profile['signals']):
+        matcher_profile['signals'].append((reason, list(keywords), points))
 
 
 def legacy_matcher_profile(canonical_profile):

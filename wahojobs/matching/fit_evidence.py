@@ -501,8 +501,18 @@ def _evaluate_generic_role(profile: dict, title: str, match: dict, role_result: 
 
     role_title = re.sub(r"\s*-\s*freelance\s+ai\s+trainer\s+project.*$", "", title)
     generic_ai_role = any(re.search(pattern, role_title) for pattern in GENERIC_AI_ROLE_PATTERNS)
+    task_fit = match.get('accepted_task_fit')
+    if task_fit:
+        from scripts.profile_match_digest import detect_role_match_features
+        # Accepted duties can disambiguate an existing generalist task label.
+        # They never erase a missing specialist role, credential or conflict.
+        generic_ai_role = generic_ai_role or detect_role_match_features(role_title)['generalist_task']
     if generic_ai_role:
-        if _profile_requests_general_ai_work(profile) and not role_result["missing"]:
+        if task_fit and not role_result['missing']:
+            evidence.append(FitEvidence('AI evaluation or annotation tasks',
+                            task_fit['profile_facts'][0]['text'], 'accepted_source_task'))
+            satisfied.append('AI evaluation or annotation tasks')
+        elif _profile_requests_general_ai_work(profile) and not role_result["missing"]:
             evidence.append(FitEvidence("General AI evaluation or data work", "stated AI evaluation/data-work interest", "preference"))
             satisfied.append("General AI evaluation or data work")
 
@@ -692,6 +702,8 @@ def _professional_language_modifier(title: str) -> bool:
 
 def _why_fit_statements(title: str, evidence: list[FitEvidence], adjacencies: list[str]) -> list[str]:
     by_requirement = {item.requirement: item for item in evidence}
+    if 'AI evaluation or annotation tasks' in by_requirement:
+        return ['Your confirmed evaluation or annotation work relates to these tasks. Check the other requirements before applying.']
     if "Frontend Development" in by_requirement:
         return ["Your React and TypeScript experience aligns with this frontend role."]
     if "Backend Development" in by_requirement:

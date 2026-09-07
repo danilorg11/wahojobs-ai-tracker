@@ -79,6 +79,12 @@ def _related_facts(profile, kind):
 
 
 def apply_source_task_fit(match, source, profile):
+    from wahojobs.matching.accepted_tasks import apply_task_condition_review
+    match = _apply_language_task_fit(match, source, profile)
+    return apply_task_condition_review(match, source, profile)
+
+
+def _apply_language_task_fit(match, source, profile):
     """Supplement the existing assessment for this exact accepted source only.
 
     Call before typed admission, on the bounded pre-admission pool or a scoped
@@ -104,6 +110,8 @@ def apply_source_task_fit(match, source, profile):
                      captured_at=source.get('last_captured_at'))
     result = dict(task, source_reference=reference, profile_facts=facts,
                   status=SUPPORTED if facts else UNCERTAIN)
+    if match.get('conditional_task_fit') and match.get('affirmative_fit_status') == UNCERTAIN:
+        result['status'] = UNCERTAIN  # related work cannot resolve a separate language-level question
     updated = dict(match, source_task_fit=result)
     assessment = deepcopy(match['affirmative_fit'])
     assessment['supported_evidence'] = [e for e in assessment['supported_evidence']

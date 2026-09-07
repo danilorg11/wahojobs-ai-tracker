@@ -439,7 +439,7 @@ def build_preview_context_from_canonical_rows(
     caller selecting a non-local runtime must supply both dependencies.
     """
     validate_canonical_profile(canonical)
-    matcher_profile = canonical_to_matcher_profile(canonical)
+    matcher_profile = canonical_to_matcher_profile(canonical, include_task_evidence=True)
     matcher_profile["language_locale_keys"] = canonical_language_locale_keys(canonical)
     rows = [dict(row) for row in inventory_rows]
     overlay_status = dict(metadata_overlay_status)
@@ -660,11 +660,13 @@ def query_preview_rows(connection, *, canonical_opportunity_id=None) -> list[dic
         policy_not=MARKET_COUNT_POLICY_COUNT_LIVE,
         inventory_models=(INVENTORY_MODEL_PUBLIC_INVENTORY, INVENTORY_MODEL_MIXED),
     )
-    return [
+    rows = [
         dict(row)
         for row in list(live_rows) + list(evergreen_rows) + list(public_rows)
         if row["source_tier"] != SOURCE_TIER_EXPERIMENTAL
     ]
+    from wahojobs.matching.accepted_tasks import project_accepted_tasks
+    return project_accepted_tasks(connection, rows)
 
 
 def apply_preview_guardrails(
@@ -755,7 +757,8 @@ def apply_preview_guardrails(
         match["primary_admission_source"] = "guardrail_demoted"
     else:
         match["primary_admission_source"] = f"affirmative_fit_{assessment.status}"
-    return match
+    from wahojobs.matching.accepted_tasks import apply_task_section_admission, apply_accepted_eligibility
+    return apply_accepted_eligibility(profile, row, apply_task_section_admission(match))
 
 
 def apply_domain_relevance_projection(profile: dict, row: dict, match: dict) -> dict:
@@ -1394,7 +1397,13 @@ def dedupe_matches(matches: list[dict]) -> list[dict]:
             and match.get("primary_recommendation_eligible")
         ]
         selected = choose_representative(eligible) if eligible else None
-        representative = dict(selected or choose_representative(variants))
+        # A proven conflict must not hide a genuinely unknown alternative.
+        # Keep the existing ordering within each class; never borrow evidence.
+        has_source_conflict = any(m.get('primary_admission_source') == 'accepted_source_eligibility' for m in variants)
+        nonconflicting = [m for m in variants if m.get('affirmative_fit_status') != 'conflicting'
+                          and m.get('eligible_for_personalized', True)
+                          and m.get('location_eligibility_status') != 'incompatible'] if has_source_conflict else []
+        representative = dict(selected or choose_representative(nonconflicting or variants))
         representative["variant_count"] = len(variants)
         representative["considered_canonical_variants"] = [
             canonical_variant_diagnostic(match)
