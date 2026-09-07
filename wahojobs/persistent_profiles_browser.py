@@ -63,7 +63,7 @@ _PROFILE_CREATE_FORM = re.compile(
     r"|csrf=([A-Za-z0-9_-]{43})&artifact=([A-Za-z0-9_-]{43}))$"
 )
 _CORRECTION_POST_TARGET = re.compile(
-    r"^/account/profile\?action=(start|redraft|confirm|apply)"
+    r"^/account/profile\?action=(start|redraft|confirm|apply|resume)"
     r"&proof=([A-Za-z0-9_-]{43})$"
 )
 _CORRECTION_DRAFT_REFERENCE = re.compile(r"^[A-Za-z0-9_-]{24}$")
@@ -444,6 +444,11 @@ class PersistentProfileBrowserIntegration:
         if failure is not None:
             return failure
         stage, draft_reference, review_token = correction_target
+        if stage == 'resume':
+            retained = self._retained_correction_response(grant, csrf_secret)
+            if retained is not None:
+                return retained
+            stage = 'start'
         if stage == "start":
             return _form_page_response(
                 HTTPStatus.OK,
@@ -455,6 +460,7 @@ class PersistentProfileBrowserIntegration:
             grant,
             draft_reference,
             review_token,
+            csrf_secret=csrf_secret,
         )
         if failure is not None:
             return failure
@@ -471,24 +477,29 @@ class PersistentProfileBrowserIntegration:
                     ),
                 ),
             )
+        return self._correction_editor_response(run, csrf_secret)
+
+    def _correction_editor_response(self, run, csrf_secret, *, submitted=None, issue=None):
+        navigation = run.recommendation_context.get('correction_navigation')
         presentation = _correction_presentation_value(
             run.canonical_profile.to_mapping()
         )
         provenance = presentation.get("provenance")
         if type(provenance) is dict:
             provenance["field_sources"] = {}
-        review_form = self._review_support.render_structured_profile_review(
-            presentation,
-            run.match_run_id,
-            run.review_token,
-            form_action=_correction_action_target(csrf_secret, "redraft"),
+        from wahojobs.profiles.correction_editor import render_editor, EDITOR_SHA256
+        review_form = render_editor(
+            self._review_support, presentation, run.match_run_id, run.review_token,
+            action=_correction_action_target(csrf_secret, "redraft"),
             back_url=_correction_view_target("review", run),
-            submit_label="Review changes",
-            include_draft_fingerprint=False,
-            focus_field=navigation.get('focus') if navigation else None,
+            focus=navigation.get('focus') if navigation else None,
+            education=run.recommendation_context['correction_preparation'].education_for_browser(),
+            form_defaults=self._review_support.profile_review_form_fields(run.canonical_profile, run.match_run_id, run.review_token),
+            submitted=submitted, issue=issue,
+            cancel_url=navigation['return_to'] if navigation else PERSISTENT_PROFILE_ROUTE,
         )
         return _form_page_response(
-            HTTPStatus.OK,
+            HTTPStatus.BAD_REQUEST if issue else HTTPStatus.OK,
             _page(
                 "Edit profile correction",
                 _authenticated_navigation()
@@ -496,8 +507,9 @@ class PersistentProfileBrowserIntegration:
                 "<h1>Edit your profile</h1>"
                 "<p>Correct the fields below, then review the complete result before applying it.</p>"
                 "</section>"
-                + review_form + cancel_link(navigation),
+                + review_form,
             ),
+            script_sha256=EDITOR_SHA256,
         )
 
     def _handle_correction_post(self, correction_target, headers, body_stream):
@@ -517,8 +529,10 @@ class PersistentProfileBrowserIntegration:
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         if action == "start":
             return self._start_correction(grant, form)
+        if action == 'resume':
+            return self._resume_correction(grant, form, csrf_secret)
         if action == "redraft":
-            return self._redraft_correction(grant, form)
+            return self._redraft_correction(grant, form, csrf_secret)
         if action == "confirm":
             return self._confirm_correction(
                 grant,
@@ -602,9 +616,56 @@ class PersistentProfileBrowserIntegration:
             )
         return grant, header_items, csrf_secret, None
 
-    def _authorized_correction_run(self, grant, draft_reference, review_token):
+    def _retained_correction_response(self, grant, csrf_secret, reference=None, *, status=HTTPStatus.OK):
+        try:
+            retained = self._correction_service.retained_review(grant, reference)
+        except Exception:
+            return _correction_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        if retained is None:
+            return None
+        from wahojobs.profiles.correction_editor import summary_sections
+        if retained['state'] == 'conflict':
+            return _form_page_response(HTTPStatus.CONFLICT, _page('Your saved profile changed',
+                _authenticated_navigation() + "<h1>Your saved profile changed</h1>"
+                "<p>These earlier changes are still saved, but cannot be applied over your newer profile.</p>"
+                "<details><summary>See the earlier proposed changes</summary>"
+                + summary_sections(retained['proposed']) + '</details>'
+                + f"<p><a href='{PERSISTENT_PROFILE_ROUTE}?correction=start'>Start a new profile review</a></p>"))
+        return _form_page_response(status, _page('Continue profile review',
+            _authenticated_navigation() + "<h1>Your changes are saved</h1>"
+            + ('<p>Your review session expired, but your changes were saved. Continue review.</p>'
+               if status == HTTPStatus.GONE else '<p>Continue reviewing your saved changes. Nothing has been applied.</p>')
+            + f"<form method='post' action='{_safe_text(_correction_action_target(csrf_secret, 'resume'))}'>"
+            + f"<input type='hidden' name='retained_draft' value='{_safe_text(retained['reference'])}'>"
+            + "<button type='submit'>Continue review</button></form>"
+            + f"<p><a href='{PERSISTENT_PROFILE_ROUTE}?correction=start'>Start a new profile review</a></p>"))
+
+    def _resume_correction(self, grant, form, csrf_secret):
+        reference = _strict_form_value(form, 'retained_draft')
+        if set(form) != {'retained_draft'} or not reference or _CORRECTION_DRAFT_REFERENCE.fullmatch(reference) is None:
+            return _correction_failure_response(HTTPStatus.BAD_REQUEST)
+        try:
+            retained = self._correction_service.retained_review(grant, reference)
+            if retained is None:
+                return _correction_failure_response(HTTPStatus.GONE)
+            if retained['state'] == 'conflict':
+                return self._retained_correction_response(grant, csrf_secret, reference)
+            preparation = retained['preparation']
+            _draft, raw = self._correction_service.prepare_review_draft(grant)
+            run = self._new_correction_run(grant,
+                reviewed_profile=preparation.reviewed_profile_for_browser(),
+                raw_about_you=raw, preparation=preparation, navigation=retained['navigation'])
+        except Exception:
+            return _correction_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        return _correction_redirect(_correction_view_target('review', run), 'Continue profile review')
+
+    def _authorized_correction_run(self, grant, draft_reference, review_token, *, csrf_secret=None):
         run = self._correction_registry.peek(draft_reference)
         if run is None:
+            if csrf_secret is not None:
+                retained = self._retained_correction_response(grant, csrf_secret, draft_reference, status=HTTPStatus.GONE)
+                if retained is not None:
+                    return None, retained
             return None, _correction_failure_response(HTTPStatus.GONE)
         if not hmac.compare_digest(run.review_token, review_token):
             return None, _correction_failure_response(HTTPStatus.GONE)
@@ -617,6 +678,10 @@ class PersistentProfileBrowserIntegration:
                 else None
             )
             if actor_binding == grant.actor_profile_binding():
+                if csrf_secret is not None:
+                    retained = self._retained_correction_response(grant, csrf_secret, draft_reference)
+                    if retained is not None:
+                        return None, retained
                 return None, _correction_failure_response(HTTPStatus.CONFLICT)
             return None, _correction_failure_response(HTTPStatus.GONE)
         return run, None
@@ -632,18 +697,23 @@ class PersistentProfileBrowserIntegration:
     ):
         if type(preparation) is not PreparedProfileCorrectionReview:
             raise ValueError("invalid_profile_correction_preparation")
-        return self._correction_registry.create(
+        run = self._correction_registry.create(
             owner_profile_id=self._correction_service.draft_binding(grant),
             raw_input=raw_about_you,
             input_style="short_paragraph",
             recommendation_context={
                 "correction_actor_binding": grant.actor_profile_binding(),
                 "correction_preparation": preparation,
+                "correction_base_profile": grant.trusted_base_profile_v2(),
                 "correction_navigation": navigation,
             },
             canonical_profile=reviewed_profile,
             profile_confirmed=False,
         )
+        from wahojobs.profiles.correction_editor import changed_profile_sections
+        if changed_profile_sections(grant.trusted_base_profile_v2(), preparation.profile_for_browser()):
+            self._correction_service.retain_review(grant, run.match_run_id, preparation, navigation=navigation)
+        return run
 
     def _start_correction(self, grant, form):
         try:
@@ -679,7 +749,7 @@ class PersistentProfileBrowserIntegration:
             "Profile correction started",
         )
 
-    def _redraft_correction(self, grant, form):
+    def _redraft_correction(self, grant, form, csrf_secret):
         if "profile_draft_fingerprint" in form:
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         draft_reference = _strict_form_value(form, "edit_run_id")
@@ -695,6 +765,7 @@ class PersistentProfileBrowserIntegration:
             grant,
             draft_reference,
             review_token,
+            csrf_secret=csrf_secret,
         )
         if failure is not None:
             return failure
@@ -710,6 +781,7 @@ class PersistentProfileBrowserIntegration:
         submitted["profile_draft_fingerprint"] = [
             self._review_support.profile_draft_fingerprint(run.canonical_profile)
         ]
+        updates = None
         try:
             validated_run, updates = (
                 self._review_support.validate_profile_review_submission(
@@ -740,8 +812,21 @@ class PersistentProfileBrowserIntegration:
         except (KeyboardInterrupt, SystemExit, GeneratorExit):
             raise
         except self._review_support.ActionError as exc:
+            if exc.status == HTTPStatus.BAD_REQUEST and updates is not None:
+                from wahojobs.profiles.correction_editor import actionable_issue
+                return self._correction_editor_response(run, csrf_secret, submitted=form, issue=actionable_issue(self._review_support, updates))
             return _correction_failure_response(_bounded_correction_status(exc.status))
+        except ValueError:
+            if updates is not None:
+                from wahojobs.profiles.correction_editor import actionable_issue
+                return self._correction_editor_response(run, csrf_secret, submitted=form, issue=actionable_issue(self._review_support, updates))
+            return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         except Exception:
+            if updates is not None:
+                from wahojobs.profiles.correction_editor import actionable_issue
+                issue = actionable_issue(self._review_support, updates)
+                if issue[0] != 'review-actions':
+                    return self._correction_editor_response(run, csrf_secret, submitted=form, issue=issue)
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         return _correction_redirect(
             _correction_view_target("review", redrafted),
@@ -749,7 +834,8 @@ class PersistentProfileBrowserIntegration:
         )
 
     def _confirm_correction(self, grant, csrf_secret, header_items, form):
-        if set(form) != {"draft", "review_token", "confirmed"}:
+        apply_now = form.get('apply_now') == ['1']
+        if (set(form) != {"draft", "review_token", "confirmed"} | ({'apply_now'} if apply_now else set())):
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         draft_reference = _strict_form_value(form, "draft")
         review_token = _strict_form_value(form, "review_token")
@@ -766,6 +852,7 @@ class PersistentProfileBrowserIntegration:
             grant,
             draft_reference,
             review_token,
+            csrf_secret=csrf_secret,
         )
         if failure is not None:
             return failure
@@ -793,6 +880,13 @@ class PersistentProfileBrowserIntegration:
             name: [value]
             for name, value in form_fields.items()
         }
+        # Use the same sealed, owner/revision-bound proposal validated above.
+        # No-op detection never substitutes a draft or writes a new revision.
+        from wahojobs.profiles.correction_editor import changed_profile_sections
+        proposed = preparation.profile_for_browser()
+        base_profile = grant.trusted_base_profile_v2()
+        if apply_now and not changed_profile_sections(base_profile, proposed):
+            return _form_page_response(HTTPStatus.OK, _render_correction_receipt(base_profile, proposed))
 
         def issue_correction_artifact(**kwargs):
             return self._correction_service.issue_confirmed_artifact(
@@ -833,12 +927,25 @@ class PersistentProfileBrowserIntegration:
         offer = getattr(result, "artifact_offer", None)
         if type(offer) is not ConfirmedProfileCorrectionArtifactOffer:
             return _correction_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+        if apply_now:
+            outcome = self._correction_service.consume(
+                grant=grant, csrf_secret=csrf_secret,
+                artifact_reference=offer.artifact_reference, csrf_proof=offer.csrf_proof,
+            )
+            if type(outcome) is not ProfileCorrectionOutcome:
+                return _correction_failure_response(HTTPStatus.SERVICE_UNAVAILABLE)
+            if outcome.state != 'corrected':
+                return _correction_response_for_outcome(outcome.state)
+            return _form_page_response(HTTPStatus.OK, _render_correction_receipt(
+                base_profile, proposed, navigation=context.get('correction_navigation'),
+            ))
         return _form_page_response(
             HTTPStatus.OK,
             _render_correction_apply(
                 offer,
                 action_target=_correction_action_target(csrf_secret, "apply"),
                 navigation=context.get('correction_navigation'),
+                base_profile=base_profile, proposed=proposed,
             ),
         )
 
@@ -1059,6 +1166,8 @@ def _load_profile_review_support():
 
 
 def _parse_correction_get_target(target):
+    if target == PERSISTENT_PROFILE_ROUTE + '?correction=resume':
+        return 'resume', None, None
     if target == PERSISTENT_PROFILE_ROUTE + "?correction=start":
         return "start", None, None
     if type(target) is not str or len(target) > MAX_PROFILE_QUERY_BYTES:
@@ -1225,6 +1334,14 @@ def _correction_failure_response(status):
             "Your profile correction could not be completed safely. Try again shortly.",
         ),
     }[status]
+    if status in {HTTPStatus.GONE, HTTPStatus.CONFLICT}:
+        return _response(status, _page(title,
+            _authenticated_navigation()
+            + f"<section class='empty'><h1>{_safe_text(title)}</h1><p>{_safe_text(message)}</p>"
+            "<p>Start a new review from your current saved profile. "
+            "An expired correction cannot be confirmed or applied.</p>"
+            f"<p><a class='primary-link' href='{PERSISTENT_PROFILE_ROUTE}?correction=start'>"
+            "Start a new profile review</a></p></section>"))
     return _response(status, _generic_page(title, message))
 
 
@@ -1275,21 +1392,14 @@ def _render_correction_start(action_target, *, navigation=None):
 def _render_correction_review(run, *, edit_target, confirm_target):
     navigation = run.recommendation_context.get('correction_navigation')
     canonical = run.canonical_profile.to_mapping()
+    preparation = run.recommendation_context.get('correction_preparation')
+    if type(preparation) is PreparedProfileCorrectionReview:
+        canonical = preparation.profile_for_browser()
     identity = canonical.get("identity") or {}
     title = _safe_text(identity.get("display_name") or "My profile")
-    sections = "".join(
-        _render_correction_summary_section(label, canonical.get(name))
-        for name, label in (
-            ("location", "Location"),
-            ("languages", "Languages"),
-            ("experience", "Experience"),
-            ("education", "Education"),
-            ("skills", "Skills"),
-            ("preferences", "Work preferences"),
-            ("credentials", "Credentials"),
-            ("constraints", "Constraints"),
-        )
-    )
+    from wahojobs.profiles.correction_editor import summary_sections, change_summary
+    changes = change_summary(run.recommendation_context.get('correction_base_profile') or canonical, canonical)
+    sections = summary_sections(canonical)
     if not sections:
         sections = "<p class='muted'>No additional profile details are available.</p>"
     return _page(
@@ -1300,16 +1410,17 @@ def _render_correction_review(run, *, edit_target, confirm_target):
         "<p>Review the complete profile below. Nothing is saved until you apply the correction.</p>"
         f"<p><a class='primary-link' href='{_safe_text(edit_target)}'>Edit profile</a></p>"
         "</header>"
+        + changes +
         f"<div class='profile-grid'>{sections}</div>"
         "<section class='empty'><h2>Confirm this correction</h2>"
-        "<p>Confirm that the reviewed details are accurate before preparing the update.</p>"
+        "<p>Apply the exact profile shown above. Your previous saved revision will be retained.</p>"
         f"<form method='post' action='{_safe_text(confirm_target)}'>"
         f"<input type='hidden' name='draft' value='{_safe_text(run.match_run_id)}'>"
         f"<input type='hidden' name='review_token' value='{_safe_text(run.review_token)}'>"
         "<label><input type='checkbox' name='confirmed' value='1' required> "
         "I confirm these profile details, including licenses and certifications, "
         "are accurate.</label>"
-        "<p><button type='submit'>Prepare profile update</button></p>"
+        "<p><button type='submit' name='apply_now' value='1'>Apply profile update</button></p>"
         "</form>" + cancel_link(navigation) + "</section>",
     )
 
@@ -1377,7 +1488,9 @@ def _correction_summary_key_visible(key):
     )
 
 
-def _render_correction_apply(offer, *, action_target, navigation=None):
+def _render_correction_apply(offer, *, action_target, navigation=None, base_profile=None, proposed=None):
+    from wahojobs.profiles.correction_editor import change_summary
+    changes = change_summary(base_profile, proposed) if base_profile is not None and proposed is not None else ''
     return _page(
         "Apply profile correction",
         _authenticated_navigation()
@@ -1385,6 +1498,7 @@ def _render_correction_apply(offer, *, action_target, navigation=None):
         "<h1>Your profile correction is ready</h1>"
         "<p>Apply this reviewed correction to update your persistent profile. "
         "The previous saved revision will not be changed.</p>"
+        + changes +
         f"<form method='post' action='{_safe_text(action_target)}'>"
         + navigation_fields(navigation, include_focus=False) +
         f"<input type='hidden' name='artifact' value='{_safe_text(offer.artifact_reference)}'>"
@@ -1392,6 +1506,15 @@ def _render_correction_apply(offer, *, action_target, navigation=None):
         "<button type='submit'>Apply profile update</button>"
         "</form>" + cancel_link(navigation) + "</section>",
     )
+
+
+def _render_correction_receipt(before, after, *, navigation=None):
+    from wahojobs.profiles.correction_editor import change_summary
+    return _page('Profile update result', _authenticated_navigation()
+        + change_summary(before, after, saved=True)
+        + "<p><a class='primary-link' href='/account/profile'>View saved profile</a></p>"
+        + "<p><a class='primary-link' href='/find-matches'>Find matches</a></p>"
+        + (cancel_link(navigation) if navigation else ''))
 
 
 def _head_response(response):
@@ -1631,6 +1754,7 @@ def _render_available(
     update_link = (
         f"<a class='primary-link' href='{PERSISTENT_PROFILE_ROUTE}?correction=start'>"
         "Update profile</a>"
+        f" <a href='{PERSISTENT_PROFILE_ROUTE}?correction=resume'>Resume saved changes</a>"
         if correction_enabled and result.state == "active"
         else ""
     )

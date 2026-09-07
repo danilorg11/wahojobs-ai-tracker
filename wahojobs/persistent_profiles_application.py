@@ -646,15 +646,20 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
         )
     if type(experience.get("total_years")) in {int, float}:
         experience_values.append(f"Total experience: {experience['total_years']} years")
-    experience_values.extend(experience.get("recent_roles", ()))
+    experience_values.extend(experience.get("job_titles", ()))
+    experience_values.extend(value for value in experience.get("recent_roles", ()) if value not in experience_values)
     _append_group(groups, "Experience", tuple(experience_values))
 
     education = profile.get("education", {})
     education_values = []
-    if education.get("education_level") not in {None, "", "unknown"}:
-        education_values.append(f"Level: {education['education_level']}")
-    education_values.extend(education.get("degrees", ()))
-    education_values.extend(education.get("fields_or_domains", ()))
+    if education.get("education_level") not in {None, "", "unknown", "not_specified"}:
+        education_values.append(f"Level: {education['education_level'].replace('_', ' ')}")
+    from wahojobs.profiles.review_entries import unpaired_education
+    for entry in education.get('entries', []):
+        education_values.append(' — '.join(str(entry[k]) for k in ('qualification', 'field', 'institution', 'completion_year') if entry.get(k)))
+    unpaired = unpaired_education(education)
+    education_values.extend(unpaired.get("degrees", ()))
+    education_values.extend(unpaired.get("fields_or_domains", ()))
     _append_group(groups, "Education", tuple(education_values))
 
     credentials = profile.get("credentials", {})

@@ -2,7 +2,8 @@
 
 The browser owns no durable identity in this flow.  Every draft and immutable
 confirmation artifact is derived from an authenticated account-native profile,
-kept process-local until append, and committed only through the accepted
+authorized process-locally. Unconfirmed proposals are checkpointed separately
+from short-lived tokens; canonical changes still use only the accepted
 ``append_profile_revision`` repository service.
 """
 
@@ -70,7 +71,7 @@ PROFILE_CORRECTION_ACTION_CSRF_MESSAGE_PREFIX = (
     b"wahojobs.profile-correction-action.v1\x00"
 )
 
-CORRECTION_ACTIONS = frozenset({"start", "redraft", "confirm", "apply"})
+CORRECTION_ACTIONS = frozenset({"start", "redraft", "confirm", "apply", "resume"})
 
 _CORRECTION_UPDATE_FIELDS = frozenset(
     {
@@ -86,6 +87,8 @@ _CORRECTION_UPDATE_FIELDS = frozenset(
         "degrees",
         "domain_specific_skills",
         "education_fields",
+        "education_entries",
+        "recent_roles",
         "education_level",
         "education_status",
         "eligible_countries",
@@ -325,6 +328,13 @@ class PreparedProfileCorrectionReview:
         return IdentityFreeCanonicalProfileV1.from_json_bytes(
             self._reviewed_profile_json
         )
+
+    def education_for_browser(self):
+        return deepcopy(json.loads(self._corrected_profile_v2_json)["education"])
+
+    def profile_for_browser(self):
+        """The complete sealed proposal, including associated education entries."""
+        return parse_canonical_profile_v2_json(self._corrected_profile_v2_json)
 
     def __repr__(self):
         return "PreparedProfileCorrectionReview(<redacted>)"
@@ -889,6 +899,63 @@ class PersistentProfileCorrectionService:
             UnicodeError,
         ):
             raise RuntimeError("profile_correction_review_unavailable") from None
+
+    def _retained_owner(self, grant):
+        if self._closed or type(grant) is not TrustedProfileCorrectionGrant:
+            raise RuntimeError('profile_correction_review_unavailable')
+        account, _session, environment, principal, profile, purpose = grant.actor_profile_binding()
+        # A new, normally authenticated session of the same owner may resume.
+        return hashlib.sha256(_canonical_json_bytes([account, environment, principal, profile, purpose])).hexdigest()
+
+    def retain_review(self, grant, reference, preparation, *, navigation=None):
+        from wahojobs import profile_correction_drafts as drafts
+        if type(reference) is not str or _CORRECTION_DRAFT_REFERENCE.fullmatch(reference) is None:
+            raise ValueError('invalid_profile_correction_draft')
+        reviewed, proposed, updates = _prepared_review_material(
+            preparation, grant=grant, binding_secret=self._binding_secret)
+        payload = dict(version=1, reviewed=reviewed.to_mapping(), proposed=proposed,
+                       updates=updates, navigation=navigation)
+        with self._read_connection_provider() as account_connection, drafts.store_connection(account_connection, write=True) as connection:
+            drafts.save(connection, reference=reference, owner=self._retained_owner(grant),
+                        base_revision=grant.base_revision_id,
+                        base_hash=hashlib.sha256(canonical_profile_v2_json_bytes(grant.trusted_base_profile_v2())).hexdigest(),
+                        payload=payload, created_at=_trusted_utc(self._clock()).isoformat())
+
+    def retained_review(self, grant, reference=None):
+        """Read only: verify ownership, base revision and canonical meaning.
+
+        A conflict returns the retained proposal for owner-only inspection,
+        without creating authorization or silently rebasing any changes.
+        """
+        from wahojobs import profile_correction_drafts as drafts
+        from wahojobs.profile_opportunity_navigation import navigation_from_fields
+        with self._read_connection_provider() as account_connection, drafts.store_connection(account_connection) as connection:
+            stored = drafts.load(connection, owner=self._retained_owner(grant), reference=reference)
+        if stored is None:
+            return None
+        reference, revision, base_hash, payload = stored
+        if (type(payload) is not dict or set(payload) != {'version', 'reviewed', 'proposed', 'updates', 'navigation'}
+                or payload['version'] != 1):
+            raise ValueError('correction_checkpoint_unavailable')
+        proposed = validate_canonical_profile_v2(payload['proposed'])
+        if proposed['identity']['profile_id'] != grant.profile_for_repository().profile_id:
+            raise ValueError('correction_checkpoint_unavailable')
+        nav = payload['navigation']
+        if nav is not None:
+            rest, validated_nav = navigation_from_fields({k: [v] for k, v in nav.items()})
+            if rest or nav != validated_nav:
+                raise ValueError('correction_checkpoint_unavailable')
+        reviewed = IdentityFreeCanonicalProfileV1.from_mapping(payload['reviewed'])
+        if (reviewed.canonical_bytes != IdentityFreeCanonicalProfileV1.from_mapping(project_v2_to_review_v1(proposed)).canonical_bytes
+                or payload['updates'] != _complete_updates_for_review(reviewed)):
+            raise ValueError('correction_checkpoint_unavailable')
+        base = hashlib.sha256(canonical_profile_v2_json_bytes(grant.trusted_base_profile_v2())).hexdigest()
+        if revision != grant.base_revision_id or base_hash != base:
+            return dict(state='conflict', reference=reference, proposed=proposed)
+        preparation = _issue_prepared_review(grant, reviewed_profile=reviewed,
+            corrected_profile_v2=proposed, normalized_updates=payload['updates'], binding_secret=self._binding_secret)
+        return dict(state='ready', reference=reference, proposed=proposed,
+                    preparation=preparation, navigation=nav)
 
     def prepare_reviewed_correction(
         self,
@@ -1731,6 +1798,10 @@ def _server_authoritative_review_correction(
         baseline_review.to_mapping(),
         durable_review.to_mapping(),
     )
+    from wahojobs.profiles.review_entries import read_education_entries
+    entries = read_education_entries(normalized_updates.get("education_entries", ""))
+    if entries is not None:
+        corrected_v2 = _with_reviewed_education_entries(corrected_v2, entries)
     if trusted_complete_profile_v2 is None:
         corrected_v2 = _restore_trusted_language_tail(
             corrected_v2,
@@ -1747,6 +1818,9 @@ def _server_authoritative_review_correction(
         ):
             raise _configuration_error()
         corrected_v2["languages"] = deepcopy(trusted_complete["languages"])
+        corrected_v2["education"] = deepcopy(trusted_complete["education"])
+        corrected_v2["provenance"]["field_sources"] = [p for p in corrected_v2["provenance"]["field_sources"] if not p["field_path"].startswith("education.")] + [deepcopy(p) for p in trusted_complete["provenance"]["field_sources"] if p["field_path"].startswith("education.")]
+        corrected_v2["provenance"]["field_sources"].sort(key=lambda p:(p["field_path"].casefold(),p["field_path"]))
         corrected_v2 = validate_canonical_profile_v2(corrected_v2)
     authoritative_review = IdentityFreeCanonicalProfileV1.from_mapping(
         project_v2_to_review_v1(corrected_v2)
@@ -2086,3 +2160,28 @@ __all__ = [
     "profile_correction_action_csrf_proof",
     "profile_correction_csrf_proof",
 ]
+
+
+def _with_reviewed_education_entries(profile, entries):
+    from wahojobs.profiles.canonical_v2 import add_user_confirmed_education_entries_v1
+    from wahojobs.profiles.canonical import PROFILE_SOURCE_USER_CORRECTION
+    from wahojobs.profiles.review_entries import unpaired_education
+    profile = deepcopy(profile)
+    if profile["education"].get("entries") == entries:
+        return validate_canonical_profile_v2(profile)
+    profile["education"].pop("entries", None)
+    profile["provenance"]["field_sources"] = [p for p in profile["provenance"]["field_sources"] if not p["field_path"].startswith("education.entries[")]
+    if not entries:
+        return validate_canonical_profile_v2(profile)
+    if "completion_status" not in profile["education"]:
+        from wahojobs.profiles.canonical_v2 import FIELD_PATH_VERSION
+        profile["education"]["completion_status"] = "unknown"
+        profile["provenance"]["field_sources"].append({
+            "field_path": "education.completion_status", "path_version": FIELD_PATH_VERSION,
+            "source_ordinals": [2], "source_kind": PROFILE_SOURCE_USER_CORRECTION, "explicit": True,
+        })
+        profile["provenance"]["field_sources"].sort(key=lambda p: (p["field_path"].casefold(), p["field_path"]))
+    unpaired = unpaired_education(dict(profile["education"], entries=entries))
+    return add_user_confirmed_education_entries_v1(profile, entries, unpaired,
+        source_ordinal_resolver=lambda *_: (2,),
+        source_authority_resolver=lambda _: (PROFILE_SOURCE_USER_CORRECTION, True))

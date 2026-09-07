@@ -1156,8 +1156,9 @@ _REVIEW_CORRECTION_FIELD_TARGETS = (
     (
         "job_titles",
         ("experience", "job_titles"),
-        (("experience", "recent_roles"), ("experience", "job_titles")),
+        (("experience", "job_titles"),),
     ),
+    ("recent_roles", ("experience", "recent_roles"), (("experience", "recent_roles"),)),
     (
         "occupational_families",
         ("experience", "occupational_families"),

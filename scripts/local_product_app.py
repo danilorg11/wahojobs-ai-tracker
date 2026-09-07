@@ -2368,6 +2368,9 @@ def apply_identity_free_profile_review(profile, updates):
         }
     )
 
+    from wahojobs.profiles.review_entries import apply_education_entries, employment_records
+    canonical["education"] = apply_education_entries(education, updates.get("education_entries", ""))
+
     credentials = canonical["credentials"]
     credential_status = canonical_review.text(updates.get("credential_status")) or UNKNOWN
     if credential_status not in CREDENTIAL_STATUSES:
@@ -2389,7 +2392,7 @@ def apply_identity_free_profile_review(profile, updates):
         {
             "total_years": canonical_review.optional_years(updates.get("total_years")),
             "seniority": canonical_review.text(updates.get("seniority")) or UNKNOWN,
-            "recent_roles": canonical_review.string_list(updates.get("job_titles")),
+            "recent_roles": (employment_records(updates["recent_roles"]) if updates.get("recent_roles") else list(experience.get("recent_roles") or [])),
             "job_titles": canonical_review.string_list(updates.get("job_titles")),
             "occupational_families": canonical_review.string_list(
                 updates.get("occupational_families")
@@ -3004,6 +3007,8 @@ def profile_review_updates_from_form(form, language_slots):
         "accessibility_constraints",
     )
     updates = {field: strict_review_value(form, field) for field in list_fields}
+    for field in ("recent_roles", "education_entries"):
+        updates[field] = strict_review_value(form, field) if field in form else ""
     for field in (
         "country",
         "region",
@@ -3046,6 +3051,8 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
     constraints = canonical.get("constraints") or {}
     fields = {
         "form_action": "confirm_profile",
+        "recent_roles": json.dumps(experience.get("recent_roles") or []),
+        "education_entries": "",
         "edit_run_id": match_run_id,
         "review_token": review_token,
         "schema_version": SCHEMA_VERSION,
@@ -3071,7 +3078,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
         "security_clearances": review_csv(credentials.get("security_clearances")),
         "total_years": "" if experience.get("total_years") is None else str(experience["total_years"]),
         "seniority": experience.get("seniority") or "unknown",
-        "job_titles": review_csv(experience.get("job_titles") or experience.get("recent_roles")),
+        "job_titles": review_csv(experience.get("job_titles")),
         "occupational_families": review_csv(experience.get("occupational_families")),
         "professional_domains": review_csv(experience.get("professional_domains")),
         "industries": review_csv(experience.get("industries")),
@@ -3120,6 +3127,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
 
 
 PROFILE_REVIEW_TEXT_FIELDS = {
+    "recent_roles", "education_entries",
     "country", "region", "city", "work_authorization", "eligible_countries",
     "geographic_restrictions", "education_level", "degrees", "education_fields",
     "institutions", "education_status", "credential_status", "certifications",
@@ -3174,7 +3182,8 @@ def validate_profile_review_submission(form, registry):
     unsupported = sorted(set(form) - allowed)
     if unsupported:
         raise MalformedProfileReview()
-    required = PROFILE_REVIEW_TEXT_FIELDS | PROFILE_REVIEW_CONTROL_FIELDS | language_fields
+    # Older rendered forms cannot edit the new independent entry controls.
+    required = (PROFILE_REVIEW_TEXT_FIELDS - {"recent_roles", "education_entries"}) | PROFILE_REVIEW_CONTROL_FIELDS | language_fields
     for field in required:
         strict_review_value(form, field)
     for field in PROFILE_REVIEW_CHECKBOX_FIELDS:
@@ -4424,11 +4433,19 @@ def render_structured_profile_review(
     submit_label="Find my matches",
     include_draft_fingerprint=True,
     focus_field=None,
+    structured_education=None,
 ):
     location = canonical.get("location") or {}
     education = canonical.get("education") or {}
+    education_html = "<input type='hidden' name='education_entries' value=''>"
+    if structured_education is not None:
+        from wahojobs.profiles.review_entries import education_editor, unpaired_education, EDUCATION_EDITOR_SCRIPT
+        education_html = education_editor(structured_education.get("entries", [])) + "<script>" + EDUCATION_EDITOR_SCRIPT + "</script>"
+        education = unpaired_education(structured_education)
     credentials = canonical.get("credentials") or {}
     experience = canonical.get("experience") or {}
+    from wahojobs.profiles.review_entries import employment_editor
+    employment_html = employment_editor(experience.get("recent_roles") or []) if structured_education is not None else review_text_field("recent_roles", "Employment details", json.dumps(experience.get("recent_roles") or []))
     skills = canonical.get("skills") or {}
     preferences = canonical.get("preferences") or {}
     constraints = canonical.get("constraints") or {}
@@ -4461,7 +4478,7 @@ def render_structured_profile_review(
       <section class="review-section review-section-primary">
         <div class="review-section-heading"><div><h2>Location</h2><p>Used only to avoid showing work you cannot access.</p></div>{source_notes['location']}</div>
         <div class="review-grid review-grid-three">
-          {review_text_field('country', 'Country', location.get('country'))}
+          {review_text_field('country', 'Country where you currently live', location.get('country'))}
           {review_text_field('region', 'Region or state', location.get('region'))}
           {review_text_field('city', 'City', location.get('city'))}
         </div>
@@ -4470,10 +4487,11 @@ def render_structured_profile_review(
           {review_checkbox('flexible', 'I prefer flexible or asynchronous work', preferences.get('flexible') is True)}
         </div>
         <details class="review-more">
-          <summary>Work eligibility and geographic restrictions</summary>
+          <summary>Work permission and geographic restrictions</summary>
+          <p>These permissions do not establish your residence or employer eligibility. Leave unknown information blank.</p>
           <div class="review-grid">
-            {review_text_field('work_authorization', 'Work authorization', location.get('work_authorization'))}
-            {review_text_field('eligible_countries', 'Countries where you can work', review_csv(location.get('eligible_countries')))}
+            {review_text_field('work_authorization', 'Work permission or permit (optional)', location.get('work_authorization'))}
+            {review_text_field('eligible_countries', 'Countries where you have permission to work (comma-separated alternatives)', review_csv(location.get('eligible_countries')))}
             {review_text_field('geographic_restrictions', 'Other geographic restrictions', review_csv(location.get('geographic_work_restrictions') or location.get('restrictions')))}
           </div>
         </details>
@@ -4488,12 +4506,13 @@ def render_structured_profile_review(
       <section class="review-section">
         <div class="review-section-heading"><div><h2>Experience</h2><p>Your recent work and transferable background.</p></div>{source_notes['experience']}</div>
         <div class="review-grid review-grid-three">
-          {review_text_field('job_titles', 'Recent job titles', review_csv(experience.get('job_titles') or experience.get('recent_roles')))}
+          {review_text_field('job_titles', 'Job titles', review_csv(experience.get('job_titles')))}
+          {employment_html}
           {review_text_field('occupational_families', 'Kinds of work', review_csv(experience.get('occupational_families')))}
           {review_text_field('total_years', 'Years of experience', experience.get('total_years'), input_type='number', extra='min="0" max="80"')}
           {review_text_field('professional_domains', 'Professional domains', review_csv(experience.get('professional_domains')))}
           {review_text_field('industries', 'Industries', review_csv(experience.get('industries')))}
-          {review_text_field('specialties', 'Specialties', review_csv(experience.get('specialties')))}
+          {review_text_field('specialties', 'Work activities and specialties', review_csv(experience.get('specialties')))}
         </div>
         <details class="review-more">
           <summary>Seniority and contribution style</summary>
@@ -4505,14 +4524,16 @@ def render_structured_profile_review(
       </section>
 
       <section class="review-section">
-        <div class="review-section-heading"><div><h2>Education</h2><p>Only confirmed education is used for specialist roles.</p></div>{source_notes['education']}</div>
+        <div class="review-section-heading"><div><h2>Education</h2><p>Review qualifications separately from exchange study and additional courses.</p></div>{source_notes['education']}</div>
+        {education_html}
+        <details class="review-more"><summary>Unlinked education details</summary><p>No relationship between these independent details has been assumed. Remove a duplicate here after adding it to the appropriate entry above.</p>
         <div class="review-grid review-grid-three">
           {review_select('education_level', 'Highest level', education.get('education_level'), EDUCATION_LEVELS)}
           {review_text_field('degrees', 'Degree names', review_csv(education.get('degrees')), extra='autofocus' if focus_field == 'education' else '')}
           {review_text_field('education_fields', 'Fields of study', review_csv(education.get('fields_or_domains')))}
           {review_text_field('institutions', 'Institution', review_csv(education.get('institutions')))}
           {review_text_field('education_status', 'Completed or in progress', education.get('completion_status'))}
-        </div>
+        </div></details>
       </section>
 
       <section class="review-section">

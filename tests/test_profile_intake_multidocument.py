@@ -170,7 +170,7 @@ class ReconciliationTests(unittest.TestCase):
         self.assertEqual(len(roles), 1)
         self.assertEqual(
             set(roles[0]["field_paths"]),
-            {"experience.job_titles", "experience.recent_roles"},
+            {"experience.job_titles"},
         )
         self.assertEqual(
             {(fact.field_path, fact.value) for fact in review.facts},
@@ -295,8 +295,12 @@ class ReconciliationTests(unittest.TestCase):
                 )
             )
         )
-        self.assertEqual(education_entry_values(review), ())
-        self.assertEqual(managed_education_fact_indexes(review), frozenset())
+        entries = education_entry_values(review)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["value"]["kind"], "bachelor")
+        self.assertEqual(entries[0]["value"]["institution"], "")
+        self.assertEqual(entries[0]["value"]["field"], "")
+        self.assertEqual(len(managed_education_fact_indexes(review)), 1)
         self.assertEqual(
             {fact.value for fact in review.facts},
             {
@@ -875,7 +879,7 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         self.assertNotIn(b"Occupational Families", page.body)
         self.assertNotIn(b"Professional Domains", page.body)
         self.assertIn(b"About you", page.body)
-        self.assertIn(b"<span>Name</span><input", page.body)
+        self.assertIn(b"<span>Display name</span>", page.body)
         self.assertIn(b"<span>Based in</span><input", page.body)
         self.assertIn(b"Based in means where you currently live", page.body)
         self.assertIn(b"work eligibility is handled separately", page.body)
@@ -931,9 +935,10 @@ class MultiDocumentBrowserTests(unittest.TestCase):
         grouped_indexes = [
             index
             for index, fact in enumerate(snapshot.review.facts)
-            if fact.review_field in {"job_titles", "skills"}
+            if fact.review_field in {"job_titles", "skills"} and fact.field_path != "experience.recent_roles"
         ]
-        self.assertEqual(len(grouped_indexes), 5)
+        self.assertEqual(len(grouped_indexes), 4)
+        self.assertIn(b"Employment details", page.body)
         for collection, count in (("job_titles", 2), ("skills", 4)):
             for index in range(count):
                 self.assertIn(

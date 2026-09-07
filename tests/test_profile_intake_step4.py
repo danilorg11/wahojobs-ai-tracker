@@ -100,7 +100,7 @@ class ProfileIntakeStepFourSummaryTests(unittest.TestCase):
             summary["background"],
             (
                 "Brazil",
-                "Customer Support Specialist, Administrative Assistant +1 more job title",
+                "Customer Support Specialist and Search Quality Analyst",
                 "Bachelor of Business Administration",
                 "Portuguese, <English>, Spanish +1 more language",
                 "2 skills and areas of expertise",

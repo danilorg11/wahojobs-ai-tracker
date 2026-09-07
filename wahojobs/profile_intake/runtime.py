@@ -111,7 +111,7 @@ PROFILE_INTAKE_REVIEW_COLLECTIONS = {
     },
     "job_titles": {
         "title": "Job titles",
-        "paths": ("experience.job_titles", "experience.recent_roles"),
+        "paths": ("experience.job_titles",),
         "add_path": "experience.job_titles",
         "kind": "string",
         "limit": 256,
@@ -186,7 +186,7 @@ def _review_reset_section_for_fact(fact):
         return "profile_basics"
     if fact.conflict_group is not None:
         return None
-    if fact.field_path in PROFILE_INTAKE_REVIEW_COLLECTIONS["job_titles"]["paths"]:
+    if fact.field_path in (*PROFILE_INTAKE_REVIEW_COLLECTIONS["job_titles"]["paths"], "experience.recent_roles"):
         return "work_history"
     if fact.field_path in _EDUCATION_ENTRY_COMPONENTS:
         return "education"
@@ -2217,6 +2217,9 @@ def _associate_education_entries(facts):
         }
         for component, index in components.items():
             value[component] = facts[index].value
+        if value["kind"] == "not_specified" and "kind" not in components:
+            from wahojobs.profiles.review_entries import explicit_degree_kind
+            value["kind"] = explicit_degree_kind(value["qualification"]) or "not_specified"
         try:
             value = canonicalize_education_entries_v1([value])[0]
             entry = EditableEducationEntry(
@@ -2236,6 +2239,23 @@ def _associate_education_entries(facts):
         except (EducationEntryContractError, ProfileIntakeError):
             continue
         entries.append(entry)
+    # A block can contain several schools. Keep their relationship unresolved,
+    # but an explicit degree name can still be reviewed as its own entry.
+    used = {i for entry in entries for i in entry.source_fact_indexes}
+    from wahojobs.profiles.review_entries import explicit_degree_kind
+    for index, fact in enumerate(facts):
+        kind = explicit_degree_kind(fact.value) if fact.field_path == "education.degrees" else None
+        if index in used or not kind or fact.conflict_group or fact.suggested:
+            continue
+        if len(entries) >= MAX_EDUCATION_ENTRIES:
+            break
+        entries.append(EditableEducationEntry(
+            item_reference=f"edu_{len(entries):03d}", origin="document",
+            kind=kind, qualification=fact.value, field_of_study="", institution="",
+            status="not_specified", completion_year=None,
+            source_fact_indexes=(index,), source_attributions=fact.source_attributions,
+            decision="keep", extraction_components=("qualification",),
+        ))
     return tuple(entries)
 
 
@@ -2640,6 +2660,9 @@ def _reset_education_entries(restored_facts, entries, baseline):
                 raise ProfileIntakeError("invalid_review_submission")
             component = _EDUCATION_ENTRY_COMPONENTS[restored_facts[fact_index].field_path]
             value[component] = baseline_entry.value
+        if "kind" not in entry.extraction_components:
+            from wahojobs.profiles.review_entries import explicit_degree_kind
+            value["kind"] = explicit_degree_kind(value["qualification"]) or "not_specified"
         try:
             value = canonicalize_education_entries_v1([value])[0]
         except EducationEntryContractError:

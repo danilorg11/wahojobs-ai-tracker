@@ -677,12 +677,19 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
 
     def _assert_self_only_form_policy(self, response):
         policy = self._response_header(response, "Content-Security-Policy")
-        self.assertEqual(policy, ORDINARY_FORM_CONTENT_SECURITY_POLICY)
+        expected = ORDINARY_FORM_CONTENT_SECURITY_POLICY
+        if b'data-education-editor' in response.body:
+            from wahojobs.profiles.review_entries import EDUCATION_EDITOR_SHA256, EDUCATION_EDITOR_SCRIPT
+            if b'candidate-correction' in response.body:
+                from wahojobs.profiles.correction_editor import EDITOR_SHA256 as EDUCATION_EDITOR_SHA256, EDITOR_SCRIPT as EDUCATION_EDITOR_SCRIPT
+            expected = expected.replace("base-uri", f"script-src 'sha256-{EDUCATION_EDITOR_SHA256}'; base-uri")
+            self.assertIn(EDUCATION_EDITOR_SCRIPT.encode(), response.body)
+        self.assertEqual(policy, expected)
         self.assertNotIn("accounts.google.com", policy)
 
     @staticmethod
     def _set_form_field(fields, name, value):
-        return [item for item in fields if item[0] != name] + [(name, value)]
+        return [item for item in fields if item[0] != name] + ([] if value is None else [(name, value)])
 
     def _post_form(self, browser, target, fields, *, session=None, events=None):
         session = session or self.session
@@ -930,6 +937,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
                 "/logout",
                 "/find-matches",
                 "/account/profile?correction=start",
+                "/account/profile?correction=resume",
             },
         )
         for durable_value in (

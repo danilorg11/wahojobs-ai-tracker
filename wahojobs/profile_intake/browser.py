@@ -215,12 +215,12 @@ _STEP_FOUR_MAX_PREFERENCE_ROWS = 6
 _STEP_FOUR_DETAIL_LIMIT = 120
 _MISSING_USER_FIELD_COPY = {
     "work_authorization": (
-        "What work authorization do you have?",
-        "For example, citizenship, a work visa, or no current authorization.",
+        "Work permission (optional)",
+        "For example, a work permit. Leave blank if you are unsure; this is separate from where you live.",
     ),
     "eligible_countries": (
-        "Where can you work?",
-        "List countries where you are allowed to work, separated by commas.",
+        "Countries where you have permission to work (optional)",
+        "Separate countries with commas. These are alternatives, not your current residence or countries every job must accept.",
     ),
     "geographic_restrictions": (
         "Are there places where you cannot work?",
@@ -1997,6 +1997,8 @@ def _review_page(reference, snapshot, csrf_secret, *, save_enabled=False, displa
             fact.review_field,
             fact.review_field.replace("_", " ").title(),
         )
+        if fact.field_path == "experience.recent_roles":
+            label = "Employment details — employer, dates and work arrangement"
         raw_value = review_value_for_form(fact.value)
         source_label = _review_source_label(fact)
         direct_profile_fact = _uses_direct_profile_fact(fact)
@@ -2594,7 +2596,7 @@ def _render_found_fact_cards(fact_fields):
             or _is_managed_collection_fact(fact)
         ):
             continue
-        if fact.review_field in _COMPACT_FOUND_REVIEW_FIELDS:
+        if fact.field_path != "experience.recent_roles" and fact.review_field in _COMPACT_FOUND_REVIEW_FIELDS:
             grouped_counts[fact.review_field] = (
                 grouped_counts.get(fact.review_field, 0) + 1
             )

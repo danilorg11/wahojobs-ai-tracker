@@ -93,8 +93,8 @@ class ExistingProfileReturnWorkflowTests(unittest.TestCase):
     def test_start_edit_and_cancel_do_not_save_or_prefill_job_answers(self):
         before=self.count();target,edit=self.start()
         self.assertEqual(self.count(),before)
-        self.assertIn('<details class="review-more" open>',edit.body.decode())
-        self.assertRegex(edit.body.decode(),r'id="software_tools"[^>]*autofocus')
+        self.assertIn("id='section-skills' open",edit.body.decode())
+        self.assertIn("data-focus='software_tools'",edit.body.decode())
         self.assertIn(RETURN.replace('&','&amp;'),edit.body.decode())
         self.assertNotIn('20+ hours',edit.body.decode())
         # Cancel is a plain local GET link; no profile mutation endpoint.
@@ -136,7 +136,7 @@ class ExistingProfileReturnWorkflowTests(unittest.TestCase):
 
     def test_education_focus_does_not_invent_structured_degree_pairing(self):
         _,edit=self.start('education')
-        self.assertRegex(edit.body.decode(),r'id="degrees"[^>]*autofocus')
+        self.assertIn("data-focus='degrees'",edit.body.decode())
         form=self.f._form(edit,'edit_run_id');fields=[item for item in form['fields'] if item[0] != 'no_degree']
         for name,value in [('degrees','PhD in Molecular Biology'),('education_fields','Molecular Biology'),
                            ('education_level','doctorate'),('education_status','completed'),('hard_constraints',''),('credentials_confirmed','1')]:

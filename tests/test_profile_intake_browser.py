@@ -1147,7 +1147,7 @@ class ProfileIntakeBrowserTests(unittest.TestCase):
             b"non-comparable",
         ):
             self.assertNotIn(technical_label.lower(), page.body.lower())
-        self.assertIn(b"Where can you work?", page.body)
+        self.assertIn(b"Work permission (optional)", page.body)
         self.assertIn(b"Anything you cannot do?", page.body)
 
         snapshot = self.integration._processing.vault.get(reference, self._grant())

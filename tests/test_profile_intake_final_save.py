@@ -2831,7 +2831,7 @@ class ProfileIntakeFinalSaveTests(unittest.TestCase):
             in {"experience.job_titles", "experience.recent_roles"}
             and fact.value == "Customer Support Specialist"
         ]
-        self.assertEqual([fact.decision for fact in original_customer], ["remove", "remove"])
+        self.assertEqual([fact.decision for fact in original_customer], ["remove", "keep"])
         user_customer = next(
             fact
             for fact in readded.review.user_facts
