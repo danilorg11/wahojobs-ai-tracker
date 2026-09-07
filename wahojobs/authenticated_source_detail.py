@@ -24,7 +24,7 @@ def prepare_detail_display(job, profile):
     local = job.get('_authenticated_local_checks') or {}
     match = dict(local.get('match') or job.get('_authenticated_recommendation') or {})
     match.update({k: source[k] for k in ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')})
-    return prepare_card_evidence(match, source, profile)
+    return prepare_card_evidence(match, source, profile, include_item_experience=True)
 
 
 def render_authenticated_job_page(job, *, profile, navigation, workflow_controls='',

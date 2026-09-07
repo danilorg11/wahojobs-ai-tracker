@@ -88,6 +88,7 @@ _CORRECTION_UPDATE_FIELDS = frozenset(
         "domain_specific_skills",
         "education_fields",
         "education_entries",
+        "item_experience",
         "recent_roles",
         "education_level",
         "education_status",
@@ -946,14 +947,16 @@ class PersistentProfileCorrectionService:
             if rest or nav != validated_nav:
                 raise ValueError('correction_checkpoint_unavailable')
         reviewed = IdentityFreeCanonicalProfileV1.from_mapping(payload['reviewed'])
+        retained_updates = dict(payload['updates'])
+        retained_updates.setdefault('item_experience', '')  # Pre-extension drafts stay resumable.
         if (reviewed.canonical_bytes != IdentityFreeCanonicalProfileV1.from_mapping(project_v2_to_review_v1(proposed)).canonical_bytes
-                or payload['updates'] != _complete_updates_for_review(reviewed)):
+                or retained_updates != _complete_updates_for_review(reviewed)):
             raise ValueError('correction_checkpoint_unavailable')
         base = hashlib.sha256(canonical_profile_v2_json_bytes(grant.trusted_base_profile_v2())).hexdigest()
         if revision != grant.base_revision_id or base_hash != base:
             return dict(state='conflict', reference=reference, proposed=proposed)
         preparation = _issue_prepared_review(grant, reviewed_profile=reviewed,
-            corrected_profile_v2=proposed, normalized_updates=payload['updates'], binding_secret=self._binding_secret)
+            corrected_profile_v2=proposed, normalized_updates=retained_updates, binding_secret=self._binding_secret)
         return dict(state='ready', reference=reference, proposed=proposed,
                     preparation=preparation, navigation=nav)
 
@@ -1802,6 +1805,8 @@ def _server_authoritative_review_correction(
     entries = read_education_entries(normalized_updates.get("education_entries", ""))
     if entries is not None:
         corrected_v2 = _with_reviewed_education_entries(corrected_v2, entries)
+    from wahojobs.profiles.item_experience import with_reviewed_items
+    corrected_v2 = with_reviewed_items(corrected_v2, normalized_updates.get('item_experience', ''), base_profile_v2)
     if trusted_complete_profile_v2 is None:
         corrected_v2 = _restore_trusted_language_tail(
             corrected_v2,
@@ -1819,6 +1824,11 @@ def _server_authoritative_review_correction(
             raise _configuration_error()
         corrected_v2["languages"] = deepcopy(trusted_complete["languages"])
         corrected_v2["education"] = deepcopy(trusted_complete["education"])
+        if 'item_details' in trusted_complete['experience']:
+            corrected_v2['experience']['item_details'] = deepcopy(trusted_complete['experience']['item_details'])
+        else:
+            corrected_v2['experience'].pop('item_details', None)
+        corrected_v2['provenance']['field_sources'] = [p for p in corrected_v2['provenance']['field_sources'] if not p['field_path'].startswith('experience.item_details')] + [deepcopy(p) for p in trusted_complete['provenance']['field_sources'] if p['field_path'].startswith('experience.item_details')]
         corrected_v2["provenance"]["field_sources"] = [p for p in corrected_v2["provenance"]["field_sources"] if not p["field_path"].startswith("education.")] + [deepcopy(p) for p in trusted_complete["provenance"]["field_sources"] if p["field_path"].startswith("education.")]
         corrected_v2["provenance"]["field_sources"].sort(key=lambda p:(p["field_path"].casefold(),p["field_path"]))
         corrected_v2 = validate_canonical_profile_v2(corrected_v2)

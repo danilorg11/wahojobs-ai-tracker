@@ -3007,7 +3007,7 @@ def profile_review_updates_from_form(form, language_slots):
         "accessibility_constraints",
     )
     updates = {field: strict_review_value(form, field) for field in list_fields}
-    for field in ("recent_roles", "education_entries"):
+    for field in ("recent_roles", "education_entries", "item_experience"):
         updates[field] = strict_review_value(form, field) if field in form else ""
     for field in (
         "country",
@@ -3053,6 +3053,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
         "form_action": "confirm_profile",
         "recent_roles": json.dumps(experience.get("recent_roles") or []),
         "education_entries": "",
+        "item_experience": "",
         "edit_run_id": match_run_id,
         "review_token": review_token,
         "schema_version": SCHEMA_VERSION,
@@ -3127,7 +3128,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
 
 
 PROFILE_REVIEW_TEXT_FIELDS = {
-    "recent_roles", "education_entries",
+    "recent_roles", "education_entries", "item_experience",
     "country", "region", "city", "work_authorization", "eligible_countries",
     "geographic_restrictions", "education_level", "degrees", "education_fields",
     "institutions", "education_status", "credential_status", "certifications",
@@ -3183,7 +3184,7 @@ def validate_profile_review_submission(form, registry):
     if unsupported:
         raise MalformedProfileReview()
     # Older rendered forms cannot edit the new independent entry controls.
-    required = (PROFILE_REVIEW_TEXT_FIELDS - {"recent_roles", "education_entries"}) | PROFILE_REVIEW_CONTROL_FIELDS | language_fields
+    required = (PROFILE_REVIEW_TEXT_FIELDS - {"recent_roles", "education_entries", "item_experience"}) | PROFILE_REVIEW_CONTROL_FIELDS | language_fields
     for field in required:
         strict_review_value(form, field)
     for field in PROFILE_REVIEW_CHECKBOX_FIELDS:

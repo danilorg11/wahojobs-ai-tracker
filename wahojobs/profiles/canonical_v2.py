@@ -250,6 +250,7 @@ _SECTION_FIELDS = {
             "industries",
             "contribution_type",
             "specialties",
+            "item_details",
         }
     ),
     "skills": frozenset(
@@ -546,6 +547,14 @@ def validate_canonical_profile_v2(value: dict) -> dict:
         "derived_matcher_signals",
     ):
         _validate_section(section, candidate.get(section), errors)
+    if 'item_details' in candidate.get('experience', {}):
+        from wahojobs.profiles.item_experience import canonical_items, linked
+        try:
+            items = canonical_items(candidate['experience']['item_details'])
+            if items != candidate['experience']['item_details'] or not all(linked(candidate, i) for i in items):
+                errors.append('invalid_item_experience')
+        except (ValueError, TypeError, KeyError):
+            errors.append('invalid_item_experience')
     _validate_provenance(candidate, errors)
 
     if not errors:
@@ -854,6 +863,7 @@ def project_v2_to_review_v1(v2: dict) -> dict:
         for item in profile_v2["derived_matcher_signals"]["signals"]
     ]
     experience = deepcopy(profile_v2["experience"])
+    experience.pop('item_details', None)  # V2-only, preserved by the sealed proposal.
     experience["years_by_domain"] = {
         item["domain"]: item["years"]
         for item in profile_v2["experience"]["years_by_domain"]
@@ -1060,6 +1070,8 @@ def merge_server_review_correction_v2(
         result["provenance"]["ambiguous_fields"] = deepcopy(
             candidate["provenance"]["ambiguous_fields"]
         )
+    from wahojobs.profiles.item_experience import prune_unlinked
+    prune_unlinked(result)
     result["provenance"]["reviewed"] = True
     result["provenance"]["field_sources"] = [
         {
@@ -1396,6 +1408,7 @@ def _v2_to_v1(v2: dict, *, matcher_profile_id: str) -> dict:
         projected["evidence"] = []
         signals.append(projected)
     experience = deepcopy(v2["experience"])
+    experience.pop('item_details', None)  # Explanatory facts never alter scoring.
     # The production matcher does not consume years_by_domain.  Keeping this
     # empty avoids reintroducing dynamic object keys and Unicode/path ambiguity
     # at the V1 compatibility boundary.

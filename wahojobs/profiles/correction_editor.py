@@ -13,6 +13,7 @@ from wahojobs.profiles.review_entries import (
     EDUCATION_EDITOR_SCRIPT, education_editor, employment_editor, unpaired_education,
 )
 from wahojobs.profiles.canonical import EDUCATION_COMPLETION_STATUSES
+from wahojobs.profiles import item_experience_editor
 
 
 def esc(value):
@@ -36,7 +37,7 @@ def _chips(name, values, label):
 
 
 def render_editor(support, canonical, run_id, token, *, action, back_url,
-                  education, form_defaults, focus=None, submitted=None, issue=None, cancel_url='/account/profile'):
+                  education, form_defaults, focus=None, submitted=None, issue=None, cancel_url='/account/profile', item_details=()):
     fields = dict(form_defaults)
     fields.pop("profile_draft_fingerprint", None)
     fields.pop("credentials_confirmed", None)
@@ -47,6 +48,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         value = unpaired.get(key)
         fields[name] = support.review_csv(value) if isinstance(value, list) else value or ""
     fields["education_entries"] = json.dumps(education.get("entries", []))
+    fields['item_experience'] = json.dumps(list(item_details))
     # Match the established legacy form projection. The correction service
     # preserves an untouched legacy level from the authoritative revision.
     if fields['education_level'] not in support.EDUCATION_LEVELS:
@@ -187,8 +189,8 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
             'The license and certification information I reviewed is accurate.', fields.get('credentials_confirmed') == '1', required=True) + "</div>"
         + f"<div class='review-actions' id='review-actions'><a data-correction-back href='{esc(back_url)}'>Back</a>"
         + f"<a href='{esc(cancel_url)}'>Cancel</a><button type='submit' id='confirm-profile-button'>Review changes</button></div>"
-        + "<p class='field-help'>You will confirm the complete profile on the next screen.</p></form>"
-        + '<style>' + EDITOR_STYLE + '</style><script>' + EDITOR_SCRIPT + '</script>')
+        + "<p class='field-help'>You will confirm the complete profile on the next screen.</p>" + item_experience_editor.dialog() + '</form>'
+        + '<style>' + EDITOR_STYLE + item_experience_editor.STYLE + '</style><script>' + EDITOR_SCRIPT + '</script>')
 
 
 EDITOR_STYLE = """
@@ -224,7 +226,7 @@ EDITOR_STYLE = """
 @media(max-width:700px){.candidate-correction{padding:16px;}.candidate-correction .review-grid{grid-template-columns:1fr;}.candidate-section-body{padding:0 12px 12px;}.candidate-correction .review-actions{gap:16px;}.candidate-correction .review-actions button{width:100%;}}
 """
 
-EDITOR_SCRIPT = EDUCATION_EDITOR_SCRIPT + """
+EDITOR_SCRIPT = EDUCATION_EDITOR_SCRIPT + item_experience_editor.SCRIPT + """
 (function(){'use strict';var form=document.querySelector('.candidate-correction');if(!form)return;
 var originalFields=JSON.stringify(Array.from(new FormData(form).entries())),submitting=false;
 function dirty(){return JSON.stringify(Array.from(new FormData(form).entries()))!==originalFields;}
@@ -251,6 +253,11 @@ def actionable_issue(support, updates):
     """Feedback only; use the same validators as canonical persistence."""
     from wahojobs.profiles.canonical_v2 import _validate_string_list, MAX_DYNAMIC_LABEL_LENGTH
     from wahojobs.profiles.countries import normalize_country
+    from wahojobs.profiles.item_experience import read_items
+    try:
+        read_items(updates.get('item_experience', ''))
+    except (ValueError, TypeError, KeyError):
+        return ('section-skills', 'Review the optional experience details. Use a whole number of months from 0 to 960, keep each entry linked to one item, and leave unknown details blank.')
     try:
         normalize_country(updates.get('country', ''), allow_missing=True)
     except (ValueError, TypeError):
@@ -323,12 +330,14 @@ def summary_sections(canonical):
     credentials = canonical.get('credentials', {})
     constraints = canonical.get('constraints', {})
     entries = education.get('entries', [])
+    from wahojobs.profiles.item_experience import summary as item_summary
     studies = [' · '.join(str(e[k]) for k in ('qualification', 'field', 'institution', 'completion_year') if e.get(k)) for e in entries]
     unpaired = unpaired_education(education)
     return ''.join((
         section('Location', [', '.join(location[k] for k in ('city', 'region', 'country') if location.get(k))]),
         section('Languages', [f"{v['language']} — {str(v.get('proficiency') or 'Not specified').replace('_', ' ')}" for v in canonical.get('languages', [])]),
         section('Experience', [*experience.get('job_titles', []), *experience.get('recent_roles', []), *experience.get('specialties', [])]),
+        section('Optional experience details', [item_summary(i) for i in experience.get('item_details', [])]),
         section('Education and studies', [*studies, *unpaired.get('degrees', []), *unpaired.get('fields_or_domains', []), *unpaired.get('institutions', [])]),
         section('Skills and tools', list(dict.fromkeys(v for values in skills.values() if isinstance(values, list) for v in values if isinstance(v, str)))),
         section('Work preferences', [f"{label}: {str(preferences[k]).replace('_', ' ')}" for k,label in (('availability','Preferred workload'),('synchronous_preference','Schedule'),('phone_preference','Phone work')) if preferences.get(k) not in (None,'','unknown','unspecified')] + preferences.get('schedule', []) + preferences.get('employment_types', [])),

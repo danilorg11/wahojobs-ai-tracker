@@ -268,8 +268,8 @@ class AuthenticatedConditionComparisonTests(unittest.TestCase):
         from wahojobs import authenticated_profile_matches as browser
         from wahojobs.candidate_condition_comparisons import compare_conditions
         seen = []
-        def record(packet, p):
-            seen.append(packet['job_id']); return compare_conditions(packet,p)
+        def record(packet, p, **kwargs):
+            seen.append(packet['job_id']); return compare_conditions(packet,p,**kwargs)
         with patch('wahojobs.candidate_condition_comparisons.compare_conditions', side_effect=record):
             response = self.f.get()
         self.assertEqual(response.status,200)

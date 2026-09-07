@@ -494,6 +494,7 @@ class PersistentProfileBrowserIntegration:
             back_url=_correction_view_target("review", run),
             focus=navigation.get('focus') if navigation else None,
             education=run.recommendation_context['correction_preparation'].education_for_browser(),
+            item_details=run.recommendation_context['correction_preparation'].profile_for_browser()['experience'].get('item_details', []),
             form_defaults=self._review_support.profile_review_form_fields(run.canonical_profile, run.match_run_id, run.review_token),
             submitted=submitted, issue=issue,
             cancel_url=navigation['return_to'] if navigation else PERSISTENT_PROFILE_ROUTE,

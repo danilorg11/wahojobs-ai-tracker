@@ -125,7 +125,7 @@ def _tool_groups(text):
     return ([parts] if operator == 'any_of' else [[p] for p in parts]), operator
 
 
-def _tools(quote, profile):
+def _tools(quote, profile, *, include_item_experience=False):
     match = re.fullmatch(r'(Working proficiency|Proficiency|Experience|Comfortable) (?:in|with) (.+)', quote, re.I)
     parsed = _tool_groups(match[2]) if match else None
     if not parsed:
@@ -159,6 +159,40 @@ def _tools(quote, profile):
     if failed_group and operator != 'unresolved_slash':
         names = ', '.join(candidates[t] for t in sorted(denied))
         return 'contradicted', f'The source asks for experience; your profile explicitly states no experience with {names}.', facts, []
+    if include_item_experience:
+        # Compare only the already-supported clause forms. Duration, expertise,
+        # job-specific autonomy and specialized domains are not inferred here.
+        from wahojobs.profiles.item_experience import linked, PREFIX
+        scoped_wording = bool(re.search(r'\bfor\b| [—–] ', match[2], re.I))
+        reported, usable, conflicting = set(), set(), False
+        for i, detail in enumerate(profile.get('experience', {}).get('item_details', [])):
+            tool = detail['label'].casefold()
+            if tool not in candidates or not linked(profile, detail):
+                continue
+            fact = _fact(profile, f'{PREFIX}[{i}]', detail)
+            if detail.get('basis') != 'self_reported' or not fact['sources'] or not all(
+                    s.get('explicit') is True and s.get('source_kind') in ('user_confirmation', 'user_correction')
+                    for s in fact['sources']):
+                continue
+            facts.append(fact)
+            if detail['contexts']:
+                reported.add(tool)
+                if not scoped_wording and match[1].casefold() == 'experience': usable.add(tool)
+                if not scoped_wording and match[1].casefold() == 'working proficiency' and detail['autonomy'] in ('independent', 'complex'):
+                    usable.add(tool)
+            if tool in denied and (detail['contexts'] or detail['autonomy'] != 'unknown'):
+                conflicting = True
+        if conflicting:
+            return 'unresolved', 'Your profile gives conflicting tool-experience information. Confirm it before applying.', facts, []
+        if operator != 'unresolved_slash' and all(any(t.casefold() in usable for t in group) for group in groups):
+            names = ', '.join(candidates[t] for t in sorted(usable))
+            basis = 'use' if match[1].casefold() == 'experience' else 'independent routine use'
+            return 'supported', f'You report {basis} of {names}, supporting this tool condition. This is your own assessment, not independently verified.', facts, ['self-reported tool experience: ' + candidates[t] for t in sorted(usable)]
+        if reported:
+            names = ', '.join(candidates[t] for t in sorted(reported))
+            if scoped_wording:
+                return 'not_established', f'You report using {names}. The specific use or additional qualifications in this source clause still need confirmation.', facts, ['self-reported use: ' + candidates[t] for t in sorted(reported)]
+            return 'not_established', f'You report using {names}. The requested proficiency or remaining tool requirements still aren’t established.', facts, ['self-reported use: ' + candidates[t] for t in sorted(reported)]
     if mentioned:
         names = ', '.join(candidates[t] for t in sorted(mentioned))
         message = f'Your profile mentions {names}, an accepted tool option.' if operator == 'any_of' else f'Your profile mentions {names}.'
@@ -193,7 +227,7 @@ def _workload(quote, profile):
     return ('not_established', prefix + f"Confirm you can commit to {match[1]}; your available hours aren’t established.", facts, [])
 
 
-def compare_conditions(packet, profile):
+def compare_conditions(packet, profile, *, include_item_experience=False):
     """Only called for visible cards/requested details after identity validation."""
     results = []
     for block in packet['conditions']:
@@ -204,7 +238,8 @@ def compare_conditions(packet, profile):
             result, kind = None, 'unassessed'
             for name, compare in (('education', _education), ('tools', _tools), ('workload', _workload)):
                 # Workload is a stated term, not an inferred qualification.
-                result = compare(clean, profile)
+                result = (compare(clean, profile, include_item_experience=include_item_experience)
+                          if name == 'tools' else compare(clean, profile))
                 if result:
                     kind = name; break
             if result:

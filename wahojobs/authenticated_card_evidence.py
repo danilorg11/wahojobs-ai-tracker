@@ -93,7 +93,7 @@ def _source_text(source, *, include_structured_lists=True):
     return text
 
 
-def prepare_card_evidence(match, source, profile):
+def prepare_card_evidence(match, source, profile, *, include_item_experience=False):
     if not source or any(source.get(k) != match.get(k) for k in
                          ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')):
         return None
@@ -231,7 +231,7 @@ def prepare_card_evidence(match, source, profile):
             'workload': workload, 'listing_commitment': commitment, 'facts': fields,
             'pay': pay, 'caveats': caveats}
     from wahojobs.candidate_condition_comparisons import compare_conditions
-    packet['comparisons'] = compare_conditions(packet, profile)
+    packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience)
     return packet
 
 

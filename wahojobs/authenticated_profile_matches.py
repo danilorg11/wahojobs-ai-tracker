@@ -1910,7 +1910,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 # Missing evidence changes the explanation, never admission.
                 sources = {}
         return dict(context, _card_evidence={
-            match["job_id"]: prepare_card_evidence(match, sources.get(match["job_id"]), profile_v2)
+            match["job_id"]: prepare_card_evidence(match, sources.get(match["job_id"]), profile_v2, include_item_experience=True)
             for match in matches
         })
 

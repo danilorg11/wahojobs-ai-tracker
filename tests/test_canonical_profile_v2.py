@@ -1955,6 +1955,7 @@ print(canonical_v2.SCHEMA_VERSION)
                     "wahojobs/persistent_profile_creation.py",
                     "wahojobs/persistent_profile_corrections.py",
                     "wahojobs/persistent_profile_schema.py",
+                    "wahojobs/profiles/item_experience.py",
                     "scripts/persistent_profile_canonical_v2_migration.py",
                 ]
             ),
