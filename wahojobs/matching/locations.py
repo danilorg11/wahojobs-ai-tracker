@@ -198,6 +198,14 @@ def explicit_country_eligibility(profile: dict, row: dict) -> LocationEligibilit
     Residence never borrows work authorization, nationality or current location.
     """
     requirements = row["applicant_country_requirements"]
+    invitations = [r for r in requirements if r.get('modality') == 'invitation']
+    # Preserve a contradiction between a positive invitation and an explicit
+    # restriction; neither statement may silently erase the other.
+    source_conflicts = {inv['dimension'] for inv in invitations for rule in requirements
+        if rule.get('modality') != 'invitation' and inv['dimension'] == rule['dimension']
+        and not inv['unresolved'] and not rule['unresolved']
+        and ((rule['mode'] == 'exclude' and set(inv['countries']) & set(rule['countries']))
+             or (rule['mode'] == 'allow' and not set(inv['countries']) <= set(rule['countries'])))}
     conflicts, unknowns, descriptions = [], [], []
     positive = False
     for requirement in requirements:
@@ -217,11 +225,18 @@ def explicit_country_eligibility(profile: dict, row: dict) -> LocationEligibilit
         if requirement.get("source_quote"):
             description += f' ("{requirement["source_quote"].strip()}")'
         descriptions.append(description)
-        if requirement.get("source_conflict"):
+        if requirement.get("source_conflict") or dimension in source_conflicts:
             unknowns.append(f"Conflicting source applicant {dimension} statements: {description}.")
             continue
         if requirement.get("ambiguous_statement"):
             unknowns.append(f"Unresolved applicant scope or modality: {description}.")
+            continue
+        if requirement.get('modality') == 'invitation':
+            # Invitations are positive, non-exhaustive alternatives. A person
+            # elsewhere is not excluded, and one unmatched invitation cannot
+            # cancel support from another invitation or mandatory allowance.
+            if country and country in countries and not requirement['unresolved']:
+                positive = True
             continue
         if not country:
             unknowns.append(f"Applicant {dimension} is unconfirmed for {field}.")
@@ -235,10 +250,13 @@ def explicit_country_eligibility(profile: dict, row: dict) -> LocationEligibilit
             unknowns.append(f"{field} contains unresolved country evidence.")
         if mode == "allow" and country in countries:
             positive = True
+    if invitations and not positive and not conflicts:
+        unknowns.append('The source invites applicants in named locations; eligibility elsewhere or with unconfirmed residence remains unspecified.')
     status = (LOCATION_INCOMPATIBLE if conflicts else LOCATION_UNKNOWN if unknowns or not positive
               else LOCATION_ELIGIBLE)
     reason = " ".join(conflicts or unknowns) or (
-        "Profile satisfies the explicit applicant country/residence requirements."
+        ("The source explicitly recruits applicants in the profile's country."
+         if invitations else "Profile satisfies the explicit applicant country/residence requirements.")
         if positive else "No explicit exclusion matches; broader geographic eligibility remains unconfirmed."
     )
     profile_location = explicit_profile_location(profile)

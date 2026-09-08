@@ -303,17 +303,34 @@ Dates from different source representations are not silently substituted.
         "provider": provider, "external_id": candidate.external_id,
         "application_acceptance_verified": False, "display_text": display_text, **evidence,
     }
-    return replace(candidate, source_body=body, source_body_format=body_format,
-                   source_metadata=metadata, location=location)
+    return _prepare_detail_geography(replace(candidate, source_body=body, source_body_format=body_format,
+                   source_metadata=metadata, location=location))
 
 
-def reprocess_saved_detail(connection, job_id, response, *, catalog_capture_id=None):
+def _prepare_detail_geography(candidate):
+    from copy import deepcopy
+    from wahojobs.matching.source_geography import prepare_applicant_location_support
+    metadata = deepcopy(candidate.source_metadata)
+    detail = metadata[DETAIL_KEY]
+    if candidate.source_body_format == 'text/markdown':
+        support = prepare_applicant_location_support(candidate.source_body, detail['field'])
+        if support:
+            detail['applicant_location_support'] = support
+        else:
+            detail.pop('applicant_location_support', None)
+    return replace(candidate, source_metadata=metadata)
+
+
+def reprocess_saved_detail(connection, job_id, response=None, *, catalog_capture_id=None):
     """Reprocess one accepted catalog record using a separately dated detail.
 
     Retain the historical catalog capture as provenance, but use a separately
     dated, content-only attestation: no crawl run, lifecycle observation, rollup
     or removal is written. Invalid/empty detail raises before any write. Existing
-    material degradation and timestamp conflict checks remain in force.
+    material degradation and timestamp conflict checks remain in force. With
+    no response, reprepare an already accepted, identity-verified Markdown
+    detail using its original capture and attestation, without fabricating a
+    new HTTP observation. Existing source-promotion checks still apply.
 """
     from wahojobs.crawler.types import (JobCandidate, RecordPromotionAttestation,
                                        PROVIDER_DETAIL_RECORD_CONTRACT_ID)
@@ -358,7 +375,23 @@ def reprocess_saved_detail(connection, job_id, response, *, catalog_capture_id=N
         _verify_capture_crawl_provenance(connection, catalog_job, current, _capture_context_from_row(current))
         current_fields = json.loads(current['semantic_job_fields_json'])
         candidate = JobCandidate(**current_fields, source_body=current['body'], source_body_format=current['body_format'], source_metadata=metadata, source_updated_at=current['source_updated_at'])
-    recovered = recover_detail(job["provider"], candidate, response)
+    if response is None:
+        if catalog_capture_id is not None:
+            raise ValueError('Accepted-detail preparation cannot substitute a catalog capture')
+        validate_detail_url(job['provider'], candidate.external_id, candidate.url)
+        record = previous.get('record') or {}
+        field = previous.get('field', '')
+        if (previous.get('version') != 1 or previous.get('provider') != job['provider']
+                or previous.get('external_id') != candidate.external_id or previous.get('url') != candidate.url
+                or candidate.source_body_format != 'text/markdown'
+                or field != 'props.pageProps.job.longDescription'
+                or record.get('id') != candidate.external_id or record.get('name') != candidate.title
+                or first_text(record, ('longDescription',)) != candidate.source_body
+                or capture['record_promotion_contract_id'] != PROVIDER_DETAIL_RECORD_CONTRACT_ID):
+            raise ValueError('No identity-verified accepted Markdown detail to prepare')
+        recovered = _prepare_detail_geography(candidate)
+    else:
+        recovered = recover_detail(job["provider"], candidate, response)
     # Keep the first listing capture as the catalog baseline on repeated recovery.
     recovered.source_metadata[DETAIL_KEY]["catalog_baseline_capture_id"] = previous.get(
         "catalog_baseline_capture_id", capture["id"])
@@ -367,15 +400,15 @@ def reprocess_saved_detail(connection, job_id, response, *, catalog_capture_id=N
     detail = recovered.source_metadata[DETAIL_KEY]
     recovered = replace(recovered, record_promotion_attestation=RecordPromotionAttestation(
         PROVIDER_DETAIL_RECORD_CONTRACT_ID, "present", {
-            "url": response.url, "external_id": recovered.external_id,
+            "url": detail['url'], "external_id": recovered.external_id,
             "response_sha256": detail["response_sha256"],
-            "observed_at": response.observed_at, "content_only": True,
+            "observed_at": detail['observed_at'], "content_only": True,
         }))
     context = SourceCaptureContext(None, "partial", False, False, False, False,
                                    1, 1, 1, 0, PROVIDER_DETAIL_RECORD_CONTRACT_ID,
                                    PROVIDER_DETAIL_RECORD_CONTRACT_ID)
     return upsert_job_source_content(connection, job_id, job["provider"],
-                                     capture["source_type"], recovered, response.observed_at,
+                                     capture["source_type"], recovered, detail['observed_at'],
                                      capture_context=context)
 
 

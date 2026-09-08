@@ -72,6 +72,55 @@ def prepare_applicant_residence_clause(quote, modality, reference):
                 source_field=reference, source_quote=quote)
 
 
+def prepare_applicant_location_support(body, source_field):
+    """Prepare non-exclusive recruitment evidence at detail ingestion.
+
+    This bounded grammar describes where applicants are invited, not where an
+    employer operates. A named city followed by nationwide coverage does not
+    restrict applicants to that city. Unsupported qualifications stay raw.
+    """
+    body = normalize_source_body(body)
+    if not body:
+        return None
+    clauses, section = [], ''
+    for number, raw in enumerate(body.splitlines(), 1):
+        if raw.startswith('#'):
+            section = raw.strip('# *:').casefold()
+            continue
+        if section not in {'about the role', 'about this role', 'the role', 'overview'}:
+            continue
+        for sentence in re.split(r'(?<=[.!?])\s+', raw.strip()):
+            if (_UNRELATED.search(sentence) or re.search(
+                    r'\b(?:not|no|only|except|unless|if|preferred|preferably|ideal|ideally|may|might)\b', sentence, re.I)):
+                continue
+            match = re.fullmatch(
+                r"(?:We(?:'re|’re| are) looking for|We are recruiting|We recruit) "
+                r"(?P<role>[\w ,()—–-]+?) (?:based|located|residing|living) in "
+                r"(?P<places>.+?) to [^\n]+", sentence, re.I)
+            if not match:
+                continue
+            places = match['places']
+            # 'City and across Country' expressly broadens the invitation.
+            nationwide = re.fullmatch(r'[\w ,–-]+? and (?:across|throughout) (.+)', places, re.I)
+            countries, unresolved = _description_countries(nationwide[1] if nationwide else places)
+            if not countries or unresolved:
+                continue
+            clauses.append(dict(dimension='location', mode='allow', modality='invitation',
+                                countries=countries, unresolved=False,
+                                source_field=f'{source_field}:line {number}', source_quote=sentence))
+    if clauses:
+        # Use the existing explicit applicant-clause grammar to retain contrary
+        # statements alongside invitations, including negated eligibility.
+        explicit = prepare_mercor_description_geography(body, source_field, {}) or {}
+        for clause in explicit.get('clauses', []):
+            if clause['modality'] in {'mandatory', 'unresolved'}:
+                clauses.append(dict(clause,
+                    ambiguous_statement=clause['modality'] == 'unresolved',
+                    source_conflict=clause['dimension'] in explicit['conflicting_dimensions']))
+    return (dict(version=1, body_sha256=hashlib.sha256(body.encode()).hexdigest(), clauses=clauses)
+            if clauses else None)
+
+
 def prepare_mercor_description_geography(body, source_field, structured):
     """Prepare a bounded grammar at ingestion, never while serving matches.
 

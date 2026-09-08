@@ -14,7 +14,7 @@ from wahojobs.profiles.normalizer import term_is_negated
 
 
 TASK_PROJECTION_VERSION = 2
-SOURCE_ELIGIBILITY_VERSION = 2
+SOURCE_ELIGIBILITY_VERSION = 3
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -225,6 +225,17 @@ def _prepare_eligibility(material_hash, provider, external_id, url, body, body_f
                 other['modality'] == 'not_required' and set(condition['languages']) & set(other['languages'])
                 for other in languages):
             condition['modality'] = 'unresolved'
+    # These invitations were prepared during identity-validated detail
+    # ingestion/reprocessing. No new description grammar runs in requests.
+    from hashlib import sha256
+    from wahojobs.source_capture import normalize_source_body
+    metadata = json.loads(metadata_json or '{}')
+    detail = metadata.get('wahojobs_source_detail_v1') or {}
+    prepared = detail.get('applicant_location_support') or {}
+    if (detail.get('provider') == provider and detail.get('external_id') == external_id
+            and detail.get('url') == url and prepared.get('version') == 1
+            and prepared.get('body_sha256') == sha256((normalize_source_body(body) or '').encode()).hexdigest()):
+        countries.extend(prepared['clauses'])
     return tuple(languages), tuple(countries)
 
 
