@@ -228,7 +228,7 @@ def _workload(quote, profile):
     return ('not_established', prefix + f"Confirm you can commit to {match[1]}; your available hours aren’t established.", facts, [])
 
 
-def _professional_background(quote, profile):
+def _professional_background(quote, profile, *, include_item_experience=False):
     """Compare a few explicit background forms, without a profession taxonomy.
 
     The alternatives come from the source, not the title. Study/skill mentions
@@ -305,10 +305,52 @@ def _professional_background(quote, profile):
                 ' role. The requested hands-on work, depth and duration still need confirmation.',facts,
                 ['related role: '+x for x in sorted(practice)])
     if related:
+        if include_item_experience:
+            explanation = _background_item_context(profile, facts)
+            if explanation:
+                message, context_facts = explanation
+                return 'unresolved', message, facts + context_facts, []
         contexts = sorted({f['context'] for f in facts if 'context' in f})
         return ('unresolved','Your profile records related '+ ' / '.join(contexts)+
                 ', which does not establish the hands-on professional experience requested here.',facts,[])
     return ('not_established','The requested professional background is not established in your profile. General AI evaluation experience does not establish it.',facts,[])
+
+
+def _background_item_context(profile, related_facts):
+    """Display-only context for labels already recognized by the comparison.
+
+    Never establish a role, proficiency or duration; no new requirement parsing.
+    Stronger role evidence and existing contradictions are handled first.
+    """
+    from wahojobs.profiles.item_experience import FIELDS, PREFIX, linked
+    reported = []
+    for i, detail in enumerate(profile.get('experience', {}).get('item_details', [])):
+        if detail.get('basis') != 'self_reported' or not linked(profile, detail) or not detail['contexts']:
+            continue
+        root, field = FIELDS[detail['field']]
+        if not any(f['value'] == detail['label'] and f['field_path'].startswith(f'{root}.{field}[')
+                   for f in related_facts):
+            continue  # neither another item nor another collection supplies context
+        fact = _fact(profile, f'{PREFIX}[{i}]', detail)
+        if not fact['sources'] or not all(s.get('explicit') is True and s.get('source_kind') in
+                                         ('user_confirmation', 'user_correction') for s in fact['sources']):
+            continue
+        reported.append((detail, fact))
+    professional = [(d, f) for d, f in reported if 'professional' in d['contexts']]
+    if professional:
+        names = ', '.join(dict.fromkeys(d['label'] for d, _ in professional))
+        return (f'You report using {names} professionally. The specific hands-on responsibilities still need confirmation.',
+                [f for _, f in professional])
+    if reported:
+        # Do not merge different items' contexts into a collective claim.
+        phrases = []
+        for detail, _ in reported:
+            context = ' and '.join({'study': 'study/training', 'projects': 'personal/volunteer projects'}[c]
+                                   for c in detail['contexts'])
+            phrases.append(f'{detail["label"]} in {context}')
+        return ('You report ' + '; '.join(phrases) + '. This does not establish professional-role experience.',
+                [f for _, f in reported])
+    return None
 
 
 def compare_conditions(packet, profile, *, include_item_experience=False):
@@ -324,7 +366,7 @@ def compare_conditions(packet, profile, *, include_item_experience=False):
                                   ('professional_background', _professional_background)):
                 # Workload is a stated term, not an inferred qualification.
                 result = (compare(clean, profile, include_item_experience=include_item_experience)
-                          if name == 'tools' else compare(clean, profile))
+                          if name in ('tools', 'professional_background') else compare(clean, profile))
                 if result:
                     kind = name; break
             if (kind == 'professional_background' and mode == 'unspecified'

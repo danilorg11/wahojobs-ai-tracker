@@ -39,6 +39,23 @@ years requirements and additional qualifiers remain unassessed or unresolved.
 For example, generic R experience does not establish scientific-computing skill.
 Source restrictions, contradictions and exact-variant references remain intact.
 
+For already-recognized professional-background clauses, display mode can also
+acknowledge optional context on the exact related skill/activity item. It says
+"You report using Marketing professionally", or identifies study/projects,
+while leaving the particular hands-on responsibilities unresolved. The same
+item linkage and explicit confirmation provenance are required; unrelated,
+unlinked or unconfirmed details do not supply context. Missing context is not
+inability. Stronger existing role/history evidence and genuine conflicts retain
+their existing explanations. No autonomy, duration or independently verified
+competence is inferred from context.
+
+This professional-background extension changes only explanatory wording and
+its supporting profile references in display mode. Qualification status and
+decision-bearing support remain unchanged, including when professional context
+is supplied. It does not make a suppressed opportunity visible. Existing cards'
+Qualifications & conditions disclosure and the normal job-detail comparison
+sections render the explanation; no new route or admission exception is added.
+
 The legacy scoring projection deliberately omits these explanatory records.
 Pre-admission comparison calls also retain their previous inputs. The current
 profile hash invalidates old recommendation contexts after confirmed changes;
@@ -51,7 +68,9 @@ totals. Item-specific duration is shown to the candidate but does not yet resolv
 source year requirements. Activity details are preserved and reviewable; this
 slice adds no new activity-requirement parser.
 
-Focused tests: `tests.test_optional_item_experience` plus the existing correction,
+Focused tests: `tests.test_optional_item_experience`,
+`tests.test_background_item_explanation` (in-memory matching and renderer checks;
+not browser acceptance), plus the existing correction,
 condition-comparison, language-safety and accepted-task tests. The opt-in
 `tests.test_optional_item_experience_browser` uses the existing disposable local
 login/app tooling and a separate headless Edge context. Set
