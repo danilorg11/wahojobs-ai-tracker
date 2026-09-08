@@ -424,6 +424,7 @@ def compare_language_condition(profile: dict, requirement: dict) -> dict:
             by_language.setdefault(key, []).append(dict(path=f'language_proficiency.{language}',
                                                        language=language, proficiency=level))
     statuses = []
+    denials = _confirmed_level_denials(profile)
     for language in requirement['languages']:
         values = by_language.get(language, [])
         facts.extend(values)
@@ -441,6 +442,13 @@ def compare_language_condition(profile: dict, requirement: dict) -> dict:
             status = 'contradicted'
         else:
             status = 'unresolved'  # advanced/fluent is not equated with near-native
+        negative = [d for d in denials if d['language']==language]
+        ruled_out = {level for d in negative for level in d['levels']}
+        facts.extend(negative)
+        if levels & ruled_out:
+            status = 'unresolved'  # contradictory profile statements
+        elif set(requirement['levels']) <= ruled_out:
+            status = 'contradicted'
         statuses.append(status)
     if requirement['operator'] == 'any_of':
         status = ('supported' if 'supported' in statuses else 'contradicted'
@@ -453,11 +461,37 @@ def compare_language_condition(profile: dict, requirement: dict) -> dict:
     label = (' or ' if requirement['operator'] == 'any_of' else ' and ').join(requirement['languages'])
     message = {
         'supported': f'Your stated {label} level supports this language condition.',
-        'contradicted': f'This asks for {" or ".join(requirement["levels"])} {label}; your confirmed level is basic.',
+        'contradicted': (f'This asks for {" or ".join(requirement["levels"])} {label}; your confirmed profile explicitly rules out the requested level.'
+                         if any(d['language'] in requirement['languages'] for d in denials) else
+                         f'This asks for {" or ".join(requirement["levels"])} {label}; your confirmed level is basic.'),
         'not_established': f'Your {label} proficiency is not stated.',
         'unresolved': f'Confirm whether your stated {label} level meets the source requirement.',
     }[status]
     return dict(requirement, status=status, profile_facts=facts, message=message)
+
+
+def _confirmed_level_denials(profile):
+    """Optional existing firm-limit wording, only after explicit confirmation.
+
+    A denial is not a proficiency level and never rewrites it. In particular,
+    advanced alone says nothing about this extra, separately declared fact.
+    """
+    constraints=profile.get('constraints') or {}
+    if not isinstance(constraints,dict): return []
+    refs=profile.get('provenance',{}).get('field_sources') or []
+    if not isinstance(refs,list): return []
+    result=[]
+    for key in ('hard_constraints','negative_constraints'):
+        for i,value in enumerate(constraints.get(key,[])):
+            path=f'constraints.{key}[{i}]'
+            if not any(r.get('field_path')==path and r.get('explicit') is True and
+                       r.get('source_kind') in ('user_confirmation','user_correction') for r in refs):continue
+            found=re.fullmatch(r'(?:I am )?not (?:a )?(native(?: or near-native)?|near-native|bilingual|fluent)(?: in)? ([\w -]+?)(?: speaker)?\.?',value,re.I)
+            language=normalize_language_name(found[2]) if found else None
+            if not language:continue
+            levels=found[1].lower().split(' or ')
+            result.append(dict(path=path,language=language,levels=levels,text=value))
+    return result
 
 
 def row_language_text(row: dict) -> str:

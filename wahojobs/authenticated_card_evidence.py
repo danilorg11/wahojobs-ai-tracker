@@ -188,6 +188,9 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
                   'incompatible': 'The applicant-location restriction conflicts with your profile.'}.get(location)
                  if location in ('eligible', 'incompatible') else
                  (f"Eligibility from {country} needs confirmation." if country else 'Applicant-location eligibility isn’t specified.'))
+    source_place_note = _differing_source_locations(source, detail) if location == 'unknown' else ''
+    if source_place_note:
+        geography = source_place_note + ' ' + geography
     pay = pay_facts(metadata, text)
     # Formatting of explicit arrangement labels is separate from eligibility.
     arrangement = ''
@@ -224,7 +227,8 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
         fields.append(('Duration', duration))
     # An opaque source location does not establish residence permission.
     source_location = record.get('location')
-    if isinstance(source_location, str) and source_location and arrangement == 'Remote' and source_location.lower() != 'remote':
+    if (not source_place_note and isinstance(source_location, str) and source_location
+            and arrangement == 'Remote' and source_location.lower() != 'remote'):
         if geography in caveats:
             caveats.remove(geography)
         caveats.append(f'Listing location: {source_location}. ' + geography)
@@ -247,6 +251,48 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
     from wahojobs.candidate_condition_comparisons import compare_conditions
     packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience)
     return packet
+
+
+def _differing_source_locations(source, detail):
+    """Explain differing fields from this exact accepted detail, not eligibility.
+
+    A structured city/country must also occur in the original description.
+    Neither headquarters nor incidental customer geography becomes residence.
+    No city inference, cross-variant borrowing or new country gate occurs here.
+    """
+    from wahojobs.profiles.countries import COUNTRY_BY_CODE, normalize_country
+    from wahojobs.matching.source_geography import _UNRELATED
+    if any(detail.get(key) != source.get(source_key) for key,source_key in
+           [('external_id','external_id'),('url','url'),('provider','source_slug')]):
+        return ''
+    record = detail.get('record')
+    if not isinstance(record,dict):
+        return ''
+    country = COUNTRY_BY_CODE.get(str(record.get('countryCode') or '').upper())
+    try:
+        listing = normalize_country(record.get('location'))
+    except (ValueError, TypeError):
+        return ''
+    if not country or listing == country:
+        return ''
+    body = source.get('body') or ''
+    if source.get('body_format') == 'text/html':
+        body = '\n\n'.join(source_body_paragraphs(body, 'text/html'))
+    paragraphs = [p for p in re.split(r'\n\s*\n', body) if re.search(r'(?<!\w)'+re.escape(country)+r'(?!\w)',p,re.I)
+                  and re.search(r'\b(?:speakers|professionals|applicants|based|looking for|role)\b',p,re.I)
+                  and (not _UNRELATED.search(p) or re.search(
+                      r'\b(?:speakers|professionals|applicants|candidates|workers) '
+                      r'(?:(?:based|located) )?(?:in|across|throughout) '+re.escape(country)+r'\b',p,re.I))]
+    if not paragraphs:
+        return ''
+    city = record.get('city')
+    place = (city + ', ' + country if isinstance(city,str) and any(
+        re.search(r'(?<!\w)'+re.escape(city)+r'(?!\w)',p,re.I) for p in paragraphs) else country)
+    # A city can occur in another applicant paragraph, e.g. a Manila overview
+    # followed by an explicitly nationwide Philippines recruitment sentence.
+    if isinstance(city,str) and re.search(r'\bbased in '+re.escape(city)+r'\b',body,re.I):
+        place = city + ', ' + country
+    return f'The description mentions {place}; the listing says {listing}.'
 
 
 def render_conditions(evidence, card_id):

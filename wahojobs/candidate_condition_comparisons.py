@@ -228,6 +228,89 @@ def _workload(quote, profile):
     return ('not_established', prefix + f"Confirm you can commit to {match[1]}; your available hours aren’t established.", facts, [])
 
 
+def _professional_background(quote, profile):
+    """Compare a few explicit background forms, without a profession taxonomy.
+
+    The alternatives come from the source, not the title. Study/skill mentions
+    remain distinct from roles/practice and never prove hands-on work or years.
+    Generic annotation of a domain does not establish that domain's profession.
+    """
+    text = quote.strip().rstrip('.')
+    if re.search(r'\b(?:not|no|unless|except|if|preferred|ideal|optional)\b', text, re.I):
+        return None
+    patterns = (
+        r'(?:\d+\+? years of )?hands-on (?P<fields>.+?) experience',
+        r'Hands-on experience in (?:a |an )?(?P<fields>.+?) role(?: [—–] .+)?',
+        r'Hands-on experience in (?P<fields>.+?) at (?:an? )?.+? (?:company|organization|firm)',
+        r'Experienced (?P<fields>.+?) with hands-on .+? experience',
+    )
+    match = next((m for pattern in patterns if (m := re.fullmatch(pattern, text, re.I))), None)
+    if not match:
+        return None
+    raw = match['fields']
+    if re.search(r'\band\b|/|[():;]', raw, re.I) or (',' in raw and not re.search(r'\bor\b', raw, re.I)):
+        return None  # do not flatten ambiguous or cumulative requirements
+    alternatives = [x.strip().casefold() for x in re.split(r',\s*(?:or\s+)?|\s+or\s+', raw)]
+    if any(not re.fullmatch(r'[\w -]{2,80}', x) for x in alternatives):
+        return None
+    from wahojobs.profiles.normalizer import term_is_negated
+    paths = [('experience.'+key, profile.get('experience',{}).get(key,[])) for key in
+             ('recent_roles','job_titles','professional_domains','occupational_families','specialties')]
+    paths += [('skills.'+key, profile.get('skills',{}).get(key,[])) for key in
+              ('domain_specific','normalized','free_text_labels')]
+    paths += [('education.fields_or_domains',profile.get('education',{}).get('fields_or_domains',[]))]
+    paths += [(f'education.entries[{i}].field',[entry.get('field','')])
+              for i,entry in enumerate(profile.get('education',{}).get('entries',[]))]
+    facts, related, practice, denied = [], set(), set(), set()
+    for path, values in paths:
+        for i,value in enumerate(values):
+            if not isinstance(value,str) or re.search(r'\b(?:interested in|want to|hope to|would like|aspir)\w*',value,re.I):
+                continue
+            for option in alternatives:
+                hits = list(re.finditer(r'(?<!\w)'+re.escape(option)+r's?(?!\w)',value,re.I))
+                if not any(not term_is_negated(value.lower(),m.start(),m.end()) for m in hits):
+                    continue
+                # A generic evaluation/annotation label cannot turn 'audio'
+                # into hands-on professional audio experience, for example.
+                if len(option.split()) == 1 and re.search(r'\b(?:AI|LLM|model|evaluation|annotation|review|labeling)\b',value,re.I):
+                    continue
+                # The collection matters: a marketing skill or degree is not
+                # a marketing role. Even a role label states no depth/duration.
+                context = ('study' if path.startswith('education.') else
+                           'professional role' if path in ('experience.recent_roles','experience.job_titles') else
+                           'skill mention' if path.startswith('skills.') else 'background mention')
+                if re.search(r'\b(?:study|studies|studied|student|course|training)\b',value,re.I):
+                    context = 'study'
+                elif re.search(r'\b(?:projects?|volunteer)\b',value,re.I):
+                    context = 'projects'
+                facts.append(dict(_fact(profile,path if '.entries[' in path else f'{path}[{i}]',value),
+                                  context=context))
+                related.add(option)
+                if context == 'professional role':
+                    practice.add(option)
+    for key in ('hard_constraints','negative_constraints'):
+        for i,value in enumerate(profile.get('constraints',{}).get(key,[])):
+            if not isinstance(value,str): continue
+            negative = re.fullmatch(r'(?:I have )?no (?:hands-on |professional )?experience (?:in|with) (.+?)\.?',value,re.I)
+            if negative and negative[1].casefold() in alternatives:
+                fact=_fact(profile,f'constraints.{key}[{i}]',value)
+                if _explicit(fact):
+                    facts.append(fact);denied.add(negative[1].casefold())
+    if related & denied:
+        return 'unresolved','Your profile gives conflicting background information. Review this condition before relying on it.',facts,[]
+    if all(option in denied for option in alternatives):
+        return 'contradicted','Your confirmed profile says you do not have the background this condition requests.',facts,[]
+    if practice:
+        return ('unresolved','Your profile lists a related '+ ' or '.join(sorted(practice))+
+                ' role. The requested hands-on work, depth and duration still need confirmation.',facts,
+                ['related role: '+x for x in sorted(practice)])
+    if related:
+        contexts = sorted({f['context'] for f in facts if 'context' in f})
+        return ('unresolved','Your profile records related '+ ' / '.join(contexts)+
+                ', which does not establish the hands-on professional experience requested here.',facts,[])
+    return ('not_established','The requested professional background is not established in your profile. General AI evaluation experience does not establish it.',facts,[])
+
+
 def compare_conditions(packet, profile, *, include_item_experience=False):
     """Only called for visible cards/requested details after identity validation."""
     results = []
@@ -237,12 +320,17 @@ def compare_conditions(packet, profile, *, include_item_experience=False):
             mode = _modality(block['heading'], quote)
             clean = re.sub(r'\s+(?:required|preferred)\.?$', '', quote, flags=re.I)
             result, kind = None, 'unassessed'
-            for name, compare in (('education', _education), ('tools', _tools), ('workload', _workload)):
+            for name, compare in (('education', _education), ('tools', _tools), ('workload', _workload),
+                                  ('professional_background', _professional_background)):
                 # Workload is a stated term, not an inferred qualification.
                 result = (compare(clean, profile, include_item_experience=include_item_experience)
                           if name == 'tools' else compare(clean, profile))
                 if result:
                     kind = name; break
+            if (kind == 'professional_background' and mode == 'unspecified'
+                    and block['heading'].casefold().rstrip(':') in
+                    {'qualifications','key qualifications','who you are',"what we're looking for",'what we are looking for'}):
+                mode = 'required'
             if result:
                 status, message, facts, supported_parts = result
                 if mode == 'conflicting':

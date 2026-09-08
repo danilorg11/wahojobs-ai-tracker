@@ -409,6 +409,19 @@ def apply_task_condition_review(match, source, profile):
                         + ['incompatible_location' if conflict else 'unconfirmed_location_restriction'],
                     source_task_location_checks=source_locations)
     questions = []
+    # The late source-condition path has the confirmed canonical provenance.
+    # Reuse the same language comparator for explicitly confirmed firm limits;
+    # raw matcher constraints or unconfirmed conversational facts cannot veto.
+    from wahojobs.matching.languages import compare_language_condition
+    for previous in match.get('source_language_checks') or []:
+        ref=previous.get('source_reference') or {}
+        if (ref.get('job_id')!=packet['job_id'] or ref.get('source_url')!=packet['url']
+                or ref.get('material_content_sha256')!=packet['source_hash']):continue
+        checked=compare_language_condition(profile,previous)
+        if checked['modality']=='required' and checked['status']=='contradicted':
+            questions.append(dict(kind='language',modality='required',status='contradicted',
+                supported_parts=[],message=checked['message'],profile_facts=checked['profile_facts'],
+                source=dict(quote=checked['quote'],job_id=packet['job_id'],url=packet['url'])))
     for row in packet['comparisons']:
         quote = re.sub(r'[*#]', '', row['source']['quote'])
         explicit = any(not term_is_negated(quote.lower(), m.start(), m.end())
@@ -427,6 +440,27 @@ def apply_task_condition_review(match, source, profile):
             questions.append(dict(row, modality=modality))
     if not questions:
         return match
+    unsupported_background = [r for r in questions if r['kind'] == 'professional_background'
+                              and not r['supported_parts'] and r['modality'] != 'conflicting']
+    if unsupported_background:
+        # A conditional question must resolve a credible fit, not replace the
+        # central profession with generic AI-task overlap. Absence stays unknown;
+        # only an explicit confirmed denial is a qualification conflict.
+        assessment = deepcopy(match['affirmative_fit'])
+        conflict = any(r['status']=='contradicted' and r['modality']=='required' for r in unsupported_background)
+        assessment['status'] = 'conflicting' if conflict else 'uncertain'
+        key = 'conflicting_requirements' if conflict else 'missing_requirements'
+        assessment[key] = list(assessment[key]) + [r['source']['quote'] for r in unsupported_background]
+        note = 'This role asks for a professional background that your confirmed profile does not establish.'
+        return dict(match, affirmative_fit=assessment, affirmative_fit_status=assessment['status'],
+                    primary_recommendation_eligible=False, conditional_task_fit=False,
+                    preview_section='explore_only', accepted_task_section_admission=False,
+                    primary_admission_source='accepted_task_professional_background',
+                    primary_admission_reasons=list(dict.fromkeys(list(match.get('primary_admission_reasons') or [])
+                        + ['unsupported_source_professional_background'])),
+                    source_task_fit=dict(kind='accepted_task_professional_background', status=assessment['status'],
+                        source_reference=match['accepted_task_fit']['source_reference'],
+                        conditions=unsupported_background,candidate_note=note))
     assessment = deepcopy(match['affirmative_fit'])
     conflicts = [r for r in questions if r['status'] == 'contradicted' and r['modality'] == 'required']
     status = 'conflicting' if conflicts else 'uncertain'

@@ -137,11 +137,16 @@ class AcceptedTaskMatchingTests(unittest.TestCase):
         _, _, c = self.current()
         self.assertIsNone(self.match(c)['accepted_task_fit'])
 
-    def test_specialist_linguistic_uncertainty_stays_discoverable_not_qualified(self):
+    def test_specialist_linguistic_possibility_requires_related_background(self):
         self.role('Portuguese Language Data Contributor')
         self.source(VOICE + '\n\n' + _source_text(SOURCES[0]))
-        _, _, c = self.current()
+        _, run, c = self.current()
         self.assertEqual(browser._primary_presentation_matches(c), [])
+        self.assertEqual(browser._conditional_presentation_matches(c), [])
+        self.assertEqual(self.match(c)['affirmative_fit_status'], 'uncertain')
+        self.assertFalse(self.match(c)['affirmative_fit']['conflicting_requirements'])
+        self.f.profile = v2(candidate(['Model output evaluation'], skills=['translation']))
+        _, _, c = self.current('/find-matches?run=' + run.match_run_id)
         conditional = browser._conditional_presentation_matches(c)
         self.assertEqual([m['job_id'] for m in conditional], [7003])
         self.assertEqual(conditional[0]['affirmative_fit_status'], 'uncertain')

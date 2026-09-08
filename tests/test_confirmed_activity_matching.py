@@ -77,13 +77,14 @@ class ConfirmedActivityMatchingTests(unittest.TestCase):
         c['provenance']['reviewed'] = False
         self.assertEqual(len(canonical_to_matcher_profile(c)['signals']), 1)
 
-    def test_specialist_linguistics_remains_conditional_and_preferred_degree_not_required(self):
+    def test_specialist_linguistics_needs_related_background_and_preferred_degree_not_required(self):
         c = candidate(['AI evaluation', 'Data annotation', 'Video review'])
         source = task_support.SOURCES[0]
         m = task_support.match(source)
         result = task_support.apply_source_task_fit(m, source, v2(c))
         self.assertEqual(result['affirmative_fit_status'], 'uncertain')
-        self.assertTrue(result['conditional_task_fit'])
+        self.assertFalse(result['conditional_task_fit'])
+        self.assertEqual(result['preview_section'], 'explore_only')
         self.assertFalse(result['affirmative_fit']['conflicting_requirements'])
         self.assertNotIn('degree', str(result['affirmative_fit']['missing_requirements']).lower())
         self.assertFalse(result['source_task_fit']['profile_facts'])

@@ -1927,10 +1927,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "preview_limit": local_product.PREVIEW_MATCH_LIMIT,
             "presentation_limit": MATCH_PRESENTATION_LIMIT,
             "recent_cache_hours": local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
-            "source_task_fit_version": 2,
+            "source_task_fit_version": 3,
             "confirmed_activity_signal_version": 1,
             "accepted_task_projection_version": TASK_PROJECTION_VERSION,
-            "accepted_task_admission_version": 2,
+            "accepted_task_admission_version": 4,
             "accepted_source_eligibility_version": SOURCE_ELIGIBILITY_VERSION,
         }
         digest = hashlib.sha256(json.dumps(

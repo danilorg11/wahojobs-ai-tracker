@@ -38,7 +38,8 @@ class SourceTaskFitTests(unittest.TestCase):
             assessed = apply_source_task_fit(original, source, candidate())
             self.assertEqual(assessed['affirmative_fit_status'], 'uncertain')
             self.assertFalse(assessed['primary_recommendation_eligible'])
-            self.assertTrue(assessed['conditional_task_fit'])
+            self.assertFalse(assessed['conditional_task_fit'])
+            self.assertEqual(assessed['preview_section'], 'explore_only')
             self.assertEqual(assessed['affirmative_fit']['conflicting_requirements'], ())
             self.assertNotIn('General language-data work', str(assessed['affirmative_fit_supported_evidence']))
             self.assertIn('Portuguese', str(assessed['affirmative_fit_supported_evidence']))
@@ -52,10 +53,15 @@ class SourceTaskFitTests(unittest.TestCase):
         for roles, skills in [(('Portuguese-English translator and editor',), ()), ((), ('translation',)), ((), ('editing',))]:
             source = SOURCES[0]
             assessed = apply_source_task_fit(match(source), source, candidate(roles=roles, skills=skills))
-            self.assertEqual(assessed['affirmative_fit_status'], 'supported')
-            self.assertTrue(assessed['primary_recommendation_eligible'])
+            self.assertEqual(assessed['affirmative_fit_status'], 'supported' if roles else 'uncertain')
+            self.assertEqual(assessed['primary_recommendation_eligible'], bool(roles))
             self.assertTrue(assessed['source_task_fit']['profile_facts'])
-            self.assertIn('Check the specialist tasks', assessed['source_task_fit']['candidate_note'])
+            if roles:
+                self.assertIn('Check the specialist tasks', assessed['source_task_fit']['candidate_note'])
+            else:
+                self.assertTrue(assessed['conditional_task_fit'])
+                self.assertIn('skill mention', assessed['source_task_fit']['candidate_note'])
+                self.assertEqual(assessed['source_task_fit']['status'], 'uncertain')
 
     def test_interest_generic_review_and_negated_or_unrelated_experience_do_not_support(self):
         for role in ('Interested in translation', 'No translation experience', 'Video editor', 'Administrative assistant', 'AI reviewer'):
@@ -63,6 +69,27 @@ class SourceTaskFitTests(unittest.TestCase):
                 assessed = apply_source_task_fit(match(SOURCES[0]), SOURCES[0], candidate(roles=(role,)))
                 self.assertEqual(assessed['affirmative_fit_status'], 'uncertain')
                 self.assertFalse(assessed['affirmative_fit']['conflicting_requirements'])
+
+    def test_source_tasks_not_title_or_language_presence_define_the_background_question(self):
+        source = dict(SOURCES[0], body=_source_text(SOURCES[0]).replace('Portuguese', 'German'),
+                      body_format='text/plain')
+        for level in ('basic','advanced','native'):
+            p = candidate(roles=('AI evaluator',))
+            p['languages'] = [dict(language='German', proficiency=level)]
+            original = dict(match(source), title='Community project', matched_languages=['German'])
+            assessed = apply_source_task_fit(original, source, p)
+            self.assertFalse(assessed['conditional_task_fit'])
+            self.assertFalse(assessed['affirmative_fit']['conflicting_requirements'])
+            self.assertEqual(assessed['score_components'], original['score_components'])
+            self.assertNotIn('degree', str(assessed['affirmative_fit']['missing_requirements']).lower())
+        # Source-backed, practical transfer can be considered without asserting
+        # a profession or making ideal degrees mandatory.
+        for role,context in [('Volunteer linguistic analysis projects','projects'),
+                             ('Linguistics student','study')]:
+            assessed = apply_source_task_fit(match(source),source,candidate(roles=(role,)))
+            self.assertTrue(assessed['conditional_task_fit'])
+            self.assertFalse(assessed['primary_recommendation_eligible'])
+            self.assertEqual(assessed['source_task_fit']['profile_facts'][0]['context'],context)
 
     def test_marketing_preferred_qualifications_and_beginner_wording_do_not_invent_tasks(self):
         for text in ('Be an expert and change AI forever.',
@@ -88,7 +115,7 @@ class SourceTaskFitTests(unittest.TestCase):
             self.assertEqual(apply_source_task_fit(m, source, candidate()), m)
 
     def test_conditional_disclosure_preserves_links_and_never_enters_main_or_relaxation(self):
-        m = apply_source_task_fit(match(SOURCES[0]), SOURCES[0], candidate())
+        m = apply_source_task_fit(match(SOURCES[0]), SOURCES[0], candidate(skills=('translation',)))
         context = {'matches': {'best_matches': [m]}}
         self.assertEqual(browser._primary_presentation_matches(context), [])
         self.assertEqual([v['job_id'] for v in browser._conditional_presentation_matches(context)], [m['job_id']])
@@ -101,7 +128,7 @@ class SourceTaskFitTests(unittest.TestCase):
         self.assertNotIn("class='match-card'", html)
 
     def test_conditional_still_obeys_geography_closure_and_freshness(self):
-        original = apply_source_task_fit(match(SOURCES[0]), SOURCES[0], candidate())
+        original = apply_source_task_fit(match(SOURCES[0]), SOURCES[0], candidate(skills=('translation',)))
         for changes in ({'location_eligibility_status': 'incompatible'}, {'job_is_active': False},
                         {'opportunity_trust_status': 'unverified_source'},
                         {'opportunity_trust_status': 'stale_source', 'opportunity_trust': {'source_age_hours': 169}}):
@@ -155,10 +182,18 @@ class SourceTaskAuthenticatedTests(unittest.TestCase):
         old = '/find-matches?run=' + run.match_run_id
         r, run, context = self.current(old)
         self.assertNotIn(7003, [m['job_id'] for m in browser._primary_presentation_matches(context)])
+        self.assertEqual(browser._conditional_presentation_matches(context), [])
+        suppressed = next(m for rows in context['matches'].values() for m in rows if m['job_id'] == 7003)
+        self.assertFalse(suppressed['affirmative_fit']['conflicting_requirements'])
+        self.assertFalse(browser.local_product.recent_cached_match_is_usable(suppressed, allow_conditional_task_fit=True))
+        self.assertEqual(browser._presented_relaxation_scenarios(context), ())
+        # A declared related skill permits consideration, but is not a proven profession.
+        self.f.profile['skills']['normalized'] = ['translation']
+        r, run, context = self.current(old)
         conditional = browser._conditional_presentation_matches(context)
         self.assertEqual([m['job_id'] for m in conditional], [7003])
         self.assertIn(7006, [m['job_id'] for m in browser._primary_presentation_matches(context)])
-        self.assertIn('linguistic analysis experience is not stated', r.body.decode())
+        self.assertIn('Practical experience with these specialist tasks still needs confirmation', r.body.decode())
         from wahojobs import authenticated_variant_details as variants
         with patch.object(variants, 'prepare_variant_notice', wraps=variants.prepare_variant_notice) as notice:
             detail = self.f.get(variant_detail_url(conditional[0], run_id=run.match_run_id))
@@ -168,7 +203,7 @@ class SourceTaskAuthenticatedTests(unittest.TestCase):
         self.assertEqual(job['_authenticated_recommendation']['_detail_recommendation_section'], 'conditional')
         self.assertFalse(job['_authenticated_local_checks']['passes'])
         self.assertIn(job['official_url'], detail.body.decode())
-        self.assertIn('linguistic analysis experience is not stated', detail.body.decode())
+        self.assertIn('Practical experience with these specialist tasks still needs confirmation', detail.body.decode())
         # No second inventory computation for unchanged current inputs.
         with patch.object(browser.profile_preview, 'query_preview_rows', side_effect=AssertionError('reuse recomputed')):
             self.current('/find-matches?run=' + run.match_run_id)
@@ -180,6 +215,7 @@ class SourceTaskAuthenticatedTests(unittest.TestCase):
         self.assertEqual(self.f.get(old).status, 410)
 
     def test_preferences_closure_expiry_and_fallback_do_not_resurrect_condition(self):
+        self.f.profile['skills']['normalized'] = ['translation']
         self.put_source()
         _, run, context = self.current()
         old = '/find-matches?run=' + run.match_run_id

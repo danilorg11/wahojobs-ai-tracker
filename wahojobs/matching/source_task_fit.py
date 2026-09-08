@@ -73,7 +73,12 @@ def _related_facts(profile, kind):
                 # or when the role supplies text/language context, not video work.
                 if term.group().lower() in {'editing', 'editor'} and re.search(r'\b(?:video|audio|photo|image)\b', value, re.I):
                     continue
-                facts.append({'path': f'{path}[{index}]', 'text': value})
+                context = 'professional role' if path == 'experience.recent_roles' else 'skill mention'
+                if re.search(r'\b(?:study|studies|studied|student|course|training)\b', value, re.I):
+                    context = 'study'
+                elif re.search(r'\b(?:projects?|volunteer)\b', value, re.I):
+                    context = 'projects'
+                facts.append({'path': f'{path}[{index}]', 'text': value, 'context': context})
                 break
     return facts
 
@@ -108,8 +113,9 @@ def _apply_language_task_fit(match, source, profile):
                      source_url=source['source_url'], source_slug=source['source_slug'],
                      material_content_sha256=source.get('material_content_sha256'),
                      captured_at=source.get('last_captured_at'))
+    professional = any(f['context'] == 'professional role' for f in facts)
     result = dict(task, source_reference=reference, profile_facts=facts,
-                  status=SUPPORTED if facts else UNCERTAIN)
+                  status=SUPPORTED if professional else UNCERTAIN)
     if match.get('conditional_task_fit') and match.get('affirmative_fit_status') == UNCERTAIN:
         result['status'] = UNCERTAIN  # related work cannot resolve a separate language-level question
     updated = dict(match, source_task_fit=result)
@@ -129,18 +135,28 @@ def _apply_language_task_fit(match, source, profile):
         note = ('Your language-work background is relevant. Check the specialist tasks before applying.'
                 if task['kind'] == 'linguistic_analysis' else
                 'Your teaching background is relevant. Check the teaching duties before applying.')
+        if not professional:
+            if assessment['status'] == SUPPORTED:
+                assessment['status'] = UNCERTAIN
+            updated['conditional_task_fit'] = True
+            updated['primary_recommendation_eligible'] = False
+            note = ('Your profile records related ' + ' / '.join(sorted({f['context'] for f in facts}))
+                    + '. Practical experience with these specialist tasks still needs confirmation.')
     else:
         assessment['missing_requirements'] = list(assessment['missing_requirements']) + [task['label'] + ': related background not established']
         if assessment['status'] == SUPPORTED:
             assessment['status'] = UNCERTAIN
-            updated['conditional_task_fit'] = True
+        # A condition can qualify relevant experience; it cannot substitute
+        # general language/AI work for an unsupported central specialty.
+        updated.update(conditional_task_fit=False, preview_section='explore_only',
+                       accepted_task_section_admission=False)
         updated['primary_recommendation_eligible'] = False
         updated['primary_admission_source'] = 'affirmative_fit_' + assessment['status']
         updated['primary_admission_reasons'] = list(dict.fromkeys(
-            list(match.get('primary_admission_reasons') or []) + ['affirmative_fit_' + assessment['status']]))
-        note = ('Language fluency matches; linguistic analysis experience is not stated. Consider this if you have that background.'
+            list(match.get('primary_admission_reasons') or []) + ['unsupported_source_task_background']))
+        note = ('This work involves specialist linguistic analysis; related experience is not established in your profile.'
                 if task['kind'] == 'linguistic_analysis' else
-                'Language fluency matches; teaching experience is not stated. Consider this if you have that background.')
+                'This work involves language teaching; related experience is not established in your profile.')
     result['candidate_note'] = note
     assessment['why_fit_statements'] = [note]
     updated.update(affirmative_fit=assessment, affirmative_fit_status=assessment['status'],
