@@ -310,6 +310,10 @@ def _professional_background(quote, profile, *, include_item_experience=False):
             if explanation:
                 message, context_facts = explanation
                 return 'unresolved', message, facts + context_facts, []
+            items = list(dict.fromkeys(f['value'] for f in facts if 'context' in f))
+            names = ', '.join(items)
+            pronoun = 'it' if len(items) == 1 else 'them'
+            return ('unresolved', f'Your profile lists {names}, but doesn’t specify whether you’ve used {pronoun} professionally.', facts, [])
         contexts = sorted({f['context'] for f in facts if 'context' in f})
         return ('unresolved','Your profile records related '+ ' / '.join(contexts)+
                 ', which does not establish the hands-on professional experience requested here.',facts,[])
@@ -339,16 +343,16 @@ def _background_item_context(profile, related_facts):
     professional = [(d, f) for d, f in reported if 'professional' in d['contexts']]
     if professional:
         names = ', '.join(dict.fromkeys(d['label'] for d, _ in professional))
-        return (f'You report using {names} professionally. The specific hands-on responsibilities still need confirmation.',
+        return (f'You’ve reported using {names} in your work. Check whether that experience covers the activities described below.',
                 [f for _, f in professional])
     if reported:
         # Do not merge different items' contexts into a collective claim.
         phrases = []
         for detail, _ in reported:
-            context = ' and '.join({'study': 'study/training', 'projects': 'personal/volunteer projects'}[c]
-                                   for c in detail['contexts'])
-            phrases.append(f'{detail["label"]} in {context}')
-        return ('You report ' + '; '.join(phrases) + '. This does not establish professional-role experience.',
+            context = ' and '.join({'study': 'studies', 'projects': 'projects'}[c]
+                                   for c in ('study', 'projects') if c in detail['contexts'])
+            phrases.append(f'{context} involving {detail["label"]}')
+        return ('You’ve listed ' + '; '.join(phrases) + '. Experience in a related role isn’t specified.',
                 [f for _, f in reported])
     return None
 
@@ -422,5 +426,24 @@ def render_comparisons(packet, *, block_reference=None, highlights=False):
         question = next((r for r in rows if r['kind'] != 'education' and r['status'] == 'contradicted'), None)
         question = question or next((r for r in rows if r['kind'] == 'workload'), None)
         rows = [r for r in (education, question) if r]
+    # Only strip a modality prefix when this very block visibly replaces it.
+    # Mixed/unassessed blocks and highlights keep their existing presentation.
+    block_rows = [r for r in packet.get('comparisons', [])
+                  if r['source']['block_reference'] == block_reference]
+    modes = {r['modality'] for r in block_rows}
+    if (not highlights and block_reference is not None and rows and
+            all(r['kind'] == 'professional_background' for r in block_rows) and
+            len(modes) == 1 and modes <= {'required', 'preferred'}):
+        mode = next(iter(modes))
+        messages = []
+        for row in rows:
+            message = row['message']
+            if mode == 'preferred' and message.startswith('Preferred: '):
+                message = message[len('Preferred: '):]
+                message = message[0].upper() + message[1:]
+            messages.append('<p>' + escape(message) + '</p>')
+        return ("<div class='candidate-comparisons'><strong>Your background</strong>" +
+                ''.join(messages) + '</div><p><strong>Employer ' +
+                ('preference' if mode == 'preferred' else 'requirement') + '</strong></p>')
     return ("<ul class='candidate-comparisons candidate-caveats'>" +
             ''.join('<li>' + escape(r['message']) + '</li>' for r in rows) + '</ul>') if rows else ''

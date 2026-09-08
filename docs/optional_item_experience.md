@@ -41,7 +41,7 @@ Source restrictions, contradictions and exact-variant references remain intact.
 
 For already-recognized professional-background clauses, display mode can also
 acknowledge optional context on the exact related skill/activity item. It says
-"You report using Marketing professionally", or identifies study/projects,
+"You’ve reported using Marketing in your work", or identifies study/projects,
 while leaving the particular hands-on responsibilities unresolved. The same
 item linkage and explicit confirmation provenance are required; unrelated,
 unlinked or unconfirmed details do not supply context. Missing context is not
@@ -55,6 +55,16 @@ decision-bearing support remain unchanged, including when professional context
 is supplied. It does not make a suppressed opportunity visible. Existing cards'
 Qualifications & conditions disclosure and the normal job-detail comparison
 sections render the explanation; no new route or admission exception is added.
+
+Candidate copy separates reported context from the employer's qualification.
+Missing or unrelated optional details leave professional use unspecified;
+study-only and project-only records mention only their actual context. Exact
+item spelling is preserved. In a block containing only recognized background
+comparisons with one required/preferred classification, cards and details show
+**Your background**, then **Employer preference** or **Employer requirement**
+above the unchanged employer text. Only there is the redundant `Preferred:`
+prefix omitted. Mixed/unassessed blocks and standalone highlights retain their
+existing modality wording. Internal/admission reason strings are unchanged.
 
 The legacy scoring projection deliberately omits these explanatory records.
 Pre-admission comparison calls also retain their previous inputs. The current

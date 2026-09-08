@@ -14,7 +14,7 @@ from scripts import profile_to_matches_preview as preview
 from wahojobs import authenticated_card_evidence as cards, authenticated_profile_matches as browser
 from wahojobs.authenticated_source_detail import prepare_detail_display, render_authenticated_job_page
 from wahojobs.authenticated_variant_details import variant_detail_url
-from wahojobs.candidate_condition_comparisons import _professional_background
+from wahojobs.candidate_condition_comparisons import _professional_background, render_comparisons
 from wahojobs.matching import accepted_tasks
 from wahojobs.matching.source_task_fit import apply_source_task_fit
 from wahojobs.profiles.canonical_v2 import validate_canonical_profile_v2, project_v2_to_matcher_v1
@@ -101,13 +101,14 @@ class BackgroundItemExplanationTests(unittest.TestCase):
             self.assertEqual(comparison['source']['job_id'], source['job_id'])
         self.assertTrue(all(p == projections[0] for p in projections))
         self.assertTrue(all(c == outcomes[0] for c in outcomes))
-        self.assertEqual(messages[0], 'You report using Marketing professionally. The specific hands-on responsibilities still need confirmation.')
-        self.assertEqual(messages[1], 'You report Marketing in personal/volunteer projects and study/training. This does not establish professional-role experience.')
-        self.assertEqual(messages[2:], [baseline[1], baseline[1]])
+        self.assertEqual(messages[0], 'You’ve reported using Marketing in your work. Check whether that experience covers the activities described below.')
+        self.assertEqual(messages[1], 'You’ve listed studies and projects involving Marketing. Experience in a related role isn’t specified.')
+        fallback = 'Your profile lists Marketing, but doesn’t specify whether you’ve used it professionally.'
+        self.assertEqual(messages[2:], [fallback, fallback])
         self.assertEqual(profiles, before)
 
     def test_unconfirmed_unknown_and_unlinked_details_do_not_supply_context(self):
-        p = base(); baseline = _professional_background(MARKETING, p)
+        p = base(); baseline = _professional_background(MARKETING, p, include_item_experience=True)
         for mode in ('unconfirmed', 'unknown', 'unlinked'):
             changed = reported(p, [] if mode == 'unknown' else ['professional'])
             if mode == 'unconfirmed':
@@ -155,8 +156,45 @@ class BackgroundItemExplanationTests(unittest.TestCase):
         context['_card_evidence'] = {selected['job_id']: cards.prepare_card_evidence(
             selected, source, p, include_item_experience=True)}
         html = browser._render_match_results(context, inventory_count=1)
-        self.assertEqual(html.count('Preferred: you report Marketing in personal/volunteer projects and study/training. This does not establish professional-role experience.'), 1)
+        self.assertEqual(html.count('You’ve listed studies and projects involving Marketing. Experience in a related role isn’t specified.'), 1)
         self.assertEqual([m['job_id'] for m in browser._primary_presentation_matches(context)], [source['job_id']])
+
+    def test_single_context_and_item_names_are_not_expanded(self):
+        for label in ('Marketing', 'B2B product marketing'):
+            p = reviewed(candidate([label]))
+            for context, wording, absent in (('study', 'studies', 'projects'), ('projects', 'projects', 'studies')):
+                result = _professional_background(MARKETING, reported(p, [context], label), include_item_experience=True)
+                self.assertEqual(result[1], f'You’ve listed {wording} involving {label}. Experience in a related role isn’t specified.')
+                self.assertNotIn(absent, result[1])
+
+    def test_requirement_label_keeps_original_source_and_references(self):
+        p = reported(base(), ['professional'])
+        _, _, selected, source = match(p)
+        packet = cards.prepare_card_evidence(selected, source, p, include_item_experience=True)
+        before = deepcopy(packet)
+        html = cards.render_conditions(packet, 'qa')
+        self.assertIn('Your background', html)
+        self.assertIn('Employer requirement', html)
+        self.assertNotIn('Employer preference', html)
+        self.assertEqual(html.count(MARKETING), 1)
+        # The same block renderer is used in the exact-variant detail page.
+        detail_block = render_comparisons(packet, block_reference=packet['conditions'][0]['reference'])
+        self.assertIn('Employer requirement', detail_block)
+        self.assertEqual(packet, before)
+        self.assertEqual(packet['comparisons'][0]['source']['quote'], MARKETING)
+
+    def test_prefix_removal_is_local_to_explicit_background_labels(self):
+        _, _, selected, source = match(base(), 'Preferred Qualifications')
+        packet = cards.prepare_card_evidence(selected, source, base(), include_item_experience=True)
+        before = deepcopy(packet)
+        self.assertIn('Preferred:', render_comparisons(packet))
+        ref = packet['conditions'][0]['reference']
+        self.assertNotIn('Preferred:', render_comparisons(packet, block_reference=ref))
+        self.assertEqual(packet, before)
+        other = deepcopy(packet['comparisons'][0]); other['kind'] = 'tools'
+        packet['comparisons'].append(other)
+        self.assertIn('Preferred:', render_comparisons(packet, block_reference=ref))
+        self.assertNotIn('Employer preference', render_comparisons(packet, block_reference=ref))
 
     def test_normal_admitted_card_and_detail_renderers_show_context_once(self):
         p = reported(base(), ['professional'])
@@ -168,8 +206,12 @@ class BackgroundItemExplanationTests(unittest.TestCase):
         packet = cards.prepare_card_evidence(selected, source, p, include_item_experience=True)
         context['_card_evidence'] = {selected['job_id']: packet}
         html = browser._render_match_results(context, inventory_count=1)
-        explanation = 'Preferred: you report using Marketing professionally. The specific hands-on responsibilities still need confirmation.'
+        explanation = 'You’ve reported using Marketing in your work. Check whether that experience covers the activities described below.'
         self.assertEqual(html.count(explanation), 1)
+        self.assertIn('Your background', html)
+        self.assertIn('Employer preference', html)
+        self.assertNotIn('Preferred:', html)
+        self.assertEqual(html.count(MARKETING), 1)
         self.assertIn('Qualifications &amp; conditions', html)
         self.assertIn(variant_detail_url(selected).replace('&', '&amp;'), html)
         job = dict(job_id=source['job_id'], canonical_opportunity_id=source['canonical_opportunity_id'],
@@ -184,6 +226,10 @@ class BackgroundItemExplanationTests(unittest.TestCase):
         self.assertEqual(detail_packet['comparisons'], packet['comparisons'])
         detail = render_authenticated_job_page(job, profile=p, navigation='')
         self.assertEqual(detail.count(explanation), 1)
+        self.assertIn('Your background', detail)
+        self.assertIn('Employer preference', detail)
+        self.assertNotIn('Preferred:', detail)
+        self.assertEqual(detail.count(MARKETING), 1)
         self.assertIn(source['url'], detail)
         self.assertIn('Apply on company site', detail)
         # Exact source identity remains a prerequisite for any explanation.
