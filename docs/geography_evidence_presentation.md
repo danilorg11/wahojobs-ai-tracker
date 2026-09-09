@@ -10,9 +10,18 @@ An invitation is not an exclusive restriction. Other/unknown profile countries
 retain the existing uncertainty. Restrictive, ambiguous or conflicting applicant
 evidence retains existing decision precedence and is not replaced by an invitation.
 
-A separate posting-location value is neutrally attributed as "Source location field",
-visually subordinate to applicant evidence. It is not inferred to be headquarters,
-a residence requirement, or an error. An agreeing country field needs no caution.
+A separate posting-location value recognized as a bare country by the existing
+country normalizer is omitted from candidate guidance unless existing typed
+applicant evidence establishes a requirement, ambiguity or conflict. Its original
+value remains in accepted evidence and the internal display packet. Unrecognized
+free text is not assumed opaque: it retains neutral "Source location field"
+attribution, including explicit restrictive wording. No country list or vocabulary
+is added. An agreeing country field needs no caution.
+The same display choice applies to main cards, conditional cards and exact-variant
+details, without an empty secondary heading. Older description-context wording
+also omits the bare posting field while preserving its source-backed place and
+eligibility uncertainty. Neither source metadata nor professional fit becomes
+applicant permission.
 Original source text and metadata remain unchanged. No parser, ingestion, scoring,
 admission, availability, preference, selection or action policy changes are made.
 

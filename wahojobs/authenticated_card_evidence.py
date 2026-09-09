@@ -189,7 +189,8 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
                  if location in ('eligible', 'incompatible') else
                  (f"Eligibility from {country} needs confirmation." if country else 'Applicant-location eligibility isn’t specified.'))
     location_context = _applicant_location_context(match, source, detail)
-    source_place_note = (_differing_source_locations(source, detail)
+    opaque_location = _opaque_posting_location(record.get('location'), match)
+    source_place_note = (_differing_source_locations(source, detail, include_listing=not opaque_location)
                          if location == 'unknown' and not location_context['applicant'] else '')
     if source_place_note:
         geography = source_place_note + ' ' + geography
@@ -239,6 +240,9 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
             location_context['other'] = _other_location_wording(source_location)
         if geography and geography not in caveats:
             caveats.append(geography)
+    # Keep the attributed value in the packet; omit only safely recognized bare
+    # posting metadata from guidance, never potentially meaningful free text.
+    location_context['omit_opaque_other'] = bool(location_context['other'] and opaque_location)
     language_notes = []
     for check in match.get('source_language_checks') or []:
         ref = check.get('source_reference') or {}
@@ -263,6 +267,22 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
 
 def _other_location_wording(value):
     return f'Source location field: “{value}”'
+
+
+def _opaque_posting_location(value, match):
+    """Display selection only, using the existing exact country vocabulary."""
+    from wahojobs.profiles.countries import normalize_country
+    try:
+        normalize_country(value)
+    except ValueError:
+        return False
+    conditions = (list(match.get('applicant_country_requirements') or [])
+                  + list((match.get('accepted_eligibility_evidence') or {}).get('country_conditions', [])))
+    # Preserve the field conservatively when existing evidence establishes a
+    # requirement or conflict. Missing semantics do not classify arbitrary text.
+    return (match.get('location_eligibility_status') != 'incompatible'
+            and all(c.get('modality') == 'invitation' and not c.get('unresolved') and not c.get('source_conflict')
+                    and not c.get('ambiguous_statement') for c in conditions))
 
 
 def _applicant_location_context(match, source, detail):
@@ -315,10 +335,10 @@ def render_location_context(evidence):
     primary, secondary = context.get('applicant'), context.get('other')
     return (("<p><strong>Applicant location:</strong> " + escape(primary) + '</p>' if primary else '')
             + ("<p class='candidate-note'><strong>Other location information from the source:</strong> "
-               + escape(secondary) + '</p>' if secondary else ''))
+               + escape(secondary) + '</p>' if secondary and not context.get('omit_opaque_other') else ''))
 
 
-def _differing_source_locations(source, detail):
+def _differing_source_locations(source, detail, *, include_listing=True):
     """Explain differing fields from this exact accepted detail, not eligibility.
 
     A structured city/country must also occur in the original description.
@@ -357,7 +377,8 @@ def _differing_source_locations(source, detail):
     # followed by an explicitly nationwide Philippines recruitment sentence.
     if isinstance(city,str) and re.search(r'\bbased in '+re.escape(city)+r'\b',body,re.I):
         place = city + ', ' + country
-    return f'The description mentions {place}; the listing says {listing}.'
+    return (f'The description mentions {place}; the listing says {listing}.' if include_listing
+            else f'The description mentions {place}.')
 
 
 def render_conditions(evidence, card_id):

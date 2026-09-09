@@ -63,14 +63,16 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         for html in [result['card'], result['page']]:
             html = unescape(html)
             self.assertEqual(html.count('The description explicitly mentions applicants based in Brazil.'), 1)
-            self.assertEqual(html.count('Source location field: “United States”'), 1)
-            self.assertIn("class='candidate-note'><strong>Other location information", html)
+            self.assertNotIn('Source location field:', html)
+            self.assertNotIn('Other location information', html)
             self.assertNotIn('Listing location: United States.', html)
         ref = result['packet']['location_context']['references'][0]
         self.assertEqual(ref['source_quote'], INVITATION)
         self.assertEqual(ref['source_field'], FIELD + ':line 3')
         self.assertEqual(ref['job_id'], 7003)
         self.assertEqual(ref['source_url'], result['source']['url'])
+        self.assertEqual(result['packet']['location_context']['other'], 'Source location field: “United States”')
+        self.assertTrue(result['packet']['location_context']['omit_opaque_other'])
 
     def test_invitation_does_not_grant_other_or_unknown_country_permission(self):
         for country in ['Portugal', '']:
@@ -87,18 +89,23 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         packet = prepare_card_evidence(match, r['source'], self.f.profile)
         self.assertFalse(packet['location_context']['applicant'])
         self.assertEqual(packet['location_context']['other'], 'Source location field: “United States”')
+        self.assertTrue(packet['location_context']['omit_opaque_other'])
+        self.assertNotIn('Other location information', r['page'])
+        self.assertIn('Eligibility from Brazil needs confirmation', r['page'])
 
     def test_mandatory_restriction_is_not_softened(self):
         r = self.setup_case(invitation=False, extra='## Requirements\n\nApplicants must be based in United States.')
         self.assertEqual(r['local']['match']['location_eligibility_status'], 'incompatible')
         self.assertFalse(r['packet']['location_context']['applicant'])
         self.assertIn('conflicts with your profile', str(r['packet']['caveats']))
+        self.assertIn('Source location field:', r['page'])
 
     def test_conflicting_invitation_does_not_replace_existing_uncertainty(self):
         r = self.setup_case(extra='Applicants must be based in United States.')
         self.assertEqual(r['local']['match']['location_eligibility_status'], 'unknown')
         self.assertIn('Conflicting source', r['local']['match']['location_eligibility_reason'])
         self.assertFalse(r['packet']['location_context']['applicant'])
+        self.assertIn('Source location field:', r['page'])
 
     def test_agreeing_field_has_no_redundant_caution(self):
         r = self.setup_case(posting='Brazil')
@@ -162,11 +169,47 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         for rendered in [html, detail.body.decode()]:
             rendered = unescape(rendered)
             self.assertEqual(rendered.count('The description explicitly mentions applicants based in Brazil.'), 1)
-            self.assertEqual(rendered.count('Source location field: “United States”'), 1)
+            self.assertNotIn('Source location field:', rendered)
+            self.assertNotIn('Other location information', rendered)
             self.assertNotIn('Listing location: United States.', rendered)
             self.assertNotIn('Eligibility from Brazil needs confirmation', rendered)
             self.assertIn('Biology', rendered)
         self.assertIn(conditional[0]['source_task_fit']['candidate_note'], unescape(html))
+
+    def test_opaque_country_aliases_omit_only_display_and_free_text_stays(self):
+        for value in ['Canada', 'USA', 'Brasil', 'US citizens only', 'Europe with travel', 'Remote - location to confirm']:
+            r = self.setup_case(invitation=False, posting=value)
+            is_bare_country = value in ['Canada', 'USA', 'Brasil']
+            self.assertEqual(r['packet']['location_context']['omit_opaque_other'], is_bare_country)
+            self.assertEqual(json.loads(r['source']['metadata_json'])[DETAIL_KEY]['record']['location'], value)
+            for html in [r['card'], r['page']]:
+                self.assertEqual('Source location field:' in html, not is_bare_country)
+            self.assertEqual(r['local']['match']['location_eligibility_status'], 'unknown')
+
+    def test_legacy_description_context_does_not_repeat_opaque_posting_field(self):
+        r = self.setup_case(country='Portugal')
+        source = deepcopy(r['source']); metadata = json.loads(source['metadata_json'])
+        detail = metadata[DETAIL_KEY]
+        detail.pop('applicant_location_support')
+        detail['record'].update(countryCode='BR', city='São Paulo')
+        source['metadata_json'] = json.dumps(metadata)
+        packet = prepare_card_evidence(r['local']['match'], source, self.f.profile)
+        html = unescape(render_card_evidence(packet, 'legacy'))
+        self.assertIn('The description mentions São Paulo, Brazil.', html)
+        self.assertIn('Eligibility from Portugal needs confirmation', html)
+        self.assertNotIn('United States', html)
+
+    def test_actual_main_card_omits_metadata_without_mutating_source(self):
+        from wahojobs import authenticated_profile_matches as browser
+        self.setup_case()
+        response = self.f.get()
+        self.assertEqual(response.status, 200)
+        context = self.f.last_run().recommendation_context
+        self.assertEqual([m['job_id'] for m in browser._primary_presentation_matches(context)], [7003])
+        html = unescape(response.body.decode())
+        self.assertIn('The description explicitly mentions applicants based in Brazil.', html)
+        self.assertNotIn('Source location field:', html)
+        self.assertNotIn('Other location information', html)
 
 
 if __name__ == '__main__':
