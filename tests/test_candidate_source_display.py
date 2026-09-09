@@ -166,7 +166,7 @@ class CandidateSourceDisplayTests(unittest.TestCase):
         self.assertIn('action="/action"', html)
         job['public_state'] = 'temporarily_unavailable'
         html = render_authenticated_job_page(job, profile=profile, navigation='')
-        self.assertIn('Opportunity unavailable', html)
+        self.assertIn('Availability not established', html)
         self.assertNotIn('Apply on company site</a>', html)
 
     def test_card_omits_generic_overlap_without_hiding_original_requirements(self):

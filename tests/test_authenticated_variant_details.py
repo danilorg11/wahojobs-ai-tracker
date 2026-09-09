@@ -317,7 +317,7 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
         result = self.f.get(link)
         self.assertEqual(result.status, 200)
         self.assertFalse(self.detail_job['_authenticated_membership_known'])
-        self.assertIn(b'no longer current', result.body)
+        self.assertIn(b'Availability needs rechecking', result.body)
         self.assertNotIn(b'Apply on company site</a>', result.body)
         missing = self.f.get('/job/opportunity-7002?variant=7006&run=' + 'z'*24)
         self.assertEqual(missing.status, 404)
@@ -334,7 +334,7 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
         self.f.update_inventory('UPDATE jobs SET is_active=0')
         closed = self.f.get('/job/opportunity-7002')
         self.assertEqual(closed.status, 200)
-        self.assertIn(b'no longer current', closed.body)
+        self.assertIn(b'Listing marked inactive', closed.body)
         self.assertFalse(self.detail_job['_authenticated_membership_known'])
 
 

@@ -297,6 +297,9 @@ def prepare_public_job(evidence, *, now=None, selected_job_id=None):
     result.update(
         path=public_job_path(result["canonical_opportunity_id"]),
         public_state=public_state,
+        # Presentation provenance for this selected source variant only. This
+        # assessment does not participate in selection or action permission.
+        availability_trust=assess_opportunity_trust(result, "unknown", now=now).as_dict(),
         company_path=public_company_path(result["company_slug"]),
         official_url=official_url,
         careers_url=careers_url,

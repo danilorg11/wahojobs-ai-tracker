@@ -78,11 +78,11 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
         run = self.f.last_run()
         return reply, run, browser._primary_presentation_matches(run.recommendation_context)
 
-    def assert_unavailable(self, path):
+    def assert_unavailable(self, path, heading='Availability needs rechecking'):
         reply = self.f.get(path)
         self.assertEqual(reply.status, 200)
-        self.assertIn(b'Opportunity unavailable', reply.body)
-        self.assertIn(b'This saved listing is no longer current', reply.body)
+        self.assertIn(heading.encode(), reply.body)
+        self.assertIn(b'The saved description is shown for reference.', reply.body)
         self.assertNotIn(b'This is the source variant shown in your current matches.', reply.body)
         self.assertNotIn(b'Apply on company site</a>', reply.body)
         return reply
@@ -100,7 +100,7 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
         for target in (variant_detail_url(visible[0], run_id=run.match_run_id), self.path().split('?')[0]):
             response = self.f.get(target)
             self.assertEqual(response.status, 200)
-            self.assertNotIn(b'Opportunity unavailable', response.body)
+            self.assertNotIn(b"<aside class='candidate-status'>", response.body)
             self.assertIn(self.returned['url'], unescape(response.body.decode()))
             self.assertIn(b'Confirm current terms and application availability', response.body)
             self.assertNotIn(self.observed.encode(), response.body)  # raw dates stay out of the candidate view
@@ -155,7 +155,7 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
                 _, run, visible = self.selected_run()
                 link = variant_detail_url(visible[0], run_id=run.match_run_id)
                 self.f.update_inventory(f'UPDATE {table} SET is_active=0 WHERE id=?', (identity,))
-                self.assert_unavailable(link)
+                self.assert_unavailable(link, 'Listing marked inactive')
                 self.assertNotIn(b"class='match-card'", self.f.get('/find-matches?run=' + run.match_run_id).body)
                 self.f.update_inventory(f'UPDATE {table} SET is_active=1 WHERE id=?', (identity,))
 
@@ -170,22 +170,22 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
 
     def test_new_failed_retrieval_does_not_erase_prior_valid_observation(self):
         self.f.update_inventory("INSERT INTO crawl_runs (company_id,status,started_at,finished_at,used_sample_data,error_message) VALUES (8001,'failed',?,?,0,'synthetic retrieval failure')", (self.observed, self.observed))
-        self.assertNotIn(b'Opportunity unavailable', self.f.get(self.path()).body)
+        self.assertNotIn(b"<aside class='candidate-status'>", self.f.get(self.path()).body)
         self.assertEqual(self.snapshot()['detail_evidence']['rows'][0]['source_run_id'], self.run_id)
 
     def test_valid_source_snapshot_fallback_still_requires_record_observation(self):
         self.f.update_inventory("UPDATE job_source_content_captures SET record_promotion_contract_id='' WHERE job_id IN (SELECT id FROM jobs WHERE company_id=8001)")
         self.f.update_inventory('UPDATE crawl_runs SET started_at=?,finished_at=? WHERE id=8002', (self.observed, self.observed))
-        self.assertNotIn(b'Opportunity unavailable', self.f.get(self.path()).body)
+        self.assertNotIn(b"<aside class='candidate-status'>", self.f.get(self.path()).body)
         self.assertEqual(self.snapshot()['detail_evidence']['rows'][0]['source_run_id'], 8002)
-        self.assert_unavailable(self.path(self.before_absent))
+        self.assert_unavailable(self.path(self.before_absent), 'Availability not verified')
 
     def test_other_provider_retains_source_snapshot_policy(self):
         self.f.update_inventory('UPDATE jobs SET is_active=1 WHERE id=7003')
         with self.f.provider() as conn:
             original = public_job_page.load_public_job(conn, '/job/opportunity-7002', now=self.f.now)
         self.assertEqual(original['public_state'], 'live')
-        self.assertNotIn(b'Opportunity unavailable', self.f.get('/job/opportunity-7002?variant=7003').body)
+        self.assertNotIn(b"<aside class='candidate-status'>", self.f.get('/job/opportunity-7002?variant=7003').body)
         self.f.update_inventory('UPDATE crawl_runs SET started_at=?,finished_at=? WHERE id=7004', (self.old,self.old))
         self.assert_unavailable('/job/opportunity-7002?variant=7003')
 
@@ -212,6 +212,120 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
             for target in (self.path(), self.path().split('?')[0]):
                 self.assertEqual(self.f.get(target).status, 200)
         self.assertEqual(scored, [self.returned['id'], self.returned['id']])
+
+
+class AvailabilityPresentationTests(unittest.TestCase):
+    """Synthetic fixed-clock cases through the normal signed-in detail renderer."""
+
+    def setUp(self):
+        self.f = SyntheticMatcherFixture()
+        self.addCleanup(self.f.close)
+        self.path = '/job/opportunity-7002?variant=7003'
+
+    def prepared(self):
+        with self.f.provider() as conn:
+            conn.execute('BEGIN')
+            snap = load_scoped_snapshot(conn, 7002, 7003, now=self.f.now)
+            conn.rollback()
+        return public_job_page.prepare_public_job(
+            snap['detail_evidence'], selected_job_id=7003, now=self.f.now)
+
+    def test_successful_catalog_fresh_and_stale_banners_preserve_status_and_actions(self):
+        start = self.f.now
+        for hours, trust, state, heading in [
+            (0, 'trusted', 'live', None),
+            (73, 'stale_source', 'temporarily_unavailable', 'Availability needs rechecking'),
+            (169, 'stale_source', 'temporarily_unavailable', 'Availability needs rechecking'),
+        ]:
+            with self.subTest(hours=hours):
+                self.f.now = start + timedelta(hours=hours)
+                job = self.prepared()
+                self.assertEqual(job['availability_trust']['status'], trust)
+                self.assertEqual(job['public_state'], state)
+                self.assertEqual(job['job_id'], 7003)
+                self.assertEqual(job['canonical_opportunity_id'], 7002)
+                self.assertEqual(job['official_url'], job['workflow_match']['url'])
+                reply = self.f.get(self.path)
+                self.assertEqual(reply.status, 200)
+                page = unescape(reply.body.decode())
+                self.assertEqual('View source listing</a>' in page, state == 'live')
+                self.assertNotIn('Apply on company site</a>', page)  # no list-membership proof
+                if heading:
+                    self.assertEqual(page.count(heading), 1)
+                    self.assertIn('We haven’t recently verified whether this opportunity is still available.', page)
+                else:
+                    self.assertNotIn("class='candidate-status'", page)
+
+    def test_missing_failed_and_sample_verification_have_no_claim_of_prior_check(self):
+        for sql in ["UPDATE crawl_runs SET status='failed'",
+                    "UPDATE crawl_runs SET status='success', used_sample_data=1",
+                    "DELETE FROM crawl_runs"]:
+            with self.subTest(sql=sql):
+                self.f.update_inventory(sql)
+                self.assertEqual(self.prepared()['availability_trust']['status'], 'unverified_source')
+                page = unescape(self.f.get(self.path).body.decode())
+                self.assertIn('Availability not verified', page)
+                self.assertIn('We don’t have a qualifying verification', page)
+                self.assertNotIn('haven’t recently verified', page)
+                self.assertNotIn('View source listing</a>', page)
+
+    def test_inactive_variant_or_canonical_takes_precedence_over_old_verification(self):
+        self.f.advance(200)
+        for table, identity in [('jobs', 7003), ('canonical_opportunities', 7002)]:
+            with self.subTest(table=table):
+                self.f.update_inventory(f'UPDATE {table} SET is_active=0 WHERE id=?', (identity,))
+                if table == 'jobs':
+                    self.f.update_inventory('UPDATE jobs SET removed_at=? WHERE id=?',
+                                            (self.f.now.isoformat(), identity))
+                self.assertEqual(self.prepared()['availability_trust']['status'], 'inactive')
+                page = self.f.get(self.path).body.decode()
+                self.assertIn('Listing marked inactive', page)
+                self.assertIn('marked inactive in our saved records', page)
+                self.assertNotIn('Availability needs rechecking', page)
+                self.assertNotIn('View source listing</a>', page)
+                self.assertNotIn('employer closed', page)
+                self.f.update_inventory(f'UPDATE {table} SET is_active=1 WHERE id=?', (identity,))
+                if table == 'jobs':
+                    self.f.update_inventory('UPDATE jobs SET removed_at=NULL WHERE id=?', (identity,))
+
+    def test_retained_missing_or_unknown_reason_remains_non_actionable(self):
+        from wahojobs.authenticated_source_detail import render_authenticated_job_page
+        self.f.advance(73)
+        job = self.prepared()
+        for assessment in [None, {}, {'status': 'future_reason'}]:
+            with self.subTest(assessment=assessment):
+                retained = dict(job)
+                retained.pop('availability_trust')
+                if assessment is not None:
+                    retained['availability_trust'] = assessment
+                page = render_authenticated_job_page(retained, profile=self.f.profile, navigation='')
+                self.assertIn('Availability not established', page)
+                self.assertNotIn('View source listing</a>', page)
+                self.assertEqual(retained['public_state'], 'temporarily_unavailable')
+                retained['job_is_active'] = False
+                inactive = render_authenticated_job_page(retained, profile=self.f.profile, navigation='')
+                self.assertIn('Listing marked inactive', inactive)
+                self.assertNotIn('Availability not established', inactive)
+
+    def test_missing_cross_canonical_and_source_identity_failures_stay_rejected(self):
+        for path in ['/job/opportunity-7002?variant=999999',
+                     '/job/opportunity-7002?variant=7006', '/job/opportunity-999999']:
+            with self.subTest(path=path):
+                response = self.f.get(path)
+                self.assertEqual(response.status, 404)
+                self.assertNotIn(b"class='candidate-status'", response.body)
+        # Inconsistent copies are rejected before they can be rendered as history.
+        original = public_job_page.load_public_job_evidence
+        def wrong_identity(*args, **kwargs):
+            evidence = original(*args, **kwargs)
+            evidence['rows'][0]['listing_url'] = 'https://different.example.test/offer'
+            return evidence
+        with patch.object(public_job_page, 'load_public_job_evidence', side_effect=wrong_identity):
+            with self.f.provider() as conn:
+                conn.execute('BEGIN')
+                with self.assertRaisesRegex(ValueError, 'scoped_availability_identity_mismatch'):
+                    load_scoped_snapshot(conn, 7002, 7003, now=self.f.now)
+                conn.rollback()
 
 
 class AcceptedListingDescriptionTests(unittest.TestCase):

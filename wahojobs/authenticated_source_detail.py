@@ -5,6 +5,31 @@ from urllib.parse import urlencode
 
 from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
 from wahojobs.opportunity_enrichment import source_body_paragraphs
+from wahojobs.matching.opportunity_trust import INACTIVE, STALE_SOURCE, UNVERIFIED_SOURCE
+
+
+def _availability_message(job):
+    """Explain prepared evidence, without evaluating freshness or enabling actions."""
+    trust = job.get('availability_trust') or {}
+    reason = trust.get('status')
+    # Older retained detail packets may have flags but no prepared assessment.
+    # An explicitly inactive record must never be described as merely stale.
+    if (reason == INACTIVE or job.get('job_is_active') in (False, 0)
+            or job.get('canonical_is_active') in (False, 0)):
+        return ('Listing marked inactive',
+                'This listing is marked inactive in our saved records. '
+                'The saved description is shown for reference.')
+    if reason == STALE_SOURCE:
+        return ('Availability needs rechecking',
+                'We haven’t recently verified whether this opportunity is still available. '
+                'The saved description is shown for reference.')
+    if reason == UNVERIFIED_SOURCE:
+        return ('Availability not verified',
+                'We don’t have a qualifying verification that this opportunity is available. '
+                'The saved description is shown for reference.')
+    return ('Availability not established',
+            'The saved information does not establish whether this opportunity is available. '
+            'The saved description is shown for reference.')
 
 
 def prepare_detail_display(job, profile):
@@ -57,8 +82,9 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
         kind_html += "<p class='candidate-note'>Join for future projects; this is not a specific job posting.</p>"
     status = ''
     if not current:
-        status = ("<aside class='candidate-status'><strong>Opportunity unavailable</strong>"
-                  "<p>This saved listing is no longer current. Its description is shown for reference.</p></aside>")
+        heading, message = _availability_message(job)
+        status = (f"<aside class='candidate-status'><strong>{escape(heading)}</strong>"
+                  f"<p>{escape(message)}</p></aside>")
     local = job.get('_authenticated_local_checks') or {}
     location = (local.get('match') or job.get('_authenticated_recommendation') or {}).get('location_eligibility_status')
     caveats = list(packet['caveats']) if packet else []
