@@ -61,7 +61,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     """
     from wahojobs import public_job_page as public
     from wahojobs.candidate_source_display import DISPLAY_CSS, markdown
-    from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS
+    from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS, render_location_context
     from wahojobs.candidate_condition_comparisons import render_comparisons
     from wahojobs.profile_opportunity_navigation import render_profile_update
     from wahojobs.authenticated_variant_details import variant_detail_url
@@ -102,8 +102,9 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
                           if qualification_block is not None else '')
     checks = ("<section class='candidate-checks'><h2>Before you apply</h2>"
               + (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else '')
+              + render_location_context(packet)
               + qualification_link + '</section>'
-              if qualification_link or caveats else '')
+              if qualification_link or caveats or render_location_context(packet) else '')
     overview = (f"<p class='candidate-overview'>{escape(packet['summary'])}</p>"
                 if packet and packet['summary'] else '')
     description = ''

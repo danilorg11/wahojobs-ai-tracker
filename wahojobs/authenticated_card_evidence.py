@@ -188,7 +188,9 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
                   'incompatible': 'The applicant-location restriction conflicts with your profile.'}.get(location)
                  if location in ('eligible', 'incompatible') else
                  (f"Eligibility from {country} needs confirmation." if country else 'Applicant-location eligibility isn’t specified.'))
-    source_place_note = _differing_source_locations(source, detail) if location == 'unknown' else ''
+    location_context = _applicant_location_context(match, source, detail)
+    source_place_note = (_differing_source_locations(source, detail)
+                         if location == 'unknown' and not location_context['applicant'] else '')
     if source_place_note:
         geography = source_place_note + ' ' + geography
     pay = pay_facts(metadata, text)
@@ -228,10 +230,15 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
     # An opaque source location does not establish residence permission.
     source_location = record.get('location')
     if (not source_place_note and isinstance(source_location, str) and source_location
-            and arrangement == 'Remote' and source_location.lower() != 'remote'):
+            and arrangement == 'Remote' and source_location.lower() != 'remote'
+            and all(detail.get(k) == source.get(s) for k, s in
+                    [('provider', 'source_slug'), ('external_id', 'external_id'), ('url', 'url')])):
         if geography in caveats:
             caveats.remove(geography)
-        caveats.append(f'Listing location: {source_location}. ' + geography)
+        if not location_context['applicant']:
+            location_context['other'] = _other_location_wording(source_location)
+        if geography and geography not in caveats:
+            caveats.append(geography)
     language_notes = []
     for check in match.get('source_language_checks') or []:
         ref = check.get('source_reference') or {}
@@ -247,10 +254,68 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
             'reason': reason, 'task': task, 'summary': summary, 'conditions': conditions, 'blocks': blocks,
             'kind': kind, 'kind_quote': kind_quote, 'geography': geography, 'text': text,
             'workload': workload, 'listing_commitment': commitment, 'facts': fields,
-            'pay': pay, 'caveats': caveats, 'language_notes': language_notes}
+            'pay': pay, 'caveats': caveats, 'language_notes': language_notes,
+            'location_context': location_context}
     from wahojobs.candidate_condition_comparisons import compare_conditions
     packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience)
     return packet
+
+
+def _other_location_wording(value):
+    return f'Source location field: “{value}”'
+
+
+def _applicant_location_context(match, source, detail):
+    """Display prepared invitations, never derive permission from posting metadata."""
+    from hashlib import sha256
+    from wahojobs.source_capture import normalize_source_body
+    from wahojobs.profiles.countries import normalize_country
+    result = dict(applicant='', other='', references=[])
+    if any(detail.get(k) != source.get(s) for k, s in
+           [('provider', 'source_slug'), ('external_id', 'external_id'), ('url', 'url')]):
+        return result
+    prepared = detail.get('applicant_location_support') or {}
+    if (prepared.get('version') != 1 or prepared.get('body_sha256') !=
+            sha256((normalize_source_body(source.get('body')) or '').encode()).hexdigest()):
+        return result
+    clauses = prepared.get('clauses') or []
+    # Do not let an invitation soften a restrictive, ambiguous or conflicting
+    # statement, including a conflict found by another existing comparison.
+    if (not clauses or match.get('location_eligibility_status') == 'incompatible'
+            or any(c.get('modality') != 'invitation' or c.get('mode') != 'allow'
+                   or c.get('dimension') != 'location' or c.get('unresolved')
+                   or c.get('source_conflict') or c.get('ambiguous_statement')
+                   or not c.get('source_quote') or not c.get('source_field') for c in clauses)
+            or any(c.get('modality') != 'invitation' for c in
+                   (match.get('accepted_eligibility_evidence') or {}).get('country_conditions', []))):
+        return result
+    countries = list(dict.fromkeys(country for c in clauses for country in c['countries']))
+    if not countries:
+        return result
+    result['applicant'] = ('The description explicitly mentions applicants based in '
+                           + ', '.join(countries) + '.')
+    result['references'] = [dict(source_url=source['url'], job_id=source['job_id'],
+                                material_content_sha256=source['material_content_sha256'],
+                                source_field=c['source_field'], source_quote=c['source_quote'])
+                            for c in clauses]
+    record = detail.get('record') or {}
+    value = record.get('location')
+    if isinstance(value, str) and value and value.casefold() != 'remote':
+        try:
+            agrees = normalize_country(value) in countries
+        except ValueError:
+            agrees = False
+        if not agrees:
+            result['other'] = _other_location_wording(value)
+    return result
+
+
+def render_location_context(evidence):
+    context = (evidence or {}).get('location_context') or {}
+    primary, secondary = context.get('applicant'), context.get('other')
+    return (("<p><strong>Applicant location:</strong> " + escape(primary) + '</p>' if primary else '')
+            + ("<p class='candidate-note'><strong>Other location information from the source:</strong> "
+               + escape(secondary) + '</p>' if secondary else ''))
 
 
 def _differing_source_locations(source, detail):
@@ -334,5 +399,6 @@ def render_card_evidence(evidence, card_id, *, profile_return_to=None):
             + kind_html + summary
             + render_comparisons(evidence, highlights=True)
             + (f"<ul class='candidate-caveats'>{caveats}</ul>" if caveats else '')
+            + render_location_context(evidence)
             + render_conditions(evidence, card_id)
             + render_profile_update(evidence, profile_return_to) + '</section>')
