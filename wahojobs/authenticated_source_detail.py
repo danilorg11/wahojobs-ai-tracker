@@ -116,7 +116,11 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     if packet:
         # Plain headings from accepted HTML captures receive the same formatting
         # as Markdown headings. No sections or requirements are manufactured.
+        from wahojobs.authenticated_card_evidence import render_original_qualifications
         sections = []
+        originals = []
+        collapse_qualifications = bool(render_placement_explanation(packet))
+        qualification_refs = {b['reference'] for b in packet['conditions']}
         for index, block in enumerate(blocks):
             heading, wording = block['heading'], block['text']
             if heading.casefold() == 'other published fields (read alongside the description)':
@@ -135,8 +139,22 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
                                                line.startswith(('Hourly range minimum:', 'Hourly range maximum:'))))
                 wording = wording.replace('Engagement type:', 'Engagement:')
             anchor = " id='employer-qualifications'" if index == qualification_block else ''
-            sections.append((f"<h3{anchor}>{escape(heading)}</h3>" if heading != 'Source wording' else '')
-                            + render_comparisons(packet, block_reference=block['reference']) + markdown(wording))
+            original = ((f"<h3{anchor}>{escape(heading)}</h3>" if heading != 'Source wording' else '')
+                        + markdown(wording))
+            comparisons = render_comparisons(packet, block_reference=block['reference'])
+            if collapse_qualifications and block['reference'] in qualification_refs:
+                # Comparisons, including conflicts, remain outside the collapsed
+                # employer wording. The existing fragment target stays on its heading.
+                sections.append(comparisons)
+                originals.append(original)
+            else:
+                if originals:
+                    sections.append(render_original_qualifications(''.join(originals)))
+                    originals = []
+                sections.append((f"<h3{anchor}>{escape(heading)}</h3>" if heading != 'Source wording' else '')
+                                + comparisons + markdown(wording))
+        if originals:
+            sections.append(render_original_qualifications(''.join(originals)))
         description = ''.join(sections)
         description = "<section class='content-section source-description'><h2>Employer description</h2>" + description + '</section>'
     else:

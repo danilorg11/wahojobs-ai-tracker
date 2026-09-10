@@ -138,3 +138,15 @@ The shared renderer is used by the conditional-card disclosure and exact-variant
 details. Admission's default evidence preparation remains unchanged; the new
 packet field is display-only. No score, selection, availability, action permission
 or form/link binding is changed.
+
+When this explanation is present, complete employer qualification wording is
+available in a closed native “Original employer qualifications” disclosure.
+The decisive list and its reviewed summary remain outside it. Comparisons and
+independent warnings remain outside the collapsed source wording. Paths without
+the explanation retain their existing presentation. Exact-detail source anchors
+remain attached to the original headings inside the disclosure.
+
+Partial language acknowledgments appear beneath their exactly linked clause,
+not at the end of the list. The display retains the clause source reference and
+does not infer linkage from order. Ambiguous repeated wording is not assigned to
+an arbitrary clause. This organization does not alter comparison decisions.

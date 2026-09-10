@@ -314,7 +314,10 @@ def _conditional_source_explanation(match, packet):
         if message:
             message += ' The other parts of the quoted qualification still need assessment.'
             if not any(item['message'] == message for item in languages):
-                languages.append(dict(message=message, comparison=deepcopy(check)))
+                linked = [q['source'] for q in questions if q['source']['quote'] == check.get('quote')]
+                # Do not guess a clause position when identical wording repeats.
+                if len(linked) == 1:
+                    languages.append(dict(message=message, comparison=deepcopy(check), source=deepcopy(linked[0])))
     count = len(questions)
     summary = (f'{count} job-specific ' + ('point still needs' if count == 1 else 'points still need')
                + ' assessment against your profile. '
@@ -334,11 +337,20 @@ def render_placement_explanation(evidence):
             f"{ref['block_reference']}:line {ref['line']}", quote=True) + '">'
             + escape(ref['quote'])
             + ("<p class='candidate-note'>" + escape(row['message']) + '</p>' if row['message'] else '')
+            + ''.join("<p class='candidate-note'>" + escape(item['message']) + '</p>'
+                      for item in reason['language_support'] if item.get('source') == ref)
             + '</li>')
     return ("<div class='candidate-placement-reason'><h4>Why this is a possibility</h4>"
             + '<p>' + escape(reason['summary']) + '</p><ul>' + ''.join(points) + '</ul>'
-            + ''.join("<p class='candidate-note'>" + escape(item['message']) + '</p>'
-                      for item in reason['language_support']) + '</div>')
+            + '</div>')
+
+
+def render_original_qualifications(blocks):
+    """Native disclosure; callers retain comparisons and independent warnings."""
+    if not blocks:
+        return ''
+    return ("<details class='candidate-original-qualifications'><summary>Original employer qualifications</summary>"
+            + "<div class='source-description'>" + blocks + '</div></details>')
 
 
 def _other_location_wording(value):
@@ -471,10 +483,15 @@ def render_conditions(evidence, card_id):
             'Original employer wording follows. Any profile comparisons are shown separately.')
     reason = render_placement_explanation(evidence)
     if reason:
-        note = 'Original employer wording follows. The placement explanation above identifies the conditions still needing assessment; other comparisons are shown separately.'
+        comparisons = ''.join(render_comparisons(evidence, block_reference=b['reference'])
+                              for b in evidence['conditions'])
+        original = ''.join('<h4>' + escape(b['heading']) + '</h4>'
+                           + markdown(b['text'], heading_level=5) for b in evidence['conditions'])
+        blocks = comparisons + render_original_qualifications(original)
+        note = ''
     return (f"<details class='candidate-conditions card-source-disclosure'><summary id='{escape(card_id)}-source-summary'>"
             "Qualifications &amp; conditions</summary><div class='source-description'>"
-            + reason + f"<p class='candidate-note'>{note}</p>"
+            + reason + (f"<p class='candidate-note'>{note}</p>" if note else '')
             + blocks + '</div></details>')
 
 

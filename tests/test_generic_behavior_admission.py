@@ -212,11 +212,35 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
             self.assertEqual(html.count('Why this is a possibility'), 1)
             self.assertIn(explanation, html)
             for q in WHO + preferred: self.assertIn(escape(q), html)
+            class Disclosure(HTMLParser):
+                def __init__(self): super().__init__(); self.stack = []; self.original = []; self.inside = False; self.ids = []
+                def handle_starttag(self, tag, attrs):
+                    attr = dict(attrs)
+                    if 'id' in attr: self.ids.append(attr['id'])
+                    if tag == 'details':
+                        self.stack.append(attr.get('class') == 'candidate-original-qualifications')
+                        if self.stack[-1]:
+                            self.original.append({'attrs': attr, 'text': ''})
+                    self.inside = any(self.stack)
+                def handle_endtag(self, tag):
+                    if tag == 'details': self.stack.pop()
+                    self.inside = any(self.stack)
+                def handle_data(self, text):
+                    if self.inside: self.original[-1]['text'] += text
+            structure = Disclosure(); structure.feed(html)
+            self.assertEqual(len(structure.original), 1)
+            self.assertNotIn('open', structure.original[0]['attrs'])
+            self.assertEqual(len(structure.ids), len(set(structure.ids)))
+            for q in WHO + preferred: self.assertIn(q, structure.original[0]['text'])
+            self.assertNotIn('Why this is a possibility', structure.original[0]['text'])
+            self.assertNotIn('Original employer wording follows', html)
+        self.assertIn("href='#employer-qualifications'", detail.body.decode())
+        self.assertIn("id='employer-qualifications'", detail.body.decode())
         for q in [BEHAVIOR, RELIABLE] + preferred: self.assertNotIn(escape(q), explanation)
         for q in reason['conditions']:
             ref = q['source']
             self.assertIn(escape(f"{ref['block_reference']}:line {ref['line']}", quote=True), explanation)
-        self.assertIn('Original employer wording follows.', response.body.decode())
+        self.assertIn('Original employer qualifications', response.body.decode())
         self.assertNotIn('From the employer. Not assessed against your profile.', response.body.decode())
         self.assertEqual(match, original)
 
@@ -242,6 +266,47 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         prepared = self.f.integration._with_card_evidence(without_display, self.f.profile)
         prepared.pop('_card_evidence', None)
         self.assertEqual(prepared, without_display)
+
+    def test_partial_support_tracks_exact_clause_when_order_changes(self):
+        p = candidate(['Model output evaluation'])
+        for language in p['languages']:
+            if language['language'] == 'Portuguese': language['proficiency'] = 'native'
+        p['provenance']['field_sources'] = field_sources_for_profile(p, 'user_confirmation', explicit=True)
+        self.f.profile = v2(p)
+        self.source([WHO[6], WHO[0], WHO[1]])
+        _, _, ctx, match = self.current()
+        self.assertEqual(self.placement(ctx), ([], [7003]))
+        from wahojobs.authenticated_card_evidence import render_placement_explanation
+        packet = ctx['_card_evidence'][7003]
+        original = deepcopy(packet)
+        note = packet['placement_explanation']['language_support'][0]
+        self.assertEqual(note['source'], packet['placement_explanation']['conditions'][1]['source'])
+        for questions in (packet['placement_explanation']['conditions'],
+                          list(reversed(packet['placement_explanation']['conditions']))):
+            shown = deepcopy(packet); shown['placement_explanation']['conditions'] = questions
+            output = render_placement_explanation(shown)
+            items = output.split('<li ')[1:]
+            for item in items:
+                clause = item.split('</li>')[0]
+                self.assertEqual(note['message'] in clause, escape(WHO[0]) in clause)
+            self.assertEqual(output.count(escape(note['message'])), 1)
+        wrong = deepcopy(packet)
+        wrong['placement_explanation']['language_support'][0]['source']['line'] += 1
+        self.assertNotIn(escape(note['message']), render_placement_explanation(wrong))
+        self.assertEqual(packet, original)
+
+    def test_employer_disclosure_is_absent_without_causal_explanation(self):
+        from wahojobs.authenticated_card_evidence import render_conditions, render_original_qualifications
+        self.source([BEHAVIOR])
+        self.enrich({BEHAVIOR: 'generic_behavior_only'})
+        _, _, ctx, match = self.current()
+        self.assertEqual(self.placement(ctx), ([7003], []))
+        packet = ctx['_card_evidence'][7003]
+        rendered = render_conditions(packet, 'main-7003')
+        self.assertNotIn('candidate-original-qualifications', rendered)
+        self.assertIn('Original employer wording follows.', rendered)
+        self.assertIn(BEHAVIOR, rendered)
+        self.assertEqual(render_original_qualifications(''), '')
 
     def test_conditional_summary_does_not_claim_complete_cause_with_specialist_uncertainty(self):
         # Reproduce the independent review's real intermediate specialist gate,
