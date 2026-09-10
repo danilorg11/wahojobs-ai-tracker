@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
 from wahojobs.opportunity_enrichment import source_body_paragraphs
 from wahojobs.matching.opportunity_trust import INACTIVE, STALE_SOURCE, UNVERIFIED_SOURCE
+from wahojobs.public_job_page import PUBLIC_JOB_STATE_LIVE
 
 
 def _availability_message(job):
@@ -49,7 +50,10 @@ def prepare_detail_display(job, profile):
     local = job.get('_authenticated_local_checks') or {}
     match = dict(local.get('match') or job.get('_authenticated_recommendation') or {})
     match.update({k: source[k] for k in ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')})
-    return prepare_card_evidence(match, source, profile, include_item_experience=True)
+    conditional = ((job.get('_authenticated_recommendation') or {}).get('_detail_recommendation_section')
+                   == 'conditional' and job['public_state'] == PUBLIC_JOB_STATE_LIVE)
+    return prepare_card_evidence(match, source, profile, include_item_experience=True,
+                                 conditional_placement=conditional)
 
 
 def render_authenticated_job_page(job, *, profile, navigation, workflow_controls='',
@@ -61,7 +65,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     """
     from wahojobs import public_job_page as public
     from wahojobs.candidate_source_display import DISPLAY_CSS, markdown
-    from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS, render_location_context
+    from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS, render_location_context, render_placement_explanation
     from wahojobs.candidate_condition_comparisons import render_comparisons
     from wahojobs.profile_opportunity_navigation import render_profile_update
     from wahojobs.authenticated_variant_details import variant_detail_url
@@ -101,6 +105,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     qualification_link = ("<p class='candidate-note'><a href='#employer-qualifications'>Review qualifications and comparisons</a></p>"
                           if qualification_block is not None else '')
     checks = ("<section class='candidate-checks'><h2>Before you apply</h2>"
+              + render_placement_explanation(packet)
               + (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else '')
               + render_location_context(packet)
               + qualification_link + '</section>'

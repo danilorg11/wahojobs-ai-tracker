@@ -4,6 +4,9 @@ from copy import deepcopy
 import json
 import sqlite3
 import unittest
+from unittest.mock import patch
+from html import escape
+from html.parser import HTMLParser
 
 from tests.authenticated_recommendation_test_support import SyntheticMatcherFixture
 from tests import test_accepted_task_matching as task_tests
@@ -122,12 +125,14 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
             self.assertEqual(q['materiality']['provenance']['prompt_version'], PROMPT_VERSION)
         for field in ('location_eligibility_status', 'opportunity_trust_status', 'actionability_cap_reasons'):
             self.assertEqual(after[field], before[field])
-        for text in (BEHAVIOR, RELIABLE, 'Not assessed against your profile'):
+        for text in (BEHAVIOR, RELIABLE, 'Original employer wording follows.'):
             self.assertIn(text, response.body.decode())
         detail = self.f.get(variant_detail_url(after, run_id=run.match_run_id))
         self.assertEqual(detail.status, 200)
         self.assertIn(BEHAVIOR, detail.body.decode())
         self.assertNotEqual(old.match_run_id, run.match_run_id)
+        self.assertNotIn('Why this is a possibility', response.body.decode())
+        self.assertNotIn('Why this is a possibility', detail.body.decode())
         schema = structured_output_schema([], clause_ids=[c['clause_id'] for c in client.calls[0]['qualification_clauses']])
         self.assertIn(FIELD, schema['properties'])
 
@@ -154,6 +159,203 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         self.assertEqual(len(after['source_task_fit']['conditions']), 5)
         self.assertEqual(after['score_components'], before['score_components'])
         self.assertTrue(any(c['status']=='supported' for c in after['source_language_checks']))
+
+    def test_conditional_cause_uses_five_decisions_in_cards_and_exact_details(self):
+        p = candidate(['Model output evaluation', 'Annotation and labeling'])
+        for language in p['languages']:
+            if language['language'] == 'Portuguese': language['proficiency'] = 'native'
+        p['provenance']['field_sources'] = field_sources_for_profile(p, 'user_confirmation', explicit=True)
+        self.f.profile = v2(p)
+        # Public Who You Are wording, plus six explicitly synthetic preferred
+        # additions. These are not a reconstruction of the live Nice to Have list.
+        preferred = ['Experience as a transcriptionist, court reporter, or stenographer',
+                     'Experience editing audio transcripts', 'Familiarity with annotation tools',
+                     'Experience reviewing AI outputs', 'Experience following transcription style guides',
+                     'Experience with timestamped audio']
+        self.source(WHO, extra='\n\n## Nice to Have\n\n' + '\n'.join('* ' + q for q in preferred))
+        self.enrich({q: 'generic_behavior_only' if q in (BEHAVIOR, RELIABLE) else 'specific_or_mixed' for q in WHO})
+        captured = {}
+        render_card = browser._render_match_results
+        def capture_card(*args, **kwargs):
+            captured['card'] = (args, kwargs)
+            return render_card(*args, **kwargs)
+        with patch.object(browser, '_render_match_results', side_effect=capture_card):
+            response, run, ctx, match = self.current()
+        self.assertEqual(self.placement(ctx), ([], [7003]))
+        packet = ctx['_card_evidence'][7003]
+        reason = packet['placement_explanation']
+        self.assertEqual(reason['conditions'], match['source_task_fit']['conditions'])
+        self.assertEqual(len(reason['conditions']), 5)
+        self.assertEqual(reason['summary'],
+            '5 job-specific points still need assessment against your profile. '
+            'These contribute to this opportunity being shown as a possibility; '
+            'other aspects of the match may also need review.')
+        self.assertEqual([r['source']['quote'] for r in reason['conditions']],
+                         [q for q in WHO if q not in (BEHAVIOR, RELIABLE)])
+        self.assertEqual(len([r for r in packet['comparisons'] if r['modality'] == 'preferred']), 6)
+        self.assertEqual(len(match['non_decisive_source_questions']), 2)
+        self.assertEqual(len(reason['language_support']), 1)
+        self.assertIn('native Portuguese supports the language component', reason['language_support'][0]['message'])
+        original = deepcopy(match)
+        detail_url = variant_detail_url(match, run_id=run.match_run_id)
+        from wahojobs import authenticated_source_detail as detail_renderer
+        render_detail = detail_renderer.render_authenticated_job_page
+        def capture_detail(*args, **kwargs):
+            captured['detail'] = (args, kwargs)
+            return render_detail(*args, **kwargs)
+        with patch.object(detail_renderer, 'render_authenticated_job_page', side_effect=capture_detail):
+            detail = self.f.get(detail_url)
+        self.assertEqual(detail.status, 200)
+        from wahojobs.authenticated_card_evidence import render_placement_explanation
+        explanation = render_placement_explanation(packet)
+        for html in (response.body.decode(), detail.body.decode()):
+            self.assertEqual(html.count('Why this is a possibility'), 1)
+            self.assertIn(explanation, html)
+            for q in WHO + preferred: self.assertIn(escape(q), html)
+        for q in [BEHAVIOR, RELIABLE] + preferred: self.assertNotIn(escape(q), explanation)
+        for q in reason['conditions']:
+            ref = q['source']
+            self.assertIn(escape(f"{ref['block_reference']}:line {ref['line']}", quote=True), explanation)
+        self.assertIn('Original employer wording follows.', response.body.decode())
+        self.assertNotIn('From the employer. Not assessed against your profile.', response.body.decode())
+        self.assertEqual(match, original)
+
+        # Replay the actual render inputs, including their independently created
+        # registry run and workflow controls. No ID substitution/normalization.
+        # A second Matches request would create a different run in this fixture.
+        class Bindings(HTMLParser):
+            def __init__(self): super().__init__(); self.values = []
+            def handle_starttag(self, tag, attrs):
+                if tag in ('form', 'input', 'button', 'a'): self.values.append((tag, attrs))
+        with patch('wahojobs.authenticated_card_evidence.render_placement_explanation', return_value=''):
+            args, kwargs = captured['card']; plain_card = render_card(*args, **kwargs)
+            args, kwargs = captured['detail']; plain_detail = render_detail(*args, **kwargs)
+        for actual, plain in ((response, plain_card), (detail, plain_detail)):
+            a, b = Bindings(), Bindings(); a.feed(actual.body.decode()); b.feed(plain)
+            self.assertEqual(a.values, b.values)
+        without_display = deepcopy(ctx); without_display.pop('_card_evidence', None)
+        # Details can create their own workflow run. Inspect the exact original
+        # matching run, not whichever registry entry happened to be created last.
+        after = deepcopy(self.f.integration._registry._runs[run.match_run_id].recommendation_context)
+        after.pop('_card_evidence', None)
+        self.assertEqual(after, without_display)
+        prepared = self.f.integration._with_card_evidence(without_display, self.f.profile)
+        prepared.pop('_card_evidence', None)
+        self.assertEqual(prepared, without_display)
+
+    def test_conditional_summary_does_not_claim_complete_cause_with_specialist_uncertainty(self):
+        # Reproduce the independent review's real intermediate specialist gate,
+        # rather than injecting a conditional match or an invented second reason.
+        from wahojobs.matching import source_task_fit
+        from wahojobs import authenticated_source_detail as detail_renderer
+        from wahojobs.authenticated_card_evidence import render_placement_explanation
+        self.f.profile = v2(candidate(['Model output evaluation'], skills=['translation']))
+        self.f.update_inventory("UPDATE jobs SET title='Portuguese AI Data Reviewer'")
+        self.f.update_inventory("UPDATE canonical_opportunities SET canonical_title='Portuguese AI Data Reviewer'")
+        tools = 'Comfortable using web-based tools and audio playback interfaces'
+        self.source([tools], extra='\n\n## Additional responsibilities\n\nYou will perform linguistic analysis.')
+        stages, captured = [], {}
+        original = source_task_fit._apply_language_task_fit
+        def observe(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if result.get('job_id') == 7003: stages.append(deepcopy(result))
+            return result
+        def capture(label, render):
+            def call(*args, **kwargs):
+                captured[label] = (deepcopy(args), deepcopy(kwargs))
+                return render(*args, **kwargs)
+            return call
+        card_render = browser._render_match_results
+        detail_render = detail_renderer.render_authenticated_job_page
+        with patch.object(source_task_fit, '_apply_language_task_fit', side_effect=observe), \
+                patch.object(browser, '_render_match_results', side_effect=capture('card', card_render)):
+            response, run, ctx, match = self.current()
+        self.assertEqual(self.placement(ctx), ([], [7003]))
+        specialist = [m['source_task_fit'] for m in stages
+                      if (m.get('source_task_fit') or {}).get('kind') == 'linguistic_analysis']
+        self.assertTrue(specialist)
+        self.assertTrue(all(s['status'] == 'uncertain' for s in specialist))
+        self.assertIn('Practical experience with these specialist tasks still needs confirmation',
+                      specialist[0]['candidate_note'])
+        packet = ctx['_card_evidence'][7003]
+        reason = packet['placement_explanation']
+        self.assertEqual(reason['conditions'], match['source_task_fit']['conditions'])
+        self.assertEqual([q['source']['quote'] for q in reason['conditions']], [tools])
+        self.assertTrue(all(q['status'] in ('unresolved', 'not_established') for q in reason['conditions']))
+        summary = ('1 job-specific point still needs assessment against your profile. '
+                   'This contributes to this opportunity being shown as a possibility; '
+                   'other aspects of the match may also need review.')
+        self.assertEqual(reason['summary'], summary)
+        before = deepcopy(ctx); before.pop('_card_evidence', None)
+        with patch.object(detail_renderer, 'render_authenticated_job_page',
+                          side_effect=capture('detail', detail_render)):
+            detail = self.f.get(variant_detail_url(match, run_id=run.match_run_id))
+        self.assertEqual(detail.status, 200)
+        explanation = render_placement_explanation(packet)
+        for html in (response.body.decode(), detail.body.decode()):
+            self.assertEqual(html.count('Why this is a possibility'), 1)
+            self.assertIn(explanation, html)
+            self.assertIn(summary, html)
+            self.assertNotIn('These are the conditions keeping', html)
+        self.assertIn(escape(tools), explanation)
+        self.assertNotIn('rather than a main match', explanation)
+        class Bindings(HTMLParser):
+            def __init__(self): super().__init__(); self.values = []
+            def handle_starttag(self, tag, attrs):
+                if tag in ('form', 'input', 'button', 'a'): self.values.append((tag, attrs))
+        with patch('wahojobs.authenticated_card_evidence.render_placement_explanation', return_value=''):
+            for label, render, html in [('card', card_render, response.body.decode()),
+                                        ('detail', detail_render, detail.body.decode())]:
+                args, kwargs = captured[label]
+                a, b = Bindings(), Bindings(); a.feed(html); b.feed(render(*args, **kwargs))
+                self.assertEqual(a.values, b.values)
+        after = deepcopy(self.f.integration._registry._runs[run.match_run_id].recommendation_context)
+        after.pop('_card_evidence', None)
+        self.assertEqual(after, before)
+        prepared = self.f.integration._with_card_evidence(before, self.f.profile)
+        prepared.pop('_card_evidence', None)
+        self.assertEqual(prepared, before)
+
+    def test_conditional_explanation_rejects_missing_other_or_mismatched_decisions(self):
+        self.source([BEHAVIOR])
+        _, _, ctx, match = self.current()
+        with self.f.provider() as c: source = load_card_sources(c, [match])[7003]
+        untouched = deepcopy((match, source, self.f.profile))
+        base = prepare_card_evidence(match, source, self.f.profile)
+        shown = prepare_card_evidence(match, source, self.f.profile, conditional_placement=True)
+        self.assertIsNotNone(shown.pop('placement_explanation'))
+        self.assertEqual(shown, base)
+        self.assertEqual((match, source, self.f.profile), untouched)
+        for change in ({'source_task_fit': {}}, {'primary_admission_source': 'accepted_source_language_level'},
+                       {'primary_recommendation_eligible': True}, {'conditional_task_fit': False}):
+            with self.subTest(change=change):
+                packet = prepare_card_evidence(dict(match, **change), source, self.f.profile, conditional_placement=True)
+                self.assertIsNone(packet['placement_explanation'])
+        for field in ('job_id', 'external_id', 'url', 'source_hash', 'quote', 'line'):
+            bad = deepcopy(match); bad['source_task_fit']['conditions'][0]['source'][field] = 'other'
+            packet = prepare_card_evidence(bad, source, self.f.profile, conditional_placement=True)
+            self.assertIsNone(packet['placement_explanation'])
+        bad = deepcopy(match); bad['source_task_fit']['source_reference']['material_content_sha256'] = 'stale'
+        self.assertIsNone(prepare_card_evidence(bad, source, self.f.profile, conditional_placement=True)['placement_explanation'])
+
+    def test_material_requirement_and_conflict_keep_their_actual_treatment(self):
+        self.source(["Bachelor's in Biology."], heading='Requirements')
+        response, run, ctx, match = self.current()
+        self.assertEqual(self.placement(ctx), ([], [7003]))
+        self.assertIn('Why this is a possibility', response.body.decode())
+        reason = ctx['_card_evidence'][7003]['placement_explanation']
+        self.assertEqual(reason['conditions'], match['source_task_fit']['conditions'])
+        self.assertEqual(reason['conditions'][0]['modality'], 'required')
+        p = candidate(['Model output evaluation']); p['education']['education_level'] = 'no_degree'
+        p['provenance']['field_sources'] = field_sources_for_profile(p, 'user_confirmation', explicit=True)
+        self.f.profile = v2(p)
+        response, run, ctx, match = self.current()
+        self.assertEqual(self.placement(ctx), ([], []))
+        self.assertEqual(match['affirmative_fit_status'], 'conflicting')
+        self.assertNotIn('Why this is a possibility', response.body.decode())
+        detail = self.f.get(variant_detail_url(match, run_id=run.match_run_id))
+        self.assertEqual(detail.status, 200)
+        self.assertNotIn('Why this is a possibility', detail.body.decode())
 
     def test_required_material_unknown_and_explicit_conflict_survive(self):
         for no_degree in (False, True):

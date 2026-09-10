@@ -96,7 +96,8 @@ def _source_text(source, *, include_structured_lists=True):
     return text
 
 
-def prepare_card_evidence(match, source, profile, *, include_item_experience=False):
+def prepare_card_evidence(match, source, profile, *, include_item_experience=False,
+                          conditional_placement=False):
     if not source or any(source.get(k) != match.get(k) for k in
                          ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')):
         return None
@@ -264,7 +265,80 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
             'location_context': location_context}
     from wahojobs.candidate_condition_comparisons import compare_conditions
     packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience)
+    if conditional_placement:
+        packet['placement_explanation'] = _conditional_source_explanation(match, packet)
     return packet
+
+
+def _conditional_source_explanation(match, packet):
+    """Present recorded decisions, never classify or reassess source clauses."""
+    from copy import deepcopy
+    review = match.get('source_task_fit') or {}
+    if (match.get('primary_recommendation_eligible') is not False
+            or match.get('conditional_task_fit') is not True
+            or match.get('primary_admission_source') != 'accepted_task_source_conditions'
+            or review.get('kind') != 'accepted_task_conditions'
+            or review.get('status') != 'uncertain'):
+        return None
+    def same_source(ref):
+        return (ref.get('job_id') == packet['job_id']
+                and ref.get('external_id') == packet['external_id']
+                and ref.get('source_url') == packet['url']
+                and ref.get('material_content_sha256') == packet['source_hash'])
+    if not same_source(review.get('source_reference') or {}):
+        return None
+    questions = review.get('conditions') or []
+    if not questions:
+        return None
+    for row in questions:
+        # All causes must still correspond to this exact accepted clause. Do not
+        # silently shorten a stale/mismatched explanation or soften a conflict.
+        if (row.get('status') not in ('unresolved', 'not_established')
+                or row.get('modality') in ('preferred', 'conflicting', 'not_required')
+                or row.get('admission_decisive') is False
+                or not any(c['source'] == row.get('source') and c['status'] == row['status']
+                           for c in packet['comparisons'])):
+            return None
+    languages = []
+    for check in match.get('source_language_checks') or []:
+        if (check.get('status') != 'supported'
+                or not same_source(check.get('source_reference') or {})
+                or not any(check.get('quote') == q['source']['quote'] for q in questions)):
+            continue
+        if check.get('levels') == ['native']:
+            label = (' or ' if check.get('operator') == 'any_of' else ' and ').join(
+                language.title() for language in check['languages'])
+            message = f'Your stated native {label} supports the language component.'
+        else:
+            message = check.get('message')
+        if message:
+            message += ' The other parts of the quoted qualification still need assessment.'
+            if not any(item['message'] == message for item in languages):
+                languages.append(dict(message=message, comparison=deepcopy(check)))
+    count = len(questions)
+    summary = (f'{count} job-specific ' + ('point still needs' if count == 1 else 'points still need')
+               + ' assessment against your profile. '
+               + ('This contributes' if count == 1 else 'These contribute')
+               + ' to this opportunity being shown as a possibility; other aspects of the match may also need review.')
+    return dict(summary=summary, conditions=deepcopy(questions), language_support=languages)
+
+
+def render_placement_explanation(evidence):
+    reason = (evidence or {}).get('placement_explanation')
+    if not reason:
+        return ''
+    points = []
+    for row in reason['conditions']:
+        ref = row['source']
+        points.append('<li data-source-reference="' + escape(
+            f"{ref['block_reference']}:line {ref['line']}", quote=True) + '">'
+            + escape(ref['quote'])
+            + ("<p class='candidate-note'>" + escape(row['message']) + '</p>' if row['message'] else '')
+            + '</li>')
+    return ("<div class='candidate-placement-reason'><h4>Why this is a possibility</h4>"
+            + '<p>' + escape(reason['summary']) + '</p><ul>' + ''.join(points) + '</ul>'
+            + ''.join("<p class='candidate-note'>" + escape(item['message']) + '</p>'
+                      for item in reason['language_support']) + '</div>')
 
 
 def _other_location_wording(value):
@@ -394,10 +468,13 @@ def render_conditions(evidence, card_id):
                      for b in evidence['conditions'])
     note = ('Compared points are noted below. Other conditions still need your review.'
             if any(r['message'] for r in evidence.get('comparisons', [])) else
-            'From the employer. Not assessed against your profile.')
+            'Original employer wording follows. Any profile comparisons are shown separately.')
+    reason = render_placement_explanation(evidence)
+    if reason:
+        note = 'Original employer wording follows. The placement explanation above identifies the conditions still needing assessment; other comparisons are shown separately.'
     return (f"<details class='candidate-conditions card-source-disclosure'><summary id='{escape(card_id)}-source-summary'>"
             "Qualifications &amp; conditions</summary><div class='source-description'>"
-            f"<p class='candidate-note'>{note}</p>"
+            + reason + f"<p class='candidate-note'>{note}</p>"
             + blocks + '</div></details>')
 
 

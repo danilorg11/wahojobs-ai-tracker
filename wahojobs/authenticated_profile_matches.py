@@ -1893,7 +1893,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     def _with_card_evidence(self, context, profile_v2):
         # Presentation-only enrichment of the final visible IDs, never the pool.
         from wahojobs.authenticated_card_evidence import load_card_sources, prepare_card_evidence
-        matches = _primary_presentation_matches(context) + _conditional_presentation_matches(context)
+        conditional = _conditional_presentation_matches(context)
+        conditional_ids = {match["job_id"] for match in conditional}
+        matches = _primary_presentation_matches(context) + conditional
         sources = {}
         if matches:
             try:
@@ -1910,7 +1912,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 # Missing evidence changes the explanation, never admission.
                 sources = {}
         return dict(context, _card_evidence={
-            match["job_id"]: prepare_card_evidence(match, sources.get(match["job_id"]), profile_v2, include_item_experience=True)
+            match["job_id"]: prepare_card_evidence(match, sources.get(match["job_id"]), profile_v2,
+                include_item_experience=True, conditional_placement=match["job_id"] in conditional_ids)
             for match in matches
         })
 

@@ -110,3 +110,31 @@ unrecognized mixed/technical clause as exclusively generic remains a semantic
 quality risk; there is deliberately no keyword fallback pretending to prove
 meaning. Later enrichment/output validation is needed before claiming automatic
 coverage. No live output was generated or inventory rewritten for this change.
+
+## Explaining conditional placement
+
+Display preparation may receive an explicit conditional-placement flag from the
+existing selected list, or from an exact-variant detail's established conditional
+membership. Only the `accepted_task_source_conditions` route with an uncertain
+`accepted_task_conditions` review can produce “Why this is a possibility”. The
+display copies the existing decisive `source_task_fit.conditions`; it does not
+reclassify clauses or infer causes from headings. Each condition must still match
+the current packet's exact source reference and comparison status. Missing or
+mismatched evidence omits the new explanation rather than inventing a cause.
+
+The summary describes these questions as contributing reasons, not an exhaustive
+account of conditional placement. Other aspects may still need review; resolving
+the listed questions alone is not a promise of main admission. Existing specialist
+uncertainty can coexist with the final source-condition review without being
+aggregated or reinterpreted by this display-only explanation.
+
+Generic non-decisive questions and preferred clauses remain in the original
+employer wording, outside the causal list. Existing source-bound language support
+can be acknowledged as component support only; it does not satisfy a combined
+writing or other qualification. Main, conflicting, other-route and unestablished
+detail membership do not receive this conditional-placement explanation.
+
+The shared renderer is used by the conditional-card disclosure and exact-variant
+details. Admission's default evidence preparation remains unchanged; the new
+packet field is display-only. No score, selection, availability, action permission
+or form/link binding is changed.
