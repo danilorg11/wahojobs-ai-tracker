@@ -133,7 +133,8 @@ def attach_current_annotations(connection, sources):
     No model, persistence, or enrichment refresh is reachable from this path.
     """
     from wahojobs import opportunity_enrichment as oe
-    ids = sorted({s['canonical_opportunity_id'] for s in sources.values()})
+    ids = sorted({s['canonical_opportunity_id'] for s in sources.values()
+                  if s['canonical_opportunity_id'] is not None})
     if not ids:
         return sources
     try:

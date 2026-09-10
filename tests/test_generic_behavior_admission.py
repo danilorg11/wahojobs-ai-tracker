@@ -17,7 +17,7 @@ from wahojobs.source_capture import SourceCaptureContext
 from wahojobs import opportunity_enrichment as oe
 from wahojobs.opportunity_llm import DEFAULT_MODEL, PROMPT_VERSION, StructuredEnrichmentResult, structured_output_schema
 from wahojobs.profiles.canonical import field_sources_for_profile
-from wahojobs.source_clause_materiality import FIELD, clause_catalog, accept_annotations, generic_annotation
+from wahojobs.source_clause_materiality import FIELD, clause_catalog, accept_annotations, generic_annotation, attach_current_annotations
 
 BEHAVIOR = 'Exceptionally detail-oriented with a patient, methodical approach to work'
 RELIABLE = 'Self-motivated and reliable when working independently'
@@ -198,6 +198,57 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         self.source([BEHAVIOR + ' while checking every audio timestamp.'])
         _,_,ctx,m=self.current(old);self.assertIn(7003,self.placement(ctx)[1])
         self.assertNotIn('non_decisive_source_questions',m)
+
+    def test_mixed_canonical_links_preserve_sources_and_current_annotation(self):
+        self.source([BEHAVIOR])
+        self.f.update_inventory('UPDATE jobs SET canonical_opportunity_id=NULL WHERE id=7006')
+        matches = [{'job_id': 7003}, {'job_id': 7006}]
+        with self.f.provider() as c:
+            original = load_card_sources(c, matches)
+        self.enrich({BEHAVIOR: 'generic_behavior_only'})
+        with self.f.provider() as c:
+            loaded = load_card_sources(c, matches)
+            from scripts.profile_to_matches_preview import query_preview_rows
+            projected = {r['job_id']: r for r in query_preview_rows(c)}
+        self.assertEqual(set(loaded), {7003, 7006})
+        self.assertIsNone(loaded[7006]['canonical_opportunity_id'])
+        self.assertNotIn(FIELD, loaded[7006])
+        self.assertEqual(loaded[7006], original[7006])
+        self.assertEqual({k: v for k, v in loaded[7003].items() if k != FIELD}, original[7003])
+        annotation = loaded[7003][FIELD][0]
+        self.assertEqual(annotation['classification'], 'generic_behavior_only')
+        self.assertEqual(annotation['provenance']['prompt_version'], PROMPT_VERSION)
+        self.assertEqual(annotation['source']['variant_ref'], 'source_hash:' + loaded[7003]['source_hash'])
+        self.assertIn(7003, projected)
+        self.assertIn(7006, projected)
+        self.assertIsNone(projected[7006]['canonical_opportunity_id'])
+        row = prepare_card_evidence(projected[7003], loaded[7003], self.f.profile)['comparisons'][0]
+        self.assertIsNotNone(generic_annotation(row, loaded[7003]))
+
+    def test_all_unlinked_sources_remain_without_canonical_lookup(self):
+        self.source([BEHAVIOR])
+        self.enrich({BEHAVIOR: 'generic_behavior_only'})
+        self.f.update_inventory('UPDATE jobs SET canonical_opportunity_id=NULL WHERE id IN (7003,7006)')
+        with self.f.provider() as c:
+            statements = []
+            c.set_trace_callback(statements.append)
+            loaded = load_card_sources(c, [{'job_id': 7003}, {'job_id': 7006}])
+            before = deepcopy(loaded)
+            self.assertIs(attach_current_annotations(c, loaded), loaded)
+        self.assertEqual(set(loaded), {7003, 7006})
+        self.assertEqual(loaded, before)
+        self.assertTrue(all(s['canonical_opportunity_id'] is None and FIELD not in s
+                            for s in loaded.values()))
+        self.assertFalse(any('opportunity_enrichments' in s.lower() for s in statements))
+
+    def test_empty_sources_do_not_query_annotations(self):
+        with self.f.provider() as c:
+            statements = []
+            c.set_trace_callback(statements.append)
+            sources = {}
+            self.assertIs(attach_current_annotations(c, sources), sources)
+            self.assertEqual(load_card_sources(c, []), {})
+        self.assertEqual(statements, [])
 
     def test_invalid_alias_duplicate_and_partial_clause_rejected_at_ingestion(self):
         self.source([BEHAVIOR + ' and demonstrate excellent written Portuguese.'])
