@@ -11,8 +11,8 @@ variant-only facts for later variant-aware matching and explanations.
 - Semantic input: `opportunity_semantic_input_v3`
 - Extractor: `hybrid_evidence_vnext_v4`
 - Derivation recipe: `opportunity_enrichment_derivation_v8`
-- Structured prompt: `opportunity_semantic_vnext_v4`
-- Semantic acceptance guards: `opportunity_llm_acceptance_guards_v9`
+- Structured prompt: `opportunity_semantic_vnext_v5`
+- Semantic acceptance guards: `opportunity_llm_acceptance_guards_v10`
 
 The semantic-input hash contains canonical data, every selected variant, and
 accepted rich source material. An identical healthy recapture may advance the
@@ -64,6 +64,15 @@ Under OE Semantic Authority Boundary v1, model-derived facts are
 `semantic_non_exclusionary`; candidate eligibility may compare only separately
 authorized deterministic/objective facts. Required semantic modality does not
 grant hard-gate authority.
+
+The additive source-clause materiality contract is documented in
+[`generic_behavior_admission.md`](generic_behavior_admission.md). Its separately
+authorized consumer can make only positively classified, wholly unassessed
+generic behavioral questions non-decisive. It cannot establish task fit, satisfy
+a qualification, override an existing comparison or create a hard exclusion.
+This consumes the existing automatic enrichment document, not the separate
+offline semantic matching packet. Older documents without the optional
+annotation retain the current conservative source-condition review.
 
 Sensitive facts also pass field-specific authority guards. Page-language and
 office metadata cannot establish candidate language or location eligibility;

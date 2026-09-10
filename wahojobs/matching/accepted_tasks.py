@@ -409,6 +409,7 @@ def apply_task_condition_review(match, source, profile):
                         + ['incompatible_location' if conflict else 'unconfirmed_location_restriction'],
                     source_task_location_checks=source_locations)
     questions = []
+    non_decisive_questions = []
     # The late source-condition path has the confirmed canonical provenance.
     # Reuse the same language comparator for explicitly confirmed firm limits;
     # raw matcher constraints or unconfirmed conversational facts cannot veto.
@@ -437,7 +438,17 @@ def apply_task_condition_review(match, source, profile):
         material = (modality in ('required', 'conflicting')
                     or modality != 'preferred' and (qualification or row['kind'] == 'workload'))
         if material and row['status'] != 'supported':
+            from wahojobs.source_clause_materiality import generic_annotation
+            annotation = generic_annotation(row, source)
+            if annotation is not None:
+                non_decisive_questions.append(dict(row, modality=modality, materiality=annotation,
+                    admission_decisive=False))
+                continue
             questions.append(dict(row, modality=modality))
+    if non_decisive_questions:
+        # Questions keep their original unknown state, modality and evidence.
+        # This annotation never creates affirmative fit or changes a score.
+        match = dict(match, non_decisive_source_questions=non_decisive_questions)
     if not questions:
         return match
     unsupported_background = [r for r in questions if r['kind'] == 'professional_background'

@@ -1930,7 +1930,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "source_task_fit_version": 3,
             "confirmed_activity_signal_version": 1,
             "accepted_task_projection_version": TASK_PROJECTION_VERSION,
-            "accepted_task_admission_version": 4,
+            "accepted_task_admission_version": 5,
             "accepted_source_eligibility_version": SOURCE_ELIGIBILITY_VERSION,
         }
         digest = hashlib.sha256(json.dumps(

@@ -155,7 +155,7 @@ class OpportunityLLMTests(unittest.TestCase):
             "directly describe the action",
         ):
             self.assertIn(requirement, prompt)
-        self.assertEqual(PROMPT_VERSION, "opportunity_semantic_vnext_v4")
+        self.assertEqual(PROMPT_VERSION, "opportunity_semantic_vnext_v5")
 
     def test_schema_reuses_allowed_aliases_and_enforces_scalar_evidence(self):
         aliases = ["E2222222222222222", "E1111111111111111"]

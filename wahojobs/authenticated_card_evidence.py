@@ -36,7 +36,7 @@ def load_card_sources(connection, matches):
     if not ids:
         return {}
     cursor = connection.execute(f"""
-        SELECT j.id AS job_id, j.canonical_opportunity_id, j.external_id,
+        SELECT j.id AS job_id, j.canonical_opportunity_id, j.external_id, j.source_hash,
                j.url, j.commitment, j.location, c.slug AS source_slug,
                sc.external_id AS content_external_id, sc.provider AS content_provider, sc.source_url,
                sc.body, sc.body_format, sc.metadata_json, sc.last_captured_at,
@@ -46,7 +46,9 @@ def load_card_sources(connection, matches):
         WHERE j.id IN ({','.join('?' for _ in ids)})
     """, ids)
     columns = [item[0] for item in cursor.description]
-    return {row['job_id']: row for row in (dict(zip(columns, r)) for r in cursor)}
+    sources = {row['job_id']: row for row in (dict(zip(columns, r)) for r in cursor)}
+    from wahojobs.source_clause_materiality import attach_current_annotations
+    return attach_current_annotations(connection, sources)
 
 
 def _blocks(text):

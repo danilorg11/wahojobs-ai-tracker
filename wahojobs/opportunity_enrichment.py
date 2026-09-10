@@ -38,7 +38,7 @@ EXTRACTOR_VERSION = "hybrid_evidence_vnext_v4"
 SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v3"
 LEGACY_SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v1"
 DERIVATION_RECIPE_VERSION = "opportunity_enrichment_derivation_v8"
-LLM_ACCEPTANCE_GUARDS_VERSION = "opportunity_llm_acceptance_guards_v9"
+LLM_ACCEPTANCE_GUARDS_VERSION = "opportunity_llm_acceptance_guards_v10"
 
 STALE_REASON_DERIVATION_CONTRACT_CHANGED = "derivation_contract_changed"
 STALE_REASON_SOURCE_INPUT_CHANGED = "source_input_changed"
@@ -279,6 +279,7 @@ def blank_llm_payload() -> dict:
         },
         **{field: [] for field in LLM_LIST_FIELD_PATHS},
         "known_empty_fields": [],
+        "clause_materiality": [],
     }
 
 
@@ -952,6 +953,7 @@ def classify_enrichment_freshness(semantic_input: dict, persisted) -> dict:
             "stored_derivation_fingerprint": None,
             "derivation_status": "missing",
             "changed_derivation_components": [],
+            "clause_binding_status": "absent",
         }
 
     stored_input_version, input_version_basis = persisted_semantic_input_version(
@@ -1033,6 +1035,14 @@ def classify_enrichment_freshness(semantic_input: dict, persisted) -> dict:
         stale_reasons.append(STALE_REASON_DERIVATION_CONTRACT_CHANGED)
     if source_input_status == "changed":
         stale_reasons.append(STALE_REASON_SOURCE_INPUT_CHANGED)
+    from wahojobs.source_clause_materiality import annotation_freshness
+    try:
+        stored_document = json.loads(_persisted_value(persisted, "automatic_document_json") or '{}')
+    except (ValueError, TypeError):
+        stored_document = None
+    clause_binding_status = annotation_freshness(semantic_input, stored_document)
+    if clause_binding_status in {'stale', 'invalid'}:
+        stale_reasons.append('clause_evidence_binding_changed')
     freshness = "current" if not stale_reasons else "stale"
     return {
         "freshness": freshness,
@@ -1048,6 +1058,7 @@ def classify_enrichment_freshness(semantic_input: dict, persisted) -> dict:
         "stored_derivation_fingerprint": stored_derivation_fingerprint,
         "derivation_status": derivation_status,
         "changed_derivation_components": sorted(changed_components),
+        "clause_binding_status": clause_binding_status,
     }
 
 
@@ -2508,6 +2519,9 @@ def llm_source_packet(semantic_input: dict) -> tuple[dict, dict[str, dict]]:
         "variants": semantic_input.get("variants") or [],
         "evidence_blocks": [evidence_blocks[key] for key in sorted(evidence_blocks)],
     }
+    from wahojobs.source_clause_materiality import clause_catalog
+    packet['qualification_clauses'] = [dict(clause_id=alias, **clause)
+        for alias, clause in clause_catalog(semantic_input).items()]
     return packet, evidence_blocks
 
 
@@ -3662,8 +3676,13 @@ def caveats_materially_overlap(left: dict, right: dict) -> bool:
     return overlap >= 0.6
 
 
-def validate_llm_payload(payload: dict, evidence_blocks: dict[str, dict]) -> None:
-    require_exact_keys(payload, set(LLM_PAYLOAD_FIELDS), "llm_payload")
+def validate_llm_payload(payload: dict, evidence_blocks: dict[str, dict], *, clause_catalog=None) -> None:
+    from wahojobs.source_clause_materiality import FIELD, accept_annotations
+    fields = set(LLM_PAYLOAD_FIELDS)
+    if type(payload) is dict and FIELD in payload:
+        fields.add(FIELD)
+        accept_annotations(payload[FIELD], clause_catalog or {})
+    require_exact_keys(payload, fields, "llm_payload")
     validate_llm_scalar(
         payload["role_family"],
         "llm_payload.role_family",
@@ -4002,6 +4021,7 @@ def merge_llm_payload(
     evidence_blocks: dict[str, dict],
     *,
     all_variant_refs=None,
+    clause_catalog=None,
 ) -> dict:
     document = copy.deepcopy(document)
     facts = llm_payload_variant_facts(payload, evidence_blocks)
@@ -4013,6 +4033,9 @@ def merge_llm_payload(
         }
     )
     project_variant_facts(document, facts, all_variant_refs)
+    from wahojobs.source_clause_materiality import FIELD, accept_annotations
+    if FIELD in payload:
+        document[FIELD] = accept_annotations(payload[FIELD], clause_catalog or {})
     refresh_unknown_fields(document)
     document["field_evidence"] = sorted(
         document["field_evidence"],
@@ -4033,16 +4056,16 @@ def build_enrichment(semantic_input: dict) -> tuple[str, dict, str]:
     return input_sha256, document, status
 
 
-def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client) -> bool:
+def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client, *,
+                    clause_binding_sha256=None) -> bool:
     derivation_fingerprint = derivation_recipe_fingerprint(
         model_provider=llm_client.provider,
         model_name=llm_client.model,
         prompt_version=llm_client.prompt_version,
     )
-    return (
-        conn.execute(
+    rows = conn.execute(
             """
-            SELECT 1
+            SELECT id
             FROM opportunity_enrichment_runs
             WHERE canonical_opportunity_id = ?
               AND input_sha256 = ?
@@ -4051,7 +4074,6 @@ def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client) ->
               AND prompt_version = ?
               AND semantic_input_version = ?
               AND derivation_fingerprint = ?
-            LIMIT 1
             """,
             (
                 canonical_opportunity_id,
@@ -4062,9 +4084,23 @@ def has_llm_attempt(conn, canonical_opportunity_id, input_sha256, llm_client) ->
                 SEMANTIC_INPUT_VERSION,
                 derivation_fingerprint,
             ),
-        ).fetchone()
-        is not None
-    )
+        ).fetchall()
+    if clause_binding_sha256 is None:
+        return bool(rows)
+    # Reuse existing run diagnostics; no schema or semantic-input identity change.
+    # An attempt against A cannot block a repair against B. A failed B attempt
+    # still suppresses repeated automatic attempts at unchanged B.
+    for row in rows:
+        diagnostic = conn.execute(
+            'SELECT diagnostic_json FROM opportunity_enrichment_run_diagnostics WHERE run_id=?',
+            (row[0],)).fetchone()
+        try:
+            value = json.loads(diagnostic[0]) if diagnostic else {}
+            if type(value) is dict and value.get('clause_binding_sha256') == clause_binding_sha256:
+                return True
+        except (ValueError, TypeError):
+            continue
+    return False
 
 
 def record_llm_run(
@@ -4211,9 +4247,15 @@ def enrich_canonical_opportunity(
         )
     )
     should_attempt_llm = llm_client is not None and llm_eligible
+    binding_repair = freshness_evidence['clause_binding_status'] in {'stale', 'invalid'}
+    repair_binding_sha256 = None
+    if binding_repair and should_attempt_llm:
+        from wahojobs.source_clause_materiality import binding_fingerprint
+        repair_binding_sha256 = binding_fingerprint(semantic_input)
     if same_automatic_input:
         prior_model_is_current = (
             should_attempt_llm
+            and not binding_repair
             and existing["model_provider"] == llm_client.provider
             and existing["model_name"] == llm_client.model
             and existing["prompt_version"] == llm_client.prompt_version
@@ -4223,6 +4265,7 @@ def enrich_canonical_opportunity(
             canonical_opportunity_id,
             input_sha256,
             llm_client,
+            clause_binding_sha256=repair_binding_sha256,
         )
         if not should_attempt_llm or prior_model_is_current or already_attempted:
             if not llm_eligible:
@@ -4277,12 +4320,15 @@ def enrich_canonical_opportunity(
                 evidence_blocks,
                 document,
             )
-            validate_llm_payload(normalized_payload, evidence_blocks)
+            from wahojobs.source_clause_materiality import clause_catalog
+            clauses = clause_catalog(semantic_input)
+            validate_llm_payload(normalized_payload, evidence_blocks, clause_catalog=clauses)
             document = merge_llm_payload(
                 document,
                 normalized_payload,
                 evidence_blocks,
                 all_variant_refs=semantic_variant_refs(semantic_input),
+                clause_catalog=clauses,
             )
             status = STATUS_PARTIAL if document["unknown_fields"] else STATUS_COMPLETE
         except Exception as exc:
@@ -4298,7 +4344,8 @@ def enrich_canonical_opportunity(
                 now or utc_now(),
                 result=failure_result,
                 error_type=type(exc).__name__[:100],
-                diagnostic=llm_failure_diagnostic(exc),
+                diagnostic=dict(llm_failure_diagnostic(exc), **(
+                    {'clause_binding_sha256': repair_binding_sha256} if repair_binding_sha256 else {})),
             )
             llm_result = failure_result
         else:
@@ -4315,7 +4362,8 @@ def enrich_canonical_opportunity(
                 started_at,
                 now or utc_now(),
                 result=llm_result,
-                diagnostic=llm_success_diagnostic(llm_result),
+                diagnostic=dict(llm_success_diagnostic(llm_result), **(
+                    {'clause_binding_sha256': repair_binding_sha256} if repair_binding_sha256 else {})),
             )
 
     preserve_previous_success = (
@@ -5055,6 +5103,10 @@ def validate_enrichment_document(document: dict) -> None:
         }
     else:
         raise EnrichmentValidationError("Unsupported enrichment schema_version.")
+    from wahojobs.source_clause_materiality import FIELD, validate_stored
+    if FIELD in document and schema_version == SCHEMA_VERSION:
+        document_keys.add(FIELD)
+        validate_stored(document[FIELD])
     require_exact_keys(
         document,
         document_keys,
