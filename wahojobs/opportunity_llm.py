@@ -36,6 +36,7 @@ class OpenAIResponseMetadata:
     output_tokens: int
     total_tokens: int
     estimated_cost_usd: float | None
+    usage_known: bool = False
 
 
 class OpenAIEnrichmentError(RuntimeError):
@@ -62,6 +63,7 @@ class StructuredEnrichmentResult:
     response_status: str | None = None
     http_status: int | None = None
     response_model: str | None = None
+    usage_known: bool = False
 
 
 class OpenAIStructuredEnrichmentClient:
@@ -85,8 +87,24 @@ class OpenAIStructuredEnrichmentClient:
                 and type(block.get("evidence_block_id")) is str
             }
         )
+        return self.generate_structured(
+            source_packet, prompt=system_prompt(),
+            schema=structured_output_schema(
+                allowed_evidence_aliases,
+                clause_ids=[c['clause_id'] for c in source_packet.get('qualification_clauses', [])]),
+            schema_name="opportunity_semantic_enrichment", max_output_tokens=MAX_OUTPUT_TOKENS)
+
+    def generate_structured(self, source_packet, *, prompt, schema, schema_name,
+                            max_output_tokens, max_response_bytes=None, response_sink=None,
+                            before_dispatch=None):
+        """Shared single-attempt transport; callers own input/output authority.
+
+        The optional bounded response path records unedited bytes before parsing.
+        Existing enrichment keeps its original transport and accounting behavior.
+        """
         try:
-            response = self.session.post(
+            post = self._bounded_post if max_response_bytes is not None else self.session.post
+            response = post(
                 OPENAI_RESPONSES_URL,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -95,7 +113,7 @@ class OpenAIStructuredEnrichmentClient:
                 json={
                     "model": self.model,
                     "store": False,
-                    "max_output_tokens": MAX_OUTPUT_TOKENS,
+                    "max_output_tokens": max_output_tokens,
                     "reasoning": {"effort": REASONING_EFFORT},
                     "input": [
                         {
@@ -103,7 +121,7 @@ class OpenAIStructuredEnrichmentClient:
                             "content": [
                                 {
                                     "type": "input_text",
-                                    "text": system_prompt(),
+                                    "text": prompt,
                                 }
                             ],
                         },
@@ -125,16 +143,15 @@ class OpenAIStructuredEnrichmentClient:
                     "text": {
                         "format": {
                             "type": "json_schema",
-                            "name": "opportunity_semantic_enrichment",
+                            "name": schema_name,
                             "strict": True,
-                            "schema": structured_output_schema(
-                                allowed_evidence_aliases,
-                                clause_ids=[c['clause_id'] for c in source_packet.get('qualification_clauses', [])],
-                            ),
+                            "schema": schema,
                         }
                     },
                 },
                 timeout=(10, 90),
+                **({"stream": True, "allow_redirects": False, "before_dispatch": before_dispatch}
+                   if max_response_bytes is not None else {}),
             )
         except requests.RequestException as exc:
             raise OpenAIEnrichmentError(
@@ -151,7 +168,22 @@ class OpenAIStructuredEnrichmentClient:
         if http_status is None:
             http_status = 200
         try:
-            data = response.json()
+            if max_response_bytes is None:
+                data = response.json()
+            else:
+                raw = bytearray()
+                try:
+                    for chunk in response.iter_content(chunk_size=4096):
+                        if len(raw) + len(chunk) > max_response_bytes:
+                            raise OpenAIEnrichmentError(
+                                "Structured response exceeded the byte limit.",
+                                diagnostic=diagnostic_record("response_size_limit"))
+                        raw.extend(chunk)
+                    if response_sink is not None:
+                        response_sink(bytes(raw))
+                    data = json.loads(raw)
+                finally:
+                    response.close()
         except ValueError as exc:
             category = (
                 "invalid_json" if 200 <= http_status < 300 else "http_provider_error"
@@ -259,8 +291,39 @@ class OpenAIStructuredEnrichmentClient:
             estimated_cost_usd=metadata.estimated_cost_usd,
             response_status=metadata.response_status,
             http_status=metadata.http_status,
-            response_model=metadata.response_model,
+            # The bounded caller validates the unmodified transport identity;
+            # do not normalize malformed values into an approved alias.
+            response_model=data.get('model') if max_response_bytes is not None else metadata.response_model,
+            usage_known=metadata.usage_known,
         )
+
+    def _bounded_post(self, url, *, before_dispatch, allow_redirects, **kwargs):
+        """One physical adapter dispatch, without Session redirect/auth hooks.
+
+        Session.send(..., allow_redirects=False) still prepares Response.next
+        and can consume an unbounded redirect body. Dispatch the prepared request
+        directly through the configured standard zero-retry adapter instead.
+        The unbounded enrichment path retains its existing Session behavior.
+        """
+        if allow_redirects is not False:
+            raise ValueError('bounded_transport_redirects_forbidden')
+        if type(self.session) is not requests.Session:
+            if getattr(self, 'offline_labelled_stub', False) is not True:
+                raise ValueError('bounded_transport_requires_standard_session')
+            if before_dispatch is not None:
+                before_dispatch()
+            return self.session.post(url, allow_redirects=False, **kwargs)
+        adapter = self.session.get_adapter(url)
+        if (type(adapter) is not requests.adapters.HTTPAdapter
+                or adapter.max_retries.total != 0 or self.session.auth is not None
+                or any(self.session.hooks.values())):
+            raise ValueError('bounded_transport_retries_or_hooks_forbidden')
+        request = self.session.prepare_request(requests.Request(
+            'POST', url, headers=kwargs['headers'], json=kwargs['json']))
+        settings = self.session.merge_environment_settings(request.url, {}, True, None, None)
+        if before_dispatch is not None:
+            before_dispatch()
+        return adapter.send(request, timeout=kwargs['timeout'], **settings)
 
 
 def configured_openai_client(*, enabled: bool):
@@ -657,6 +720,8 @@ def response_metadata(data: dict, model: str, *, http_status: int):
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         estimated_cost_usd=estimate_cost_usd(model, input_tokens, output_tokens),
+        usage_known=all(type(usage.get(k)) is int and usage[k] >= 0
+                        for k in ('input_tokens', 'output_tokens')),
     )
 
 

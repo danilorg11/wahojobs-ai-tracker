@@ -6,21 +6,42 @@ preparation integration may build requests and publish responses outside the
 matching request. Offline labelled fixtures exercise that same boundary.
 """
 from collections import OrderedDict
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
 import json
+import re
 import threading
 
 from wahojobs.professional_background_duration import VERSION, confirmed_fact, requirement
 
 
 SEMANTIC_VERSION = 'professional_occupational_relation_v1'
+MODEL_IDENTITY_POLICY_VERSION = 'professional_model_identity_v1'
+# Explicit local compatibility fixture, not a claim about today's alias target
+# or current prices. Each pair remains in the requested model's authorized
+# budget class. No prefix matching or response-derived policy is permitted.
+APPROVED_MODEL_IDENTITIES = (('gpt-5-mini', 'gpt-5-mini-2025-08-07', 'gpt-5-mini'),)
 
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
                                     separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+
+def model_identity_policy_digest():
+    return digest(dict(version=MODEL_IDENTITY_POLICY_VERSION, pairs=APPROVED_MODEL_IDENTITIES))
+
+
+def validate_model_identity(requested, returned):
+    if any(type(v) is not str or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}', v) is None
+           for v in (requested, returned)):
+        raise ValueError('invalid_preparation_model_identity')
+    if requested != returned and (requested, returned, requested) not in APPROVED_MODEL_IDENTITIES:
+        raise ValueError('invalid_preparation_model_identity')
+    return dict(requested_model=requested, returned_model=returned,
+                policy=model_identity_policy_digest(), budget_class=requested)
 
 
 def accepted_source_binding(connection, sources):
@@ -131,6 +152,7 @@ def build_request(packet, comparison, profile, context):
                    modality=comparison['modality'], source_text_digest=digest(packet['text']),
                    component_version=VERSION, semantic_version=SEMANTIC_VERSION,
                    recipe=context.evidence.recipe, model=context.evidence.model,
+                   model_identity_policy=model_identity_policy_digest(),
                    basis=context.evidence.basis)
     request = dict(binding=binding, source_text=packet['text'], occupational_span=dict(start=start, end=start + len(req['scope'])),
                    candidate_facts=facts)
@@ -188,15 +210,43 @@ invalidate recommendation reuse. Entries are never global opportunity facts.
         with self._lock:
             return self._generation
 
-    def publish(self, request, output):
+    @property
+    def generation_token(self):
+        with self._lock:
+            return (self._generation, self.recipe, self.model, self.basis,
+                    VERSION, SEMANTIC_VERSION, model_identity_policy_digest())
+
+    @contextmanager
+    def consume_generation(self, expected):
+        """Linearize result acceptance against publish, with one bounded check.
+
+        Consumers do database/comparison work before this guard, then accept
+        their response/register its context under this same publication lock.
+        A raced computation is unusable, even if individual lookups succeeded.
+        No model/network work belongs inside this guard. Publications after
+        acceptance belong to subsequent requests, not the in-flight response.
+        """
+        with self._lock:
+            if self.generation_token != expected:
+                raise ValueError('professional_evidence_changed_during_consumption')
+            yield
+
+    def publish(self, request, output, *, model_identity=None):
         result = validate_response(request, output)
         binding = request['binding']
         if any(binding.get(k) != v for k, v in (
                 ('recipe', self.recipe), ('model', self.model), ('basis', self.basis),
-                ('component_version', VERSION), ('semantic_version', SEMANTIC_VERSION))):
+                ('component_version', VERSION), ('semantic_version', SEMANTIC_VERSION),
+                ('model_identity_policy', model_identity_policy_digest()))):
             raise ValueError('professional_evidence_version_mismatch')
+        if model_identity is not None:
+            if (type(model_identity) is not dict or model_identity != validate_model_identity(
+                    self.model, model_identity.get('returned_model'))):
+                raise ValueError('invalid_preparation_model_identity')
+        elif self.basis == 'semantic_model_output':
+            raise ValueError('invalid_preparation_model_identity')
         with self._lock:
-            self._entries[request['request_id']] = result
+            self._entries[request['request_id']] = (result, deepcopy(model_identity))
             self._entries.move_to_end(request['request_id'])
             while len(self._entries) > self._capacity:
                 self._entries.popitem(last=False)
@@ -210,7 +260,15 @@ invalidate recommendation reuse. Entries are never global opportunity facts.
             if result is None:
                 return None
             try:
-                return validate_response(request, result)
+                if request['binding'].get('model_identity_policy') != model_identity_policy_digest():
+                    return None
+                output, identity = result
+                output = validate_response(request, output)
+                if identity is not None:
+                    if identity != validate_model_identity(self.model, identity['returned_model']):
+                        return None
+                    output['model_identity'] = deepcopy(identity)  # local metadata, never model authority
+                return output
             except (ValueError, TypeError, KeyError):
                 return None
 

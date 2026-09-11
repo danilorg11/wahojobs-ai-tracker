@@ -241,6 +241,14 @@ class WorkOSAuthKitStagingRuntime:
         self._lock = threading.Lock()
         self._closed = False
 
+    def prepare_professional_background(self, **selection):
+        """Explicit in-process operator operation; no browser route invokes it."""
+        with self._lock:
+            if self._closed or self._profile_integration is None:
+                raise ValueError("preparation_execution_disabled")
+            integration = self._profile_integration
+        return integration.prepare_professional_background(**selection)
+
     def close(self):
         with self._lock:
             if self._closed:
@@ -454,6 +462,7 @@ def build_workos_authkit_staging_runtime(
     *,
     sdk_boundary_factory=create_workos_sdk_boundary,
     clock=None,
+    professional_background_preparer=None,
 ):
     """Construct the existing AuthKit/profile/session composition explicitly."""
 
@@ -522,6 +531,7 @@ def build_workos_authkit_staging_runtime(
             connections,
             configuration,
             clock,
+            professional_background_preparer=professional_background_preparer,
         )
         from wahojobs.trusted_login_completion import (
             create_workos_authkit_trusted_login_completion_policy,
@@ -632,7 +642,8 @@ def apply_m008_to_explicit_database(database_path):
                     ) from None
 
 
-def _build_profile_integration(connections, configuration, clock, *, professional_background_evidence=None):
+def _build_profile_integration(connections, configuration, clock, *, professional_background_evidence=None,
+                               professional_background_preparer=None):
     from wahojobs.authenticated_profile_matches import (
         AuthenticatedProfileMatchesBrowserIntegration,
         AuthenticatedProfileMatchesService,
@@ -769,6 +780,7 @@ def _build_profile_integration(connections, configuration, clock, *, professiona
         now=clock,
         public_job_canary_gate=configuration.public_job_canary_gate,
         professional_background_evidence=professional_background_evidence,
+        professional_background_preparer=professional_background_preparer,
     )
     if integration.attach_matches_integration(matches_integration) is not True:
         raise WorkOSAuthKitStagingError("runtime_unavailable")

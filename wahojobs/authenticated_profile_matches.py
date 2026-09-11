@@ -8,6 +8,7 @@ runtime connection provider.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -607,6 +608,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_connection_provider",
         "_criteria_shadow_sink",
         "_professional_background_evidence",
+        "_professional_background_preparer",
         "_write_connection_provider",
         "_ephemeral_identity_factory",
         "_metadata_overlay",
@@ -641,8 +643,16 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         public_catalog_auth_routes_enabled=True,
         criteria_shadow_sink=None,
         professional_background_evidence=None,
+        professional_background_preparer=None,
     ):
         origin, authority = _validated_public_origin(public_origin)
+        if professional_background_preparer is not None:
+            from wahojobs.professional_background_preparation import ProfessionalBackgroundPreparer
+            if (type(professional_background_preparer) is not ProfessionalBackgroundPreparer
+                    or professional_background_evidence is not None
+                    and professional_background_evidence is not professional_background_preparer.evidence):
+                raise ValueError("invalid_professional_background_preparer")
+            professional_background_evidence = professional_background_preparer.evidence
         from wahojobs.professional_background_semantics import ProfessionalBackgroundEvidence
         if professional_background_evidence is not None and type(professional_background_evidence) is not ProfessionalBackgroundEvidence:
             raise ValueError("invalid_professional_background_evidence")
@@ -692,6 +702,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         # path keeps observational criteria-shadow work off its critical path.
         self._criteria_shadow_sink = criteria_shadow_sink
         self._professional_background_evidence = professional_background_evidence
+        self._professional_background_preparer = professional_background_preparer
         self._public_origin = origin
         self._public_authority = authority
         self._public_seo_policy = public_seo_policy
@@ -706,6 +717,13 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._registry = registry
         self._reuse_namespace = secrets.token_hex(16)
         self._closed = False
+
+    def prepare_professional_background(self, **selection):
+        """Explicit internal operation; never called by Matches/detail routes."""
+        if self._closed or self._professional_background_preparer is None:
+            raise ValueError("preparation_execution_disabled")
+        return self._professional_background_preparer.prepare(
+            self._service, self._connection_provider, **selection)
 
     def matches_route(self, path):
         if self._closed or path == AUTHENTICATED_ACTION_ROUTE and self._write_connection_provider is None:
@@ -1139,6 +1157,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             route_decision = None
             canonical_opportunity_id = public_job_page.parse_public_job_path(path)
             authenticated = authority is not None and authority.state == "profile"
+            prepared = self._professional_background_evidence if authenticated else None
+            generation = prepared.generation_token if prepared is not None else None
             if (selected_job_id is not None or match_run_id is not None) and not authenticated:
                 return _failure_response(HTTPStatus.UNAUTHORIZED, "Sign in required",
                                          "Sign in to view this recommendation.")
@@ -1237,76 +1257,77 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     "This opportunity page is not available.",
                 )
 
-            if authenticated:
-                from wahojobs.authenticated_variant_details import prepare_variant_notice
-                prepare_variant_notice(job, selected_match, local=local_checks,
-                                       membership_known=membership_known)
-            controls = ""
-            status = ""
-            if (
-                job["public_state"] == public_job_page.PUBLIC_JOB_STATE_LIVE
-                and authenticated
-                and self._write_connection_provider is not None
-            ):
-                records = self._load_pipeline_records(authority)
-                match = job["workflow_match"]
-                context = {"matches": {"do_these_first": [match]}}
-                run = self._registry.create(
-                    owner_profile_id=authority.candidate_workflow_authority()[4],
-                    raw_input="",
-                    input_style="short_paragraph",
-                    recommendation_context=context,
-                    profile_confirmed=True,
-                )
-                record = local_product.demo.tracked_record_for_match(
-                    match,
-                    local_product.demo.build_tracked_index(records),
-                )
-                controls = local_product.render_preview_full_forms(
-                    match,
-                    record,
-                    run.match_run_id,
-                    path,
-                    "public_job",
-                )
-                if record is not None:
-                    status = local_product.readable_status(record["status"])
+            workflow_enabled = (job["public_state"] == public_job_page.PUBLIC_JOB_STATE_LIVE
+                                and authenticated and self._write_connection_provider is not None)
+            records = self._load_pipeline_records(authority) if workflow_enabled else None
+            # Scoped comparisons and saved membership are accepted together.
+            # A replacement before this boundary makes the whole response fail.
+            with prepared.consume_generation(generation) if prepared is not None else nullcontext():
+                if authenticated:
+                    from wahojobs.authenticated_variant_details import prepare_variant_notice
+                    prepare_variant_notice(job, selected_match, local=local_checks,
+                                           membership_known=membership_known)
+                controls = ""
+                status = ""
+                if workflow_enabled:
+                    match = job["workflow_match"]
+                    context = {"matches": {"do_these_first": [match]}}
+                    run = self._registry.create(
+                        owner_profile_id=authority.candidate_workflow_authority()[4],
+                        raw_input="",
+                        input_style="short_paragraph",
+                        recommendation_context=context,
+                        profile_confirmed=True,
+                    )
+                    record = local_product.demo.tracked_record_for_match(
+                        match,
+                        local_product.demo.build_tracked_index(records),
+                    )
+                    controls = local_product.render_preview_full_forms(
+                        match,
+                        record,
+                        run.match_run_id,
+                        path,
+                        "public_job",
+                    )
+                    if record is not None:
+                        status = local_product.readable_status(record["status"])
 
-            if authenticated:
-                from wahojobs.authenticated_source_detail import render_authenticated_job_page
-                content = render_authenticated_job_page(
-                    job, profile=profile_v2,
-                    navigation=_public_navigation(authenticated=True, current="job"),
-                    workflow_controls=controls, workflow_status=status,
-                    catalog_return_to=catalog_return_to,
-                    return_run_id=match_run_id if membership_known else None)
-            else:
-                content = public_job_page.render_public_job_page(
-                    job, public_origin=self._public_origin, authenticated=False,
-                    navigation=_public_navigation(authenticated=False, current="job"),
-                    catalog_return_to=catalog_return_to)
-            return _html_response(
-                HTTPStatus.OK,
-                content,
-                referrer_policy=(
-                    _SAME_ORIGIN_REFERRER_POLICY
-                    if authenticated
-                    else _NO_REFERRER_POLICY
-                ),
-                cache_control=(
-                    "no-store"
-                    if authenticated
-                    else "public, max-age=300"
-                ),
-                robots_directive=(
-                    "noindex, follow"
-                    if catalog_return_to
-                    or job["public_state"]
-                    != public_job_page.PUBLIC_JOB_STATE_LIVE
-                    else None
-                ),
-                max_bytes=MAX_PUBLIC_JOBS_RESPONSE_BYTES,
-            )
+                if authenticated:
+                    from wahojobs.authenticated_source_detail import render_authenticated_job_page
+                    content = render_authenticated_job_page(
+                        job, profile=profile_v2,
+                        navigation=_public_navigation(authenticated=True, current="job"),
+                        workflow_controls=controls, workflow_status=status,
+                        catalog_return_to=catalog_return_to,
+                        return_run_id=match_run_id if membership_known else None)
+                else:
+                    content = public_job_page.render_public_job_page(
+                        job, public_origin=self._public_origin, authenticated=False,
+                        navigation=_public_navigation(authenticated=False, current="job"),
+                        catalog_return_to=catalog_return_to)
+                return _html_response(
+                    HTTPStatus.OK,
+                    content,
+                    referrer_policy=(
+                        _SAME_ORIGIN_REFERRER_POLICY
+                        if authenticated
+                        else _NO_REFERRER_POLICY
+                    ),
+                    cache_control=(
+                        "no-store"
+                        if authenticated
+                        else "public, max-age=300"
+                    ),
+                    robots_directive=(
+                        "noindex, follow"
+                        if catalog_return_to
+                        or job["public_state"]
+                        != public_job_page.PUBLIC_JOB_STATE_LIVE
+                        else None
+                    ),
+                    max_bytes=MAX_PUBLIC_JOBS_RESPONSE_BYTES,
+                )
         except (sqlite3.Error, ValueError, TypeError):
             return _failure_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
@@ -1756,6 +1777,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
 
     def _render_persistent_matches(self, authority, *, run=None, return_context=False):
         try:
+            prepared = self._professional_background_evidence
+            generation = prepared.generation_token if prepared is not None else None
             profile_v2 = authority.trusted_profile_v2()
             background_context = authority.professional_background_context(self._professional_background_evidence)
             if run is not None:
@@ -1845,39 +1868,43 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 if (type(proof) is dict and not
                         proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
                     raise ValueError("candidate_match_expired_during_detail_selection")
-                return context
+                with prepared.consume_generation(generation) if prepared is not None else nullcontext():
+                    return context
             context = self._with_card_evidence(context, profile_v2, background_context=background_context)
-            if self._write_connection_provider is None:
-                content = _render_match_results(context, inventory_count=inventory_count)
-            else:
-                records = self._load_pipeline_records(authority)
-                proof = context.get("_authenticated_reuse")
-                if (type(proof) is dict
-                        and proof["valid_until"] > proof["evaluated_at"]
-                        and not proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
-                    # A clock boundary crossed during calculation/render preparation.
-                    # Do not publish or register a result evaluated before that boundary.
-                    raise ValueError("candidate_match_expired_during_evaluation")
-                if not reused:
-                    context["_authenticated_inventory_count"] = inventory_count
-                    run = self._registry.create(
-                        owner_profile_id=authority.candidate_workflow_authority()[4],
-                        raw_input="",
-                        input_style="short_paragraph",
-                        recommendation_context=context,
-                        profile_confirmed=True,
+            records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else None
+            # Reuse/comparison above is tentative. Accept and register exactly
+            # that generation under the publisher's lock; never retry in a GET.
+            with prepared.consume_generation(generation) if prepared is not None else nullcontext():
+                if self._write_connection_provider is None:
+                    content = _render_match_results(context, inventory_count=inventory_count)
+                else:
+                    proof = context.get("_authenticated_reuse")
+                    if (type(proof) is dict
+                            and proof["valid_until"] > proof["evaluated_at"]
+                            and not proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
+                        # A clock boundary crossed during calculation/render preparation.
+                        # Do not publish or register a result evaluated before that boundary.
+                        raise ValueError("candidate_match_expired_during_evaluation")
+                    if not reused:
+                        context["_authenticated_inventory_count"] = inventory_count
+                        run = self._registry.create(
+                            owner_profile_id=authority.candidate_workflow_authority()[4],
+                            raw_input="",
+                            input_style="short_paragraph",
+                            recommendation_context=context,
+                            profile_confirmed=True,
+                        )
+                    content = _render_match_results(
+                        context,
+                        inventory_count=inventory_count,
+                        tracked=local_product.demo.build_tracked_index(records),
+                        match_run_id=run.match_run_id,
                     )
-                content = _render_match_results(
-                    context,
-                    inventory_count=inventory_count,
-                    tracked=local_product.demo.build_tracked_index(records),
-                    match_run_id=run.match_run_id,
+                return (
+                    _form_page_response(HTTPStatus.OK, content)
+                    if self._write_connection_provider is not None
+                    else _html_response(HTTPStatus.OK, content)
                 )
-            return (
-                _form_page_response(HTTPStatus.OK, content)
-                if self._write_connection_provider is not None
-                else _html_response(HTTPStatus.OK, content)
-            )
         except (CanonicalProfileV2Error, sqlite3.Error, ValueError, TypeError):
             return _failure_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
@@ -1959,7 +1986,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             return None
         owner = authority.candidate_workflow_authority()
         from wahojobs.professional_background_duration import VERSION as background_version
-        from wahojobs.professional_background_semantics import SEMANTIC_VERSION
+        from wahojobs.professional_background_semantics import SEMANTIC_VERSION, model_identity_policy_digest
         prepared = self._professional_background_evidence
         # Hash the small trusted profile/configuration, never the inventory.
         document = {
@@ -1975,6 +2002,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "accepted_task_admission_version": 7,
             "professional_background_version": background_version,
             "professional_background_semantic_version": SEMANTIC_VERSION,
+            "professional_model_identity_policy": model_identity_policy_digest(),
             "professional_background_revision": authority._revision_id,
             "professional_background_evidence": (dict(recipe=prepared.recipe, model=prepared.model,
                 basis=prepared.basis, generation=prepared.generation, instance=id(prepared)) if prepared is not None else None),

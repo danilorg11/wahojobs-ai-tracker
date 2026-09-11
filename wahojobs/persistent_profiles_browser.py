@@ -271,6 +271,12 @@ class PersistentProfileBrowserIntegration:
         self._matches_integration = matches_integration
         return True
 
+    def prepare_professional_background(self, **selection):
+        """In-process operator access to the attached matching provider."""
+        if self._closed or self._matches_integration is None:
+            raise ValueError("preparation_execution_disabled")
+        return self._matches_integration.prepare_professional_background(**selection)
+
     def matches_route(self, path: str) -> bool:
         if path == PERSISTENT_PROFILE_ROUTE:
             return True
