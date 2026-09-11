@@ -114,7 +114,7 @@ def load_scoped_snapshot(connection, canonical_id, requested_id, *, now):
             "task_sources": load_card_sources(connection, rows)}
 
 
-def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now):
+def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now, background_context=None):
     """Reuse production scoring, gates and representative logic on this group.
 
     The returned local checks are NOT a recommendation context or list proof.
@@ -132,7 +132,8 @@ def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now):
             limit=max(1, len(rows)), evaluated_at=now,
             evaluated_match_sink=evaluated.append)
     from wahojobs.matching.source_task_fit import apply_source_task_fit
-    evaluated = [apply_source_task_fit(m, snapshot.get("task_sources", {}).get(m["job_id"]), profile_v2)
+    evaluated = [apply_source_task_fit(m, snapshot.get("task_sources", {}).get(m["job_id"]), profile_v2,
+                                       background_context=background_context)
                  for m in evaluated]
     by_id = {match["job_id"]: match for match in evaluated}
     if len(by_id) != len(evaluated):
@@ -153,6 +154,13 @@ def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now):
     match = by_id.get(requested_id)
     local = {"match": match, "passes": False, "preference_evaluations": []}
     if match is not None:
+        if background_context is not None:
+            from wahojobs.authenticated_card_evidence import prepare_card_evidence
+            from wahojobs.professional_background_semantics import digest
+            local["background_card_evidence"] = prepare_card_evidence(match,
+                snapshot.get("task_sources", {}).get(requested_id), profile_v2,
+                include_item_experience=True, background_context=background_context)
+            local["background_profile_digest"] = digest(profile_v2)
         single = {"matches": {match["preview_section"]: [match]}}
         if browser._has_authoritative_preference_model(profile_v2):
             single = browser._apply_typed_preference_enforcement_v1(

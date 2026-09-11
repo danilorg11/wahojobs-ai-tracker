@@ -286,6 +286,7 @@ class _AuthorizedMatchesState:
         "_environment_namespace",
         "_principal_id",
         "_profile_id",
+        "_revision_id",
         "_profile_v2",
         "_session_id",
         "state",
@@ -302,6 +303,7 @@ class _AuthorizedMatchesState:
         session_id=None,
         profile_id=None,
         profile_v2=None,
+        revision_id=None,
     ):
         if (
             state not in {"empty", "profile"}
@@ -316,6 +318,7 @@ class _AuthorizedMatchesState:
                     principal_id,
                     session_id,
                     profile_id,
+                    revision_id,
                 )
             )
             or (state == "empty" and profile_id is not None)
@@ -330,6 +333,7 @@ class _AuthorizedMatchesState:
         object.__setattr__(self, "_principal_id", principal_id)
         object.__setattr__(self, "_session_id", session_id)
         object.__setattr__(self, "_profile_id", profile_id)
+        object.__setattr__(self, "_revision_id", revision_id)
 
     def __setattr__(self, _name, _value):
         raise AttributeError("authenticated_matches_authority_is_immutable")
@@ -353,6 +357,14 @@ class _AuthorizedMatchesState:
         if self.state != "profile" or any(type(value) is not str or not value for value in values):
             raise ValueError("authenticated_candidate_workflow_authority_unavailable")
         return values
+
+    def professional_background_context(self, evidence):
+        from wahojobs.professional_background_semantics import ComparisonContext, digest
+        if evidence is None or self._revision_id is None:
+            return None
+        owner = self.candidate_workflow_authority()
+        return ComparisonContext(owner[:3], self._profile_id, self._revision_id,
+                                 digest(self._profile_v2), evidence)
 
     def __repr__(self):
         return f"_AuthorizedMatchesState(state={self.state!r}, content=<redacted>)"
@@ -568,6 +580,7 @@ class AuthenticatedProfileMatchesService:
                             session_id=session.session_id,
                             profile_id=profile_id,
                             profile_v2=profile_v2,
+                            revision_id=trusted_summary.get("revision_id"),
                         ),
                     )
                 finally:
@@ -593,6 +606,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_completed_replay_authenticator",
         "_connection_provider",
         "_criteria_shadow_sink",
+        "_professional_background_evidence",
         "_write_connection_provider",
         "_ephemeral_identity_factory",
         "_metadata_overlay",
@@ -626,8 +640,12 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         public_job_canary_gate=None,
         public_catalog_auth_routes_enabled=True,
         criteria_shadow_sink=None,
+        professional_background_evidence=None,
     ):
         origin, authority = _validated_public_origin(public_origin)
+        from wahojobs.professional_background_semantics import ProfessionalBackgroundEvidence
+        if professional_background_evidence is not None and type(professional_background_evidence) is not ProfessionalBackgroundEvidence:
+            raise ValueError("invalid_professional_background_evidence")
         if (
             type(service) is not AuthenticatedProfileMatchesService
             or not callable(connection_provider)
@@ -673,6 +691,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         # A sink is the explicit diagnostic-mode opt-in.  The normal browser
         # path keeps observational criteria-shadow work off its critical path.
         self._criteria_shadow_sink = criteria_shadow_sink
+        self._professional_background_evidence = professional_background_evidence
         self._public_origin = origin
         self._public_authority = authority
         self._public_seo_policy = public_seo_policy
@@ -1177,6 +1196,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             from wahojobs.authenticated_variant_details import load_scoped_snapshot
                             snapshot = load_scoped_snapshot(connection, canonical_opportunity_id,
                                                             selected_job_id, now=evaluated_at)
+                            if self._professional_background_evidence is not None:
+                                from wahojobs.professional_background_semantics import accepted_source_binding
+                                snapshot["task_sources"] = accepted_source_binding(connection, snapshot["task_sources"])
                             job = None
                         else:
                             job = public_job_page.load_public_job(
@@ -1192,7 +1214,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             if snapshot is not None:
                 from wahojobs.authenticated_variant_details import resolve_scoped_variant, find_presented_variant
                 job, local_checks = resolve_scoped_variant(
-                    snapshot, profile_v2, self._metadata_overlay, selected_job_id, now=evaluated_at)
+                    snapshot, profile_v2, self._metadata_overlay, selected_job_id, now=evaluated_at,
+                    background_context=authority.professional_background_context(self._professional_background_evidence))
                 membership_known = self._can_reuse_recommendations(
                     run, inputs, snapshot["token"], _trusted_utc(self._now()))
                 if job is not None and membership_known:
@@ -1734,6 +1757,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     def _render_persistent_matches(self, authority, *, run=None, return_context=False):
         try:
             profile_v2 = authority.trusted_profile_v2()
+            background_context = authority.professional_background_context(self._professional_background_evidence)
             if run is not None:
                 expected_owner = authority.candidate_workflow_authority()[4]
                 if not hmac.compare_digest(run.owner_profile_id, expected_owner):
@@ -1773,7 +1797,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         else None
                     ),
                 )
-                context = self._with_source_task_fit(context, profile_v2)
+                context = self._with_source_task_fit(context, profile_v2, background_context=background_context)
                 effective_enrichments = {}
                 enrichment_read_succeeded = True
                 if (_has_authoritative_preference_model(profile_v2)
@@ -1822,7 +1846,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
                     raise ValueError("candidate_match_expired_during_detail_selection")
                 return context
-            context = self._with_card_evidence(context, profile_v2)
+            context = self._with_card_evidence(context, profile_v2, background_context=background_context)
             if self._write_connection_provider is None:
                 content = _render_match_results(context, inventory_count=inventory_count)
             else:
@@ -1867,7 +1891,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Matches cannot be loaded safely right now.",
             )
 
-    def _with_source_task_fit(self, context, profile_v2):
+    def _with_source_task_fit(self, context, profile_v2, *, background_context=None):
         from wahojobs.authenticated_card_evidence import load_card_sources
         from wahojobs.matching.source_task_fit import apply_source_task_fit
         from wahojobs.matching.accepted_tasks import needs_accepted_task_comparison
@@ -1887,15 +1911,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             connection.execute("BEGIN")
             try:
                 sources = load_card_sources(connection, candidates)
+                if background_context is not None:
+                    from wahojobs.professional_background_semantics import accepted_source_binding
+                    sources = accepted_source_binding(connection, sources)
             finally:
                 connection.rollback()
         ids = {m["job_id"] for m in candidates}
         return dict(context, matches={section: [
-            apply_source_task_fit(m, sources.get(m.get("job_id")), profile_v2)
+            apply_source_task_fit(m, sources.get(m.get("job_id")), profile_v2, background_context=background_context)
             if m.get("job_id") in ids else m for m in values]
             for section, values in context["matches"].items()})
 
-    def _with_card_evidence(self, context, profile_v2):
+    def _with_card_evidence(self, context, profile_v2, *, background_context=None):
         # Presentation-only enrichment of the final visible IDs, never the pool.
         from wahojobs.authenticated_card_evidence import load_card_sources, prepare_card_evidence
         conditional = _conditional_presentation_matches(context)
@@ -1911,6 +1938,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     connection.execute("BEGIN")
                     try:
                         sources = load_card_sources(connection, matches)
+                        if background_context is not None:
+                            from wahojobs.professional_background_semantics import accepted_source_binding
+                            sources = accepted_source_binding(connection, sources)
                     finally:
                         connection.rollback()
             except (sqlite3.Error, ValueError, TypeError):
@@ -1918,7 +1948,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 sources = {}
         return dict(context, _card_evidence={
             match["job_id"]: prepare_card_evidence(match, sources.get(match["job_id"]), profile_v2,
-                include_item_experience=True, conditional_placement=match["job_id"] in conditional_ids)
+                include_item_experience=True, conditional_placement=match["job_id"] in conditional_ids,
+                background_context=background_context)
             for match in matches
         })
 
@@ -1927,6 +1958,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         if self._write_connection_provider is None or self._criteria_shadow_sink is not None:
             return None
         owner = authority.candidate_workflow_authority()
+        from wahojobs.professional_background_duration import VERSION as background_version
+        from wahojobs.professional_background_semantics import SEMANTIC_VERSION
+        prepared = self._professional_background_evidence
         # Hash the small trusted profile/configuration, never the inventory.
         document = {
             "profile": profile_v2,
@@ -1938,7 +1972,12 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "source_task_fit_version": 3,
             "confirmed_activity_signal_version": 1,
             "accepted_task_projection_version": TASK_PROJECTION_VERSION,
-            "accepted_task_admission_version": 6,
+            "accepted_task_admission_version": 7,
+            "professional_background_version": background_version,
+            "professional_background_semantic_version": SEMANTIC_VERSION,
+            "professional_background_revision": authority._revision_id,
+            "professional_background_evidence": (dict(recipe=prepared.recipe, model=prepared.model,
+                basis=prepared.basis, generation=prepared.generation, instance=id(prepared)) if prepared is not None else None),
             "accepted_source_eligibility_version": SOURCE_ELIGIBILITY_VERSION,
         }
         digest = hashlib.sha256(json.dumps(

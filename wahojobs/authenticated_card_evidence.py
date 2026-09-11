@@ -98,7 +98,7 @@ def _source_text(source, *, include_structured_lists=True):
 
 
 def prepare_card_evidence(match, source, profile, *, include_item_experience=False,
-                          conditional_placement=False):
+                          conditional_placement=False, background_context=None):
     if not source or any(source.get(k) != match.get(k) for k in
                          ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')):
         return None
@@ -265,7 +265,13 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
             'pay': pay, 'caveats': caveats, 'language_notes': language_notes,
             'location_context': location_context}
     from wahojobs.candidate_condition_comparisons import compare_conditions
-    packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience)
+    if source.get('professional_source_binding'):
+        from wahojobs.professional_background_semantics import current_source_binding
+        binding = current_source_binding(source)
+        if binding is not None:
+            packet['professional_source_binding'] = binding
+    packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience,
+                                               background_context=background_context)
     if conditional_placement:
         packet['placement_explanation'] = _conditional_source_explanation(match, packet)
     return packet

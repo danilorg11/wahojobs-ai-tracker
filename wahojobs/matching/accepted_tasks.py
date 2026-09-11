@@ -378,7 +378,7 @@ def needs_accepted_task_comparison(match):
     return set(browser_match_rejection_reasons(match)) == {'affirmative_fit_not_supported'}
 
 
-def apply_task_condition_review(match, source, profile):
+def apply_task_condition_review(match, source, profile, *, background_context=None):
     """Reuse existing source-condition comparisons on the pre-admission pool.
 
     No general qualification parser: unparsed source qualifications remain
@@ -397,7 +397,7 @@ def apply_task_condition_review(match, source, profile):
         return match
     from copy import deepcopy
     from wahojobs.authenticated_card_evidence import prepare_card_evidence, _QUALIFICATION_HEADINGS
-    packet = prepare_card_evidence(match, source, profile)
+    packet = prepare_card_evidence(match, source, profile, background_context=background_context)
     if packet is None:
         # The task packet must not authorize a new section if its current
         # source identity/content cannot also be presented for review.
@@ -456,7 +456,9 @@ def apply_task_condition_review(match, source, profile):
                     or modality != 'preferred' and (qualification or row['kind'] == 'workload'))
         if material and row['status'] != 'supported':
             from wahojobs.source_clause_materiality import generic_annotation
-            annotation = generic_annotation(row, source)
+            # An established contradiction cannot be waived by semantic
+            # materiality or by positive evidence on another component.
+            annotation = generic_annotation(row, source) if row['status'] != 'contradicted' else None
             if annotation is not None:
                 non_decisive_questions.append(dict(row, modality=modality, materiality=annotation,
                     admission_decisive=False))
@@ -468,17 +470,16 @@ def apply_task_condition_review(match, source, profile):
         match = dict(match, non_decisive_source_questions=non_decisive_questions)
     if not questions:
         return match
+    conflicts = [r for r in questions if r['status'] == 'contradicted' and r['modality'] == 'required']
     unsupported_background = [r for r in questions if r['kind'] == 'professional_background'
                               and not r['supported_parts'] and r['modality'] != 'conflicting']
-    if unsupported_background:
+    if unsupported_background and not conflicts:
         # A conditional question must resolve a credible fit, not replace the
         # central profession with generic AI-task overlap. Absence stays unknown;
-        # only an explicit confirmed denial is a qualification conflict.
+        # required contradictions are handled first, below, regardless of parts.
         assessment = deepcopy(match['affirmative_fit'])
-        conflict = any(r['status']=='contradicted' and r['modality']=='required' for r in unsupported_background)
-        assessment['status'] = 'conflicting' if conflict else 'uncertain'
-        key = 'conflicting_requirements' if conflict else 'missing_requirements'
-        assessment[key] = list(assessment[key]) + [r['source']['quote'] for r in unsupported_background]
+        assessment['status'] = 'uncertain'
+        assessment['missing_requirements'] = list(assessment['missing_requirements']) + [r['source']['quote'] for r in unsupported_background]
         note = 'This role asks for a professional background that your confirmed profile does not establish.'
         return dict(match, affirmative_fit=assessment, affirmative_fit_status=assessment['status'],
                     primary_recommendation_eligible=False, conditional_task_fit=False,
@@ -489,7 +490,7 @@ def apply_task_condition_review(match, source, profile):
                     source_task_fit=dict(kind='accepted_task_professional_background', status=assessment['status'],
                         source_reference=match['accepted_task_fit']['source_reference'],
                         conditions=unsupported_background,candidate_note=note))
-    if review_only:
+    if review_only and not conflicts:
         # Reaching a comparison is not a new generic admission route. Keep
         # title uncertainty until an established central-background comparison
         # supplies related professional evidence; other questions cannot do it.

@@ -632,7 +632,7 @@ def apply_m008_to_explicit_database(database_path):
                     ) from None
 
 
-def _build_profile_integration(connections, configuration, clock):
+def _build_profile_integration(connections, configuration, clock, *, professional_background_evidence=None):
     from wahojobs.authenticated_profile_matches import (
         AuthenticatedProfileMatchesBrowserIntegration,
         AuthenticatedProfileMatchesService,
@@ -768,6 +768,7 @@ def _build_profile_integration(connections, configuration, clock):
         public_origin=configuration.public_origin,
         now=clock,
         public_job_canary_gate=configuration.public_job_canary_gate,
+        professional_background_evidence=professional_background_evidence,
     )
     if integration.attach_matches_integration(matches_integration) is not True:
         raise WorkOSAuthKitStagingError("runtime_unavailable")

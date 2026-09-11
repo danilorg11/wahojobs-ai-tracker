@@ -52,6 +52,19 @@ def prepare_detail_display(job, profile):
     match.update({k: source[k] for k in ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')})
     conditional = ((job.get('_authenticated_recommendation') or {}).get('_detail_recommendation_section')
                    == 'conditional' and job['public_state'] == PUBLIC_JOB_STATE_LIVE)
+    prepared = local.get('background_card_evidence')
+    if prepared is not None:
+        from copy import deepcopy
+        from wahojobs.professional_background_semantics import digest
+        from wahojobs.authenticated_card_evidence import _conditional_source_explanation
+        if (local.get('background_profile_digest') == digest(profile)
+                and all(prepared.get(k) == source.get(s) for k, s in (
+                    ('job_id', 'job_id'), ('external_id', 'external_id'), ('url', 'url'),
+                    ('source_hash', 'material_content_sha256')))):
+            prepared = deepcopy(prepared)
+            if conditional:
+                prepared['placement_explanation'] = _conditional_source_explanation(match, prepared)
+            return prepared
     return prepare_card_evidence(match, source, profile, include_item_experience=True,
                                  conditional_placement=conditional)
 

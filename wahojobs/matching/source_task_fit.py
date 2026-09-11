@@ -83,10 +83,10 @@ def _related_facts(profile, kind):
     return facts
 
 
-def apply_source_task_fit(match, source, profile):
+def apply_source_task_fit(match, source, profile, *, background_context=None):
     from wahojobs.matching.accepted_tasks import apply_task_condition_review
     match = _apply_language_task_fit(match, source, profile)
-    return apply_task_condition_review(match, source, profile)
+    return apply_task_condition_review(match, source, profile, background_context=background_context)
 
 
 def _apply_language_task_fit(match, source, profile):

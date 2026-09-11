@@ -1,4 +1,4 @@
-"""Bounded, non-exclusionary comparisons for an already-selected source packet.
+"""Bounded comparisons for an already-selected exact-source packet.
 
 Only the small clause forms below are compared; this is not a general parser
 or an eligibility policy. All other wording remains unassessed. Results
@@ -22,9 +22,15 @@ _PREFERRED = {'preferred', 'preferred qualifications', 'ideal qualifications', '
 
 
 def _fact(profile, path, value):
+    refs = profile.get('provenance', {}).get('field_sources', [])
+    if isinstance(refs, dict):
+        # Legacy comparison callers carry a path->source map. Retain its
+        # recorded provenance for explanation; do not invent durable source
+        # ordinals/path versions or upgrade it to canonical confirmation.
+        refs = [dict(ref, field_path=key) for key, ref in refs.items() if isinstance(ref, dict)]
     return {'field_path': path, 'value': deepcopy(value), 'sources': deepcopy([
-        ref for ref in profile.get('provenance', {}).get('field_sources', [])
-        if ref.get('field_path') == path or ref.get('field_path', '').startswith((path + '[', path + '.'))])}
+        ref for ref in refs if isinstance(ref, dict)
+        and (ref.get('field_path') == path or ref.get('field_path', '').startswith((path + '[', path + '.')))])}
 
 
 def _explicit(fact):
@@ -60,8 +66,10 @@ def _lines(block):
         yield start, current
 
 
-def _education(quote, profile):
-    match = re.fullmatch(rf'({_LEVEL})(?: or ({_LEVEL}))? in (.+?)\.?', quote, re.I)
+def _education(quote, profile, *, generic_degree=False):
+    from wahojobs.professional_background_duration import confirmed_fact
+    pattern = 'degree' if generic_degree else _LEVEL
+    match = re.fullmatch(rf'({pattern})(?: or ({pattern}))? in (.+?)\.?', quote, re.I)
     if not match:
         return None
     fields = match[3]
@@ -80,18 +88,24 @@ def _education(quote, profile):
         if label.lower().startswith('master'): return ('master', 'completed')
         if label.lower().startswith('bachelor'): return ('bachelor', 'completed')
         return ('doctorate', 'in_progress' if label.lower() == 'doctoral candidate' else 'completed')
-    levels = [level(s) for s in match.groups()[:2] if s]
+    levels = ([(kind, 'completed') for kind in ('associate', 'bachelor', 'master', 'doctorate', 'professional_degree')]
+              if generic_degree else [level(s) for s in match.groups()[:2] if s])
     facts, matching, degree_only = [], [], []
     for i, entry in enumerate(profile.get('education', {}).get('entries', [])):
         facts.extend(_fact(profile, f'education.entries[{i}].{key}', entry.get(key))
                      for key in ('kind', 'qualification', 'field', 'status'))
+        if generic_degree:
+            if not all(confirmed_fact(profile, f'education.entries[{i}].{key}', entry.get(key))
+                       for key in ('kind', 'field', 'status')):
+                continue
         if (entry.get('kind'), entry.get('status')) in levels:
             degree_only.append(entry)
             if normalize_comparison_label(entry.get('field', '')) in map(normalize_comparison_label, exact_fields):
                 matching.append(entry)
     level_fact = _fact(profile, 'education.education_level', profile.get('education', {}).get('education_level'))
     facts.append(level_fact)
-    if level_fact['value'] == 'no_degree' and _explicit(level_fact):
+    if (level_fact['value'] == 'no_degree' and _explicit(level_fact)
+            and (not generic_degree or confirmed_fact(profile, 'education.education_level', 'no_degree'))):
         if degree_only:
             return 'unresolved', 'Your education entries conflict. Confirm your degree before relying on this comparison.', facts, []
         return 'contradicted', 'This asks for a degree; your profile explicitly says you have no degree.', facts, []
@@ -239,7 +253,8 @@ def _professional_background(quote, profile, *, include_item_experience=False):
     text = quote.strip().rstrip('.')
     if re.search(r'\b(?:not|no|unless|except|if|preferred|ideal|optional)\b', text, re.I):
         return None
-    duration = re.fullmatch(r'(?P<years>\d+)\+? years of relevant professional experience in (?P<fields>[\w /-]{2,100})', text, re.I)
+    from wahojobs.professional_background_duration import requirement, compare_duration
+    duration = requirement(text)
     if duration:
         # Compare the recorded facts without inventing profession aliases or
         # resolving compound domain wording. Total career years are not years
@@ -247,7 +262,7 @@ def _professional_background(quote, profile, *, include_item_experience=False):
         experience = profile.get('experience', {})
         facts = [_fact(profile, 'experience.' + key, experience.get(key)) for key in
                  ('recent_roles', 'job_titles', 'total_years', 'years_by_domain')]
-        compared = _professional_background('hands-on ' + duration['fields'] + ' experience', profile,
+        compared = _professional_background('hands-on ' + duration['scope'] + ' experience', profile,
                                             include_item_experience=include_item_experience)
         if compared:
             facts += compared[2]
@@ -258,22 +273,27 @@ def _professional_background(quote, profile, *, include_item_experience=False):
             for i, value in enumerate(profile.get('constraints', {}).get(key, [])):
                 denied = re.fullmatch(r'(?:I have )?no (?:hands-on |professional )?experience (?:in|with) (.+?)\.?', value, re.I)
                 fact = _fact(profile, f'constraints.{key}[{i}]', value)
-                if denied and normalize_comparison_label(denied[1]) == normalize_comparison_label(duration['fields']) and _explicit(fact):
+                if denied and normalize_comparison_label(denied[1]) == normalize_comparison_label(duration['scope']) and _explicit(fact):
                     denials.append(fact)
         years = [item for item in experience.get('years_by_domain', [])
-                 if normalize_comparison_label(item.get('domain', '')) ==
-                    normalize_comparison_label(duration['fields'])]
+                 if isinstance(item, dict) and normalize_comparison_label(item.get('domain', '')) ==
+                    normalize_comparison_label(duration['scope'])]
         total = experience.get('total_years')
-        message = (f'The source requires {duration["years"]}+ relevant professional years in '
-                   f'{duration["fields"]}. ')
+        message = (f'The source requires {duration["minimum"]}+ relevant professional {duration["unit"]} in '
+                   f'{duration["scope"]}. ')
         if total is not None:
             message += f'Your {total} total career years do not establish that domain-specific duration. '
         if experience.get('recent_roles') or experience.get('job_titles'):
             message += 'Your recorded roles are supplied for comparison; their scope and relevant duration still need confirmation. '
         if years:
             message += 'Domain-year entries are supplied separately; confirm whether they cover the requested professional practice. '
-        if '/' in duration['fields'] or re.search(r'\b(?:and|or)\b', duration['fields'], re.I):
+        if duration['operator'] == 'unresolved':
             message += 'The relationship between the named source domains remains unresolved.'
+        checked_duration = compare_duration(text, profile)
+        if checked_duration['status'] == 'contradicted':
+            duration_facts = [f for b in checked_duration['bounds'] for f in b['profile_facts']]
+            return ('contradicted', checked_duration['message'] + ' ' + message.strip(),
+                    facts + duration_facts, compared[3] if compared else [])
         if denials and compared is None or compared and compared[0] == 'contradicted':
             return 'contradicted', 'Your confirmed profile denies the professional background required by this clause. ' + message.strip(), facts + denials, []
         if compared:
@@ -398,11 +418,11 @@ def _background_item_context(profile, related_facts):
     return None
 
 
-def compare_conditions(packet, profile, *, include_item_experience=False):
+def compare_conditions(packet, profile, *, include_item_experience=False, background_context=None):
     """Only called for visible cards/requested details after identity validation."""
     results = []
     for block in packet['conditions']:
-        for line, original in _lines(block):
+        for line, original in _professional_condition_lines(block):
             quote = re.sub(r'\*\*([^*]+)\*\*', r'\1', original)
             mode = _modality(block['heading'], quote)
             clean = re.sub(r'\s+(?:required|preferred)\.?$', '', quote, flags=re.I)
@@ -455,7 +475,133 @@ def compare_conditions(packet, profile, *, include_item_experience=False):
     if len({r['source']['quote'] for r in workloads}) > 1:
         for r in workloads:
             r.update(status='unresolved', message='The source gives several workload terms. Confirm which schedule applies and your availability.')
+    _background_components(results, packet, profile, background_context)
+    _professional_alternative_groups(results, packet, profile)
+    for row in results:
+        if 'components' in row:
+            row['components']['other_qualifications'] = [
+                dict(kind=r['kind'], modality=r['modality'], status=r['status'], source=deepcopy(r['source']))
+                for r in results if r is not row and not (
+                    row.get('requirement_group') and row.get('requirement_group') == r.get('requirement_group'))]
     return results
+
+
+def _professional_condition_lines(block):
+    """Split only an explicit experience clause followed by a route sentence."""
+    from wahojobs.professional_background_duration import requirement
+    for line, original in _lines(block):
+        parts = re.split(r'(?<=\.)\s+(?=Alternatively,|The experience requirement)', original, maxsplit=1, flags=re.I)
+        if len(parts) == 2 and requirement(parts[0]):
+            yield line, parts[0]
+            yield line, parts[1]
+        else:
+            yield line, original
+
+
+def _professional_alternative_groups(rows, packet, profile):
+    """Bounded adjacent degree route / same-block experience waiver contract.
+
+    Each member keeps its own comparison, while status is the grouped result
+    consumed by existing qualification review. No component is a separate veto.
+    Unrelated alternatives, different blocks and preferred credentials do not
+    waive years. Unsupported local degree-route wording adds uncertainty only.
+    """
+    from wahojobs.professional_background_duration import requirement
+    from wahojobs.professional_background_semantics import digest
+    groups = {}
+    for i, alternate in enumerate(rows):
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', alternate['source']['quote']).strip()
+        adjacent = bool(re.match(r'Alternatively,\s+', text, re.I) and
+                        re.search(r'\bdegree\b|\b(?:is|may be) sufficient\.?$', text, re.I))
+        waiver = bool(re.match(r'The experience requirement is optional for applicants with\b', text, re.I))
+        if (not (adjacent or waiver) or alternate['modality'] in ('preferred', 'conflicting')
+                or re.search(r'\bpreferred\b|\bnot sufficient\b', text, re.I)):
+            continue
+        previous = [j for j in range(i) if rows[j]['source']['block_reference'] == alternate['source']['block_reference']
+                    and rows[j]['kind'] == 'professional_background' and requirement(rows[j]['source']['quote'])
+                    and rows[j]['modality'] not in ('preferred', 'conflicting')]
+        if not previous:
+            continue
+        if adjacent:
+            # "Alternatively" refers to the immediately preceding requirement,
+            # not any experience mention elsewhere in the document.
+            targets = [j for j in previous if j == i - 1 or i - 1 in groups.get(j, {}).get('members', [])]
+        else:
+            targets = previous  # generic "the experience requirement" may be ambiguous
+        if not targets:
+            continue
+        parsed = (re.fullmatch(r'Alternatively, a degree in (?P<field>[\w -]{1,128}) is sufficient\.?', text, re.I)
+                  if adjacent else re.fullmatch(r'The experience requirement is optional for applicants with a (?P<field>[\w -]{1,128}) degree\.?', text, re.I))
+        field = parsed['field'] if parsed else None
+        if field and re.search(r'\b(?:and|or|not|unless|if|only)\b', field, re.I):
+            field = None
+        compared = _education('degree in ' + field, profile, generic_degree=True) if field else None
+        for j in targets:
+            group = groups.setdefault(j, dict(members=[], routes=[], certain=True))
+            # A generic waiver cannot establish which requirement it replaces
+            # across intervening, potentially unparsed qualification wording.
+            group['certain'] &= len(targets) == 1 and field is not None and (not waiver or j == i - 1)
+            group['members'].append(i)
+            status, message, facts, parts = compared or ('unresolved', 'The degree route needs clarification.', [], [])
+            group['routes'].append(dict(kind='degree', status=status, message=message,
+                                       profile_facts=facts, supported_parts=parts, source=deepcopy(alternate['source'])))
+    for j, group in groups.items():
+        row = rows[j]
+        professional = dict(kind='professional_background', status=row['status'], message=row['message'],
+                            source=deepcopy(row['source']), profile_facts=deepcopy(row['profile_facts']))
+        routes = [professional] + group['routes']
+        statuses = [r['status'] for r in routes]
+        status = ('supported' if 'supported' in statuses else
+                  'contradicted' if all(s == 'contradicted' for s in statuses) else 'unresolved') if group['certain'] else 'unresolved'
+        context = dict(operator='any_of' if group['certain'] else 'unresolved', status=status, routes=routes,
+                       source_text_digest=digest(packet['text']))
+        group_id = digest(dict(source_context=context['source_text_digest'], sources=[r['source'] for r in routes]))
+        row['components']['qualifying_routes'] = context
+        messages = {
+            'supported': 'Your confirmed degree supports this alternative requirement. Other role qualifications remain separate.',
+            'contradicted': 'Every qualifying route in this requirement conflicts with your confirmed profile.',
+            'unresolved': 'The experience route and the degree alternative must be considered together; this requirement remains unresolved.',
+        }
+        for k, route in zip([j] + group['members'], routes):
+            member = rows[k]
+            member['route_comparison'] = deepcopy(route)
+            member.update(status=status, requirement_group=group_id, message=messages[status])
+
+
+def _background_components(rows, packet, profile, context):
+    """Keep positive relevance separate from duration, depth and other criteria.
+
+    Semantic output can add only occupational relevance. It cannot clear an
+    objective contradiction, establish the whole requirement or waive another
+    clause. Invalid/missing output leaves independently valid comparisons alone.
+    """
+    from wahojobs.professional_background_duration import VERSION, compare_duration
+    from wahojobs.professional_background_semantics import ComparisonContext, build_request
+    for row in rows:
+        if row['kind'] != 'professional_background':
+            continue
+        duration = compare_duration(row['source']['quote'], profile)
+        relevance = dict(status='supported_partial' if row['supported_parts'] else 'not_established',
+                         basis='existing_professional_comparison', supported_parts=list(row['supported_parts']))
+        if type(context) is ComparisonContext:
+            request = build_request(packet, row, profile, context)
+            semantic = context.evidence.lookup(request)
+            if semantic is not None:
+                relevance['semantic'] = dict(semantic, basis=context.evidence.basis,
+                                             recipe=context.evidence.recipe, model=context.evidence.model)
+                if semantic['relation'] == 'supported_partial':
+                    part = 'related occupational area (prepared semantic evidence; not verified competence)'
+                    row['supported_parts'] = list(dict.fromkeys(row['supported_parts'] + [part]))
+                    relevance.update(status='supported_partial', supported_parts=list(row['supported_parts']))
+                    row['profile_facts'] += [deepcopy(request['candidate_facts'][key]) for key in semantic['candidate_fact_ids']]
+                    if row['status'] != 'contradicted':
+                        row['status'] = 'unresolved'
+                        row['message'] = ('Your declared role has partial occupational relevance. '
+                            'The complete professional requirement is not established. ' + row['message'])
+                elif not row['supported_parts']:
+                    relevance['status'] = semantic['relation']
+        row['components'] = dict(version=VERSION, occupational_relevance=relevance, required_duration=duration,
+            responsibilities_and_depth=dict(status='unresolved', source=deepcopy(row['source'])))
 
 
 def render_comparisons(packet, *, block_reference=None, highlights=False):
