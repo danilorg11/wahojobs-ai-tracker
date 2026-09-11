@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import datetime, timezone
+import sqlite3
 import sys
 import unittest
 from pathlib import Path
@@ -116,7 +117,10 @@ class ExplicitMatchInventorySeamTests(unittest.TestCase):
         self.assertEqual(rows, rows_before)
 
     def test_explicit_query_uses_only_supplied_connection_and_preserves_inventory_order(self):
-        connection = object()
+        connection = sqlite3.connect(":memory:")
+        self.addCleanup(connection.close)
+        connection.row_factory = sqlite3.Row
+        connection.executescript((ROOT / "wahojobs" / "db" / "schema.sql").read_text(encoding="utf-8"))
         live = inventory_row(1, title="Live role")
         experimental = inventory_row(
             2,
@@ -138,15 +142,18 @@ class ExplicitMatchInventorySeamTests(unittest.TestCase):
             [
                 mock.call(
                     connection,
+                    canonical_opportunity_id=None,
                     policy=preview.MARKET_COUNT_POLICY_COUNT_LIVE,
                 ),
                 mock.call(
                     connection,
+                    canonical_opportunity_id=None,
                     policy_not=preview.MARKET_COUNT_POLICY_COUNT_LIVE,
                     inventory_models=(preview.INVENTORY_MODEL_EVERGREEN_APPLICATION,),
                 ),
                 mock.call(
                     connection,
+                    canonical_opportunity_id=None,
                     policy_not=preview.MARKET_COUNT_POLICY_COUNT_LIVE,
                     inventory_models=(
                         preview.INVENTORY_MODEL_PUBLIC_INVENTORY,

@@ -225,7 +225,9 @@ class SourceLocationPresentationTests(unittest.TestCase):
             ('Manila','Philippines','PH','As an author based in Manila, you will write tasks.\n\nThis role is open to professionals across the Philippines.')]:
             source,match=self.source(city,country,code,body)
             packet=prepare_card_evidence(match,source,dict(location={'country':'Brazil'}))
-            self.assertIn(country,packet['geography']);self.assertIn('United States',packet['geography'])
+            self.assertIn(country,packet['geography'])
+            self.assertNotIn('United States',packet['geography'])
+            self.assertEqual(json.loads(source['metadata_json'])['wahojobs_source_detail_v1']['record']['location'],'United States')
             self.assertIn('Eligibility from Brazil needs confirmation',packet['geography'])
             self.assertFalse(packet['comparisons'])  # not a candidate-owned claim
             match['job_id']=3;self.assertIsNone(prepare_card_evidence(match,source,{}))

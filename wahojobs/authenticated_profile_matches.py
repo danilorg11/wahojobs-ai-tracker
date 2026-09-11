@@ -1870,10 +1870,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     def _with_source_task_fit(self, context, profile_v2):
         from wahojobs.authenticated_card_evidence import load_card_sources
         from wahojobs.matching.source_task_fit import apply_source_task_fit
+        from wahojobs.matching.accepted_tasks import needs_accepted_task_comparison
         # Existing pre-admission representatives, including those below the UI
         # limit. No catalog re-scoring or inference from another variant.
         candidates = [m for m in _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context)
                       if m.get("matched_languages") or m.get("accepted_task_fit")]
+        # Inspect existing bounded representatives excluded only by an
+        # unmodeled title. Neither canonical choice nor section limits change.
+        candidates += [m for values in context['matches'].values() for m in values
+                       if needs_accepted_task_comparison(m)]
         if not candidates:
             return context
         with self._connection_provider() as connection:
@@ -1933,7 +1938,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "source_task_fit_version": 3,
             "confirmed_activity_signal_version": 1,
             "accepted_task_projection_version": TASK_PROJECTION_VERSION,
-            "accepted_task_admission_version": 5,
+            "accepted_task_admission_version": 6,
             "accepted_source_eligibility_version": SOURCE_ELIGIBILITY_VERSION,
         }
         digest = hashlib.sha256(json.dumps(

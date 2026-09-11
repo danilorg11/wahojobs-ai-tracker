@@ -16,8 +16,9 @@ from wahojobs.profiles.preference_model import WORKLOADS
 _LEVEL = r"Ph\.?D\.?|doctorate|doctoral candidate|Master['’]s(?: degree)?|Bachelor['’]s(?: degree)?"
 _TOOLS = r'Python|R|GitHub|Git|Docker|another relevant programming language'
 _REQUIRED = {'required', 'requirements', 'required qualifications', 'minimum qualifications',
-             'required skills and qualifications'}
-_PREFERRED = {'preferred', 'preferred qualifications', 'ideal qualifications', 'nice to have'}
+             'required skills and qualifications', 'requirements (must have)'}
+_PREFERRED = {'preferred', 'preferred qualifications', 'ideal qualifications', 'nice to have',
+              'preferred (nice to have)'}
 
 
 def _fact(profile, path, value):
@@ -49,10 +50,10 @@ def _lines(block):
             if current:
                 yield start, current
             current = ''
-        elif re.match(r'^\s*[-*+]\s+', line) or not current:
+        elif re.match(r'^\s*(?:[-*+]|\d+[.)])\s+', line) or not current:
             if current:
                 yield start, current
-            current, start = re.sub(r'^\s*[-*+]\s+', '', line).strip(), number
+            current, start = re.sub(r'^\s*(?:[-*+]|\d+[.)])\s+', '', line).strip(), number
         else:
             current += ' ' + line.strip()
     if current:
@@ -238,6 +239,46 @@ def _professional_background(quote, profile, *, include_item_experience=False):
     text = quote.strip().rstrip('.')
     if re.search(r'\b(?:not|no|unless|except|if|preferred|ideal|optional)\b', text, re.I):
         return None
+    duration = re.fullmatch(r'(?P<years>\d+)\+? years of relevant professional experience in (?P<fields>[\w /-]{2,100})', text, re.I)
+    if duration:
+        # Compare the recorded facts without inventing profession aliases or
+        # resolving compound domain wording. Total career years are not years
+        # in the required practice; even an exact duration is not competence.
+        experience = profile.get('experience', {})
+        facts = [_fact(profile, 'experience.' + key, experience.get(key)) for key in
+                 ('recent_roles', 'job_titles', 'total_years', 'years_by_domain')]
+        compared = _professional_background('hands-on ' + duration['fields'] + ' experience', profile,
+                                            include_item_experience=include_item_experience)
+        if compared:
+            facts += compared[2]
+        # An explicit denial of the entire named field remains a contradiction
+        # even when its internal slash relationship cannot be interpreted.
+        denials = []
+        for key in ('hard_constraints', 'negative_constraints'):
+            for i, value in enumerate(profile.get('constraints', {}).get(key, [])):
+                denied = re.fullmatch(r'(?:I have )?no (?:hands-on |professional )?experience (?:in|with) (.+?)\.?', value, re.I)
+                fact = _fact(profile, f'constraints.{key}[{i}]', value)
+                if denied and normalize_comparison_label(denied[1]) == normalize_comparison_label(duration['fields']) and _explicit(fact):
+                    denials.append(fact)
+        years = [item for item in experience.get('years_by_domain', [])
+                 if normalize_comparison_label(item.get('domain', '')) ==
+                    normalize_comparison_label(duration['fields'])]
+        total = experience.get('total_years')
+        message = (f'The source requires {duration["years"]}+ relevant professional years in '
+                   f'{duration["fields"]}. ')
+        if total is not None:
+            message += f'Your {total} total career years do not establish that domain-specific duration. '
+        if experience.get('recent_roles') or experience.get('job_titles'):
+            message += 'Your recorded roles are supplied for comparison; their scope and relevant duration still need confirmation. '
+        if years:
+            message += 'Domain-year entries are supplied separately; confirm whether they cover the requested professional practice. '
+        if '/' in duration['fields'] or re.search(r'\b(?:and|or)\b', duration['fields'], re.I):
+            message += 'The relationship between the named source domains remains unresolved.'
+        if denials and compared is None or compared and compared[0] == 'contradicted':
+            return 'contradicted', 'Your confirmed profile denies the professional background required by this clause. ' + message.strip(), facts + denials, []
+        if compared:
+            return compared[0], compared[1] + ' ' + message.strip(), facts, compared[3]
+        return 'unresolved' if experience.get('recent_roles') or experience.get('job_titles') or years else 'not_established', message.strip(), facts, []
     patterns = (
         r'(?:\d+\+? years of )?hands-on (?P<fields>.+?) experience',
         r'Hands-on experience in (?:a |an )?(?P<fields>.+?) role(?: [—–] .+)?',

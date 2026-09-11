@@ -1,12 +1,15 @@
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 import unicodedata
 from copy import deepcopy
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,6 +147,62 @@ def rebuild_field_sources(profile):
         for path in sorted(paths, key=lambda value: (value.casefold(), value))
     ]
     return profile
+
+
+# Snapshot runners supply the Git-tracked paths as JSON, so the source
+# boundary works without .git or a private artifact inside an exported tree.
+_TRACKED_SOURCE_PATHS_ENV = "WAHOJOBS_TEST_TRACKED_SOURCE_PATHS"
+_EXPLICIT_V2_CONSUMERS = (
+    "wahojobs/ai_profile_import.py",
+    "wahojobs/authenticated_profile_matches.py",
+    "wahojobs/authenticated_variant_details.py",
+    "wahojobs/candidate_condition_comparisons.py",
+    "wahojobs/closed_schema_authority.py",
+    "wahojobs/google_oidc_authorization_transaction_schema.py",
+    "wahojobs/matching/typed_criteria.py",
+    "wahojobs/persistent_profiles.py",
+    "wahojobs/persistent_profiles_reconciliation.py",
+    "wahojobs/persistent_profiles_repository.py",
+    "wahojobs/persistent_profile_canonical_v2_schema.py",
+    "wahojobs/persistent_profile_creation.py",
+    "wahojobs/persistent_profile_corrections.py",
+    "wahojobs/persistent_profile_schema.py",
+    "wahojobs/profiles/correction_editor.py",
+    "wahojobs/profiles/item_experience.py",
+    "wahojobs/profiles/review_entries.py",
+    "scripts/persistent_profile_canonical_v2_migration.py",
+)
+
+
+def _canonical_v2_source_references(root):
+    inventory = os.environ.get(_TRACKED_SOURCE_PATHS_ENV)
+    if inventory is None:
+        # Enumerate tracked names before opening any source. Never fall back
+        # to recursive filesystem discovery if Git is unavailable.
+        inventory = subprocess.check_output(
+            ["git", "ls-files", "-z", "--", "scripts", "wahojobs"], cwd=root,
+        ).decode("utf-8").split("\0")[:-1]
+    else:
+        inventory = json.loads(inventory)
+    if (not isinstance(inventory, list) or not inventory
+            or not all(isinstance(name, str) for name in inventory)
+            or len(inventory) != len(set(inventory))):
+        raise AssertionError("Expected a nonempty, unique tracked source inventory")
+    paths = []
+    for name in inventory:
+        relative = PurePosixPath(name)
+        if (relative.is_absolute() or ".." in relative.parts or "\\" in name
+                or relative.as_posix() != name):
+            raise AssertionError(f"Invalid tracked source path: {name!r}")
+        if (relative.parts[0] not in ("scripts", "wahojobs")
+                or relative.suffix != ".py" or relative.name == "canonical_v2.py"):
+            continue
+        path = root / name
+        if not path.resolve().is_relative_to(root.resolve()):
+            raise AssertionError(f"Tracked source escapes snapshot: {name!r}")
+        paths.append((name, path))
+    return [name for name, path in paths
+            if "canonical_v2" in path.read_text(encoding="utf-8")]
 
 
 class CanonicalProfileV2Tests(unittest.TestCase):
@@ -549,14 +608,6 @@ class CanonicalProfileV2Tests(unittest.TestCase):
                 ),
             ),
             (
-                "job_titles",
-                {"job_titles": "Astronaut"},
-                (
-                    ("experience", "recent_roles"),
-                    ("experience", "job_titles"),
-                ),
-            ),
-            (
                 "target_opportunity_types",
                 {"target_opportunity_types": "contract"},
                 (
@@ -589,6 +640,71 @@ class CanonicalProfileV2Tests(unittest.TestCase):
                         nested(merged, path),
                         nested(expected, path),
                     )
+
+    def test_review_merge_keeps_titles_and_employment_independent(self):
+        base = self.convert_case()
+        base["experience"]["job_titles"] = ["AI Evaluator"]
+        base["experience"]["recent_roles"] = [
+            "AI Evaluator, Example A, 2024, remote",
+            "AI Evaluator, Example B, 2025, hybrid",
+        ]
+        base["experience"]["specialties"] = ["Annotation quality checks"]
+        rebuild_field_sources(base)
+        original = deepcopy(base)
+        draft = IdentityFreeCanonicalProfileV1.from_mapping(project_v2_to_review_v1(base))
+        fields = profile_review_form_fields(draft, "independent-employment", "R" * 43)
+        updates = profile_review_updates_from_form(
+            {name: [value] for name, value in fields.items()},
+            profile_review_language_slots(draft),
+        )
+        baseline = apply_identity_free_profile_review(draft, updates).to_mapping()
+
+        for name, value, expected_values in (
+            ("job_titles", "Astronaut", ["Astronaut"]),
+            ("job_titles", "", []),
+            ("recent_roles", '["Astronaut, Example C, 2026"]',
+             ["Astronaut, Example C, 2026"]),
+            ("recent_roles", "[]", []),
+        ):
+            with self.subTest(field=name, value=value):
+                changed_updates = deepcopy(updates)
+                changed_updates[name] = value
+                corrected = apply_identity_free_profile_review(draft, changed_updates)
+                merged = merge_server_review_correction_v2(
+                    base, baseline, corrected.to_mapping(),
+                )
+                self.assertEqual(validate_canonical_profile_v2(merged), merged)
+                self.assertEqual(base, original)
+                expected = deepcopy(base)
+                self.assertNotEqual(expected["experience"][name], expected_values)
+                expected["experience"][name] = expected_values
+                # Exact section equality preserves the other independent field,
+                # distinct employment records and unrelated confirmed activities.
+                self.assertEqual(merged["experience"], expected["experience"])
+                for root in base.keys() - {"experience", "provenance"}:
+                    self.assertEqual(merged[root], base[root])
+
+                # The existing merge contract rebases provenance by material
+                # root: experience uses correction source 2; other roots use
+                # confirmation source 1, including their unchanged values.
+                rebuild_field_sources(expected)
+                expected_sources = [
+                    {
+                        "field_path": entry["field_path"],
+                        "path_version": FIELD_PATH_VERSION,
+                        "source_ordinals": [
+                            2 if entry["field_path"].startswith("experience.") else 1
+                        ],
+                        "source_kind": (
+                            PROFILE_SOURCE_USER_CORRECTION
+                            if entry["field_path"].startswith("experience.")
+                            else PROFILE_SOURCE_USER_CONFIRMATION
+                        ),
+                        "explicit": True,
+                    }
+                    for entry in expected["provenance"]["field_sources"]
+                ]
+                self.assertEqual(merged["provenance"]["field_sources"], expected_sources)
 
     def test_review_merge_updates_every_dependent_semantic(self):
         def nested(value, path):
@@ -1930,36 +2046,51 @@ print(canonical_v2.SCHEMA_VERSION)
         self.assertEqual(result.stdout.strip(), SCHEMA_VERSION)
 
     def test_only_explicit_profile_modules_import_or_name_v2(self):
-        references = []
-        for root in (ROOT / "wahojobs", ROOT / "scripts"):
-            for path in root.rglob("*.py"):
-                if path.name == "canonical_v2.py":
-                    continue
-                text = path.read_text(encoding="utf-8")
-                if "canonical_v2" in text:
-                    references.append(path.relative_to(ROOT).as_posix())
+        references = _canonical_v2_source_references(ROOT)
         self.assertEqual(len(references), len(set(references)))
+        self.assertEqual(len(_EXPLICIT_V2_CONSUMERS), len(set(_EXPLICIT_V2_CONSUMERS)))
         self.assertEqual(
-            sorted(references),
-            sorted(
-                [
-                    "wahojobs/ai_profile_import.py",
-                    "wahojobs/authenticated_profile_matches.py",
-                    "wahojobs/closed_schema_authority.py",
-                    "wahojobs/google_oidc_authorization_transaction_schema.py",
-                    "wahojobs/matching/typed_criteria.py",
-                    "wahojobs/persistent_profiles.py",
-                    "wahojobs/persistent_profiles_reconciliation.py",
-                    "wahojobs/persistent_profiles_repository.py",
-                    "wahojobs/persistent_profile_canonical_v2_schema.py",
-                    "wahojobs/persistent_profile_creation.py",
-                    "wahojobs/persistent_profile_corrections.py",
-                    "wahojobs/persistent_profile_schema.py",
-                    "wahojobs/profiles/item_experience.py",
-                    "scripts/persistent_profile_canonical_v2_migration.py",
-                ]
-            ),
+            sorted(references), sorted(_EXPLICIT_V2_CONSUMERS),
+            f"Unexpected consumers: {sorted(set(references) - set(_EXPLICIT_V2_CONSUMERS))}; "
+            f"missing consumers: {sorted(set(_EXPLICIT_V2_CONSUMERS) - set(references))}",
         )
+
+    def test_v2_source_inventory_excludes_untracked_and_detects_prohibited_consumer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in _EXPLICIT_V2_CONSUMERS:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# canonical_v2\n", encoding="utf-8")
+            # These disposable sentinels are not repository files. Invalid
+            # UTF-8 proves an unrelated, untracked Python file is never read.
+            (root / "scripts" / "untracked.py").write_bytes(b"\xff")
+            prohibited = "wahojobs/prohibited_consumer.py"
+            (root / prohibited).write_text("# canonical_v2\n", encoding="utf-8")
+            for snapshot_inventory in (False, True):
+                with self.subTest(snapshot_inventory=snapshot_inventory):
+                    with mock.patch.dict(os.environ), mock.patch(f"{__name__}.ROOT", root):
+                        os.environ.pop(_TRACKED_SOURCE_PATHS_ENV, None)
+                        for names, should_fail in (
+                            (list(_EXPLICIT_V2_CONSUMERS), False),
+                            ([*_EXPLICIT_V2_CONSUMERS, prohibited], True),
+                        ):
+                            if snapshot_inventory:
+                                os.environ[_TRACKED_SOURCE_PATHS_ENV] = json.dumps(names)
+                            with mock.patch.object(subprocess, "check_output") as tracked:
+                                tracked.return_value = ("\0".join(names) + "\0").encode()
+                                if should_fail:
+                                    with self.assertRaisesRegex(AssertionError, prohibited):
+                                        self.test_only_explicit_profile_modules_import_or_name_v2()
+                                else:
+                                    self.test_only_explicit_profile_modules_import_or_name_v2()
+                                if snapshot_inventory:
+                                    tracked.assert_not_called()
+                                else:
+                                    tracked.assert_called_once_with(
+                                        ["git", "ls-files", "-z", "--", "scripts", "wahojobs"],
+                                        cwd=root,
+                                    )
 
     def test_workspace_database_is_not_accessed_or_changed(self):
         before = (

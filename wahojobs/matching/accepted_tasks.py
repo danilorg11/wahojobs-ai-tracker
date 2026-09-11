@@ -14,7 +14,7 @@ from wahojobs.profiles.normalizer import term_is_negated
 
 
 TASK_PROJECTION_VERSION = 2
-SOURCE_ELIGIBILITY_VERSION = 3
+SOURCE_ELIGIBILITY_VERSION = 4
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -363,6 +363,21 @@ def apply_task_section_admission(match):
     return match
 
 
+def needs_accepted_task_comparison(match):
+    """Allow exact-source review of a task-supported, unmodeled title only.
+
+    This grants no fit, section admission or action permission. All other
+    modeled requirements and non-freshness guardrails must already be clear.
+    """
+    assessment = match.get('affirmative_fit') or {}
+    if (not match.get('accepted_task_fit') or assessment.get('status') != 'uncertain'
+            or tuple(assessment.get('unmodeled_requirements') or ()) != ('Title-defining role or specialization',)
+            or assessment.get('missing_requirements') or assessment.get('conflicting_requirements')):
+        return False
+    from scripts.local_product_app import browser_match_rejection_reasons
+    return set(browser_match_rejection_reasons(match)) == {'affirmative_fit_not_supported'}
+
+
 def apply_task_condition_review(match, source, profile):
     """Reuse existing source-condition comparisons on the pre-admission pool.
 
@@ -370,14 +385,15 @@ def apply_task_condition_review(match, source, profile):
     unassessed and can be offered conditionally, never asserted satisfied.
     Optional criteria and routine screening questions do not become gates.
     """
-    if (not match.get('accepted_task_fit')
+    review_only = needs_accepted_task_comparison(match)
+    if (not review_only and (not match.get('accepted_task_fit')
             or not (match.get('affirmative_fit_status') == 'supported'
-                    or match.get('affirmative_fit_status') == 'uncertain' and match.get('conditional_task_fit'))):
+                    or match.get('affirmative_fit_status') == 'uncertain' and match.get('conditional_task_fit')))):
         return match
     from scripts.local_product_app import browser_match_rejection_reasons
     # The existing recent-cache fallback permits freshness-only caps. It must
     # receive the same qualification/location checks as a fresh candidate.
-    if browser_match_rejection_reasons(match, allow_conditional_task_fit=True):
+    if not review_only and browser_match_rejection_reasons(match, allow_conditional_task_fit=True):
         return match
     from copy import deepcopy
     from wahojobs.authenticated_card_evidence import prepare_card_evidence, _QUALIFICATION_HEADINGS
@@ -389,6 +405,7 @@ def apply_task_condition_review(match, source, profile):
             return dict(match, preview_section='explore_only',
                         accepted_task_section_admission=False)
         return match
+    match = dict(match, source_qualification_comparisons=packet['comparisons'])
     source_locations = _source_location_checks(packet, profile)
     failed_locations = [r for r in source_locations if r['status'] != 'eligible']
     if failed_locations:
@@ -472,6 +489,13 @@ def apply_task_condition_review(match, source, profile):
                     source_task_fit=dict(kind='accepted_task_professional_background', status=assessment['status'],
                         source_reference=match['accepted_task_fit']['source_reference'],
                         conditions=unsupported_background,candidate_note=note))
+    if review_only:
+        # Reaching a comparison is not a new generic admission route. Keep
+        # title uncertainty until an established central-background comparison
+        # supplies related professional evidence; other questions cannot do it.
+        if not any(r['kind'] == 'professional_background' and r['supported_parts']
+                   and r['modality'] == 'required' for r in packet['comparisons']):
+            return match
     assessment = deepcopy(match['affirmative_fit'])
     conflicts = [r for r in questions if r['status'] == 'contradicted' and r['modality'] == 'required']
     status = 'conflicting' if conflicts else 'uncertain'

@@ -13,6 +13,7 @@ from wahojobs.opportunity_enrichment import source_body_paragraphs
 
 _QUALIFICATION_HEADINGS = {
     'required', 'requirements', 'required qualifications', 'minimum qualifications',
+    'requirements (must have)', 'preferred (nice to have)',
     'required skills and qualifications',
     'qualifications', 'key qualifications', 'education & experience',
     'ideal qualifications', 'preferred', 'preferred qualifications',
