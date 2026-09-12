@@ -275,7 +275,9 @@ class ProfessionalBackgroundPreparer:
                 self._usd += usd
                 record = dict(request_id=key, basis=self.evidence.basis, attempt=self._attempts,
                               reserved_tokens=tokens, reserved_usd=str(usd), state='failed',
-                              physical_attempts=0, usage_known=False, requested_model=self.evidence.model)
+                              physical_attempts=0, usage_known=False, requested_model=self.evidence.model,
+                              requested_service_tier=getattr(self._client, 'service_tier', None),
+                              returned_service_tier=None)
                 self._records.append(record)
                 def before_dispatch():
                     if record['physical_attempts'] != 0:
@@ -287,6 +289,7 @@ class ProfessionalBackgroundPreparer:
                 try:
                     if self._audit_sink:
                         self._audit_sink(dict(event='request', request_id=key, attempt=record['attempt'], model=self.evidence.model,
+                                              requested_service_tier=record['requested_service_tier'],
                                               prompt=PROMPT, schema=schema, payload=payload))
                     result = self._client.generate_structured(
                         deepcopy(payload), prompt=PROMPT, schema=deepcopy(schema),
@@ -297,7 +300,8 @@ class ProfessionalBackgroundPreparer:
                             event='response', request_id=key, attempt=record['attempt'], raw_response=raw))) if self._audit_sink else None)
                     record['usage'] = {k: getattr(result, k) for k in
                                        ('input_tokens', 'output_tokens', 'total_tokens', 'estimated_cost_usd')}
-                    record.update(usage_known=result.usage_known, returned_model=result.response_model)
+                    record.update(usage_known=result.usage_known, returned_model=result.response_model,
+                                  returned_service_tier=result.response_service_tier)
                     identity = validate_model_identity(self.evidence.model, result.response_model)
                     record['model_identity'] = identity
                     if (result.response_status != 'completed'
@@ -317,6 +321,8 @@ class ProfessionalBackgroundPreparer:
                     # cannot leave a newly usable, unrecorded result behind.
                     if self._audit_sink:
                         self._audit_sink(dict(event='validated', request_id=key, attempt=record['attempt'],
+                                              requested_service_tier=record['requested_service_tier'],
+                                              returned_service_tier=record['returned_service_tier'],
                                               output=output, usage=record['usage'], model_identity=identity))
                     self.evidence.publish(current_requests[key][0], output, model_identity=identity)
                     record.update(state='published', relation=output['relation'])
@@ -326,7 +332,8 @@ class ProfessionalBackgroundPreparer:
                         record['usage'] = {k: getattr(exc.response_metadata, k) for k in
                                            ('input_tokens', 'output_tokens', 'total_tokens', 'estimated_cost_usd')}
                         record.update(usage_known=exc.response_metadata.usage_known,
-                                      returned_model=exc.response_metadata.response_model)
+                                      returned_model=exc.response_metadata.response_model,
+                                      returned_service_tier=exc.response_metadata.response_service_tier)
                     # Never record arbitrary exception strings: transports may
                     # include credentials or candidate/source content.
                     reason = ('provider_' + str(exc.diagnostic.get('category', 'failed'))

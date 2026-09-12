@@ -37,6 +37,8 @@ class OpenAIResponseMetadata:
     total_tokens: int
     estimated_cost_usd: float | None
     usage_known: bool = False
+    requested_service_tier: str | None = None
+    response_service_tier: object = None
 
 
 class OpenAIEnrichmentError(RuntimeError):
@@ -64,19 +66,24 @@ class StructuredEnrichmentResult:
     http_status: int | None = None
     response_model: str | None = None
     usage_known: bool = False
+    requested_service_tier: str | None = None
+    response_service_tier: object = None
 
 
 class OpenAIStructuredEnrichmentClient:
     provider = "openai"
     prompt_version = PROMPT_VERSION
 
-    def __init__(self, api_key: str, *, model: str = DEFAULT_MODEL, session=None):
+    def __init__(self, api_key: str, *, model: str = DEFAULT_MODEL, session=None,
+                 service_tier=None):
+        validate_service_tier(service_tier)
         api_key = str(api_key or "").strip()
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required for LLM enrichment.")
         self.api_key = api_key
         self.model = str(model or DEFAULT_MODEL).strip()
         self.session = session or requests.Session()
+        self.service_tier = service_tier
 
     def enrich(self, source_packet: dict) -> StructuredEnrichmentResult:
         allowed_evidence_aliases = sorted(
@@ -102,6 +109,7 @@ class OpenAIStructuredEnrichmentClient:
         The optional bounded response path records unedited bytes before parsing.
         Existing enrichment keeps its original transport and accounting behavior.
         """
+        validate_service_tier(self.service_tier)
         try:
             post = self._bounded_post if max_response_bytes is not None else self.session.post
             response = post(
@@ -112,6 +120,7 @@ class OpenAIStructuredEnrichmentClient:
                 },
                 json={
                     "model": self.model,
+                    **({'service_tier': self.service_tier} if self.service_tier is not None else {}),
                     "store": False,
                     "max_output_tokens": max_output_tokens,
                     "reasoning": {"effort": REASONING_EFFORT},
@@ -207,6 +216,16 @@ class OpenAIStructuredEnrichmentClient:
                 ),
             )
 
+        metadata = response_metadata(data, self.model, http_status=http_status,
+                                     requested_service_tier=self.service_tier)
+        # Check transport metadata before interpreting output or publishing it.
+        # An unresolved tier keeps usage but cannot claim a Standard cost.
+        if self.service_tier == 'default' and not (
+                type(metadata.response_service_tier) is str and metadata.response_service_tier == 'default'):
+            raise OpenAIEnrichmentError(
+                'Requested Standard processing was not confirmed by response metadata.',
+                diagnostic=diagnostic_record('service_tier_unverified', http_status=http_status),
+                response_metadata=metadata)
         if not 200 <= http_status < 300:
             error = data.get("error") if isinstance(data.get("error"), dict) else {}
             raise OpenAIEnrichmentError(
@@ -219,9 +238,9 @@ class OpenAIStructuredEnrichmentClient:
                     provider_error_message=error.get("message"),
                     secrets=(self.api_key,),
                 ),
+                response_metadata=metadata if self.service_tier is not None else None,
             )
 
-        metadata = response_metadata(data, self.model, http_status=http_status)
         if metadata.response_status == "incomplete":
             details = data.get("incomplete_details")
             reason = details.get("reason") if isinstance(details, dict) else None
@@ -295,6 +314,8 @@ class OpenAIStructuredEnrichmentClient:
             # do not normalize malformed values into an approved alias.
             response_model=data.get('model') if max_response_bytes is not None else metadata.response_model,
             usage_known=metadata.usage_known,
+            requested_service_tier=metadata.requested_service_tier,
+            response_service_tier=metadata.response_service_tier,
         )
 
     def _bounded_post(self, url, *, before_dispatch, allow_redirects, **kwargs):
@@ -326,9 +347,18 @@ class OpenAIStructuredEnrichmentClient:
         return adapter.send(request, timeout=kwargs['timeout'], **settings)
 
 
-def configured_openai_client(*, enabled: bool):
+def validate_service_tier(service_tier):
+    """Only omitted legacy behavior or explicit Standard; no API passthrough."""
+    if service_tier is not None and (type(service_tier) is not str or service_tier != 'default'):
+        raise ValueError('unsupported_openai_service_tier')
+
+
+def configured_openai_client(*, enabled: bool, service_tier=None):
     if not enabled:
         return None
+    if service_tier is None:
+        service_tier = os.environ.get('WAHOJOBS_OPENAI_ENRICHMENT_SERVICE_TIER')
+    validate_service_tier(service_tier)
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(
@@ -337,6 +367,7 @@ def configured_openai_client(*, enabled: bool):
     return OpenAIStructuredEnrichmentClient(
         api_key,
         model=os.environ.get("WAHOJOBS_OPENAI_ENRICHMENT_MODEL", DEFAULT_MODEL),
+        service_tier=service_tier,
     )
 
 
@@ -704,7 +735,7 @@ def response_contains_refusal(data: dict) -> bool:
     )
 
 
-def response_metadata(data: dict, model: str, *, http_status: int):
+def response_metadata(data: dict, model: str, *, http_status: int, requested_service_tier=None):
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
     input_tokens = nonnegative_integer(usage.get("input_tokens"))
     output_tokens = nonnegative_integer(usage.get("output_tokens"))
@@ -719,9 +750,12 @@ def response_metadata(data: dict, model: str, *, http_status: int):
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
-        estimated_cost_usd=estimate_cost_usd(model, input_tokens, output_tokens),
+        estimated_cost_usd=(None if requested_service_tier == 'default' and data.get('service_tier') != 'default'
+                            else estimate_cost_usd(model, input_tokens, output_tokens)),
         usage_known=all(type(usage.get(k)) is int and usage[k] >= 0
                         for k in ('input_tokens', 'output_tokens')),
+        requested_service_tier=requested_service_tier,
+        response_service_tier=data.get('service_tier'),
     )
 
 

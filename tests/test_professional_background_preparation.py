@@ -409,12 +409,12 @@ class PreparationReviewRegressionTests(unittest.TestCase):
     setUp = PreparationIntegrationTests.setUp
     item = PreparationIntegrationTests.item
 
-    def configured_fixture(self, *, limit=1, audit_sink=None):
+    def configured_fixture(self, *, limit=1, audit_sink=None, service_tier=None):
         import os
         from wahojobs.opportunity_llm import configured_openai_client
         with patch.dict(os.environ, {'OPENAI_API_KEY': 'offline-placeholder',
                                      'WAHOJOBS_OPENAI_ENRICHMENT_MODEL': 'gpt-5-mini'}):
-            client = configured_openai_client(enabled=True)
+            client = configured_openai_client(enabled=True, service_tier=service_tier)
         fixture = PreparationFixture(client=client, real=True, audit_sink=audit_sink,
                                      budget=PreparationBudget(limit, 150000, '1', '1', '2'))
         self.addCleanup(fixture.close)
@@ -687,7 +687,7 @@ class PreparationReviewRegressionTests(unittest.TestCase):
         import requests
         from scripts import professional_background_pilot as pilot
         from tests.professional_background_preparation_support import intercepted_response
-        fixture = self.configured_fixture()
+        fixture = self.configured_fixture(service_tier='default')
         client = fixture.client
         client.offline_labelled_stub = True
         sent, raw = [], []
@@ -795,7 +795,7 @@ class PreparationReviewRegressionTests(unittest.TestCase):
     def test_pilot_usd_ceiling_blocks_all_dispatches_offline(self):
         import requests
         from scripts import professional_background_pilot as pilot
-        fixture = self.configured_fixture()
+        fixture = self.configured_fixture(service_tier='default')
         root = self.f.path.parent/'usd-cap'
         # Exercise real-mode gates with local synthetic prices and intercept
         # the actual adapter; no network or real authorization is used.
@@ -807,3 +807,205 @@ class PreparationReviewRegressionTests(unittest.TestCase):
         ledger = json.loads((root/'pilot-ledger.json').read_text())
         self.assertTrue(all(c['disposition'] == 'unexecuted_budget' for c in ledger['cases'][1:]))
         self.assertEqual(ledger['accounting']['physical_attempts'], 0)
+
+
+class StandardTierPreparationTests(unittest.TestCase):
+    """Explicit Standard transport metadata; all HTTP responses are offline stubs."""
+    setUp = PreparationIntegrationTests.setUp
+    item = PreparationIntegrationTests.item
+    configured_fixture = PreparationReviewRegressionTests.configured_fixture
+
+    def run_standard_pilot(self, name, **first_response):
+        import os
+        import requests
+        from scripts import professional_background_pilot as pilot
+        from tests.professional_background_preparation_support import intercepted_response
+        sent, raw = [], []
+        def send(adapter, request, **kwargs):
+            sent.append(request)
+            self.assertEqual(json.loads(request.body)['service_tier'], 'default')
+            self.assertEqual(adapter.max_retries.total, 0)
+            if len(sent) == 1 and first_response.get('mode') == 'transport':
+                raise requests.Timeout('OFFLINE timeout')
+            response = intercepted_response(request, model='gpt-5-mini-2025-08-07',
+                                            **(first_response if len(sent) == 1 else {}))
+            raw.append(response.raw.getvalue())
+            return response
+        root = self.f.path.parent/name
+        with (patch.dict(os.environ, {'OPENAI_API_KEY': 'offline-placeholder',
+                                     'WAHOJOBS_OPENAI_ENRICHMENT_MODEL': 'gpt-5-mini'}),
+              patch.object(requests.adapters.HTTPAdapter, 'send', new=send)):
+            outcomes = pilot.run_pilot(root, mode='real', service_tier='default',
+                authorize_real_requests=True, budget=PreparationBudget(6, 150000, '0.04', '0.25', '2'))
+        return root, outcomes, sent, raw, json.loads((root/'pilot-ledger.json').read_text())
+
+    def test_explicit_default_reaches_serialized_configured_adapter_request(self):
+        import requests
+        from tests.professional_background_preparation_support import intercepted_response
+        fixture = self.configured_fixture(service_tier='default')
+        sent = []
+        def send(adapter, request, **kwargs):
+            sent.append(json.loads(request.body))
+            self.assertEqual(fixture.preparer.accounting['physical_attempts'], 1)
+            self.assertIs(kwargs['verify'], True)
+            return intercepted_response(request)
+        with patch.object(requests.adapters.HTTPAdapter, 'send', new=send):
+            self.assertEqual(self.item(fixture.execute())['state'], 'published')
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]['service_tier'], 'default')
+        self.assertFalse(sent[0]['store'])
+        self.assertEqual(sent[0]['reasoning'], {'effort': 'low'})
+
+    def test_omitted_configuration_preserves_legacy_wire_and_response_acceptance(self):
+        import requests
+        from tests.professional_background_preparation_support import intercepted_response
+        fixture = self.configured_fixture()
+        sent = []
+        def send(adapter, request, **kwargs):
+            sent.append(json.loads(request.body))
+            return intercepted_response(request, mode='missing_tier')
+        with patch.object(requests.adapters.HTTPAdapter, 'send', new=send):
+            self.assertEqual(self.item(fixture.execute())['state'], 'published')
+        self.assertNotIn('service_tier', sent[0])
+        self.assertIsNone(fixture.preparer.accounting['records'][0]['requested_service_tier'])
+
+    def test_configured_environment_tier_and_explicit_override_are_supported(self):
+        import os
+        from wahojobs.opportunity_llm import configured_openai_client
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'offline-placeholder',
+                                     'WAHOJOBS_OPENAI_ENRICHMENT_SERVICE_TIER': 'default'}):
+            client = configured_openai_client(enabled=True)
+            self.addCleanup(client.session.close)
+            self.assertEqual(client.service_tier, 'default')
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'offline-placeholder',
+                                     'WAHOJOBS_OPENAI_ENRICHMENT_SERVICE_TIER': 'auto'}):
+            with self.assertRaisesRegex(ValueError, 'unsupported_openai_service_tier'):
+                configured_openai_client(enabled=True)
+            client = configured_openai_client(enabled=True, service_tier='default')
+            self.addCleanup(client.session.close)
+            self.assertEqual(client.service_tier, 'default')
+
+    def test_unsupported_client_and_pilot_options_fail_before_dispatch(self):
+        import requests
+        from wahojobs.opportunity_llm import OpenAIStructuredEnrichmentClient
+        from scripts.professional_background_pilot import run_pilot
+        with patch.object(requests.adapters.HTTPAdapter, 'send') as dispatch:
+            for value in ('auto', 'flex', 'priority', 'DEFAULT', '', False, {}, ['default']):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    OpenAIStructuredEnrichmentClient('offline-placeholder', service_tier=value)
+            for value in (None, 'auto', 'flex', 'priority', '', False, {}):
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'pilot_explicit_standard_tier_required'):
+                    run_pilot(self.f.path.parent/'invalid-config', mode='offline', service_tier=value)
+        dispatch.assert_not_called()
+        self.assertFalse((self.f.path.parent/'invalid-config').exists())
+
+    def test_pilot_cli_rejects_unsupported_tier_without_dispatch(self):
+        import contextlib
+        import io
+        import requests
+        from scripts.professional_background_pilot import main
+        with patch.object(requests.adapters.HTTPAdapter, 'send') as dispatch:
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                main(['--output', str(self.f.path.parent/'bad-cli'), '--service-tier', 'auto'])
+        self.assertEqual(error.exception.code, 2)
+        dispatch.assert_not_called()
+
+    def test_requested_returned_tier_provenance_and_same_process_consumption(self):
+        root, outcomes, sent, raw, ledger = self.run_standard_pilot('standard-success')
+        self.assertEqual(len(sent), 6)
+        self.assertEqual(ledger['requested_service_tier'], 'default')
+        self.assertIsNone(ledger['halted_reason'])
+        self.assertFalse(ledger['cases'][0]['model_quality_observation'])
+        for outcome, entry, response in zip(outcomes[1:], ledger['cases'][1:], raw):
+            self.assertEqual(outcome['preparation_states'], ['published'])
+            self.assertEqual(outcome['subsequent_lookup_states'], ['reusable'])
+            if outcome['case'] == 'C05_proficiency':
+                # Existing proficiency contradiction excludes qualification rows.
+                self.assertEqual(outcome['comparisons'], [])
+                self.assertFalse(outcome['conditional_task_fit'])
+            else:
+                self.assertTrue(outcome['comparisons'])
+            record = entry['records'][0]
+            self.assertEqual((record['requested_service_tier'], record['returned_service_tier']), ('default', 'default'))
+            self.assertEqual((record['requested_model'], record['returned_model']), ('gpt-5-mini', 'gpt-5-mini-2025-08-07'))
+            self.assertEqual(next((root/entry['case']).rglob('response.raw.json')).read_bytes(), response)
+            validated = json.loads(next((root/entry['case']).rglob('validated.json')).read_text())
+            self.assertEqual(validated['returned_service_tier'], 'default')
+        self.assertTrue(outcomes[1]['conditional_task_fit'])  # OFFLINE partial support, not model quality
+        component = outcomes[1]['comparisons'][0]['components']['occupational_relevance']
+        self.assertEqual(component['semantic']['basis'], 'semantic_model_output')
+
+    def assert_tier_halt(self, name, **response):
+        root, outcomes, sent, raw, ledger = self.run_standard_pilot(name, **response)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(outcomes[1]['preparation_states'], ['failed'])
+        self.assertTrue(all(e['disposition'] == 'unexecuted_service_tier' for e in ledger['cases'][2:]))
+        self.assertEqual(ledger['halted_reason'], 'pilot_response_service_tier_unverified')
+        self.assertEqual(ledger['accounting']['physical_attempts'], 1)
+        self.assertEqual(ledger['accounting']['attempts'], 1)
+        self.assertEqual(ledger['accounting']['reserved_usd'], '0.00518')
+        self.assertFalse(outcomes[1]['conditional_task_fit'])
+        self.assertEqual(len(list(root.rglob('validated.json'))), 0)
+        if raw:
+            self.assertEqual(next((root/'P02').rglob('response.raw.json')).read_bytes(), raw[0])
+        self.assertEqual(len(list((root/'P02').glob('attempt-*'))), 1)
+        return ledger['cases'][1]['records'][0]
+
+    def test_missing_response_tier_halts_and_retains_known_usage(self):
+        record = self.assert_tier_halt('missing-tier', mode='missing_tier')
+        self.assertTrue(record['usage_known'])
+        self.assertEqual(record['usage']['input_tokens'], 100)
+        self.assertEqual(record['usage']['output_tokens'], 100)
+        self.assertIsNone(record['usage']['estimated_cost_usd'])
+        self.assertIsNone(record['returned_service_tier'])
+
+    def test_malformed_and_unapproved_response_tiers_never_publish(self):
+        for i, tier in enumerate(('auto', 'priority', 'flex', 'DEFAULT', ' default ', '', None, True, ['default'], {'tier': 'default'})):
+            with self.subTest(tier=tier):
+                record = self.assert_tier_halt('bad-tier-' + str(i), service_tier=tier)
+                self.assertEqual(record['returned_service_tier'], tier)
+                self.assertEqual(record['requested_service_tier'], 'default')
+                self.assertEqual(record['reason'], 'provider_service_tier_unverified')
+
+    def test_unknown_usage_and_tier_retain_full_reservation(self):
+        record = self.assert_tier_halt('unknown-usage', mode='missing_tier', usage=False)
+        self.assertFalse(record['usage_known'])
+        self.assertEqual(record['reserved_tokens'], 6384)
+        self.assertIsNone(record['usage']['estimated_cost_usd'])
+
+    def test_api_rejection_without_tier_halts_without_fallback(self):
+        record = self.assert_tier_halt('api-rejected', status=400, mode='missing_tier', usage=False)
+        self.assertEqual(record['physical_attempts'], 1)
+
+    def test_api_error_with_verified_tier_has_no_retry_or_evidence_overwrite(self):
+        root, outcomes, sent, raw, ledger = self.run_standard_pilot('api-error', status=503)
+        self.assertEqual(len(sent), 6)
+        self.assertEqual(ledger['cases'][1]['disposition'], 'failed')
+        self.assertEqual(ledger['cases'][1]['records'][0]['reason'], 'provider_http_provider_error')
+        self.assertEqual(outcomes[-1]['preparation_states'], ['published'])
+        self.assertEqual(len(list((root/'P02').glob('attempt-*'))), 1)
+        self.assertEqual(next((root/'P02').rglob('response.raw.json')).read_bytes(), raw[0])
+
+    def test_transport_failure_stops_with_unknown_tier_and_reserved_slot(self):
+        record = self.assert_tier_halt('transport-failed', mode='transport')
+        self.assertFalse(record['usage_known'])
+        self.assertEqual(record['reason'], 'provider_http_provider_error')
+
+    def test_verified_tier_refusal_is_failure_not_retry(self):
+        root, outcomes, sent, raw, ledger = self.run_standard_pilot('verified-refusal', mode='refused')
+        self.assertEqual(len(sent), 6)
+        self.assertEqual(ledger['cases'][1]['disposition'], 'failed')
+        self.assertIsNone(ledger['halted_reason'])
+        self.assertEqual(next((root/'P02').rglob('response.raw.json')).read_bytes(), raw[0])
+        self.assertEqual(len(list((root/'P02').glob('attempt-*'))), 1)
+
+    def test_standard_no_support_is_reused_without_regeneration(self):
+        root, outcomes, sent, _, ledger = self.run_standard_pilot('conservative', relation='not_established')
+        self.assertEqual(len(sent), 6)
+        self.assertEqual(ledger['cases'][1]['records'][0]['relation'], 'not_established')
+        self.assertEqual(outcomes[1]['subsequent_lookup_states'], ['reusable'])
+        self.assertFalse(outcomes[1]['conditional_task_fit'])
+
+    def test_tier_guard_precedes_interpretation_even_for_invalid_output(self):
+        record = self.assert_tier_halt('invalid-output-tier', service_tier='priority', mode='malformed')
+        self.assertEqual(record['reason'], 'provider_service_tier_unverified')

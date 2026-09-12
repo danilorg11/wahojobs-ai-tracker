@@ -28,14 +28,20 @@ QUALITY_HYPOTHESES = {
 }
 
 
-def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_requests=False):
+def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_requests=False,
+              service_tier='default'):
     if mode not in ('dry-run', 'offline', 'real'):
         raise ValueError('invalid_pilot_mode')
+    if type(service_tier) is not str or service_tier != 'default':
+        raise ValueError('pilot_explicit_standard_tier_required')
     if mode == 'real' and (not authorize_real_requests or type(budget) is not PreparationBudget
                            or budget.request_limit > 6):
         raise ValueError('explicit_six_request_pilot_budget_required')
     # Resolve configured credentials only after explicit execution gates.
-    client = configured_openai_client(enabled=True) if mode == 'real' else OfflineClient()
+    client = (configured_openai_client(enabled=True, service_tier=service_tier) if mode == 'real'
+              else OfflineClient(service_tier=service_tier))
+    if client.service_tier != service_tier:
+        raise ValueError('pilot_explicit_standard_tier_required')
     budget = budget or PreparationBudget(6, 150000)
     if budget.request_limit > 6:
         raise ValueError('explicit_six_request_pilot_budget_required')
@@ -46,7 +52,8 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
             output.write(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + '\n')
     save(root/'quality-hypotheses-NOT-MODEL-INPUT.json', QUALITY_HYPOTHESES)
     planned = [dict(case=name, planned_requests=0 if name == 'P01' else 1) for name in QUALITY_HYPOTHESES]
-    save(root/'pilot-plan.json', dict(cases=planned, budget=asdict(budget), maximum_physical_requests=6))
+    save(root/'pilot-plan.json', dict(cases=planned, budget=asdict(budget), maximum_physical_requests=6,
+                                    requested_service_tier=service_tier))
     active = {'case': None}
     def audit(event):
         folder = root/active['case']/f"attempt-{event['attempt']:02d}-{event['request_id']}"
@@ -67,6 +74,7 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
     fixture = PreparationFixture(client=client, budget=budget, audit_sink=audit,
                                  real=mode == 'real', enabled=mode != 'dry-run')
     outcomes, ledger = [], []
+    halted = None
     try:
         frozen = fixture.frozen_source()
         body = frozen['body']
@@ -101,7 +109,10 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
             plan = fixture.prepare()
             save(folder/'dry-run.json', plan)
             before = fixture.preparer.accounting
-            result = fixture.execute(plan) if mode != 'dry-run' else plan
+            if halted:
+                result = dict(plan, items=[dict(item, state='skipped', reason=halted) for item in plan['items']])
+            else:
+                result = fixture.execute(plan) if mode != 'dry-run' else plan
             save(folder/'preparation.json', result)
             # Inspection is non-dispatching on success, conservative output,
             # failure and exhaustion. Never retry a case to demonstrate reuse.
@@ -109,7 +120,8 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
             save(folder/'subsequent-inspection.json', reused)
             accounting = fixture.preparer.accounting
             states = [item['state'] for item in result['items']]
-            disposition = ('dry_run' if mode == 'dry-run' else
+            disposition = ('unexecuted_service_tier' if halted else
+                           'dry_run' if mode == 'dry-run' else
                            'failed' if 'failed' in states else
                            'published' if 'published' in states else
                            'reused' if 'reusable' in states else
@@ -123,6 +135,9 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
                          model_quality_observation=name != 'P01' and disposition == 'published')
             ledger.append(entry)
             save(folder/'ledger.json', entry)
+            if any(r['physical_attempts'] and (type(r['returned_service_tier']) is not str
+                       or r['returned_service_tier'] != service_tier) for r in entry['records']):
+                halted = 'pilot_response_service_tier_unverified'
             run, match = fixture.current()
             outcome = dict(case=name, mode=mode, offline_stub=mode != 'real',
                 source_body_sha256=hashlib.sha256(source_body.encode()).hexdigest(),
@@ -138,8 +153,10 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
             outcomes.append(outcome)
         save(root/'pilot-outcomes.json', outcomes)
         save(root/'pilot-ledger.json', dict(planned_cases=planned, cases=ledger,
+                                           halted_reason=halted, requested_service_tier=service_tier,
                                            accounting=fixture.preparer.accounting))
         save(root/'pilot-manifest.json', dict(mode=mode, model=client.model, budget=asdict(budget),
+             requested_service_tier=service_tier, halted_reason=halted,
              automatic_recognition_quality_evaluated=False,
              authority='synthetic authenticated-state substitute; production composition and disposable accepted storage',
              source_variants='P01/P02/C01 use frozen wording; other controls explicitly edit synthetic requirement wording',
@@ -156,6 +173,7 @@ def main(argv=None):
     parser.add_argument('--output', required=True)
     parser.add_argument('--mode', choices=('dry-run', 'offline', 'real'), default='dry-run')
     parser.add_argument('--authorize-real-requests', action='store_true')
+    parser.add_argument('--service-tier', choices=('default',), default='default')
     parser.add_argument('--request-limit', type=int, default=6)
     parser.add_argument('--token-limit', type=int, default=150000)
     parser.add_argument('--usd-limit', default='0')
@@ -165,6 +183,7 @@ def main(argv=None):
     budget = PreparationBudget(args.request_limit, args.token_limit, args.usd_limit,
                                args.input_usd_per_million, args.output_usd_per_million)
     outcomes = run_pilot(args.output, mode=args.mode, budget=budget,
+                         service_tier=args.service_tier,
                          authorize_real_requests=args.authorize_real_requests)
     print(json.dumps(dict(mode=args.mode, cases=len(outcomes), output=str(Path(args.output).resolve()),
                           attempts=outcomes[-1]['accounting']['attempts'])))

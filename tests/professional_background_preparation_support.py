@@ -35,7 +35,7 @@ _REQUESTED_MODEL = object()
 
 
 def intercepted_response(request, *, model=_REQUESTED_MODEL, relation='supported_partial',
-                         status=200, mode='success', usage=True):
+                         status=200, mode='success', usage=True, service_tier='default'):
     """Real Requests Response/PreparedRequest, entirely in-memory adapter I/O.
 
     Derived from the independent review reproductions. No socket or DNS call.
@@ -46,7 +46,8 @@ def intercepted_response(request, *, model=_REQUESTED_MODEL, relation='supported
     output = dict(request_id=payload['request_id'], relation=relation,
                   candidate_fact_ids=[f['id'] for f in payload['candidate_facts']],
                   source_span=payload['occupational_span'], rationale='OFFLINE REVIEW STUB: occupational relation only.')
-    data = dict(id='offline-intercepted', model=body['model'] if model is _REQUESTED_MODEL else model,
+    data = dict(id='offline-intercepted', service_tier=service_tier,
+                model=body['model'] if model is _REQUESTED_MODEL else model,
                 status='completed', output=[dict(type='message', content=[dict(type='output_text', text=json.dumps(output))])])
     if usage:
         data['usage'] = dict(input_tokens=100, output_tokens=100, total_tokens=200)
@@ -58,6 +59,8 @@ def intercepted_response(request, *, model=_REQUESTED_MODEL, relation='supported
         data['output'][0]['content'][0]['text'] = '{'
     elif mode == 'missing_model':
         del data['model']
+    elif mode == 'missing_tier':
+        del data['service_tier']
     response = requests.Response()
     response.status_code, response.url, response.request = status, request.url, request
     response.raw = io.BytesIO(json.dumps(data).encode())
@@ -101,7 +104,7 @@ class OfflineSession:
                       rationale='OFFLINE LABELLED STUB: occupational relation only; no competence or duration claim.')
         if self.mutate_output:
             self.mutate_output(output)
-        data = dict(id='offline-labelled-response', model=body['model'], status='completed',
+        data = dict(id='offline-labelled-response', model=body['model'], status='completed', service_tier='default',
                     usage=dict(input_tokens=100, output_tokens=100, total_tokens=200),
                     output=[dict(type='message', content=[dict(type='output_text', text=json.dumps(output))])])
         if self.mode == 'missing':
@@ -124,8 +127,9 @@ class OfflineSession:
 class OfflineClient(OpenAIStructuredEnrichmentClient):
     offline_labelled_stub = True
 
-    def __init__(self, relation='supported_partial'):
-        super().__init__('offline-not-a-credential', model='offline-labelled-model', session=OfflineSession(relation))
+    def __init__(self, relation='supported_partial', *, service_tier=None):
+        super().__init__('offline-not-a-credential', model='offline-labelled-model', session=OfflineSession(relation),
+                         service_tier=service_tier)
 
 
 class PreparationFixture:
