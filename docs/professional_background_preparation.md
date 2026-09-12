@@ -127,3 +127,41 @@ controls again would add six NEW attempts (seven cumulative), requiring separate
 explicit authorization, a fresh non-overwriting destination and reconciliation
 of that retained reservation. P01 remains a no-call selection outcome. No real
 execution is authorized by this compatibility correction.
+
+## Conditional consideration after qualification review
+
+The conditional selector may consider an already bounded `explore_only`
+representative after the existing unmodeled-title accepted-task review. Its
+`accepted_task_pre_review` diagnostic retains the original sections and admission
+reasons. It must have accepted task evidence, grounded support for every required
+professional-background group, the existing uncertain conditional-fit contract,
+and false primary eligibility. Exact task/comparison source references must agree.
+Required group contradictions, missing/conflicting requirements, location and
+required-language failures, trust/availability restrictions, caps and
+avoid/quality/specialist penalties still exclude it. Failed alternative routes
+are not unconditional vetoes when their requirement group is supported.
+
+`is_conditional_section_candidate` is used only by
+`build_browser_presentation_matches(..., conditional_only=True)`. Eligible rows
+join the lowest actionable bucket for conditional selection using the existing
+sort key and 160-row bound; their original row sections, scores, qualifications
+and primary eligibility are not rewritten. An identity already represented in
+an actionable bucket is not added again. Selected rows carry the diagnostic
+`conditional_admission_source: accepted_task_professional_background`, separate
+from qualification status. Existing main and unrelated conditional routes do not
+need this additional professional-support predicate.
+
+The shared conditional pool feeds typed-preference candidate evaluation before
+the existing final display cap. Strict preferences therefore still exclude new
+conditional candidates. Admission version 8 participates in the authenticated
+recommendation input key; existing owner/profile/source, inventory, clock and
+prepared-generation validity checks remain. No preparation is enabled or invoked
+by Matches/detail requests; result replacement invalidates reuse normally.
+
+Offline replay of the six unchanged real responses uses their original synthetic
+bindings and July comparison clock, separately recording their September actual
+generation timestamps. Only P02 enters the intact two-row pilot's conditional
+list. This is retrospective scoped evidence, not catalog-wide delivery or rank.
+Separate synthetic selection controls cover competition, caps, variants and
+preferences. Model rationale duration drift, C03's generic duration wording and
+empty-main-list copy are preserved limitations, not corrected by this rule.

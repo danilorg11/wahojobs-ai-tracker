@@ -1981,7 +1981,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         })
 
     def _recommendation_input_key(self, profile_v2, authority):
-        from wahojobs.matching.accepted_tasks import TASK_PROJECTION_VERSION, SOURCE_ELIGIBILITY_VERSION
+        from wahojobs.matching.accepted_tasks import TASK_PROJECTION_VERSION, SOURCE_ELIGIBILITY_VERSION, TASK_ADMISSION_VERSION
         if self._write_connection_provider is None or self._criteria_shadow_sink is not None:
             return None
         owner = authority.candidate_workflow_authority()
@@ -1999,7 +1999,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "source_task_fit_version": 3,
             "confirmed_activity_signal_version": 1,
             "accepted_task_projection_version": TASK_PROJECTION_VERSION,
-            "accepted_task_admission_version": 7,
+            "accepted_task_admission_version": TASK_ADMISSION_VERSION,
             "professional_background_version": background_version,
             "professional_background_semantic_version": SEMANTIC_VERSION,
             "professional_model_identity_policy": model_identity_policy_digest(),

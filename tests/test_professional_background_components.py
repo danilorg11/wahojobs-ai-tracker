@@ -217,7 +217,9 @@ class BackgroundIntegrationTests(unittest.TestCase):
         self.assertTrue(match['conditional_task_fit'])
         self.assertEqual(match['affirmative_fit_status'], 'uncertain')
         self.assertEqual(match['preview_section'], 'explore_only')
-        self.assertEqual(browser._conditional_presentation_matches(self.f.last_run().recommendation_context), [])
+        context = self.f.last_run().recommendation_context
+        self.assertEqual([m['job_id'] for m in browser._conditional_presentation_matches(context)], [7003])
+        self.assertEqual(browser._primary_presentation_matches(context), [])
 
     def test_sufficient_equal_and_unknown_alternative_duration_remain_conditions(self):
         for years in (5, 6):
@@ -263,21 +265,24 @@ class BackgroundIntegrationTests(unittest.TestCase):
     def test_p02_automatic_versus_stubbed_relation_and_p01_contrast(self):
         self.source([COMPOUND], heading='Requirements')
         self.f.profile = profile('Customer support specialist', 6)
-        _, automatic = self.current()
+        automatic_context, automatic = self.current()
         self.assertFalse(automatic['source_qualification_comparisons'][0]['supported_parts'])
+        self.assertEqual(browser._conditional_presentation_matches(automatic_context), [])
         self.publish()
         ctx, stubbed = self.current()
         self.assertTrue(stubbed['conditional_task_fit'])
         self.assertEqual(stubbed['preview_section'], 'explore_only')
-        self.assertEqual(browser._conditional_presentation_matches(ctx), [])
+        self.assertEqual([m['job_id'] for m in browser._conditional_presentation_matches(ctx)], [7003])
+        self.assertEqual(browser._primary_presentation_matches(ctx), [])
         row = stubbed['source_qualification_comparisons'][0]
         self.assertEqual(row['status'], 'unresolved')
         self.assertEqual(row['components']['required_duration']['status'], 'unresolved')
         self.assertEqual(row['components']['occupational_relevance']['semantic']['basis'], 'offline_labelled_stub')
         self.f.profile = profile()
-        _, p01 = self.current()
+        p01_context, p01 = self.current()
         self.assertEqual(p01['source_qualification_comparisons'][0]['status'], 'not_established')
         self.assertFalse(p01['conditional_task_fit'])
+        self.assertEqual(browser._conditional_presentation_matches(p01_context), [])
 
     def test_ambiguous_unrelated_and_invalid_output_preserve_independent_evidence(self):
         for relation in ['ambiguous', 'not_established', 'contradicted']:
@@ -583,7 +588,9 @@ class ProfessionalAlternativeTests(unittest.TestCase):
             self.assertEqual(query.call_count, 1)
             self.assertEqual(match['conditional_task_fit'], expected)
             self.assertEqual(self.f.integration._inventory_commit_token(), token)
-            self.assertEqual(browser._conditional_presentation_matches(ctx), [])
+            self.assertEqual([m['job_id'] for m in browser._conditional_presentation_matches(ctx)],
+                             [7003] if expected else [])
+            self.assertEqual(browser._primary_presentation_matches(ctx), [])
             run = self.f.last_run()
 
 

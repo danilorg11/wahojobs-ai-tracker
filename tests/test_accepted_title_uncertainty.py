@@ -155,5 +155,151 @@ class AcceptedTitleComparisonTests(unittest.TestCase):
             self.assertNotEqual(_professional_background('5+ years of relevant professional experience in ' + field, confirmed)[0], 'contradicted')
 
 
+class ConditionalSectionSelectionTests(unittest.TestCase):
+    """Ordinary synthetic selector fixtures, not model observations or inventory validation."""
+
+    @staticmethod
+    def row(jid=1, score=12):
+        ref = dict(job_id=jid, canonical_opportunity_id=jid, source_slug='synthetic-contract',
+                   source_url=f'https://example.test/{jid}', material_content_sha256=f'material-{jid}')
+        return dict(job_id=jid, canonical_opportunity_id=jid, source_slug=ref['source_slug'],
+            url=ref['source_url'], source='Synthetic contract', display_title=f'Contract {jid:04d}', score=score,
+            raw_product_section='explore_only', effective_product_section='explore_only', preview_section='explore_only',
+            accepted_task_pre_review=dict(review_only=True, primary_admission_reasons=['affirmative_fit_uncertain'],
+                sections=dict(raw_product_section='explore_only', effective_product_section='explore_only', preview_section='explore_only')),
+            accepted_task_fit=dict(facts=['synthetic accepted task'], source_reference=ref),
+            source_task_fit=dict(status='uncertain', source_reference=deepcopy(ref)),
+            source_qualification_comparisons=[dict(kind='professional_background', modality='required',
+                status='unresolved', supported_parts=['synthetic grounded occupational relation'],
+                source=dict(job_id=jid, url=ref['source_url'], source_hash=ref['material_content_sha256']))],
+            affirmative_fit_status='uncertain', primary_recommendation_eligible=False, conditional_task_fit=True,
+            primary_admission_source='accepted_task_source_conditions',
+            affirmative_fit=dict(missing_requirements=[], conflicting_requirements=[]),
+            opportunity_trust_status='trusted', actionability_cap_reasons=[], score_components={})
+
+    def allowed(self, row):
+        from wahojobs.matching.accepted_tasks import is_conditional_section_candidate
+        return is_conditional_section_candidate(row)
+
+    def test_both_task_and_grounded_professional_support_are_required(self):
+        row = self.row()
+        self.assertTrue(self.allowed(row))
+        self.assertFalse(self.allowed(dict(row, accepted_task_fit=None)))
+        no_parts = deepcopy(row)
+        no_parts['source_qualification_comparisons'][0]['supported_parts'] = []
+        self.assertFalse(self.allowed(no_parts))
+        self.assertFalse(self.allowed(dict(row, source_qualification_comparisons=[])))
+        raw_label = dict(row, source_qualification_comparisons=[], relation='supported_partial')
+        self.assertFalse(self.allowed(raw_label))
+
+    def test_every_independent_restriction_blocks_only_the_new_exception(self):
+        changes = [dict(opportunity_trust_status='stale_source'), dict(job_is_active=False),
+            dict(canonical_is_active=False), dict(eligible_for_personalized=False),
+            dict(location_eligibility_status='incompatible'), dict(actionability_cap_reasons=['unsupported_specialization']),
+            dict(source_task_location_checks=[dict(status='unconfirmed')]),
+            dict(source_language_checks=[dict(modality='required', status='contradicted')]),
+            dict(primary_recommendation_eligible=True), dict(conditional_task_fit=False),
+            dict(affirmative_fit_status='supported'), dict(primary_admission_source='other')]
+        changes += [{key: True} for key in ('professional_domain_hard_gate_applied',
+            'specialized_actionability_cap_applied', 'location_actionability_cap_applied',
+            'preview_domain_hard_gate_applied', 'raw_professional_domain_hard_gate_applied')]
+        changes += [dict(score_components={key: -1}) for key in
+                    ('avoid_keyword_penalty', 'quality_gate_penalty', 'specialist_domain_penalty')]
+        for change in changes:
+            with self.subTest(change=change):
+                self.assertFalse(self.allowed(dict(self.row(), **change)))
+        for key in ('missing_requirements', 'conflicting_requirements'):
+            row = self.row()
+            row['affirmative_fit'][key] = ['Independent requirement']
+            self.assertFalse(self.allowed(row))
+
+    def test_earlier_independent_exploratory_reason_is_not_overridden(self):
+        row = self.row()
+        row['accepted_task_pre_review']['review_only'] = False
+        self.assertFalse(self.allowed(row))
+        for key in ('raw_product_section', 'effective_product_section', 'preview_section'):
+            row = self.row()
+            row['accepted_task_pre_review']['sections'][key] = 'excluded'
+            self.assertFalse(self.allowed(row))
+            self.assertFalse(self.allowed(dict(self.row(), **{key: 'excluded'})))
+
+    def test_missing_pre_review_receipt_and_mismatched_source_fail_closed(self):
+        self.assertFalse(self.allowed(dict(self.row(), accepted_task_pre_review=None)))
+        for key, value in [('job_id', 2), ('canonical_opportunity_id', 2),
+                           ('source_slug', 'other'), ('url', 'https://example.test/other')]:
+            self.assertFalse(self.allowed(dict(self.row(), **{key: value})))
+        row = self.row()
+        row['source_qualification_comparisons'][0]['source']['source_hash'] = 'different'
+        self.assertFalse(self.allowed(row))
+        row = self.row()
+        row['source_task_fit']['source_reference']['material_content_sha256'] = 'different'
+        self.assertFalse(self.allowed(row))
+
+    def test_every_required_background_and_contradiction_is_checked(self):
+        row = self.row()
+        second = deepcopy(row['source_qualification_comparisons'][0])
+        second['supported_parts'] = []
+        row['source_qualification_comparisons'].append(second)
+        self.assertFalse(self.allowed(row))
+        second.update(kind='degree', supported_parts=['Study'], status='contradicted')
+        self.assertFalse(self.allowed(row))
+        second['modality'] = 'preferred'
+        self.assertTrue(self.allowed(row))
+
+    def test_failed_duration_route_is_not_an_unconditional_group_veto(self):
+        row = self.row()
+        bg = row['source_qualification_comparisons'][0]
+        bg.update(status='supported', components=dict(qualifying_routes=dict(operator='any_of', status='supported',
+            routes=[dict(status='contradicted'), dict(status='supported')])))
+        self.assertTrue(self.allowed(row))
+        bg['status'] = 'contradicted'
+        self.assertFalse(self.allowed(row))
+
+    def test_existing_main_and_unrelated_conditional_routes_are_unchanged(self):
+        ordinary = self.row(10)
+        ordinary.update(preview_section='also_worth_reviewing', accepted_task_fit=None,
+                        source_qualification_comparisons=[], accepted_task_pre_review=None)
+        main = dict(self.row(11), preview_section='best_matches', affirmative_fit_status='supported',
+                    primary_recommendation_eligible=True, conditional_task_fit=False)
+        context = dict(matches=dict(best_matches=[main], also_worth_reviewing=[ordinary], explore_only=[self.row(12)]))
+        self.assertEqual([r['job_id'] for r in browser._primary_presentation_matches(context)], [11])
+        self.assertEqual([r['job_id'] for r in browser._conditional_presentation_matches(context)], [10, 12])
+        self.assertNotIn('conditional_admission_source', browser._conditional_presentation_matches(context)[0])
+
+    def test_competition_uses_existing_section_and_score_order(self):
+        existing = dict(self.row(10, score=1), preview_section='also_worth_reviewing')
+        context = dict(matches=dict(also_worth_reviewing=[existing], explore_only=[self.row(2, 50), self.row(3, 99)]))
+        before = deepcopy(context)
+        self.assertEqual([r['job_id'] for r in browser._conditional_presentation_pool(context)], [10, 3, 2])
+        self.assertEqual(context, before)
+        self.assertEqual(browser._conditional_presentation_matches(context)[1]['preview_section'], 'explore_only')
+
+    def test_existing_display_cap_and_no_duplicate_main_conditional_presentation(self):
+        rows = [self.row(jid, 100-jid) for jid in range(1, 16)]
+        main = dict(self.row(99), canonical_opportunity_id=1, preview_section='best_matches',
+                    affirmative_fit_status='supported', primary_recommendation_eligible=True, conditional_task_fit=False)
+        context = dict(matches=dict(best_matches=[main], explore_only=rows))
+        selected = browser._conditional_presentation_matches(context)
+        self.assertEqual(len(selected), browser.MATCH_PRESENTATION_LIMIT)
+        self.assertEqual([m['job_id'] for m in selected], list(range(2, 12)))
+        self.assertFalse({m['canonical_opportunity_id'] for m in selected}
+                         & {m['canonical_opportunity_id'] for m in browser._primary_presentation_matches(context)})
+
+    def test_existing_section_bound_can_omit_an_otherwise_qualified_row(self):
+        cap = browser.local_product.PREVIEW_MATCH_LIMIT
+        existing = [dict(self.row(jid), preview_section='also_worth_reviewing') for jid in range(1, cap+1)]
+        context = dict(matches=dict(also_worth_reviewing=existing, explore_only=[self.row(cap+1, 999)]))
+        pool = browser._conditional_presentation_pool(context)
+        self.assertEqual(len(pool), cap)
+        self.assertNotIn(cap+1, [r['job_id'] for r in pool])
+
+    def test_same_canonical_variant_cannot_inherit_another_variants_comparison(self):
+        first = self.row(1)
+        foreign = dict(first, job_id=2, url='https://example.test/2')
+        self.assertFalse(self.allowed(foreign))
+        context = dict(matches=dict(explore_only=[first, foreign]))
+        self.assertEqual([m['job_id'] for m in browser._conditional_presentation_pool(context)], [1])
+
+
 if __name__ == '__main__':
     unittest.main()

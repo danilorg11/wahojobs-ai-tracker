@@ -4117,6 +4117,26 @@ def build_browser_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT, 
     ranked = []
     seen_identities = set()
     matches_by_section = (context or {}).get("matches") or {}
+    additional_ids = set()
+    if conditional_only:
+        from wahojobs.matching.accepted_tasks import is_conditional_section_candidate
+        # Only existing bounded representatives are eligible. This section view
+        # leaves each row's original section/reasons intact and goes through all
+        # normal selection and subsequent typed-preference gates.
+        occupied = {stable_opportunity_identity(m) for section in ACTIONABLE_PRESENTATION_SECTIONS
+                    for m in matches_by_section.get(section, [])}
+        additional = []
+        for match in matches_by_section.get("explore_only", []):
+            identity = stable_opportunity_identity(match)
+            if identity not in occupied and is_conditional_section_candidate(match):
+                additional.append(match)
+                additional_ids.add(id(match))
+                occupied.add(identity)
+        if additional:
+            matches_by_section = dict(matches_by_section)
+            matches_by_section["also_worth_reviewing"] = sorted(
+                list(matches_by_section.get("also_worth_reviewing", [])) + additional,
+                key=profile_preview.match_sort_key)[:PREVIEW_MATCH_LIMIT]
     for data_status in ("recently_verified", "recently_cached"):
         for section in ACTIONABLE_PRESENTATION_SECTIONS:
             for match in matches_by_section.get(section, []):
@@ -4145,6 +4165,9 @@ def build_browser_presentation_matches(context, limit=PRESENTATION_MATCH_LIMIT, 
                 presented["presentation_rank"] = len(ranked) + 1
                 presented["presentation_source_section"] = section
                 presented["presentation_data_status"] = data_status
+                if id(match) in additional_ids:
+                    presented["conditional_admission_source"] = "accepted_task_professional_background"
+                    presented["conditional_admission_reasons"] = ["grounded_professional_support_after_source_review"]
                 ranked.append(presented)
                 if len(ranked) >= limit:
                     return ranked

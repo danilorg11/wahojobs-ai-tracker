@@ -15,6 +15,7 @@ from wahojobs.profiles.normalizer import term_is_negated
 
 TASK_PROJECTION_VERSION = 2
 SOURCE_ELIGIBILITY_VERSION = 4
+TASK_ADMISSION_VERSION = 8
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -385,7 +386,14 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
     unassessed and can be offered conditionally, never asserted satisfied.
     Optional criteria and routine screening questions do not become gates.
     """
+    # Recomputed source review must not inherit an earlier admission receipt.
+    match = {k: v for k, v in match.items() if k != 'accepted_task_pre_review'}
     review_only = needs_accepted_task_comparison(match)
+    pre_review = dict(
+        review_only=review_only,
+        sections={k: match.get(k) for k in ('raw_product_section', 'effective_product_section', 'preview_section')},
+        primary_admission_source=match.get('primary_admission_source'),
+        primary_admission_reasons=list(match.get('primary_admission_reasons') or []))
     if (not review_only and (not match.get('accepted_task_fit')
             or not (match.get('affirmative_fit_status') == 'supported'
                     or match.get('affirmative_fit_status') == 'uncertain' and match.get('conditional_task_fit')))):
@@ -514,6 +522,7 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
     assessment['why_fit_statements'] = [note]
     return dict(match, affirmative_fit=assessment, affirmative_fit_status=status,
                 affirmative_fit_why=[note], primary_recommendation_eligible=False,
+                accepted_task_pre_review=pre_review,
                 primary_admission_source='accepted_task_source_conditions',
                 primary_admission_reasons=list(dict.fromkeys(
                     list(match.get('primary_admission_reasons') or []) + ['accepted_task_source_conditions'])),
@@ -522,6 +531,50 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
                     source_reference=match['accepted_task_fit']['source_reference'],
                     profile_facts=match['accepted_task_fit']['profile_facts'],
                     conditions=questions, candidate_note=note))
+
+
+def is_conditional_section_candidate(match):
+    """Consider an already bounded exploratory representative conditionally.
+
+    This uses only the locally reviewed task/qualification result, not model
+    prose. It changes neither that result nor the original section. Other
+    conditional routes do not require this professional-background contract.
+    """
+    from scripts.local_product_app import browser_match_rejection_reasons
+    from wahojobs.matching.source_task_fit import is_conditional_task_fit
+    pre = match.get('accepted_task_pre_review') or {}
+    task_fit = match.get('accepted_task_fit') or {}
+    reference = task_fit.get('source_reference') or {}
+    reviewed_reference = (match.get('source_task_fit') or {}).get('source_reference') or {}
+    assessment = match.get('affirmative_fit') or {}
+    required = [r for r in match.get('source_qualification_comparisons') or [] if r['modality'] == 'required']
+    backgrounds = [r for r in required if r['kind'] == 'professional_background']
+    return bool(
+        pre.get('review_only') is True and task_fit
+        and all(pre.get('sections', {}).get(k) == 'explore_only' and match.get(k) == 'explore_only'
+                for k in ('raw_product_section', 'effective_product_section', 'preview_section'))
+        and all(reference.get(k) == match.get(k) for k in ('job_id', 'canonical_opportunity_id', 'source_slug'))
+        and reference.get('source_url') == match.get('url') and reference == reviewed_reference
+        and is_conditional_task_fit(match)
+        and match.get('primary_recommendation_eligible') is False
+        and match.get('primary_admission_source') == 'accepted_task_source_conditions'
+        and backgrounds and all(r['supported_parts'] and r['status'] != 'contradicted' for r in backgrounds)
+        and all(r['source']['job_id'] == match.get('job_id') and r['source']['url'] == match.get('url')
+                and r['source']['source_hash'] == reference.get('material_content_sha256') for r in required)
+        # Use the group's status, never veto an unsuccessful qualifying route.
+        and not any(r['status'] == 'contradicted' for r in required)
+        and not assessment.get('missing_requirements') and not assessment.get('conflicting_requirements')
+        and all(r['status'] == 'eligible' for r in match.get('source_task_location_checks') or [])
+        and not any(r.get('modality') == 'required' and r.get('status') == 'contradicted'
+                    for r in match.get('source_language_checks') or [])
+        and not browser_match_rejection_reasons(match, allow_conditional_task_fit=True)
+        and match.get('opportunity_trust_status') == 'trusted'
+        and not match.get('actionability_cap_reasons')
+        and not any(match.get(k) for k in ('professional_domain_hard_gate_applied',
+            'specialized_actionability_cap_applied', 'location_actionability_cap_applied',
+            'preview_domain_hard_gate_applied', 'raw_professional_domain_hard_gate_applied'))
+        and not any((match.get('score_components') or {}).get(k, 0)
+                    for k in ('avoid_keyword_penalty', 'quality_gate_penalty', 'specialist_domain_penalty')))
 
 
 def _source_location_checks(packet, profile):

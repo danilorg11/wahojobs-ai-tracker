@@ -13,6 +13,224 @@ from wahojobs.authenticated_variant_details import variant_detail_url
 from wahojobs.professional_background_preparation import PreparationBudget, configured_background_preparer
 
 
+class ConditionalPoolPreparationTests(unittest.TestCase):
+    """Synthetic contract controls, not additional real-model observations."""
+
+    def setUp(self):
+        self.fixture = PreparationFixture()
+        self.addCleanup(self.fixture.close)
+        self.f = self.fixture.f
+        self.body = self.fixture.frozen_source()['body']
+
+    def result(self, *, execute=True, target='/find-matches'):
+        if execute:
+            self.fixture.execute()
+        count = len(self.fixture.client.session.calls)
+        run, match = self.fixture.current(target)
+        self.assertEqual(len(self.fixture.client.session.calls), count)
+        self.assertEqual(match['score'], 12)
+        self.assertEqual(match['preview_section'], 'explore_only')
+        self.assertFalse(match['primary_recommendation_eligible'])
+        self.assertFalse(browser._primary_presentation_matches(run.recommendation_context))
+        return run, match, [m['job_id'] for m in browser._conditional_presentation_matches(run.recommendation_context)]
+
+    def test_p01_without_professional_role_stays_out(self):
+        self.f.profile = profile()
+        _, m, ids = self.result()
+        self.assertEqual(ids, [])
+        self.assertFalse(self.fixture.client.session.calls)
+        self.assertFalse(m['source_qualification_comparisons'][0]['supported_parts'])
+
+    def test_p02_partial_support_enters_normal_conditional_pool(self):
+        old, before, ids = self.result(execute=False)
+        self.assertEqual(ids, [])
+        run, m, ids = self.result(target='/find-matches?run=' + old.match_run_id)
+        self.assertEqual(ids, [7003])
+        self.assertNotEqual(run.match_run_id, old.match_run_id)
+        self.assertEqual(m['score_components'], before['score_components'])
+        bg = m['source_qualification_comparisons'][0]
+        self.assertEqual(bg['status'], 'unresolved')
+        self.assertEqual(bg['components']['required_duration']['status'], 'unresolved')
+        self.assertEqual(bg['components']['responsibilities_and_depth']['status'], 'unresolved')
+        presented = browser._conditional_presentation_pool(run.recommendation_context)[0]
+        self.assertEqual(presented['conditional_admission_source'], 'accepted_task_professional_background')
+        self.assertEqual(presented['preview_section'], 'explore_only')
+        self.assertEqual(m['accepted_task_pre_review']['sections']['preview_section'], 'explore_only')
+        self.assertEqual(self.fixture.prepare()['items'][0]['state'], 'reusable')
+        same, _, ids = self.result(execute=False, target='/find-matches?run=' + run.match_run_id)
+        self.assertEqual(same.match_run_id, run.match_run_id)
+        self.assertEqual(ids, [7003])
+        self.assertEqual(len(self.fixture.client.session.calls), 1)
+
+    def test_c01_no_occupational_support_stays_out(self):
+        self.f.profile = profile('Biology researcher', 6)
+        self.fixture.client.session.relation = 'not_established'
+        _, m, ids = self.result()
+        self.assertEqual(ids, [])
+        self.assertEqual(m['source_qualification_comparisons'][0]['status'], 'unresolved')
+
+    def test_c02_shortfall_is_an_executed_veto_even_with_optimistic_support(self):
+        self.f.profile = duration_profile(2, role='Campaign adviser')
+        self.fixture.source(self.body.replace('Customer success / support operations', 'marketing'))
+        _, m, ids = self.result()
+        self.assertEqual(ids, [])
+        self.assertEqual(m['affirmative_fit_status'], 'conflicting')
+        self.assertEqual(m['primary_admission_source'], 'accepted_task_source_conditions')
+        self.assertTrue(m['affirmative_fit']['conflicting_requirements'])
+        self.assertEqual(m['source_task_fit']['conditions'][0]['status'], 'contradicted')
+        duration = m['source_qualification_comparisons'][0]['components']['required_duration']
+        self.assertEqual(duration['scope_results'][0]['upper_months'], '24')
+        self.assertEqual(duration['status'], 'contradicted')
+
+    def test_c03_exact_duration_does_not_resolve_ambiguous_occupation(self):
+        self.f.profile = duration_profile(5, role='Campaign adviser')
+        self.fixture.source(self.body.replace('Customer success / support operations', 'marketing'))
+        self.fixture.client.session.relation = 'ambiguous'
+        _, m, ids = self.result()
+        self.assertEqual(ids, [])
+        bg = m['source_qualification_comparisons'][0]
+        self.assertEqual(bg['components']['required_duration']['scope_results'][0]['lower_months'], '60')
+        self.assertEqual(bg['components']['required_duration']['status'], 'supported')
+        self.assertFalse(bg['supported_parts'])
+
+    def test_c04_degree_alternative_survives_without_new_conditional_fit(self):
+        background_cases.ProfessionalAlternativeTests.candidate(self.fixture, degree='marketing')
+        self.f.profile['experience']['recent_roles'] = ['Campaign adviser']
+        self.fixture.source(self.body.replace('Customer success / support operations', 'marketing').replace(
+            '2. **Native', 'Alternatively, a degree in marketing is sufficient.\n\n2. **Native'))
+        self.fixture.client.session.relation = 'ambiguous'
+        _, m, ids = self.result()
+        self.assertEqual(ids, [])
+        self.assertIsNone(m.get('conditional_task_fit'))
+        bg = m['source_qualification_comparisons'][0]
+        self.assertEqual(bg['status'], 'supported')
+        self.assertEqual(bg['components']['qualifying_routes']['status'], 'supported')
+        self.assertEqual(bg['components']['required_duration']['status'], 'contradicted')
+        self.assertFalse(m['affirmative_fit']['conflicting_requirements'])
+
+    def test_c05_proficiency_conflict_precedes_partial_occupational_support(self):
+        self.f.profile['languages'][0]['proficiency'] = 'basic'
+        self.fixture.source(self.body + '\n\n## Requirements\n\nNative English required.')
+        _, m, ids = self.result()
+        self.assertEqual(ids, [])
+        self.assertEqual(self.fixture.prepare()['items'][0]['state'], 'reusable')
+        self.assertEqual(m['source_language_checks'][0]['status'], 'contradicted')
+        self.assertNotIn('source_qualification_comparisons', m)
+
+    def test_replacement_removes_pool_and_saved_detail_membership(self):
+        run, m, ids = self.result()
+        self.assertEqual(ids, [7003])
+        self.fixture.client.session.relation = 'not_established'
+        self.fixture.execute(replace=True)
+        _, _, ids = self.result(execute=False, target='/find-matches?run=' + run.match_run_id)
+        self.assertEqual(ids, [])
+        response = self.f.get(variant_detail_url(m, run_id=run.match_run_id))
+        self.assertEqual(response.status, 200)
+        self.assertNotIn(b'Why this is a possibility', response.body)
+        self.assertEqual(len(self.fixture.client.session.calls), 2)
+
+    def test_invalid_response_never_creates_route(self):
+        self.fixture.client.session.mutate_output = lambda output: output.update(candidate_fact_ids=['invented'])
+        _, _, ids = self.result()
+        self.assertEqual(ids, [])
+        self.assertEqual(self.fixture.evidence.generation, 0)
+
+    def test_owner_profile_source_and_recipe_changes_remove_support(self):
+        changes = [lambda x: setattr(x.f, 'owner', 'b'),
+                   lambda x: setattr(x, 'revision', 'changed'),
+                   lambda x: x.f.profile['experience'].update(total_years=7),
+                   lambda x: x.source(self.body + '\n\nDifferent accepted content.'),
+                   lambda x: setattr(x.evidence, 'recipe', 'changed')]
+        for change in changes:
+            with self.subTest(change=changes.index(change)):
+                fixture = PreparationFixture()
+                self.addCleanup(fixture.close)
+                fixture.execute()
+                old, _ = fixture.current()
+                self.assertTrue(browser._conditional_presentation_matches(old.recommendation_context))
+                change(fixture)
+                current, m = fixture.current()
+                self.assertFalse(browser._conditional_presentation_matches(current.recommendation_context))
+                self.assertFalse(m['source_qualification_comparisons'][0]['supported_parts'])
+                self.assertEqual(len(fixture.client.session.calls), 1)
+
+    def test_stale_availability_cannot_use_additional_route(self):
+        self.result()
+        self.f.advance(24 * 9)
+        response = self.f.get('/find-matches')
+        self.assertEqual(response.status, 200)
+        self.assertFalse(browser._conditional_presentation_matches(self.f.last_run().recommendation_context))
+        self.assertEqual(len(self.fixture.client.session.calls), 1)
+
+    def test_policy_version_invalidates_recommendation_context(self):
+        from wahojobs.matching import accepted_tasks
+        run, _, _ = self.result()
+        with patch.object(accepted_tasks, 'TASK_ADMISSION_VERSION', 7):
+            previous, _, _ = self.result(execute=False, target='/find-matches?run=' + run.match_run_id)
+        current, _, ids = self.result(execute=False, target='/find-matches?run=' + previous.match_run_id)
+        self.assertNotEqual(previous.match_run_id, run.match_run_id)
+        self.assertNotEqual(current.match_run_id, previous.match_run_id)
+        self.assertEqual(ids, [7003])
+
+    def test_new_conditional_candidates_receive_strict_and_soft_preferences(self):
+        from tests.test_profile_preference_model import with_preference_model
+        from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+        for kind, expected in (('preferred', [7003]), ('strict', [])):
+            model = empty_profile_preferences_v1()
+            model['compensation'] = dict(minimum_kind=kind, amount='25', currency='USD', period='hour')
+            self.f.profile = with_preference_model(profile('Customer support specialist', 6), model)
+            run, _, ids = self.result()
+            self.assertEqual(ids, expected)
+            enforcement = run.recommendation_context['_typed_preference_enforcement']
+            self.assertIn('canonical:7002', enforcement['candidate_references'])
+            self.assertEqual('canonical:7002' in enforcement['surviving_references'], kind == 'preferred')
+
+    def test_generated_detail_and_action_references_keep_exact_owner_and_source(self):
+        import re
+        from html import unescape
+        from wahojobs.authenticated_variant_details import parse_variant_query
+        run, m, _ = self.result()
+        url = variant_detail_url(m, run_id=run.match_run_id)
+        self.assertEqual(parse_variant_query(url.split('?')[1]), dict(variant=7003, run=run.match_run_id))
+        response = self.f.get(url)
+        self.assertEqual(response.status, 200)
+        body = response.body.decode('utf-8')
+        self.assertIn('Why this is a possibility', body)
+        self.assertIn('The complete professional requirement is not established.', body)
+        self.assertIn('Original employer qualifications', body)
+        self.assertNotIn('OFFLINE LABELLED STUB', body)
+        action_run_id = re.search(r'name="match_run_id" value="([^"]+)"', body)[1]
+        key = unescape(re.search(r'name="opportunity_key" value="([^"]+)"', body)[1])
+        action_run = self.f.integration._registry._runs[action_run_id]
+        self.assertEqual(action_run.owner_profile_id, run.owner_profile_id)
+        action_match = next(m for m in browser.local_product.iter_match_run_opportunities(action_run)
+                            if browser.local_product.match_opportunity_key(m) == key)
+        self.assertEqual(action_match['job_id'], 7003)
+        self.assertEqual(action_match['url'], m['url'])
+        self.assertEqual(browser.local_product.resolve_run_opportunity(action_run, key)['url'], m['url'])
+        self.f.owner = 'b'
+        self.f.profile = profile()
+        self.f.profile['identity']['profile_id'] = 'prf_' + '0' * 31 + '2'
+        self.assertEqual(self.f.get(url).status, 404)
+        public_detail = self.f.get(variant_detail_url(m))
+        self.assertEqual(public_detail.status, 200)
+        self.assertNotIn(b'Your declared role has partial occupational relevance.', public_detail.body)
+        self.assertNotEqual(self.f.last_run().owner_profile_id, action_run.owner_profile_id)
+        self.assertEqual(len(self.fixture.client.session.calls), 1)
+
+    def test_same_canonical_variant_cannot_borrow_prepared_support(self):
+        self.f.update_inventory('UPDATE jobs SET canonical_opportunity_id=7002 WHERE id=7006')
+        self.fixture.source(self.body, job_id=7006)
+        run, m, ids = self.result()
+        self.assertEqual(ids, [7003])
+        foreign = dict(m, job_id=7006, url='https://jobs.example.test/synthetic-part-time')
+        response = self.f.get(variant_detail_url(foreign, run_id=run.match_run_id))
+        self.assertEqual(response.status, 200)
+        self.assertNotIn(b'Your declared role has partial occupational relevance.', response.body)
+        self.assertNotIn(b'Why this is a possibility', response.body)
+        self.assertEqual(len(self.fixture.client.session.calls), 1)
+
+
 class PreparationIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.fixture = PreparationFixture()
@@ -41,7 +259,8 @@ class PreparationIntegrationTests(unittest.TestCase):
         self.assertFalse(self.f.integration._registry._runs)
         self.fixture.execute()
         run, _ = self.fixture.current()
-        self.assertNotIn(7003, [m['job_id'] for m in browser._conditional_presentation_matches(run.recommendation_context)])
+        self.assertIn(7003, [m['job_id'] for m in browser._conditional_presentation_matches(run.recommendation_context)])
+        self.assertNotIn(7003, [m['job_id'] for m in browser._primary_presentation_matches(run.recommendation_context)])
 
     def test_no_support_and_ambiguous_results_are_reused(self):
         for relation in ('not_established', 'ambiguous', 'contradicted'):
