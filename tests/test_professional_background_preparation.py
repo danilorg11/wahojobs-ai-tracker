@@ -1009,3 +1009,145 @@ class StandardTierPreparationTests(unittest.TestCase):
     def test_tier_guard_precedes_interpretation_even_for_invalid_output(self):
         record = self.assert_tier_halt('invalid-output-tier', service_tier='priority', mode='malformed')
         self.assertEqual(record['reason'], 'provider_service_tier_unverified')
+
+
+class ModelIdentityBatchHaltTests(unittest.TestCase):
+    """Frozen pilot loop and configured parser; transport is always intercepted."""
+    setUp = PreparationIntegrationTests.setUp
+
+    def run_pilot(self, name, *, response=None, fail_at=1, misleading_message=False):
+        import io
+        import os
+        import requests
+        from scripts import professional_background_pilot as pilot
+        from tests.professional_background_preparation_support import intercepted_response
+        sent, raw = [], []
+        def send(adapter, request, **kwargs):
+            sent.append(request)
+            self.assertEqual(json.loads(request.body)['service_tier'], 'default')
+            options = dict(model='gpt-5-mini-2025-08-07', service_tier='default')
+            if len(sent) == fail_at:
+                options.update(response or {})
+            result = intercepted_response(request, **options)
+            if misleading_message:
+                data = json.loads(result.raw.getvalue())
+                data['error'] = {'message': 'invalid_preparation_model_identity'}
+                result.raw = io.BytesIO(json.dumps(data).encode())
+            raw.append(result.raw.getvalue())
+            return result
+        root = self.f.path.parent/name
+        with (patch.dict(os.environ, {'OPENAI_API_KEY': 'OFFLINE-NOT-A-CREDENTIAL',
+                                     'WAHOJOBS_OPENAI_ENRICHMENT_MODEL': 'gpt-5-mini'}),
+              patch.object(requests.adapters.HTTPAdapter, 'send', new=send)):
+            outcomes = pilot.run_pilot(root, mode='real', service_tier='default', authorize_real_requests=True,
+                                      budget=PreparationBudget(6, 150000, '0.04', '0.25', '2'))
+        ledger = json.loads((root/'pilot-ledger.json').read_text())
+        self.assertEqual(len(sent), ledger['accounting']['physical_attempts'])
+        for case, expected in zip([c for c in ledger['cases'] if c['physical_attempts']], raw):
+            self.assertEqual(next((root/case['case']).rglob('response.raw.json')).read_bytes(), expected)
+            self.assertEqual(len(list((root/case['case']).glob('attempt-*'))), 1)
+        return root, outcomes, ledger, sent
+
+    def assert_identity_halt(self, name, **response):
+        root, outcomes, ledger, sent = self.run_pilot(name, response=response)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(ledger['halted_reason'], 'pilot_response_model_identity_invalid')
+        self.assertEqual(ledger['cases'][1]['disposition'], 'failed')
+        self.assertTrue(all(c['disposition'] == 'unexecuted_model_identity' for c in ledger['cases'][2:]))
+        self.assertEqual(len(list(root.rglob('validated.json'))), 0)
+        self.assertEqual(len(list(root.rglob('failed.json'))), 1)
+        record = ledger['cases'][1]['records'][0]
+        self.assertEqual(record['execution_failure'], 'invalid_preparation_model_identity')
+        self.assertIsNone(record['usage']['estimated_cost_usd'])
+        self.assertEqual(record['requested_model'], 'gpt-5-mini')
+        self.assertEqual(record['returned_service_tier'], 'default')
+        self.assertEqual(ledger['accounting']['attempts'], 1)
+        self.assertEqual(ledger['accounting']['reserved_tokens'], 6384)
+        self.assertEqual(ledger['accounting']['reserved_usd'], '0.00518')
+        self.assertFalse(outcomes[1]['conditional_task_fit'])
+        failed = json.loads(next((root/'P02').rglob('failed.json')).read_text())
+        self.assertEqual(failed['execution_failure'], record['execution_failure'])
+        return record
+
+    def test_unapproved_model_default_tier_halts_before_next_case(self):
+        record = self.assert_identity_halt('unapproved', model='unapproved-offline-model')
+        self.assertEqual(record['reason'], 'invalid_preparation_model_identity')
+        self.assertEqual(record['returned_model'], 'unapproved-offline-model')
+        self.assertTrue(record['usage_known'])
+        self.assertEqual(record['usage']['input_tokens'], 100)
+        self.assertEqual(record['usage']['output_tokens'], 100)
+
+    def test_missing_malformed_and_prefix_identities_halt(self):
+        self.assert_identity_halt('missing-model', mode='missing_model')
+        for i, model in enumerate((None, True, {}, ['gpt-5-mini'], '', ' gpt-5-mini ', 'gpt-5-mini-unapproved')):
+            with self.subTest(model=model):
+                record = self.assert_identity_halt('bad-model-' + str(i), model=model)
+                self.assertEqual(record['returned_model'], model)
+
+    def test_approved_exact_and_resolved_pair_proceed_and_reuse(self):
+        for i, model in enumerate(('gpt-5-mini', 'gpt-5-mini-2025-08-07')):
+            root, outcomes, ledger, sent = self.run_pilot('approved-' + str(i), response=dict(model=model))
+            self.assertEqual(len(sent), 6)
+            self.assertIsNone(ledger['halted_reason'])
+            self.assertTrue(all(o['subsequent_lookup_states'] == ['reusable'] for o in outcomes[1:]))
+            self.assertNotIn('execution_failure', ledger['cases'][1]['records'][0])
+            self.assertEqual(ledger['cases'][1]['records'][0]['returned_model'], model)
+            self.assertTrue(outcomes[1]['conditional_task_fit'])
+
+    def test_later_identity_failure_preserves_earlier_success_evidence(self):
+        root, outcomes, ledger, sent = self.run_pilot('later', fail_at=2, response=dict(model='unapproved-model'))
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(ledger['cases'][1]['disposition'], 'published')
+        self.assertTrue(outcomes[1]['conditional_task_fit'])
+        self.assertEqual(outcomes[1]['subsequent_lookup_states'], ['reusable'])
+        self.assertEqual(len(list((root/'P02').rglob('validated.json'))), 1)
+        self.assertEqual(len(list((root/'C01_unrelated').rglob('failed.json'))), 1)
+        self.assertTrue(all(c['disposition'] == 'unexecuted_model_identity' for c in ledger['cases'][3:]))
+        self.assertEqual(ledger['accounting']['attempts'], 2)
+        self.assertEqual(ledger['accounting']['reserved_usd'], '0.01035775')
+
+    def test_parser_failures_do_not_hide_invalid_model_metadata(self):
+        for mode in ('refused', 'incomplete', 'malformed'):
+            # Whitespace must survive error-metadata parsing, not be trimmed
+            # into an approved alias before the local identity decision.
+            record = self.assert_identity_halt('parser-' + mode, mode=mode, model=' gpt-5-mini ')
+            self.assertEqual(record['returned_model'], ' gpt-5-mini ')
+            self.assertTrue(record['reason'].startswith('provider_'))
+
+    def test_unknown_usage_retains_reservation_without_pricing_unapproved_model(self):
+        record = self.assert_identity_halt('unknown-usage-model', model='unapproved-model', usage=False)
+        self.assertFalse(record['usage_known'])
+        self.assertIsNone(record['usage']['estimated_cost_usd'])
+
+    def test_unapproved_tier_retains_existing_halt_precedence(self):
+        root, _, ledger, sent = self.run_pilot('wrong-tier', response=dict(service_tier='priority', model='unapproved-model'))
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(ledger['halted_reason'], 'pilot_response_service_tier_unverified')
+        self.assertTrue(all(c['disposition'] == 'unexecuted_service_tier' for c in ledger['cases'][2:]))
+        self.assertEqual(len(list(root.rglob('validated.json'))), 0)
+
+    def test_conservative_result_is_reused_not_an_identity_failure(self):
+        _, outcomes, ledger, sent = self.run_pilot('conservative-identity', response=dict(relation='not_established'))
+        self.assertEqual(len(sent), 6)
+        self.assertIsNone(ledger['halted_reason'])
+        self.assertEqual(outcomes[1]['subsequent_lookup_states'], ['reusable'])
+        self.assertEqual(ledger['cases'][1]['records'][0]['relation'], 'not_established')
+        self.assertNotIn('execution_failure', ledger['cases'][1]['records'][0])
+
+    def test_ordinary_failures_with_approved_metadata_continue_without_retry(self):
+        for mode in ('refused', 'incomplete', 'malformed'):
+            root, outcomes, ledger, sent = self.run_pilot('ordinary-' + mode, response=dict(mode=mode))
+            self.assertEqual(len(sent), 6)
+            self.assertIsNone(ledger['halted_reason'])
+            self.assertEqual(ledger['cases'][1]['disposition'], 'failed')
+            self.assertEqual(outcomes[-1]['preparation_states'], ['published'])
+            self.assertEqual(len(list((root/'P02').glob('attempt-*'))), 1)
+            self.assertEqual(ledger['accounting']['attempts'], 6)
+            self.assertEqual(ledger['accounting']['reserved_usd'], '0.03103200')
+
+    def test_provider_error_message_cannot_classify_identity_failure(self):
+        _, _, ledger, sent = self.run_pilot('misleading-message', response=dict(status=503), misleading_message=True)
+        self.assertEqual(len(sent), 6)
+        self.assertIsNone(ledger['halted_reason'])
+        self.assertEqual(ledger['cases'][1]['records'][0]['reason'], 'provider_http_provider_error')
+        self.assertNotIn('execution_failure', ledger['cases'][1]['records'][0])

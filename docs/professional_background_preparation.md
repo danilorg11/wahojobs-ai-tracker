@@ -83,3 +83,20 @@ Each case executes once, then performs only a read-only inspection, including af
 The output directory must be new. Each run contains `pilot-plan.json`, `pilot-ledger.json` and a separate directory per case; each reserved attempt has `attempt-NN-<request-id>/request.json`, `dispatch.json`, unedited `response.raw.json` when available, and `validated.json` or `failed.json`. All writes are exclusive, and attempt/destination collisions are checked before dispatch. Raw bounded responses are saved before semantic validation/publication; transport failures with no response retain failure evidence instead. Existing evidence is never overwritten. A later explicitly authorized retry requires a distinct run directory and budget. The ledger distinguishes planned cases, selection skips, read-only reuse, reserved and physical attempts, outcomes, known usage and retained reservations. No automatic resume/retry service exists.
 
 The provider and attempt records are bounded and **process-local**. Restarting or using another worker/process loses them; no persistence or cross-worker synchronization is claimed. The pilot consumes each result in its same disposable process. A standalone CLI cannot prepare a separate live server's provider. A future live operator must use the retained runtime object's explicit method in that server process. Cross-process preparation would need an independently scoped persistence/lifecycle design; no migration is part of this change.
+
+## Pilot model-identity halt
+
+The preparer records `execution_failure: invalid_preparation_model_identity` only when the existing local model-identity validator fails. This structured code is independent of human/provider error messages and generated content. The pilot sets `halted_reason: pilot_response_model_identity_invalid` and marks remaining cases `unexecuted_model_identity`. A valid `default` service tier does not override this failure. The existing approved identity set is unchanged; valid conservative results remain reusable.
+
+Bounded error-response metadata retains the unmodified model value, including on refusal, incomplete or invalid generated output, so those outcomes cannot conceal a missing/malformed/unapproved identity. Available usage and the raw response remain recorded. An unapproved identity has no approved-model cost estimate (`estimated_cost_usd: null` in the attempt ledger); full request/token/USD reservations remain consumed. There is no refund, alternate-model request or retry. Earlier successful artifacts/results are retained. If both tier and identity fail, the existing service-tier halt takes precedence.
+
+| Outcome | Batch policy |
+|---|---|
+| Missing/malformed/unapproved returned model under the existing local policy | Halt; later cases `unexecuted_model_identity` |
+| Unverified returned tier, including a transport failure with no tier | Existing halt; later cases `unexecuted_service_tier` |
+| Refusal, incomplete, invalid semantic output or HTTP error with approved execution metadata | Finish the current case as failed; later planned cases may proceed within remaining bounds; never retry |
+| Valid conservative/no-support output | Publish/reuse normally; no new request for reuse |
+| Request/token/USD reservation exhausted | Existing `unexecuted_budget` disposition; no dispatch beyond the limit |
+| Configuration/authorization error escaping the pilot operation | Operation aborts; no automatic relaunch |
+
+This is a narrow model-identity halt, not a new general exception classification or retry framework. Other deterministic comparison, source/profile validity, transport and artifact policies remain unchanged.

@@ -120,7 +120,8 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
             save(folder/'subsequent-inspection.json', reused)
             accounting = fixture.preparer.accounting
             states = [item['state'] for item in result['items']]
-            disposition = ('unexecuted_service_tier' if halted else
+            disposition = ('unexecuted_model_identity' if halted == 'pilot_response_model_identity_invalid' else
+                           'unexecuted_service_tier' if halted else
                            'dry_run' if mode == 'dry-run' else
                            'failed' if 'failed' in states else
                            'published' if 'published' in states else
@@ -138,6 +139,9 @@ def run_pilot(output_dir, *, mode='dry-run', budget=None, authorize_real_request
             if any(r['physical_attempts'] and (type(r['returned_service_tier']) is not str
                        or r['returned_service_tier'] != service_tier) for r in entry['records']):
                 halted = 'pilot_response_service_tier_unverified'
+            elif any(r.get('execution_failure') == 'invalid_preparation_model_identity'
+                     for r in entry['records']):
+                halted = 'pilot_response_model_identity_invalid'
             run, match = fixture.current()
             outcome = dict(case=name, mode=mode, offline_stub=mode != 'real',
                 source_body_sha256=hashlib.sha256(source_body.encode()).hexdigest(),

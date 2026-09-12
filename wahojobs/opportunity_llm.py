@@ -217,7 +217,8 @@ class OpenAIStructuredEnrichmentClient:
             )
 
         metadata = response_metadata(data, self.model, http_status=http_status,
-                                     requested_service_tier=self.service_tier)
+                                     requested_service_tier=self.service_tier,
+                                     preserve_model_identity=max_response_bytes is not None)
         # Check transport metadata before interpreting output or publishing it.
         # An unresolved tier keeps usage but cannot claim a Standard cost.
         if self.service_tier == 'default' and not (
@@ -735,7 +736,8 @@ def response_contains_refusal(data: dict) -> bool:
     )
 
 
-def response_metadata(data: dict, model: str, *, http_status: int, requested_service_tier=None):
+def response_metadata(data: dict, model: str, *, http_status: int, requested_service_tier=None,
+                      preserve_model_identity=False):
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
     input_tokens = nonnegative_integer(usage.get("input_tokens"))
     output_tokens = nonnegative_integer(usage.get("output_tokens"))
@@ -744,7 +746,7 @@ def response_metadata(data: dict, model: str, *, http_status: int, requested_ser
         total_tokens = input_tokens + output_tokens
     return OpenAIResponseMetadata(
         response_id=nonempty_string(data.get("id")),
-        response_model=nonempty_string(data.get("model")),
+        response_model=data.get('model') if preserve_model_identity else nonempty_string(data.get("model")),
         response_status=nonempty_string(data.get("status")),
         http_status=http_status,
         input_tokens=input_tokens,

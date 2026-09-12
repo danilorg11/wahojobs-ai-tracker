@@ -49,6 +49,24 @@ def _encoded(value):
                       separators=(',', ':'), allow_nan=False).encode('utf-8')
 
 
+def _record_response_identity(record, response, requested_model):
+    """Retain bounded transport metadata, including on refusal/parser failure."""
+    record['usage'] = {k: getattr(response, k) for k in
+                       ('input_tokens', 'output_tokens', 'total_tokens', 'estimated_cost_usd')}
+    record.update(usage_known=response.usage_known, returned_model=response.response_model,
+                  returned_service_tier=response.response_service_tier)
+    try:
+        identity = validate_model_identity(requested_model, response.response_model)
+    except ValueError:
+        # A typed failure at this local validator, not a provider message or
+        # generated field, supplies the pilot's execution classification.
+        record['execution_failure'] = 'invalid_preparation_model_identity'
+        record['usage']['estimated_cost_usd'] = None
+        return None
+    record['model_identity'] = identity
+    return identity
+
+
 @dataclass(frozen=True)
 class PreparationBudget:
     """Lifetime reservations; failures retain their full reservation.
@@ -298,12 +316,9 @@ class ProfessionalBackgroundPreparer:
                         before_dispatch=before_dispatch,
                         response_sink=(lambda raw: self._audit_sink(dict(
                             event='response', request_id=key, attempt=record['attempt'], raw_response=raw))) if self._audit_sink else None)
-                    record['usage'] = {k: getattr(result, k) for k in
-                                       ('input_tokens', 'output_tokens', 'total_tokens', 'estimated_cost_usd')}
-                    record.update(usage_known=result.usage_known, returned_model=result.response_model,
-                                  returned_service_tier=result.response_service_tier)
-                    identity = validate_model_identity(self.evidence.model, result.response_model)
-                    record['model_identity'] = identity
+                    identity = _record_response_identity(record, result, self.evidence.model)
+                    if identity is None:
+                        raise ValueError('invalid_preparation_model_identity')
                     if (result.response_status != 'completed'
                             or type(result.http_status) is not int or not 200 <= result.http_status < 300
                             or any(type(getattr(result, k)) is not int or getattr(result, k) < 0
@@ -329,11 +344,7 @@ class ProfessionalBackgroundPreparer:
                     item.update(state='published', relation=output['relation'])
                 except Exception as exc:
                     if isinstance(exc, OpenAIEnrichmentError) and exc.response_metadata is not None:
-                        record['usage'] = {k: getattr(exc.response_metadata, k) for k in
-                                           ('input_tokens', 'output_tokens', 'total_tokens', 'estimated_cost_usd')}
-                        record.update(usage_known=exc.response_metadata.usage_known,
-                                      returned_model=exc.response_metadata.response_model,
-                                      returned_service_tier=exc.response_metadata.response_service_tier)
+                        _record_response_identity(record, exc.response_metadata, self.evidence.model)
                     # Never record arbitrary exception strings: transports may
                     # include credentials or candidate/source content.
                     reason = ('provider_' + str(exc.diagnostic.get('category', 'failed'))
