@@ -160,12 +160,17 @@ def build_request(packet, comparison, profile, context):
 
 
 def output_schema(request):
-    """Small model-facing schema; validation below also checks exact evidence."""
+    """Responses wire schema; exact evidence and uniqueness remain local.
+
+    Responses rejects uniqueItems. Do not add it here or deduplicate outputs:
+    validate_response checks the original array before any publication.
+    Each call builds a fresh schema; no shared internal schema is weakened.
+    """
     return dict(type='object', additionalProperties=False,
         required=['request_id', 'relation', 'candidate_fact_ids', 'source_span', 'rationale'], properties={
         'request_id': dict(type='string', enum=[request['request_id']]),
         'relation': dict(type='string', enum=['supported_partial', 'not_established', 'ambiguous', 'contradicted']),
-        'candidate_fact_ids': dict(type='array', uniqueItems=True, maxItems=len(request['candidate_facts']),
+        'candidate_fact_ids': dict(type='array', maxItems=len(request['candidate_facts']),
                                    items=dict(type='string', enum=list(request['candidate_facts']))),
         'source_span': dict(type='object', additionalProperties=False, required=['start', 'end'], properties={
             k: dict(type='integer', enum=[v]) for k, v in request['occupational_span'].items()}),
@@ -180,7 +185,7 @@ def validate_response(request, output):
             or output['relation'] not in ('supported_partial', 'not_established', 'ambiguous', 'contradicted')
             or type(output['candidate_fact_ids']) is not list
             or any(type(v) is not str or v not in request['candidate_facts'] for v in output['candidate_fact_ids'])
-            or len(set(output['candidate_fact_ids'])) != len(output['candidate_fact_ids'])
+            or any(v in output['candidate_fact_ids'][:i] for i, v in enumerate(output['candidate_fact_ids']))
             or (output['relation'] == 'supported_partial' and not output['candidate_fact_ids'])
             or type(output['source_span']) is not dict or output['source_span'] != request['occupational_span']
             or any(type(v) is not int for v in output['source_span'].values())

@@ -23,7 +23,9 @@ from wahojobs.professional_background_semantics import (
 from wahojobs.profile_intake.minimization import contains_detectable_contact_pii
 
 
-RECIPE = 'professional_background_preparation_v1'
+# Wire-schema compatibility revision; substantive instructions and local
+# semantic acceptance are unchanged. Recipe binding separates old requests.
+RECIPE = 'professional_background_preparation_v2'
 MAX_PAIRS = 8
 MAX_INPUT_BYTES = 24000
 MAX_OUTPUT_TOKENS = 2048

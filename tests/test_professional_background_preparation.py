@@ -943,7 +943,7 @@ class StandardTierPreparationTests(unittest.TestCase):
         self.assertEqual(ledger['halted_reason'], 'pilot_response_service_tier_unverified')
         self.assertEqual(ledger['accounting']['physical_attempts'], 1)
         self.assertEqual(ledger['accounting']['attempts'], 1)
-        self.assertEqual(ledger['accounting']['reserved_usd'], '0.00518')
+        self.assertEqual(ledger['accounting']['reserved_usd'], '0.00517525')
         self.assertFalse(outcomes[1]['conditional_task_fit'])
         self.assertEqual(len(list(root.rglob('validated.json'))), 0)
         if raw:
@@ -970,7 +970,7 @@ class StandardTierPreparationTests(unittest.TestCase):
     def test_unknown_usage_and_tier_retain_full_reservation(self):
         record = self.assert_tier_halt('unknown-usage', mode='missing_tier', usage=False)
         self.assertFalse(record['usage_known'])
-        self.assertEqual(record['reserved_tokens'], 6384)
+        self.assertEqual(record['reserved_tokens'], 6365)
         self.assertIsNone(record['usage']['estimated_cost_usd'])
 
     def test_api_rejection_without_tier_halts_without_fallback(self):
@@ -1062,8 +1062,8 @@ class ModelIdentityBatchHaltTests(unittest.TestCase):
         self.assertEqual(record['requested_model'], 'gpt-5-mini')
         self.assertEqual(record['returned_service_tier'], 'default')
         self.assertEqual(ledger['accounting']['attempts'], 1)
-        self.assertEqual(ledger['accounting']['reserved_tokens'], 6384)
-        self.assertEqual(ledger['accounting']['reserved_usd'], '0.00518')
+        self.assertEqual(ledger['accounting']['reserved_tokens'], 6365)
+        self.assertEqual(ledger['accounting']['reserved_usd'], '0.00517525')
         self.assertFalse(outcomes[1]['conditional_task_fit'])
         failed = json.loads(next((root/'P02').rglob('failed.json')).read_text())
         self.assertEqual(failed['execution_failure'], record['execution_failure'])
@@ -1104,7 +1104,7 @@ class ModelIdentityBatchHaltTests(unittest.TestCase):
         self.assertEqual(len(list((root/'C01_unrelated').rglob('failed.json'))), 1)
         self.assertTrue(all(c['disposition'] == 'unexecuted_model_identity' for c in ledger['cases'][3:]))
         self.assertEqual(ledger['accounting']['attempts'], 2)
-        self.assertEqual(ledger['accounting']['reserved_usd'], '0.01035775')
+        self.assertEqual(ledger['accounting']['reserved_usd'], '0.01034825')
 
     def test_parser_failures_do_not_hide_invalid_model_metadata(self):
         for mode in ('refused', 'incomplete', 'malformed'):
@@ -1143,7 +1143,7 @@ class ModelIdentityBatchHaltTests(unittest.TestCase):
             self.assertEqual(outcomes[-1]['preparation_states'], ['published'])
             self.assertEqual(len(list((root/'P02').glob('attempt-*'))), 1)
             self.assertEqual(ledger['accounting']['attempts'], 6)
-            self.assertEqual(ledger['accounting']['reserved_usd'], '0.03103200')
+            self.assertEqual(ledger['accounting']['reserved_usd'], '0.03100350')
 
     def test_provider_error_message_cannot_classify_identity_failure(self):
         _, _, ledger, sent = self.run_pilot('misleading-message', response=dict(status=503), misleading_message=True)
@@ -1151,3 +1151,197 @@ class ModelIdentityBatchHaltTests(unittest.TestCase):
         self.assertIsNone(ledger['halted_reason'])
         self.assertEqual(ledger['cases'][1]['records'][0]['reason'], 'provider_http_provider_error')
         self.assertNotIn('execution_failure', ledger['cases'][1]['records'][0])
+
+
+class StructuredOutputCompatibilityTests(unittest.TestCase):
+    """Bounded checks for this schema, not an authoritative API validator."""
+    setUp = PreparationIntegrationTests.setUp
+    configured_fixture = PreparationReviewRegressionTests.configured_fixture
+    run_pilot = ModelIdentityBatchHaltTests.run_pilot
+
+    def exchange(self, fixture, transform=lambda output: None):
+        import io
+        import requests
+        from tests.professional_background_preparation_support import intercepted_response
+        sent, raw = [], []
+        def send(adapter, request, **kwargs):
+            sent.append(json.loads(request.body))
+            response = intercepted_response(request, model='gpt-5-mini-2025-08-07')
+            data = json.loads(response.raw.getvalue())
+            output = json.loads(data['output'][0]['content'][0]['text'])
+            transform(output)
+            data['output'][0]['content'][0]['text'] = json.dumps(output)
+            response.raw = io.BytesIO(json.dumps(data).encode())
+            raw.append(response.raw.getvalue())
+            return response
+        with patch.object(requests.adapters.HTTPAdapter, 'send', new=send):
+            result = fixture.execute()
+        return result, sent, raw
+
+    def test_complete_frozen_case_wire_schemas_and_settings(self):
+        _, outcomes, _, sent = self.run_pilot('schema-all-cases')
+        self.assertEqual(len(sent), 6)
+        self.assertEqual(outcomes[0]['preparation_states'], ['skipped'])
+        for request in sent:
+            body = json.loads(request.body)
+            self.assertEqual(body['model'], 'gpt-5-mini')
+            self.assertEqual(body['service_tier'], 'default')
+            self.assertEqual(body['reasoning'], {'effort': 'low'})
+            self.assertIs(body['store'], False)
+            self.assertEqual(body['max_output_tokens'], 2048)
+            fmt = body['text']['format']
+            self.assertEqual({k:v for k,v in fmt.items() if k != 'schema'},
+                             dict(type='json_schema', name='professional_occupational_relation', strict=True))
+            schema = fmt['schema']
+            payload = json.loads(body['input'][1]['content'][0]['text'])
+            # Full, explicit shape: both objects require every field and close
+            # additional properties; no definitions/composition hidden inside.
+            fields = ['request_id', 'relation', 'candidate_fact_ids', 'source_span', 'rationale']
+            self.assertEqual(set(schema), {'type', 'additionalProperties', 'required', 'properties'})
+            self.assertEqual(schema['type'], 'object')
+            self.assertIs(schema['additionalProperties'], False)
+            self.assertEqual(schema['required'], fields)
+            self.assertEqual(set(schema['properties']), set(fields))
+            p = schema['properties']
+            self.assertEqual(p['request_id'], dict(type='string', enum=[payload['request_id']]))
+            self.assertEqual(p['relation'], dict(type='string', enum=[
+                'supported_partial', 'not_established', 'ambiguous', 'contradicted']))
+            self.assertEqual(p['candidate_fact_ids'], dict(type='array',
+                maxItems=len(payload['candidate_facts']), items=dict(type='string',
+                    enum=[fact['id'] for fact in payload['candidate_facts']])))
+            self.assertEqual(p['source_span'], dict(type='object', additionalProperties=False,
+                required=['start', 'end'], properties={k:dict(type='integer', enum=[v])
+                                                       for k,v in payload['occupational_span'].items()}))
+            self.assertEqual(p['rationale'], dict(type='string', minLength=1, maxLength=600))
+            self.assertNotIn('uniqueItems', json.dumps(schema))
+            # These six variants have 7 properties, 2 object levels and tiny
+            # enums/string totals relative to the documented limits.
+            self.assertLess(len(json.dumps(schema)), 120000)
+            self.assertLess(len(payload['candidate_facts']) + 7, 1000)
+
+    def test_duplicate_ids_rejected_without_deduplication_or_publication(self):
+        from tests.test_accepted_title_uncertainty import candidate, v2, field_sources_for_profile
+        events = []
+        fixture = self.configured_fixture(service_tier='default', audit_sink=events.append)
+        p = candidate(['Data annotation', 'Model output evaluation'])
+        p['experience']['recent_roles'] = ['Customer support specialist', 'Customer service adviser']
+        p['provenance']['field_sources'] = field_sources_for_profile(p, 'user_confirmation', explicit=True)
+        fixture.f.profile = v2(p)
+        def duplicate(output):
+            self.assertEqual(len(output['candidate_fact_ids']), 2)
+            output['candidate_fact_ids'][1] = output['candidate_fact_ids'][0]
+        result, sent, raw = self.exchange(fixture, duplicate)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]['text']['format']['schema']['properties']['candidate_fact_ids']['maxItems'], 2)
+        self.assertEqual(result['items'][0]['reason'], 'invalid_professional_relation_output')
+        self.assertEqual(fixture.evidence.generation, 0)
+        self.assertFalse(any(e['event'] == 'validated' for e in events))
+        self.assertEqual(next(e['raw_response'] for e in events if e['event'] == 'response'), raw[0])
+        data = json.loads(raw[0]); original = json.loads(data['output'][0]['content'][0]['text'])
+        self.assertEqual(len(original['candidate_fact_ids']), 2)
+        self.assertEqual(original['candidate_fact_ids'][0], original['candidate_fact_ids'][1])
+        with patch('requests.adapters.HTTPAdapter.send') as dispatch:
+            fixture.execute()  # exhausted slot cannot become a replacement attempt
+            _, match = fixture.current()
+        dispatch.assert_not_called()
+        self.assertNotIn('semantic', match['source_qualification_comparisons'][0]['components']['occupational_relevance'])
+        self.assertEqual(fixture.preparer.accounting['physical_attempts'], 1)
+
+    def test_unique_ids_reach_consumer_and_reuse_without_get_dispatch(self):
+        fixture = self.configured_fixture(service_tier='default')
+        result, sent, _ = self.exchange(fixture)
+        self.assertEqual(result['items'][0]['state'], 'published')
+        with patch('requests.adapters.HTTPAdapter.send') as dispatch:
+            self.assertEqual(fixture.execute()['items'][0]['state'], 'reusable')
+            _, match = fixture.current()
+            self.assertEqual(fixture.f.get(variant_detail_url(match)).status, 200)
+        dispatch.assert_not_called()
+        self.assertEqual(len(sent), 1)
+        semantic = match['source_qualification_comparisons'][0]['components']['occupational_relevance']['semantic']
+        self.assertEqual(semantic['basis'], 'semantic_model_output')
+        self.assertEqual(match['preview_section'], 'explore_only')
+
+    def test_empty_conservative_evidence_remains_valid_and_reusable(self):
+        for relation in ('not_established', 'ambiguous', 'contradicted'):
+            fixture = self.configured_fixture(service_tier='default')
+            result, sent, _ = self.exchange(fixture, lambda o: o.update(relation=relation, candidate_fact_ids=[]))
+            self.assertEqual(result['items'][0]['state'], 'published')
+            with patch('requests.adapters.HTTPAdapter.send') as dispatch:
+                self.assertEqual(fixture.execute()['items'][0]['relation'], relation)
+                _, match = fixture.current()
+            dispatch.assert_not_called()
+            self.assertEqual(len(sent), 1)
+            self.assertFalse(match['source_qualification_comparisons'][0]['supported_parts'])
+
+    def test_foreign_invented_mismatched_and_empty_support_rejected(self):
+        mutations = [dict(candidate_fact_ids=['fact:foreign-owner']), dict(candidate_fact_ids=['fact:invented']),
+                     dict(request_id='other-request'), dict(source_span=dict(start=0, end=1)),
+                     dict(candidate_fact_ids=[]), dict(rationale=''), dict(rationale='x' * 601),
+                     dict(candidate_fact_ids=[1]), dict(extra_field=True)]
+        for change in mutations:
+            fixture = self.configured_fixture(service_tier='default')
+            result, sent, _ = self.exchange(fixture, lambda o: o.update(change))
+            self.assertEqual(result['items'][0]['reason'], 'invalid_professional_relation_output')
+            self.assertEqual(len(sent), 1)
+            self.assertEqual(fixture.evidence.generation, 0)
+
+    def test_fact_reuse_across_distinct_components_is_not_global_duplication(self):
+        fixture = self.configured_fixture(limit=2, service_tier='default')
+        fixture.source(BODY + '\n\n## Requirements\n\n5+ years of relevant professional experience in Customer service.')
+        result, sent, _ = self.exchange(fixture)
+        self.assertEqual([i['state'] for i in result['items']], ['published', 'published'])
+        self.assertEqual(len(sent), 2)
+        payloads = [json.loads(b['input'][1]['content'][0]['text']) for b in sent]
+        self.assertEqual(payloads[0]['candidate_facts'], payloads[1]['candidate_facts'])
+        self.assertNotEqual(payloads[0]['request_id'], payloads[1]['request_id'])
+        _, match = fixture.current()
+        rows = [r for r in match['source_qualification_comparisons'] if r['kind'] == 'professional_background']
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all('semantic' in r['components']['occupational_relevance'] for r in rows))
+
+    def test_schema_builder_is_fresh_and_recipe_separates_old_bindings(self):
+        from wahojobs.professional_background_semantics import output_schema
+        from wahojobs.professional_background_preparation import RECIPE
+        self.assertEqual(RECIPE, 'professional_background_preparation_v2')
+        request = dict(request_id='local-test', candidate_facts={'fact:a': {}}, occupational_span=dict(start=1, end=2))
+        original = deepcopy(request)
+        first = output_schema(request)
+        first['properties']['candidate_fact_ids']['items']['enum'].append('fact:untrusted')
+        self.assertEqual(output_schema(request)['properties']['candidate_fact_ids']['items']['enum'], ['fact:a'])
+        self.assertEqual(request, original)
+
+    def test_preserved_schema_error_halts_without_fallback_and_retains_evidence(self):
+        import io
+        import os
+        import requests
+        from scripts import professional_background_pilot as pilot
+        from tests.professional_background_preparation_support import intercepted_response
+        # Exact error content from the real failed request, replayed OFFLINE.
+        raw = b'{\n  "error": {\n    "message": "Invalid schema for response_format \'professional_occupational_relation\': In context=(\'properties\', \'candidate_fact_ids\'), \'uniqueItems\' is not permitted.",\n    "type": "invalid_request_error",\n    "param": "text.format.schema",\n    "code": "invalid_json_schema"\n  }\n}'
+        sent = []
+        def send(adapter, request, **kwargs):
+            sent.append(request)
+            response = intercepted_response(request, status=400)
+            response.raw = io.BytesIO(raw)
+            return response
+        root = self.f.path.parent/'preserved-api-schema-error'
+        with (patch.dict(os.environ, {'OPENAI_API_KEY': 'OFFLINE-NOT-A-CREDENTIAL',
+                                     'WAHOJOBS_OPENAI_ENRICHMENT_MODEL': 'gpt-5-mini'}),
+              patch.object(requests.adapters.HTTPAdapter, 'send', new=send)):
+            pilot.run_pilot(root, mode='real', service_tier='default', authorize_real_requests=True,
+                            budget=PreparationBudget(6, 150000, '0.04', '0.25', '2'))
+        ledger = json.loads((root/'pilot-ledger.json').read_text())
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(ledger['halted_reason'], 'pilot_response_service_tier_unverified')
+        self.assertTrue(all(c['disposition'] == 'unexecuted_service_tier' for c in ledger['cases'][2:]))
+        self.assertEqual(len(list(root.rglob('validated.json'))), 0)
+        self.assertEqual(len(list(root.rglob('failed.json'))), 1)
+        self.assertEqual(next(root.rglob('response.raw.json')).read_bytes(), raw)
+        self.assertEqual(ledger['accounting']['physical_attempts'], 1)
+        self.assertEqual(ledger['accounting']['reserved_tokens'], 6365)
+        self.assertEqual(ledger['accounting']['reserved_usd'], '0.00517525')
+        record = ledger['cases'][1]['records'][0]
+        self.assertFalse(record['usage_known'])
+        self.assertIsNone(record['usage']['estimated_cost_usd'])
+        self.assertIsNone(record['returned_model'])
+        self.assertIsNone(record['returned_service_tier'])

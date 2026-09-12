@@ -100,3 +100,30 @@ Bounded error-response metadata retains the unmodified model value, including on
 | Configuration/authorization error escaping the pilot operation | Operation aborts; no automatic relaunch |
 
 This is a narrow model-identity halt, not a new general exception classification or retry framework. Other deterministic comparison, source/profile validity, transport and artifact policies remain unchanged.
+
+The preparation v2 recipe changes only wire compatibility: `candidate_fact_ids`
+no longer emits `uniqueItems`, which the actual Responses request rejected.
+Local validation examines the original array and rejects repeated references
+before publication; it never repairs or deduplicates output. Uniqueness applies
+within each response, not across separate comparison components. Conservative
+relations may still use empty evidence arrays; partial support still requires
+at least one exact, supplied fact reference. The semantic version and substantive
+instructions are unchanged; the recipe revision mechanically changes bound
+request/plan IDs and corresponding singleton schema enums.
+
+The [official Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs)
+was inspected on 2026-09-12. This pilot uses strict closed objects with all fields
+required, enums, integer spans and an array `maxItems` bound. Its one nested
+object and six emitted variants were checked; there are no definitions or
+composition branches. Rationale length bounds remain on the wire and locally;
+the guide lists their exclusion for fine-tuned models, while this pilot uses the
+base model. General JSON Schema validity is not API compatibility. These bounded
+checks do not constitute an official validator or prove future remote acceptance.
+
+The rejected real run remains one consumed physical attempt with unknown actual
+usage/cost and retained USD 0.00518 / 6,384 reserved token units. A successor
+freeze is not a budget reset or retry authorization. Executing P02 and the five
+controls again would add six NEW attempts (seven cumulative), requiring separate
+explicit authorization, a fresh non-overwriting destination and reconciliation
+of that retained reservation. P01 remains a no-call selection outcome. No real
+execution is authorized by this compatibility correction.
