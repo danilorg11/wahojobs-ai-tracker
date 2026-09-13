@@ -94,7 +94,8 @@ class LocalLoginNavigation:
 
 
 @contextmanager
-def existing_owner_local_login(configuration_path, *, account_id, clock):
+def existing_owner_local_login(configuration_path, *, account_id, clock,
+                               professional_background_preparer=None):
     """Use the stored provider identity, never an owner chosen by a request."""
     configuration_path = Path(configuration_path).resolve(strict=True)
     document = json.loads(configuration_path.read_text(encoding="utf-8"))
@@ -188,7 +189,7 @@ def existing_owner_local_login(configuration_path, *, account_id, clock):
         product = _build_profile_integration(connections, SimpleNamespace(
             environment_namespace=document["environment"], public_origin=origin,
             public_job_canary_gate=PublicJobCanaryRoutingGate.disabled(),
-        ), clock)
+        ), clock, professional_background_preparer=professional_background_preparer)
         stack.callback(product.close)
         browser = DurableGoogleLoginBrowserIntegration(
             public_origin=origin, profile_integration=product,

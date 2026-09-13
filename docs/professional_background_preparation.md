@@ -4,7 +4,7 @@ This is a default-disabled, explicit operator operation. Preparation executes in
 
 ## Connected invocation
 
-The supported composition accepts `professional_background_preparer` in `build_workos_authkit_staging_runtime(...)` and `_build_profile_integration(...)`. Both leave it `None` by default; environment flags alone cannot activate it. The returned runtime/profile integration exposes `prepare_professional_background(...)`. The browser integration passes its own authenticated profile service and read-only connection provider to the preparer, and uses **that preparer's evidence instance** for matching.
+The supported composition accepts `professional_background_preparer` in `build_workos_authkit_staging_runtime(...)`, `_build_profile_integration(...)`, and the existing-owner `scripts.local_recovery_login.existing_owner_local_login(...)` context manager. Each leaves it `None` by default; environment flags alone cannot activate it. The local wrapper forwards the same supplied instance to the builder after its existing identity, profile ownership and database checks. This keyword is trusted application configuration, never request input. The returned runtime/profile integration exposes `prepare_professional_background(...)`. The browser integration passes its own authenticated profile service and read-only connection provider to the preparer, and uses **that preparer's evidence instance** for matching and exact details.
 
 For a future explicitly authorized composition, construct the preparer with `configured_background_preparer(enabled=True, allow_real_requests=True, budget=budget, audit_sink=sink)`, then inject it when constructing the runtime. The factory uses the existing `configured_openai_client`, `OPENAI_API_KEY` and `WAHOJOBS_OPENAI_ENRICHMENT_MODEL` configuration. This task does not change a running composition, start a server or authorize that configuration.
 
@@ -120,6 +120,23 @@ preparer = ProfessionalBackgroundPreparer(evidence)  # disabled; no client or bu
 # Inject professional_background_preparer=preparer into the supported runtime.
 # Authenticate normally. Matches/detail and selective dry-run can now reuse.
 ```
+
+For the existing local recovery launcher, after **separate explicit companion initialization** as above, the supported construction is:
+
+```python
+from scripts.local_recovery_login import existing_owner_local_login, RealtimeClock
+
+# path, original_requested_model and original_basis are trusted operator settings.
+# Construct evidence and preparer as above: disabled, with no client or budget.
+with existing_owner_local_login(
+    configuration_path, account_id=existing_account_id, clock=RealtimeClock(),
+    professional_background_preparer=preparer,
+) as (configuration, application):
+    # Serve application through the existing local recovery handler/lifecycle.
+    ...
+```
+
+Omitting the keyword retains the existing local-login behavior. This wrapper neither initializes storage nor authorizes preparation; login and ordinary profile/Matches/detail reads do not dispatch a model. Missing or incompatible storage still fails explicitly at store construction, and later outages retain the provider's unavailable outcome rather than an in-memory fallback. Keep one configured instance for the composition's lifetime; a fresh composition constructs its own provider against the same explicitly initialized companion. The existing process/ownership and acceptance-guard requirements below apply unchanged. This wiring does not edit or activate any external recovery launcher. `tests.test_local_recovery_login.LocalRecoveryPreparationTests` exercises this exact entry point using disposable HTTPS local authentication, empty storage, offline publication followed by fresh disabled consumption, owner/profile protection and storage failures. The separately recorded multi-process persistence proof remains the durability evidence.
 
 Stored authority is a **derived comparison**, never a confirmed candidate fact or global source enrichment. A record contains the validated output, exact existing binding, transport model identity and bounded original generation provenance: response ID/status/HTTP status, requested/returned tier, original local UTC preparation receipt time, usage/knownness and the originating attempt/reservations. The receipt timestamp is not the provider envelope's creation timestamp and is never renewed on read. The request digest also commits to all confirmed fact references and full accepted context; those are rebuilt, not copied into a second profile/source store. No raw response, full profile, full source body, session/cookie/credential, form token, HTML, ranking or match-run object is stored. Historical usage is never restored into the new preparer's counters or treated as a new charge/request slot.
 
