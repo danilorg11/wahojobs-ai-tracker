@@ -101,10 +101,12 @@ def education_editor(entries, *, validate=True):
 
 def employment_records(raw):
     """Keep each record intact, including commas in an employer/date line."""
-    from wahojobs.profiles.canonical_v2 import _validate_string_list, MAX_DYNAMIC_LABEL_LENGTH
+    from wahojobs.profiles.canonical_v2 import _validate_string_list, MAX_DYNAMIC_LABEL_LENGTH, normalize_comparison_label
     if type(raw) is not str:
         raise ValueError("Review the employment details.")
     values = json.loads(raw) if raw.startswith('[') else ([raw] if raw else [])
+    if isinstance(values, list) and all(isinstance(value, str) for value in values):
+        values = sorted(values, key=normalize_comparison_label)
     errors = []
     _validate_string_list(values, errors, limit=128, item_length=MAX_DYNAMIC_LABEL_LENGTH)
     if errors:

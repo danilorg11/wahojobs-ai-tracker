@@ -505,6 +505,10 @@ class ProfileIntakeBrowserIntegration:
     def matches_route(self, path):
         return path in {PROFILE_INTAKE_ROUTE, PROFILE_INTAKE_REVIEW_ROUTE}
 
+    @property
+    def extraction_available(self):
+        return not self._closed and self._processing.extraction_available
+
     def handle(self, method, target, authentication_input=None, body_stream=None):
         if self.closed:
             return _failure("unavailable")
@@ -624,6 +628,8 @@ class ProfileIntakeBrowserIntegration:
                 )
             if preflight != "eligible":
                 return _failure(_preflight_error_code(preflight))
+            if not self.extraction_available:
+                return _failure("extraction_unavailable")
             proof = profile_intake_csrf_proof(csrf_secret, "upload")
             return _form_page_response(
                 HTTPStatus.OK,
@@ -693,6 +699,8 @@ class ProfileIntakeBrowserIntegration:
             if preflight == "checkpoint_available":
                 return _failure("checkpoint_available")
             return _failure(_preflight_error_code(preflight))
+        if not self.extraction_available:
+            return _failure("extraction_unavailable")
         parsed_upload = _parse_multipart_upload(headers, body_stream)
         if type(parsed_upload) is str:
             return _failure(parsed_upload)
@@ -3446,7 +3454,7 @@ def _failure(code):
         "malformed_document": (422, "Document could not be read", "Export a fresh text-based PDF or DOCX and try again."),
         "encrypted_pdf": (422, "Encrypted PDF not supported", "Remove the PDF password and try again."),
         "no_readable_text": (422, "No readable text found", "Scanned and image-only PDFs are not supported yet."),
-        "extraction_unavailable": (503, "AI extraction unavailable", "Try again later, or create your profile manually."),
+        "extraction_unavailable": (503, "Document import unavailable", "Document extraction is not available right now. Your saved review, if any, is preserved. Create your profile manually or return later."),
         "in_flight": (409, "Import already processing", "Wait for the current import to finish."),
         "unavailable": (503, "Profile intake unavailable", "Try again later, or create your profile manually."),
     }.get(code, (503, "Profile intake unavailable", "Try again later, or create your profile manually."))

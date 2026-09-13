@@ -128,6 +128,35 @@ def existing_owner_local_login(configuration_path, *, account_id, clock,
         redirect_uri=document["google_redirect_uri"], subject=identities[0][0],
         account_id=account_id, principal_id=bindings[0][0], profile_id="", clock=clock,
     )
+    with controlled_local_product(state, professional_background_preparer=professional_background_preparer) as result:
+        yield result
+
+
+@contextmanager
+def controlled_local_product(state, *, professional_background_preparer=None, allow_invited=False):
+    """Shared local fixture composition; new subjects require an enabled invitation.
+
+    The caller supplies a private synthetic state, never a browser-selected owner.
+    Existing-owner recovery always uses allow_invited=False.
+    """
+    configuration_path = state.configuration_path
+    document = json.loads(configuration_path.read_text(encoding='utf-8'))
+    origin = document['public_origin']
+    path = state.database_path
+    clock = state.clock
+    parsed = urlsplit(origin)
+    if (parsed.hostname != 'localhost' or parsed.scheme != 'https' or document['bind_host'] != '127.0.0.1'
+            or parsed.port != document['bind_port']):
+        raise ValueError('local_login_requires_loopback')
+    if allow_invited and (parsed.port == 8802 or not (state.directory/'first-time-candidate.json').is_file()):
+        raise ValueError('synthetic_invitation_fixture_required')
+    if allow_invited:
+        marker = json.loads((state.directory/'first-time-candidate.json').read_text(encoding='utf-8'))
+        if (type(state) is not TemporaryBrowserLoginState
+                or marker.get('synthetic_first_time_candidate_v1') is not True
+                or path.resolve().parent != state.directory.resolve()
+                or configuration_path.resolve().parent != state.directory.resolve()):
+            raise ValueError('synthetic_invitation_fixture_required')
     from wahojobs.database_lifetime_ownership import (
         acquire_database_lifetime_ownership, release_database_lifetime_ownership,
         ROLE_DURABLE_RUNTIME,
@@ -171,12 +200,13 @@ def existing_owner_local_login(configuration_path, *, account_id, clock,
                     or connection.execute('PRAGMA foreign_key_check').fetchone() is not None):
                 raise ValueError('recovery_database_attestation_failed')
         secret, invitation, lookup, protection = _load_authority_material(config)
-        if invitation is not None:
+        if invitation is not None and not allow_invited:
             raise ValueError('local_recovery_does_not_provision_accounts')
         harness = make_real_gateway(
             clock=clock, client_id=config.google_client_id, client_secret=secret,
             redirect_uri=config.google_redirect_uri, subject=state.subject,
             environment_namespace=config.environment,
+            invitation_lookup_key=invitation,
         )
         state.gateway_harnesses.append(harness)
         stack.callback(state.close_harnesses)
@@ -205,5 +235,6 @@ def existing_owner_local_login(configuration_path, *, account_id, clock,
             now=clock, process_guard=connections.require_available,
         )
         stack.callback(browser.close)
-        bridge = _ControlledProviderBridge(browser, state, [])
+        bridge = _ControlledProviderBridge(browser, state, [], claims_overrides=(
+            {'email': 'new-candidate@example.test', 'email_verified': True} if allow_invited else None))
         yield config.public_configuration, LocalLoginNavigation(bridge)

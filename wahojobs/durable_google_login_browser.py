@@ -33,7 +33,7 @@ LOGOUT_ROUTE = "/logout"
 AUTHENTICATED_DESTINATION = "/account/profile"
 PERSISTENT_PROFILE_ROUTE = AUTHENTICATED_DESTINATION
 FIND_MATCHES_ROUTE = "/find-matches"
-_WORKFLOW_ROUTES = frozenset({'/tracker', '/tracker/item', '/action'})
+_WORKFLOW_ROUTES = frozenset({'/tracker', '/tracker/item', '/action', '/account/profile/intake', '/account/profile/intake/review'})
 
 LOGIN_CSRF_COOKIE_NAME = "__Host-wahojobs_login_csrf"
 GOOGLE_TRANSACTION_COOKIE_NAME = "__Host-wahojobs_google_tx"

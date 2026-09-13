@@ -1554,6 +1554,10 @@ class ProfileIntakeProcessingService:
     def durable_save_enabled(self):
         return self._durable is not None
 
+    @property
+    def extraction_available(self):
+        return self._adapter is not None
+
     def preflight(self, grant):
         _grant_binding(grant)
         self._vault.expire_bound(grant)

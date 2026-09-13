@@ -8,6 +8,7 @@ this is a DOM integration test, not a full browser/CSP/layout assertion.
 """
 from contextlib import closing
 import json
+import base64
 import os
 from pathlib import Path
 import shutil
@@ -34,26 +35,33 @@ def persisted_state(state):
             'transitions':[dict(r) for r in connection.execute('SELECT * FROM user_pipeline_transitions ORDER BY rowid')]}
 
 
-def run_client(state, mode, *, evidence=None):
+def run_client(state, mode, *, evidence=None, script=SCRIPT, observe=persisted_state, fixture=None):
     if evidence is None and os.environ.get('WAHOJOBS_CLIENT_EVIDENCE'):
         evidence=Path(os.environ['WAHOJOBS_CLIENT_EVIDENCE'])/(mode+'.json')
         evidence.parent.mkdir(parents=True,exist_ok=True)
+        suffix = 2
+        while evidence.exists():
+            evidence = evidence.with_name(mode+'-'+str(suffix)+'.json')
+            suffix += 1
     node=os.environ.get('WAHOJOBS_CLIENT_NODE') or shutil.which('node')
     if not node:
         raise AssertionError('Node 22+ required; install tests/client_dom with npm ci (no silent skip).')
     env=dict(os.environ)
-    env.setdefault('NODE_PATH',str(SCRIPT.parent/'client_dom'/'node_modules'))
+    env.setdefault('NODE_PATH',str(script.parent/'client_dom'/'node_modules'))
     cookies, wire, result = {}, [], None
     # Explicit flags also permit modules within a restricted Windows workspace.
-    with subprocess.Popen([node,'--preserve-symlinks','--preserve-symlinks-main',str(SCRIPT),
+    with subprocess.Popen([node,'--preserve-symlinks','--preserve-symlinks-main',str(script),
             state.public_origin,mode], stdin=subprocess.PIPE,stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,text=True,encoding='utf-8',env=env) as process:
+        errors=[]
+        reader=threading.Thread(target=lambda: errors.append(process.stderr.read()),daemon=True);reader.start()
         timer=threading.Timer(180,process.kill);timer.start()
         try:
             for line in process.stdout:
                 request=json.loads(line)
                 if request['kind']=='result': result=request;break
-                if request['kind']=='state': response=persisted_state(state)
+                if request['kind']=='fixture': response=fixture
+                elif request['kind']=='state': response=observe(state)
                 else:
                     assert request['kind']=='http'
                     parsed=urlsplit(request['target'])
@@ -64,7 +72,7 @@ def run_client(state, mode, *, evidence=None):
                     headers=list(request['headers'].items())
                     assert not {'cookie','host','origin','content-length','transfer-encoding'} & {k.lower() for k,_ in headers}
                     headers.append(('Cookie',cookie_header(cookies)))
-                    body=request['body'].encode('utf-8') if request['body'] is not None else None
+                    body=(base64.b64decode(request['body'],validate=True) if request.get('bodyEncoding')=='base64' else request['body'].encode('utf-8')) if request['body'] is not None else None
                     if request['method']=='POST':
                         headers.extend([('Origin',state.public_origin),('Sec-Fetch-Site','same-origin'),
                                         ('Content-Length',str(len(body)))])
@@ -80,13 +88,14 @@ def run_client(state, mode, *, evidence=None):
                 process.stdin.write(json.dumps(response)+'\n');process.stdin.flush()
             process.stdin.close()
             process.wait(timeout=15)
-            error=process.stderr.read()
+            reader.join(timeout=5)
+            error=''.join(errors)
         finally:
             timer.cancel()
             if process.poll() is None: process.kill();process.wait(timeout=10)
             if evidence:
                 Path(evidence).write_text(json.dumps({'result':result,'wire':wire,
-                    'final_state':persisted_state(state),'returncode':process.returncode},indent=2),encoding='utf-8')
+                    'final_state':observe(state),'returncode':process.returncode},indent=2),encoding='utf-8')
         assert process.returncode==0 and result, error or 'Client exited without a result'
     return result
 

@@ -2240,19 +2240,19 @@ def _identity_free_matcher_projection(canonical):
     }
 
 
-def normalize_identity_free_profile_input(raw_input, input_style):
+def normalize_identity_free_profile_input(raw_input, input_style, *, allow_fallbacks=True):
     """Build review material directly, without ever selecting a profile identity."""
 
     raw_input = str(raw_input or "")
     text = profile_normalizer.normalize_profile_text(raw_input)
     languages = profile_normalizer.detect_profile_languages(raw_input)
     location = profile_normalizer.detect_location(text)
-    education = profile_normalizer.detect_education(text)
+    education = profile_normalizer.detect_education(text, allow_fallbacks=allow_fallbacks)
     credentials = profile_normalizer.detect_credentials(text)
-    experience = profile_normalizer.detect_experience(text)
-    domains = profile_normalizer.detect_domains(text)
-    skills = profile_normalizer.detect_skills(text, domains, input_style=input_style)
-    preferences = profile_normalizer.detect_preferences(text, domains)
+    experience = profile_normalizer.detect_experience(text, allow_fallbacks=allow_fallbacks)
+    domains = profile_normalizer.detect_domains(text, allow_fallbacks=allow_fallbacks)
+    skills = profile_normalizer.detect_skills(text, domains, input_style=input_style, allow_fallbacks=allow_fallbacks)
+    preferences = profile_normalizer.detect_preferences(text, domains, allow_fallbacks=allow_fallbacks)
     constraints = profile_normalizer.detect_constraints(text)
     signals = profile_normalizer.signals_for_domains(domains, skills, languages)
     missing_fields = profile_normalizer.missing_fields_for_baseline(

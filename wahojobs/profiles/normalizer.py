@@ -577,7 +577,7 @@ def detect_work_authorization(text: str) -> str:
     return UNKNOWN
 
 
-def detect_education(text: str) -> dict:
+def detect_education(text: str, *, allow_fallbacks=True) -> dict:
     degrees = []
     fields = []
     level = "not_specified"
@@ -601,7 +601,7 @@ def detect_education(text: str) -> dict:
     if re.search(r"\bba\b|bachelor", text):
         level = "bachelor"
         degrees.append("BA")
-    fields = detect_domains(text)
+    fields = detect_domains(text, allow_fallbacks=allow_fallbacks) if allow_fallbacks or degrees else []
     return {
         "education_level": level,
         "degrees": unique_list(degrees),
@@ -650,12 +650,12 @@ def detect_credentials(text: str) -> dict:
     }
 
 
-def detect_experience(text: str) -> dict:
+def detect_experience(text: str, *, allow_fallbacks=True) -> dict:
     years = None
     match = re.search(r"\b(\d{1,2})\s+years?\b", text)
     if match:
         years = int(match.group(1))
-    domains = detect_domains(text)
+    domains = detect_domains(text, allow_fallbacks=allow_fallbacks)
     seniority = "senior" if "senior" in text or (years is not None and years >= 7) else UNKNOWN
     recent_roles = []
     for term in (
@@ -692,7 +692,7 @@ def detect_experience(text: str) -> dict:
     }
 
 
-def detect_domains(text: str) -> list[str]:
+def detect_domains(text: str, *, allow_fallbacks=True) -> list[str]:
     domains = []
     domain_terms = [
         ("software engineering", ("python", "typescript", "react", "software", "backend", "javascript", "coding", "code review")),
@@ -721,7 +721,7 @@ def detect_domains(text: str) -> list[str]:
     for domain, terms in domain_terms:
         if any(contains_affirmative_qualification_term(text, term) for term in terms):
             domains.append(domain)
-    return unique_list(domains or ["generalist"])
+    return unique_list(domains or (["generalist"] if allow_fallbacks else []))
 
 
 def detect_specialties(text: str) -> list[str]:
@@ -750,7 +750,7 @@ def detect_specialties(text: str) -> list[str]:
     return unique_list(specialties)
 
 
-def detect_skills(text: str, domains: list[str], *, input_style="") -> list[str]:
+def detect_skills(text: str, domains: list[str], *, input_style="", allow_fallbacks=True) -> list[str]:
     skills = []
     skill_terms = [
         "python",
@@ -792,14 +792,14 @@ def detect_skills(text: str, domains: list[str], *, input_style="") -> list[str]
             and contains_resume_skill_evidence(text, term)
         ):
             skills.append(term)
-    if "language" in domains and "bilingual communication" not in skills:
+    if allow_fallbacks and "language" in domains and "bilingual communication" not in skills:
         skills.append("bilingual communication")
-    if "generalist" in domains and "review" not in skills:
+    if allow_fallbacks and "generalist" in domains and "review" not in skills:
         skills.append("review")
-    return unique_list(skills or ["review"])
+    return unique_list(skills or (["review"] if allow_fallbacks else []))
 
 
-def detect_preferences(text: str, domains: list[str]) -> dict:
+def detect_preferences(text: str, domains: list[str], *, allow_fallbacks=True) -> dict:
     employment_types = []
     work_preferences = []
     target_types = []
@@ -833,7 +833,7 @@ def detect_preferences(text: str, domains: list[str]) -> dict:
         target_types.append("science AI training")
     if "language" in domains:
         target_types.append("language review")
-    if not target_types:
+    if not target_types and allow_fallbacks:
         target_types.append("AI training")
     return {
         "remote": "remote" in work_preferences,

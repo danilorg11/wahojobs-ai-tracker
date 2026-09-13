@@ -78,13 +78,14 @@ def main(argv=None):
 
 
 class _ControlledProviderBridge:
-    __slots__ = ("_delegate", "_state", "_authorization_store", "_lock")
+    __slots__ = ("_delegate", "_state", "_authorization_store", "_lock", "_claims_overrides")
 
-    def __init__(self, delegate, state, authorization_store):
+    def __init__(self, delegate, state, authorization_store, *, claims_overrides=None):
         self._delegate = delegate
         self._state = state
         self._authorization_store = authorization_store
         self._lock = threading.Lock()
+        self._claims_overrides = claims_overrides
 
     def matches_route(self, path):
         return path in {FIXTURE_APPROVAL_ROUTE, FIXTURE_COMPLETE_ROUTE} or (
@@ -139,6 +140,7 @@ class _ControlledProviderBridge:
             callback_url = provider_callback_for(
                 self._state,
                 authorization_url,
+                claims_overrides=self._claims_overrides,
             )
             callback = urlsplit(callback_url)
             return _fixture_redirect(

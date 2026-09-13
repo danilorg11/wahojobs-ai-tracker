@@ -37,9 +37,10 @@ def _chips(name, values, label):
 
 
 def render_editor(support, canonical, run_id, token, *, action, back_url,
-                  education, form_defaults, focus=None, submitted=None, issue=None, cancel_url='/account/profile', item_details=()):
+                  education, form_defaults, focus=None, submitted=None, issue=None, cancel_url='/account/profile', item_details=(), manual_draft=False):
     fields = dict(form_defaults)
-    fields.pop("profile_draft_fingerprint", None)
+    if not manual_draft:
+        fields.pop("profile_draft_fingerprint", None)
     fields.pop("credentials_confirmed", None)
     unpaired = unpaired_education(education)
     for name, key in (("education_level", "education_level"), ("degrees", "degrees"),
@@ -47,7 +48,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
                       ("education_status", "completion_status")):
         value = unpaired.get(key)
         fields[name] = support.review_csv(value) if isinstance(value, list) else value or ""
-    fields["education_entries"] = json.dumps(education.get("entries", []))
+    fields["education_entries"] = '' if manual_draft else json.dumps(education.get("entries", []))
     fields['item_experience'] = json.dumps(list(item_details))
     # Match the established legacy form projection. The correction service
     # preserves an untouched legacy level from the authoritative revision.
@@ -146,8 +147,17 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         + select('education_level', 'Education level (if not listed above)', support.EDUCATION_LEVELS)
         + select('education_status', 'Study status', EDUCATION_COMPLETION_STATUSES)
         + check('no_degree', 'I have no university degree'))
+    if manual_draft:
+        rendered.add('education_entries')
+        # Creation uses the established V1 independent fields. Do not expose
+        # linked V2 study records or item experience that this route cannot store.
+        education_content = "<input type='hidden' name='education_entries' value=''>"
+        education_body = (education_content + '<p>These are independent details. No relationship between qualifications, study topics and schools is assumed.</p>'
+                          + legacy.replace('Other qualifications', 'Qualifications').replace('Other study topics', 'Study topics').replace('Other schools', 'Schools'))
+    else:
+        education_body = education_content + "<details><summary>Other education details</summary>" + legacy + "</details>"
     education_section = section('education', 'Education and studies', f"{len(education.get('entries', []))} entries" if education.get('entries') else support.review_csv(canonical.get('education', {}).get('degrees')),
-        education_content + "<details><summary>Other education details</summary>" + legacy + "</details>", opened=focus == 'education')
+        education_body, opened=focus == 'education')
     skills = canonical.get('skills', {})
     skill_content = chips('skills', skills.get('normalized'), 'Skills') + chips('software_tools', skills.get('software_tools'), 'Software and tools')
     extra = ''.join(chips(name, skills.get(key), label) for name, key, label in (
@@ -189,7 +199,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
             'The license and certification information I reviewed is accurate.', fields.get('credentials_confirmed') == '1', required=True) + "</div>"
         + f"<div class='review-actions' id='review-actions'><a data-correction-back href='{esc(back_url)}'>Back</a>"
         + f"<a href='{esc(cancel_url)}'>Cancel</a><button type='submit' id='confirm-profile-button'>Review changes</button></div>"
-        + "<p class='field-help'>You will confirm the complete profile on the next screen.</p>" + item_experience_editor.dialog() + '</form>'
+        + "<p class='field-help'>You will confirm the complete profile on the next screen.</p>" + ('' if manual_draft else item_experience_editor.dialog()) + '</form>'
         + '<style>' + EDITOR_STYLE + item_experience_editor.STYLE + '</style><script>' + EDITOR_SCRIPT + '</script>')
 
 
@@ -230,8 +240,8 @@ EDITOR_SCRIPT = EDUCATION_EDITOR_SCRIPT + item_experience_editor.SCRIPT + """
 (function(){'use strict';var form=document.querySelector('.candidate-correction');if(!form)return;
 var originalFields=JSON.stringify(Array.from(new FormData(form).entries())),submitting=false;
 function dirty(){return JSON.stringify(Array.from(new FormData(form).entries()))!==originalFields;}
-form.querySelector('[data-correction-back]').addEventListener('click',function(event){if(dirty()){event.preventDefault();form.requestSubmit(form.querySelector('button[type=submit]'));}});
-window.addEventListener('beforeunload',function(event){if(!submitting&&dirty()){event.preventDefault();event.returnValue='';}});
+form.querySelector('[data-correction-back]').addEventListener('click',function(event){if(!form.hasAttribute('data-manual-draft')&&dirty()){event.preventDefault();form.requestSubmit(form.querySelector('button[type=submit]'));}});
+window.addEventListener('beforeunload',function(event){if(!form.hasAttribute('data-manual-draft')&&!submitting&&dirty()){event.preventDefault();event.returnValue='';}});
 form.querySelectorAll('[data-chips]').forEach(function(group){
  var hidden=form.querySelector('[name="'+group.dataset.chips+'"]'),items=group.querySelector('[data-chip-items]');
  function sync(){hidden.value=Array.from(items.querySelectorAll('[data-collection-item]')).filter(function(item){return !item.querySelector('[data-collection-remove]').checked;}).map(function(item){return item.querySelector('input:not([type=checkbox])').value.trim();}).filter(Boolean).join(', ');}
@@ -244,7 +254,7 @@ function reveal(input){for(var p=input.parentElement;p&&p!==form;p=p.parentEleme
 var reporting=false;form.addEventListener('invalid',function(e){if(reporting)return;e.preventDefault();reveal(e.target);reporting=true;e.target.reportValidity();reporting=false;},true);
 form.querySelectorAll('a[href^="#"]').forEach(function(link){link.addEventListener('click',function(e){var target=document.getElementById(link.hash.slice(1));if(target){e.preventDefault();reveal(target);}});});
 var error=form.querySelector('[aria-invalid=true]');if(!error&&form.querySelector('#correction-error a'))error=document.getElementById(form.querySelector('#correction-error a').hash.slice(1));if(error)reveal(error);else if(form.dataset.focus){var target=document.getElementById(form.dataset.focus);if(target)reveal(target.querySelector('input:not([type=checkbox]),button')||target);}
-form.addEventListener('submit',function(){submitting=true;form.querySelector('button[type=submit]').disabled=true;});
+form.addEventListener('submit',function(event){Promise.resolve().then(function(){if(!event.defaultPrevented){submitting=true;form.querySelector('button[type=submit]').disabled=true;}});});
 })();"""
 EDITOR_SHA256 = base64.b64encode(hashlib.sha256(EDITOR_SCRIPT.encode()).digest()).decode()
 

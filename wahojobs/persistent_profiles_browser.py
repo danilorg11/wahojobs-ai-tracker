@@ -420,7 +420,9 @@ class PersistentProfileBrowserIntegration:
             content, status = render_persistent_profile_page(
                 result,
                 correction_enabled=self._correction_service is not None,
-                intake_enabled=self._intake_integration is not None,
+                intake_enabled=(self._intake_integration is not None
+                                and self._intake_integration.extraction_available),
+                intake_resume_enabled=self._intake_integration is not None,
                 current_matches_target=current_matches_target,
             )
         except Exception:
@@ -1640,12 +1642,14 @@ def render_persistent_profile_page(
     *,
     correction_enabled=False,
     intake_enabled=False,
+    intake_resume_enabled=False,
     current_matches_target=None,
 ) -> tuple[str, HTTPStatus]:
     if (
         type(result) is not PersistentProfilePageResult
         or type(correction_enabled) is not bool
         or type(intake_enabled) is not bool
+        or type(intake_resume_enabled) is not bool
         or (
             current_matches_target is not None
             and (
@@ -1676,7 +1680,8 @@ def render_persistent_profile_page(
             "<a class='primary-link profile-entry-primary' href='/account/profile/intake'>"
             "Build my profile from documents</a>"
             if intake_enabled
-            else ""
+            else ("<a class='secondary-link' href='/account/profile/intake'>"
+                  "Resume a saved document review</a>" if intake_resume_enabled else "")
         )
         manual_class = (
             "secondary-link"
@@ -1690,8 +1695,11 @@ def render_persistent_profile_page(
                 + "<section class='empty'><p class='eyebrow'>Your Wahojobs profile</p>"
                 "<h1>Create your profile to find better matches</h1>"
                 "<p>Tell Wahojobs about your experience and what you want from your next role.</p>"
-                "<p>Start with your documents, or create your profile manually. You review everything before it is saved.</p>"
-                "<div class='profile-entry-actions'>"
+                + ("<p>Start with your documents, or create your profile manually. You review everything before it is saved.</p>"
+                   if intake_enabled else
+                   "<p>Create your profile manually and review everything before confirming. "
+                   "Document import is currently unavailable.</p>")
+                + "<div class='profile-entry-actions'>"
                 + intake_action
                 + f"<a class='{manual_class}' href='{FIND_MATCHES_ROUTE}'>"
                 "Create profile manually</a></div></section>",

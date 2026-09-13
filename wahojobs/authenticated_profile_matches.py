@@ -346,6 +346,12 @@ class _AuthorizedMatchesState:
     def draft_binding(self):
         return self._draft_binding
 
+    def manual_draft_owner(self):
+        values = (self._account_id, self._environment_namespace, self._principal_id)
+        if any(type(value) is not str or not value for value in values):
+            raise ValueError('manual_checkpoint_authority_unavailable')
+        return hashlib.sha256(json.dumps(values).encode('utf-8')).hexdigest()
+
     def trusted_profile_v2(self):
         if self.state != "profile" or self._profile_v2 is None:
             raise ValueError("authenticated_matches_profile_unavailable")
@@ -627,6 +633,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_registry",
         "_reuse_namespace",
         "_service",
+        "_manual_references",
+        "_manual_lock",
     )
 
     def __init__(
@@ -697,6 +705,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._service = service
         self._connection_provider = connection_provider
         self._write_connection_provider = write_connection_provider
+        self._manual_references = {}
+        self._manual_lock = threading.RLock()
         self._metadata_overlay = metadata_overlay
         self._artifact_sink = confirmed_profile_artifact_sink
         self._completed_replay_authenticator = (
@@ -964,37 +974,137 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     )
             return self._render_persistent_matches(authority, run=current_run)
         if not params:
+            if self._write_connection_provider is not None:
+                from wahojobs import manual_profile_drafts as drafts
+                with self._connection_provider() as connection:
+                    saved = drafts.load(connection, authority.manual_draft_owner())
+                if saved:
+                    reference, payload = saved
+                    run = self._registry.create(owner_profile_id=authority.draft_binding(),
+                        raw_input=payload['raw_input'], input_style=payload['input_style'],
+                        canonical_profile=local_product.IdentityFreeCanonicalProfileV1.from_mapping(payload['canonical']), recommendation_context=None,
+                        profile_confirmed=False)
+                    self._remember_manual(run, reference)
+                    return self._manual_page(run, entry=payload['stage'] == 'entry')
+                return self._manual_page(None, entry=True)
             return _form_page_response(HTTPStatus.OK, _render_candidate_entry())
         run = self._authorized_run(params["run"], authority)
         if run is None:
-            return _failure_response(
+            return _candidate_failure_response(
                 HTTPStatus.GONE,
                 "Profile review expired",
                 "That profile review is unknown or has expired.",
             )
         if params.get("edit_text") == "1":
+            if self._write_connection_provider is not None:
+                from wahojobs import manual_profile_drafts as drafts
+                with self._connection_provider() as connection:
+                    saved = drafts.load(connection, authority.manual_draft_owner())
+                if saved:
+                    reference, payload = saved
+                    run = self._registry.create(owner_profile_id=authority.draft_binding(),
+                        raw_input=payload['raw_input'], input_style=payload['input_style'],
+                        canonical_profile=local_product.IdentityFreeCanonicalProfileV1.from_mapping(payload['canonical']),
+                        recommendation_context=None, profile_confirmed=False)
+                    self._remember_manual(run, reference)
+                return self._manual_page(run, entry=True)
             return _form_page_response(
                 HTTPStatus.OK,
                 _render_candidate_entry(run=run),
             )
+        if self._write_connection_provider is not None:
+            # Autosave updates the durable unconfirmed checkpoint, not this
+            # immutable run. Refresh must restore that saved material with a
+            # fresh review token instead of pairing old fields with a new version.
+            return self._handle_get({}, authority)
         return _form_page_response(
             HTTPStatus.OK,
             _render_candidate_review(run),
         )
 
     def _handle_post(self, form, authority, header_items):
+        # Serialize draft version checks with confirmation within this exclusive
+        # runtime. The sidecar also enforces compare-and-swap across requests.
+        with self._manual_lock:
+            return self._handle_candidate_post(form, authority, header_items)
+
+    def _remember_manual(self, run, reference):
+        if len(self._manual_references) >= 128:
+            self._manual_references.pop(next(iter(self._manual_references)))
+        self._manual_references[run.match_run_id] = reference
+
+    def _manual_page(self, run, *, entry=False, submitted=None, issue=None, status=HTTPStatus.OK):
+        from wahojobs import manual_profile_drafts as drafts
+        content = (_render_candidate_entry(run=run) if entry else
+                   _render_candidate_review(run, manual=True, submitted=submitted, issue=issue))
+        form_id = 'find-matches-form' if entry else 'profile-review-form'
+        # Both quote styles are emitted by the shared components.
+        for quote in ("'", '"'):
+            marker = 'id='+quote+form_id+quote
+            content = content.replace(marker, marker+' data-manual-draft')
+        reference = self._manual_references.get(run.match_run_id, '') if run else ''
+        content = content.replace('</form>', drafts.controls(reference)+'</form>', 1)
+        content = content.replace('</body>', '<script>'+drafts.SCRIPT+'</script></body>')
+        return _form_page_response(status, content)
+
+    def _manual_invalid(self, form, authority, checkpoint, status):
+        """Keep authorized input visible without saving invalid material."""
+        from wahojobs.profiles.correction_editor import actionable_issue
+        run_id = form.get('edit_run_id', [None])
+        run = self._authorized_run(run_id[0] if len(run_id) == 1 else None, authority)
+        if run is not None and 'form_action' in form and status == HTTPStatus.BAD_REQUEST:
+            updates = {key: values[0] for key, values in form.items() if len(values) == 1}
+            self._remember_manual(run, checkpoint)
+            return self._manual_page(run, submitted=form,
+                issue=actionable_issue(local_product, updates), status=status)
+        return _candidate_failure_response(status, 'Profile review unavailable',
+            'This request could not be completed. Your saved progress is still available. Review it and try again.')
+
+    def _save_manual(self, form, authority, *, expected, stage):
+        from wahojobs import manual_profile_drafts as drafts
+        if 'form_action' in form:
+            draft_form = dict(form, credentials_confirmed=['1'])
+            run, updates = local_product.validate_profile_review_submission(draft_form, self._registry)
+            if self._authorized_run(run.match_run_id, authority, confirmation=True) is None:
+                raise ValueError('manual_checkpoint_authority_unavailable')
+            canonical = local_product.apply_identity_free_profile_review(run.canonical_profile, updates)
+            payload = dict(raw_input=run.raw_input, input_style=run.input_style,
+                           canonical=json.loads(canonical.canonical_bytes), stage='review')
+        else:
+            run = self._create_candidate_draft(form, authority)
+            payload = dict(raw_input=run.raw_input, input_style=run.input_style,
+                           canonical=json.loads(run.canonical_profile.canonical_bytes), stage=stage)
+        with self._connection_provider() as connection:
+            reference = drafts.save(connection, authority.manual_draft_owner(), expected, payload)
+        self._remember_manual(run, reference)
+        return run, reference
+
+    def _handle_candidate_post(self, form, authority, header_items):
         if authority.state == "profile":
             return _redirect_response(AUTHENTICATED_MATCHES_ROUTE)
+        action = None
+        manual = self._write_connection_provider is not None
+        checkpoint = ''
         try:
+            checkpoint = _single_form_value(form, 'manual_checkpoint', required=False) or ''
+            action = _single_form_value(form, 'manual_action', required=False)
+            if action not in (None, '', 'save') or (action and not manual):
+                raise ValueError('invalid_manual_action')
+            form = {key: value for key, value in form.items() if key not in {'manual_checkpoint', 'manual_action'}}
+            if manual and action == 'save':
+                run, reference = self._save_manual(form, authority, expected=checkpoint, stage='entry')
+                return _json_response(HTTPStatus.OK, {'checkpoint': reference})
             if "form_action" in form:
                 run_id = _single_form_value(form, "edit_run_id")
                 run = self._authorized_run(run_id, authority, confirmation=True)
                 if run is None:
-                    return _failure_response(
+                    return _candidate_failure_response(
                         HTTPStatus.GONE,
                         "Profile review expired",
                         "That profile review is unknown or has expired.",
                     )
+                if manual:
+                    self._save_manual(form, authority, expected=checkpoint, stage='review')
                 result = local_product.confirm_profile_review(
                     form,
                     self._registry,
@@ -1011,7 +1121,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     result.artifact_offer
                 )
                 return _form_page_response(HTTPStatus.OK, content)
-            run = self._create_candidate_draft(form, authority)
+            if manual:
+                run, _reference = self._save_manual(form, authority, expected=checkpoint, stage='review')
+            else:
+                run = self._create_candidate_draft(form, authority)
             location = AUTHENTICATED_MATCHES_ROUTE + "?" + urlencode(
                 {"run": run.match_run_id, "review": "1"}
             )
@@ -1020,20 +1133,25 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             raise
         except local_product.ActionError as exc:
             status = exc.status
-            exc = None
-            return _failure_response(
-                status,
-                "Profile review unavailable",
-                "This profile review could not be completed safely.",
-            )
-        except (ValueError, TypeError):
-            return _failure_response(
-                HTTPStatus.BAD_REQUEST,
-                "Matches request unavailable",
-                "This matches request is not valid.",
-            )
+            if action == 'save':
+                return _json_response(status, {'error': str(exc)})
+            return self._manual_invalid(form, authority, checkpoint, status) if manual else _failure_response(
+                status, 'Profile review unavailable', 'This profile review could not be completed safely.')
+        except (ValueError, TypeError) as exc:
+            from wahojobs.manual_profile_drafts import StaleManualDraft
+            if isinstance(exc, StaleManualDraft):
+                if action == 'save':
+                    return _json_response(HTTPStatus.CONFLICT, {'error': 'Newer progress was saved in another tab. Return to saved progress before continuing.'})
+                return _candidate_failure_response(HTTPStatus.CONFLICT, 'Newer profile draft available',
+                    'Resume your latest saved progress before continuing. Nothing was confirmed by this request.')
+            if action == 'save':
+                return _json_response(HTTPStatus.BAD_REQUEST, {'error': 'Check the profile fields and retry. Your previous saved draft is preserved.'})
+            return self._manual_invalid(form, authority, checkpoint, HTTPStatus.BAD_REQUEST) if manual else _failure_response(
+                HTTPStatus.BAD_REQUEST, 'Matches request unavailable', 'This matches request is not valid.')
         except Exception:
-            return _failure_response(
+            if action == 'save':
+                return _json_response(HTTPStatus.SERVICE_UNAVAILABLE, {'error': 'Draft could not be saved. Keep this page open and retry.'})
+            return _candidate_failure_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Profile review unavailable",
                 "This profile review could not be completed safely.",
@@ -1816,6 +1934,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         canonical = local_product.normalize_identity_free_profile_input(
             raw_input,
             input_style,
+            allow_fallbacks=self._write_connection_provider is None,
         )
         return self._registry.create(
             owner_profile_id=authority.draft_binding(),
@@ -2896,18 +3015,29 @@ def _render_candidate_entry(*, run=None):
     return _page("Create your profile", body)
 
 
-def _render_candidate_review(run):
-    review = local_product.render_structured_profile_review(
+def _render_candidate_review(run, *, manual=False, submitted=None, issue=None):
+    if manual:
+        from wahojobs.profiles.correction_editor import render_editor
+        review = render_editor(local_product, run.canonical_profile, run.match_run_id, run.review_token,
+            action=AUTHENTICATED_MATCHES_ROUTE,
+            back_url=AUTHENTICATED_MATCHES_ROUTE+'?'+urlencode({'run':run.match_run_id,'edit_text':'1'}),
+            education=run.canonical_profile.get('education') or {},
+            form_defaults=local_product.profile_review_form_fields(run.canonical_profile, run.match_run_id, run.review_token),
+            submitted=submitted, issue=issue, manual_draft=True)
+    else:
+        review = local_product.render_structured_profile_review(
         run.canonical_profile,
         run.match_run_id,
         run.review_token,
+        submit_label="Confirm reviewed details",
     )
+    review = review.replace('Confirmed by you', 'Entered by you; not yet confirmed')
     body = f"""
     {_navigation()}
     <section class='intro'>
       <p class='eyebrow'>Review your profile</p>
       <h1>Make sure we understood you</h1>
-      <p>Correct anything missing or inaccurate, then explicitly confirm the profile.</p>
+      <p>Correct anything missing or inaccurate, then explicitly confirm the profile. Leave unknown information blank. Your next step saves the confirmed profile.</p>
     </section>
     {review}
     """
@@ -4234,12 +4364,18 @@ def _html_response(
         else ()
     )
     security_headers = _SECURITY_HEADERS
-    script = local_product.render_inline_action_script()
-    if script in content:
-        script_body = script.split('<script>', 1)[1].split('</script>', 1)[0]
-        digest = base64.b64encode(hashlib.sha256(script_body.encode('utf-8')).digest()).decode('ascii')
-        security_headers = tuple((name, value + f"; script-src 'sha256-{digest}'; connect-src 'self'"
-                                  if name == 'Content-Security-Policy' else value)
+    from wahojobs.manual_profile_drafts import SCRIPT as manual_script
+    from wahojobs.profiles.correction_editor import EDITOR_SCRIPT
+    scripts = (local_product.render_inline_action_script(), '<script>'+manual_script+'</script>',
+               '<script>'+EDITOR_SCRIPT+'</script>')
+    digests = []
+    for script in scripts:
+        if script in content:
+            body = script.split('<script>', 1)[1].split('</script>', 1)[0]
+            digests.append(base64.b64encode(hashlib.sha256(body.encode('utf-8')).digest()).decode('ascii'))
+    if digests:
+        policy = "; script-src " + " ".join("'sha256-"+digest+"'" for digest in digests) + "; connect-src 'self'"
+        security_headers = tuple((name, value + policy if name == 'Content-Security-Policy' else value)
                                  for name, value in security_headers)
     return AuthenticatedMatchesBrowserResponse(
         int(status),
@@ -4370,6 +4506,13 @@ def _workflow_failure(status, message, header_items, *, wants_json=None):
         "Candidate action unavailable",
         str(message),
     )
+
+
+def _candidate_failure_response(status, title, message):
+    return _html_response(status, _page(title,
+        f"<section class='panel'><h1>{_safe(title)}</h1><p role='alert'>{_safe(message)}</p>"
+        "<p><a class='primary-link' href='/find-matches'>Resume saved profile draft</a></p>"
+        "<p><a href='/account/profile'>Return to your profile</a></p></section>"))
 
 
 def _failure_response(status, title, message, *, extra_headers=()):
