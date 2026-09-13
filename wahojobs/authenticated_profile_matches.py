@@ -1853,7 +1853,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             background_context = authority.professional_background_context(self._professional_background_evidence)
             # The commit proof must cover owner visibility as well as source
             # rows. A Hide committed after this point invalidates the response.
-            before = self._inventory_commit_token()
+            before = self._inventory_commit_token() if self._write_connection_provider is not None else None
             records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else []
             hidden_ids = pipeline_postings.hidden_job_ids(records)
             if run is not None:
@@ -1861,6 +1861,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 if not hmac.compare_digest(run.owner_profile_id, expected_owner):
                     raise ValueError("candidate_match_run_owner_mismatch")
             inputs = self._recommendation_input_key(profile_v2, authority, hidden_ids=hidden_ids)
+            if self._write_connection_provider is None and (inputs is not None or return_context):
+                before = self._inventory_commit_token()
             evaluated_at = _trusted_utc(self._now())
             reused = self._can_reuse_recommendations(run, inputs, before, evaluated_at)
             if reused:
@@ -4000,8 +4002,9 @@ def _render_authenticated_tracker(
 
 def _navigation(*, match_run_id=None, show_current_matches=False):
     tracker = ""
-    current_matches = "<a href='/find-matches'>Matches</a>"
+    current_matches = ""
     if match_run_id is not None:
+        current_matches = "<a href='/find-matches'>Matches</a>"
         tracker = (
             "<a href='/tracker?"
             + urlencode({"run": match_run_id})
