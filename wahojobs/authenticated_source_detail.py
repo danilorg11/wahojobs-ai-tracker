@@ -70,7 +70,8 @@ def prepare_detail_display(job, profile):
 
 
 def render_authenticated_job_page(job, *, profile, navigation, workflow_controls='',
-                                  workflow_status='', catalog_return_to=None, return_run_id=None):
+                                  workflow_status='', catalog_return_to=None, return_run_id=None,
+                                  workflow_history='', tracker_return=False):
     """Normal signed-in job page. Availability and recommendation proof are inputs.
 
     Local eligibility is not list membership. Neither is inferred by this view;
@@ -183,13 +184,16 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
         action = (f"<a class='button button-primary' href='{escape(url, quote=True)}' target='_blank' "
                   f"rel='noopener noreferrer nofollow'>{action_label}</a>")
     workflow = ''
-    if workflow_controls:
+    if workflow_controls or workflow_history:
         workflow = ("<aside class='workflow-card' data-action-card><h2>My Jobs</h2>"
-                    f"<p class='pill js-card-status'>{escape(workflow_status)}</p>"
+                    f"<p class='pill js-card-status' aria-label='Current status: {escape(workflow_status)}'>{escape(workflow_status)}</p>"
+                    + workflow_history +
                     f"<div class='js-card-controls workflow-controls'>{workflow_controls}</div></aside>")
     source_link = (f"<a href='{escape(url, quote=True)}' target='_blank' rel='noopener noreferrer nofollow'>Original listing at {escape(company)}</a>"
                    if url else escape(company))
     back = public.safe_catalog_return_target(catalog_return_to)
+    if tracker_return:
+        back = '/tracker'
     if not back:
         # An anchor restores the candidate's place, not recommendation membership.
         # Only the route may supply a proven-valid, owner-bound run reference.
@@ -202,14 +206,19 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
 <title>{escape(title)} at {escape(company)} | Wahojobs</title>
 <style>{public.PUBLIC_JOB_CSS}\n{DISPLAY_CSS}</style></head><body class='candidate-detail'>
 <header class='site-header'><a class='brand' href='/jobs'>Wahojobs</a>{navigation}</header>
-<main><p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← Back to opportunities</a></p>
+<main><p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← {'Back to My Jobs' if tracker_return else 'Back to opportunities'}</a></p>
 <article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
 <p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
 {render_comparisons(packet, highlights=True) if packet else ''}
 {checks}{render_profile_update(packet, variant_detail_url(job, run_id=return_run_id))}<div class='hero-actions'>{action}</div></div>{workflow}</header>
 <div id='action-feedback' aria-live='polite'></div><div class='job-description'>{pay_wording}{description}</div>
 <footer class='verification-footer'>{source_link}<p>Based on saved source information. Confirm current terms and application availability with the employer.</p></footer>
-</article></main></body></html>"""
+</article></main>{_workflow_script() if workflow_controls else ''}</body></html>"""
+
+
+def _workflow_script():
+    from scripts.local_product_app import render_inline_action_script
+    return render_inline_action_script()
 
 
 def append_authenticated_source_detail(content, job, *, authenticated):

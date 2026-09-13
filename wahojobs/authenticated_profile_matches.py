@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
+import base64
 import hmac
 import html
 from http import HTTPStatus
@@ -30,6 +31,7 @@ from scripts import profile_to_matches_preview as profile_preview
 from wahojobs import (
     pipeline_actions,
     pipeline_records,
+    pipeline_postings,
     pipeline_state,
     public_company_page,
     public_job_canary,
@@ -81,11 +83,13 @@ from wahojobs.profiles.preference_model import (
 
 AUTHENTICATED_MATCHES_ROUTE = "/find-matches"
 AUTHENTICATED_TRACKER_ROUTE = "/tracker"
+AUTHENTICATED_TRACKER_ITEM_ROUTE = "/tracker/item"
 AUTHENTICATED_ACTION_ROUTE = "/action"
 AUTHENTICATED_CANDIDATE_ROUTES = frozenset(
     {
         AUTHENTICATED_MATCHES_ROUTE,
         AUTHENTICATED_TRACKER_ROUTE,
+        AUTHENTICATED_TRACKER_ITEM_ROUTE,
         AUTHENTICATED_ACTION_ROUTE,
     }
 )
@@ -885,7 +889,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             if form is None:
                 return _workflow_failure(HTTPStatus.BAD_REQUEST, "Malformed action request.", header_items)
             return self._handle_action(form, authority, header_items)
-        if route == AUTHENTICATED_TRACKER_ROUTE:
+        if route in {AUTHENTICATED_TRACKER_ROUTE, AUTHENTICATED_TRACKER_ITEM_ROUTE}:
             if method not in {"GET", "HEAD"}:
                 return _failure_response(
                     HTTPStatus.METHOD_NOT_ALLOWED,
@@ -895,7 +899,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 )
             if authority.state != "profile":
                 return _authority_failure("profile_unavailable")
-            return self._handle_tracker(params, authority)
+            return (self._handle_tracker_item(params, authority, header_items)
+                    if route == AUTHENTICATED_TRACKER_ITEM_ROUTE else self._handle_tracker(params, authority))
         if method in {"GET", "HEAD"}:
             return self._handle_get(params, authority)
         form = _strict_post_form(header_items, body_stream)
@@ -1041,11 +1046,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             if run_id:
                 run = self._authorized_run(run_id, authority)
                 if run is None:
-                    return _failure_response(
-                        HTTPStatus.GONE,
-                        "My Jobs session expired",
-                        "Reload My Jobs to continue.",
-                    )
+                    # Durable history is read under current owner authority;
+                    # a previous process's run is not required to return.
+                    run_id = None
             if run is None:
                 run = self._registry.create(
                     owner_profile_id=authority.candidate_workflow_authority()[4],
@@ -1069,6 +1072,51 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Your jobs cannot be loaded safely right now.",
             )
 
+    def _handle_tracker_item(self, params, authority, header_items):
+        records = self._load_pipeline_records(authority)
+        record = next((r for r in records if r['pipeline_item_id'] == params['item']), None)
+        if record is None:
+            return _failure_response(HTTPStatus.NOT_FOUND, 'Saved job unavailable',
+                                     'This saved job is not available for your profile.')
+        record = self._with_workflow_events(record)
+        job_id, canonical = record.get('_posting_job_id'), record.get('_posting_canonical_id')
+        if job_id is not None and canonical is not None:
+            return self._render_public_job_variant(public_job_page.public_job_path(canonical),
+                header_items, selected_job_id=job_id, authority=authority, tracker_record=record)
+        return self._render_tracker_fallback(record, authority)
+
+    def _with_workflow_events(self, record):
+        with self._connection_provider() as connection:
+            events = connection.execute(
+                'SELECT occurred_at, affected_dimension, action_name, after_state_json '
+                'FROM user_pipeline_transitions WHERE pipeline_item_id=? AND profile_id=? ORDER BY id',
+                (record['pipeline_item_id'], record['profile_id'])).fetchall()
+        return dict(record, _workflow_events=[dict(e) for e in events])
+
+    def _history_controls(self, record, authority):
+        target = local_product.tracker_item_url(record)
+        run = self._registry.create(owner_profile_id=authority.candidate_workflow_authority()[4],
+            raw_input='', input_style='short_paragraph',
+            recommendation_context={'matches': {}, '_workflow_return': target}, profile_confirmed=True)
+        controls = ' '.join(local_product.action_form(action,
+            local_product.action_label_for_record(action, record), run.match_run_id,
+            pipeline_id=record['pipeline_item_id'], expected_version=record['state_version'],
+            resolution_mode=local_product.resolution_mode_for_record(action, record),
+            return_to=target, section='tracker_item') for action in local_product.actions_for_record(record))
+        return controls
+
+    def _render_tracker_fallback(self, record, authority):
+        controls = self._history_controls(record, authority)
+        history = _render_workflow_history(record)
+        body = ("<section class='panel' data-action-card><h1>" + _safe(record['title']) + '</h1>'
+                + "<p>Current local source details cannot be linked safely to this saved history. "
+                "Your progress is preserved; no other posting has been substituted.</p>"
+                + history + "<div class='js-card-controls'>" + controls + '</div>'
+                + (f"<p><a href='{_safe(record['url'])}' target='_blank' rel='noopener noreferrer'>Original saved listing</a></p>"
+                   if local_product.safe_job_url(record['url']) else '')
+                + "<p><a href='/tracker'>Back to My Jobs</a></p></section>")
+        return _form_page_response(HTTPStatus.OK, _page('Saved job history', body, workflow=True))
+
     def _handle_action(self, form, authority, header_items):
         wants_json = (
             any("application/json" in value.lower() for value in _header_values(header_items, "accept"))
@@ -1089,11 +1137,23 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     "That match run is unknown or has expired. Reload and try again.",
                     HTTPStatus.GONE,
                 )
+            section = local_product.action_form_value(form, 'section')
+            if section in {'public_job', 'tracker_item'}:
+                target = local_product.action_form_value(form, 'return_to')
+                if (run.recommendation_context or {}).get('_workflow_return') != target:
+                    raise local_product.MalformedActionRequest()
             result = self._perform_pipeline_action(form, run, authority)
             if wants_json:
+                payload = local_product.action_json_payload(result, run, form)
+                if section in {'public_job', 'tracker_item'}:
+                    payload['workflow_history_html'] = _render_workflow_history(
+                        self._with_workflow_events(result['item']))
+                if (section not in {'tracker','tracker_item','public_job'}
+                        and form['action'][0] in {'not_interested','show_again'}):
+                    payload['matches_refresh_url'] = '/find-matches'
                 return _json_response(
                     HTTPStatus.OK,
-                    local_product.action_json_payload(result, run, form),
+                    payload,
                 )
             section = local_product.action_form_value(form, "section")
             if section == "tracker":
@@ -1108,13 +1168,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         or "all",
                     }
                 )
-            elif section == "public_job":
+            elif section in {"public_job", "tracker_item"}:
                 location = local_product.action_form_value(form, "return_to")
-                if (
-                    public_job_page.parse_public_job_path(location) is None
-                    and not self._public_job_canary_gate.owns_candidate_path(location)
-                ):
-                    raise local_product.MalformedActionRequest()
             else:
                 location = AUTHENTICATED_MATCHES_ROUTE + "?" + urlencode(
                     {"run": run.match_run_id}
@@ -1151,7 +1206,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         return self._render_public_job_variant(path, header_items, **options)
 
     def _render_public_job_variant(self, path, header_items, *, catalog_return_to=None,
-                                  selected_job_id=None, match_run_id=None, authority=None):
+                                  selected_job_id=None, match_run_id=None, authority=None, tracker_record=None):
         try:
             connection = None
             route_decision = None
@@ -1171,10 +1226,12 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             if authenticated:
                 run = self._authorized_run(match_run_id, authority) if match_run_id else None
                 if match_run_id and run is None:
-                    return _failure_response(HTTPStatus.NOT_FOUND, "Saved matches unavailable",
-                                             "Return to your current matches.")
+                    return _failure_response(HTTPStatus.NOT_FOUND, 'Saved matches unavailable',
+                                             'Return to your current matches or My Jobs.')
                 profile_v2 = authority.trusted_profile_v2()
-                inputs = self._recommendation_input_key(profile_v2, authority)
+                records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else []
+                inputs = self._recommendation_input_key(profile_v2, authority,
+                    hidden_ids=pipeline_postings.hidden_job_ids(records))
             with self._connection_provider() as connection:
                 if (
                     not isinstance(connection, sqlite3.Connection)
@@ -1198,7 +1255,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             and route_decision.kind == "serve"
                             else None
                         )
-                    elif self._public_job_canary_gate.enabled:
+                    elif (self._public_job_canary_gate.enabled and tracker_record is None
+                          and selected_job_id is None):
                         route_decision = self._public_job_canary_gate.resolve_canonical(
                             connection,
                             canonical_opportunity_id,
@@ -1216,6 +1274,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             from wahojobs.authenticated_variant_details import load_scoped_snapshot
                             snapshot = load_scoped_snapshot(connection, canonical_opportunity_id,
                                                             selected_job_id, now=evaluated_at)
+                            snapshot['_workflow_bindings'] = {r['job_id']: pipeline_postings.source_binding(connection, r['job_id'])
+                                for r in (snapshot.get('detail_evidence') or {}).get('rows', [])}
                             if self._professional_background_evidence is not None:
                                 from wahojobs.professional_background_semantics import accepted_source_binding
                                 snapshot["task_sources"] = accepted_source_binding(connection, snapshot["task_sources"])
@@ -1251,6 +1311,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 if route_decision.kind == "gone":
                     return _gone_response()
             if job is None:
+                if tracker_record is not None:
+                    return self._render_tracker_fallback(tracker_record, authority)
                 return _failure_response(
                     HTTPStatus.NOT_FOUND,
                     "Job not found",
@@ -1259,7 +1321,6 @@ class AuthenticatedProfileMatchesBrowserIntegration:
 
             workflow_enabled = (job["public_state"] == public_job_page.PUBLIC_JOB_STATE_LIVE
                                 and authenticated and self._write_connection_provider is not None)
-            records = self._load_pipeline_records(authority) if workflow_enabled else None
             # Scoped comparisons and saved membership are accepted together.
             # A replacement before this boundary makes the whole response fail.
             with prepared.consume_generation(generation) if prepared is not None else nullcontext():
@@ -1269,9 +1330,21 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                                            membership_known=membership_known)
                 controls = ""
                 status = ""
-                if workflow_enabled:
+                record = tracker_record
+                if authenticated and record is None:
+                    record = local_product.demo.tracked_record_for_match(job['workflow_match'],
+                        local_product.demo.build_tracked_index(records))
+                if record is not None and self._write_connection_provider is not None:
+                    record = self._with_workflow_events(record)
+                    controls = self._history_controls(record, authority)
+                    status = local_product.readable_status(record['status'])
+                elif workflow_enabled:
                     match = job["workflow_match"]
-                    context = {"matches": {"do_these_first": [match]}}
+                    match = dict(match, _workflow_posting_id=job['job_id'],
+                                 _workflow_source_binding=snapshot['_workflow_bindings'][job['job_id']])
+                    from wahojobs.authenticated_variant_details import variant_detail_url
+                    target = variant_detail_url(match)
+                    context = {"matches": {"do_these_first": [match]}, '_workflow_return': target}
                     run = self._registry.create(
                         owner_profile_id=authority.candidate_workflow_authority()[4],
                         raw_input="",
@@ -1279,19 +1352,15 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         recommendation_context=context,
                         profile_confirmed=True,
                     )
-                    record = local_product.demo.tracked_record_for_match(
-                        match,
-                        local_product.demo.build_tracked_index(records),
-                    )
                     controls = local_product.render_preview_full_forms(
                         match,
                         record,
                         run.match_run_id,
-                        path,
+                        target,
                         "public_job",
                     )
-                    if record is not None:
-                        status = local_product.readable_status(record["status"])
+                    if job['job_id'] in local_product.demo.build_tracked_index(records)['ambiguous_job_ids']:
+                        controls = "<p>Separate histories are linked to this posting. Review each in <a href='/tracker'>My Jobs</a>.</p>"
 
                 if authenticated:
                     from wahojobs.authenticated_source_detail import render_authenticated_job_page
@@ -1299,6 +1368,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         job, profile=profile_v2,
                         navigation=_public_navigation(authenticated=True, current="job"),
                         workflow_controls=controls, workflow_status=status,
+                        workflow_history=_render_workflow_history(record) if record is not None else '',
+                        tracker_return=tracker_record is not None,
                         catalog_return_to=catalog_return_to,
                         return_run_id=match_run_id if membership_known else None)
                 else:
@@ -1328,13 +1399,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     ),
                     max_bytes=MAX_PUBLIC_JOBS_RESPONSE_BYTES,
                 )
-        except (sqlite3.Error, ValueError, TypeError):
-            return _failure_response(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Job temporarily unavailable",
-                "This opportunity page cannot be loaded safely right now.",
-            )
         except Exception:
+            # Owner-authorized history was loaded independently of current
+            # source evidence. A source failure cannot erase that return path.
+            if tracker_record is not None:
+                return self._render_tracker_fallback(tracker_record, authority)
             return _failure_response(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Job temporarily unavailable",
@@ -1658,7 +1727,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 ):
                     raise ValueError("candidate_workflow_owner_unavailable")
                 local_product.require_normalized_browser_read_ready(connection)
-                return [
+                records = [
                     local_product.normalized_browser_record(record)
                     for record in pipeline_records.list_pipeline_records(
                         connection,
@@ -1666,6 +1735,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         mutation_grade=True,
                     )
                 ]
+                return pipeline_postings.link_records(connection, records)
             finally:
                 if connection.in_transaction:
                     connection.rollback()
@@ -1781,12 +1851,16 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             generation = prepared.generation_token if prepared is not None else None
             profile_v2 = authority.trusted_profile_v2()
             background_context = authority.professional_background_context(self._professional_background_evidence)
+            # The commit proof must cover owner visibility as well as source
+            # rows. A Hide committed after this point invalidates the response.
+            before = self._inventory_commit_token()
+            records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else []
+            hidden_ids = pipeline_postings.hidden_job_ids(records)
             if run is not None:
                 expected_owner = authority.candidate_workflow_authority()[4]
                 if not hmac.compare_digest(run.owner_profile_id, expected_owner):
                     raise ValueError("candidate_match_run_owner_mismatch")
-            inputs = self._recommendation_input_key(profile_v2, authority)
-            before = self._inventory_commit_token() if inputs is not None or return_context else None
+            inputs = self._recommendation_input_key(profile_v2, authority, hidden_ids=hidden_ids)
             evaluated_at = _trusted_utc(self._now())
             reused = self._can_reuse_recommendations(run, inputs, before, evaluated_at)
             if reused:
@@ -1802,6 +1876,9 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 )
                 rows, overlay_status = self._load_inventory()
                 inventory_count = len(rows)
+                # Remove hidden exact postings before representative selection
+                # and section caps so another eligible variant can compete.
+                rows = [row for row in rows if row['job_id'] not in hidden_ids]
                 authoritative_matches = (
                     [] if self._criteria_shadow_sink is not None else None
                 )
@@ -1821,6 +1898,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     ),
                 )
                 context = self._with_source_task_fit(context, profile_v2, background_context=background_context)
+                context['_hidden_posting_ids'] = sorted(hidden_ids)
                 effective_enrichments = {}
                 enrichment_read_succeeded = True
                 if (_has_authoritative_preference_model(profile_v2)
@@ -1872,7 +1950,11 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 with prepared.consume_generation(generation, dependencies=dependencies) if prepared is not None else nullcontext():
                     return context
             context = self._with_card_evidence(context, profile_v2, background_context=background_context)
-            records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else None
+            if self._write_connection_provider is not None and not reused:
+                context = self._bind_workflow_context(context)
+            proof = context.get('_authenticated_reuse')
+            if proof and proof['inventory'] != self._inventory_commit_token():
+                raise ValueError('candidate_match_inventory_changed_during_binding')
             # Reuse/comparison above is tentative. Accept and register exactly
             # that generation under the publisher's lock; never retry in a GET.
             with prepared.consume_generation(generation, dependencies=dependencies) if prepared is not None else nullcontext():
@@ -2028,7 +2110,16 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             for match in matches
         })
 
-    def _recommendation_input_key(self, profile_v2, authority):
+    def _bind_workflow_context(self, context):
+        with self._connection_provider() as connection:
+            connection.execute('BEGIN')
+            try:
+                return dict(context, matches={section: [pipeline_postings.bind_match(connection, match)
+                    for match in matches] for section, matches in context['matches'].items()})
+            finally:
+                connection.rollback()
+
+    def _recommendation_input_key(self, profile_v2, authority, *, hidden_ids=()):
         from wahojobs.matching.accepted_tasks import TASK_PROJECTION_VERSION, SOURCE_ELIGIBILITY_VERSION, TASK_ADMISSION_VERSION
         if self._write_connection_provider is None or self._criteria_shadow_sink is not None:
             return None
@@ -2038,6 +2129,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         prepared = self._professional_background_evidence
         # Hash the small trusted profile/configuration, never the inventory.
         document = {
+            "hidden_exact_postings": sorted(hidden_ids),
             "profile": profile_v2,
             "overlay": self._metadata_overlay.records_by_key,
             "overlay_path": str(self._metadata_overlay.path),
@@ -2306,6 +2398,8 @@ def _perform_authenticated_pipeline_action(
         allow_empty=True,
     )
     idempotency_key = local_product.action_form_value(form, "idempotency_key")
+    section = local_product.action_form_value(form, 'section')
+    requested_key = local_product.optional_action_form_value(form, 'opportunity_key', allow_empty=True)
     call = {
         "action": action,
         "owner_profile_id": owner_profile_id,
@@ -2319,6 +2413,14 @@ def _perform_authenticated_pipeline_action(
     try:
         pipeline_records.require_pipeline_state_schema(connection)
         local_product.require_browser_pipeline_ready(connection)
+        opportunity, posting = None, None
+        if requested_key:
+            opportunity = local_product.resolve_run_opportunity(run, requested_key)
+            posting = pipeline_postings.current_action_posting(connection, opportunity, now=now)
+            if posting is None:
+                raise local_product.ActionError('This source changed or is no longer available. Open current details or My Jobs and try again.', HTTPStatus.CONFLICT)
+        elif section not in {'tracker', 'tracker_item'}:
+            raise local_product.MalformedActionRequest()
         if pipeline_id:
             persisted = connection.execute(
                 "SELECT profile_id FROM user_pipeline_items WHERE pipeline_item_id = ?",
@@ -2342,17 +2444,9 @@ def _perform_authenticated_pipeline_action(
                     mutation_grade=True,
                 )
             )
-            requested_opportunity = local_product.optional_action_form_value(
-                form,
-                "opportunity_key",
-                allow_empty=True,
-            )
-            if requested_opportunity:
-                opportunity = local_product.resolve_run_opportunity(
-                    run,
-                    requested_opportunity,
-                )
-                if not local_product.same_record_opportunity(record, opportunity):
+            if posting is not None:
+                linked, _ = pipeline_postings.resolve_record(connection, record)
+                if linked is None or linked['id'] != posting['id']:
                     raise local_product.ActionError(
                         "That action does not match this opportunity.",
                         HTTPStatus.FORBIDDEN,
@@ -2371,14 +2465,24 @@ def _perform_authenticated_pipeline_action(
                 raise local_product.ActionError(
                     "That action requires a tracked opportunity."
                 )
-            opportunity = local_product.resolve_run_opportunity(
-                run,
-                local_product.action_form_value(form, "opportunity_key"),
-            )
+            if posting is None:
+                raise local_product.MalformedActionRequest()
+            # A form rendered before another action must not silently attach to
+            # or overwrite a newer/legacy history. Exact duplicate submissions
+            # continue to replay through the orchestrator's commit marker.
+            existing = pipeline_postings.link_records(connection, [local_product.normalized_browser_record(r)
+                for r in pipeline_records.list_pipeline_records(connection, owner_profile_id, mutation_grade=True)])
+            linked = [r for r in existing if r.get('_posting_job_id') == posting['id']]
+            expected_id = pipeline_postings.item_id(owner_profile_id, posting)
+            if linked and (len(linked) != 1 or linked[0]['pipeline_item_id'] != expected_id):
+                raise local_product.ActionError('This posting already has saved history. Open My Jobs to review it.', HTTPStatus.CONFLICT)
             call.update(
                 source=opportunity["source"],
                 title=opportunity["title"],
                 url=opportunity["url"],
+                posting_job_id=posting['id'],
+                opportunity_external_id=posting['external_id'] or '',
+                canonical_id=posting['canonical_opportunity_id'],
             )
         operation = pipeline_actions.perform_pipeline_action(connection, **call)
         loaded = pipeline_records.load_pipeline_record(
@@ -2396,6 +2500,8 @@ def _perform_authenticated_pipeline_action(
                 mutation_grade=True,
             )
         ]
+        all_records = pipeline_postings.link_records(connection, all_records)
+        record = next(r for r in all_records if r['pipeline_item_id'] == record['pipeline_item_id'])
     except local_product.ActionError:
         raise
     except pipeline_state.OwnershipError as exc:
@@ -2581,6 +2687,13 @@ def _parse_target(
     if any(type(values) is not list or len(values) != 1 for values in raw.values()):
         return None
     params = {key: values[0] for key, values in raw.items()}
+    if parsed.path == AUTHENTICATED_TRACKER_ITEM_ROUTE:
+        item = params.get('item')
+        if set(params) != {'item'} or not item or len(item) > 256 or item != item.strip():
+            return None
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in item):
+            return None
+        return parsed.path, params
     if parsed.path == AUTHENTICATED_TRACKER_ROUTE:
         if set(params) - {"run", "view"}:
             return None
@@ -2965,7 +3078,19 @@ def _typed_presentation_reference(match):
     return f"{identity[0]}:{identity[1]}"
 
 
+def _visible_workflow_context(context, tracked=None):
+    hidden = set((context or {}).get('_hidden_posting_ids', []))
+    if tracked is not None:
+        hidden.update(pipeline_postings.hidden_job_ids(tracked.get('records', [])))
+    def visible(match):
+        record = local_product.demo.tracked_record_for_match(match, tracked) if tracked is not None else None
+        return match.get('job_id') not in hidden and (record is None or record.get('visibility') != 'hidden')
+    return dict(context or {}, matches={section: [m for m in matches if visible(m)]
+                for section, matches in ((context or {}).get('matches') or {}).items()})
+
+
 def _ranked_presentation_eligible_pool(context):
+    context = _visible_workflow_context(context)
     matches_by_section = (context or {}).get("matches") or {}
     pool_bound = sum(
         len(values)
@@ -2981,6 +3106,7 @@ def _ranked_presentation_eligible_pool(context):
 
 
 def _primary_presentation_matches(context):
+    context = _visible_workflow_context(context)
     enforcement = (context or {}).get("_typed_preference_enforcement")
     if enforcement is None:
         return local_product.build_browser_presentation_matches(
@@ -3019,6 +3145,7 @@ def _primary_presentation_matches(context):
 
 
 def _conditional_presentation_pool(context):
+    context = _visible_workflow_context(context)
     bound = sum(len(v) for v in ((context or {}).get("matches") or {}).values())
     return (local_product.build_browser_presentation_matches(context, limit=bound, conditional_only=True)
             if bound else [])
@@ -3474,6 +3601,7 @@ def _render_match_results(
 ):
     from wahojobs.authenticated_variant_details import variant_detail_url
     from wahojobs.authenticated_card_evidence import render_conditions, render_opportunity_kind, render_location_context
+    context = _visible_workflow_context(context, tracked)
     matches = _primary_presentation_matches(context)
     cards = []
     for match in matches:
@@ -3507,6 +3635,8 @@ def _render_match_results(
             if match_run_id is not None
             else ""
         )
+        if tracked is not None and match.get('job_id') in tracked.get('ambiguous_job_ids', set()):
+            controls = "<p>More than one saved history is linked here. Review each item in <a href='/tracker'>My Jobs</a>.</p>"
         status = (
             local_product.readable_status(record["status"])
             if record is not None
@@ -3577,8 +3707,13 @@ def _render_match_results(
             continue
         packet = (context.get("_card_evidence") or {}).get(match["job_id"]) or {}
         pay = next((value for label, value in packet.get("facts", []) if label == "Pay"), "")
+        record = local_product.demo.tracked_record_for_match(match, tracked) if tracked is not None else None
+        controls = (local_product.render_preview_full_forms(match, record, match_run_id,
+                    'conditional-' + str(match['job_id']), 'also_worth_reviewing') if match_run_id else '')
+        if tracked is not None and match.get('job_id') in tracked.get('ambiguous_job_ids', set()):
+            controls = "<p>Review the separate histories in <a href='/tracker'>My Jobs</a>.</p>"
         conditional_cards.append(
-            f"<article class='relaxation-preview-card' id='opportunity-{match['job_id']}'><div>"
+            f"<article class='relaxation-preview-card' data-action-card id='opportunity-{match['job_id']}'><div>"
             f"<h3>{_safe(match.get('display_title') or match.get('title'))}</h3>"
             f"<p>{_safe(match.get('source'))}</p>"
             + render_opportunity_kind(packet)
@@ -3589,7 +3724,8 @@ def _render_match_results(
             + render_location_context(packet)
             + render_conditions(packet, f"conditional-{match['job_id']}")
             + ("<p>Availability needs confirmation.</p>" if match.get('presentation_data_status') == 'recently_cached' else "")
-            + f"</div><a href='{_safe(url)}'>View job details</a></article>")
+            + (f"<p class='pill js-card-status'>{_safe(local_product.readable_status(record['status']))}</p>" if record else "<p class='pill js-card-status'></p>")
+            + f"</div><div><a href='{_safe(url)}'>View job details</a><div class='js-card-controls'>{controls}</div></div></article>")
     if conditional_cards:
         relaxation_section = (
             "<details class='relaxation-scenario'><summary>Possibilities with conditions to check</summary>"
@@ -3821,6 +3957,24 @@ def _valid_presentation_amount(value, *, optional):
     return type(value) in {int, float} and math.isfinite(value) and value >= 0
 
 
+def _render_workflow_history(record):
+    summary = local_product.render_workflow_summary(record) + local_product.render_reminder_note(record)
+    events = []
+    for event in record.get('_workflow_events', []):
+        state = json.loads(event['after_state_json'])
+        workflow = state.get('workflow_status')
+        label = local_product.readable_status(workflow) if workflow else 'Progress unknown'
+        visibility = 'hidden' if state.get('visibility') == 'hidden' else 'visible'
+        reminder = state.get('reminder_at') or 'none'
+        events.append(f"<li>{_safe(event['occurred_at'])}: {_safe(label)}, {visibility}; reminder {_safe(reminder)}.</li>")
+    legacy = record.get('_posting_link_state', '')
+    limitation = ("<p>More than one history is linked to this posting. Each history is kept separately.</p>"
+                  if legacy == 'ambiguous_history' else '')
+    return ("<div class='workflow-history'>" + summary + limitation
+            + ("<details><summary>Application history</summary><ol>" + ''.join(events) + '</ol></details>' if events else '')
+            + '</div>')
+
+
 def _render_authenticated_tracker(
     records,
     match_run_id,
@@ -3846,7 +4000,7 @@ def _render_authenticated_tracker(
 
 def _navigation(*, match_run_id=None, show_current_matches=False):
     tracker = ""
-    current_matches = ""
+    current_matches = "<a href='/find-matches'>Matches</a>"
     if match_run_id is not None:
         tracker = (
             "<a href='/tracker?"
@@ -4037,7 +4191,7 @@ def _page(title, body, *, workflow=False):
 {DISPLAY_CSS}
 </style>
 </head>
-<body><main>{body}</main></body>
+<body><main>{body}</main>{local_product.render_inline_action_script() if workflow else ''}</body>
 </html>"""
 
 
@@ -4076,13 +4230,21 @@ def _html_response(
         if robots_directive is not None
         else ()
     )
+    security_headers = _SECURITY_HEADERS
+    script = local_product.render_inline_action_script()
+    if script in content:
+        script_body = script.split('<script>', 1)[1].split('</script>', 1)[0]
+        digest = base64.b64encode(hashlib.sha256(script_body.encode('utf-8')).digest()).decode('ascii')
+        security_headers = tuple((name, value + f"; script-src 'sha256-{digest}'; connect-src 'self'"
+                                  if name == 'Content-Security-Policy' else value)
+                                 for name, value in security_headers)
     return AuthenticatedMatchesBrowserResponse(
         int(status),
         payload,
         (
             ("Content-Type", "text/html; charset=utf-8"),
             ("Content-Length", str(len(payload))),
-            *_SECURITY_HEADERS,
+            *security_headers,
             ("Cache-Control", cache_control),
             ("Referrer-Policy", referrer_policy),
             *robots_header,

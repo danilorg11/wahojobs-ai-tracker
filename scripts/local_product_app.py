@@ -3283,6 +3283,8 @@ def opportunity_key(source, title, url):
 
 
 def match_opportunity_key(match):
+    if match.get('_workflow_source_binding'):
+        return 'posting:' + str(match['job_id']) + ':' + match['_workflow_source_binding']
     return opportunity_key(match.get("source"), match.get("display_title"), match.get("url"))
 
 
@@ -3294,6 +3296,7 @@ def iter_match_run_opportunities(run):
 
 
 def resolve_run_opportunity(run, requested_key):
+    from wahojobs.matching.source_task_fit import is_conditional_task_fit
     if not requested_key:
         raise ActionError("Missing opportunity reference.")
     for match in iter_match_run_opportunities(run):
@@ -3301,7 +3304,7 @@ def resolve_run_opportunity(run, requested_key):
             rejection_reasons = (
                 public_job_workflow_rejection_reasons(match)
                 if match.get("_public_job_workflow") is True
-                else browser_match_rejection_reasons(match)
+                else browser_match_rejection_reasons(match, allow_conditional_task_fit=is_conditional_task_fit(match))
             )
             if rejection_reasons:
                 raise ActionError(
@@ -3309,6 +3312,7 @@ def resolve_run_opportunity(run, requested_key):
                     HTTPStatus.FORBIDDEN,
                 )
             return {
+                **match,
                 "source": match.get("source") or "",
                 "title": match.get("display_title") or match.get("title") or "",
                 "url": match.get("url") or "",
@@ -3526,6 +3530,8 @@ def normalized_browser_record(record, *, normalized_state=None, compatibility=No
         "source": record.opportunity["source"],
         "title": record.opportunity["title"],
         "url": record.opportunity["url"],
+        "external_id": record.opportunity["external_id"],
+        "canonical_id": record.opportunity["canonical_id"],
         "status": status,
         "workflow_status": workflow,
         "workflow_status_provenance": state["workflow_status_provenance"],
@@ -5570,14 +5576,27 @@ def render_my_jobs_card(record, match_run_id, tracker_view="all"):
         <h3>{e(record['title'])}</h3>
         <p class="pill card-status js-card-status" aria-label="Current status: {e(readable_status(status))}"><span class="visually-hidden">Current status: </span>{e(readable_status(status))}</p>
         {reminder}
+        {render_workflow_summary(record)}
         {f'<p class="muted next-step">{e(next_action)}</p>' if next_action else ''}
       </div>
       <div class="card-actions my-job-actions">
-        {f'<a class="open {view_class}" href="{e(record["url"])}" target="_blank" rel="noreferrer">View job</a>' if record["url"] else ''}
+        <a class="open {view_class}" href="{e(tracker_item_url(record))}">View job details</a>
+        {f'<a href="{e(record["url"])}" target="_blank" rel="noopener noreferrer">Original listing</a>' if safe_job_url(record["url"]) else ''}
         <div class="js-card-controls">{controls}</div>
       </div>
     </article>
     """
+
+
+def tracker_item_url(record):
+    return '/tracker/item?' + urlencode({'item': record['pipeline_item_id']})
+
+
+def render_workflow_summary(record):
+    workflow = (readable_status(record['workflow_status']) if record.get('workflow_status')
+                else 'Application progress unknown (legacy history)')
+    visibility = 'Hidden from matches' if record.get('visibility') == 'hidden' else 'Visible for consideration'
+    return f"<p class='workflow-summary'>{e(workflow)} · {e(visibility)}</p>"
 
 
 def render_my_jobs_forms(record, match_run_id, return_to, tracker_view="all"):
@@ -5930,6 +5949,7 @@ def action_json_payload(result, run, form):
         "replayed": result["replayed"],
         "reminder_date": item["reminder_date"],
         "next_action": item["next_action"],
+        "workflow_summary_html": render_workflow_summary(item),
         "remains_in_view": remains_in_view,
         "remove_card": not remains_in_view,
         "hidden_count": hidden_count,
@@ -5950,7 +5970,7 @@ def action_json_payload(result, run, form):
 def record_remains_in_browser_view(record, *, section, tracker_view):
     if section == "tracker":
         return bool(tracker_records_for_view([record], tracker_view))
-    if section == "public_job":
+    if section in {"public_job", "tracker_item"}:
         return True
     return record["status"] not in MAIN_RECOMMENDATION_EXCLUDED_STATUSES
 
@@ -5993,6 +6013,7 @@ def render_inline_action_script():
         const region = document.querySelector("#action-feedback");
         if (!region) return;
         region.innerHTML = "";
+        region.setAttribute('tabindex', '-1');
         const notice = document.createElement("div");
         notice.className = `notice ${isError ? "error" : "success"}`;
         notice.setAttribute("role", isError ? "alert" : "status");
@@ -6044,6 +6065,19 @@ def render_inline_action_script():
           if (!payload.ok) {
             throw userFacingError(payload.error || "The opportunity was not updated. Please try again.");
           }
+          if (payload.matches_refresh_url === '/find-matches') {
+            // Ask the normal selector to fill the released slot, keeping its
+            // owner, eligibility, ranking and display-cap rules intact.
+            const refreshed = await fetch('/find-matches', {redirect: 'error'});
+            if (!refreshed.ok) throw userFacingError(payload.message + ' Refresh Matches to see the current list.');
+            const page = new DOMParser().parseFromString(await refreshed.text(), 'text/html');
+            const main = page.querySelector('main');
+            if (!main) throw userFacingError(payload.message + ' Refresh Matches to continue.');
+            document.querySelector('main').replaceWith(document.importNode(main, true));
+            showPageMessage(payload.message);
+            document.querySelector('#action-feedback')?.focus();
+            return;
+          }
           if (payload.workspace_html) {
             const workspace = document.querySelector("#my-jobs-list");
             const trackerHeader = document.querySelector(".my-jobs-header");
@@ -6052,6 +6086,7 @@ def render_inline_action_script():
               trackerHeader.outerHTML = payload.tracker_header_html;
             }
             showPageMessage(payload.message);
+            document.querySelector('#action-feedback')?.focus();
             return;
           }
           if (payload.remove_card) {
@@ -6069,6 +6104,7 @@ def render_inline_action_script():
               container.append(empty);
             }
             showPageMessage(payload.message);
+            document.querySelector('#action-feedback')?.focus();
             return;
           }
           const status = card.querySelector(".js-card-status");
@@ -6079,20 +6115,29 @@ def render_inline_action_script():
           }
           card.dataset.stateVersion = String(payload.state_version);
           let reminder = card.querySelector(".reminder-note");
-          if (payload.reminder_date) {
+          if (!payload.workflow_history_html && payload.reminder_date) {
             if (!reminder) {
               reminder = document.createElement("p");
               reminder.className = "reminder-note";
               (card.querySelector(".card-main") || card).append(reminder);
             }
             reminder.textContent = `Reminder set for ${payload.reminder_date}.`;
-          } else if (reminder) {
+          } else if (!payload.workflow_history_html && reminder) {
             reminder.remove();
           }
           const nextStep = card.querySelector(".next-step");
           if (nextStep) nextStep.textContent = payload.next_action || "";
+          const summary = card.querySelector('.workflow-summary');
+          if (!payload.workflow_history_html && summary && payload.workflow_summary_html) summary.outerHTML = payload.workflow_summary_html;
+          if (payload.workflow_history_html) {
+            const history = card.querySelector('.workflow-history');
+            if (history) history.outerHTML = payload.workflow_history_html;
+            else card.insertAdjacentHTML('beforeend', payload.workflow_history_html);
+          }
           if (controls) controls.innerHTML = payload.controls_html;
           showCardMessage(card, payload.message);
+          const replacement = card.querySelector('.js-card-controls button');
+          if (replacement) replacement.focus();
         } catch (error) {
           buttons.forEach((button) => { button.disabled = false; });
           if (!error || !error.userFacing) {
@@ -6183,13 +6228,13 @@ def action_note(action):
 
 def action_success_message(action):
     labels = {
-        "show_again": "Shown in My Jobs again.",
+        "show_again": "Shown again. This job can be considered for matches; your progress is unchanged.",
         "save": "Saved to My Jobs.",
         "applied": "Marked as applied.",
         "assessment_started": "Assessment started.",
         "assessment_completed": "Assessment marked complete.",
         "remind_later": "Reminder set.",
-        "not_interested": "Marked not interested.",
+        "not_interested": "Hidden from matches. You can show it again in My Jobs.",
         "accepted": "Marked as accepted.",
         "rejected": "Marked as not selected.",
     }
@@ -6267,6 +6312,7 @@ def validate_action_form(form):
         "explore",
         "tracker",
         "public_job",
+        "tracker_item",
     }
     if section not in valid_sections:
         raise MalformedActionRequest()

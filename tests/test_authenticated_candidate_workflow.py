@@ -186,6 +186,22 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
 
     def _run(self, state, match=None):
         match = match or self._match()
+        # Real source rows and server-produced source bindings: a hand-built
+        # run alone is no longer authority for a source action.
+        from wahojobs.pipeline_postings import bind_match
+        self.connection.execute("INSERT OR IGNORE INTO companies (id,name,slug,careers_url) VALUES (99, 'Configured Inventory','configured-inventory','https://jobs.example.test/')")
+        self.connection.execute('INSERT OR IGNORE INTO canonical_opportunities '
+            '(id,company_id,canonical_key,canonical_title,normalized_title,source_category,first_seen_at,last_seen_at) '
+            'VALUES (?,99,?,?,?,\'Software Engineering\',?,?)',
+            (match['canonical_opportunity_id'],str(match['job_id']),match['title'],match['title'],NOW.isoformat(),NOW.isoformat()))
+        self.connection.execute('INSERT OR IGNORE INTO jobs '
+            '(id,company_id,canonical_opportunity_id,external_id,title,url,source_hash,first_seen_at,last_seen_at) '
+            'VALUES (?,99,?,?,?,?,?,?,?)', (match['job_id'],match['canonical_opportunity_id'],str(match['job_id']),
+             match['title'],match['url'],'workflow-source-'+str(match['job_id']),NOW.isoformat(),NOW.isoformat()))
+        self.connection.execute("INSERT INTO crawl_runs (company_id,status,started_at,finished_at,used_sample_data) VALUES (99,'success',?,?,0)",
+                                (NOW.isoformat(),NOW.isoformat()))
+        self.connection.commit()
+        match = bind_match(self.connection, match)
         run = self.integration._registry.create(
             owner_profile_id=state["profile_id"],
             raw_input="",
@@ -441,7 +457,7 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         page = authenticated.body.decode("utf-8")
         self.assertEqual(authenticated.status, 200, page)
         self.assertEqual(dict(authenticated.headers)["Cache-Control"], "no-store")
-        self.assertIn("Your Wahojobs workflow", page)
+        self.assertIn("<h2>My Jobs</h2>", page)
         self.assertIn("href='/find-matches'>Matches</a>", page)
         self.assertIn("href='/tracker'>My Jobs</a>", page)
         self.assertIn(">Save</button>", page)
@@ -468,7 +484,7 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
             accept_json=False,
         )
         self.assertEqual(saved.status, 303, saved.body)
-        self.assertEqual(dict(saved.headers)["Location"], JOB_PATH)
+        self.assertEqual(dict(saved.headers)["Location"], JOB_PATH + '?variant=9003')
         self.assertEqual(
             self.connection.execute(
                 "SELECT COUNT(*) FROM user_pipeline_items WHERE profile_id = ?",

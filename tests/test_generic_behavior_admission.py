@@ -35,6 +35,27 @@ WHO = [
 ]
 
 
+def rerender_card_with_original_nonces(render, args, kwargs, original_html):
+    # Reuse the actual random outputs when replaying the same render. Every
+    # form, nonce and binding is still compared byte-for-byte below; no opaque
+    # identifier is stripped, normalized or invented by this observer.
+    class Nonces(HTMLParser):
+        def __init__(self): super().__init__(); self.values = []
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == 'input' and attrs.get('name') == 'idempotency_key':
+                self.values.append(attrs['value'])
+    parsed = Nonces(); parsed.feed(original_html)
+    values = iter(parsed.values)
+    def next_nonce(size):
+        assert size == 24
+        return next(values)
+    with patch.object(browser.local_product.secrets, 'token_urlsafe', side_effect=next_nonce):
+        rendered = render(*args, **kwargs)
+    assert list(values) == []
+    return rendered
+
+
 class LabelledSemanticOutput:
     """Transparent test output; never an implemented automatic classifier."""
     provider = 'openai'
@@ -252,7 +273,8 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
             def handle_starttag(self, tag, attrs):
                 if tag in ('form', 'input', 'button', 'a'): self.values.append((tag, attrs))
         with patch('wahojobs.authenticated_card_evidence.render_placement_explanation', return_value=''):
-            args, kwargs = captured['card']; plain_card = render_card(*args, **kwargs)
+            args, kwargs = captured['card']
+            plain_card = rerender_card_with_original_nonces(render_card, args, kwargs, response.body.decode())
             args, kwargs = captured['detail']; plain_detail = render_detail(*args, **kwargs)
         for actual, plain in ((response, plain_card), (detail, plain_detail)):
             a, b = Bindings(), Bindings(); a.feed(actual.body.decode()); b.feed(plain)
@@ -372,7 +394,9 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
             for label, render, html in [('card', card_render, response.body.decode()),
                                         ('detail', detail_render, detail.body.decode())]:
                 args, kwargs = captured[label]
-                a, b = Bindings(), Bindings(); a.feed(html); b.feed(render(*args, **kwargs))
+                plain = (rerender_card_with_original_nonces(render, args, kwargs, html)
+                         if label == 'card' else render(*args, **kwargs))
+                a, b = Bindings(), Bindings(); a.feed(html); b.feed(plain)
                 self.assertEqual(a.values, b.values)
         after = deepcopy(self.f.integration._registry._runs[run.match_run_id].recommendation_context)
         after.pop('_card_evidence', None)

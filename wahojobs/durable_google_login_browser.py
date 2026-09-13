@@ -33,6 +33,7 @@ LOGOUT_ROUTE = "/logout"
 AUTHENTICATED_DESTINATION = "/account/profile"
 PERSISTENT_PROFILE_ROUTE = AUTHENTICATED_DESTINATION
 FIND_MATCHES_ROUTE = "/find-matches"
+_WORKFLOW_ROUTES = frozenset({'/tracker', '/tracker/item', '/action'})
 
 LOGIN_CSRF_COOKIE_NAME = "__Host-wahojobs_login_csrf"
 GOOGLE_TRANSACTION_COOKIE_NAME = "__Host-wahojobs_google_tx"
@@ -2059,7 +2060,7 @@ class DurableGoogleLoginBrowserIntegration:
 
     def _delegated_job_route(self, path):
         from wahojobs.public_job_page import parse_public_job_path
-        return (parse_public_job_path(path) is not None
+        return ((parse_public_job_path(path) is not None or path in _WORKFLOW_ROUTES)
                 and self._profile_integration is not None
                 and self._profile_integration.matches_route(path) is True)
 
@@ -2278,7 +2279,7 @@ class DurableGoogleLoginBrowserIntegration:
             header_items is not None
             and (
                 self._trusted_profile_post_headers(header_items)
-                if path in _DELEGATED_ACCOUNT_ROUTES and method == "POST"
+                if path in _DELEGATED_ACCOUNT_ROUTES | _WORKFLOW_ROUTES and method == "POST"
                 else self._trusted_request_headers(header_items)
             )
         )

@@ -123,6 +123,7 @@ def perform_pipeline_action(
     url: str = "",
     opportunity_external_id: str = "",
     canonical_id: int | None = None,
+    posting_job_id: int | None = None,
     reminder_at: str | None = None,
     note: str | None = None,
     actor_source: str = "product_action",
@@ -177,12 +178,21 @@ def perform_pipeline_action(
             raise PipelineActionValidationError(
                 "An existing pipeline_item_id or complete opportunity identity is required."
             )
-        pipeline_item_id = stable_pipeline_item_id(
-            profile_id=owner_profile_id,
-            source=opportunity["source"],
-            title=opportunity["title"],
-            url=opportunity["url"],
-        )
+        if posting_job_id is not None:
+            from wahojobs.pipeline_postings import load_posting, item_id
+            posting = load_posting(conn, posting_job_id)
+            if posting is None:
+                raise PipelineActionValidationError("Exact posting is unavailable.")
+            pipeline_item_id = item_id(owner_profile_id, posting)
+        else:
+            pipeline_item_id = stable_pipeline_item_id(
+                profile_id=owner_profile_id,
+                source=opportunity["source"],
+                title=opportunity["title"],
+                url=opportunity["url"],
+            )
+    elif posting_job_id is not None:
+        raise PipelineActionValidationError("Posting creation identity cannot select an existing item.")
     pipeline_item_id = _required_text(pipeline_item_id, "pipeline_item_id")
 
     request = {
@@ -779,7 +789,7 @@ def _normalize_opportunity(*, source, title, url, opportunity_external_id, canon
     source = _required_text(source, "source")
     title = _required_text(title, "title")
     url = str(url or "").strip()
-    external_id = str(opportunity_external_id or "").strip()
+    external_id = str(opportunity_external_id or "")
     if canonical_id not in (None, ""):
         try:
             canonical_id = int(canonical_id)

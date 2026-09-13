@@ -162,7 +162,7 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         self.assertEqual([m['job_id'] for m in conditional], [7003])
         self.assertEqual(browser._primary_presentation_matches(context), [])
         self.assertEqual(conditional[0]['source_task_fit']['conditions'][0]['status'], 'not_established')
-        html = re.search(r"<article class='relaxation-preview-card' id='opportunity-7003'>.*?</article>",
+        html = re.search(r"<article class='relaxation-preview-card' data-action-card id='opportunity-7003'>.*?</article>",
                          response.body.decode(), re.S).group()
         detail = self.f.get('/job/opportunity-7002?variant=7003')
         self.assertEqual(detail.status, 200)

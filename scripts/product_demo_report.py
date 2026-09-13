@@ -604,34 +604,37 @@ def spread_by_source(matches, limit):
 
 
 def build_tracked_index(records):
-    by_key = {}
-    by_source_title = {}
-    by_source_near_title = {}
+    by_key, by_posting, by_exact_url = {}, {}, {}
+    ambiguous_job_ids = set()
     for record in records:
         by_key[record["match_key"]] = record
-        by_source_title[(normalize(record["source"]), normalize(record["title"]))] = record
-        by_source_near_title[
-            (normalize(record["source"]), normalize_action_target(record["title"]))
-        ] = record
+        job_id = record.get('_posting_job_id')
+        if job_id is not None:
+            if job_id in by_posting or record.get('_posting_link_state') == 'ambiguous_history':
+                ambiguous_job_ids.add(job_id)
+            by_posting[job_id] = record
+        elif '_posting_link_state' not in record and record.get('url'):
+            key = (record['source'], record['url'])
+            by_exact_url[key] = None if key in by_exact_url else record
     return {
         "by_key": by_key,
-        "by_source_title": by_source_title,
-        "by_source_near_title": by_source_near_title,
+        "by_source_title": {},
+        "by_source_near_title": {},
+        "by_posting": by_posting,
+        "ambiguous_job_ids": ambiguous_job_ids,
+        "by_exact_url": by_exact_url,
+        "records": records,
     }
 
 
 def tracked_record_for_match(match, tracked):
-    key = match_key_from_match(match)
-    if key in tracked["by_key"]:
-        return tracked["by_key"][key]
-    exact = tracked["by_source_title"].get(
-        (normalize(match["source"]), normalize(match["display_title"]))
-    )
-    if exact:
-        return exact
-    return tracked.get("by_source_near_title", {}).get(
-        (normalize(match["source"]), normalize_action_target(match["display_title"]))
-    )
+    job_id = match.get('job_id')
+    if job_id in tracked.get('ambiguous_job_ids', set()):
+        return None
+    record = tracked.get('by_posting', {}).get(job_id)
+    if record is not None:
+        return record
+    return tracked.get('by_exact_url', {}).get((match.get('source'), match.get('url')))
 
 
 def build_demo_action_plan(profile, pipeline_report, matches, tracked, today):
