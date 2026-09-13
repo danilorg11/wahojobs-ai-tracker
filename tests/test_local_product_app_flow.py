@@ -1279,7 +1279,10 @@ class LocalProductAppFlowTests(unittest.TestCase):
         self.assertEqual(status, 200)
         skip_payload = json.loads(payload)
         self.assertEqual(skip_payload["status"], "not_interested")
-        self.assertEqual(skip_payload["message"], "Marked not interested.")
+        self.assertEqual(
+            skip_payload["message"],
+            "Hidden from matches. You can show it again in My Jobs.",
+        )
         self.assertEqual(self.pipeline_rows("local_user")[0]["status"], "not_interested")
         self.assertEqual(self.registry.get(run_id).owner_profile_id, "local_user")
 
