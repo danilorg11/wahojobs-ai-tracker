@@ -1,7 +1,8 @@
 """Owner-scoped, read-only consumption of prepared professional relations.
 
 Matching only looks up already validated responses. This module has no model,
-network, persistence or opportunity-enrichment writer. An explicit selective
+network or opportunity-enrichment writer. An optional SQLite companion retains
+derived results at this same boundary. An explicit selective
 preparation integration may build requests and publish responses outside the
 matching request. Offline labelled fixtures exercise that same boundary.
 """
@@ -195,13 +196,13 @@ def validate_response(request, output):
 
 
 class ProfessionalBackgroundEvidence:
-    """Bounded process-local prepared evidence, with explicit publish/lookup.
+    """Prepared evidence, in memory by default, with explicit publish/lookup.
 
 No callable provider is accepted, so a matching lookup cannot invoke a model.
 Publishing is a separate, explicitly authorized operation. Generation changes
 invalidate recommendation reuse. Entries are never global opportunity facts.
 """
-    def __init__(self, *, recipe, model, basis, capacity=256):
+    def __init__(self, *, recipe, model, basis, capacity=256, durable_store=None):
         if (any(type(v) is not str or not v or len(v) > 120 for v in (recipe, model))
                 or basis not in ('offline_labelled_stub', 'semantic_model_output')
                 or type(capacity) is not int or not 1 <= capacity <= 1024):
@@ -209,20 +210,34 @@ invalidate recommendation reuse. Entries are never global opportunity facts.
         self.recipe, self.model, self.basis = recipe, model, basis
         self._capacity, self._generation = capacity, 0
         self._entries, self._lock = OrderedDict(), threading.RLock()
+        if durable_store is not None:
+            from wahojobs.professional_background_store import SQLiteProfessionalBackgroundStore
+            if type(durable_store) is not SQLiteProfessionalBackgroundStore:
+                raise ValueError('invalid_professional_evidence_storage')
+        self._store = durable_store
 
     @property
     def generation(self):
+        if self._store is not None:
+            return self._store.generation
         with self._lock:
             return self._generation
 
     @property
     def generation_token(self):
+        if self._store is not None:
+            return (self._store.generation, self.recipe, self.model, self.basis,
+                    VERSION, SEMANTIC_VERSION, model_identity_policy_digest())
         with self._lock:
             return (self._generation, self.recipe, self.model, self.basis,
                     VERSION, SEMANTIC_VERSION, model_identity_policy_digest())
 
+    @property
+    def requires_dependency_validation(self):
+        return self._store is not None
+
     @contextmanager
-    def consume_generation(self, expected):
+    def consume_generation(self, expected, *, dependencies=()):
         """Linearize result acceptance against publish, with one bounded check.
 
         Consumers do database/comparison work before this guard, then accept
@@ -231,12 +246,31 @@ invalidate recommendation reuse. Entries are never global opportunity facts.
         No model/network work belongs inside this guard. Publications after
         acceptance belong to subsequent requests, not the in-flight response.
         """
+        if self._store is not None:
+            # The transaction serializes local file publication/revocation with
+            # final response acceptance, including in another local process.
+            # All source reads and model work precede this short guard.
+            with self._store.transaction(write=True, expected=expected[0]) as (connection, _):
+                with self._lock:
+                    if expected[1:] != (self.recipe, self.model, self.basis,
+                            VERSION, SEMANTIC_VERSION, model_identity_policy_digest()):
+                        raise ValueError('professional_evidence_changed_during_consumption')
+                    # Generation alone cannot detect damaged record bytes. Check
+                    # only this response's rebuilt requests, under the same lock
+                    # as publication and acceptance, including conservative output.
+                    for request, expected_output in dependencies:
+                        state, output = self._inspect_record(request,
+                            self._store.read_in_transaction(connection, request))
+                        if state != 'reusable' or output != expected_output:
+                            raise ValueError('professional_evidence_dependency_invalid')
+                    yield
+            return
         with self._lock:
             if self.generation_token != expected:
                 raise ValueError('professional_evidence_changed_during_consumption')
             yield
 
-    def publish(self, request, output, *, model_identity=None):
+    def publish(self, request, output, *, model_identity=None, provenance=None, expected_generation=None):
         result = validate_response(request, output)
         binding = request['binding']
         if any(binding.get(k) != v for k, v in (
@@ -250,6 +284,14 @@ invalidate recommendation reuse. Entries are never global opportunity facts.
                 raise ValueError('invalid_preparation_model_identity')
         elif self.basis == 'semantic_model_output':
             raise ValueError('invalid_preparation_model_identity')
+        if self._store is not None:
+            _validate_provenance(provenance, model_identity)
+            if expected_generation is None:
+                raise ValueError('professional_evidence_publication_token_required')
+            self._store.publish(request, dict(binding=deepcopy(binding), output=result,
+                model_identity=deepcopy(model_identity), provenance=deepcopy(provenance)),
+                expected=expected_generation)
+            return
         with self._lock:
             self._entries[request['request_id']] = (result, deepcopy(model_identity))
             self._entries.move_to_end(request['request_id'])
@@ -258,24 +300,94 @@ invalidate recommendation reuse. Entries are never global opportunity facts.
             self._generation += 1
 
     def lookup(self, request):
+        return self.inspect(request)[1]
+
+    def inspect(self, request):
+        """Content-free disposition plus revalidated output; never dispatches."""
         if request is None:
-            return None
+            return 'absent', None
+        if self._store is not None:
+            return self._inspect_record(request, self._store.read(request))
         with self._lock:
             result = self._entries.get(request['request_id'])
             if result is None:
+                return 'absent', None
+            output = self._validated_lookup(request, result)
+            return ('reusable', output) if output is not None else ('invalid', None)
+
+    def _inspect_record(self, request, stored):
+        state, record = stored
+        if state != 'validated':
+            return state, None
+        try:
+            _validate_provenance(record['provenance'], record['model_identity'])
+            output = self._validated_lookup(request, (record['output'], record['model_identity']))
+            return ('reusable', output) if output is not None else ('invalid', None)
+        except (ValueError, TypeError, KeyError):
+            return 'invalid', None
+
+    def _validated_lookup(self, request, result):
+        # Use current versions as well as the caller's rebuilt exact request.
+        try:
+            if any(request['binding'].get(k) != v for k, v in (
+                    ('recipe', self.recipe), ('model', self.model), ('basis', self.basis),
+                    ('component_version', VERSION), ('semantic_version', SEMANTIC_VERSION),
+                    ('model_identity_policy', model_identity_policy_digest()))):
                 return None
-            try:
-                if request['binding'].get('model_identity_policy') != model_identity_policy_digest():
+            output, identity = result
+            output = validate_response(request, output)
+            if identity is not None:
+                if identity != validate_model_identity(self.model, identity['returned_model']):
                     return None
-                output, identity = result
-                output = validate_response(request, output)
-                if identity is not None:
-                    if identity != validate_model_identity(self.model, identity['returned_model']):
-                        return None
-                    output['model_identity'] = deepcopy(identity)  # local metadata, never model authority
-                return output
-            except (ValueError, TypeError, KeyError):
+                output['model_identity'] = deepcopy(identity)  # local metadata, never model authority
+            elif self.basis == 'semantic_model_output':
                 return None
+            return output
+        except (ValueError, TypeError, KeyError):
+            return None
+
+    def begin_attempt(self, request, expected):
+        if self._store is None:
+            return None
+        return self._store.begin_attempt(request, expected=expected)
+
+    def revoke(self, request):
+        """Internal owner-bound operator boundary, like publish; no HTTP route."""
+        if self._store is not None:
+            self._store.revoke(request)
+        else:
+            with self._lock:
+                self._entries.pop(request['request_id'], None)
+                self._generation += 1
 
     def __repr__(self):
         return 'ProfessionalBackgroundEvidence(content=<redacted>)'
+
+
+def _validate_provenance(value, identity):
+    """Bounded producer metadata, never restored into request-budget accounting."""
+    from datetime import datetime
+    fields = {'generated_at', 'response_id', 'response_status', 'http_status',
+              'requested_service_tier', 'returned_service_tier', 'usage_known', 'usage',
+              'attempt', 'physical_attempts', 'reserved_tokens', 'reserved_usd'}
+    if type(value) is not dict or set(value) != fields or identity is None:
+        raise ValueError('invalid_preparation_provenance')
+    if (type(value['generated_at']) is not str
+            or datetime.fromisoformat(value['generated_at']).utcoffset() is None
+            or value['response_status'] != 'completed'
+            or type(value['http_status']) is not int or not 200 <= value['http_status'] < 300
+            or type(value['usage_known']) is not bool
+            or value['requested_service_tier'] not in (None, 'default')
+            or value['requested_service_tier'] is not None
+            and value['returned_service_tier'] != value['requested_service_tier']
+            or value['returned_service_tier'] not in (None, 'default')
+            or value['response_id'] is not None and (type(value['response_id']) is not str
+                or len(value['response_id']) > 200)
+            or any(type(value[k]) is not int or value[k] < 0 for k in
+                   ('attempt', 'physical_attempts', 'reserved_tokens'))
+            or type(value['reserved_usd']) is not str or len(value['reserved_usd']) > 40
+            or type(value['usage']) is not dict
+            or set(value['usage']) != {'input_tokens', 'output_tokens', 'total_tokens', 'estimated_cost_usd'}
+            or any(type(value['usage'][k]) is not int or value['usage'][k] < 0
+                   for k in ('input_tokens', 'output_tokens', 'total_tokens'))):
+        raise ValueError('invalid_preparation_provenance')

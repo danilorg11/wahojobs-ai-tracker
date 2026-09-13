@@ -1863,18 +1863,19 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             recent_cache_hours=local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
                         ),
                     }
+            dependencies = self._professional_background_dependencies(context, profile_v2, background_context)
             if return_context:
                 proof = context.get("_authenticated_reuse")
                 if (type(proof) is dict and not
                         proof["evaluated_at"] <= _trusted_utc(self._now()) < proof["valid_until"]):
                     raise ValueError("candidate_match_expired_during_detail_selection")
-                with prepared.consume_generation(generation) if prepared is not None else nullcontext():
+                with prepared.consume_generation(generation, dependencies=dependencies) if prepared is not None else nullcontext():
                     return context
             context = self._with_card_evidence(context, profile_v2, background_context=background_context)
             records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else None
             # Reuse/comparison above is tentative. Accept and register exactly
             # that generation under the publisher's lock; never retry in a GET.
-            with prepared.consume_generation(generation) if prepared is not None else nullcontext():
+            with prepared.consume_generation(generation, dependencies=dependencies) if prepared is not None else nullcontext():
                 if self._write_connection_provider is None:
                     content = _render_match_results(context, inventory_count=inventory_count)
                 else:
@@ -1917,6 +1918,53 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "Matches temporarily unavailable",
                 "Matches cannot be loaded safely right now.",
             )
+
+    def _professional_background_dependencies(self, context, profile_v2, background_context):
+        """Rebuild only the exact requests whose results this context consumed.
+
+        Source/profile work precedes the publication guard. The provider then
+        revalidates these records and outputs in its acceptance transaction;
+        refreshed card explanation alone cannot validate cached admission.
+        """
+        if background_context is None or not background_context.evidence.requires_dependency_validation:
+            return ()
+        from wahojobs.authenticated_card_evidence import load_card_sources, prepare_card_evidence
+        from wahojobs.professional_background_semantics import accepted_source_binding, build_request
+        candidates = []
+        for matches in context['matches'].values():
+            for match in matches:
+                semantics = [row.get('components', {}).get('occupational_relevance', {}).get('semantic')
+                             for row in match.get('source_qualification_comparisons', ())]
+                semantics = [value for value in semantics if value is not None]
+                if semantics:
+                    candidates.append((match, semantics))
+        if not candidates:
+            return ()
+        with self._connection_provider() as connection:
+            if connection.in_transaction or connection.execute('PRAGMA query_only').fetchone()[0] != 1:
+                raise ValueError('source_task_evidence_read_unavailable')
+            connection.execute('BEGIN')
+            try:
+                sources = accepted_source_binding(connection,
+                    load_card_sources(connection, [match for match, _ in candidates]))
+            finally:
+                connection.rollback()
+        dependencies = []
+        for match, semantics in candidates:
+            packet = prepare_card_evidence(match, sources.get(match['job_id']), profile_v2)
+            requests = {}
+            for comparison in packet.get('comparisons', ()):
+                request = build_request(packet, comparison, profile_v2, background_context)
+                if request is not None:
+                    requests[request['request_id']] = request
+            for semantic in semantics:
+                request = requests.get(semantic['request_id'])
+                if request is None or any(semantic.get(k) != getattr(background_context.evidence, k)
+                                          for k in ('basis', 'recipe', 'model')):
+                    raise ValueError('professional_evidence_dependency_invalid')
+                dependencies.append((request, {k: v for k, v in semantic.items()
+                                               if k not in ('basis', 'recipe', 'model')}))
+        return tuple(dependencies)
 
     def _with_source_task_fit(self, context, profile_v2, *, background_context=None):
         from wahojobs.authenticated_card_evidence import load_card_sources

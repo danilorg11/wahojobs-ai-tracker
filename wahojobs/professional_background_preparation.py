@@ -7,6 +7,7 @@ same evidence instance must be attached to matching in the same process.
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from decimal import Decimal
+from datetime import datetime, timezone
 import json
 import re
 import threading
@@ -145,6 +146,7 @@ class ProfessionalBackgroundPreparer:
         self._client, self._enabled, self._allow_real = client, enabled, allow_real_requests
         self._budget, self._audit_sink = budget, audit_sink
         self._lock = threading.RLock()
+        self._dispatching = False
         self._attempts, self._tokens, self._usd = 0, 0, Decimal(0)
         self._records = []  # at most request_limit entries; never an automatic retry queue
 
@@ -198,13 +200,15 @@ class ProfessionalBackgroundPreparer:
                 else:
                     key = request['request_id']
                     item['request_id'] = key
-                    reused = self.evidence.lookup(request)
+                    disposition, reused = self.evidence.inspect(request)
                     if reused is not None:
                         item.update(state='reusable', relation=reused['relation'])
                     elif row['components']['occupational_relevance']['status'] == 'supported_partial':
                         item.update(state='skipped', reason='deterministic_relevance_available')
                     else:
                         item.update(state='needs_preparation')
+                    if disposition in ('invalid', 'attempted', 'revoked'):
+                        item.update(state='limitation', reason='professional_evidence_' + disposition)
                     try:
                         payload, schema = model_input(request, profile), output_schema(request)
                         size = len(_encoded(dict(prompt=PROMPT, payload=payload, schema=schema)))
@@ -225,7 +229,7 @@ class ProfessionalBackgroundPreparer:
 
     def prepare(self, service, provider, *, profile_id, job_ids, authentication_input,
                 session_token, csrf_secret, execute=False, authorized=False,
-                expected_plan_id=None, replace=False):
+                expected_plan_id=None, replace=False, revoke=False):
         """Internal operator API, not an HTTP endpoint. Dry-run is the default.
 
         Authentication/CSRF and durable profile authorization are resolved on
@@ -234,11 +238,14 @@ class ProfessionalBackgroundPreparer:
         if (type(job_ids) not in (list, tuple) or not 1 <= len(job_ids) <= MAX_PAIRS
                 or any(type(jid) is not int or jid <= 0 for jid in job_ids)
                 or len(set(job_ids)) != len(job_ids)
-                or any(type(v) is not bool for v in (execute, authorized, replace))):
+                or any(type(v) is not bool for v in (execute, authorized, replace, revoke))
+                or replace and revoke):
             raise ValueError('invalid_preparation_selection')
         credentials = dict(authentication_input=authentication_input, session_token=session_token,
                            csrf_secret=csrf_secret)
         with self._lock:
+            if self._dispatching and execute and not revoke:
+                raise ValueError('preparation_already_in_progress')
             plan, requests = self._inspect(service, provider, profile_id=profile_id,
                                           job_ids=job_ids, credentials=credentials)
             if not execute:
@@ -258,6 +265,14 @@ class ProfessionalBackgroundPreparer:
                             count, tokens, usd = count + 1, tokens + reserved_tokens, usd + reserved_usd
                 return dict(plan, execution_enabled=self._enabled, accounting=self.accounting,
                             budget=asdict(self._budget) if self._budget else None)
+            if revoke:
+                if not authorized or expected_plan_id != plan['plan_id']:
+                    raise ValueError('preparation_revocation_authorization_required')
+                for item in plan['items']:
+                    if item.get('request_id') in requests:
+                        self.evidence.revoke(requests[item['request_id']][0])
+                        item.update(state='revoked')
+                return dict(plan, accounting=self.accounting)
             if (not self._enabled or not authorized or self._client is None or self._budget is None):
                 raise ValueError('preparation_execution_disabled')
             if expected_plan_id != plan['plan_id']:
@@ -279,6 +294,7 @@ class ProfessionalBackgroundPreparer:
                 if key not in requests:
                     item.update(state='limitation', reason='model_input_unavailable')
                     continue
+                publication_generation = self.evidence.generation
                 current, _ = self._inspect(service, provider, profile_id=profile_id,
                                            job_ids=job_ids, credentials=credentials)
                 if current['plan_id'] != plan['plan_id']:
@@ -307,17 +323,28 @@ class ProfessionalBackgroundPreparer:
                     # Reservation and audit precede the single adapter send.
                     record['physical_attempts'] = 1
                 try:
+                    publication_generation = self.evidence.begin_attempt(request, publication_generation)
                     if self._audit_sink:
                         self._audit_sink(dict(event='request', request_id=key, attempt=record['attempt'], model=self.evidence.model,
                                               requested_service_tier=record['requested_service_tier'],
                                               prompt=PROMPT, schema=schema, payload=payload))
-                    result = self._client.generate_structured(
-                        deepcopy(payload), prompt=PROMPT, schema=deepcopy(schema),
-                        schema_name='professional_occupational_relation', max_output_tokens=MAX_OUTPUT_TOKENS,
-                        max_response_bytes=MAX_RESPONSE_BYTES,
-                        before_dispatch=before_dispatch,
-                        response_sink=(lambda raw: self._audit_sink(dict(
-                            event='response', request_id=key, attempt=record['attempt'], raw_response=raw))) if self._audit_sink else None)
+                    # Keep the single-operation policy without holding either
+                    # the accounting or publication lock over model/network I/O.
+                    # Concurrent execution fails explicitly; inspection/revocation
+                    # can proceed. The durable generation CAS rejects late output.
+                    self._dispatching = True
+                    self._lock.release()
+                    try:
+                        result = self._client.generate_structured(
+                            deepcopy(payload), prompt=PROMPT, schema=deepcopy(schema),
+                            schema_name='professional_occupational_relation', max_output_tokens=MAX_OUTPUT_TOKENS,
+                            max_response_bytes=MAX_RESPONSE_BYTES,
+                            before_dispatch=before_dispatch,
+                            response_sink=(lambda raw: self._audit_sink(dict(
+                                event='response', request_id=key, attempt=record['attempt'], raw_response=raw))) if self._audit_sink else None)
+                    finally:
+                        self._lock.acquire()
+                        self._dispatching = False
                     identity = _record_response_identity(record, result, self.evidence.model)
                     if identity is None:
                         raise ValueError('invalid_preparation_model_identity')
@@ -341,7 +368,14 @@ class ProfessionalBackgroundPreparer:
                                               requested_service_tier=record['requested_service_tier'],
                                               returned_service_tier=record['returned_service_tier'],
                                               output=output, usage=record['usage'], model_identity=identity))
-                    self.evidence.publish(current_requests[key][0], output, model_identity=identity)
+                    provenance = {k: deepcopy(record[k]) for k in (
+                        'attempt', 'physical_attempts', 'reserved_tokens', 'reserved_usd',
+                        'requested_service_tier', 'returned_service_tier', 'usage_known', 'usage')}
+                    provenance.update(generated_at=datetime.now(timezone.utc).isoformat(),
+                        response_id=result.response_id, response_status=result.response_status,
+                        http_status=result.http_status)
+                    self.evidence.publish(current_requests[key][0], output, model_identity=identity,
+                        provenance=provenance, expected_generation=publication_generation)
                     record.update(state='published', relation=output['relation'])
                     item.update(state='published', relation=output['relation'])
                 except Exception as exc:
@@ -365,13 +399,14 @@ class ProfessionalBackgroundPreparer:
 
 
 def configured_background_preparer(*, enabled=False, allow_real_requests=False,
-                                   budget=None, audit_sink=None):
+                                   budget=None, audit_sink=None, durable_store=None):
     """Explicit composition factory; never reads credentials when disabled."""
     if not enabled:
         return None
     if not allow_real_requests or type(budget) is not PreparationBudget:
         raise ValueError('explicit_model_budget_authorization_required')
     client = configured_openai_client(enabled=True)
-    evidence = ProfessionalBackgroundEvidence(recipe=RECIPE, model=client.model, basis='semantic_model_output')
+    evidence = ProfessionalBackgroundEvidence(recipe=RECIPE, model=client.model,
+        basis='semantic_model_output', durable_store=durable_store)
     return ProfessionalBackgroundPreparer(evidence, client=client, enabled=True,
         allow_real_requests=True, budget=budget, audit_sink=audit_sink)
