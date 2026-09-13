@@ -49,6 +49,20 @@ semantic preparation or model prompts were changed.
 
 ## Progress and validation
 
+Acceptance correction (2026-09-13): the owner's actual browser failure suspended
+integration readiness. The served client sent a charset parameter
+that the strict authenticated form adapter rejects. A real DOM click through the
+shipped script reproduced Save and Applied returning 400 without mutations;
+controls recovered but later actions hit the same rejection. The client now sends
+the existing strict media type; the authenticated parser and security contract
+are unchanged. The complete DOM-to-HTTPS journey passes, including response-specific
+feedback, failure recovery, exact sibling isolation, foreign-owner rejection and
+fresh-process return. Console demo instructions use ASCII to avoid a Windows
+redirected-output encoding crash. Focused independent review and final 636-ID plus
+affected-suite validation are the remaining acceptance gates; their final receipts
+and fresh-demo source identity belong in the existing evidence bundle. Preserve
+the original failure and all intermediate observer failures there.
+
 1. **Complete:** verified baseline; reproduced hidden final-slot consumption,
    fuzzy state inheritance and missing local My Jobs return. Existing normalized
    hide/restore history preservation was protected.
@@ -100,6 +114,21 @@ Automated journey, including fresh process returns:
 ```powershell
 C:\Python312\python.exe -B -m unittest tests.test_candidate_continuity
 ```
+
+Client regression (Node 22+, test-only pinned jsdom; no production dependency):
+
+```powershell
+npm ci --prefix tests/client_dom --ignore-scripts --no-audit --no-fund
+C:\Python312\python.exe -B -m unittest tests.test_candidate_continuity_client
+```
+
+This executes native DOM click/submit, the actual served inline script,
+FormData/URLSearchParams, and real authenticated HTTPS responses, then compares
+rendered feedback with persisted synthetic state. Only browser-managed cookies,
+headers and transport are supplied by the observer; successful action fields and
+responses are never invented. It does not claim full-browser TLS/CSP enforcement,
+keyboard or layout coverage. The earlier static/response replay did not cover
+the client request boundary and is retained only as historical visual evidence.
 
 ## Stable working boundary and limitations
 

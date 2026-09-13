@@ -1,0 +1,7 @@
+{
+  "name": "wahojobs-client-dom-regressions",
+  "private": true,
+  "description": "Test-only shipped-client DOM to authenticated HTTPS integration",
+  "engines": { "node": ">=22" },
+  "dependencies": { "jsdom": "26.1.0" }
+}

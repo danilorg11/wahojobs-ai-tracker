@@ -6035,7 +6035,9 @@ def render_inline_action_script():
             method: "POST",
             headers: {
               "Accept": "application/json",
-              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+              // Match the authenticated adapter's strict form media type.
+              // URLSearchParams percent-encodes UTF-8 form values in the body.
+              "Content-Type": "application/x-www-form-urlencoded",
               "X-Wahojobs-Inline-Action": "1",
             },
             body: new URLSearchParams(new FormData(form)),

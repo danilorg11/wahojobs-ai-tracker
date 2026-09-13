@@ -36,7 +36,7 @@ def serve(directory, *, owner='first'):
             (directory/'continuity-ready.json').write_text(json.dumps({'pid':os.getpid(),
                 'origin':config_doc['public_origin'], 'owner':owner}), encoding='utf-8')
             print('Synthetic Wahojobs: '+config_doc['public_origin']+'/login?next=/find-matches',flush=True)
-            print('Use the local controlled login. Save → Mark as applied → Not interested → My Jobs → Show hidden → View job details → Show again.',flush=True)
+            print('Use the local controlled login. Save -> Mark as applied -> Remind me later -> Not interested -> My Jobs -> Hidden -> View job details -> Show again.',flush=True)
             print('Only synthetic jobs and owners. Employer links are example.test; do not open them.',flush=True)
             while not (directory/'continuity-stop').exists():
                 time.sleep(.2)
