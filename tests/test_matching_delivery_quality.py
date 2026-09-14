@@ -1,4 +1,4 @@
-"""Authenticated list/detail consequences of source-supported qualifying routes."""
+"""Source qualification alternatives preserve central-fit and exact-detail contracts."""
 from copy import deepcopy
 import unittest
 from tests.matching_delivery_support import DeliveryFixture, degree_profile, body, JOB
@@ -9,12 +9,13 @@ class MatchingDeliveryQualityTests(unittest.TestCase):
     def fixture(self,p,text,**kw):
         f=DeliveryFixture(p,text,**kw);self.addCleanup(f.close);return f
 
-    def test_supported_degree_routes_reach_conditional_list_and_exact_detail(self):
+    def test_supported_degree_routes_do_not_replace_central_fit_and_reach_exact_detail(self):
         for field in ('marketing','biology'):
             with self.subTest(field=field):
                 f=self.fixture(degree_profile(field),body(field))
                 response,run,ctx,m=f.current()
-                self.assertEqual([x['job_id'] for x in browser._conditional_presentation_matches(ctx)],[JOB])
+                self.assertEqual(browser._conditional_presentation_matches(ctx),[])
+                self.assertIsNone(m.get('conditional_task_fit'))
                 self.assertEqual(browser._primary_presentation_matches(ctx),[])
                 self.assertEqual(m['preview_section'],'explore_only')
                 self.assertFalse(m['primary_recommendation_eligible'])
@@ -35,20 +36,18 @@ class MatchingDeliveryQualityTests(unittest.TestCase):
                 self.assertEqual(f.get(owner=None).status,401)
                 self.assertEqual(f.get('/find-matches?run='+run.match_run_id,owner=1).status,410)
 
-    def test_supported_group_with_no_source_questions_keeps_only_title_uncertainty(self):
+    def test_supported_group_with_no_source_questions_does_not_create_conditional_fit(self):
         f=self.fixture(degree_profile('marketing'),body(extra=''))
         response,run,ctx,m=f.current()
-        self.assertEqual([x['job_id'] for x in browser._conditional_presentation_matches(ctx)],[JOB])
+        self.assertEqual(browser._conditional_presentation_matches(ctx),[])
         self.assertFalse(m['primary_recommendation_eligible'])
-        self.assertEqual(m['source_task_fit']['conditions'],[])
-        self.assertEqual(m['affirmative_fit']['unmodeled_requirements'],['Title-defining role or specialization'])
-        self.assertIn('title',m['source_task_fit']['candidate_note'])
+        self.assertIsNone(m.get('conditional_task_fit'))
+        self.assertEqual(list(m['affirmative_fit']['unmodeled_requirements']),['Title-defining role or specialization'])
         detail,packet=f.detail(run)
         self.assertTrue(all(r['status']=='supported' for r in packet['comparisons']))
         for page in (response,detail):
-            self.assertIn(b'The title-defined role fit still needs confirmation.',page.body)
-            self.assertIn(b'Why this is a possibility',page.body)
-        self.assertEqual(packet['placement_explanation']['conditions'],[])
+            self.assertNotIn(b'Why this is a possibility',page.body)
+        self.assertEqual(browser._primary_presentation_matches(ctx),[])
 
     def test_unsupported_and_contradicted_routes_stay_omitted(self):
         for p in (degree_profile(None),degree_profile('biology'),degree_profile('no_degree',years=2)):
@@ -93,7 +92,7 @@ class MatchingDeliveryQualityTests(unittest.TestCase):
     def test_supported_alternative_obeys_preferences_and_same_scope_shortfall(self):
         from tests.test_profile_preference_model import with_preference_model
         from wahojobs.profiles.preference_model import empty_profile_preferences_v1
-        for kind,expected in (('preferred',[JOB]),('strict',[])):
+        for kind in ('preferred','strict'):
             with self.subTest(kind=kind):
                 model=empty_profile_preferences_v1()
                 model['compensation']=dict(minimum_kind=kind,amount='25',currency='USD',period='hour')
@@ -103,13 +102,13 @@ class MatchingDeliveryQualityTests(unittest.TestCase):
                 row=m['source_qualification_comparisons'][0]
                 self.assertEqual(row['status'],'supported')
                 self.assertEqual(row['components']['required_duration']['status'],'contradicted')
-                self.assertEqual([x['job_id'] for x in browser._conditional_presentation_matches(ctx)],expected)
-                self.assertIn('canonical:900002',ctx['_typed_preference_enforcement']['candidate_references'])
+                self.assertEqual(browser._conditional_presentation_matches(ctx),[])
+                self.assertNotIn('canonical:900002',ctx['_typed_preference_enforcement']['candidate_references'])
 
     def test_sibling_source_and_stale_inventory_do_not_borrow_supported_route(self):
         f=self.fixture(degree_profile('marketing'),body(),sibling=True)
         _,run,ctx,m=f.current()
-        self.assertEqual([x['job_id'] for x in browser._conditional_presentation_matches(ctx)],[JOB])
+        self.assertEqual(browser._conditional_presentation_matches(ctx),[])
         detail,packet=f.detail(run,JOB+1)
         self.assertNotIn(b'Your confirmed degree supports this alternative',detail.body)
         stale=self.fixture(degree_profile('marketing'),body(),source_age_hours=169)
@@ -119,9 +118,10 @@ class MatchingDeliveryQualityTests(unittest.TestCase):
 
     def test_replaced_source_invalidates_group_support_and_old_run_detail(self):
         import sqlite3
-        f=self.fixture(degree_profile('marketing'),body(extra=''))
+        f=self.fixture(degree_profile('marketing'),body())
         _,old_run,old_context,old_match=f.current()
-        self.assertEqual([x['job_id'] for x in browser._conditional_presentation_matches(old_context)],[JOB])
+        self.assertEqual(browser._conditional_presentation_matches(old_context),[])
+        self.assertEqual(old_match['source_qualification_comparisons'][0]['status'],'supported')
         old_hash=old_match['accepted_task_fit']['source_reference']['material_content_sha256']
         old_group=deepcopy(old_match['source_qualification_comparisons'][0]['components']['qualifying_routes'])
         with f.connections.writable_connection_provider() as connection:
@@ -134,7 +134,6 @@ class MatchingDeliveryQualityTests(unittest.TestCase):
         self.assertNotIn('qualifying_routes',match['source_qualification_comparisons'][0]['components'])
         response,packet=f.detail(old_run)
         self.assertNotIn(b'Your confirmed degree supports this alternative',response.body)
-        self.assertNotIn(b'The title-defined role fit still needs confirmation.',response.body)
         self.assertNotIn('qualifying_routes',packet['comparisons'][0]['components'])
         self.assertEqual(old_match['source_qualification_comparisons'][0]['components']['qualifying_routes'],old_group)
 

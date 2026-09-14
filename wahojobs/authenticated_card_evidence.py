@@ -296,14 +296,6 @@ def _conditional_source_explanation(match, packet):
         return None
     questions = review.get('conditions') or []
     if not questions:
-        residual = review.get('residual_fit_uncertainty')
-        if (residual == 'Title-defining role or specialization'
-                and (match.get('affirmative_fit') or {}).get('unmodeled_requirements') == [residual]
-                and (match.get('accepted_task_pre_review') or {}).get('review_only') is True
-                and review.get('candidate_note')):
-            # This is the recorded fit uncertainty, not an invented source
-            # qualification. The exact accepted source was checked above.
-            return dict(summary=review['candidate_note'], conditions=[], language_support=[])
         return None
     for row in questions:
         # All causes must still correspond to this exact accepted clause. Do not
@@ -356,8 +348,7 @@ def render_placement_explanation(evidence):
                       for item in reason['language_support'] if item.get('source') == ref)
             + '</li>')
     return ("<div class='candidate-placement-reason'><h4>Why this is a possibility</h4>"
-            + '<p>' + escape(reason['summary']) + '</p>'
-            + ('<ul>' + ''.join(points) + '</ul>' if points else '')
+            + '<p>' + escape(reason['summary']) + '</p><ul>' + ''.join(points) + '</ul>'
             + '</div>')
 
 

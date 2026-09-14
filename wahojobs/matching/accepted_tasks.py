@@ -15,7 +15,7 @@ from wahojobs.profiles.normalizer import term_is_negated
 
 TASK_PROJECTION_VERSION = 2
 SOURCE_ELIGIBILITY_VERSION = 4
-TASK_ADMISSION_VERSION = 9
+TASK_ADMISSION_VERSION = 8
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -379,18 +379,6 @@ def needs_accepted_task_comparison(match):
     return set(browser_match_rejection_reasons(match)) == {'affirmative_fit_not_supported'}
 
 
-def _supported_background_group(row):
-    """Grounded route support, without turning a degree into professional practice."""
-    if row['status'] == 'contradicted':
-        return False
-    if row['supported_parts']:
-        return True
-    group = (row.get('components') or {}).get('qualifying_routes') or {}
-    return bool(row.get('requirement_group') and row['status'] == 'supported'
-                and group.get('operator') == 'any_of' and group.get('status') == 'supported'
-                and any(route.get('status') == 'supported' for route in group.get('routes', ())))
-
-
 def apply_task_condition_review(match, source, profile, *, background_context=None):
     """Reuse existing source-condition comparisons on the pre-admission pool.
 
@@ -488,10 +476,7 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
         # Questions keep their original unknown state, modality and evidence.
         # This annotation never creates affirmative fit or changes a score.
         match = dict(match, non_decisive_source_questions=non_decisive_questions)
-    backgrounds = [r for r in packet['comparisons']
-                   if r['kind'] == 'professional_background' and r['modality'] == 'required']
-    grounded_background = bool(backgrounds) and all(_supported_background_group(r) for r in backgrounds)
-    if not questions and not (review_only and grounded_background):
+    if not questions:
         return match
     conflicts = [r for r in questions if r['status'] == 'contradicted' and r['modality'] == 'required']
     unsupported_background = [r for r in questions if r['kind'] == 'professional_background'
@@ -516,9 +501,9 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
     if review_only and not conflicts:
         # Reaching a comparison is not a new generic admission route. Keep
         # title uncertainty until an established central-background comparison
-        # supplies grounded support for each required group. A source's explicit
-        # supported alternative qualifies that group without inventing practice.
-        if not grounded_background:
+        # supplies related professional evidence; other questions cannot do it.
+        if not any(r['kind'] == 'professional_background' and r['supported_parts']
+                   and r['modality'] == 'required' for r in packet['comparisons']):
             return match
     assessment = deepcopy(match['affirmative_fit'])
     conflicts = [r for r in questions if r['status'] == 'contradicted' and r['modality'] == 'required']
@@ -534,9 +519,6 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
             'Check the source conditions below before applying.')
     if conflicts:
         note = 'Your task experience is relevant, but a required condition conflicts with your confirmed profile.'
-    elif not questions:
-        note = ('Your confirmed evaluation or annotation work and a supported qualifying route '
-                'allow consideration. The title-defined role fit still needs confirmation.')
     assessment['why_fit_statements'] = [note]
     return dict(match, affirmative_fit=assessment, affirmative_fit_status=status,
                 affirmative_fit_why=[note], primary_recommendation_eligible=False,
@@ -548,7 +530,6 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
                 source_task_fit=dict(kind='accepted_task_conditions', status=status,
                     source_reference=match['accepted_task_fit']['source_reference'],
                     profile_facts=match['accepted_task_fit']['profile_facts'],
-                    residual_fit_uncertainty='Title-defining role or specialization' if not questions else None,
                     conditions=questions, candidate_note=note))
 
 
@@ -577,7 +558,7 @@ def is_conditional_section_candidate(match):
         and is_conditional_task_fit(match)
         and match.get('primary_recommendation_eligible') is False
         and match.get('primary_admission_source') == 'accepted_task_source_conditions'
-        and backgrounds and all(_supported_background_group(r) for r in backgrounds)
+        and backgrounds and all(r['supported_parts'] and r['status'] != 'contradicted' for r in backgrounds)
         and all(r['source']['job_id'] == match.get('job_id') and r['source']['url'] == match.get('url')
                 and r['source']['source_hash'] == reference.get('material_content_sha256') for r in required)
         # Use the group's status, never veto an unsuccessful qualifying route.

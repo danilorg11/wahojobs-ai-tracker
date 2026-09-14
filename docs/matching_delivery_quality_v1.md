@@ -34,9 +34,9 @@ may be rebound. Do not select additional profiles after favorable results.
    sessions, owner authorization, intact inventory, stage observers and exact
    details. Distinguish executed decisions, not-reached stages and pure selector
    replay. Record all ordered delivered identities and preparation dependencies.
-3. Complete: demonstrate material shared causes, implement only contract-supported
-   connected corrections, and add contrasting permanent regressions. No changed
-   scores, caps, source qualifications, canonicalization or permissive policy.
+3. Complete: investigate material shared causes and test the proposed connected
+   correction. Contrary established tests ruled it out; production behavior is
+   unchanged. Add authenticated regressions preserving the identified boundaries.
 4. Source review complete; final evidence review pending: independently review causal evidence, safeguards, omitted cases,
    bindings, list/detail parity and label authority; repair and re-review findings.
 5. Final verification: freeze final source and run the original 1,686 unique test IDs (including
@@ -49,15 +49,14 @@ may be rebound. Do not select additional profiles after favorable results.
 Final execution receipts and completion status are recorded in the evidence index;
 this source plan is frozen with the implementation before those runs.
 
-## Demonstrated correction and scope
+## Causal findings and no-change outcome
 
-The grouped comparator already recognizes an explicit qualifying degree alternative.
-The conditional admission consumer required professional `supported_parts`, losing
-that supported route. Its no-question early return also discarded otherwise
-qualified cases retaining only title-fit uncertainty. Preserve supported `any_of`
-routes through existing conditional selection, keep title uncertainty and primary
-exclusion, and explain the actual condition on list and exact detail. Advance the
-admission version so old contexts cannot masquerade as current decisions.
+No safe production correction is demonstrated by the completed measurement.
+The grouped comparator already recognizes explicit qualifying degree alternatives.
+The conditional route additionally requires central professional fit. An attempted
+group-aware admission change appeared useful in small synthetic fixtures, but the
+full required suite showed it violated an explicit existing boundary. All production
+changes, including the admission version and presentation changes, were reverted.
 
 Permanent authenticated regressions exercise marketing and biology alternatives,
 generic and unrelated backgrounds, both-route contradictions, independent required
@@ -66,12 +65,22 @@ siblings, ownership and source replacement (including old-run detail). The origi
 optional linked tool-use evidence remains display-only under its accepted contract.
 No model fixture or real prepared-response rebinding is used.
 
+The full 636-ID run contradicted the initial interpretation: preparation test C04
+and its durable-restore delegate preserve a supported degree group while withholding
+new conditional fit. That source still has material language/tool questions, so
+removing only the attempted title-only extension did not resolve the contradiction.
+Both existing assertions remain untouched. An exception for absent versus ambiguous
+occupational interpretation would be arbitrary. Degree-only conditional admission
+requires a product decision. The independent reviewer corrected the earlier broad
+approval after inspecting these contrary tests. All unsupported changes were removed;
+initial candidate runs and their failures remain separately indexed.
+
 Four additional explicitly synthetic source/profile contract cases were frozen
 before their catalog experiment. They test supported alternatives and negative
 controls on the intact inventory plus one labelled source. That source does not
 reach the bounded representative context in the baseline. Keep these results
-separate from the small authenticated regression fixture that demonstrates the
-repair; do not tune its title or rank to obtain a catalog gain. P01–P20 retain their
+separate from small authenticated fixtures demonstrating the preserved contract;
+do not tune its title or rank to obtain a catalog gain. P01–P20 retain their
 original relevance labels. Final measurements must state unchanged delivery if so.
 
 ## Boundaries
