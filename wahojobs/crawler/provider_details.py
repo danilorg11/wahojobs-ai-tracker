@@ -55,18 +55,21 @@ def fetch_detail(provider, candidate):
         "User-Agent": "Mozilla/5.0 (compatible; WahojobsTracker/0.1)",
         "Accept": "text/html",
     })
-    from wahojobs.crawler.local_inventory import reserve_http_request
+    from wahojobs.crawler.local_inventory import reserve_http_request, audit_http_response, audit_http_error
     entry = reserve_http_request(request, detail=True)
     try:
         with build_opener(_NoRedirect()).open(request, timeout=25) as response:
             if entry is not None: entry['status'] = response.status
             body = response.read(MAX_DETAIL_BYTES + 1)
+            audit_http_response(entry, body=body, capture_complete=len(body) <= MAX_DETAIL_BYTES)
             if len(body) > MAX_DETAIL_BYTES:
                 raise ValueError("Detail response exceeds size limit")
             return DetailResponse(candidate.url, body,
                                   datetime.now(timezone.utc).isoformat(), response.status)
-    except OSError as exc:
-        if entry is not None: entry.update(status=getattr(exc, 'code', None), error=type(exc).__name__)
+    except Exception as exc:
+        if entry is not None:
+            entry.update(status=getattr(exc, 'code', entry.get('status')), error=type(exc).__name__)
+        audit_http_error(entry, exc)
         raise
 
 

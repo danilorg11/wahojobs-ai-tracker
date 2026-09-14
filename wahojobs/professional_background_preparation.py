@@ -92,12 +92,14 @@ class PreparationBudget:
             if type(value) is not str or not re.fullmatch(r'\d{1,6}(?:\.\d{1,8})?', value):
                 raise ValueError('invalid_preparation_budget')
 
-    def reservation(self, input_bytes):
+    def reservation(self, input_bytes, *, output_tokens=MAX_OUTPUT_TOKENS):
         # Reserve one input token per UTF-8 byte plus framing allowance. No
         # cache discount or refund for unknown/incomplete provider accounting.
-        tokens = input_bytes + 1024 + MAX_OUTPUT_TOKENS
+        if type(output_tokens) is not int or output_tokens < 1:
+            raise ValueError('invalid_preparation_output_reservation')
+        tokens = input_bytes + 1024 + output_tokens
         usd = ((Decimal(input_bytes + 1024) * Decimal(self.input_usd_per_million)
-                + Decimal(MAX_OUTPUT_TOKENS) * Decimal(self.output_usd_per_million)) / 1000000)
+                + Decimal(output_tokens) * Decimal(self.output_usd_per_million)) / 1000000)
         return tokens, usd
 
 
@@ -340,6 +342,9 @@ class ProfessionalBackgroundPreparer:
                             schema_name='professional_occupational_relation', max_output_tokens=MAX_OUTPUT_TOKENS,
                             max_response_bytes=MAX_RESPONSE_BYTES,
                             before_dispatch=before_dispatch,
+                            partial_response_sink=(lambda raw: self._audit_sink(dict(
+                                event='partial_response', request_id=key, attempt=record['attempt'],
+                                raw_response=raw, capture_complete=False))) if self._audit_sink else None,
                             response_sink=(lambda raw: self._audit_sink(dict(
                                 event='response', request_id=key, attempt=record['attempt'], raw_response=raw))) if self._audit_sink else None)
                     finally:

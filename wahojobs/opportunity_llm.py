@@ -85,7 +85,8 @@ class OpenAIStructuredEnrichmentClient:
         self.session = session or requests.Session()
         self.service_tier = service_tier
 
-    def enrich(self, source_packet: dict) -> StructuredEnrichmentResult:
+    def enrich(self, source_packet: dict, *, max_response_bytes=None, response_sink=None,
+               before_dispatch=None, partial_response_sink=None) -> StructuredEnrichmentResult:
         allowed_evidence_aliases = sorted(
             {
                 block["evidence_block_id"]
@@ -99,11 +100,14 @@ class OpenAIStructuredEnrichmentClient:
             schema=structured_output_schema(
                 allowed_evidence_aliases,
                 clause_ids=[c['clause_id'] for c in source_packet.get('qualification_clauses', [])]),
-            schema_name="opportunity_semantic_enrichment", max_output_tokens=MAX_OUTPUT_TOKENS)
+            schema_name="opportunity_semantic_enrichment", max_output_tokens=MAX_OUTPUT_TOKENS,
+            **(dict(max_response_bytes=max_response_bytes, response_sink=response_sink,
+                    partial_response_sink=partial_response_sink,
+                    before_dispatch=before_dispatch) if max_response_bytes is not None else {}))
 
     def generate_structured(self, source_packet, *, prompt, schema, schema_name,
                             max_output_tokens, max_response_bytes=None, response_sink=None,
-                            before_dispatch=None):
+                            before_dispatch=None, partial_response_sink=None):
         """Shared single-attempt transport; callers own input/output authority.
 
         The optional bounded response path records unedited bytes before parsing.
@@ -182,12 +186,18 @@ class OpenAIStructuredEnrichmentClient:
             else:
                 raw = bytearray()
                 try:
-                    for chunk in response.iter_content(chunk_size=4096):
-                        if len(raw) + len(chunk) > max_response_bytes:
-                            raise OpenAIEnrichmentError(
-                                "Structured response exceeded the byte limit.",
-                                diagnostic=diagnostic_record("response_size_limit"))
-                        raw.extend(chunk)
+                    try:
+                        for chunk in response.iter_content(chunk_size=4096):
+                            # Keep a bounded prefix even for an oversized/offline chunk.
+                            raw.extend(chunk[:max(0, max_response_bytes + 1 - len(raw))])
+                            if len(raw) > max_response_bytes:
+                                raise OpenAIEnrichmentError(
+                                    "Structured response exceeded the byte limit.",
+                                    diagnostic=diagnostic_record("response_size_limit"))
+                    except BaseException:
+                        if partial_response_sink is not None:
+                            partial_response_sink(bytes(raw))
+                        raise
                     if response_sink is not None:
                         response_sink(bytes(raw))
                     data = json.loads(raw)

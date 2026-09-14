@@ -60,14 +60,16 @@ CRAWLERS = {
 }
 
 
-def run_crawl(company_slug="appen", *, db_path=None, details=None):
+def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=None):
+    if ownership is not None and db_path is None:
+        raise ValueError("Owned crawl requires an explicit local database")
     if details not in (None, "needed", "all"):
         raise ValueError("Unknown detail recovery mode")
     if details and db_path is None:
         raise ValueError("Detail recovery requires an explicit local database")
     registry_entry = assert_production_dispatch_allowed(company_slug)
     from wahojobs.crawler.local_inventory import local_inventory_connection
-    connection = get_connection() if db_path is None else local_inventory_connection(db_path)
+    connection = get_connection() if db_path is None else local_inventory_connection(db_path, ownership=ownership)
     with connection as conn:
         company = get_company_by_slug(conn, company_slug)
         if company is None:

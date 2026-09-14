@@ -14,9 +14,10 @@ _REQUEST_BUDGET = ContextVar('local_refresh_request_budget', default=None)
 DETAIL_HOSTS = {'www.alignerr.com': 'alignerr', 'jobs.micro1.ai': 'micro1'}
 
 
-def detail_allocations(sources):
+def detail_allocations(sources, limit=None):
+    limit = MAX_DETAIL_REQUESTS if limit is None else limit
     selected = sorted(set(sources) & set(DETAIL_HOSTS.values()))
-    return {source: MAX_DETAIL_REQUESTS // len(selected) + int(index < MAX_DETAIL_REQUESTS % len(selected))
+    return {source: limit // len(selected) + int(index < limit % len(selected))
             for index, source in enumerate(selected)}
 
 
@@ -29,6 +30,9 @@ class RefreshRequestBudget:
     transactions: list = field(default_factory=list)
     detail_requests: int = 0
     source_details: dict = field(default_factory=dict)
+    http_limit: int = MAX_HTTP_TRANSACTIONS
+    detail_limit: int = MAX_DETAIL_REQUESTS
+    audit_sink: object = None
 
     def finish_source(self, source):
         if source not in self.source_details or self.source_details[source]['finished']:
@@ -43,9 +47,9 @@ class RefreshRequestBudget:
                 self.source_details[name]['allocation'] += unused // len(remaining) + int(index < unused % len(remaining))
 
     def reserve(self, request, *, detail=False):
-        if len(self.transactions) >= MAX_HTTP_TRANSACTIONS:
+        if len(self.transactions) >= min(self.http_limit, MAX_HTTP_TRANSACTIONS):
             raise RequestBudgetExceeded('Batch HTTP transaction ceiling reached')
-        if detail and self.detail_requests >= MAX_DETAIL_REQUESTS:
+        if detail and self.detail_requests >= min(self.detail_limit, MAX_DETAIL_REQUESTS):
             raise RequestBudgetExceeded('Batch detail request ceiling reached')
         source = DETAIL_HOSTS.get(urlsplit(request.full_url).hostname) if detail else None
         state = self.source_details.get(source)
@@ -59,6 +63,8 @@ class RefreshRequestBudget:
         self.detail_requests += int(detail)
         if state is not None:
             state['requests'] += 1
+        if self.audit_sink is not None:
+            self.audit_sink(dict(event='request', ordinal=len(self.transactions), **entry))
         return entry
 
     def summary(self):
@@ -66,15 +72,23 @@ class RefreshRequestBudget:
                     catalog_requests=len(self.transactions)-self.detail_requests,
                     detail_allocations={name: dict(item, unused=item['allocation']-item['requests']-item['released'])
                                         for name, item in self.source_details.items()},
+                    http_limit=self.http_limit, detail_limit=self.detail_limit,
                     retries=0, redirected_requests=0, requests=self.transactions)
 
 
 @contextmanager
-def refresh_request_budget(*, sources=()):
-    allocations = detail_allocations(sources)
+def refresh_request_budget(*, sources=(), http_limit=None, detail_limit=None, audit_sink=None):
+    http_limit = MAX_HTTP_TRANSACTIONS if http_limit is None else http_limit
+    detail_limit = MAX_DETAIL_REQUESTS if detail_limit is None else detail_limit
+    if (type(http_limit) is not int or not 0 <= http_limit <= MAX_HTTP_TRANSACTIONS
+            or type(detail_limit) is not int or not 0 <= detail_limit <= MAX_DETAIL_REQUESTS
+            or audit_sink is not None and not callable(audit_sink)):
+        raise ValueError('invalid_refresh_budget')
+    allocations = detail_allocations(sources, detail_limit)
     budget = RefreshRequestBudget(source_details={
         name: dict(initial_allocation=amount, allocation=amount, requests=0, released=0,
-                   finished=False, recovery=None) for name, amount in allocations.items()})
+                   finished=False, recovery=None) for name, amount in allocations.items()},
+        http_limit=http_limit, detail_limit=detail_limit, audit_sink=audit_sink)
     token = _REQUEST_BUDGET.set(budget)
     try:
         yield budget
@@ -85,6 +99,54 @@ def refresh_request_budget(*, sources=()):
 def reserve_http_request(request, *, detail=False):
     budget = _REQUEST_BUDGET.get()
     return budget.reserve(request, detail=detail) if budget is not None else None
+
+
+def audit_http_response(entry, *, body=None, error=None, capture_complete=True):
+    """Preserve transport evidence before parsing; auditing failure stops acceptance."""
+    budget = _REQUEST_BUDGET.get()
+    if budget is not None and budget.audit_sink is not None and entry is not None:
+        budget.audit_sink(dict(event='response' if body is not None else 'transport_error',
+            ordinal=next(i for i, item in enumerate(budget.transactions, 1) if item is entry),
+            **entry, **({'raw_response': body, 'capture_complete': capture_complete}
+                        if body is not None else {'error_type': error})))
+
+
+def audit_http_error(entry, exc):
+    """Retain bounded HTTP error material without another request or retry."""
+    from urllib.error import HTTPError
+    if isinstance(exc, HTTPError):
+        try:
+            body = exc.read(2_000_001)
+            audit_http_response(entry, body=body, capture_complete=len(body) < 2_000_001)
+        finally:
+            exc.close()
+    elif isinstance(getattr(exc, 'partial', None), bytes):
+        audit_http_response(entry, body=exc.partial[:2_000_001], capture_complete=False)
+    audit_http_response(entry, error=type(exc).__name__)
+
+
+class _AuditedResponse:
+    def __init__(self, response, entry):
+        self.response, self.entry = response, entry
+
+    def __getattr__(self, name):
+        return getattr(self.response, name)
+
+    def __enter__(self):
+        self.response.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self.response.__exit__(*args)
+
+    def read(self, *args):
+        try:
+            body = self.response.read(*args)
+        except Exception as exc:
+            audit_http_error(self.entry, exc)
+            raise
+        audit_http_response(self.entry, body=body)
+        return body
 
 
 def record_detail_recovery(source, counts):
@@ -112,10 +174,11 @@ def open_catalog(request, *, timeout):
     except OSError as exc:
         if entry is not None:
             entry.update(status=getattr(exc, 'code', None), error=type(exc).__name__)
+        audit_http_error(entry, exc)
         raise
     if entry is not None:
         entry['status'] = response.status
-    return response
+    return _AuditedResponse(response, entry) if entry is not None else response
 
 
 def local_database_path(value):
@@ -134,13 +197,15 @@ def local_database_path(value):
 
 
 @contextmanager
-def local_inventory_connection(value):
+def local_inventory_connection(value, *, ownership=None):
     from wahojobs.database_lifetime_ownership import (
         ROLE_OFFLINE_OPERATOR, acquire_database_lifetime_ownership,
         release_database_lifetime_ownership, require_database_lifetime_ownership,
     )
     target = local_database_path(value)
-    ownership = acquire_database_lifetime_ownership(target, role=ROLE_OFFLINE_OPERATOR)
+    acquired = ownership is None
+    if acquired:
+        ownership = acquire_database_lifetime_ownership(target, role=ROLE_OFFLINE_OPERATOR)
     try:
         require_database_lifetime_ownership(ownership, role=ROLE_OFFLINE_OPERATOR, database_path=target)
         connection = sqlite3.connect(target.as_uri() + "?mode=rw", uri=True)
@@ -151,7 +216,8 @@ def local_inventory_connection(value):
         finally:
             connection.close()
     finally:
-        release_database_lifetime_ownership(ownership, role=ROLE_OFFLINE_OPERATOR, database_path=target)
+        if acquired:
+            release_database_lifetime_ownership(ownership, role=ROLE_OFFLINE_OPERATOR, database_path=target)
 
 
 def inspect_refresh(value, sources, *, details=None):
