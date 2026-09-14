@@ -65,9 +65,16 @@ the database contents remain sensitive).
 `public_job_canary_ids` is optional. Omission or an empty JSON array keeps public
 identity routing fully disabled and preserves exact M008 compatibility. A
 non-empty array accepts only exact `j` plus 32-lowercase-hex public IDs and
-requires an exact, reconciled M009 database before provider construction. It
+requires an exact, reconciled M009, M010 or M011 database before provider construction. It
 does not accept paths, slugs, canonical opportunity numbers, job numbers,
 wildcards, duplicates, or request-derived values.
+
+`professional_background_companion` is optional. It contains exactly `path`,
+`model` and `basis`; see [evidence maintenance](evidence_maintenance_v1.md#database-ownership-and-application-lifecycle)
+for setup and an example. It opens an existing attested companion outside Git
+and attaches a disabled preparer for owner-bound consumption. It creates no
+model client, request budget, dispatch authority or storage. Omission preserves
+the existing behavior; invalid configured storage fails activation.
 
 The invitation lookup key field is canonical standard Base64 of the existing raw
 M002 invitation HMAC key. Copy that value to the clipboard without printing it:
@@ -83,12 +90,13 @@ Paste it into the JSON field, save, and clear the clipboard after use:
 Set-Clipboard -Value $null
 ```
 
-## Exact M008/M009 prerequisite
+## Exact M008-M011 prerequisite
 
 Startup opens only the explicit database in existing-file mode, acquires the
 existing durable-runtime lifetime ownership, rejects SQLite sidecars, requires a
-writable connection, and validates exact M008 or exact M009, closed-schema and
-Accounts attestation, quick integrity, and foreign keys. An M009 database must
+writable connection, and validates exact M008, M009, M010 or M011 using the
+existing migration attestors, closed-schema and Accounts attestation, quick
+integrity, and foreign keys. An M009 or accepted descendant database must
 also pass public-job identity reconciliation. Startup never initializes,
 repairs, or migrates the database.
 
@@ -127,7 +135,7 @@ self-signed local certificate outside the repository, and routes requests only
 through `WorkOSAuthKitBrowserIntegration`. The certificate covers `127.0.0.1`
 and `localhost`; the browser may require explicit acceptance for this local
 rehearsal. A port conflict, TLS failure, invalid secret/configuration, unavailable
-database, or schema other than exact M008/exact reconciled M009 fails before
+database, or schema other than exact M008 or reconciled exact M009-M011 fails before
 serving.
 
 Press Ctrl+C to stop. The listener waits for request threads to finish, closes the

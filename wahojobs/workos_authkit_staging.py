@@ -75,14 +75,14 @@ _CONFIGURATION_FIELDS = frozenset(
         "session_absolute_ttl_seconds",
     }
 )
-_OPTIONAL_CONFIGURATION_FIELDS = frozenset({"public_job_canary_ids"})
+_OPTIONAL_CONFIGURATION_FIELDS = frozenset({"public_job_canary_ids", "professional_background_companion"})
 _ERROR_MESSAGES = {
     "configuration_file_unavailable": "The explicit Staging configuration file is unavailable.",
     "configuration_invalid": "The Staging configuration is invalid.",
     "secret_invalid": "The Staging secret material is invalid.",
     "database_unavailable": "The explicit Staging database is unavailable.",
     "database_m008_required": (
-        "The explicit Staging database must already have exact M008 or exact M009."
+        "The explicit Staging database must already have an accepted exact M008-M011 schema."
     ),
     "database_ownership_unavailable": (
         "The explicit Staging database is already owned or unavailable."
@@ -125,6 +125,7 @@ class WorkOSAuthKitStagingConfiguration:
     session_idle_ttl: timedelta
     session_absolute_ttl: timedelta
     public_job_canary_gate: PublicJobCanaryRoutingGate
+    professional_background_companion: tuple[Path, str, str] | None = None
 
     @property
     def bind_address(self):
@@ -371,6 +372,18 @@ def load_workos_authkit_staging_configuration(configuration_path):
             document["database_path"],
             database=True,
         )
+        companion = None
+        if "professional_background_companion" in document:
+            companion = document["professional_background_companion"]
+            if (type(companion) is not dict or set(companion) != {"path", "model", "basis"}
+                    or type(companion["model"]) is not str
+                    or not re.fullmatch(r"[!-~]{1,120}", companion["model"])
+                    or companion["basis"] not in ("semantic_model_output", "offline_labelled_stub")):
+                raise WorkOSAuthKitStagingError("configuration_invalid")
+            companion_path = _validated_external_file(companion["path"], database=True)
+            if companion_path == database_path:
+                raise WorkOSAuthKitStagingError("configuration_invalid")
+            companion = (companion_path, companion["model"], companion["basis"])
         configuration = WorkOSAuthKitStagingConfiguration(
             environment_namespace=STAGING_ENVIRONMENT_NAMESPACE,
             database_path=database_path,
@@ -382,6 +395,7 @@ def load_workos_authkit_staging_configuration(configuration_path):
             session_idle_ttl=idle,
             session_absolute_ttl=absolute,
             public_job_canary_gate=public_job_canary_gate,
+            professional_background_companion=companion,
         )
         invitation_key = None
         return configuration
@@ -404,7 +418,7 @@ def validate_workos_authkit_staging_database(
     *,
     public_job_canary_gate=None,
 ):
-    """Require one writable, exact, internally consistent M008/M009 database."""
+    """Require one writable, exact, internally consistent approved M008-M011 database."""
 
     if public_job_canary_gate is None:
         public_job_canary_gate = PublicJobCanaryRoutingGate.disabled()
@@ -418,6 +432,15 @@ def validate_workos_authkit_staging_database(
         raise WorkOSAuthKitStagingError("database_unavailable")
     public_identity_report = attest_public_job_identity_schema(connection)
     public_identity_state = public_identity_report.get("state")
+    if public_identity_state not in {"public_job_identity_pending", "correctly_installed"}:
+        from wahojobs.ai_profile_import_schema import attest_ai_profile_import_schema
+        from wahojobs.resumable_ai_profile_intake_schema import attest_resumable_ai_profile_intake_schema
+        # The M009 migration attestor intentionally recognizes only M008/M009.
+        # The existing descendant attestors prove the entire exact M010/M011
+        # closure, including M009 authority. No marker-only/version fallback.
+        if (attest_ai_profile_import_schema(connection).get("state") == "correctly_installed"
+                or attest_resumable_ai_profile_intake_schema(connection).get("state") == "correctly_installed"):
+            public_identity_state = "correctly_installed"
     if public_identity_state not in {
         "public_job_identity_pending",
         "correctly_installed",
@@ -482,6 +505,21 @@ def build_workos_authkit_staging_runtime(
     browser_integration = None
     completed = False
     try:
+        if configuration.professional_background_companion is not None:
+            if professional_background_preparer is not None:
+                raise WorkOSAuthKitStagingError("configuration_invalid")
+            from wahojobs.professional_background_store import SQLiteProfessionalBackgroundStore
+            from wahojobs.professional_background_semantics import ProfessionalBackgroundEvidence
+            from wahojobs.professional_background_preparation import RECIPE, ProfessionalBackgroundPreparer
+            companion_path, model, basis = configuration.professional_background_companion
+            companion_path = _validated_external_file(str(companion_path), database=True)
+            if companion_path == configuration.database_path:
+                raise WorkOSAuthKitStagingError("configuration_invalid")
+            # Existing, attested storage only. No initialization, producer client,
+            # budget or dispatch authority is created by application activation.
+            professional_background_preparer = ProfessionalBackgroundPreparer(
+                ProfessionalBackgroundEvidence(recipe=RECIPE, model=model, basis=basis,
+                    durable_store=SQLiteProfessionalBackgroundStore(companion_path)))
         _require_no_sqlite_sidecars(configuration.database_path)
         try:
             ownership = acquire_database_lifetime_ownership(

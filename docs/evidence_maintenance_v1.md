@@ -94,8 +94,10 @@ authority. No historical result inherits a new source reference.
 ## Database ownership and application lifecycle
 
 Follow [local inventory operation](local_development_inventory.md) and
-[durable launcher](durable_google_login_browser.md). The database must have
+[supported WorkOS launcher](workos_authkit_staging.md). The database must have
 applicable migrations already installed through existing migration tools.
+The WorkOS runner checks the existing exact M008/M009 or M010/M011 attestors,
+including full schema, lineage and reconciliation; no startup migration occurs.
 This command performs no real migration. Owner preparation also requires the
 existing initialized professional-background companion store used by consumers.
 
@@ -106,9 +108,30 @@ from preflight through final receipts. Ownership conflicts block execution.
 Never delete ownership locks, kill unknown processes or start a second writer.
 
 After separately authorized maintenance, use the existing supported launcher:
-`python -B scripts/durable_google_login_app.py --config <ABSOLUTE_CONFIG_PATH>`.
+`python -B scripts/workos_authkit_staging_app.py --config <ABSOLUTE_CONFIG_PATH>`.
 No custom recovery launcher, cache clearing, forced Matches membership or
 ranking override is required. This milestone did not start or access a real app.
+
+To consume persisted owner interpretations after a restart, add this optional
+field to that runner's existing private configuration, using the same companion,
+model and basis as the authorized preparation:
+
+```json
+"professional_background_companion": {
+  "path": "C:\\operator-data\\professional-background.sqlite3",
+  "model": "<exact prepared model identifier>",
+  "basis": "semantic_model_output"
+}
+```
+
+The companion must already exist outside Git, be distinct from the product
+database, and pass the existing store attestation. Follow the explicit setup
+contract in [professional-background preparation](professional_background_preparation.md).
+Application startup does not initialize storage or configure a preparation
+client/budget; Matches and details only validate and consume existing results.
+Omitting this configuration preserves the existing unconfigured behavior.
+Use `offline_labelled_stub` only for labelled synthetic evidence. Invalid or
+incompatible configured storage fails activation through sanitized errors.
 
 ## Explicit owner preparation
 
@@ -246,7 +269,9 @@ Binding/repair and preservation checks repeat. Targeted tests additionally
 cover failed pagination/observation, held/degraded material, caps, stale plans,
 authorization, conservative reuse and interrupted re-entry.
 
-Normal Matches and exact detail consumers evaluate current evidence. Assertions
+Normal Matches and exact detail consumers evaluate current evidence in fresh
+instances of the supported WorkOS runtime loaded through its strict launcher
+configuration, with a disabled preparer and no model client. Assertions
 require legitimate stale-to-trusted effects, removal of obsolete semantic
 authority, restored offline authority and equality of all non-source tables:
 profiles, preferences, entitlements/attempts, ownership, saved/applied/hidden
@@ -255,4 +280,3 @@ the normal exact route without forcing a Matches card.
 
 These are **simulated cycles**, not days of observed operation, real provider
 verification, semantic-quality evidence or sustained unattended operation.
-

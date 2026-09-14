@@ -9,10 +9,14 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from email.message import Message
 import gc
+import base64
 import io
 import json
+import os
 from pathlib import Path
+import secrets
 import sqlite3
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit, urlencode
@@ -224,12 +228,59 @@ def consumer(directory, now):
         outer.close()
 
 
-def consumer_receipt(directory, now, *, actions=False):
+@contextmanager
+def staging_configuration(directory, companion):
+    from wahojobs.workos_authkit_staging import (load_workos_authkit_staging_configuration,
+        STAGING_PUBLIC_ORIGIN, STAGING_REDIRECT_URI)
+    document = dict(version=1, environment_namespace='private_beta',
+        database_path=str(directory/'inventory.sqlite3'), public_origin=STAGING_PUBLIC_ORIGIN,
+        redirect_uri=STAGING_REDIRECT_URI, workos_client_id='client_0123456789abcdef',
+        workos_api_key='sk_test_' + secrets.token_urlsafe(32),
+        wahojobs_invitation_lookup_key_base64=base64.b64encode(secrets.token_bytes(32)).decode(),
+        session_idle_ttl_seconds=3600, session_absolute_ttl_seconds=28800)
+    if companion is not None:
+        document['professional_background_companion'] = companion
+    with tempfile.TemporaryDirectory(prefix='maintenance-config-') as tmp:
+        path = Path(tmp)/'staging.json'
+        path.write_text(json.dumps(document), encoding='utf-8')
+        if os.name != 'nt':
+            path.chmod(0o600)
+        configuration = load_workos_authkit_staging_configuration(str(path))
+        try:
+            yield configuration
+        finally:
+            configuration.clear_secrets()
+
+
+@contextmanager
+def durable_consumer(directory, now):
+    """The production composer's strict config used by the existing --config launcher."""
+    from tests.workos_authkit_test_support import FakeWorkOSBoundary
+    from wahojobs.workos_authkit_staging import build_workos_authkit_staging_runtime
+    owner = owner_for(directory, now, enabled=False)
+    companion = dict(path=str(directory/'professional-background.sqlite3'),
+        model=owner.preparer.evidence.model, basis=owner.preparer.evidence.basis)
+    with staging_configuration(directory, companion) as configuration:
+        with (patch('wahojobs.opportunity_llm.configured_openai_client', side_effect=AssertionError('consumer cannot configure model')),
+              patch('wahojobs.profile_intake.openai_adapter.configured_openai_profile_adapter', return_value=None)):
+            runtime = build_workos_authkit_staging_runtime(configuration,
+                sdk_boundary_factory=lambda **kw: FakeWorkOSBoundary(), clock=lambda: now)
+        try:
+            outer = runtime._profile_integration
+            owner.consumer_host = '127.0.0.1:8443'
+            owner.preparer = outer._matches_integration._professional_background_preparer
+            assert owner.preparer._client is None and not owner.preparer._enabled
+            yield outer, owner
+        finally:
+            runtime.close()
+
+
+def consumer_receipt(directory, now, *, actions=False, supported_runtime=False):
     from tests.candidate_continuity_support import Page
     from wahojobs.authenticated_variant_details import variant_detail_url
-    with consumer(directory, now) as (outer, owner):
+    with (durable_consumer if supported_runtime else consumer)(directory, now) as (outer, owner):
         integration = outer._matches_integration
-        headers = [('Host','app.test'), ('Cookie','wahojobs_session=' + owner.credentials['session_token']
+        headers = [('Host',getattr(owner, 'consumer_host', 'app.test')), ('Cookie','wahojobs_session=' + owner.credentials['session_token']
                    + '; __Host-wahojobs_session_csrf=' + owner.credentials['csrf_secret'])]
         result = integration.handle('GET', '/find-matches', headers)
         assert result.status == 200, (result.status, result.body)
@@ -278,7 +329,8 @@ def consumer_receipt(directory, now, *, actions=False):
         return dict(label=LABEL, matches_status=result.status, detail_status=detail.status if detail else None,
                     selected_job=owner.job_ids[0], selected_present=selected is not None, semantic=semantic,
                     source_trust=checks['match']['opportunity_trust_status'], public_state=job['public_state'],
-                    model_calls=len(owner.preparer._client.session.calls))
+                    model_calls=0 if owner.preparer._client is None else len(owner.preparer._client.session.calls),
+                    consumer='supported_durable_launcher_configuration' if supported_runtime else 'supported_profile_composition')
 
 
 def protected_state(path):
@@ -334,16 +386,16 @@ def demo_command(directory, step):
             return json.loads((directory/f'cycle-{cycle}-receipt.json').read_text(encoding='utf-8'))
         plan = json.loads(plan_path.read_text(encoding='utf-8'))
         owner = owner_for(directory, now)
-        before_source = consumer_receipt(directory, now)
+        before_source = consumer_receipt(directory, now, supported_runtime=True)
         assert before_source['source_trust'] == 'stale_source'
         with offline_transport(now, partial=setting['partial']):
             outcome = maintenance.execute_plan(plan, directory/'journal', authorized=True,
                 authorize_sources=True, owner=owner, now=now, transport_binding=TRANSPORT)
-        after_source = consumer_receipt(directory, now)
+        after_source = consumer_receipt(directory, now, supported_runtime=True)
         assert after_source['source_trust'] == 'trusted'
         assert after_source['semantic'] == [None], after_source
         repair_plan, repaired = prepare_cycle(directory, now)
-        after_repair = consumer_receipt(directory, now)
+        after_repair = consumer_receipt(directory, now, supported_runtime=True)
         assert after_repair['semantic'][0]['relation'] == 'supported_partial'
         assert after_repair['semantic'][0]['request_id'] != before_source['semantic'][0]['request_id']
         assert protected_state(path) == json.loads((directory/'protected.json').read_text(encoding='utf-8'))

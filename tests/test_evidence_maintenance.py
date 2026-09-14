@@ -12,7 +12,7 @@ from wahojobs import evidence_maintenance as m
 from tests.evidence_maintenance_support import (
     new_inventory, source_execute, source_plan, offline_transport, T0, TRANSPORT,
     COHORT, seed_owner, owner_for, prepare_cycle, consumer_receipt, protected_state, demo_command,
-    offline_enrichment,
+    offline_enrichment, staging_configuration, durable_consumer,
 )
 
 
@@ -47,6 +47,121 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(len(receipts), 4)  # execute and report for each cycle
         self.assertTrue(all(s['protected_state_equal'] for s in receipts))
         self.assertEqual(receipts[0]['after_source']['model_calls'], 0)
+
+    def test_supported_runtime_reuses_conservative_evidence_without_producer_authority(self):
+        self.seed(); seed_owner(self.path, self.directory)
+        prepare_cycle(self.directory, T0, relation='not_established')
+        companion = self.directory/'professional-background.sqlite3'
+        before = companion.read_bytes()
+        for _ in range(2):
+            receipt = consumer_receipt(self.directory, T0, supported_runtime=True)
+            self.assertEqual(receipt['semantic'][0]['relation'], 'not_established')
+            self.assertEqual(receipt['model_calls'], 0)
+            with durable_consumer(self.directory, T0) as (outer, owner):
+                matching = outer._matches_integration
+                with self.assertRaisesRegex(ValueError, 'preparation_execution_disabled'):
+                    owner.preparer.prepare(matching._service, owner.provider,
+                        profile_id=owner.profile_id, job_ids=owner.job_ids,
+                        **owner.credentials, execute=True, authorized=True)
+        self.assertEqual(companion.read_bytes(), before)
+
+    def test_supported_runner_companion_configuration_is_strict_and_optional(self):
+        from wahojobs.workos_authkit_staging import (build_workos_authkit_staging_runtime,
+            WorkOSAuthKitStagingError)
+        from tests.workos_authkit_test_support import FakeWorkOSBoundary
+        self.seed(); seed_owner(self.path, self.directory)
+        valid = dict(path=str(self.directory/'professional-background.sqlite3'),
+                     model='gpt-5.4-mini', basis='offline_labelled_stub')
+        for invalid in ({}, dict(valid, extra=True), dict(valid, model='a b'),
+                        dict(valid, model=''), dict(valid, basis='live'),
+                        dict(valid, path=str(self.path)), dict(valid, path='relative.sqlite3')):
+            with self.subTest(invalid=invalid), self.assertRaises(WorkOSAuthKitStagingError):
+                with staging_configuration(self.directory, invalid):
+                    self.fail('invalid configuration accepted')
+        with staging_configuration(self.directory, None) as configuration:
+            self.assertIsNone(configuration.professional_background_companion)
+            with patch('wahojobs.profile_intake.openai_adapter.configured_openai_profile_adapter', return_value=None):
+                runtime = build_workos_authkit_staging_runtime(configuration,
+                    sdk_boundary_factory=lambda **kw: FakeWorkOSBoundary(), clock=lambda: T0)
+            try:
+                self.assertIsNone(runtime._profile_integration._matches_integration._professional_background_preparer)
+            finally:
+                runtime.close()
+        with staging_configuration(self.directory, valid) as configuration:
+            with self.assertRaisesRegex(WorkOSAuthKitStagingError, 'configuration is invalid'):
+                build_workos_authkit_staging_runtime(configuration, professional_background_preparer=object())
+
+    def test_supported_runner_missing_or_incompatible_companion_never_initializes(self):
+        from wahojobs.workos_authkit_staging import (build_workos_authkit_staging_runtime,
+            WorkOSAuthKitStagingError)
+        self.seed(); seed_owner(self.path, self.directory)
+        target = self.directory/'uninitialized.sqlite3'
+        spec = dict(path=str(target), model='gpt-5.4-mini', basis='offline_labelled_stub')
+        with self.assertRaises(WorkOSAuthKitStagingError):
+            with staging_configuration(self.directory, spec):
+                self.fail('missing store accepted')
+        self.assertFalse(target.exists())
+        target.write_bytes(b'')
+        with staging_configuration(self.directory, spec) as configuration:
+            with self.assertRaisesRegex(WorkOSAuthKitStagingError, 'could not be constructed'):
+                build_workos_authkit_staging_runtime(configuration,
+                    sdk_boundary_factory=lambda **kw: self.fail('identity configured before failed storage'))
+        self.assertEqual(target.read_bytes(), b'')
+        # A normal offline owner can still acquire the database after failure.
+        from wahojobs.database_lifetime_ownership import (acquire_database_lifetime_ownership,
+            release_database_lifetime_ownership, ROLE_OFFLINE_OPERATOR)
+        lease = acquire_database_lifetime_ownership(self.path, role=ROLE_OFFLINE_OPERATOR)
+        release_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=self.path)
+
+    def test_supported_runner_requires_exact_descendant_schema_and_marker_lineage(self):
+        from wahojobs.workos_authkit_staging import (validate_workos_authkit_staging_database,
+            WorkOSAuthKitStagingError)
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute('PRAGMA foreign_keys=ON')
+            self.assertTrue(validate_workos_authkit_staging_database(connection))
+            trigger = connection.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' ORDER BY name LIMIT 1").fetchone()
+            for mutation, restore in (
+                ('CREATE TEMP TABLE unauthorized (id INTEGER)', 'DROP TABLE temp.unauthorized'),
+                ('CREATE TABLE unauthorized (id INTEGER)', 'DROP TABLE unauthorized'),
+                ('DROP TRIGGER "' + trigger[0] + '"', trigger[1]),
+            ):
+                connection.execute(mutation); connection.commit()
+                with self.assertRaises(WorkOSAuthKitStagingError):
+                    validate_workos_authkit_staging_database(connection)
+                connection.execute(restore); connection.commit()
+            connection.execute("UPDATE wahojobs_schema_migrations SET version='999_unknown' WHERE version='011_resumable_ai_profile_intake'")
+            connection.commit()
+            with self.assertRaises(WorkOSAuthKitStagingError):
+                validate_workos_authkit_staging_database(connection)
+            connection.execute("UPDATE wahojobs_schema_migrations SET version='011_resumable_ai_profile_intake' WHERE version='999_unknown'")
+            connection.execute("DELETE FROM wahojobs_schema_migrations WHERE version='011_resumable_ai_profile_intake'")
+            connection.commit()
+            with self.assertRaises(WorkOSAuthKitStagingError):
+                validate_workos_authkit_staging_database(connection)
+
+    def test_supported_runner_m010_m011_keep_public_identity_reconciliation(self):
+        from tests.workos_authkit_test_support import build_m008
+        from scripts.public_job_identity_migration import apply_public_job_identity_migration
+        from scripts.ai_profile_import_migration import apply_ai_profile_import_migration
+        from scripts.resumable_ai_profile_intake_migration import apply_resumable_ai_profile_intake_migration
+        from wahojobs.workos_authkit_staging import (validate_workos_authkit_staging_database,
+            WorkOSAuthKitStagingError)
+        from wahojobs.public_job_canary import PublicJobCanaryRoutingGate
+        from wahojobs.public_job_identity import reconcile_public_job_identity
+        gate = PublicJobCanaryRoutingGate(['j' + '33'*16])
+        with closing(build_m008(self.directory/'descendants.sqlite3')) as connection:
+            apply_public_job_identity_migration(connection)
+            apply_ai_profile_import_migration(connection)
+            for migration in (None, apply_resumable_ai_profile_intake_migration):
+                if migration:
+                    migration(connection)
+                with patch('wahojobs.workos_authkit_staging.reconcile_public_job_identity',
+                           wraps=reconcile_public_job_identity) as reconcile:
+                    self.assertTrue(validate_workos_authkit_staging_database(connection, public_job_canary_gate=gate))
+                    reconcile.assert_called_once_with(connection)
+                with patch('wahojobs.workos_authkit_staging.reconcile_public_job_identity', return_value=['synthetic inconsistency']):
+                    with self.assertRaises(WorkOSAuthKitStagingError):
+                        validate_workos_authkit_staging_database(connection, public_job_canary_gate=gate)
 
     def test_alignerr_detail_binding_reused_mercor_replaced_and_absence_safe(self):
         self.seed()
