@@ -25,8 +25,10 @@ class GeographicProvenanceTests(unittest.TestCase):
         self.assertEqual(len(m['source_task_fit']['conditions']),5)
         for page in (response.body,detail.body):
             html=unescape(page.decode())
-            self.assertIn('Employer page location field:</strong> “Vietnam”',html)
-            self.assertIn('This location tag does not establish an applicant-country restriction.',html)
+            self.assertNotIn('Vietnam',html)  # this exact body contains no Vietnam
+            self.assertNotIn('This location tag does not establish',html)
+            self.assertNotIn('Geographic source provenance',html)
+            self.assertNotIn('Employer page location field',html)
             self.assertIn('Eligibility from Brazil needs confirmation.',html)
             self.assertIn('The source explicitly says this is not required.',html)
             self.assertNotIn('Listing location: Vietnam',html)
@@ -47,6 +49,10 @@ class GeographicProvenanceTests(unittest.TestCase):
                 self.assertEqual(m['job_remote_status'],'remote')
                 self.assertIn(b'Eligibility from Brazil needs confirmation.',detail.body)
                 self.assertNotIn('Vietnam',str(packet['comparisons']))
+                self.assertNotIn('Employer page location field',detail.body.decode())
+                if posting != 'Remote':
+                    self.assertEqual(packet['location_context']['published_field']['value'],posting)
+                    self.assertNotIn(posting,detail.body.decode())
 
     def test_explicit_restriction_and_conflict_keep_existing_gates(self):
         for extra,status in [('\n\nApplicants must be based in Canada.','incompatible'),
@@ -58,6 +64,46 @@ class GeographicProvenanceTests(unittest.TestCase):
                 self.assertFalse(browser._conditional_presentation_matches(ctx))
                 self.assertIn(b'Applicants must be based in Canada.',detail.body)
                 self.assertIn('Canada',str(packet['comparisons']))
+                self.assertNotIn(b'Vietnam',detail.body)
+
+    def test_explicit_vietnam_residence_survives_unrelated_page_tag(self):
+        body=BODY+'\n\nApplicants must reside in Vietnam.'
+        f=self.fixture(body=body,posting='Canada');_,run,ctx,m=f.current();detail,packet=f.detail(run)
+        self.assertEqual(m['location_eligibility_status'],'incompatible')
+        self.assertFalse(browser._primary_presentation_matches(ctx))
+        self.assertFalse(browser._conditional_presentation_matches(ctx))
+        self.assertIn(b'Applicants must reside in Vietnam.',detail.body)
+        self.assertIn('Vietnam',str(packet['comparisons']))
+        self.assertNotIn(b'Canada',detail.body)
+        self.assertEqual(packet['location_context']['published_field']['value'],'Canada')
+
+    def test_generic_tag_cannot_distort_independent_applicant_invitation(self):
+        body=BODY+"\n\n## About the Role\n\nWe're looking for reviewers based in Brazil to evaluate AI outputs."
+        f=self.fixture(body=body,posting='Canada');response,run,ctx,m=f.current();detail,packet=f.detail(run)
+        self.assertEqual(m['location_eligibility_status'],'eligible')
+        for content in (response.body,detail.body):
+            self.assertIn(b'applicants based in Brazil',content)
+            self.assertNotIn(b'Canada',content)
+            self.assertNotIn(b'Employer page location field',content)
+        self.assertEqual(packet['location_context']['published_field']['value'],'Canada')
+
+    def test_older_internal_packet_cannot_reintroduce_generic_tag(self):
+        from wahojobs.authenticated_card_evidence import render_card_evidence
+        f=self.fixture();_,run,_,_=f.current();_,packet=f.detail(run)
+        prior=deepcopy(packet)
+        prior['location_context']['published_field'].pop('generic_country_tag')
+        rendered=render_card_evidence(prior,'older-packet')
+        self.assertNotIn('Vietnam',rendered)
+        self.assertNotIn('Geographic source provenance',rendered)
+        self.assertEqual(prior['location_context']['published_field']['value'],'Vietnam')
+
+    def test_bound_free_text_location_wording_is_preserved_without_new_gate(self):
+        f=self.fixture(body=BODY,posting='US citizens only');response,run,_,m=f.current();detail,packet=f.detail(run)
+        for content in (response.body,detail.body):
+            self.assertIn(b'Location information:</strong> US citizens only',content)
+            self.assertNotIn(b'Employer page location field',content)
+        self.assertFalse(packet['location_context']['published_field']['generic_country_tag'])
+        self.assertEqual(m['location_eligibility_status'],'unknown')
 
     def test_stale_display_text_never_supplies_country_or_qualifications(self):
         from wahojobs.source_clause_materiality import clause_catalog
@@ -100,11 +146,13 @@ class GeographicProvenanceTests(unittest.TestCase):
         tracker=f.get('/tracker');self.assertEqual(tracker.status,200)
         link=next(x for x in Page(tracker.body).links if x.startswith('/tracker/item?'))
         item=f.get(link);self.assertEqual(item.status,200,item.body)
-        self.assertIn('Employer page location field:</strong> “Vietnam”',unescape(item.body.decode()))
+        self.assertNotIn('Vietnam',unescape(item.body.decode()))
+        self.assertEqual(packet['location_context']['published_field']['value'],'Vietnam')
         self.assertEqual(f.get(link,owner=1).status,404)
         sibling,other=f.detail(run,JOB+1)
         self.assertEqual(other['location_context']['published_field']['value'],'Canada')
         self.assertNotIn(b'Vietnam',sibling.body)
+        self.assertNotIn(b'Canada',sibling.body)
         self.assertNotIn(b'Employer page location field',tracker.body)
 
     def test_legacy_appender_and_original_similar_prose_remain_distinct(self):
@@ -115,7 +163,7 @@ class GeographicProvenanceTests(unittest.TestCase):
         job=dict(company_slug='alignerr',external_id=s['external_id'],official_url=s['url'],rich_body=s['body'],
                  rich_body_format=s['body_format'],rich_metadata_json=s['metadata_json'])
         rendered=append_authenticated_source_detail("<div class='job-description'>",job,authenticated=True)
-        self.assertIn('Employer page location field:</strong> “Canada”',unescape(rendered))
+        self.assertNotIn('Canada',unescape(rendered))
         self.assertIn("Listing location: Vietnam is the employer's wording.",unescape(rendered))
         self.assertNotIn('Listing location: Canada',rendered)
         metadata=json.loads(job['rich_metadata_json']);metadata[DETAIL_KEY].pop('display_text')
@@ -138,7 +186,7 @@ class GeographicProvenanceTests(unittest.TestCase):
         f=self.fixture(body=body,posting='Vietnam',html=True)
         response,run,_,m=f.current();detail,packet=f.detail(run)
         self.assertEqual(m['location_eligibility_status'],'unknown')
-        self.assertIn('Employer page location field:</strong> “Vietnam”',unescape(detail.body.decode()))
+        self.assertNotIn('Vietnam',unescape(detail.body.decode()))
         self.assertNotIn('Listing location: Vietnam',detail.body.decode())
         self.assertNotIn('Vietnam',packet['text'])
         self.assertIn('Review and evaluate AI-generated content.',packet['text'])

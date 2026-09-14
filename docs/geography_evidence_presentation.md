@@ -25,15 +25,21 @@ applicant permission.
 Original source text and metadata remain unchanged. No parser, ingestion, scoring,
 admission, availability, preference, selection or action policy changes are made.
 
-Exact accepted Alignerr page data is additionally available as a separate attributed
-source field on list and item views. A country tag is explicitly distinguished from
-an applicant-country restriction; it is not inserted into employer prose or used to
-grant worldwide eligibility. The location value, exact URL, original capture time
-and page-data field reference are preserved. Other published engagement/pay fields
-remain available separately. Historical cached display_text is not employer wording:
+Exact accepted Alignerr generic page-country tags remain internal evidence, with
+their location value, exact URL, original capture time and field reference. The
+clarified product decision omits these ambiguous tags from all candidate surfaces,
+including disclosures, accessibility text and diagnostics. No technical disclaimer
+about an omitted tag is shown. An independent applicant restriction or uncertainty
+does not give that generic tag established meaning or turn it into a source conflict.
+Other published engagement/pay fields remain available separately.
+Historical cached display_text is not employer wording:
 Alignerr task, qualification and display consumers use the accepted body, and page
 metadata presentation requires exact record/URL/provider/body binding. This is a
 read-side correction; existing accepted captures need no rewrite or re-enrichment.
+Explicit employer body restrictions and separately validated structured applicant
+fields retain their existing consumers. Neither omission nor Remote grants worldwide
+eligibility. Unrecognized location wording that may state a restriction is retained
+conservatively as location information; no new interpretation vocabulary is added.
 
 Neutral attribution preserves even explicitly restrictive field wording without
 asserting that its meaning is unexplained or adding another parser. Conditional

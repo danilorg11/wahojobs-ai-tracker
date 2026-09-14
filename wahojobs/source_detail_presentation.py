@@ -49,27 +49,24 @@ def alignerr_location_provenance(source, detail):
     from wahojobs.profiles.countries import normalize_country
     try:
         normalize_country(value)
-        note = ('This location tag does not establish an applicant-country restriction. '
-                'Remote work does not establish worldwide eligibility.')
+        generic_country_tag = True
     except ValueError:
-        note = 'Read this separate location field alongside the applicant conditions in the description.'
-    return dict(value=value, note=note, source_field='props.pageProps.job.location',
+        generic_country_tag = False
+    return dict(value=value, generic_country_tag=generic_country_tag, source_field='props.pageProps.job.location',
                 source_url=source['url'], external_id=source['external_id'],
                 job_id=source.get('job_id'), material_content_sha256=source.get('material_content_sha256'),
                 observed_at=detail.get('observed_at'))
 
 
 def render_location_provenance(provenance):
-    if not provenance:
+    # A generic page country has no established applicant semantics. Keep it in
+    # the internal evidence packet, never in candidate HTML (including disclosure
+    # and accessibility text). Independent applicant evidence has its own path.
+    if not provenance or provenance.get('generic_country_tag') is not False:
         return ''
-    stamp = provenance.get('observed_at') or 'not recorded'
-    return ("<div class='candidate-source-geography'>"
-            '<p><strong>Employer page location field:</strong> “' + escape(provenance['value']) + '”</p>'
-            "<p class='candidate-note'>Wahojobs note: " + escape(provenance['note']) + '</p>'
-            '<details><summary>Geographic source provenance</summary><p>'
-            '<a href="' + escape(provenance['source_url'], quote=True) + '" rel="noopener noreferrer">'
-            'Exact employer page</a>; captured ' + escape(stamp) + '. Field: '
-            + escape(provenance['source_field']) + '.</p></details></div>')
+    # Unrecognized wording may contain an explicit restriction. Preserve that
+    # wording conservatively; this view neither interprets nor grants eligibility.
+    return '<p><strong>Location information:</strong> ' + escape(provenance['value']) + '</p>'
 
 
 def alignerr_other_fields(source, detail):

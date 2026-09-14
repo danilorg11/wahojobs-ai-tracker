@@ -134,6 +134,23 @@ class MercorApplicantGeographyTests(unittest.TestCase):
         self.render()
         self.assertEqual(self.projected_check("synthetic-geography")[0].status, "incompatible")
 
+    def test_synthetic_generic_location_keeps_structured_residence_authority(self):
+        # The supported Mercor eligibility fields have explicit applicant meaning;
+        # a generic location label is a different source field. No new observation.
+        for code,expected in [('CAN','eligible'),('USA','incompatible')]:
+            identity='synthetic-structured-'+code
+            record=self.synthetic_record(identity,location='Vietnam',eligibleResidenceLocation=[code])
+            self.ingest([record]);response,matches=self.render()
+            check,row=self.projected_check(identity)
+            self.assertEqual(check.status,expected)
+            self.assertEqual(row['applicant_geography_evidence']['fields']['eligibleResidenceLocation'],[code])
+            self.assertNotIn('Vietnam',check.reason)
+            if expected=='incompatible':
+                matched=next(m for m in matches if m['job_id']==row['job_id'])
+                self.assertIn('incompatible_location',matched['actionability_cap_reasons'])
+                self.assertFalse(matched['primary_recommendation_eligible'])
+                self.assertIn('eligibleResidenceLocation',check.reason)
+
     def test_unknown_profile_and_residence_are_not_replaced_by_authorization(self):
         self.ingest([self.record])
         def location(**values):

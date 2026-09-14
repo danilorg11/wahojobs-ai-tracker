@@ -1,12 +1,17 @@
 # Geographic provenance v1
 
-Execution plan: establish exact saved source provenance; reproduce the old rendered
-wording and comparison consequences in disposable storage; correct the shared
-presentation boundary; test contrasts through production builders and authenticated
-handlers; independently review and correct; validate final coverage and commit an
-unmerged candidate. No live recovery database, private owner records or network.
+Updated execution plan: verify the unmerged candidate/main and actual recovery
+configuration; reuse the established exact-source provenance; omit ambiguous generic
+page-country tags through shared presentation while retaining internal evidence;
+test actual handlers, explicit and structured eligibility contrasts; independently
+review/correct; run required636 and affected geography/client/onboarding coverage;
+commit the reviewed candidate; normally stop recovery, verify paired backups and
+protected state, fast-forward main, restart unchanged configuration and verify
+authenticated reads and persistent preservation. No external requests or source
+rewrites; live operations are restricted to authorized local activation/read checks.
 
 Baseline: 5ccbfa4d5e96fa1d6039fa9e201765f3946e6346.
+Prior isolated candidate: de0b23d8abdf83a7cd1bdd85b92c18b372b8d07c.
 Exact Alignerr external ID: 583b0f74-43d6-4382-a132-0e9fd41daf8c.
 Evidence: ../geographic-provenance-evidence (sibling of this checkout).
 
@@ -19,3 +24,10 @@ Selection frozen before result inspection: exact saved Generalist response; Remo
 plus an explicit applicant restriction; Remote without such a restriction; an
 opaque country field; conflicting/stale metadata; exact siblings with differing
 country evidence. Preserve waiver, specialist, freshness, selection and cap rules.
+
+Clarified owner decision supersedes displaying an ambiguous page-country tag and
+its technical disclaimer. Preserve the raw value and provenance internally. Do not
+hide genuine restrictions, infer worldwide/Brazil eligibility or change ranking.
+New clearly synthetic contrasts cover a second country/posting, body restriction
+versus generic tag, and existing validated structured applicant-residence fields.
+Original source investigation, review and failed invocations remain preserved.

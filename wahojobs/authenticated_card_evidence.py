@@ -200,7 +200,9 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
                  if location in ('eligible', 'incompatible') else
                  (f"Eligibility from {country} needs confirmation." if country else 'Applicant-location eligibility isn’t specified.'))
     location_context = _applicant_location_context(match, source, detail)
-    opaque_location = _opaque_posting_location(record.get('location'), match)
+    published_location = alignerr_location_provenance(source, detail)
+    opaque_location = (bool(published_location and published_location['generic_country_tag'])
+                       or _opaque_posting_location(record.get('location'), match))
     source_place_note = (_differing_source_locations(source, detail, include_listing=not opaque_location)
                          if location == 'unknown' and not location_context['applicant'] else '')
     if source_place_note:
@@ -254,7 +256,7 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
     # Keep the attributed value in the packet; omit only safely recognized bare
     # posting metadata from guidance, never potentially meaningful free text.
     location_context['omit_opaque_other'] = bool(location_context['other'] and opaque_location)
-    location_context['published_field'] = alignerr_location_provenance(source, detail)
+    location_context['published_field'] = published_location
     location_context['other_fields'] = alignerr_other_fields(source, detail)
     if location_context['published_field']:
         # One attributed presentation shared by cards and item details. Independent
