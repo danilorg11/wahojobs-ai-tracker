@@ -210,9 +210,17 @@ class AuthenticatedBackgroundTests(unittest.TestCase):
 
 class SourceLocationPresentationTests(unittest.TestCase):
     def source(self,city,country,code,body):
+        from wahojobs.crawler.provider_details import DetailResponse, recover_detail
+        from wahojobs.crawler.types import JobCandidate
         url='https://www.alignerr.com/jobs/synthetic'
-        record=dict(location='United States',city=city,countryCode=code)
-        metadata={'wahojobs_source_detail_v1':dict(provider='alignerr',external_id='synthetic',url=url,record=record,display_text=body)}
+        record=dict(id='synthetic',name='Synthetic role',isActive=True,
+                    location='United States',city=city,countryCode=code,longDescription=body)
+        raw=('<script id="__NEXT_DATA__">'+json.dumps({'props':{'pageProps':{'job':record}}})+'</script>').encode()
+        # Keep the original conflict assertions, using real parser-produced
+        # provenance rather than a partial hand-built metadata cache.
+        recovered=recover_detail('alignerr',JobCandidate(title='Synthetic role',external_id='synthetic',url=url,location='Remote'),
+                                 DetailResponse(url,raw,'2026-09-05T12:00:00+00:00'))
+        metadata=recovered.source_metadata
         source=dict(job_id=1,canonical_opportunity_id=2,external_id='synthetic',url=url,source_slug='alignerr',content_provider='alignerr',content_external_id='synthetic',source_url=url,body=body,body_format='text/markdown',metadata_json=json.dumps(metadata),last_captured_at='2026-09-05',material_content_sha256='hash',location='Remote')
         match={k:source[k] for k in ('job_id','canonical_opportunity_id','url','source_slug')}
         match.update(location_eligibility_status='unknown')

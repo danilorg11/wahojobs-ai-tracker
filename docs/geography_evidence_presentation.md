@@ -25,6 +25,16 @@ applicant permission.
 Original source text and metadata remain unchanged. No parser, ingestion, scoring,
 admission, availability, preference, selection or action policy changes are made.
 
+Exact accepted Alignerr page data is additionally available as a separate attributed
+source field on list and item views. A country tag is explicitly distinguished from
+an applicant-country restriction; it is not inserted into employer prose or used to
+grant worldwide eligibility. The location value, exact URL, original capture time
+and page-data field reference are preserved. Other published engagement/pay fields
+remain available separately. Historical cached display_text is not employer wording:
+Alignerr task, qualification and display consumers use the accepted body, and page
+metadata presentation requires exact record/URL/provider/body binding. This is a
+read-side correction; existing accepted captures need no rewrite or re-enrichment.
+
 Neutral attribution preserves even explicitly restrictive field wording without
 asserting that its meaning is unexplained or adding another parser. Conditional
 cards use the same location renderer while retaining their qualification questions,

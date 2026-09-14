@@ -76,7 +76,11 @@ def _source_text(source, *, include_structured_lists=True):
     if not isinstance(metadata, dict):
         raise ValueError('invalid_source_metadata')
     detail = metadata.get(DETAIL_KEY, {})
-    if (isinstance(detail, dict) and detail.get('external_id') == source['external_id']
+    if source.get('source_slug') == 'alignerr':
+        # The accepted body is employer wording. Cached display_text also contains
+        # our historical field labels; never feed those back as employer prose.
+        text = source.get('body') or ''
+    elif (isinstance(detail, dict) and detail.get('external_id') == source['external_id']
             and detail.get('provider') == source['source_slug']
             and detail.get('url') == source['url']
             and isinstance(detail.get('display_text'), str)):
@@ -147,6 +151,9 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
     metadata = json.loads(source.get('metadata_json') or '{}')
     detail = metadata.get(DETAIL_KEY)
     detail = detail if isinstance(detail, dict) else {}
+    from wahojobs.source_detail_presentation import bound_alignerr_detail, alignerr_location_provenance, alignerr_other_fields
+    if source.get('source_slug') == 'alignerr':
+        detail = bound_alignerr_detail(source, detail) or {}
     record = detail.get('record')
     record = record if isinstance(record, dict) else {}
     task_headings = {"what you'll do", "what you’ll do", 'scope of work', 'responsibilities',
@@ -247,6 +254,12 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
     # Keep the attributed value in the packet; omit only safely recognized bare
     # posting metadata from guidance, never potentially meaningful free text.
     location_context['omit_opaque_other'] = bool(location_context['other'] and opaque_location)
+    location_context['published_field'] = alignerr_location_provenance(source, detail)
+    location_context['other_fields'] = alignerr_other_fields(source, detail)
+    if location_context['published_field']:
+        # One attributed presentation shared by cards and item details. Independent
+        # applicant comparisons and cautions above retain their existing meaning.
+        location_context['other'] = ''
     language_notes = []
     for check in match.get('source_language_checks') or []:
         ref = check.get('source_reference') or {}
@@ -426,11 +439,14 @@ def _applicant_location_context(match, source, detail):
 
 
 def render_location_context(evidence):
+    from wahojobs.source_detail_presentation import render_location_provenance, render_other_fields
     context = (evidence or {}).get('location_context') or {}
     primary, secondary = context.get('applicant'), context.get('other')
     return (("<p><strong>Applicant location:</strong> " + escape(primary) + '</p>' if primary else '')
             + ("<p class='candidate-note'><strong>Other location information from the source:</strong> "
-               + escape(secondary) + '</p>' if secondary and not context.get('omit_opaque_other') else ''))
+               + escape(secondary) + '</p>' if secondary and not context.get('omit_opaque_other') else '')
+            + render_location_provenance(context.get('published_field'))
+            + render_other_fields(context.get('other_fields')))
 
 
 def _differing_source_locations(source, detail, *, include_listing=True):

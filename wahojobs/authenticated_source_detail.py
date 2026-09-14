@@ -224,6 +224,8 @@ def _workflow_script():
 def append_authenticated_source_detail(content, job, *, authenticated):
     if not authenticated:
         return content
+    provenance = None
+    other_fields = []
     try:
         metadata = json.loads(job.get("rich_metadata_json") or "{}")
         if not isinstance(metadata, dict):
@@ -234,10 +236,24 @@ def append_authenticated_source_detail(content, job, *, authenticated):
             external_id = job["external_id"]
             validate_detail_url(provider, external_id, detail["url"])
             if (detail["external_id"] != external_id or detail["provider"] != provider
-                    or detail.get("version") != 1 or not isinstance(detail.get("display_text"), str)
-                    or not detail["display_text"].strip()):
+                    or detail.get("version") != 1
+                    or (provider != 'alignerr' and (not isinstance(detail.get("display_text"), str)
+                                                   or not detail["display_text"].strip()))):
                 return content
-            text = detail["display_text"]
+            if provider == 'alignerr':
+                from wahojobs.source_detail_presentation import bound_alignerr_detail, alignerr_location_provenance, alignerr_other_fields
+                source = dict(source_slug=provider, external_id=external_id, url=job.get('official_url'),
+                              body=job.get('rich_body'), body_format=job.get('rich_body_format'),
+                              job_id=job.get('job_id'), material_content_sha256=job.get('material_content_sha256'))
+                if bound_alignerr_detail(source, detail) is None:
+                    return content
+                text = source['body']
+                if source['body_format'] == 'text/html':
+                    text = '\n\n'.join(source_body_paragraphs(text, 'text/html'))
+                provenance = alignerr_location_provenance(source, detail)
+                other_fields = alignerr_other_fields(source, detail)
+            else:
+                text = detail["display_text"]
             observed_at = detail["observed_at"]
             source_url = detail["url"]
         else:
@@ -272,5 +288,7 @@ def append_authenticated_source_detail(content, job, *, authenticated):
         f"<p><a href='{escape(source_url, quote=True)}' rel='noopener noreferrer'>Original source page</a></p>"
         f"<div style='white-space:pre-wrap;overflow-wrap:anywhere'>{escape(text)}</div></section>"
     )
+    from wahojobs.source_detail_presentation import render_location_provenance, render_other_fields
+    section += render_location_provenance(provenance) + render_other_fields(other_fields)
     marker = "<div class='job-description'>"
     return content.replace(marker, marker + section, 1)
