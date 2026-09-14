@@ -126,7 +126,13 @@ class CandidateConditionComparisonsTests(unittest.TestCase):
 
     def test_unknown_tools_are_not_title_inferences_and_negation_is_not_positive(self):
         packet = prepared('**Role overview**\nPython PhD Biology\n\n**Required**\n- No PhD required\n- R is not required')
-        self.assertFalse(any(r['message'] for r in packet['comparisons']))
+        # Explicit waivers now have source-grounded explanations, never a
+        # positive candidate qualification or a title-derived shortfall.
+        self.assertTrue(all(r['modality'] == 'not_required' and r['status'] == 'not_applicable'
+                            and not r['profile_facts'] and not r['supported_parts']
+                            for r in packet['comparisons']))
+        self.assertTrue(all(r['message'] == 'The source explicitly says this is not required.'
+                            for r in packet['comparisons']))
         self.assertEqual(compared('**Required**\n- Experience with Python without R'), [])
         self.assertEqual(compared('**Required**\n- PhD in '+('x'*2000)), [])
 

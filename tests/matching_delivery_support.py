@@ -55,10 +55,10 @@ def body(field='marketing', *, extra='Working proficiency in Python', alternativ
 
 
 class DeliveryFixture:
-    def __init__(self, candidate, source_body, *, inventory=None, title=TITLE, sibling=False, source_age_hours=0):
+    def __init__(self, candidate, source_body, *, inventory=None, title=TITLE, sibling=False, source_age_hours=0, now=NOW):
         self.temporary = tempfile.TemporaryDirectory(prefix='matching-delivery-')
         self.path = Path(self.temporary.name)/'synthetic.sqlite3'
-        self.now = NOW
+        self.now = now
         if inventory:
             with closing(sqlite3.connect(Path(inventory).as_uri()+'?mode=ro',uri=True)) as src, closing(sqlite3.connect(self.path)) as dst:
                 src.execute('PRAGMA query_only=ON'); src.backup(dst)
@@ -71,7 +71,7 @@ class DeliveryFixture:
         with closing(sqlite3.connect(self.path)) as c, c:
             c.row_factory=sqlite3.Row
             c.execute('PRAGMA foreign_keys=ON')
-            stamp=(NOW-timedelta(hours=source_age_hours)).isoformat()
+            stamp=(now-timedelta(hours=source_age_hours)).isoformat()
             c.execute('INSERT INTO companies(id,name,slug,careers_url,source_tier,inventory_model,market_count_policy) VALUES (900001,?,?,?,?,?,?)',
                       ('Synthetic delivery comparison','synthetic-delivery','https://example.test/','core','live_feed','count_live'))
             c.execute('INSERT INTO canonical_opportunities(id,company_id,canonical_key,canonical_title,normalized_title,source_category,first_seen_at,last_seen_at,is_active,variant_count) VALUES (900002,900001,?,?,?,?,?,?,1,?)',
@@ -86,12 +86,12 @@ class DeliveryFixture:
                 owner=account_context(c,str(95000+index))
                 account=c.execute('SELECT user_id FROM principal_account_bindings WHERE principal_id=?',(owner.principal_id,)).fetchone()[0]
                 command=CreatePersistentProfileCommand.prepare(principal=owner,canonical_profile_v2=deepcopy(candidate),
-                    sources=(ConfirmedAboutYouTextSourceDraft('SYNTHETIC delivery contract profile\n'+json.dumps(candidate),NOW),),
+                    sources=(ConfirmedAboutYouTextSourceDraft('SYNTHETIC delivery contract profile\n'+json.dumps(candidate),now),),
                     normalizer_version='fixture',reviewer_version='synthetic_delivery',actor_type='authenticated_user',
-                    reason_code='profile.create',idempotency_key='delivery-profile-'+str(index),accepted_at=NOW)
+                    reason_code='profile.create',idempotency_key='delivery-profile-'+str(index),accepted_at=now)
                 created=PersistentProfileRepository().create(c,command)
                 session=accounts.create_session(c,user_id=account,idle_ttl=timedelta(hours=1),absolute_ttl=timedelta(days=1),
-                    idempotency_key='delivery-session-'+str(index),now=NOW)
+                    idempotency_key='delivery-session-'+str(index),now=now)
                 self.states.append(dict(profile_id=created.profile_id,session=session.session_token))
         self.ownership=acquire_database_lifetime_ownership(self.path,role=ROLE_DURABLE_RUNTIME)
         self.connections=_StagingDatabaseConnections(self.path,self.ownership)

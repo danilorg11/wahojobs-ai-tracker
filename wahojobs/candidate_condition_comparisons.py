@@ -37,7 +37,31 @@ def _explicit(fact):
     return any(ref.get('explicit') is True for ref in fact['sources'])
 
 
+def _waiver_modality(quote):
+    """Recognize a complete explicit waiver, never waive a neighboring clause.
+
+    This is source modality, not positive candidate evidence. Compound exceptions
+    stay unresolved; a trailing 'required' cannot reverse their negation.
+    """
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', quote).strip().rstrip('.')
+    if re.match(r'No (?:less|fewer|more) than\b', text, re.I):
+        return None  # a quantitative bound, not a waiver
+    waived = re.fullmatch(r'No (.+?) (?:is |are )?(?:required|needed|necessary)', text, re.I)
+    if not waived:
+        waived = re.fullmatch(r'(.+?) (?:is |are )?not (?:required|needed|necessary)', text, re.I)
+    if waived and not re.search(
+            r'[.;:!?—–]|\b(?:not|no|without|but|however|unless|except|if|only|must|less|fewer|more|at least|requires?|required|needed|necessary)\b',
+            waived[1], re.I):
+        return 'not_required'
+    if re.search(r'\bnot (?:required|needed|necessary)\b|\bno .+?\b(?:required|needed|necessary)\b', text, re.I):
+        return 'unresolved'
+    return None
+
+
 def _modality(heading, quote):
+    waiver = _waiver_modality(quote)
+    if waiver:
+        return waiver
     label = heading.casefold().rstrip(':')
     mode = 'required' if label in _REQUIRED else 'preferred' if label in _PREFERRED else 'unspecified'
     inline = re.search(r'\b(required|preferred)\.?$', quote, re.I)
@@ -422,13 +446,15 @@ def compare_conditions(packet, profile, *, include_item_experience=False, backgr
     """Only called for visible cards/requested details after identity validation."""
     results = []
     for block in packet['conditions']:
-        for line, original in _professional_condition_lines(block):
+        for line, original in _condition_lines(block):
             quote = re.sub(r'\*\*([^*]+)\*\*', r'\1', original)
             mode = _modality(block['heading'], quote)
             clean = re.sub(r'\s+(?:required|preferred)\.?$', '', quote, flags=re.I)
             result, kind = None, 'unassessed'
-            for name, compare in (('education', _education), ('tools', _tools), ('workload', _workload),
-                                  ('professional_background', _professional_background)):
+            comparators = () if mode in ('not_required', 'unresolved') else (
+                ('education', _education), ('tools', _tools), ('workload', _workload),
+                ('professional_background', _professional_background))
+            for name, compare in comparators:
                 # Workload is a stated term, not an inferred qualification.
                 result = (compare(clean, profile, include_item_experience=include_item_experience)
                           if name in ('tools', 'professional_background') else compare(clean, profile))
@@ -450,6 +476,11 @@ def compare_conditions(packet, profile, *, include_item_experience=False, backgr
                     message = 'Preferred: ' + message[0].lower() + message[1:]
             else:
                 status, message, facts, supported_parts = 'unresolved', '', [], []
+            if mode == 'not_required':
+                kind, status = 'waiver', 'not_applicable'
+                message = 'The source explicitly says this is not required.'
+            elif mode == 'unresolved':
+                message = 'The source mixes a waiver with other wording. Review its scope in the original clause.'
             results.append({'kind': kind, 'modality': mode, 'status': status, 'message': message,
                             'supported_parts': supported_parts, 'profile_facts': facts,
                             'source': {k: packet[k] for k in ('job_id', 'external_id', 'url', 'source_hash', 'captured_at')} |
@@ -486,10 +517,20 @@ def compare_conditions(packet, profile, *, include_item_experience=False, backgr
     return results
 
 
-def _professional_condition_lines(block):
-    """Split only an explicit experience clause followed by a route sentence."""
+def _condition_lines(block):
+    """Keep clear independent waiver clauses and existing alternative routes.
+
+    Quotes remain exact substrings of the original line and retain its source
+    block/line reference. Exceptions and ambiguous relations are not split.
+    """
     from wahojobs.professional_background_duration import requirement
     for line, original in _lines(block):
+        waiver_parts = re.split(r';\s+|(?<=\.)\s+|,\s+but\s+', original, maxsplit=1, flags=re.I)
+        if (len(waiver_parts) == 2 and _waiver_modality(waiver_parts[0]) == 'not_required'
+                and not re.match(r'(?:unless|except|if|only if)\b', waiver_parts[1], re.I)):
+            yield line, waiver_parts[0]
+            yield line, waiver_parts[1]
+            continue
         parts = re.split(r'(?<=\.)\s+(?=Alternatively,|The experience requirement)', original, maxsplit=1, flags=re.I)
         if len(parts) == 2 and requirement(parts[0]):
             yield line, parts[0]

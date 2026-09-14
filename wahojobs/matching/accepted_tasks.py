@@ -13,9 +13,9 @@ from wahojobs.authenticated_card_evidence import _source_text, load_card_sources
 from wahojobs.profiles.normalizer import term_is_negated
 
 
-TASK_PROJECTION_VERSION = 2
-SOURCE_ELIGIBILITY_VERSION = 4
-TASK_ADMISSION_VERSION = 8
+TASK_PROJECTION_VERSION = 3
+SOURCE_ELIGIBILITY_VERSION = 5
+TASK_ADMISSION_VERSION = 9
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -74,6 +74,7 @@ def _task_action(clause, *, ai_context):
     """Require an assigned action/object pair; qualifications stay elsewhere."""
     pairs = (
         (_EVALUATE, _EVALUATION_OBJECT),
+        (_EVALUATE, re.compile(r'\bcontent\b', re.I)),
         (_ANNOTATE, _DATA_OBJECT),
         (_AUTHOR, _AUTHOR_OBJECT),
     )
@@ -82,6 +83,17 @@ def _task_action(clause, *, ai_context):
             obj = objects.search(clause)
             if not obj or abs(obj.start() - action.start()) > 180:
                 continue
+            # Content review also describes ordinary editorial work. The new
+            # object needs AI linkage in the duty itself, not an optional tool
+            # or company paragraph elsewhere in the accepted source.
+            if obj.group().casefold() == 'content':
+                ai_content = re.search(
+                    r'\b(?:AI|LLM|language model)[ -](?:generated|produced)\s+content\b|'
+                    r'\bcontent\s+(?:generated|produced)\s+by\s+(?:AI|LLMs?|(?:a |the )?language models?)\b',
+                    clause, re.I)
+                if (not ai_content or term_is_negated(clause.lower(), ai_content.start(), ai_content.end())
+                        or re.search(r'\b(?:not|non)[ -]*$', clause[:ai_content.start()], re.I)):
+                    continue
             # A bare answer, prompt, or rubric outside AI work is not evidence
             # of professional AI evaluation (e.g. a classroom teaching duty).
             if not ai_context and not re.search(r'\b(?:video|image|audio|footage|clips|data|datasets|data sets)\b', clause, re.I):
@@ -194,7 +206,7 @@ def _prepare_eligibility(material_hash, provider, external_id, url, body, body_f
     evidence. Main/conditional/fallback and scoped details share these facts.
     """
     from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS
-    from wahojobs.candidate_condition_comparisons import _lines, _modality
+    from wahojobs.candidate_condition_comparisons import _condition_lines, _modality
     from wahojobs.matching.languages import prepare_language_conditions
     from wahojobs.matching.source_geography import prepare_applicant_residence_clause
     source = dict(body=body, body_format=body_format, metadata_json=metadata_json,
@@ -209,15 +221,18 @@ def _prepare_eligibility(material_hash, provider, external_id, url, body, body_f
         heading = block['heading'].casefold().rstrip(':')
         if heading not in _QUALIFICATION_HEADINGS:
             continue
-        for line, quote in _lines(block):
+        for line, quote in _condition_lines(block):
             mode = _modality(heading, quote)
             if mode == 'unspecified' and heading in applicant_headings:
                 mode = 'required'  # explicit applicant criteria, not marketing
             if mode == 'conflicting':
                 mode = 'unresolved'
             ref = f"{block['reference']}:line {line}"
+            language_conditions = prepare_language_conditions(quote, mode)
+            if mode == 'not_required':
+                language_conditions = [dict(c, modality=mode) for c in language_conditions]
             languages.extend(dict(c, source_field=ref, heading=block['heading'])
-                             for c in prepare_language_conditions(quote, mode))
+                             for c in language_conditions)
             place = prepare_applicant_residence_clause(quote, mode, ref)
             if place:
                 countries.append(place)
@@ -449,16 +464,15 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
                 supported_parts=[],message=checked['message'],profile_facts=checked['profile_facts'],
                 source=dict(quote=checked['quote'],job_id=packet['job_id'],url=packet['url'])))
     for row in packet['comparisons']:
+        # Reuse whole-clause modality from presentation. A waiver supplies
+        # neither a candidate shortfall nor professional support.
+        if row['modality'] == 'not_required':
+            continue
         quote = re.sub(r'[*#]', '', row['source']['quote'])
         explicit = any(not term_is_negated(quote.lower(), m.start(), m.end())
                        and not re.search(r'\b(?:not|never)\s*$', quote[:m.start()], re.I)
                        for m in re.finditer(r'\bmust\b|\b(?:job|role|position) requires\b|\brequired\b', quote, re.I))
-        waived = re.search(r'\bnot required\b|\bno (?:prior |previous |AI |professional )*experience (?:is )?required\b', quote, re.I)
-        if waived:
-            explicit = bool(re.search(r'\bmust\b', quote, re.I))
-            if not explicit:
-                continue
-        modality = 'required' if explicit else row['modality']
+        modality = 'required' if explicit and row['modality'] != 'unresolved' else row['modality']
         qualification = row['source']['heading'].casefold().rstrip(':') in _QUALIFICATION_HEADINGS
         material = (modality in ('required', 'conflicting')
                     or modality != 'preferred' and (qualification or row['kind'] == 'workload'))

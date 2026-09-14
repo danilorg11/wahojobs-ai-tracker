@@ -1,0 +1,1133 @@
+{
+  "evaluator_br": {
+    "schema_version": "canonical_profile_v2",
+    "identity": {
+      "profile_id": "prf_00000000000000000000000000000001",
+      "display_name": "Synthetic Task Worker"
+    },
+    "languages": [
+      {
+        "language": "English",
+        "proficiency": "fluent",
+        "locale": "",
+        "confidence": "unknown"
+      },
+      {
+        "language": "Portuguese",
+        "proficiency": "native",
+        "locale": "Brazil",
+        "confidence": "unknown"
+      }
+    ],
+    "location": {
+      "country": "Brazil",
+      "region": "",
+      "city": "",
+      "timezone": "",
+      "residence": "Brazil",
+      "work_authorization": "unknown",
+      "eligible_countries": [],
+      "remote_eligibility": "unknown",
+      "restrictions": [],
+      "geographic_work_restrictions": []
+    },
+    "education": {
+      "education_level": "not_specified",
+      "degrees": [],
+      "fields_or_domains": [],
+      "institutions": [],
+      "graduation_years": [],
+      "completion_status": "unknown"
+    },
+    "credentials": {
+      "certifications": [],
+      "licenses": [],
+      "jurisdictions": [],
+      "security_clearances": [],
+      "credential_status": "unknown"
+    },
+    "experience": {
+      "total_years": null,
+      "years_by_domain": [],
+      "seniority": "unknown",
+      "recent_roles": [],
+      "occupational_families": [],
+      "job_titles": [],
+      "professional_domains": [],
+      "industries": [],
+      "contribution_type": "unknown",
+      "specialties": [
+        "Data annotation",
+        "Model output evaluation"
+      ]
+    },
+    "skills": {
+      "normalized": [],
+      "free_text_labels": [],
+      "entries": [],
+      "technical": [],
+      "software_tools": [],
+      "writing_research": [],
+      "administrative_support": [],
+      "domain_specific": []
+    },
+    "preferences": {
+      "remote": false,
+      "flexible": false,
+      "employment_types": [],
+      "synchronous_preference": "unknown",
+      "phone_preference": "unknown",
+      "schedule": [],
+      "availability": "unknown",
+      "rate_pay_preference": "",
+      "target_opportunity_types": [],
+      "preferred_task_types": [],
+      "work_preferences": []
+    },
+    "constraints": {
+      "hard_constraints": [],
+      "soft_preferences": [],
+      "avoid_keywords": [],
+      "negative_constraints": [],
+      "excluded_domains": [],
+      "accessibility_constraints": []
+    },
+    "derived_matcher_signals": {
+      "signals": [
+        {
+          "reason": "declared_language_capability",
+          "keywords": [
+            "english",
+            "language",
+            "linguistic",
+            "portuguese"
+          ],
+          "points": 7,
+          "confidence": "unknown"
+        }
+      ],
+      "derived_domains": [],
+      "derived_target_work_types": [],
+      "avoid_keywords": []
+    },
+    "provenance": {
+      "extracted_from": "matcher_profile",
+      "confidence": "unknown",
+      "missing_fields": [
+        "certifications",
+        "licenses",
+        "seniority",
+        "total_years"
+      ],
+      "ambiguous_fields": [],
+      "reviewed": true,
+      "field_sources": [
+        {
+          "field_path": "credentials.credential_status",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "education.completion_status",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "education.education_level",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.contribution_type",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.seniority",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.specialties[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.specialties[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].language",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].proficiency",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].language",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].locale",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].proficiency",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "location.country",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "location.remote_eligibility",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "location.residence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "location.work_authorization",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.availability",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.flexible",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.phone_preference",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.remote",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.synchronous_preference",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_confirmation",
+          "explicit": true
+        }
+      ]
+    }
+  },
+  "software_de": {
+    "schema_version": "canonical_profile_v2",
+    "identity": {
+      "profile_id": "prf_00000000000000000000000000000001",
+      "display_name": "Software Engineer"
+    },
+    "languages": [
+      {
+        "language": "Dutch",
+        "proficiency": "professional",
+        "locale": "",
+        "confidence": "high",
+        "proficiency_explicit": true,
+        "provenance": "user_correction"
+      },
+      {
+        "language": "English",
+        "proficiency": "fluent",
+        "locale": "",
+        "confidence": "high",
+        "proficiency_explicit": true,
+        "provenance": "user_correction"
+      },
+      {
+        "language": "German",
+        "proficiency": "native",
+        "locale": "",
+        "confidence": "high",
+        "proficiency_explicit": true,
+        "provenance": "user_correction"
+      }
+    ],
+    "location": {
+      "country": "Germany",
+      "region": "",
+      "city": "",
+      "timezone": "",
+      "residence": "Germany",
+      "work_authorization": "unknown",
+      "eligible_countries": [],
+      "remote_eligibility": "explicit",
+      "restrictions": [],
+      "geographic_work_restrictions": []
+    },
+    "education": {
+      "education_level": "bachelor",
+      "degrees": [],
+      "fields_or_domains": [],
+      "institutions": [],
+      "graduation_years": [],
+      "completion_status": "unknown"
+    },
+    "credentials": {
+      "certifications": [],
+      "licenses": [],
+      "jurisdictions": [],
+      "security_clearances": [],
+      "credential_status": "absent"
+    },
+    "experience": {
+      "total_years": 9,
+      "years_by_domain": [],
+      "seniority": "senior",
+      "recent_roles": [
+        "software engineer"
+      ],
+      "occupational_families": [
+        "software engineering"
+      ],
+      "job_titles": [
+        "software engineer"
+      ],
+      "professional_domains": [
+        "software engineering"
+      ],
+      "industries": [],
+      "contribution_type": "unknown",
+      "specialties": []
+    },
+    "skills": {
+      "normalized": [
+        "APIs",
+        "backend systems",
+        "Python",
+        "TypeScript"
+      ],
+      "free_text_labels": [
+        "APIs",
+        "backend systems",
+        "Python",
+        "TypeScript"
+      ],
+      "entries": [
+        {
+          "skill": "APIs",
+          "confidence": "high",
+          "provenance": "user_correction"
+        },
+        {
+          "skill": "backend systems",
+          "confidence": "high",
+          "provenance": "user_correction"
+        },
+        {
+          "skill": "Python",
+          "confidence": "high",
+          "provenance": "user_correction"
+        },
+        {
+          "skill": "TypeScript",
+          "confidence": "high",
+          "provenance": "user_correction"
+        }
+      ],
+      "technical": [
+        "backend",
+        "Python",
+        "TypeScript"
+      ],
+      "software_tools": [],
+      "writing_research": [],
+      "administrative_support": [],
+      "domain_specific": []
+    },
+    "preferences": {
+      "remote": true,
+      "flexible": false,
+      "employment_types": [
+        "contract",
+        "freelance"
+      ],
+      "synchronous_preference": "unknown",
+      "phone_preference": "unknown",
+      "schedule": [],
+      "availability": "unknown",
+      "rate_pay_preference": "",
+      "target_opportunity_types": [
+        "AI coding evaluation",
+        "software review"
+      ],
+      "preferred_task_types": [
+        "AI coding evaluation",
+        "software review"
+      ],
+      "work_preferences": [
+        "contract",
+        "freelance",
+        "remote"
+      ]
+    },
+    "constraints": {
+      "hard_constraints": [],
+      "soft_preferences": [],
+      "avoid_keywords": [],
+      "negative_constraints": [],
+      "excluded_domains": [],
+      "accessibility_constraints": []
+    },
+    "derived_matcher_signals": {
+      "signals": [
+        {
+          "reason": "declared_language_capability",
+          "keywords": [
+            "Dutch",
+            "English",
+            "German",
+            "language",
+            "linguistic"
+          ],
+          "points": 7,
+          "confidence": "unknown"
+        },
+        {
+          "reason": "software_coding_signal",
+          "keywords": [
+            "code",
+            "coding",
+            "developer",
+            "python",
+            "software"
+          ],
+          "points": 14,
+          "confidence": "unknown"
+        }
+      ],
+      "derived_domains": [
+        "software engineering"
+      ],
+      "derived_target_work_types": [
+        "AI coding evaluation",
+        "software review"
+      ],
+      "avoid_keywords": []
+    },
+    "provenance": {
+      "extracted_from": "long_paragraph",
+      "confidence": "medium",
+      "missing_fields": [],
+      "ambiguous_fields": [],
+      "reviewed": true,
+      "field_sources": [
+        {
+          "field_path": "credentials.credential_status",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "education.completion_status",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "education.education_level",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.contribution_type",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.job_titles[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.occupational_families[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.professional_domains[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.recent_roles[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.seniority",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "experience.total_years",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].language",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].proficiency",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].proficiency_explicit",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[0].provenance",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].language",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].proficiency",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].proficiency_explicit",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[1].provenance",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[2].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[2].language",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[2].proficiency",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[2].proficiency_explicit",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "languages[2].provenance",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "location.country",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "location.remote_eligibility",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "location.residence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "location.work_authorization",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.availability",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.employment_types[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.employment_types[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.flexible",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.phone_preference",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.preferred_task_types[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.preferred_task_types[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.remote",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.synchronous_preference",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.target_opportunity_types[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.target_opportunity_types[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.work_preferences[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.work_preferences[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "preferences.work_preferences[2]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[0].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[0].provenance",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[0].skill",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[1].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[1].provenance",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[1].skill",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[2].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[2].provenance",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[2].skill",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[3].confidence",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[3].provenance",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.entries[3].skill",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.free_text_labels[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.free_text_labels[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.free_text_labels[2]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.free_text_labels[3]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.normalized[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.normalized[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.normalized[2]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.normalized[3]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.technical[0]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.technical[1]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        },
+        {
+          "field_path": "skills.technical[2]",
+          "path_version": "canonical_profile_v2_path_v1",
+          "source_ordinals": [
+            1
+          ],
+          "source_kind": "user_correction",
+          "explicit": true
+        }
+      ]
+    }
+  }
+}
