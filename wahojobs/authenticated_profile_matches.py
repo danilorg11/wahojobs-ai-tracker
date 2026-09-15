@@ -1484,7 +1484,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     from wahojobs.authenticated_source_detail import render_authenticated_job_page
                     content = render_authenticated_job_page(
                         job, profile=profile_v2,
-                        navigation=_public_navigation(authenticated=True, current="job"),
+                        navigation=_navigation(current=''),
                         workflow_controls=controls, workflow_status=status,
                         workflow_history=_render_workflow_history(record) if record is not None else '',
                         tracker_return=tracker_record is not None,
@@ -4167,8 +4167,17 @@ def _public_navigation(*, authenticated, current, auth_routes_enabled=True):
             "<a href='/login'>Sign in</a>"
             "</nav>"
         )
-    from wahojobs.candidate_presentation import candidate_navigation
-    return candidate_navigation()
+    # Public catalog/company templates already own the site header and brand.
+    # Their slot accepts navigation only; exact candidate detail owns its header.
+    return (
+        "<nav class='account-nav' aria-label='Account'>"
+        + jobs_link
+        + "<a href='/find-matches'>Matches</a>"
+        "<a href='/tracker'>My Jobs</a>"
+        "<a href='/account/profile'>My profile</a>"
+        "<a href='/logout'>Sign out</a>"
+        "</nav>"
+    )
 
 
 def _page(title, body, *, workflow=False):

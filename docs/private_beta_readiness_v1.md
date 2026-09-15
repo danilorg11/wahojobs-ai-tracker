@@ -76,8 +76,8 @@ re-reviewed. Final source correspondence is the lead's release gate.
 
 Early disposable browser probe on 8860 was stopped normally after browser certificate
 trust rejection. Native live browser acceptance remains a separate gate. The permitted
-recorded-response gallery on8862 (lead exec69674) supports layout checks only; it has
-no actions. Fresh onboarding, restricted results, exact catalog/detail, tracking,
+recorded-response gallery on8862 supported layout checks only and was stopped;
+it had no actions. Fresh onboarding, restricted results, exact catalog/detail, tracking,
 correction and return pass in beta-disclosure-fixed. No test listener remains from
 that invocation. Final demo will be created on8861 after source commit. Its actual
 PID, loaded paths, login route and restart command belong in the final bundle.
@@ -101,6 +101,19 @@ baseline six failures, development fixture assumptions, mixed-import login503 du
 source editing, the independent hot-journal recovery-verification finding, explicit
 skill-list authoring assertions, catalog router404, Windows IPv6 fallback latency,
 and performance fixture CSRF/redirect expectations. Corrections never erase receipts.
+
+Two source freezes exposed further actionable integration issues. The first636 run
+found three outdated navigation/consumer assertions; the second1092 core run found
+five failures: one baseline navigation-label assertion, one obsolete bare posting URL,
+two revised recoverable-error assertions, and a real duplicate catalog header.
+Navigation now uses the correct fragment boundary, preserving Jobs/current on public
+pages and the shared full header on authenticated exact detail. Error-branch tests
+also exposed missing return links; every affected503 branch now renders the promised
+My profile action. Independent targeted review covers these corrections. Full final
+selection must rerun after the resulting source freeze; earlier receipts are retained
+and cannot establish acceptance for the new tree. Current process handles, completed
+partition receipts and next executable command are maintained in evidence/RUN-STATE.md
+without mutating source during validation.
 
 ## Material decisions and changes
 

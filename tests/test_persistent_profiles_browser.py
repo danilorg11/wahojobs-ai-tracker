@@ -514,7 +514,8 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             "GET", "/account/profile", integration=self.integration()
         )
         self.assertEqual(status, 503)
-        self.assertIn(b"could not be loaded safely", body)
+        self.assertIn(b"Your profile could not be loaded. Return to My profile and try again.", body)
+        self.assertIn(b"href='/account/profile'>Return to My profile</a>", body)
         self.assertNotIn(created.revision_id.encode(), body)
         self.assertNotIn(b"structured_profile_json", body)
 
@@ -616,7 +617,8 @@ class PersistentProfileBrowserTests(unittest.TestCase):
             response = integration.handle("GET", "/account/profile")
         self.assertEqual(response.status, 503)
         self.assertLess(len(response.body), MAX_PROFILE_BROWSER_RESPONSE_BYTES)
-        self.assertIn(b"could not be displayed safely", response.body)
+        self.assertIn(b"Your profile could not be displayed. Return to My profile and try again.", response.body)
+        self.assertIn(b"href='/account/profile'>Return to My profile</a>", response.body)
         self.assertNotIn(b"x" * 128, response.body)
 
     def test_empty_profile_rendering_and_html_renderer_failure_are_bounded(self):
@@ -652,6 +654,9 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         ):
             response = integration.handle("GET", "/account/profile")
         self.assertEqual(response.status, 503)
+        self.assertLess(len(response.body), MAX_PROFILE_BROWSER_RESPONSE_BYTES)
+        self.assertIn(b"Your profile could not be loaded. Return to My profile and try again.", response.body)
+        self.assertIn(b"href='/account/profile'>Return to My profile</a>", response.body)
         self.assertNotIn(b"renderer-secret", response.body)
 
     def test_invalid_injected_response_is_sanitized_by_existing_server(self):

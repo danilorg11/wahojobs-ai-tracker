@@ -399,7 +399,9 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         )
         current_run_id = re.search(r"/account/profile\?run=([A-Za-z0-9_-]+)", current_page).group(1)
         self.assertNotEqual(run.match_run_id, current_run_id)
-        self.assertIn("Current matches", page)
+        self.assertIn(
+            f"href='/find-matches?run={run.match_run_id}'>Matches</a>", page
+        )
 
         profile_target = self.integration.current_matches_target(
             run.match_run_id,
@@ -449,6 +451,20 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("href='/tracker'>My Jobs</a>", catalog_page)
         self.assertIn("href='/account/profile'>My profile</a>", catalog_page)
 
+        authenticated_company = self.integration.handle(
+            "GET", "/company/acme-ai", self._headers(self.first)
+        )
+        company_page = authenticated_company.body.decode("utf-8")
+        self.assertEqual(authenticated_company.status, 200, company_page)
+        self.assertEqual(dict(authenticated_company.headers)["Cache-Control"], "no-store")
+        self.assertIn("href='/jobs'>Jobs</a>", company_page)
+        self.assertIn("href='/tracker'>My Jobs</a>", company_page)
+        for public_page in (catalog_page, company_page):
+            self.assertEqual(len(re.findall(r"<a\b[^>]*>Wahojobs</a>", public_page)), 1)
+            self.assertNotRegex(
+                public_page, r"(?s)<header\b[^>]*>(?:(?!</?header\b).)*<header\b"
+            )
+
         authenticated = self.integration.handle(
             "GET",
             JOB_PATH,
@@ -460,6 +476,10 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         self.assertIn("<h2>My Jobs</h2>", page)
         self.assertIn("href='/find-matches'>Matches</a>", page)
         self.assertIn("href='/tracker'>My Jobs</a>", page)
+        self.assertEqual(len(re.findall(r"<a\b[^>]*>Wahojobs</a>", page)), 1)
+        self.assertNotRegex(
+            page, r"(?s)<header\b[^>]*>(?:(?!</?header\b).)*<header\b"
+        )
         self.assertIn(">Save</button>", page)
         self.assertIn(">Mark as applied</button>", page)
         self.assertIn(">Not interested</button>", page)

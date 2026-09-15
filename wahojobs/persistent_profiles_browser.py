@@ -429,6 +429,7 @@ class PersistentProfileBrowserIntegration:
             content = _generic_page(
                 "Profile temporarily unavailable",
                 "Your profile could not be loaded. Return to My profile and try again.",
+                retry_profile=True,
             )
             status = HTTPStatus.SERVICE_UNAVAILABLE
         payload = content.encode("utf-8")
@@ -438,6 +439,7 @@ class PersistentProfileBrowserIntegration:
                 _generic_page(
                     "Profile temporarily unavailable",
                     "Your profile could not be displayed. Return to My profile and try again.",
+                    retry_profile=True,
                 ),
             )
         return _response(status, content)
@@ -1744,6 +1746,7 @@ def render_persistent_profile_page(
             _generic_page(
                 "Profile temporarily unavailable",
                 "Your profile could not be loaded. Return to My profile and try again.",
+                retry_profile=True,
             ),
             HTTPStatus.SERVICE_UNAVAILABLE,
         )
@@ -2099,11 +2102,15 @@ def _humanize(value: str) -> str:
     return value.replace("_", " ").strip().title()
 
 
-def _generic_page(title: str, message: str) -> str:
+def _generic_page(title: str, message: str, *, retry_profile=False) -> str:
+    retry_link = (
+        "<p><a href='/account/profile'>Return to My profile</a></p>"
+        if retry_profile else ""
+    )
     return _page(
         title,
         f"<section class='empty'><h1>{_safe_text(title)}</h1>"
-        f"<p>{_safe_text(message)}</p></section>",
+        f"<p>{_safe_text(message)}</p>{retry_link}</section>",
     )
 
 
