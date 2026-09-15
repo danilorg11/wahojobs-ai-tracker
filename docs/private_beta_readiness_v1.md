@@ -115,6 +115,18 @@ and cannot establish acceptance for the new tree. Current process handles, compl
 partition receipts and next executable command are maintained in evidence/RUN-STATE.md
 without mutating source during validation.
 
+The third freeze completed runtime153 (150pass/3POSIXskips), required636 (allpass),
+and core1092 (1091pass/one fixture failure), all unchanged with no guard denials.
+The failing worker-close test automatically released its deliberately held worker
+after5seconds during runtime construction. A timestamped controlled5.5second
+build-return delay reproduced the exact assertion: the unsignalled hold expired and
+shutdown truthfully completed. The original run did not capture its precise timing.
+The fixture now waits for explicit test-owned release in finally; its50ms join
+budget,1second close bound, retained ownership/liveness and successful retry checks
+are preserved. Independent review approved this bounded harness correction.
+The new final freeze must rerun the full1881 selection; third-freeze receipts remain
+history and are not relabelled as acceptance for the new tree.
+
 ## Material decisions and changes
 
 Typed preferences now render and edit their existing authoritative values, including

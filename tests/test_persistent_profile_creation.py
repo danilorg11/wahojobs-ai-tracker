@@ -4353,7 +4353,10 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
 
         def held_run(coordinator):
             entered.set()
-            release.wait(5)
+            # Keep the intended blocked-worker state until the test releases it.
+            # Runtime construction can take longer than a wall-clock hold; the
+            # close operation remains bounded and finally always releases us.
+            release.wait()
             return original_run(coordinator)
 
         try:
