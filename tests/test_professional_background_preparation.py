@@ -126,7 +126,7 @@ class ConditionalPoolPreparationTests(unittest.TestCase):
         self.assertEqual(ids, [])
         response = self.f.get(variant_detail_url(m, run_id=run.match_run_id))
         self.assertEqual(response.status, 200)
-        self.assertNotIn(b'Why this is a possibility', response.body)
+        self.assertNotIn(b"<p class='decision-placement'>", response.body)
         self.assertEqual(len(self.fixture.client.session.calls), 2)
 
     def test_invalid_response_never_creates_route(self):
@@ -195,7 +195,7 @@ class ConditionalPoolPreparationTests(unittest.TestCase):
         response = self.f.get(url)
         self.assertEqual(response.status, 200)
         body = response.body.decode('utf-8')
-        self.assertIn('Why this is a possibility', body)
+        self.assertIn("<p class='decision-placement'>", body)
         self.assertIn('The complete professional requirement is not established.', body)
         self.assertIn('Original employer qualifications', body)
         self.assertNotIn('OFFLINE LABELLED STUB', body)
@@ -227,7 +227,7 @@ class ConditionalPoolPreparationTests(unittest.TestCase):
         response = self.f.get(variant_detail_url(foreign, run_id=run.match_run_id))
         self.assertEqual(response.status, 200)
         self.assertNotIn(b'Your declared role has partial occupational relevance.', response.body)
-        self.assertNotIn(b'Why this is a possibility', response.body)
+        self.assertNotIn(b"<p class='decision-placement'>", response.body)
         self.assertEqual(len(self.fixture.client.session.calls), 1)
 
 

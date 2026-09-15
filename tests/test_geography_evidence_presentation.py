@@ -162,7 +162,7 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         self.assertEqual([m['job_id'] for m in conditional], [7003])
         self.assertEqual(browser._primary_presentation_matches(context), [])
         self.assertEqual(conditional[0]['source_task_fit']['conditions'][0]['status'], 'not_established')
-        html = re.search(r"<article class='relaxation-preview-card' data-action-card id='opportunity-7003'>.*?</article>",
+        html = re.search(r"<article class='match-card conditional-card' data-action-card id='opportunity-7003'[^>]*>.*?</article>",
                          response.body.decode(), re.S).group()
         detail = self.f.get('/job/opportunity-7002?variant=7003')
         self.assertEqual(detail.status, 200)
@@ -174,7 +174,8 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
             self.assertNotIn('Listing location: United States.', rendered)
             self.assertNotIn('Eligibility from Brazil needs confirmation', rendered)
             self.assertIn('Biology', rendered)
-        self.assertIn(conditional[0]['source_task_fit']['candidate_note'], unescape(html))
+        from wahojobs.candidate_decision import render_placement_summary
+        self.assertIn(render_placement_summary(context['_card_evidence'][7003]), html)
 
     def test_opaque_country_aliases_omit_only_display_and_free_text_stays(self):
         for value in ['Canada', 'USA', 'Brasil', 'US citizens only', 'Europe with travel', 'Remote - location to confirm']:

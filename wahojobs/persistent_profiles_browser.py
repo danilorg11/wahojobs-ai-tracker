@@ -895,7 +895,8 @@ class PersistentProfileBrowserIntegration:
         proposed = preparation.profile_for_browser()
         base_profile = grant.trusted_base_profile_v2()
         if apply_now and not changed_profile_sections(base_profile, proposed):
-            return _form_page_response(HTTPStatus.OK, _render_correction_receipt(base_profile, proposed))
+            return _form_page_response(HTTPStatus.OK, _render_correction_receipt(base_profile, proposed,
+                navigation=context.get('correction_navigation')))
 
         def issue_correction_artifact(**kwargs):
             return self._correction_service.issue_confirmed_artifact(
@@ -1523,7 +1524,8 @@ def _render_correction_receipt(before, after, *, navigation=None):
         + change_summary(before, after, saved=True)
         + "<p><a class='primary-link' href='/account/profile'>View saved profile</a></p>"
         + "<p><a class='primary-link' href='/find-matches'>Find matches</a></p>"
-        + (cancel_link(navigation) if navigation else ''))
+        + ("<p>Your next assessment uses your saved profile. Your saved jobs and application history are preserved.</p>"
+           + f"<p><a class='primary-link' href='{_safe_text(navigation['return_to'])}'>Return to opportunity</a></p>" if navigation else ''))
 
 
 def _head_response(response):

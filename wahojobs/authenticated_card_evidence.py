@@ -289,7 +289,9 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
                                                background_context=background_context)
     if conditional_placement:
         packet['placement_explanation'] = _conditional_source_explanation(match, packet)
-    return packet
+    from wahojobs.candidate_decision import attach_decision
+    packet['task_fit_note'] = task_note
+    return attach_decision(packet, match)
 
 
 def _conditional_source_explanation(match, packet):
@@ -495,29 +497,12 @@ def _differing_source_locations(source, detail, *, include_listing=True):
 
 
 def render_conditions(evidence, card_id):
-    from wahojobs.candidate_source_display import markdown
-    from wahojobs.candidate_condition_comparisons import render_comparisons
+    from wahojobs.candidate_decision import render_assessment
     if not evidence or not evidence['conditions']:
         return ''
-    blocks = ''.join('<h4>' + escape(b['heading']) + '</h4>'
-                     + render_comparisons(evidence, block_reference=b['reference'])
-                     + markdown(b['text'], heading_level=5)
-                     for b in evidence['conditions'])
-    note = ('Compared points are noted below. Other conditions still need your review.'
-            if any(r['message'] for r in evidence.get('comparisons', [])) else
-            'Original employer wording follows. Any profile comparisons are shown separately.')
-    reason = render_placement_explanation(evidence)
-    if reason:
-        comparisons = ''.join(render_comparisons(evidence, block_reference=b['reference'])
-                              for b in evidence['conditions'])
-        original = ''.join('<h4>' + escape(b['heading']) + '</h4>'
-                           + markdown(b['text'], heading_level=5) for b in evidence['conditions'])
-        blocks = comparisons + render_original_qualifications(original)
-        note = ''
     return (f"<details class='candidate-conditions card-source-disclosure'><summary id='{escape(card_id)}-source-summary'>"
             "Qualifications &amp; conditions</summary><div class='source-description'>"
-            + reason + (f"<p class='candidate-note'>{note}</p>" if note else '')
-            + blocks + '</div></details>')
+            + render_assessment(evidence) + '</div></details>')
 
 
 def render_opportunity_kind(evidence):
@@ -530,17 +515,16 @@ def render_opportunity_kind(evidence):
 
 
 def render_card_evidence(evidence, card_id, *, profile_return_to=None):
-    from wahojobs.candidate_condition_comparisons import render_comparisons
+    from wahojobs.candidate_decision import render_assessment, render_reasons, render_placement_summary, render_limits
     from wahojobs.profile_opportunity_navigation import render_profile_update
     if evidence is None:
         return "<p class='candidate-note'>Full requirements aren’t available in the saved listing. Check the source before applying.</p>"
     kind_html = render_opportunity_kind(evidence)
     summary = (f"<p class='candidate-overview'>{escape(evidence['summary'])}</p>" if evidence['summary'] else '')
-    caveats = ''.join('<li>' + escape(c) + '</li>' for c in evidence['caveats'])
     return (f"<section class='card-evidence' data-source-variant='{evidence['job_id']}'>"
             + kind_html + summary
-            + render_comparisons(evidence, highlights=True)
-            + (f"<ul class='candidate-caveats'>{caveats}</ul>" if caveats else '')
+            + render_reasons(evidence) + render_placement_summary(evidence)
+            + render_assessment(evidence, compact=True) + render_limits(evidence)
             + render_location_context(evidence)
             + render_conditions(evidence, card_id)
             + render_profile_update(evidence, profile_return_to) + '</section>')

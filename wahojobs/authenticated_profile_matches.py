@@ -3733,6 +3733,8 @@ def _render_match_results(
 ):
     from wahojobs.authenticated_variant_details import variant_detail_url
     from wahojobs.authenticated_card_evidence import render_conditions, render_opportunity_kind, render_location_context
+    has_hidden = bool(context.get('_hidden_posting_ids') or
+                      (tracked and pipeline_postings.hidden_job_ids(tracked.get('records', []))))
     context = _visible_workflow_context(context, tracked)
     matches = _primary_presentation_matches(context)
     cards = []
@@ -3796,6 +3798,8 @@ def _render_match_results(
         )
         from wahojobs.authenticated_card_evidence import render_card_evidence
         evidence_markup = render_card_evidence(evidence, card_id, profile_return_to=url)
+        if evidence and caution in evidence.get('caveats', []):
+            caution = ''
         cards.append(
             f"<article class='match-card' id='opportunity-{match['job_id']}' data-action-card aria-labelledby='{card_id}-title'>"
             "<div class='match-card-main'>"
@@ -3838,30 +3842,29 @@ def _render_match_results(
         if url is None:
             continue
         packet = (context.get("_card_evidence") or {}).get(match["job_id"]) or {}
-        pay = next((value for label, value in packet.get("facts", []) if label == "Pay"), "")
+        meta = ''.join("<li class='match-meta-item'><span>" + _safe(label) + '</span><strong>'
+                       + _safe(value) + '</strong></li>' for label, value in packet.get('facts', []))
+        from wahojobs.authenticated_card_evidence import render_card_evidence
         record = local_product.demo.tracked_record_for_match(match, tracked) if tracked is not None else None
         controls = (local_product.render_preview_full_forms(match, record, match_run_id,
                     'conditional-' + str(match['job_id']), 'also_worth_reviewing') if match_run_id else '')
         if tracked is not None and match.get('job_id') in tracked.get('ambiguous_job_ids', set()):
             controls = "<p>Review the separate histories in <a href='/tracker'>My Jobs</a>.</p>"
         conditional_cards.append(
-            f"<article class='relaxation-preview-card' data-action-card id='opportunity-{match['job_id']}'><div>"
-            f"<h3>{_safe(match.get('display_title') or match.get('title'))}</h3>"
-            f"<p>{_safe(match.get('source'))}</p>"
-            + render_opportunity_kind(packet)
-            + (f"<p>{_safe(pay)}</p>" if pay else "")
-            + f"<p>{_safe(match['source_task_fit']['candidate_note'])}</p>"
-            + ''.join(f"<p>{_safe(note)}</p>" for note in packet.get('language_notes', []))
-            + (f"<p>{_safe(packet['geography'])}</p>" if packet.get('geography') else "")
-            + render_location_context(packet)
-            + render_conditions(packet, f"conditional-{match['job_id']}")
+            f"<article class='match-card conditional-card' data-action-card id='opportunity-{match['job_id']}' aria-labelledby='conditional-{match['job_id']}-title'><div class='match-card-main'>"
+            "<p class='match-rank-label'>Possibility · conditions to check</p>"
+            f"<h3 id='conditional-{match['job_id']}-title'>{_safe(match.get('display_title') or match.get('title'))}</h3>"
+            f"<p class='match-company'>{_safe(match.get('source'))}</p>"
+            + "<ul class='match-meta' aria-label='Job details'>" + meta + '</ul>'
+            + render_card_evidence(packet or None, f"conditional-{match['job_id']}", profile_return_to=url)
             + ("<p>Availability needs confirmation.</p>" if match.get('presentation_data_status') == 'recently_cached' else "")
             + (f"<p class='pill js-card-status'>{_safe(local_product.readable_status(record['status']))}</p>" if record else "<p class='pill js-card-status'></p>")
-            + f"</div><div><a href='{_safe(url)}'>View job details</a><div class='js-card-controls'>{controls}</div></div></article>")
+            + f"</div><div class='match-card-actions'><a class='button match-primary-action' href='{_safe(url)}'>View job details</a><div class='js-card-controls'>{controls}</div></div></article>")
     if conditional_cards:
         relaxation_section = (
-            "<details class='relaxation-scenario'><summary>Possibilities with conditions to check</summary>"
-            "<div class='relaxation-preview-list'>" + "".join(conditional_cards) + "</div></details>"
+            "<section class='conditional-matches' aria-labelledby='conditional-heading'><h2 id='conditional-heading'>Possibilities with conditions to check</h2>"
+            "<p>Relevant evidence connects these opportunities to your profile, but important conditions remain unresolved. Review them before deciding.</p>"
+            "<div class='match-list'>" + "".join(conditional_cards) + "</div></section>"
             + relaxation_section)
     if cards:
         count = len(cards)
@@ -3877,9 +3880,8 @@ def _render_match_results(
                 f"We found {count} opportunities to review. Some need availability confirmation."
             )
         low_result_note = (
-            "<aside class='low-result-note'><strong>A focused list is useful.</strong> "
-            "Review the requirements before deciding which to pursue. "
-            "New matches can appear as available jobs change.</aside>"
+            "<aside class='low-result-note'>Only a few recommendations are displayed right now. "
+            "Review the conditions below; a recommendation does not establish every qualification.</aside>"
             if count <= 3 and not has_unverified_availability
             else ""
         )
@@ -3891,29 +3893,34 @@ def _render_match_results(
             + relaxation_section
         )
     else:
-        summary = "We don't have a current match to show yet."
+        summary = (("1 possibility" if len(conditional_cards) == 1 else f"{len(conditional_cards)} possibilities") + " to review; no main recommendations right now."
+                   if conditional_cards else "We don't have a current match to show yet.")
         availability_copy = (
             "There are no current opportunities available to compare with your profile."
             if inventory_count == 0
-            else "None of the available opportunities is a clear fit for your profile right now."
+            else "There are no main recommendations displayed for your current profile, preferences and saved choices."
         )
         content = (
             "<section class='matches-empty' aria-labelledby='matches-empty-title'>"
-            "<div><p class='eyebrow'>Your search is up to date</p>"
+            "<div><p class='eyebrow'>Based on your saved profile and available evidence</p>"
             "<h2 id='matches-empty-title'>No matches to show right now</h2>"
             f"<p>{_safe(availability_copy)} Matches reflect your saved profile and the opportunities currently available.</p>"
             "<p>New opportunities may appear as the market changes. You can also review your profile to make sure it reflects what you want.</p>"
             "</div><div class='empty-actions'>"
             f"<a class='button' href='{_safe(profile_target)}'>Review my profile</a>"
             "<a class='secondary-action' href='/jobs'>Browse all jobs</a>"
-            "</div></section>"
+            + ("<p>Some opportunities are hidden by your saved choices. <a href='/tracker?view=hidden'>Review hidden jobs</a></p>" if has_hidden else "")
+            + "</div></section>"
             + relaxation_section
         )
+        if conditional_cards:
+            content = ("<p class='candidate-note'>No main recommendations right now. The possibilities below have relevant evidence and conditions to review.</p>"
+                       + relaxation_section)
     profile_context = (
         "<aside class='matches-profile-context'>"
         f"<a href='{_safe(profile_target)}'>Review profile &amp; preferences</a>"
         "</aside>"
-        if cards
+        if cards or conditional_cards
         else ""
     )
     body = f"""
@@ -4120,6 +4127,7 @@ def _render_authenticated_tracker(
             show_current_matches=current_matches_available,
         )
         + local_product.render_lightweight_tracker_header(records)
+        + "<p class='workflow-assessment-note'>Your decisions and reminders stay saved here. Open a job to see its current assessment; profile and listing changes do not erase your application history.</p>"
         + "<div id='action-feedback' aria-live='polite'></div>"
         + local_product.render_my_jobs_workspace(
             records,
@@ -4144,7 +4152,7 @@ def _navigation(*, match_run_id=None, show_current_matches=False):
             current_matches = (
                 "<a href='/find-matches?"
                 + urlencode({"run": match_run_id})
-                + "'>Current matches</a>"
+                + "'>Matches</a>"
             )
     profile_target = "/account/profile"
     if match_run_id is not None:

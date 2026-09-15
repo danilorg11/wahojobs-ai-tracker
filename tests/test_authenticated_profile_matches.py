@@ -1645,7 +1645,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         )
         self.assertIn("No matches to show right now", body)
         self.assertIn(
-            "None of the available opportunities is a clear fit for your profile right now.",
+            "There are no main recommendations displayed for your current profile, preferences and saved choices.",
             body,
         )
         self.assertNotIn("More opportunities if", body)
@@ -1662,7 +1662,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             ),
             (
                 [stale],
-                "None of the available opportunities is a clear fit for your profile right now.",
+                "There are no main recommendations displayed for your current profile, preferences and saved choices.",
             ),
         )
         authority = self._authority(profile_v2=self.profile_v2)

@@ -440,7 +440,7 @@ class SavedMatchesDependencyTests(unittest.TestCase):
 
     def no_support_html(self, response):
         self.assertNotIn(b'Your declared role has partial occupational relevance.', response.body)
-        self.assertNotIn(b'Why this is a possibility', response.body)
+        self.assertNotIn(b"<p class='decision-placement'>", response.body)
 
     def unavailable(self):
         count = len(self.f.f.integration._registry._runs)
@@ -483,7 +483,7 @@ class SavedMatchesDependencyTests(unittest.TestCase):
         self.assertEqual(self.run.recommendation_context, self.original)
         self.assertEqual(self.conditional(self.run), [7003])
         self.assertFalse(self.match['primary_recommendation_eligible'])
-        self.assertIn(b'Why this is a possibility', response.body)
+        self.assertIn(b"<p class='decision-placement'>", response.body)
         self.assertIn(b'Your declared role has partial occupational relevance.', response.body)
         self.assertEqual(len(self.f.client.session.calls), 1)
 
@@ -632,7 +632,7 @@ class SavedMatchesDependencyTests(unittest.TestCase):
             response = self.f.f.get(self.target)
         self.assertEqual(observed, [True])
         self.assertEqual(response.status, 200)
-        self.assertIn(b'Why this is a possibility', response.body)
+        self.assertIn(b"<p class='decision-placement'>", response.body)
         # Damage after acceptance belongs to the next request, not that response.
         self.corrupt()
         self.unavailable()

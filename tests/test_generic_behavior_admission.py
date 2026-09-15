@@ -146,14 +146,14 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
             self.assertEqual(q['materiality']['provenance']['prompt_version'], PROMPT_VERSION)
         for field in ('location_eligibility_status', 'opportunity_trust_status', 'actionability_cap_reasons'):
             self.assertEqual(after[field], before[field])
-        for text in (BEHAVIOR, RELIABLE, 'Original employer wording follows.'):
+        for text in (BEHAVIOR, RELIABLE, 'How your profile compares'):
             self.assertIn(text, response.body.decode())
         detail = self.f.get(variant_detail_url(after, run_id=run.match_run_id))
         self.assertEqual(detail.status, 200)
         self.assertIn(BEHAVIOR, detail.body.decode())
         self.assertNotEqual(old.match_run_id, run.match_run_id)
-        self.assertNotIn('Why this is a possibility', response.body.decode())
-        self.assertNotIn('Why this is a possibility', detail.body.decode())
+        self.assertNotIn("<p class='decision-placement'>", response.body.decode())
+        self.assertNotIn("<p class='decision-placement'>", detail.body.decode())
         schema = structured_output_schema([], clause_ids=[c['clause_id'] for c in client.calls[0]['qualification_clauses']])
         self.assertIn(FIELD, schema['properties'])
 
@@ -227,11 +227,13 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         with patch.object(detail_renderer, 'render_authenticated_job_page', side_effect=capture_detail):
             detail = self.f.get(detail_url)
         self.assertEqual(detail.status, 200)
-        from wahojobs.authenticated_card_evidence import render_placement_explanation
-        explanation = render_placement_explanation(packet)
-        for html in (response.body.decode(), detail.body.decode()):
-            self.assertEqual(html.count('Why this is a possibility'), 1)
+        from wahojobs.candidate_decision import render_placement_summary, render_assessment
+        explanation = render_placement_summary(packet)
+        for html, disclosure_class in ((response.body.decode(), 'candidate-conditions card-source-disclosure'),
+                                       (detail.body.decode(), 'candidate-original-qualifications')):
+            self.assertEqual(html.count("<p class='decision-placement'>"), 1)
             self.assertIn(explanation, html)
+            self.assertIn(render_assessment(packet), html)
             for q in WHO + preferred: self.assertIn(escape(q), html)
             class Disclosure(HTMLParser):
                 def __init__(self): super().__init__(); self.stack = []; self.original = []; self.inside = False; self.ids = []
@@ -239,7 +241,7 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
                     attr = dict(attrs)
                     if 'id' in attr: self.ids.append(attr['id'])
                     if tag == 'details':
-                        self.stack.append(attr.get('class') == 'candidate-original-qualifications')
+                        self.stack.append(attr.get('class') == disclosure_class)
                         if self.stack[-1]:
                             self.original.append({'attrs': attr, 'text': ''})
                     self.inside = any(self.stack)
@@ -253,15 +255,16 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
             self.assertNotIn('open', structure.original[0]['attrs'])
             self.assertEqual(len(structure.ids), len(set(structure.ids)))
             for q in WHO + preferred: self.assertIn(q, structure.original[0]['text'])
-            self.assertNotIn('Why this is a possibility', structure.original[0]['text'])
+            self.assertNotIn(packet['placement_explanation']['summary'], structure.original[0]['text'])
             self.assertNotIn('Original employer wording follows', html)
-        self.assertIn("href='#employer-qualifications'", detail.body.decode())
+        self.assertIn("href='#profile-comparison'", detail.body.decode())
         self.assertIn("id='employer-qualifications'", detail.body.decode())
         for q in [BEHAVIOR, RELIABLE] + preferred: self.assertNotIn(escape(q), explanation)
         for q in reason['conditions']:
             ref = q['source']
-            self.assertIn(escape(f"{ref['block_reference']}:line {ref['line']}", quote=True), explanation)
-        self.assertIn('Original employer qualifications', response.body.decode())
+            self.assertIn(ref, [r['source'] for r in packet['comparisons']])
+            self.assertNotIn(escape(f"{ref['block_reference']}:line {ref['line']}", quote=True), explanation)
+        self.assertIn('Original employer qualifications', detail.body.decode())
         self.assertNotIn('From the employer. Not assessed against your profile.', response.body.decode())
         self.assertEqual(match, original)
 
@@ -272,11 +275,12 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
             def __init__(self): super().__init__(); self.values = []
             def handle_starttag(self, tag, attrs):
                 if tag in ('form', 'input', 'button', 'a'): self.values.append((tag, attrs))
-        with patch('wahojobs.authenticated_card_evidence.render_placement_explanation', return_value=''):
+        with patch('wahojobs.candidate_decision.render_placement_summary', return_value=''):
             args, kwargs = captured['card']
             plain_card = rerender_card_with_original_nonces(render_card, args, kwargs, response.body.decode())
             args, kwargs = captured['detail']; plain_detail = render_detail(*args, **kwargs)
         for actual, plain in ((response, plain_card), (detail, plain_detail)):
+            self.assertNotIn(explanation, plain)
             a, b = Bindings(), Bindings(); a.feed(actual.body.decode()); b.feed(plain)
             self.assertEqual(a.values, b.values)
         without_display = deepcopy(ctx); without_display.pop('_card_evidence', None)
@@ -315,6 +319,18 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         wrong = deepcopy(packet)
         wrong['placement_explanation']['language_support'][0]['source']['line'] += 1
         self.assertNotIn(escape(note['message']), render_placement_explanation(wrong))
+        from wahojobs.candidate_decision import render_assessment
+        checks = [c for c in packet['language_comparisons'] if c.get('message') and c['quote'] == note['source']['quote']]
+        self.assertTrue(checks)
+        for rows in (packet['comparisons'], list(reversed(packet['comparisons']))):
+            shown=deepcopy(packet);shown['comparisons']=rows
+            output=render_assessment(shown)
+            for check in checks:
+                message=escape('Language component: '+check['message'])
+                self.assertEqual(output.count(message),1)
+                for item in output.split("<li class='decision-point")[1:]:
+                    clause=item.split('</li>')[0]
+                    self.assertEqual(message in clause,escape(check['quote']) in clause)
         self.assertEqual(packet, original)
 
     def test_employer_disclosure_is_absent_without_causal_explanation(self):
@@ -326,7 +342,7 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         packet = ctx['_card_evidence'][7003]
         rendered = render_conditions(packet, 'main-7003')
         self.assertNotIn('candidate-original-qualifications', rendered)
-        self.assertIn('Original employer wording follows.', rendered)
+        self.assertIn('How your profile compares', rendered)
         self.assertIn(BEHAVIOR, rendered)
         self.assertEqual(render_original_qualifications(''), '')
 
@@ -335,7 +351,7 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         # rather than injecting a conditional match or an invented second reason.
         from wahojobs.matching import source_task_fit
         from wahojobs import authenticated_source_detail as detail_renderer
-        from wahojobs.authenticated_card_evidence import render_placement_explanation
+        from wahojobs.candidate_decision import render_placement_summary, render_assessment
         self.f.profile = v2(candidate(['Model output evaluation'], skills=['translation']))
         self.f.update_inventory("UPDATE jobs SET title='Portuguese AI Data Reviewer'")
         self.f.update_inventory("UPDATE canonical_opportunities SET canonical_title='Portuguese AI Data Reviewer'")
@@ -378,24 +394,26 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
                           side_effect=capture('detail', detail_render)):
             detail = self.f.get(variant_detail_url(match, run_id=run.match_run_id))
         self.assertEqual(detail.status, 200)
-        explanation = render_placement_explanation(packet)
+        explanation = render_placement_summary(packet)
         for html in (response.body.decode(), detail.body.decode()):
-            self.assertEqual(html.count('Why this is a possibility'), 1)
+            self.assertEqual(html.count("<p class='decision-placement'>"), 1)
             self.assertIn(explanation, html)
+            self.assertIn(render_assessment(packet), html)
             self.assertIn(summary, html)
             self.assertNotIn('These are the conditions keeping', html)
-        self.assertIn(escape(tools), explanation)
+        self.assertIn(escape(tools), render_assessment(packet))
         self.assertNotIn('rather than a main match', explanation)
         class Bindings(HTMLParser):
             def __init__(self): super().__init__(); self.values = []
             def handle_starttag(self, tag, attrs):
                 if tag in ('form', 'input', 'button', 'a'): self.values.append((tag, attrs))
-        with patch('wahojobs.authenticated_card_evidence.render_placement_explanation', return_value=''):
+        with patch('wahojobs.candidate_decision.render_placement_summary', return_value=''):
             for label, render, html in [('card', card_render, response.body.decode()),
                                         ('detail', detail_render, detail.body.decode())]:
                 args, kwargs = captured[label]
                 plain = (rerender_card_with_original_nonces(render, args, kwargs, html)
                          if label == 'card' else render(*args, **kwargs))
+                self.assertNotIn(explanation, plain)
                 a, b = Bindings(), Bindings(); a.feed(html); b.feed(plain)
                 self.assertEqual(a.values, b.values)
         after = deepcopy(self.f.integration._registry._runs[run.match_run_id].recommendation_context)
@@ -431,7 +449,7 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         self.source(["Bachelor's in Biology."], heading='Requirements')
         response, run, ctx, match = self.current()
         self.assertEqual(self.placement(ctx), ([], [7003]))
-        self.assertIn('Why this is a possibility', response.body.decode())
+        self.assertIn("<p class='decision-placement'>", response.body.decode())
         reason = ctx['_card_evidence'][7003]['placement_explanation']
         self.assertEqual(reason['conditions'], match['source_task_fit']['conditions'])
         self.assertEqual(reason['conditions'][0]['modality'], 'required')
@@ -441,10 +459,10 @@ class GenericBehaviorAdmissionTests(unittest.TestCase):
         response, run, ctx, match = self.current()
         self.assertEqual(self.placement(ctx), ([], []))
         self.assertEqual(match['affirmative_fit_status'], 'conflicting')
-        self.assertNotIn('Why this is a possibility', response.body.decode())
+        self.assertNotIn("<p class='decision-placement'>", response.body.decode())
         detail = self.f.get(variant_detail_url(match, run_id=run.match_run_id))
         self.assertEqual(detail.status, 200)
-        self.assertNotIn('Why this is a possibility', detail.body.decode())
+        self.assertNotIn("<p class='decision-placement'>", detail.body.decode())
 
     def test_required_material_unknown_and_explicit_conflict_survive(self):
         for no_degree in (False, True):

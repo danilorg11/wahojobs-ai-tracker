@@ -106,7 +106,8 @@ def add_candidate(connection, profile, *, principal_id, account_id, now, key):
 
 
 @contextmanager
-def synthetic_state(*, port=None, competitors=0, conditional=False):
+def synthetic_state(*, port=None, competitors=0, conditional=False, candidate_profile=None,
+                    posting_title=None, posting_body=None):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     with temporary_browser_login_state(port=port or reserve_port(), seed_existing_profile=False,
             seed_existing_identity=False, mutate_configuration=lambda d: d.update(environment='private_beta')) as state:
@@ -127,6 +128,8 @@ def synthetic_state(*, port=None, competitors=0, conditional=False):
         profile = convert_v1_to_v2(json.loads(json.dumps(complete_trusted_fixture_provenance(original))),
             persistent_profile_id='prf_0123456789abcdef0123456789abcdef',
             source_ordinal_resolver=lambda *_: [1])
+        if candidate_profile is not None:
+            profile = deepcopy(candidate_profile)
         with closing(sqlite3.connect(state.database_path)) as connection, connection:
             connection.row_factory = sqlite3.Row
             connection.execute('PRAGMA foreign_keys=ON')
@@ -139,6 +142,9 @@ def synthetic_state(*, port=None, competitors=0, conditional=False):
             if conditional:
                 connection.execute("UPDATE jobs SET title='Portuguese AI Data Reviewer', department='',expertise='',commitment='' WHERE id=7003")
                 connection.execute("UPDATE canonical_opportunities SET canonical_title='Portuguese AI Data Reviewer',source_category='' WHERE id=7002")
+            if posting_title:
+                connection.execute("UPDATE jobs SET title=?,department='',expertise='',commitment='Contract',location='Remote' WHERE id=7003",(posting_title,))
+                connection.execute("UPDATE canonical_opportunities SET canonical_title=?,source_category='' WHERE id=7002",(posting_title,))
             first = dict(connection.execute('SELECT * FROM jobs WHERE id=7003').fetchone())
             _insert_copy(connection, 'jobs', first, id=7006, external_id='PostingB',
                          url='https://jobs.example.test/PostingB', source_hash='synthetic-posting-B')
@@ -152,7 +158,7 @@ def synthetic_state(*, port=None, competitors=0, conditional=False):
                     external_id=f'competitor-{index}', url=f'https://jobs.example.test/competitor-{index}',
                     source_hash=f'competitor-{index}')
             for row in connection.execute('SELECT id FROM jobs').fetchall():
-                capture(connection, row[0], now.isoformat(), body=(
+                capture(connection, row[0], now.isoformat(), body=posting_body or (
                     'Key Responsibilities\n\nEvaluate AI outputs.\n\nQualifications\n\nHands-on experience in a marketing role.'
                     if conditional else None))
             connection.commit()

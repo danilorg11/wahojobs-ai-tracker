@@ -166,6 +166,41 @@ def _compatible_pay_wording(phrases):
 
 
 DISPLAY_CSS = """
+.decision-relevance {border-left:3px solid #337257;padding:0 0 0 14px;margin:18px 0;line-height:1.55}
+.decision-relevance h4,.decision-relevance h2 {font-size:.95rem;margin:0 0 6px}
+.candidate-detail .brand {flex-shrink:0;white-space:nowrap}
+@media(max-width:500px){.candidate-detail .site-header{flex-wrap:wrap;gap:12px}.candidate-detail .site-header nav{margin-left:auto}}
+.decision-relevance ul {padding-left:18px;margin:0}
+.decision-relevance .candidate-note {margin:8px 0 0;font-size:.82rem}
+.decision-points {list-style:none!important;padding:0!important;display:grid;gap:10px;margin:12px 0}
+.decision-point {padding:12px 14px!important;background:#f6f8f7;border-radius:8px;border-left:3px solid #8b9b93;line-height:1.5}
+.decision-point > strong {font-size:.86rem;color:#304a3e}
+.decision-modality {display:inline-block;font-size:.75rem;padding:1px 5px;border:1px solid #c6cec9;border-radius:4px;margin-left:5px}
+.match-card-actions .js-card-controls button {background:#fff;color:#175540;border:1px solid #b8cfc3}
+.decision-point > p {margin:5px 0!important;font-size:.92rem}
+.decision-conflict {border-color:#ad5145;background:#fcf2ef}
+.decision-conflict > strong {color:#8c3025}
+.decision-supported,.decision-waived {border-color:#49866a}
+.decision-source summary {font-size:.85rem;padding:10px 0;min-height:44px;cursor:pointer}
+.decision-source>blockquote {margin:4px 0 10px;padding:8px 12px;border-left:2px solid #b8c5bd;font-style:normal}
+.decision-assessment {scroll-margin-top:20px}
+.decision-assessment h2 {font-size:1.15rem;margin:16px 0}
+.decision-placement {font-size:.92rem;line-height:1.5}
+.candidate-profile-next {font-size:.88rem;padding:10px 14px;margin:14px 0;background:#f0f5f2;border-radius:8px;line-height:1.5}
+.candidate-profile-next p {margin:5px 0}
+.candidate-profile-update {display:inline-block;min-height:32px;font-weight:650}
+.conditional-matches {margin-top:30px;border-top:1px solid #d9e2dc;padding-top:20px}
+.conditional-matches > h2 {font-size:1.4rem;margin:0 0 8px}
+.conditional-matches > p {max-width:70ch;line-height:1.6;color:#52645b;margin:0 0 18px}
+.conditional-card {border-color:#d7c9ad}
+.conditional-card .match-rank-label {color:#7b5d2c}
+.workflow-assessment-note {max-width:760px;line-height:1.6;color:#52645b;margin:12px 0 20px}
+.match-card,.candidate-detail,.candidate-detail * {min-width:0;overflow-wrap:anywhere}
+.match-meta-item strong {display:block}
+.candidate-detail :focus-visible,.match-card :focus-visible {outline:3px solid #146149;outline-offset:3px}
+.candidate-detail .decision-assessment {margin:24px 0}
+@media(min-width:850px){.candidate-detail .hero:has(.workflow-card){display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:24px;align-items:start}.candidate-detail .workflow-card{margin-top:0}}
+@media(max-width:500px){.match-card-actions{width:100%}.match-card-actions .button{width:100%;text-align:center}.candidate-detail .hero-actions{display:flex;flex-wrap:wrap}.decision-point{padding:10px!important}}
 .source-description {overflow-wrap:anywhere;line-height:1.7}
 .source-description h3,.source-description h4 {margin:1.5em 0 .55em;line-height:1.35}
 .source-description p {margin:.65em 0}
@@ -223,4 +258,5 @@ DISPLAY_CSS = """
 }
 @media(max-width:600px){.candidate-detail .fact-grid {grid-template-columns:1fr 1fr}
 .candidate-detail .fact {min-width:0}.candidate-detail dd {overflow-wrap:anywhere}}
+@media(max-width:380px){.candidate-detail .fact-grid {grid-template-columns:1fr}}
 """

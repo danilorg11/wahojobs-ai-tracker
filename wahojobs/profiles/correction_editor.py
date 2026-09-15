@@ -119,7 +119,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         language_rows.append("<div class='candidate-language'>" + content + "</div>")
     languages = section('languages', 'Languages', ', '.join(
         f"{v.get('language', '')} ({support.profile_review_option_label(v.get('proficiency', 'unspecified'))})"
-        for v in canonical.get('languages', [])), ''.join(language_rows))
+        for v in canonical.get('languages', [])), ''.join(language_rows), opened=focus == 'languages')
     experience = canonical.get('experience', {})
     rendered.add('recent_roles')
     roles = json.loads(fields['recent_roles'])
@@ -127,7 +127,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         chips('job_titles', experience.get('job_titles'), 'Roles') + employment_editor(roles)
         + chips('specialties', experience.get('specialties'), 'Activities')
         + "<details><summary>Experience length (optional)</summary>" + text('total_years', 'Total years of work experience')
-        + check('no_experience', 'I have no prior work experience') + "</details>")
+        + check('no_experience', 'I have no prior work experience') + "<p>Total career years do not establish years in a particular profession.</p></details>", opened=focus == 'experience')
     rendered.add('education_entries')
     entries = None
     try:
@@ -164,7 +164,9 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         ('technical_skills', 'technical', 'Technical skills'), ('writing_research_skills', 'writing_research', 'Writing and research'),
         ('administrative_support_skills', 'administrative_support', 'Administration and support'), ('domain_specific_skills', 'domain_specific', 'Specialist skills')) if skills.get(key))
     skill_section = section('skills', 'Skills and tools', support.review_csv(skills.get('normalized') or skills.get('software_tools')),
-        skill_content + '<details><summary>Additional skills</summary>' + extra + '</details>', opened=focus == 'software_tools')
+        skill_content + ('<details open>' if focus in ('technical_skills', 'domain_specific_skills') else '<details>')
+        + '<summary>Additional skills</summary>' + extra + '</details>',
+        opened=focus in ('skills', 'software_tools', 'technical_skills', 'domain_specific_skills'))
     rendered.add('flexible')
     preferences = section('preferences', 'Work preferences', 'Optional',
         select('availability', 'Workload / timing preference', {'unknown':'Not specified','immediate':'Prefer an immediate start','available':'Open to work','limited':'Prefer limited hours','unavailable':'Not currently looking','full-time':'Full-time','part-time':'Part-time'})
@@ -174,7 +176,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         + select('phone_preference', 'Phone work', support.canonical_review.PHONE_PREFERENCES)
         + '<details><summary>Schedule and contract preferences</summary>'
         + choices('schedule', 'Schedule preferences', support.canonical_review.SCHEDULE_PREFERENCES)
-        + choices('employment_types', 'Contract preferences', support.canonical_review.EMPLOYMENT_TYPES) + '</details>')
+        + choices('employment_types', 'Contract preferences', support.canonical_review.EMPLOYMENT_TYPES) + '</details>', opened=focus == 'preferences')
     optional = section('optional', 'Permissions, licenses and constraints', 'Optional',
         text('work_authorization', 'Work permission or permit (optional)')
         + text('eligible_countries', 'Countries where you have permission to work (optional)')
@@ -190,7 +192,9 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
     # absence from the visible controls never implies removal or new evidence.
     hidden = ''.join(f"<input type='hidden' name='{esc(k)}' value='{esc(v)}'>" for k,v in fields.items() if k not in rendered and k != 'credentials_confirmed')
     feedback = (f"<div role='alert' id='correction-error'><a href='#{esc(issue[0])}'>{esc(issue[1])}</a></div>" if issue else '')
-    focus_target = 'degrees' if focus == 'education' else 'software_tools' if focus == 'software_tools' else ''
+    focus_target = {'education': 'degrees', 'skills': 'skills', 'technical_skills': 'technical_skills',
+                    'domain_specific_skills': 'domain_specific_skills', 'software_tools': 'software_tools', 'languages': 'language_0',
+                    'experience': 'job_titles', 'preferences': 'availability', 'location': 'country'}.get(focus, '')
     return (f"<form method='post' action='{esc(action)}' class='profile-review-form candidate-correction' id='profile-review-form' data-focus='{focus_target}'>"
         + hidden + feedback + "<p>Edit any section that needs a correction. Optional details can stay blank.</p>"
         + "<a class='primary-link' href='#review-actions'>Continue to review</a>"

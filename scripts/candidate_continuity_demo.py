@@ -4,6 +4,7 @@ No crawl, application-model call, external authentication or submission. Start:
     python -B scripts/candidate_continuity_demo.py
 """
 import argparse
+from contextlib import nullcontext
 from datetime import datetime
 import json
 import os
@@ -32,12 +33,18 @@ def serve(directory, *, owner='first'):
     with patch.dict(os.environ, {'WAHOJOBS_PROFILE_INTAKE_OPENAI_ENABLED':'0', 'WAHOJOBS_OPENAI_ENRICHMENT':'0'}), \
          existing_owner_local_login(configuration, account_id=marker['owners'][owner],
              clock=ManualClock(datetime.fromisoformat(marker['now']))) as (config, app):
-        with _running_https_browser_handler(config, make_durable_product_browser_handler(app)):
+        if marker.get('candidate_decision_v1'):
+            from tests.candidate_decision_support import publish_demo_certificate
+            certificate_capture = publish_demo_certificate(directory)
+        else:
+            certificate_capture = nullcontext()
+        with certificate_capture, _running_https_browser_handler(config, make_durable_product_browser_handler(app)):
             (directory/'continuity-ready.json').write_text(json.dumps({'pid':os.getpid(),
                 'origin':config_doc['public_origin'], 'owner':owner}), encoding='utf-8')
             print('Synthetic Wahojobs: '+config_doc['public_origin']+'/login?next=/find-matches',flush=True)
             print('Use the local controlled login. Save -> Mark as applied -> Remind me later -> Not interested -> My Jobs -> Hidden -> View job details -> Show again.',flush=True)
-            print('Only synthetic jobs and owners. Employer links are example.test; do not open them.',flush=True)
+            print('Synthetic owners and inventory. Employer wording includes preserved public fixtures; no employer links need to be opened.'
+                  if marker.get('candidate_decision_v1') else 'Only synthetic jobs and owners. Employer links are example.test; do not open them.',flush=True)
             while not (directory/'continuity-stop').exists():
                 time.sleep(.2)
 

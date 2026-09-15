@@ -64,7 +64,8 @@ def prepare_detail_display(job, profile):
             prepared = deepcopy(prepared)
             if conditional:
                 prepared['placement_explanation'] = _conditional_source_explanation(match, prepared)
-            return prepared
+            from wahojobs.candidate_decision import attach_decision
+            return attach_decision(prepared, match)
     return prepare_card_evidence(match, source, profile, include_item_experience=True,
                                  conditional_placement=conditional)
 
@@ -81,6 +82,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     from wahojobs.candidate_source_display import DISPLAY_CSS, markdown
     from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS, render_location_context, render_placement_explanation
     from wahojobs.candidate_condition_comparisons import render_comparisons
+    from wahojobs.candidate_decision import render_assessment, render_reasons, render_placement_summary, render_limits
     from wahojobs.profile_opportunity_navigation import render_profile_update
     from wahojobs.authenticated_variant_details import variant_detail_url
     packet = prepare_detail_display(job, profile)
@@ -116,11 +118,11 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     blocks = _blocks(packet['text']) if packet else []
     qualification_block = next((i for i, block in enumerate(blocks)
                                 if block['heading'].casefold().rstrip(':') in _QUALIFICATION_HEADINGS), None)
-    qualification_link = ("<p class='candidate-note'><a href='#employer-qualifications'>Review qualifications and comparisons</a></p>"
+    qualification_link = ("<p class='candidate-note'><a href='#profile-comparison'>Review qualifications and comparisons</a></p>"
                           if qualification_block is not None else '')
     checks = ("<section class='candidate-checks'><h2>Before you apply</h2>"
-              + render_placement_explanation(packet)
-              + (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else '')
+              + render_placement_summary(packet)
+              + (render_limits(packet) if packet else (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else ''))
               + render_location_context(packet)
               + qualification_link + '</section>'
               if qualification_link or caveats or render_location_context(packet) else '')
@@ -133,7 +135,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
         from wahojobs.authenticated_card_evidence import render_original_qualifications
         sections = []
         originals = []
-        collapse_qualifications = bool(render_placement_explanation(packet))
+        collapse_qualifications = True
         qualification_refs = {b['reference'] for b in packet['conditions']}
         for index, block in enumerate(blocks):
             heading, wording = block['heading'], block['text']
@@ -155,7 +157,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
             anchor = " id='employer-qualifications'" if index == qualification_block else ''
             original = ((f"<h3{anchor}>{escape(heading)}</h3>" if heading != 'Source wording' else '')
                         + markdown(wording))
-            comparisons = render_comparisons(packet, block_reference=block['reference'])
+            comparisons = ''
             if collapse_qualifications and block['reference'] in qualification_refs:
                 # Comparisons, including conflicts, remain outside the collapsed
                 # employer wording. The existing fragment target stays on its heading.
@@ -170,7 +172,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
         if originals:
             sections.append(render_original_qualifications(''.join(originals)))
         description = ''.join(sections)
-        description = "<section class='content-section source-description'><h2>Employer description</h2>" + description + '</section>'
+        description = render_assessment(packet) + "<section class='content-section source-description'><h2>Employer description</h2>" + description + '</section>'
     else:
         description = "<p>Full requirements aren’t available in the saved listing. Check the original source before applying.</p>"
     pay_wording = ''
@@ -187,6 +189,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     if workflow_controls or workflow_history:
         workflow = ("<aside class='workflow-card' data-action-card><h2>My Jobs</h2>"
                     f"<p class='pill js-card-status' aria-label='Current status: {escape(workflow_status)}'>{escape(workflow_status)}</p>"
+                    "<p class='candidate-note'>Your saved decisions stay with this posting. A profile or listing update can change the assessment without changing your application history.</p>"
                     + workflow_history +
                     f"<div class='js-card-controls workflow-controls'>{workflow_controls}</div></aside>")
     source_link = (f"<a href='{escape(url, quote=True)}' target='_blank' rel='noopener noreferrer nofollow'>Original listing at {escape(company)}</a>"
@@ -209,9 +212,9 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
 <main><p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← {'Back to My Jobs' if tracker_return else 'Back to opportunities'}</a></p>
 <article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
 <p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
-{render_comparisons(packet, highlights=True) if packet else ''}
+{render_reasons(packet, heading_level=2)}
 {checks}{render_profile_update(packet, variant_detail_url(job, run_id=return_run_id))}<div class='hero-actions'>{action}</div></div>{workflow}</header>
-<div id='action-feedback' aria-live='polite'></div><div class='job-description'>{pay_wording}{description}</div>
+<div id='action-feedback' aria-live='polite'></div><div class='job-description' id='profile-comparison'>{pay_wording}{description}</div>
 <footer class='verification-footer'>{source_link}<p>Based on saved source information. Confirm current terms and application availability with the employer.</p></footer>
 </article></main>{_workflow_script() if workflow_controls else ''}</body></html>"""
 

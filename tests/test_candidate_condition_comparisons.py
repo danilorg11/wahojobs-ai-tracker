@@ -211,8 +211,8 @@ class CandidateConditionComparisonsTests(unittest.TestCase):
         self.assertEqual(prepare_detail_display(job, profile())['comparisons'], packet['comparisons'])
         html = render_card_evidence(packet, 'example')
         self.assertIn('<details', html); self.assertIn('<summary', html)
-        self.assertIn('Compared points are noted below', html)
-        self.assertIn('<h4>Preferred</h4>', html)
+        self.assertIn('How your profile compares', html)
+        self.assertIn('Employer preference', html)
         for internal in ('not_established', 'supported_parts', 'source block', 'field_path'):
             self.assertNotIn(internal, html)
 

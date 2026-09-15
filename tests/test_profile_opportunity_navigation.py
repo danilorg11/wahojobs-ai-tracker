@@ -34,8 +34,8 @@ class ProfileOpportunityNavigationTests(unittest.TestCase):
         self.assertEqual(render_profile_update(prepared(identity=11271),RETURN),'')
         p=profile();p['education']={}
         self.assertIn('focus=education',render_profile_update(prepared('**Required**\nPhD in Biology',p),RETURN))
-        for text in ('**Required**\nWorking proficiency in Python or R',
-                     '**Required**\nPhD in Chemistry or a closely related field',
+        self.assertIn('focus=software_tools',render_profile_update(prepared('**Required**\nWorking proficiency in Python or R'),RETURN))
+        for text in ('**Required**\nPhD in Chemistry or a closely related field',
                      '**Engagement**\nCommitment: 20+ hours/week'):
             self.assertEqual(render_profile_update(prepared(text),RETURN),'')
         self.assertEqual(render_profile_update(None,RETURN),'')

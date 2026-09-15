@@ -8,7 +8,42 @@ import re
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 
-FOCUS_FIELDS = frozenset({'education', 'software_tools'})
+TOOL_FOCUS = {'normalized': 'skills', 'software_tools': 'software_tools',
+              'technical': 'technical_skills', 'domain_specific': 'domain_specific_skills'}
+FOCUS_FIELDS = frozenset({'education', 'languages', 'experience', 'preferences', 'location', *TOOL_FOCUS.values()})
+
+
+def _tool_correction(row):
+    """Route recorded tool gaps to an existing editable collection, without answers."""
+    from wahojobs.candidate_condition_comparisons import _tool_groups
+    quote = re.sub(r'\*\*([^*]+)\*\*', r'\1', row['source']['quote'])
+    clean = re.sub(r'\s+(?:required|preferred)\.?$', '', quote, flags=re.I)
+    match = re.fullmatch(r'(Working proficiency|Proficiency|Experience|Comfortable) (?:in|with) (.+)', clean, re.I)
+    parsed = _tool_groups(match[2]) if match else None
+    if not parsed or parsed[1] == 'unresolved_slash':
+        return None
+    groups, _ = parsed
+    facts = row.get('profile_facts', [])
+    reported = [f['value'] for f in facts if isinstance(f.get('value'), dict)
+                and f.get('field_path', '').startswith('experience.item_details[')]
+    # Existing self-reports cannot settle domain-specific use or duration.
+    if reported and re.search(r'\bfor\b| [—–] ', match[2], re.I):
+        return None
+    usable = {d['label'].casefold() for d in reported if d.get('contexts') and
+              (match[1].lower() == 'experience' or
+               (match[1].lower() == 'working proficiency' and d.get('autonomy') in ('independent', 'complex')))}
+    pending = [g for g in groups if not any(t.casefold() in usable for t in g)]
+    if not pending:
+        return None
+    names = {t.casefold() for g in pending for t in g}
+    mentions = [f for f in facts if isinstance(f.get('value'), str) and f['value'].casefold() in names]
+    for fact in mentions:
+        path = re.match(r'skills\.([a-z_]+)\[', fact.get('field_path', ''))
+        if path and path[1] in TOOL_FOCUS:
+            return TOOL_FOCUS[path[1]], 'Your listed tools are already saved. Review optional experience details for those tools.'
+    if mentions:
+        return None  # No direct item editor for this legacy collection.
+    return 'software_tools', 'Your saved tool details stay in place. Add a missing tool and its experience details only if they describe you.'
 
 
 def safe_opportunity_return(value):
@@ -78,13 +113,27 @@ def render_profile_update(packet, return_to):
     target = safe_opportunity_return(return_to)
     if not packet or not target:
         return ''
-    # Source ambiguity, related-degree acceptance and proficiency cannot be
-    # settled by adding a skill label. Only missing personal facts get a link.
-    eligible = [r for r in packet.get('comparisons', [])
-                if r['status'] == 'not_established' and not r['supported_parts']]
-    focus = ('software_tools' if any(r['kind'] == 'tools' for r in eligible) else
-             'education' if any(r['kind'] == 'education' for r in eligible) else None)
+    # Navigation only. Existing confirmed facts are retained in the editor;
+    # a correction does not establish employer acceptance or complete eligibility.
+    tool_action = next((action for r in packet.get('comparisons', [])
+                       if r['kind'] == 'tools' and r['status'] == 'not_established'
+                       and (action := _tool_correction(r))), None)
+    focus, guidance = tool_action or (None, '')
+    if not focus and any(r['kind'] == 'education' and r['status'] == 'not_established'
+                         and not r['supported_parts'] for r in packet.get('comparisons', [])):
+        focus = 'education'
+    from wahojobs.candidate_decision import missing_language_fact
+    if not focus and any(missing_language_fact(c) for c in packet.get('language_comparisons', [])):
+        focus, guidance = 'languages', 'Review your own language level if it is missing or inaccurate.'
+    if not focus and any(r['kind'] == 'professional_background' and r['status'] == 'not_established'
+                         and not r.get('supported_parts') for r in packet.get('comparisons', [])):
+        focus, guidance = 'experience', 'You can add missing roles or activities. This does not establish the required depth or years in a specific field.'
+    if not focus and any(r['kind'] == 'workload' and r['status'] == 'contradicted'
+                         for r in packet.get('comparisons', [])):
+        focus, guidance = 'preferences', 'Review your work preferences if they have changed. A preference does not confirm available hours.'
     if not focus:
         return ''
     link = '/account/profile?' + urlencode({'correction': 'start', 'return_to': target, 'focus': focus})
-    return f"<p class='candidate-note'><a class='candidate-profile-update' href='{escape(link, quote=True)}'>Update profile</a> <span>(optional)</span></p>"
+    return (f"<div class='candidate-profile-next'><p><a class='candidate-profile-update' href='{escape(link, quote=True)}'>Update profile</a> <span>(optional)</span></p>"
+        + ('<p>' + escape(guidance) + '</p>' if guidance else '')
+        + '<p>Keep unknown details blank. Review and confirm any change before returning to this opportunity.</p></div>')
