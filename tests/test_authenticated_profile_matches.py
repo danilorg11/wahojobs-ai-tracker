@@ -603,17 +603,19 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 self.assertEqual(
                     re.findall(r"href='([^']+)'", body),
                     [
+                        "/find-matches",
+                        "/find-matches",
+                        "/tracker",
                         "/account/profile",
                         "/logout",
                         "/account/profile",
                         "/job/opportunity-7002?variant=7003",
                     ],
                 )
+                self.assertIn("href='/tracker'>My Jobs</a>", body)
                 self.assertNotIn(state.profile_id, body)
                 for forbidden in (
-                    "My Jobs",
                     "/action",
-                    "tracker",
                     "demo persona",
                     "javascript:",
                 ):
@@ -736,12 +738,16 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(
             re.findall(r"href='([^']+)'", body),
             [
+                "/find-matches",
+                "/find-matches",
+                "/tracker",
                 "/account/profile",
                 "/logout",
                 "/account/profile",
                 "/job/opportunity-901?variant=901",
             ],
         )
+        self.assertIn("href='/tracker'>My Jobs</a>", body)
         self.assertIn("<h1>Your matches</h1>", body)
         self.assertIn(
             "1 opportunity to review.", body
@@ -749,7 +755,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertNotIn("Why this appeared", body)
         self.assertNotIn("Pay not disclosed", body)
         self.assertIn("View job details", body)
-        for forbidden in ("My Jobs", "/action", "tracker", "demo persona"):
+        for forbidden in ("/action", "demo persona"):
             self.assertNotIn(forbidden, body)
         for fallback in (
             local_loader,

@@ -936,10 +936,12 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
                 "/account/profile",
                 "/logout",
                 "/find-matches",
+                "/tracker",
                 "/account/profile?correction=start",
                 "/account/profile?correction=resume",
             },
         )
+        self.assertIn("href='/tracker'>My Jobs</a>", body)
         for durable_value in (
             self.session["account_id"],
             self.session["principal_id"],
@@ -953,9 +955,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             "Revision history",
             "Current revision",
             "/preview",
-            "/tracker",
             "/action",
-            "My Jobs",
             "demo persona",
             "rollback",
             "reactivate",
@@ -2819,12 +2819,11 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             "correction_of_revision_id",
         ):
             self.assertNotIn(private_label, public)
+        self.assertIn("href='/tracker'>My Jobs</a>", public)
         for forbidden in (
             "/preview",
-            "/tracker",
             "/dashboard",
             "/action",
-            "My Jobs",
             "demo persona",
             "archive profile",
             "reactivate",
