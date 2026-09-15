@@ -2,6 +2,7 @@
 from contextlib import closing
 from datetime import timedelta
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -47,6 +48,43 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(len(receipts), 4)  # execute and report for each cycle
         self.assertTrue(all(s['protected_state_equal'] for s in receipts))
         self.assertEqual(receipts[0]['after_source']['model_calls'], 0)
+        evidence=os.environ.get('WAHOJOBS_BETA_MAINTENANCE_EVIDENCE')
+        if evidence:
+            # Export outcomes, not synthetic owner/session files or raw bodies.
+            cycles=[]
+            for receipt in receipts[::2]:
+                cycles.append(dict(cycle=receipt['cycle'],source_status=receipt['source_status'],
+                    repair_status=receipt['repair_status'],protected_state_equal=receipt['protected_state_equal'],
+                    consumers={step:{key:receipt[step][key] for key in
+                        ('matches_status','detail_status','source_trust','model_calls','consumer')}
+                        for step in ('before_source','after_source','after_repair')}))
+            Path(evidence).write_text(json.dumps(dict(label=result['label'],cycles=cycles),indent=2),encoding='utf-8')
+
+    def test_coverage_summary_connects_age_detail_hold_and_blocked_operations(self):
+        self.seed()
+        _, outcome = source_execute(self.path, self.journal, T0+timedelta(hours=73), held_detail=True)
+        before = self.path.read_bytes()
+        plan = m.build_plan(self.path, COHORT, now=T0+timedelta(hours=146))
+        self.assertEqual(self.path.read_bytes(), before)
+        by_source = {s['provider']:s for s in plan['sources']}
+        alignerr = by_source['alignerr']['coverage']
+        self.assertEqual(alignerr['active_postings'], 1)
+        self.assertEqual(alignerr['accepted_body_counts'], {'accepted_full_detail':1})
+        self.assertEqual(len(alignerr['held_latest_observation_job_ids']), 1)
+        self.assertTrue(alignerr['oldest_verification_age_hours'] >= 73)
+        self.assertIn('execution_budget_absent', alignerr['next_operations'][0]['blocked'])
+        self.assertEqual(alignerr['next_operations'][0]['operation_id'], 'catalog:alignerr')
+        self.assertIn('candidate eligibility', alignerr['availability_note'])
+        self.assertTrue(all('coverage' in s for s in plan['sources']))
+
+    def test_coverage_summary_missing_inventory_is_not_current_verification(self):
+        plan = m.build_plan(self.path, COHORT, now=T0)
+        for source in plan['sources']:
+            coverage=source['coverage']
+            self.assertEqual(coverage['active_postings'],0)
+            self.assertIsNone(coverage['oldest_verification_age_hours'])
+            self.assertIsNone(coverage['oldest_accepted_confirmation_at'])
+            self.assertTrue(coverage['next_operations'])
 
     def test_supported_runtime_reuses_conservative_evidence_without_producer_authority(self):
         self.seed(); seed_owner(self.path, self.directory)

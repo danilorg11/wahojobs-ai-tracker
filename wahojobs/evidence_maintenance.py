@@ -5,6 +5,7 @@ Production acceptance, lifecycle, preparation and storage contracts remain owner
 of every evidence mutation. Journal files are append-only, exclusive and fsynced.
 """
 from contextlib import contextmanager, closing
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
@@ -154,6 +155,33 @@ def inspect_source(connection, slug, now):
                                 (company['id'],)).fetchone()
     return dict(provider=slug, input_status='available', jobs=jobs, enrichments=enrichments,
                 latest_run=dict(latest) if latest else None, fingerprint=source_fingerprint(connection, slug))
+
+
+def coverage_summary(state, operations):
+    """Readable operator priorities over existing evidence; no new authority.
+
+    A trusted source row still needs candidate-specific eligibility evaluation.
+    Held newer observations never replace the accepted detail in these counts.
+    """
+    jobs = state['jobs']
+    active = [j for j in jobs if j['verification']['status'] != 'inactive']
+    held = [j['job_id'] for j in jobs if j['evidence'].get('latest_capture_id') is not None
+            and j['evidence'].get('latest_capture_id') != j['evidence'].get('accepted_capture_id')]
+    ages = [j['verification'].get('source_age_hours') for j in active]
+    known_ages = [a for a in ages if isinstance(a, (int, float))]
+    dates = sorted({j['evidence']['last_confirmed_at'] for j in active if j['evidence'].get('last_confirmed_at')})
+    relevant = [o for o in operations if o.get('provider') == state['provider']]
+    return dict(total_postings=len(jobs), active_postings=len(active),
+        verification_counts=dict(sorted(Counter(j['verification']['status'] for j in jobs).items())),
+        accepted_body_counts=dict(sorted(Counter(j['description'] for j in active).items())),
+        derived_freshness_counts=dict(sorted(Counter(e['freshness'] for e in state['enrichments']).items())),
+        held_latest_observation_job_ids=held,
+        oldest_verification_age_hours=max(known_ages) if known_ages else None,
+        unknown_verification_age_count=sum(a is None for a in ages),
+        oldest_accepted_confirmation_at=dates[0] if dates else None,
+        next_operations=[dict(operation_id=o['id'], kind=o['kind'], blocked=o['blocked'],
+            prerequisites=o.get('prerequisites',[]), writes=o.get('writes',[])) for o in relevant],
+        availability_note='Source trust is availability evidence only; candidate eligibility and saved visibility are evaluated separately.')
 
 
 class OwnerPreparation:
@@ -434,6 +462,8 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
                               profile_id=owner.profile_id, job_ids=owner.job_ids)
             operations.append(dict(id='owner_preparation', kind='owner_preparation',
                 blocked=['owner_authorization_or_storage_unavailable'], writes=[], request_scope=None))
+    for state in states:
+        state['coverage'] = coverage_summary(state, operations)
     result = dict(version=VERSION, database=database_identity(target), created_at=now.isoformat(),
         expires_at=(now + timedelta(hours=1)).isoformat(), config=config,
         contract_fingerprint=contract_fingerprint(), sources=states, contracts=contracts,

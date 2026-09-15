@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 import re
+import time
+import uuid
+
+from wahojobs.request_diagnostics import RequestDiagnostic, RequestDiagnostics, route_category
 
 
 MAX_DURABLE_RESPONSE_BODY_BYTES = 1_048_576
@@ -44,11 +48,15 @@ class _ValidatedDurableResponse:
     fail_delivery: object | None
 
 
-def make_durable_product_browser_handler(durable_integration):
+def make_durable_product_browser_handler(durable_integration, *, diagnostics=None):
     """Return a handler class whose complete route space belongs to integration."""
 
     if not callable(getattr(durable_integration, "handle", None)):
         raise ValueError("invalid_durable_product_browser_integration")
+    if diagnostics is None:
+        diagnostics = RequestDiagnostics()
+    if type(diagnostics) is not RequestDiagnostics:
+        raise ValueError("invalid_request_diagnostics")
 
     class DurableProductBrowserHandler(BaseHTTPRequestHandler):
         _durable_google_login_browser_integration = durable_integration
@@ -61,6 +69,25 @@ def make_durable_product_browser_handler(durable_integration):
             raise AttributeError(name)
 
         def _dispatch_durable_request(self, method):
+            self._request_id = uuid.uuid4().hex
+            self._request_started = time.monotonic()
+            self._diagnostic_method = method if method in ('GET','POST','HEAD','PUT','PATCH','DELETE','OPTIONS') else 'OTHER'
+            self._diagnostic_route = route_category(self.path)
+            self._diagnostic_status = 503
+            self._diagnostic_outcome = 'integration_unavailable'
+            try:
+                self._dispatch_integration_request(method)
+            finally:
+                record = RequestDiagnostic(self._request_id, self._diagnostic_method,
+                    self._diagnostic_route, self._diagnostic_status, self._diagnostic_outcome,
+                    max(0, min(86400000, int((time.monotonic()-self._request_started)*1000))))
+                try:
+                    diagnostics.record(record)
+                except Exception:
+                    # Observability must never issue/revoke/acknowledge a session.
+                    pass
+
+        def _dispatch_integration_request(self, method):
             integration = type(
                 self
             )._durable_google_login_browser_integration
@@ -79,6 +106,7 @@ def make_durable_product_browser_handler(durable_integration):
             except _CONTROL_FLOW:
                 raise
             except Exception:
+                self._diagnostic_outcome = 'integration_failure'
                 self._write_safe_failure(head=method == "HEAD")
                 return
 
@@ -89,6 +117,7 @@ def make_durable_product_browser_handler(durable_integration):
                 raise
             except Exception:
                 _fail_unvalidated_delivery(response)
+                self._diagnostic_outcome = 'invalid_response'
                 self._write_safe_failure(head=method == "HEAD")
                 return
 
@@ -98,11 +127,15 @@ def make_durable_product_browser_handler(durable_integration):
             )
 
         def _write_durable_response(self, response, *, head):
+            self._diagnostic_status = response.status
+            self._diagnostic_outcome = 'response' if response.status < 500 else 'service_error'
             headers_complete = False
             try:
                 self.send_response(response.status)
                 for name, value in response.headers:
-                    self.send_header(name, value)
+                    if name.lower() != 'x-wahojobs-request-id':
+                        self.send_header(name, value)
+                self.send_header('X-Wahojobs-Request-ID', self._request_id)
                 self.end_headers()
                 headers_complete = True
             except _CONTROL_FLOW:
@@ -111,6 +144,7 @@ def make_durable_product_browser_handler(durable_integration):
                 self._clear_pending_headers()
                 raise
             except Exception:
+                self._diagnostic_outcome = 'headers_interrupted'
                 if not headers_complete:
                     _call_delivery_failure(response.fail_delivery)
                 self._clear_pending_headers()
@@ -122,6 +156,7 @@ def make_durable_product_browser_handler(durable_integration):
                 except _CONTROL_FLOW:
                     raise
                 except Exception:
+                    self._diagnostic_outcome = 'acknowledgement_failed'
                     return
 
             if head:
@@ -131,6 +166,7 @@ def make_durable_product_browser_handler(durable_integration):
             except _CONTROL_FLOW:
                 raise
             except Exception:
+                self._diagnostic_outcome = 'body_interrupted'
                 return
 
         def _write_safe_failure(self, *, head):
@@ -139,6 +175,7 @@ def make_durable_product_browser_handler(durable_integration):
                 self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
                 for name, value in _SAFE_FAILURE_HEADERS:
                     self.send_header(name, value)
+                self.send_header('X-Wahojobs-Request-ID', self._request_id)
                 self.end_headers()
                 if not head:
                     self.wfile.write(_SAFE_FAILURE_BODY)

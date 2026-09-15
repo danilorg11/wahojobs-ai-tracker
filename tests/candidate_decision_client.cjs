@@ -153,7 +153,42 @@ function checked(selector,value=true) {
 async function main() {
   await login();
   const initial=await checkpoint('matches');
-  if(mode==='decision-return') {
+  if(mode==='decision-preferences') {
+    await navigate(textLink('My profile'));
+    assert.match(document().body.textContent,/Preferred minimum: USD 15\/hour/);
+    await navigate(textLink('Update profile'));await submit('form');await navigate(textLink('Edit profile'));
+    const before=await rpc({kind:'state'});
+    set('beta_pay_0_amount','invalid');set('city','Example preference city');
+    checked('[name=credentials_confirmed]');await submit('#profile-review-form',400);
+    assert.match(document().body.textContent,/Review your work preferences/);
+    assert.equal(document().querySelector('[name=beta_pay_0_amount]').value,'invalid');
+    assert.equal(document().querySelector('[name=city]').value,'Example preference city');
+    assert.deepEqual((await rpc({kind:'state'})).revisions,before.revisions);
+    set('beta_pay_0_amount','18');checked('[name=credentials_confirmed]');
+    checked('[name=beta_preference_workloads][value=part_time]',false);
+    checked('[name=beta_preference_workloads][value=full_time]');
+    await submit('#profile-review-form');
+    assert.match(document().body.textContent,/Preferred minimum: USD 18\/hour/);
+    assert.deepEqual((await rpc({kind:'state'})).revisions,before.revisions,'Review remains a draft');
+    checked('[name=confirmed]');await submit('form');
+    assert.match(document().body.textContent,/Profile changes saved/);
+    const after=await rpc({kind:'state'});
+    assert.equal(after.revisions.length,before.revisions.length+1);
+    const original=JSON.parse(before.revisions[0].structured_profile_json),current=JSON.parse(after.revisions.at(-1).structured_profile_json);
+    assert.deepEqual(current.preferences.preference_model.workloads,['full_time']);
+    assert.equal(current.preferences.preference_model.compensation_expectations[0].amount,'18');
+    assert.deepEqual(current.preferences.preference_model.accepted_phone_voice_modes,['non_phone']);
+    assert.deepEqual(current.identity,original.identity);
+    assert.deepEqual(after.items,before.items);assert.deepEqual(after.transitions,before.transitions);
+    await navigate(textLink('My profile'));
+    assert.match(document().body.textContent,/Preferred minimum: USD 18\/hour/);
+    await navigate(textLink('Matches'));await checkpoint('typed-preferences-confirmed');
+  } else if(mode==='decision-preferences-return') {
+    await navigate(textLink('My profile'));
+    assert.match(document().body.textContent,/Preferred minimum: USD 18\/hour/);
+    assert.match(document().body.textContent,/Example preference city/);
+    await checkpoint('typed-preferences-fresh-return');
+  } else if(mode==='decision-return') {
     const item=initial.state.items[0];assert.ok(item);
     await navigate('/tracker');await navigate(localLink('/tracker/item?'));
     assert.match(document().body.textContent,/Applied/);assert.match(document().body.textContent,/Reminder set/);

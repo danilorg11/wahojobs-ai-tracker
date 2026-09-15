@@ -324,6 +324,7 @@ class DurableProductBrowserHandlerTests(unittest.TestCase):
                 "send_response",
                 "send_header",
                 "send_header",
+                "send_header",
                 "end_headers",
                 "acknowledge",
                 "write",

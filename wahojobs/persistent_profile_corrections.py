@@ -967,6 +967,7 @@ class PersistentProfileCorrectionService:
         preparation,
         reviewed_profile,
         normalized_updates,
+        preference_model=None,
     ):
         """Validate one local review result and seal its complete V2 projection."""
         if (
@@ -1018,6 +1019,17 @@ class PersistentProfileCorrectionService:
                 complete_languages=True,
                 trusted_complete_profile_v2=intermediate_v2,
             )
+            if current_v2['preferences'].get('preference_model') is not None:
+                # A narrower legacy form cannot override an existing typed
+                # preference authority or leave divergent compatibility fields.
+                corrected_v2['preferences'] = deepcopy(current_v2['preferences'])
+                corrected_v2['provenance']['field_sources'] = sorted(
+                    [r for r in corrected_v2['provenance']['field_sources'] if not r['field_path'].startswith('preferences.')]
+                    + [deepcopy(r) for r in current_v2['provenance']['field_sources'] if r['field_path'].startswith('preferences.')],
+                    key=lambda r: (r['field_path'].casefold(), r['field_path']))
+            if preference_model is not None:
+                from wahojobs.profiles.preference_presentation import with_reviewed_preferences
+                corrected_v2 = with_reviewed_preferences(corrected_v2, preference_model)
             authoritative_review = IdentityFreeCanonicalProfileV1.from_mapping(
                 project_v2_to_review_v1(corrected_v2)
             )

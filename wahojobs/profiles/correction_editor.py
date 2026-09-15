@@ -37,7 +37,7 @@ def _chips(name, values, label):
 
 
 def render_editor(support, canonical, run_id, token, *, action, back_url,
-                  education, form_defaults, focus=None, submitted=None, issue=None, cancel_url='/account/profile', item_details=(), manual_draft=False):
+                  education, form_defaults, focus=None, submitted=None, issue=None, cancel_url='/account/profile', item_details=(), manual_draft=False, preference_model=None):
     fields = dict(form_defaults)
     if not manual_draft:
         fields.pop("profile_draft_fingerprint", None)
@@ -177,6 +177,14 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         + '<details><summary>Schedule and contract preferences</summary>'
         + choices('schedule', 'Schedule preferences', support.canonical_review.SCHEDULE_PREFERENCES)
         + choices('employment_types', 'Contract preferences', support.canonical_review.EMPLOYMENT_TYPES) + '</details>', opened=focus == 'preferences')
+    if preference_model is not None:
+        from wahojobs.profiles.preference_presentation import render_preference_editor, preference_summary
+        # The typed authority is editable; its legacy mirrors travel unchanged
+        # and are derived again on the server after the candidate's review.
+        rendered.difference_update({'availability', 'flexible', 'synchronous_preference', 'phone_preference'})
+        preferences = section('preferences', 'Work preferences',
+            ' · '.join(preference_summary({'preference_model': preference_model})),
+            render_preference_editor(preference_model, submitted), opened=focus == 'preferences' or bool(issue and issue[0] == 'section-preferences'))
     optional = section('optional', 'Permissions, licenses and constraints', 'Optional',
         text('work_authorization', 'Work permission or permit (optional)')
         + text('eligible_countries', 'Countries where you have permission to work (optional)')
@@ -196,7 +204,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
                     'domain_specific_skills': 'domain_specific_skills', 'software_tools': 'software_tools', 'languages': 'language_0',
                     'experience': 'job_titles', 'preferences': 'availability', 'location': 'country'}.get(focus, '')
     return (f"<form method='post' action='{esc(action)}' class='profile-review-form candidate-correction' id='profile-review-form' data-focus='{focus_target}'>"
-        + hidden + feedback + "<p>Edit any section that needs a correction. Optional details can stay blank.</p>"
+        + hidden + feedback + ("<p>Add the details you want to use for matching. Optional details can stay blank.</p>" if manual_draft else "<p>Edit any section that needs a correction. Optional details can stay blank.</p>")
         + "<a class='primary-link' href='#review-actions'>Continue to review</a>"
         + location + languages + employment + education_section + skill_section + preferences + optional
         + "<div class='review-checks'>" + support.review_checkbox('credentials_confirmed',
@@ -258,7 +266,8 @@ function reveal(input){for(var p=input.parentElement;p&&p!==form;p=p.parentEleme
 var reporting=false;form.addEventListener('invalid',function(e){if(reporting)return;e.preventDefault();reveal(e.target);reporting=true;e.target.reportValidity();reporting=false;},true);
 form.querySelectorAll('a[href^="#"]').forEach(function(link){link.addEventListener('click',function(e){var target=document.getElementById(link.hash.slice(1));if(target){e.preventDefault();reveal(target);}});});
 var error=form.querySelector('[aria-invalid=true]');if(!error&&form.querySelector('#correction-error a'))error=document.getElementById(form.querySelector('#correction-error a').hash.slice(1));if(error)reveal(error);else if(form.dataset.focus){var target=document.getElementById(form.dataset.focus);if(target)reveal(target.querySelector('input:not([type=checkbox]),button')||target);}
-form.addEventListener('submit',function(event){Promise.resolve().then(function(){if(!event.defaultPrevented){submitting=true;form.querySelector('button[type=submit]').disabled=true;}});});
+form.addEventListener('submit',function(event){if(submitting){event.preventDefault();return;}Promise.resolve().then(function(){if(!event.defaultPrevented){submitting=true;form.querySelector('button[type=submit]').disabled=true;}});});
+window.addEventListener('pageshow',function(){submitting=false;form.querySelector('button[type=submit]').disabled=false;});
 })();"""
 EDITOR_SHA256 = base64.b64encode(hashlib.sha256(EDITOR_SCRIPT.encode()).digest()).decode()
 
@@ -345,16 +354,25 @@ def summary_sections(canonical):
     constraints = canonical.get('constraints', {})
     entries = education.get('entries', [])
     from wahojobs.profiles.item_experience import summary as item_summary
-    studies = [' · '.join(str(e[k]) for k in ('qualification', 'field', 'institution', 'completion_year') if e.get(k)) for e in entries]
+    from wahojobs.profiles.preference_presentation import preference_summary
+    studies = [' · '.join(str(e[k]).replace('_', ' ') for k in ('qualification', 'field', 'institution', 'completion_year', 'status') if e.get(k) and e[k] != 'unknown') for e in entries]
     unpaired = unpaired_education(education)
+    career = ([f"Total career experience: {experience['total_years']} years (not years in each profession)"] if experience.get('total_years') is not None else [])
+    domain_years = experience.get('years_by_domain', ())
+    if isinstance(domain_years, dict):
+        domain_years = [dict(domain=domain, years=years) for domain, years in domain_years.items()]
+    career.extend(f"Experience in {item['domain']}: {item['years']} years" for item in domain_years)
+    study_details = [*studies, *unpaired.get('degrees', []), *unpaired.get('fields_or_domains', []), *unpaired.get('institutions', [])]
+    if education.get('education_level') not in (None, '', 'unknown', 'not_specified'):
+        study_details.append('Education level: ' + education['education_level'].replace('_', ' '))
     return ''.join((
         section('Location', [', '.join(location[k] for k in ('city', 'region', 'country') if location.get(k))]),
-        section('Languages', [f"{v['language']} — {str(v.get('proficiency') or 'Not specified').replace('_', ' ')}" for v in canonical.get('languages', [])]),
-        section('Experience', [*experience.get('job_titles', []), *experience.get('recent_roles', []), *experience.get('specialties', [])]),
+        section('Languages', [f"{v['language']}" + (f" ({v['locale']})" if v.get('locale') else '') + f" — {str(v.get('proficiency') or 'Not specified').replace('_', ' ')}" for v in canonical.get('languages', [])]),
+        section('Experience', list(dict.fromkeys([*experience.get('job_titles', []), *experience.get('recent_roles', []), *experience.get('specialties', []), *career]))),
         section('Optional experience details', [item_summary(i) for i in experience.get('item_details', [])]),
-        section('Education and studies', [*studies, *unpaired.get('degrees', []), *unpaired.get('fields_or_domains', []), *unpaired.get('institutions', [])]),
+        section('Education and studies', study_details),
         section('Skills and tools', list(dict.fromkeys(v for values in skills.values() if isinstance(values, list) for v in values if isinstance(v, str)))),
-        section('Work preferences', [f"{label}: {str(preferences[k]).replace('_', ' ')}" for k,label in (('availability','Preferred workload'),('synchronous_preference','Schedule'),('phone_preference','Phone work')) if preferences.get(k) not in (None,'','unknown','unspecified')] + preferences.get('schedule', []) + preferences.get('employment_types', [])),
+        section('Work preferences', preference_summary(preferences)),
         section('Permissions and credentials', [location.get('work_authorization'), *location.get('eligible_countries', []), *credentials.get('licenses', []), *credentials.get('certifications', []), *credentials.get('jurisdictions', []), *credentials.get('security_clearances', [])]),
         section('Constraints and preferences', list(dict.fromkeys(v for values in constraints.values() if isinstance(values, list) for v in values if isinstance(v, str)))),
     ))

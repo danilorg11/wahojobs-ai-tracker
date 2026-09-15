@@ -1,6 +1,13 @@
 # Evidence maintenance v1
 
 One operational entry point: `python -B scripts/evidence_maintenance.py`.
+
+Inspection and plans include a per-source `coverage` summary: verification and
+accepted-body counts, derived freshness, held latest observation IDs, oldest
+known verification age, unknown ages, and the applicable operation IDs with
+their blocked permissions, prerequisites and write scope. This summary uses the
+same evidence as the detailed records. A held observation does not replace an
+accepted full body; source trust alone does not establish candidate eligibility.
 The default is help; inspect and plan are read-only. No route, timer, scheduler
 or background worker invokes maintenance.
 

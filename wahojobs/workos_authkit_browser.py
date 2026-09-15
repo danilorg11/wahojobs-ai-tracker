@@ -431,7 +431,8 @@ class WorkOSAuthKitBrowserIntegration:
             "<p>Continue with a one-time email code.</p>"
             f"<form method='post' action='{WORKOS_LOGIN_START_ROUTE}'>"
             f"<input type='hidden' name='csrf' value='{html.escape(csrf, quote=True)}'>"
-            "<label for='invitation'>Invitation credential (first login only)</label>"
+            "<label for='invitation'>Invitation code</label>"
+            "<p>Required for your first sign-in. If you already have an account, leave this blank.</p>"
             "<input id='invitation' name='invitation' type='password' "
             "autocomplete='off' spellcheck='false'>"
             "<button type='submit'>Continue with email</button>"
@@ -938,11 +939,13 @@ def _callback_failure(status):
 
 
 def _page(title, body):
+    from wahojobs.candidate_presentation import candidate_entry_style
     return (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-        f"<title>{html.escape(title, quote=True)}</title>"
+        f"<title>{html.escape(title, quote=True)} | Wahojobs</title>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "</head><body>" + body + "</body></html>"
+        "<style>" + candidate_entry_style() + "</style>"
+        "</head><body><main><p class='candidate-brand'>Wahojobs</p>" + body + "</main></body></html>"
     )
 
 

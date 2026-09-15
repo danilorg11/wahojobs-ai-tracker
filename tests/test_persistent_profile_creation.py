@@ -2306,7 +2306,7 @@ class PersistentProfileCreationTests(unittest.TestCase):
         before = _logical_snapshot(self.path)
         for label, kwargs in cases:
             with self.subTest(label=label):
-                self.assertEqual(self._post(offer, **kwargs).status, 400)
+                self.assertEqual(self._post(offer, **kwargs).status, 404 if label == "fragment" else 400)
         identity_fields = (
             "account",
             "account_id",
@@ -2874,7 +2874,7 @@ class PersistentProfileCreationTests(unittest.TestCase):
             self._cookie_headers(),
         )
         self.assertEqual(before.status, 200)
-        self.assertIn(b"No persistent profile yet", before.body)
+        self.assertIn(b"Create your profile to find better matches", before.body)
         offer = self._issue()
         created = self._post(
             offer,
@@ -2891,7 +2891,7 @@ class PersistentProfileCreationTests(unittest.TestCase):
             self._cookie_headers(),
         )
         self.assertEqual(stored.status, 200)
-        self.assertNotIn(b"No persistent profile yet", stored.body)
+        self.assertNotIn(b"Create your profile to find better matches", stored.body)
         self.assertIn(EXPECTED_DISPLAY_NAME.encode("utf-8"), stored.body)
 
     def test_head_refresh_and_login_free_reads_remain_write_free(self):
@@ -4835,7 +4835,7 @@ class PersistentProfileCreationRuntimeIntegrationTests(unittest.TestCase):
                         "/account/profile",
                         headers=(("Cookie", cookie_header(cookies)),),
                     )
-                    self.assertIn(b"No persistent profile yet", empty.body)
+                    self.assertIn(b"Create your profile to find better matches", empty.body)
                     self.assertEqual(
                         empty.header_values("Referrer-Policy"),
                         ("no-referrer",),

@@ -261,7 +261,8 @@ async function main() {
     }
     const stale=new dom.window.URLSearchParams(new dom.window.FormData(document().querySelector('#profile-review-form')));
     set('city','Recife');
-    if(mode!=='empty')set('language_1','Portuguese');
+    if(mode!=='empty' && ![...document().querySelectorAll('input[name^="language_"]')]
+      .some(e=>/^language_[0-9]+$/.test(e.name) && e.value==='Portuguese'))set('language_1','Portuguese');
     await saveDraft();
     stale.set('city','Stale City');stale.set('manual_action','save');stale.delete('credentials_confirmed');
     const rejected=await transport('/find-matches',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json'},body:stale.toString()});
@@ -310,7 +311,18 @@ async function main() {
   if(mode==='empty') {
     assert.equal(document().querySelectorAll('.match-card').length,0);
   } else {
+    if(fixture.allow_catalog_fallback && !document().querySelector('a[href^="/job/"]')) {
+      assert.equal(document().querySelectorAll('.match-card').length,0);
+      await checkpoint('honest-empty-before-catalog');
+      await navigate(localLink('/jobs'));
+      const generalist=[...document().querySelectorAll('a[href^="/job/"]')]
+        .find(a=>a.textContent.trim()==='Generalist');
+      assert.ok(generalist,'The normal catalog exposes the exact Generalist posting');
+      await navigate(generalist.getAttribute('href'));
+      assert.match(document().body.textContent,/Sources are replayed snapshots and practice examples, not current vacancies/);
+    } else {
     await navigate(localLink('/job/'));
+    }
     const saved=await click('save');
     assert.equal(saved.state.items.length,1);
     await navigate(localLink('/tracker'));

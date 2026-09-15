@@ -41,7 +41,7 @@ MAX_PROFILE_BROWSER_RESPONSE_BYTES = 1_048_576
 MAX_PROFILE_QUERY_BYTES = 256
 MAX_PROFILE_CREATE_BODY_BYTES = 1_024
 MAX_PROFILE_CORRECTION_BODY_BYTES = 524_288
-MAX_PROFILE_CORRECTION_FIELDS = 128
+MAX_PROFILE_CORRECTION_FIELDS = 256
 MAX_PROFILE_CREATE_HEADERS = 64
 MAX_PROFILE_CREATE_COOKIE_BYTES = 4_096
 MAX_PROFILE_CREATE_COOKIES = 16
@@ -428,7 +428,7 @@ class PersistentProfileBrowserIntegration:
         except Exception:
             content = _generic_page(
                 "Profile temporarily unavailable",
-                "Your persistent profile could not be loaded safely.",
+                "Your profile could not be loaded. Return to My profile and try again.",
             )
             status = HTTPStatus.SERVICE_UNAVAILABLE
         payload = content.encode("utf-8")
@@ -437,7 +437,7 @@ class PersistentProfileBrowserIntegration:
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 _generic_page(
                     "Profile temporarily unavailable",
-                    "Your persistent profile could not be displayed safely.",
+                    "Your profile could not be displayed. Return to My profile and try again.",
                 ),
             )
         return _response(status, content)
@@ -503,6 +503,7 @@ class PersistentProfileBrowserIntegration:
             focus=navigation.get('focus') if navigation else None,
             education=run.recommendation_context['correction_preparation'].education_for_browser(),
             item_details=run.recommendation_context['correction_preparation'].profile_for_browser()['experience'].get('item_details', []),
+            preference_model=run.recommendation_context['correction_preparation'].profile_for_browser()['preferences'].get('preference_model'),
             form_defaults=self._review_support.profile_review_form_fields(run.canonical_profile, run.match_run_id, run.review_token),
             submitted=submitted, issue=issue,
             cancel_url=navigation['return_to'] if navigation else PERSISTENT_PROFILE_ROUTE,
@@ -791,7 +792,20 @@ class PersistentProfileBrowserIntegration:
             self._review_support.profile_draft_fingerprint(run.canonical_profile)
         ]
         updates = None
+        preference_model = None
         try:
+            preference_fields = {k: v for k, v in submitted.items() if k.startswith(('beta_preference', 'beta_pay_'))}
+            if preference_fields:
+                from wahojobs.profiles.preference_presentation import read_preference_editor
+                current_preferences = preparation.profile_for_browser()['preferences'].get('preference_model')
+                if current_preferences is None:
+                    raise ValueError('preference_model_not_available')
+                try:
+                    preference_model = read_preference_editor(preference_fields, current_preferences)
+                except ValueError:
+                    return self._correction_editor_response(run, csrf_secret, submitted=form,
+                        issue=('section-preferences', 'Review your work preferences. Use a positive pay amount and a supported three-letter currency such as USD or BRL. Each currency and pay period can appear once.'))
+                submitted = {k: v for k, v in submitted.items() if k not in preference_fields}
             validated_run, updates = (
                 self._review_support.validate_profile_review_submission(
                     submitted,
@@ -809,6 +823,7 @@ class PersistentProfileBrowserIntegration:
                 preparation=preparation,
                 reviewed_profile=locally_reviewed,
                 normalized_updates=updates,
+                preference_model=preference_model,
             )
             reviewed = next_preparation.reviewed_profile_for_browser()
             redrafted = self._new_correction_run(
@@ -1506,7 +1521,7 @@ def _render_correction_apply(offer, *, action_target, navigation=None, base_prof
         _authenticated_navigation()
         + "<section class='empty'><p class='eyebrow'>Update profile</p>"
         "<h1>Your profile correction is ready</h1>"
-        "<p>Apply this reviewed correction to update your persistent profile. "
+        "<p>Apply this reviewed correction to update your saved profile. "
         "The previous saved revision will not be changed.</p>"
         + changes +
         f"<form method='post' action='{_safe_text(action_target)}'>"
@@ -1666,7 +1681,7 @@ def render_persistent_profile_page(
             _page(
                 "Authentication required",
                 "<section class='empty'><h1>Authentication required</h1>"
-                "<p>Sign in to open your persistent profile.</p>"
+                "<p>Sign in to open your profile.</p>"
                 "<p><a class='primary-link' href='/login'>Continue to sign in</a></p>"
                 "</section>",
             ),
@@ -1720,7 +1735,7 @@ def render_persistent_profile_page(
         return (
             _generic_page(
                 "Profile temporarily unavailable",
-                "The persistent-profile capability is not available.",
+                "Profiles are temporarily unavailable. Please try again shortly.",
             ),
             HTTPStatus.SERVICE_UNAVAILABLE,
         )
@@ -1728,7 +1743,7 @@ def render_persistent_profile_page(
         return (
             _generic_page(
                 "Profile temporarily unavailable",
-                "Your persistent profile could not be loaded safely.",
+                "Your profile could not be loaded. Return to My profile and try again.",
             ),
             HTTPStatus.SERVICE_UNAVAILABLE,
         )
@@ -1748,16 +1763,16 @@ def _render_available(
     profile = result.profile
     lifecycle_note = {
         "active": (
-            "This profile is active."
+            "Your confirmed profile is used for matching. Review or update it whenever your background or preferences change."
             if correction_enabled
-            else "This profile is active and shown read-only."
+            else "Your confirmed profile is used for matching. Editing is currently unavailable."
         ),
         "archived": "This profile is archived and remains read-only.",
         "deletion_requested": (
             "Deletion has been requested. Profile content is hidden while that request is pending."
         ),
     }[result.state]
-    title = _safe_text(profile.display_name) or "My persistent profile"
+    title = _safe_text(profile.display_name) or "My profile"
     groups = "".join(
         "<section class='profile-group'>"
         f"<h2>{_safe_text(group.label)}</h2>"
@@ -1769,7 +1784,7 @@ def _render_available(
     if not groups and result.state != "deletion_requested":
         groups = "<p class='muted'>No additional profile details are available.</p>"
     update_link = (
-        f"<a class='primary-link' href='{PERSISTENT_PROFILE_ROUTE}?correction=start'>"
+        f"<a class='secondary-link' href='{PERSISTENT_PROFILE_ROUTE}?correction=start'>"
         "Update profile</a>"
         f" <a href='{PERSISTENT_PROFILE_ROUTE}?correction=resume'>Resume saved changes</a>"
         if correction_enabled and result.state == "active"
@@ -1785,12 +1800,12 @@ def _render_available(
       <p class='profile-actions'><a class='primary-link' href='{_safe_text(matches_target)}'>{matches_label}</a>{update_link}</p>
       <dl class='meta'>
         <div><dt>Status</dt><dd>{_safe_text(_humanize(profile.lifecycle_status))}</dd></div>
-        <div><dt>Last accepted update</dt><dd>{_safe_text(profile.updated_at)}</dd></div>
+        <div><dt>Last confirmed update</dt><dd>{_safe_text(profile.updated_at)}</dd></div>
       </dl>
     </header>
     <div class='profile-grid'>{groups}</div>
     """
-    return _page("My persistent profile", _authenticated_navigation() + body)
+    return _page("My profile", _authenticated_navigation() + body)
 
 
 def _response(
@@ -1862,7 +1877,7 @@ def _create_response_for_outcome(state):
     if state == "created":
         return _response(
             HTTPStatus.SEE_OTHER,
-            _generic_page("Profile created", "Your persistent profile is ready."),
+            _generic_page("Profile created", "Your confirmed profile is ready."),
             extra_headers=(("Location", FIND_MATCHES_ROUTE),),
         )
     status = {
@@ -1901,7 +1916,7 @@ def _create_failure_response(status):
         ),
         HTTPStatus.CONFLICT: (
             "Profile already exists",
-            "This account already has a persistent profile.",
+            "You already have a saved profile. Open My profile to review or update it.",
         ),
         HTTPStatus.SERVICE_UNAVAILABLE: (
             "Profile temporarily unavailable",
@@ -2093,15 +2108,12 @@ def _generic_page(title: str, message: str) -> str:
 
 
 def _authenticated_navigation() -> str:
-    return (
-        "<nav class='account-nav' aria-label='Account'>"
-        f"<a href='{PERSISTENT_PROFILE_ROUTE}'>My profile</a>"
-        "<a href='/logout'>Sign out</a>"
-        "</nav>"
-    )
+    from wahojobs.candidate_presentation import candidate_navigation
+    return candidate_navigation(current='profile')
 
 
 def _page(title: str, body: str) -> str:
+    from wahojobs.candidate_presentation import candidate_style
     return f"""<!doctype html>
 <html lang='en'>
 <head>
@@ -2433,6 +2445,7 @@ def _page(title: str, body: str) -> str:
       .processing-mark span {{ animation: none; opacity: .75; }}
       .upload-choice, .intake-review-form .choice-card {{ transition: none; }}
     }}
+    {candidate_style()}
   </style>
 </head>
 <body><main>{body}</main></body>

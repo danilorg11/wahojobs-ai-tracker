@@ -76,6 +76,8 @@ class RankedPresentationTests(unittest.TestCase):
         for index, section in enumerate(app.ACTIONABLE_PRESENTATION_SECTIONS, start=1):
             match = make_match(f"Ranked opportunity {index}")
             match["presentation_rank"] = index
+            match['job_id'] = 100 + index
+            match['canonical_opportunity_id'] = index
             match["presentation_source_section"] = section
             match["affirmative_fit_why"] = [f"Fit explanation {index}."]
             ranked_matches.append(match)
@@ -83,7 +85,7 @@ class RankedPresentationTests(unittest.TestCase):
         with mock.patch.object(
             app,
             "build_browser_presentation_matches",
-            return_value=ranked_matches,
+            side_effect=lambda *args, **kwargs: [] if kwargs.get('conditional_only') else ranked_matches,
         ):
             page = authenticated_profile_matches._render_match_results(
                 {}, inventory_count=3
@@ -103,7 +105,9 @@ class RankedPresentationTests(unittest.TestCase):
         ):
             self.assertNotIn(heading, page)
         for index in range(1, 4):
-            self.assertIn(f"Fit explanation {index}.", page)
+            # An unbound generated narrative is not candidate-facing evidence.
+            self.assertNotIn(f"Fit explanation {index}.", page)
+            self.assertIn(f"/job/opportunity-{index}?variant={100+index}", page)
 
     def test_ranked_matches_preserve_actionable_section_order_and_cap_at_ten(self):
         context = make_context(

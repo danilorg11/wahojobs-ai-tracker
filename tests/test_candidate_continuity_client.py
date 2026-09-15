@@ -15,6 +15,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+import time
 import unittest
 from urllib.parse import urlsplit
 from unittest.mock import patch
@@ -77,14 +78,16 @@ def run_client(state, mode, *, evidence=None, script=SCRIPT, observe=persisted_s
                         headers.extend([('Origin',state.public_origin),('Sec-Fetch-Site','same-origin'),
                                         ('Content-Length',str(len(body)))])
                     with patch.object(http.client.HTTPSConnection,'_send_output',_complete_form_output):
+                        started=time.perf_counter()
                         actual=https_request(state,request['method'],request['target'],headers=tuple(headers),body=body)
+                        transport_ms=(time.perf_counter()-started)*1000
                     for key,value in cookie_values(actual).items():
                         if value: cookies[key]=value
                         else: cookies.pop(key,None)
                     # Cookies stay private to transport; Set-Cookie isn't readable by client fetch either.
                     response={'status':actual.status,'body':actual.body.decode('utf-8'),
                         'headers':[(k,v) for k,v in actual.headers if k.lower()!='set-cookie']}
-                    wire.append(dict(request,status=actual.status,response=response))
+                    wire.append(dict(request,status=actual.status,response=response,transport_ms=transport_ms))
                 process.stdin.write(json.dumps(response)+'\n');process.stdin.flush()
             process.stdin.close()
             process.wait(timeout=15)

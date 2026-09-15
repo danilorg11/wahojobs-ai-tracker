@@ -159,6 +159,20 @@ class CandidateDecisionTests(unittest.TestCase):
 
 
 class CandidateDecisionHTTPTests(unittest.TestCase):
+    def test_typed_preferences_formdata_confirmation_and_fresh_return(self):
+        from tests.candidate_decision_support import decision_state, observe, verified_https_request
+        from unittest.mock import patch
+        from tests.candidate_continuity_support import running_process
+        from tests.test_candidate_continuity_client import run_client
+        script=Path(__file__).with_name('candidate_decision_client.cjs')
+        with decision_state(typed_preferences=True) as state, patch('tests.test_candidate_continuity_client.https_request', verified_https_request):
+            with running_process(state):
+                run_client(state,'decision-preferences',script=script,observe=observe)
+            before=observe(state)
+            with running_process(state):
+                run_client(state,'decision-preferences-return',script=script,observe=observe)
+            self.assertEqual(observe(state),before)
+
     def test_served_correction_workflow_and_fresh_return(self):
         from tests.candidate_decision_support import decision_state, observe, verified_https_request
         from unittest.mock import patch

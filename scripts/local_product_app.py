@@ -4252,11 +4252,15 @@ def positive_integer_identity(value):
 def safe_job_url(value):
     if not isinstance(value, str) or not value or value != value.strip():
         return None
-    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+    # Browsers normalize backslashes as URL separators for http(s), unlike
+    # urllib's parser. Reject that ambiguity and misleading userinfo hosts.
+    if "\\" in value or any(ord(character) < 32 or ord(character) == 127 for character in value):
         return None
     try:
         parsed = urlsplit(value)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None:
             return None
         if any(character.isspace() for character in parsed.netloc):
             return None

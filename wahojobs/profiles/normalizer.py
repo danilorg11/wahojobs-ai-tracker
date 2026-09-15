@@ -787,7 +787,7 @@ def detect_skills(text: str, domains: list[str], *, input_style="", allow_fallba
         "scientific writing",
     ]
     for term in skill_terms:
-        if contains_affirmative_qualification_term(text, term) or (
+        if contains_affirmative_qualification_term(text, term) or contains_self_reported_skill_list(text, term) or (
             input_style == "resume_or_linkedin_style"
             and contains_resume_skill_evidence(text, term)
         ):
@@ -1215,6 +1215,32 @@ def work_authorization_clause(text: str) -> bool:
             text,
         )
     )
+
+
+def contains_self_reported_skill_list(text: str, term: str) -> bool:
+    """Keep an explicit personal skill list in a draft, without a work-history claim.
+
+    This is used only for Skills. It cannot establish a professional domain,
+    employment, competence level, or relevant-domain duration.
+    """
+    normalized_term = normalize_language_text(term)
+    if not normalized_term:
+        return False
+    pattern = r'(?<![a-z0-9])' + r'\s+'.join(re.escape(p) for p in normalized_term.split()) + r'(?![a-z0-9])'
+    for match in re.finditer(pattern, text):
+        if term_is_negated(text, match.start(), match.end()):
+            continue
+        clause = qualification_clause(text, match.start(), match.end())
+        # Only a present, personal list is supported here. Ambiguous negation,
+        # aspirations and reported speech leave the whole clause for review.
+        if re.search(r'\b(?:not|no|never|neither|nor|except|expected|expect|without|lack|lacking|want|wish|hope|interested|learning|learn|plan|develop|will|would|could|should|going|future|said|says|quoted|reported|applicant|candidate|their|his|her)\b', clause.text):
+            continue
+        listed = re.fullmatch(r'\s*(?:my\s+skills\s+(?:include|are)|i\s+have\s+skills\s+in)\s*:?\s*([a-z][a-z0-9, ]*)\s*', clause.text)
+        if listed:
+            items = [item.strip() for item in re.split(r',|\band\b', listed.group(1))]
+            if normalized_term in items:
+                return True
+    return False
 
 
 def contains_resume_skill_evidence(text: str, term: str) -> bool:

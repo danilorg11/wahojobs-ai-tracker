@@ -646,8 +646,14 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
         )
     if type(experience.get("total_years")) in {int, float}:
         experience_values.append(f"Total experience: {experience['total_years']} years")
+    domain_years = experience.get('years_by_domain', ())
+    if isinstance(domain_years, dict):
+        domain_years = [dict(domain=domain, years=years) for domain, years in domain_years.items()]
+    experience_values.extend(f"Experience in {item['domain']}: {item['years']} years" for item in domain_years)
     experience_values.extend(experience.get("job_titles", ()))
     experience_values.extend(value for value in experience.get("recent_roles", ()) if value not in experience_values)
+    from wahojobs.profiles.item_experience import summary as item_summary
+    experience_values.extend(item_summary(item) for item in experience.get('item_details', []))
     _append_group(groups, "Experience", tuple(experience_values))
 
     education = profile.get("education", {})
@@ -656,10 +662,14 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
         education_values.append(f"Level: {education['education_level'].replace('_', ' ')}")
     from wahojobs.profiles.review_entries import unpaired_education
     for entry in education.get('entries', []):
-        education_values.append(' — '.join(str(entry[k]) for k in ('qualification', 'field', 'institution', 'completion_year') if entry.get(k)))
+        parts = [str(entry[k]) for k in ('qualification', 'field', 'institution', 'completion_year') if entry.get(k)]
+        if entry.get('status') not in (None, '', 'unknown'):
+            parts.append(entry['status'].replace('_', ' ').capitalize())
+        education_values.append(' — '.join(parts))
     unpaired = unpaired_education(education)
     education_values.extend(unpaired.get("degrees", ()))
     education_values.extend(unpaired.get("fields_or_domains", ()))
+    education_values.extend(unpaired.get("institutions", ()))
     _append_group(groups, "Education", tuple(education_values))
 
     credentials = profile.get("credentials", {})
@@ -685,16 +695,21 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
         location_values += (f"Remote eligibility: {location['remote_eligibility']}",)
     if location.get("work_authorization") not in {None, "", "unknown"}:
         location_values += (f"Work authorization: {location['work_authorization']}",)
+    location_values += tuple(f'Eligible country (self-reported): {v}' for v in location.get('eligible_countries', []))
+    location_values += tuple(f'Location constraint: {v}' for v in location.get('geographic_work_restrictions', []))
     _append_group(groups, "Location and eligibility", location_values)
 
     skills = profile.get("skills", {})
-    _append_group(groups, "Skills", tuple(skills.get("normalized", ()))[:32])
+    skill_values = tuple(dict.fromkeys(v for key in ('normalized', 'software_tools', 'technical', 'writing_research', 'administrative_support', 'domain_specific') for v in skills.get(key, ())))
+    _append_group(groups, "Skills", skill_values)
 
     preferences = profile.get("preferences", {})
-    preference_values = tuple(preferences.get("target_opportunity_types", ())) + tuple(
-        preferences.get("work_preferences", ())
-    )
-    _append_group(groups, "Work preferences", preference_values[:32])
+    from wahojobs.profiles.preference_presentation import preference_summary
+    preference_values = list(preference_summary(preferences))
+    for key, label in (('hard_constraints', 'Firm constraint'), ('accessibility_constraints', 'Working need'),
+                       ('soft_preferences', 'Other preference'), ('excluded_domains', 'Excluded work')):
+        preference_values.extend(f'{label}: {v}' for v in profile.get('constraints', {}).get(key, []))
+    _append_group(groups, "Work preferences", tuple(preference_values))
 
     display_name = profile.get("identity", {}).get("display_name", "")
     return PersistentProfileView(

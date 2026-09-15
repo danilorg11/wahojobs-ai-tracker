@@ -1,4 +1,5 @@
 import copy
+from dataclasses import replace
 import json
 from pathlib import Path
 import tempfile
@@ -54,7 +55,13 @@ class SourceRegistryTests(unittest.TestCase):
         meridial = next(
             entry for entry in load_source_registry() if entry.company_id == "meridial"
         )
-        self.assertEqual(meridial.greenhouse_config(), MERIDIAL_GREENHOUSE_CONFIG)
+        # Registry inspection/dry runs do not inherit the named production
+        # crawler's per-record source-renewal authority.
+        self.assertEqual(meridial.greenhouse_config(),
+                         replace(MERIDIAL_GREENHOUSE_CONFIG, record_promotion_contract_id=None))
+        self.assertIsNone(meridial.greenhouse_config().record_promotion_contract_id)
+        self.assertEqual(MERIDIAL_GREENHOUSE_CONFIG.record_promotion_contract_id,
+                         'meridial_greenhouse_record_v1')
         self.assertEqual(meridial.consecutive_complete_snapshots, 3)
 
     def test_pilot_boards_are_not_registered_with_normal_crawler_or_db_seeds(self):

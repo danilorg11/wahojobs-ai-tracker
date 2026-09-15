@@ -26,7 +26,7 @@ def publish_demo_certificate(directory):
 
 def verified_https_request(state, method, target, *, headers=(), body=None):
     """Same disposable HTTP adapter with explicit certificate and hostname checks."""
-    import http.client, ssl
+    import http.client, ssl, socket
     from urllib.parse import urlsplit
     from tests.durable_google_login_browser_test_support import BrowserHttpResponse
     origin = urlsplit(state.public_origin)
@@ -35,6 +35,11 @@ def verified_https_request(state, method, target, *, headers=(), body=None):
     context = ssl.create_default_context(cafile=str(state.directory/'demo-tls-cert.pem'))
     assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
     connection = http.client.HTTPSConnection('localhost', origin.port, context=context, timeout=30)
+    # The disposable listener explicitly binds IPv4. Connect to that address
+    # directly, retaining HTTPSConnection's localhost SNI/hostname verification.
+    # Windows otherwise waits on a refused ::1 connection before IPv4 fallback.
+    connection._create_connection = lambda address, timeout, source_address=None: socket.create_connection(
+        ('127.0.0.1', address[1]), timeout, source_address)
     try:
         connection.request(method, target, body=body, headers={'Host':origin.netloc, **dict(headers)})
         response = connection.getresponse()
@@ -60,8 +65,24 @@ def demo_profile():
 
 
 @contextmanager
-def decision_state(*, port=None):
-    with synthetic_state(port=port, candidate_profile=demo_profile(),
+def decision_state(*, port=None, typed_preferences=False):
+    candidate = demo_profile()
+    if typed_preferences:
+        from wahojobs.profiles.preference_model import empty_profile_preferences_v2, preference_model_to_legacy_preferences
+        from wahojobs.profiles.canonical_v2 import project_v2_to_matcher_v1, convert_v1_to_v2, add_user_confirmed_preference_model_v2
+        from wahojobs.profiles.canonical import field_sources_for_profile
+        model = empty_profile_preferences_v2()
+        model['workloads'] = ['part_time']
+        model['accepted_phone_voice_modes'] = ['non_phone']
+        model['compensation_expectations'] = [dict(minimum_kind='preferred', amount='15', currency='USD', period='hour')]
+        # The matcher projection contains ephemeral signal tuples; canonical
+        # durable fixture input follows the established JSON interchange shape.
+        v1 = json.loads(json.dumps(project_v2_to_matcher_v1(candidate, matcher_profile_id='beta-preference-fixture')))
+        v1['preferences'] = preference_model_to_legacy_preferences(model)
+        v1['provenance']['field_sources'] = field_sources_for_profile(v1, 'user_confirmation', explicit=True)
+        candidate = convert_v1_to_v2(v1, persistent_profile_id=candidate['identity']['profile_id'], source_ordinal_resolver=lambda *_:[1])
+        candidate = add_user_confirmed_preference_model_v2(candidate, model, source_ordinal_resolver=lambda *_:[1])
+    with synthetic_state(port=port, candidate_profile=candidate,
                          posting_title='AI Content Evaluation with Python', posting_body=TOOL_BODY) as state:
         with closing(sqlite3.connect(state.database_path)) as c, c:
             c.row_factory = sqlite3.Row

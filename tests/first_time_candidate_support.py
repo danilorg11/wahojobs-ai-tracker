@@ -86,7 +86,10 @@ class _SyntheticCandidateNotice:
             notice = ('Synthetic candidate demonstration. Controlled local identity; no external sign-in or email delivery. '
                 + ('Extraction uses a labelled offline fixture, not a real model interpretation.'
                    if self.offline_extraction else 'Document extraction is disabled. Manual creation is available.'))
-            body = response.body.replace(b'<body>', ('<body><aside role="note" aria-label="Synthetic fixture" style="padding:12px 20px;background:#fff2ce;color:#413519;font:14px/1.5 system-ui">'+notice+'</aside>').encode())
+            import re
+            banner = ('<aside role="note" aria-label="Synthetic fixture" style="padding:12px 20px;background:#fff2ce;color:#413519;font:14px/1.5 system-ui">'+notice+'</aside>').encode()
+            body = re.sub(br'<body(?:\s[^>]*)?>', lambda match: match.group(0)+banner,
+                          response.body, count=1, flags=re.IGNORECASE)
             return _ResponseView(response, body=body, headers=tuple(
                 (name, str(len(body)) if name.lower() == 'content-length' else value)
                 for name, value in response.headers))

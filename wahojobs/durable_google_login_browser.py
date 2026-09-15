@@ -2060,7 +2060,9 @@ class DurableGoogleLoginBrowserIntegration:
 
     def _delegated_job_route(self, path):
         from wahojobs.public_job_page import parse_public_job_path
-        return ((parse_public_job_path(path) is not None or path in _WORKFLOW_ROUTES)
+        from wahojobs.public_company_page import parse_public_company_path
+        return ((parse_public_job_path(path) is not None or parse_public_company_path(path) is not None
+                 or path == "/jobs" or path in _WORKFLOW_ROUTES)
                 and self._profile_integration is not None
                 and self._profile_integration.matches_route(path) is True)
 
@@ -2399,7 +2401,8 @@ class DurableGoogleLoginBrowserIntegration:
             "<p>Continue with Google to open your account profile.</p>"
             f"<form method='post' action='{GOOGLE_LOGIN_START_ROUTE}'>"
             f"<input type='hidden' name='csrf' value='{html.escape(csrf, quote=True)}'>"
-            "<label for='invitation'>Invitation credential (optional)</label>"
+            "<label for='invitation'>Invitation code</label>"
+            "<p>Required for your first sign-in. If you already have an account, leave this blank.</p>"
             "<input id='invitation' name='invitation' type='password' "
             "autocomplete='one-time-code' spellcheck='false'>"
             "<button type='submit'>Continue with Google</button>"
@@ -3590,6 +3593,7 @@ def _borrow_database_connection(owner):
 
 
 def _page(title, body):
+    from wahojobs.candidate_presentation import candidate_entry_style
     safe_title = html.escape(title, quote=True)
     return f"""<!doctype html>
 <html lang='en'>
@@ -3607,9 +3611,10 @@ def _page(title, body):
     .eyebrow {{ color: #466257; font-weight: 700; }}
     button {{ appearance: none; border: 0; border-radius: 7px; padding: 12px 18px; background: #174d3b; color: white; font: inherit; font-weight: 700; cursor: pointer; }}
     a {{ color: #174d3b; font-weight: 700; }}
+    {candidate_entry_style()}
   </style>
 </head>
-<body><main>{body}</main></body>
+<body><main><p class='candidate-brand'>Wahojobs</p>{body}</main></body>
 </html>"""
 
 

@@ -55,7 +55,8 @@ def body(field='marketing', *, extra='Working proficiency in Python', alternativ
 
 
 class DeliveryFixture:
-    def __init__(self, candidate, source_body, *, inventory=None, title=TITLE, sibling=False, source_age_hours=0, now=NOW):
+    def __init__(self, candidate, source_body, *, inventory=None, title=TITLE, sibling=False, source_age_hours=0, now=NOW,
+                 candidate_profiles=None, public_origin='https://localhost:8843'):
         self.temporary = tempfile.TemporaryDirectory(prefix='matching-delivery-')
         self.path = Path(self.temporary.name)/'synthetic.sqlite3'
         self.now = now
@@ -82,11 +83,12 @@ class DeliveryFixture:
             c.execute('INSERT INTO crawl_runs(id,company_id,status,started_at,finished_at,jobs_found_count,used_sample_data) VALUES (900010,900001,\'success\',?,?,1,0)',(stamp,stamp))
             self._capture(c,source_body,JOB)
             self.states=[]
-            for index in (0,1):
+            profiles = [candidate,candidate] if candidate_profiles is None else candidate_profiles
+            for index, owner_profile in enumerate(profiles):
                 owner=account_context(c,str(95000+index))
                 account=c.execute('SELECT user_id FROM principal_account_bindings WHERE principal_id=?',(owner.principal_id,)).fetchone()[0]
-                command=CreatePersistentProfileCommand.prepare(principal=owner,canonical_profile_v2=deepcopy(candidate),
-                    sources=(ConfirmedAboutYouTextSourceDraft('SYNTHETIC delivery contract profile\n'+json.dumps(candidate),now),),
+                command=CreatePersistentProfileCommand.prepare(principal=owner,canonical_profile_v2=deepcopy(owner_profile),
+                    sources=(ConfirmedAboutYouTextSourceDraft('SYNTHETIC delivery contract profile\n'+json.dumps(owner_profile),now),),
                     normalizer_version='fixture',reviewer_version='synthetic_delivery',actor_type='authenticated_user',
                     reason_code='profile.create',idempotency_key='delivery-profile-'+str(index),accepted_at=now)
                 created=PersistentProfileRepository().create(c,command)
@@ -96,7 +98,7 @@ class DeliveryFixture:
         self.ownership=acquire_database_lifetime_ownership(self.path,role=ROLE_DURABLE_RUNTIME)
         self.connections=_StagingDatabaseConnections(self.path,self.ownership)
         self.product=_build_profile_integration(self.connections,SimpleNamespace(environment_namespace='private_beta',
-            public_origin='https://localhost:8843',public_job_canary_gate=PublicJobCanaryRoutingGate.disabled()),lambda:self.now)
+            public_origin=public_origin,public_job_canary_gate=PublicJobCanaryRoutingGate.disabled()),lambda:self.now)
         self.integration=self.product._matches_integration
 
     def _capture(self,c,text,job_id):

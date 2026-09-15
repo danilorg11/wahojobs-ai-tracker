@@ -4125,6 +4125,7 @@ def _render_authenticated_tracker(
         _navigation(
             match_run_id=match_run_id,
             show_current_matches=current_matches_available,
+            current='tracker',
         )
         + local_product.render_lightweight_tracker_header(records)
         + "<p class='workflow-assessment-note'>Your decisions and reminders stay saved here. Open a job to see its current assessment; profile and listing changes do not erase your application history.</p>"
@@ -4138,33 +4139,12 @@ def _render_authenticated_tracker(
     return _page("My Jobs", body, workflow=True)
 
 
-def _navigation(*, match_run_id=None, show_current_matches=False):
-    tracker = ""
-    current_matches = ""
-    if match_run_id is not None:
-        current_matches = "<a href='/find-matches'>Matches</a>"
-        tracker = (
-            "<a href='/tracker?"
-            + urlencode({"run": match_run_id})
-            + "'>My Jobs</a>"
-        )
-        if show_current_matches:
-            current_matches = (
-                "<a href='/find-matches?"
-                + urlencode({"run": match_run_id})
-                + "'>Matches</a>"
-            )
-    profile_target = "/account/profile"
-    if match_run_id is not None:
-        profile_target += "?" + urlencode({"run": match_run_id})
-    return (
-        "<nav class='account-nav' aria-label='Account'>"
-        f"<a href='{profile_target}'>My profile</a>"
-        + current_matches
-        + tracker
-        + "<a href='/logout'>Sign out</a>"
-        + "</nav>"
-    )
+def _navigation(*, match_run_id=None, show_current_matches=False, current='matches'):
+    from wahojobs.candidate_presentation import candidate_navigation
+    navigation = candidate_navigation(current=current, run=match_run_id)
+    if match_run_id is not None and not show_current_matches:
+        navigation = navigation.replace("href='/find-matches?" + urlencode({'run':match_run_id}) + "'", "href='/find-matches'")
+    return navigation
 
 
 def _public_navigation(*, authenticated, current, auth_routes_enabled=True):
@@ -4187,19 +4167,13 @@ def _public_navigation(*, authenticated, current, auth_routes_enabled=True):
             "<a href='/login'>Sign in</a>"
             "</nav>"
         )
-    return (
-        "<nav class='account-nav' aria-label='Account'>"
-        + jobs_link
-        + "<a href='/find-matches'>Matches</a>"
-        "<a href='/tracker'>My Jobs</a>"
-        "<a href='/account/profile'>My profile</a>"
-        "<a href='/logout'>Sign out</a>"
-        "</nav>"
-    )
+    from wahojobs.candidate_presentation import candidate_navigation
+    return candidate_navigation()
 
 
 def _page(title, body, *, workflow=False):
     from wahojobs.candidate_source_display import DISPLAY_CSS
+    from wahojobs.candidate_presentation import candidate_style
     return f"""<!doctype html>
 <html lang='en'>
 <head>
@@ -4229,6 +4203,7 @@ def _page(title, body, *, workflow=False):
     .muted {{ color: #5b6861; }}
     .caution {{ color: #7a3b24; }}
     {local_product.CSS if workflow else ''}
+    {candidate_style()}
     .matches-hero {{ margin: 30px 0 24px; max-width: 760px; }}
     .matches-hero h1 {{ font-size: clamp(2.35rem, 6vw, 4rem); letter-spacing: -.045em; line-height: 1.02; margin-bottom: 14px; }}
     .matches-summary {{ color: #4d5e55; font-size: 1.16rem; line-height: 1.55; margin-bottom: 0; max-width: 650px; }}

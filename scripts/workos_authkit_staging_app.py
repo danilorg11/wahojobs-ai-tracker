@@ -76,6 +76,8 @@ def parse_args(argv=None):
         required=True,
         help="Absolute path to the external permission-restricted JSON configuration.",
     )
+    parser.add_argument('--diagnostics-directory',
+        help='Explicit empty existing operator directory for bounded sanitized request logs.')
     return parser.parse_args(argv)
 
 
@@ -86,6 +88,7 @@ def run_staging_rehearsal(
     tls_scope_factory=None,
     server_factory=None,
     ready=None,
+    diagnostics=None,
 ):
     """Build, serve, and cleanly close one explicit local rehearsal."""
 
@@ -124,7 +127,7 @@ def run_staging_rehearsal(
         except Exception as exc:
             _detach_exception(exc)
             raise WorkOSAuthKitStagingError("tls_unavailable") from None
-        handler = make_durable_product_browser_handler(runtime.browser_integration)
+        handler = make_durable_product_browser_handler(runtime.browser_integration, diagnostics=diagnostics)
         try:
             server = server_factory(runtime.bind_address, handler, tls_context)
         except (KeyboardInterrupt, SystemExit, GeneratorExit):
@@ -172,7 +175,13 @@ def run_staging_rehearsal(
 def main(argv=None):
     arguments = parse_args(argv)
     try:
-        run_staging_rehearsal(arguments.config)
+        from contextlib import nullcontext
+        from wahojobs.request_diagnostics import diagnostic_log
+        with (diagnostic_log(arguments.diagnostics_directory) if arguments.diagnostics_directory else nullcontext()) as diagnostics:
+            run_staging_rehearsal(arguments.config, diagnostics=diagnostics)
+    except (OSError, ValueError):
+        print('WorkOS AuthKit Staging failed: diagnostics_unavailable', file=sys.stderr)
+        return 2
     except WorkOSAuthKitStagingError as exc:
         print(
             f"WorkOS AuthKit Staging failed: {exc.code}",

@@ -883,7 +883,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(first_profile.status, 200)
                     self.assertIn(
-                        b"No persistent profile yet",
+                        b"Create your profile to find better matches",
                         first_profile.body,
                     )
                     self.assertIn(b"/logout", first_profile.body)
@@ -1032,7 +1032,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(later_profile.status, 200)
                     self.assertIn(
-                        b"No persistent profile yet",
+                        b"Create your profile to find better matches",
                         later_profile.body,
                     )
                     profile_public_parts.append(
@@ -1235,7 +1235,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(reconstructed_profile.status, 200)
                     self.assertIn(
-                        b"No persistent profile yet",
+                        b"Create your profile to find better matches",
                         reconstructed_profile.body,
                     )
                     for durable_id in (
@@ -1471,7 +1471,7 @@ class DurableGoogleLoginBrowserIntegrationTests(unittest.TestCase):
                     headers=(("Cookie", cookie_header(cookies)),),
                 )
                 self.assertEqual(profile.status, 200)
-                self.assertIn(b"My persistent profile", profile.body)
+                self.assertIn(b"My profile", profile.body)
                 self.assertIn(b"/logout", profile.body)
 
             logout_page = https_request(

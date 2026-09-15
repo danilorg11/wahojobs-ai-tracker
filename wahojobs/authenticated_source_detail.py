@@ -204,12 +204,12 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
         if return_run_id:
             back += '?' + urlencode({'run': return_run_id})
         back += '#opportunity-' + str(job['job_id'])
+    from wahojobs.candidate_presentation import candidate_style
     return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'><meta name='robots' content='noindex,follow'>
 <title>{escape(title)} at {escape(company)} | Wahojobs</title>
-<style>{public.PUBLIC_JOB_CSS}\n{DISPLAY_CSS}</style></head><body class='candidate-detail'>
-<header class='site-header'><a class='brand' href='/jobs'>Wahojobs</a>{navigation}</header>
-<main><p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← {'Back to My Jobs' if tracker_return else 'Back to opportunities'}</a></p>
+<style>{public.PUBLIC_JOB_CSS}\n{DISPLAY_CSS}\n{candidate_style()}</style></head><body class='candidate-detail'>
+<main>{navigation}<p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← {'Back to My Jobs' if tracker_return else 'Back to opportunities'}</a></p>
 <article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
 <p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
 {render_reasons(packet, heading_level=2)}
