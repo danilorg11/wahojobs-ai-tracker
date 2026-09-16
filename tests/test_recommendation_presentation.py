@@ -7,6 +7,7 @@ from copy import deepcopy
 from html import unescape
 from html.parser import HTMLParser
 import unittest
+from urllib.parse import parse_qs, urlsplit
 
 from tests.test_transferable_task_presentation import explanation_fixture
 from tests.test_candidate_condition_comparisons import confirmed, prepared
@@ -42,7 +43,197 @@ class DisclosureText(HTMLParser):
             self.main.append(text)
 
 
+class ApplicationRegions(HTMLParser):
+    """Inspect actual element ancestry, not substring order or hidden copy."""
+    def __init__(self, html):
+        super().__init__()
+        self.stack = []
+        self.links = []
+        self.guidance = []
+        self.company = []
+        self.personalization = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'a':
+            self.links.append(dict(attrs=attrs, ancestors=[name for name, _ in self.stack],
+                                   regions=[a.get('id') for _, a in self.stack], text=[]))
+        if tag not in ('area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'):
+            self.stack.append((tag, attrs))
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.stack) - 1, -1, -1):
+            if self.stack[index][0] == tag:
+                del self.stack[index:]
+                break
+
+    def handle_data(self, value):
+        if any('application-guidance' in attrs.get('class', '').split() for _, attrs in self.stack):
+            self.guidance.append(value)
+        if any('company-line' in attrs.get('class', '').split() for _, attrs in self.stack):
+            self.company.append(value)
+        if any(attrs.get('id') == 'recommendation-personalization' for _, attrs in self.stack):
+            self.personalization.append(value)
+        if any(tag == 'a' for tag, _ in self.stack):
+            self.links[-1]['text'].append(value)
+
+
+def assert_conflict_application(case, rendered, *, employer=None):
+    parsed = ApplicationRegions(rendered)
+    advice = ''.join(parsed.guidance)
+    employer = employer or ''.join(parsed.company).strip() or 'the company'
+    case.assertIn('Before starting your application on ' + employer + '’s website', advice)
+    case.assertIn('check the conflicting requirement with the employer', advice)
+    case.assertIn('Application wording does not resolve a conflicting requirement.', advice)
+    for encouragement in ('describe your experience', 'describe a genuine example', 'highlight',
+                          'give a concrete example', 'experience if you have it'):
+        case.assertNotIn(encouragement, advice.casefold())
+
+
 class RecommendationPresentationTests(unittest.TestCase):
+    def test_application_advice_uses_exact_transferable_activity_at_employer_destination(self):
+        source, match, profile = explanation_fixture()
+        packet = prepare_card_evidence(match, source, profile)
+        original = deepcopy(packet)
+        advice = unescape(render_application_guidance(packet, employer_name='Alignerr'))
+        self.assertIn('In your application on Alignerr’s website, describe your experience reviewing written responses', advice)
+        self.assertIn('give a concrete example', advice)
+        self.assertIn('No prior AI, tech, or content moderation experience required', advice)
+        for unsupported in ('skills in your profile', 'update your profile', 'professional AI experience',
+                            'cover letter', 'upload your', 'guaranteed interview', 'Wahojobs submits'):
+            self.assertNotIn(unsupported, advice)
+        self.assertEqual(packet, original)
+
+    def test_application_advice_uses_reported_specialist_and_technical_facts_only(self):
+        for fact, focus, employer in (('biology', 'Biology', 'Alignerr'), ('Python', 'Python', 'Mercor')):
+            with self.subTest(fact=fact, employer=employer):
+                source, match, profile = explanation_fixture()
+                match.pop('accepted_task_fit')
+                # Recorded consulted support is this renderer's authority. Actual
+                # authenticated sample tests separately prove its production path.
+                match['affirmative_fit'] = {'supported_evidence': [
+                    dict(source='profile_or_reviewed_adjacency', requirement=focus, profile_evidence=fact),
+                    dict(source='preference', requirement='medical work', profile_evidence='medical license')]}
+                before = deepcopy(match)
+                packet = prepare_card_evidence(match, source, profile)
+                advice = unescape(render_application_guidance(packet, employer_name=employer))
+                self.assertIn('In your application on ' + employer + '’s website', advice)
+                self.assertIn('background you reported: “' + fact + '”', advice)
+                self.assertNotIn('medical license', advice)
+                self.assertNotIn('PhD', advice)
+                self.assertNotIn('nine years', advice)
+                self.assertNotIn('professional AI experience', advice)
+                self.assertEqual(packet['decision_application_facts'], [fact])
+                self.assertEqual(match, before)
+
+    def test_application_fallback_and_conflict_target_external_application(self):
+        for packet in (None, {}, {'company_name': 'Unbound employer'}, {'comparisons': []}):
+            with self.subTest(packet=packet):
+                advice = unescape(render_application_guidance(packet))
+                self.assertIn('In your application on the company’s website', advice)
+                self.assertIn('experience if you have it', advice)
+                self.assertNotIn('Unbound employer', advice)
+                self.assertNotIn('your profile', advice)
+                self.assertIn("class='application-guidance'", advice)
+        conflict = {'decision_has_reported_support': True,
+            'decision_application_facts': ['biology'],
+            'decision_profile_context': {'workload': dict(state='hard_conflict', outcome='fail',
+                guidance='Your part-time-only requirement conflicts with this posting’s workload.')}}
+        before = deepcopy(conflict)
+        advice = unescape(render_application_guidance(conflict, employer_name='Mercor'))
+        self.assertIn('Before starting your application on Mercor’s website', advice)
+        self.assertIn('does not resolve a conflicting requirement', advice)
+        self.assertNotIn('highlight', advice)
+        self.assertNotIn('example', advice)
+        self.assertEqual(conflict, before)
+
+    def test_application_destination_uses_selected_employer_and_escapes_name(self):
+        source, match, profile = explanation_fixture()
+        job = detail(source, match)
+        for company in ('Alignerr', 'Mercor', 'Example <script>company</script>', ''):
+            with self.subTest(company=company):
+                job['company_name'] = company
+                original = deepcopy(job)
+                body = render_authenticated_job_page(job, profile=profile, navigation='')
+                guidance = ''.join(ApplicationRegions(body).guidance)
+                destination = company + '’s website' if company else 'the company’s website'
+                self.assertIn('In your application on ' + destination, guidance)
+                self.assertNotIn('<script>company</script>', body)
+                self.assertEqual(job, original)
+        # Missing accepted details use the same external destination and do not
+        # turn an unbound source packet into personalized application assertions.
+        job.update(company_name='Mercor', rich_provider='different-provider')
+        fallback = ''.join(ApplicationRegions(render_authenticated_job_page(job, profile=profile, navigation='')).guidance)
+        self.assertIn('In your application on Mercor’s website', fallback)
+        self.assertIn('experience if you have it', fallback)
+        self.assertNotIn('reviewing written responses', fallback)
+        job['_authenticated_local_checks']['match']['location_eligibility_status'] = 'incompatible'
+        before_conflict = deepcopy(job)
+        conflicted = render_authenticated_job_page(job, profile=profile, navigation='')
+        self.assertIn('applicant-location restriction conflicts with your profile', conflicted)
+        assert_conflict_application(self, conflicted, employer='Mercor')
+        self.assertEqual(job, before_conflict)
+
+    def test_detail_separates_optional_wahojobs_personalization_from_application(self):
+        source, match, profile = explanation_fixture()
+        job = detail(source, match)
+        navigation = "<nav><a href='/account/profile'>My profile</a></nav>"
+        before = deepcopy(job)
+        run_id = 'a' * 24
+        body = render_authenticated_job_page(job, profile=profile, navigation=navigation, return_run_id=run_id,
+            workflow_history='<p>Saved history retained</p>', workflow_status='Applied')
+        parsed = ApplicationRegions(body)
+        links = [link for link in parsed.links if 'article' in link['ancestors']
+                 and link['attrs'].get('href', '').startswith('/account/profile')]
+        self.assertEqual(len(links), 1)
+        for link in links:
+            self.assertNotIn('before-apply', link['regions'])
+            self.assertIn('recommendation-personalization', link['regions'])
+            self.assertNotIn('header', link['ancestors'])
+            self.assertIn('Edit Wahojobs', ''.join(link['text']))
+            self.assertIn('for recommendations', ''.join(link['text']))
+        self.assertIn('Personalize your Wahojobs recommendations', ''.join(parsed.personalization))
+        self.assertIn('(optional)', ''.join(parsed.personalization))
+        self.assertNotIn('profile', ''.join(parsed.guidance).lower())
+        external = next(link for link in parsed.links if 'button-primary' in link['attrs'].get('class', '').split())
+        self.assertEqual(external['attrs']['href'], job['official_url'])
+        self.assertEqual(external['attrs']['target'], '_blank')
+        self.assertIn('noopener', external['attrs']['rel'].split())
+        self.assertNotIn('recommendation-personalization', external['regions'])
+        self.assertIn('View source listing', ''.join(external['text']))
+        self.assertIn('/find-matches?run=' + run_id + '#opportunity-' + str(job['job_id']), body)
+        self.assertIn('Saved history retained', body)
+        self.assertEqual(job, before)
+
+    def test_contextual_personalization_keeps_return_focus_and_safe_fallback(self):
+        packet = prepared('## Requirements\nPhD in biology required.', {'provenance': {'field_sources': []}})
+        target = '/job/opportunity-3809?variant=11242&run=' + 'a' * 24
+        ordinary = ApplicationRegions(render_profile_update(packet, target, general_fallback=True))
+        labelled = ApplicationRegions(render_profile_update(packet, target, general_fallback=True, for_recommendations=True))
+        self.assertEqual(labelled.links[0]['attrs'], ordinary.links[0]['attrs'])
+        query = parse_qs(urlsplit(labelled.links[0]['attrs']['href']).query)
+        self.assertEqual(query, {'correction': ['start'], 'focus': ['education'], 'return_to': [target]})
+        self.assertEqual(''.join(labelled.links[0]['text']), 'Edit Wahojobs education details for recommendations')
+        fallback = ApplicationRegions(render_profile_update(packet, 'https://other.example/job',
+            general_fallback=True, for_recommendations=True))
+        self.assertEqual(fallback.links[0]['attrs']['href'], '/account/profile')
+        self.assertEqual(''.join(fallback.links[0]['text']), 'Edit Wahojobs profile & preferences for recommendations')
+
+    def test_unbound_transferable_facts_do_not_personalize_application_advice(self):
+        source, match, profile = explanation_fixture()
+        packet = prepare_card_evidence(match, source, profile)
+        match['accepted_task_fit']['source_reference']['material_content_sha256'] = 'old-source'
+        # Reattachment must clear the prior rendered support as well as refrain
+        # from creating it when starting from an empty packet.
+        attach_decision(packet, match, profile=profile)
+        advice = unescape(render_application_guidance(packet, employer_name='Alignerr'))
+        self.assertIn('In your application on Alignerr’s website', advice)
+        self.assertIn('experience if you have it', advice)
+        self.assertNotIn('reviewing written responses', advice)
+        self.assertFalse(packet['decision_has_reported_support'])
+        self.assertEqual(packet['decision_application_facts'], [])
+
     def test_card_has_one_grounded_fit_and_no_repeated_qualification_audit(self):
         source, match, profile = explanation_fixture()
         packet = prepare_card_evidence(match, source, profile)
@@ -104,8 +295,7 @@ class RecommendationPresentationTests(unittest.TestCase):
         advice = unescape(render_application_guidance(packet))
         self.assertIn('Requirement conflict', warning)
         self.assertIn('PhD in Molecular Biology required.', warning)
-        self.assertNotIn('Describe a genuine example', advice)
-        self.assertIn('does not resolve a conflicting requirement', advice)
+        assert_conflict_application(self, advice)
 
     def test_partial_education_support_does_not_claim_complete_eligibility(self):
         packet = prepared()
@@ -167,7 +357,7 @@ class RecommendationPresentationTests(unittest.TestCase):
                       guidance='Your part-time-only requirement conflicts with this posting’s workload.')}}
         self.assertIn('Requirement conflict', render_material_warnings(packet, compact=True))
         self.assertIn('part-time-only', render_material_warnings(packet))
-        self.assertNotIn('Describe a genuine example', render_application_guidance(packet))
+        assert_conflict_application(self, render_application_guidance(packet))
 
     def test_soft_workload_difference_is_visible_once_without_hard_rejection(self):
         text = 'You prefer part-time work; this posting lists full-time work. Confirm whether your preferred schedule is possible.'
@@ -207,7 +397,7 @@ class RecommendationPresentationTests(unittest.TestCase):
         self.assertIn('location requirement conflicts with your profile', rendered)
         self.assertIn('Applicant Location: Canada', rendered)
         self.assertNotIn('Eligibility from Brazil needs confirmation', rendered)
-        self.assertNotIn('Describe a genuine example', render_application_guidance(packet))
+        assert_conflict_application(self, render_application_guidance(packet))
 
     def test_stale_foreign_or_unquoted_location_checks_cannot_create_a_conflict(self):
         source, match, profile = explanation_fixture()
@@ -323,7 +513,8 @@ class RecommendationPresentationTests(unittest.TestCase):
         self.assertFalse(packet['decision_has_reported_support'])
         advice = render_application_guidance(packet)
         self.assertNotIn('experience or skills in your profile', advice)
-        self.assertIn('If you have relevant experience', advice)
+        self.assertIn('describe relevant experience if you have it', advice)
+        self.assertEqual(packet['decision_application_facts'], [])
 
     def test_consumed_modality_does_not_replace_current_supported_item_experience(self):
         from tests.candidate_decision_support import demo_profile
@@ -364,7 +555,7 @@ class RecommendationPresentationTests(unittest.TestCase):
                 self.assertEqual(packet, before)
                 row['status'] = 'contradicted'
                 self.assertIn('Requirement conflict', render_material_warnings(packet, compact=True))
-                self.assertNotIn('Describe a genuine example', render_application_guidance(packet))
+                assert_conflict_application(self, render_application_guidance(packet))
         ordinary = prepared('## Engagement\nPayments are made monthly.')
         self.assertFalse(any(w['kind'] == 'requirement' for w in material_warnings(ordinary)))
 
@@ -387,7 +578,7 @@ class RecommendationDecisionIntegrationTests(unittest.TestCase):
         self.assertIn('location requirement conflicts with your profile', main)
         self.assertIn('Applicant Location: Canada', main)
         self.assertNotIn('Eligibility from Brazil needs confirmation', main)
-        self.assertNotIn('Describe a genuine example', main)
+        assert_conflict_application(self, body)
 
     def test_complete_language_check_agrees_across_actual_card_and_exact_detail(self):
         from tests.test_transferable_task_matching import TransferableTaskMatchingTests, ENTRY
@@ -446,7 +637,7 @@ class RecommendationDecisionIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertIn('part-time-only requirement conflicts', response.body.decode())
         self.assertIn('Requirement conflict', response.body.decode())
-        self.assertNotIn('Describe a genuine example', ''.join(DisclosureText(response.body.decode()).main))
+        assert_conflict_application(self, response.body.decode())
 
     def test_unparsed_required_engagement_condition_survives_actual_consumer_and_detail(self):
         from tests.test_transferable_task_matching import TransferableTaskMatchingTests, ENTRY

@@ -202,6 +202,24 @@ async function ownerCheckpoint(label){
   o.matchCards=[...document().querySelectorAll('article[data-action-card]')].map(card=>card.id);
   o.summaries=Object.fromEntries([...document().querySelectorAll('.candidate-section')].map(s=>[s.id,s.querySelector('[data-section-summary]')?.textContent]));
   o.pageText=document().body.textContent.replace(/\s+/g,' ').trim();
+  const guidance=document().querySelector('#before-apply .application-guidance');
+  const personalization=document().querySelector('#recommendation-personalization');
+  if(document().querySelector('#before-apply')){
+    o.applicationUI={
+      employer:document().querySelector('.company-line')?.textContent.trim() || '',
+      guidance:guidance?.textContent.trim() || '',
+      beforeApplyText:document().querySelector('#before-apply').textContent.trim(),
+      personalizationHeading:personalization?.querySelector('h2,h3')?.textContent.trim() || '',
+      personalizationText:personalization?.textContent.trim() || '',
+      links:[...document().querySelectorAll('article a[href^="/account/profile"]')].map(a=>({
+        text:a.textContent.trim(),href:a.getAttribute('href'),
+        inApplication:!!a.closest('#before-apply'),inPersonalization:!!a.closest('#recommendation-personalization')
+      })),
+      externalActions:[...document().querySelectorAll('.hero-actions a')].map(a=>({
+        text:a.textContent.trim(),href:a.getAttribute('href'),target:a.getAttribute('target'),rel:a.getAttribute('rel')
+      }))
+    };
+  }
   // Clone only for visual evidence, reflecting properties changed by real events.
   // This does not alter the live document or create submitted values.
   const copy=document().documentElement.cloneNode(true);
@@ -339,7 +357,10 @@ async function ownerJourney(){
     assert.deepEqual((await rpc({kind:'state'})).transitions,before.transitions);
     binding.value=valid;await click('save');await click('remind_later');
     const saved=await rpc({kind:'state'}), appliedBeforeCorrection=form('applied').outerHTML;
-    await navigate('/account/profile');await navigate(localLink('/account/profile?correction=start'));
+    const personalization=document().querySelector('#recommendation-personalization');
+    assert.ok(personalization,'Optional recommendation editing has its own section');
+    await navigate(localLink('/account/profile',personalization));
+    await navigate(localLink('/account/profile?correction=start'));
     await submit('form');
     await navigate([...document().querySelectorAll('a')].find(a=>a.textContent==='Edit profile').getAttribute('href'));
     const preferences=document().querySelector('#section-preferences');assert.ok(preferences);preferences.open=true;

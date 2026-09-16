@@ -47,6 +47,7 @@ def _transferable_links(accepted):
 def attach_decision(packet, match, *, profile=None):
     """Project only explanations actually recorded by the current computation."""
     reasons = []
+    application_facts = []
     has_reported_support = False
     accepted = match.get('accepted_task_fit') or {}
     packet['transferable_task_links'] = []
@@ -73,8 +74,11 @@ def attach_decision(packet, match, *, profile=None):
                 if item.get('source') == 'preference' else
                 f'Your profile lists {fact}, which relates to the role’s {requirement} focus.'))
             has_reported_support = has_reported_support or item.get('source') != 'preference'
+            if item.get('source') != 'preference':
+                application_facts.append(fact)
     packet['decision_reasons'] = list(dict.fromkeys(reasons))[:2]
     packet['decision_has_reported_support'] = has_reported_support
+    packet['decision_application_facts'] = list(dict.fromkeys(application_facts))[:2]
     packet['decision_short_reason'] = _short_reason(packet, match)
     # A rendering context, never new candidate evidence or a persisted update.
     packet['decision_profile_context'] = {
@@ -382,17 +386,36 @@ def render_material_warnings(packet, *, compact=False):
            + ' to check in the job details.</p>' if remaining else '') + '</aside>')
 
 
-def render_application_guidance(packet):
-    """Bounded templates from existing source/profile evidence; no generated claims."""
-    if not packet:
-        return '<p>Read the employer’s requirements and confirm the terms before applying.</p>'
-    if any(w['kind'] == 'conflict' for w in material_warnings(packet)):
-        return '<p>Check the stated requirement with the employer before proceeding. Application wording does not resolve a conflicting requirement.</p>'
-    sentences = []
-    if packet.get('decision_has_reported_support'):
-        sentences.append('Describe a genuine example of the relevant experience or skills in your profile.')
-    elif packet.get('decision_short_reason') or packet.get('decision_reasons'):
-        sentences.append('If you have relevant experience, describe a genuine example when applying.')
+def render_application_guidance(packet, *, employer_name=None, has_conflict=False):
+    """Advice for the external application, using only already-recorded evidence.
+
+    The caller may supply the selected posting's employer name. Never derive it
+    from a profile, a job title, a source URL or an unrelated evidence packet.
+    A missing packet can still have an already-recorded local conflict; the
+    caller preserves that warning through has_conflict without new evaluation.
+    """
+    website = (employer_name.strip() + '’s website'
+               if isinstance(employer_name, str) and employer_name.strip() else 'the company’s website')
+    opening = 'In your application on ' + website + ', '
+    packet = packet or {}
+    if has_conflict or any(w['kind'] == 'conflict' for w in material_warnings(packet)):
+        message = ('Before starting your application on ' + website
+            + ', check the conflicting requirement with the employer. '
+              'Application wording does not resolve a conflicting requirement.')
+        return "<p class='application-guidance'>" + escape(message) + '</p>'
+    links = packet.get('transferable_task_links') or []
+    facts = packet.get('decision_application_facts') or []
+    if links:
+        activities = list(dict.fromkeys(_activity_phrase(link['profile_fact']['text']) for link in links))[:2]
+        advice = 'describe your experience ' + _joined(activities) + ' and give a concrete example.'
+    elif facts:
+        advice = ('highlight the relevant background you reported: '
+            + _joined(['“' + fact + '”' for fact in facts[:2]]) + '. Give a concrete example if you have one.')
+    elif packet.get('decision_has_reported_support'):
+        advice = 'describe a genuine example of your relevant experience or skills.'
+    else:
+        advice = 'describe relevant experience if you have it, and check the employer’s requirements and terms.'
+    sentences = [opening + advice]
     generic = [row for row in packet.get('comparisons') or []
                if _condition_materiality(row, packet)['classification'] == 'generic_behavior_only']
     if generic:
@@ -406,8 +429,6 @@ def render_application_guidance(packet):
     waivers = [row for row in packet.get('comparisons') or [] if row.get('modality') == 'not_required']
     if waivers:
         sentences.append('The employer states: “' + waivers[0]['source']['quote'] + '”.')
-    if not sentences:
-        sentences.append('Read the employer’s requirements and describe only experience you actually have.')
     return "<p class='application-guidance'>" + escape(' '.join(sentences)) + '</p>'
 
 

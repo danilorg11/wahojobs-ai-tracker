@@ -109,8 +109,10 @@ def cancel_link(nav):
             if nav else '')
 
 
-def render_profile_update(packet, return_to, *, general_fallback=False):
-    general = ("<p class='candidate-profile-next'><a href='/account/profile'>Review profile &amp; preferences</a> "
+def render_profile_update(packet, return_to, *, general_fallback=False, for_recommendations=False):
+    general_label = ('Edit Wahojobs profile &amp; preferences for recommendations' if for_recommendations
+                     else 'Review profile &amp; preferences')
+    general = ("<p class='candidate-profile-next'><a href='/account/profile'>" + general_label + '</a> '
                '<span>(optional)</span></p>') if general_fallback else ''
     target = safe_opportunity_return(return_to)
     if not packet or not target:
@@ -139,5 +141,7 @@ def render_profile_update(packet, return_to, *, general_fallback=False):
     label = {'education': 'Review education details', 'languages': 'Review language details',
              'experience': 'Review experience details', 'preferences': 'Review work preferences'}.get(focus,
              'Review skills and experience')
+    if for_recommendations:
+        label = 'Edit Wahojobs ' + label.removeprefix('Review ') + ' for recommendations'
     return (f"<div class='candidate-profile-next'><p><a class='candidate-profile-update' href='{escape(link, quote=True)}'>{label}</a> <span>(optional)</span></p>"
         + ('<p>' + escape(guidance) + '</p>' if guidance else '') + '</div>')

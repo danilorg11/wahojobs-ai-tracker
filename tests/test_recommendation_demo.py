@@ -16,6 +16,7 @@ from tests.candidate_decision_support import verified_https_request
 from tests.durable_google_login_browser_test_support import cookie_header, cookie_values
 from tests.test_candidate_continuity_client import run_client
 from tests.test_first_time_candidate import observe
+from tests.test_recommendation_client import assert_application_destination
 
 
 def sample_client(state, key, *, returning=False, switch_sample=None):
@@ -60,7 +61,14 @@ class RecommendationDemoTests(unittest.TestCase):
                         self.assertEqual(profile['experience']['years_by_domain'],[{'domain':'customer support','years':2}])
                         self.assertEqual(profile['preferences']['preference_model']['workloads'],['part_time'])
                     self.assertEqual(result['clientErrors'],[])
+                    details = [row for row in result['observations'] if row['label'].startswith('sample-detail-')]
+                    self.assertTrue(details, key)
+                    for detail in details:
+                        assert_application_destination(self, detail)
                     returned=sample_client(state,key,returning=True)
+                    for detail in returned['observations']:
+                        if detail['label'].startswith('sample-detail-'):
+                            assert_application_destination(self, detail)
                     self.assertEqual(observe(state)['revisions'],after['revisions'])
                     self.assertTrue(returned['observations'])
                 self.assertEqual(len(observe(state)['profiles']),3)

@@ -120,7 +120,12 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     checks = ("<section class='candidate-checks' id='before-apply'><h2>Before you apply</h2>"
               + (render_material_warnings(packet) if packet else
                  (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else ''))
-              + render_application_guidance(packet) + '</section>')
+              + render_application_guidance(packet, employer_name=company,
+                    has_conflict=packet is None and location == 'incompatible') + '</section>')
+    personalization = ("<section id='recommendation-personalization' aria-labelledby='personalization-heading'>"
+        "<h2 id='personalization-heading'>Personalize your Wahojobs recommendations</h2>"
+        + render_profile_update(packet, variant_detail_url(job, run_id=return_run_id),
+                                general_fallback=True, for_recommendations=True) + '</section>')
     overview = (f"<p class='candidate-overview'>{escape(packet['summary'])}</p>"
                 if packet and packet['summary'] else '')
     description = ''
@@ -187,13 +192,18 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'><meta name='robots' content='noindex,follow'>
 <title>{escape(title)} at {escape(company)} | Wahojobs</title>
-<style>{public.PUBLIC_JOB_CSS}\n{DISPLAY_CSS}\n{candidate_style()}</style></head><body class='candidate-detail'>
+<style>{public.PUBLIC_JOB_CSS}\n{DISPLAY_CSS}\n{candidate_style()}
+#recommendation-personalization {{border-top:1px solid #d9e0dc;margin:24px 0 0;padding:20px 0}}
+#recommendation-personalization h2 {{font-size:1rem;line-height:1.4;margin:0 0 8px}}
+#recommendation-personalization .candidate-profile-next {{margin:0;max-width:72ch}}
+#recommendation-personalization a {{overflow-wrap:anywhere}}
+</style></head><body class='candidate-detail'>
 <main>{navigation}<p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← {'Back to My Jobs' if tracker_return else 'Back to opportunities'}</a></p>
 <article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
 <p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
 {render_reasons(packet, heading_level=2)}
-{checks}{render_profile_update(packet, variant_detail_url(job, run_id=return_run_id), general_fallback=True)}<div class='hero-actions'>{action}</div></div>{workflow}</header>
-<div id='action-feedback' aria-live='polite'></div><div class='job-description' id='profile-comparison'>{pay_wording}{description}</div>
+{checks}<div class='hero-actions'>{action}</div></div>{workflow}</header>
+<div id='action-feedback' aria-live='polite'></div><div class='job-description' id='profile-comparison'>{pay_wording}{description}</div>{personalization}
 <footer class='verification-footer'>{source_link}<p>Based on saved source information. Confirm current terms and application availability with the employer.</p></footer>
 </article></main>{_workflow_script() if workflow_controls else ''}</body></html>"""
 

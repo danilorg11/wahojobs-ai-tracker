@@ -1,5 +1,19 @@
 # Private beta readiness v1
 
+## Current owner correction: employer-application guidance
+
+Within the same release candidate, make every shared application-guidance branch
+explicitly refer to the employer's external application. Confirmed Wahojobs facts
+remain the evidence source, never an implied application destination or transmission.
+Separate optional profile/preferences editing for recommendations from application
+steps while preserving contextual return routes and state guards. Preserve source
+wording, material warnings, matching/eligibility/ranking and existing acceptance state.
+Validate generalist, biology, software and fallback/other-employer contrasts through
+the existing presentation and served-client journeys. Freeze the reviewed source,
+run the established release selection plus additions, and resume the same backed-up
+8861 storage without profile preparation/reset. Current execution/process/evidence
+state is in the existing bundle RUN-STATE.md; owner acceptance remains pending.
+
 ## One maintained execution plan
 
 ### Grounded recommendations and practical guidance — current correction
