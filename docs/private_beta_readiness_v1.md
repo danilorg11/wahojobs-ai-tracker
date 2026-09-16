@@ -77,6 +77,27 @@ fresh release-2 receipts and the current task-fit-release-identity, never the
 interrupted tree's receipts. Unsupported scope wording stays unknown; no broad
 claim of universal language understanding is made.
 
+The1cef723 freeze completed1260 core tests unchanged:1259passed, one after-commit
+authentication crash-recovery assertion failed on whole-parent handle equality
+(307 versus309). Required/runtime partitions were not started. Committed-row,
+database integrity/locks and owned worker cleanup had already passed. A controlled
+probe releasing two unrelated parent pipe handles reproduces the equality failure;
+the precise original handles were not captured. The existing fresh-interpreter
+contract pattern is extended to after-commit while retaining exact inner equality
+and all storage/ownership assertions, with bounded dispatch validation. Preserve
+the failed receipt/probe, independently review, refreeze, rerun the full selection
+plus new coverage and actual client on that delivered tree. Never substitute
+passing reruns for the measurement-boundary explanation.
+
+The repaired before/after/invalid-dispatch selection passed3/3 unchanged. A real
+after-commit contract with controlled unrelated parent closure retains256==256
+inner handles while parent248→246; every DB/worker/import/guard assertion passes.
+Independent review finds no weakened safeguard. Final selection now2052 unique
+IDs (1261core,636required,155runtime), retaining every2016 baseline ID;36additions
+include the bounded invalid-dispatch regression. Final acceptance uses release-3
+receipts, fresh client/compare evidence and current release identity. Earlier
+release-2 receipts remain exact historical results, not final acceptance.
+
 ### Owner acceptance corrective cycle — implementation frozen for validation
 
 Owner acceptance of delivered `fa0b57ea22bbd0f0923e308a9a15faa275c09d74`

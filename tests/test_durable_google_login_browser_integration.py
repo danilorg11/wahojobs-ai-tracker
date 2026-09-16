@@ -274,9 +274,11 @@ def _b21_isolated_contract_main(connection):
     try:
         request = browser_test_support._b21_receive_message(connection)
         if (
-            set(request) != {"expected_root", "expected_seed"}
+            set(request) != {"expected_root", "expected_seed", "contract"}
             or type(request["expected_root"]) is not str
             or type(request["expected_seed"]) is not str
+            or type(request["contract"]) is not str
+            or request["contract"] not in {"before_commit", "after_commit"}
             or os.environ.get("PYTHONHASHSEED")
             != request["expected_seed"]
             or os.environ.get("PYTHONDONTWRITEBYTECODE") != "1"
@@ -286,17 +288,24 @@ def _b21_isolated_contract_main(connection):
         imports_before = _b21_assert_exclusive_project_imports(
             request["expected_root"]
         )
-        case = DurableGoogleLoginB21RestartTests(
-            "test_b21_process_exit_before_authorization_commit_recovers_database"
-        )
         with loopback_and_in_memory_provider_only():
-            result = case._run_b21_process_exit_before_commit_contract()
+            if request["contract"] == "before_commit":
+                case = DurableGoogleLoginB21RestartTests(
+                    "test_b21_process_exit_before_authorization_commit_recovers_database"
+                )
+                result = case._run_b21_process_exit_before_commit_contract()
+            else:
+                case = DurableGoogleLoginB21RestartTests(
+                    "test_b21_process_exit_after_commit_preserves_one_prepared_transaction"
+                )
+                result = case._run_b21_process_exit_after_commit_contract()
         imports_after = _b21_assert_exclusive_project_imports(
             request["expected_root"]
         )
         result.update(
             {
                 "isolated_pid": os.getpid(),
+                "contract": request["contract"],
                 "start_method": multiprocessing.get_start_method(),
                 "seed": os.environ.get("PYTHONHASHSEED"),
                 "dont_write_bytecode": bool(sys.dont_write_bytecode),
@@ -2109,7 +2118,7 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
             "temporary_directory_removed": True,
         }
 
-    def test_b21_process_exit_before_authorization_commit_recovers_database(self):
+    def _assert_b21_isolated_process_exit_contract(self, contract):
         warm_spawn_process_accounting()
         child_baseline = self._active_child_pids()
         expected_root = str(Path(__file__).resolve().parents[1])
@@ -2117,6 +2126,7 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
             {
                 "expected_root": expected_root,
                 "expected_seed": os.environ["PYTHONHASHSEED"],
+                "contract": contract,
             }
         )
         isolated_pid = isolated.pid
@@ -2126,6 +2136,7 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
             isolated.kill_and_reap()
         self.assertTrue(isolated.assert_terminal_resources())
         self.assertEqual(completed["isolated_pid"], isolated_pid)
+        self.assertEqual(completed["contract"], contract)
         self.assertEqual(completed["start_method"], "spawn")
         self.assertEqual(completed["seed"], os.environ["PYTHONHASHSEED"])
         self.assertTrue(completed["dont_write_bytecode"])
@@ -2141,7 +2152,10 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
             completed["handle_baseline"],
         )
         self.assertTrue(completed["worker_resources_terminal"])
-        self.assertTrue(completed["database_recovered"])
+        self.assertTrue(completed[
+            "database_recovered" if contract == "before_commit"
+            else "database_preserved"
+        ])
         self.assertTrue(completed["children_reaped"])
         self.assertTrue(completed["temporary_directory_removed"])
         self._assert_scoped_children_reaped(
@@ -2150,12 +2164,16 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
             completed["worker_pid"],
         )
 
-    def test_b21_process_exit_after_commit_preserves_one_prepared_transaction(self):
+    def test_b21_process_exit_before_authorization_commit_recovers_database(self):
+        self._assert_b21_isolated_process_exit_contract("before_commit")
+
+    def _run_b21_process_exit_after_commit_contract(self):
         warm_spawn_process_accounting()
         child_baseline = self._active_child_pids()
         with temporary_browser_login_state() as state:
             temporary_directory = state.directory
             handle_baseline = process_native_handle_count()
+            self.assertIsNotNone(handle_baseline)
             worker = FreshBrowserLoginWorker(
                 self._worker_request(
                     state,
@@ -2180,11 +2198,60 @@ class DurableGoogleLoginB21RestartTests(unittest.TestCase):
                 child_baseline,
                 worker_pid,
             )
-            self.assertEqual(
-                process_native_handle_count(),
-                handle_baseline,
-            )
+            handle_final = process_native_handle_count()
+            self.assertEqual(handle_final, handle_baseline)
         self.assertFalse(temporary_directory.exists())
+        return {
+            "handle_baseline": handle_baseline,
+            "handle_final": handle_final,
+            "worker_pid": worker_pid,
+            "worker_resources_terminal": True,
+            "database_preserved": True,
+            "children_reaped": True,
+            "temporary_directory_removed": True,
+        }
+
+    def test_b21_process_exit_after_commit_preserves_one_prepared_transaction(self):
+        # Measure the owned restart contract in a fresh interpreter: unrelated
+        # suite resources may close while this process waits for its child.
+        self._assert_b21_isolated_process_exit_contract("after_commit")
+
+    def test_b21_isolated_contract_rejects_unbounded_dispatch(self):
+        valid = {
+            "expected_root": str(Path(__file__).resolve().parents[1]),
+            "expected_seed": os.environ.get("PYTHONHASHSEED", "0"),
+            "contract": "after_commit",
+        }
+        invalid = (
+            {key: value for key, value in valid.items() if key != "contract"},
+            {**valid, "contract": "unknown"},
+            {**valid, "contract": "_run_b21_process_exit_after_commit_contract"},
+            {**valid, "contract": None},
+            {**valid, "contract": ["after_commit"]},
+            {**valid, "extra": "after_commit"},
+        )
+        for request in invalid:
+            with self.subTest(request=request):
+                connection = mock.Mock()
+                with (
+                    mock.patch.object(browser_test_support, "_b21_receive_message", return_value=request),
+                    mock.patch.object(browser_test_support, "_b21_send_message") as send,
+                    mock.patch(__name__ + "._b21_assert_exclusive_project_imports") as imports,
+                    mock.patch.object(type(self), "_run_b21_process_exit_before_commit_contract") as before,
+                    mock.patch.object(type(self), "_run_b21_process_exit_after_commit_contract") as after,
+                ):
+                    with self.assertRaises(SystemExit) as stopped:
+                        _b21_isolated_contract_main(connection)
+                    self.assertEqual(stopped.exception.code, 2)
+                    imports.assert_not_called()
+                    before.assert_not_called()
+                    after.assert_not_called()
+                    send.assert_called_once()
+                    document = send.call_args.args[1]
+                    self.assertEqual(document["kind"], "failure")
+                    self.assertEqual(document["exception_type"], "AssertionError")
+                    self.assertEqual(document["exception_message"], "invalid_b21_isolated_interpreter_request")
+                    connection.close.assert_called_once_with()
 
     def test_b22_fresh_process_retained_keys_complete_old_and_new_logins(self):
         warm_spawn_process_accounting()
