@@ -179,6 +179,46 @@ class TransferableTaskMatchingTests(unittest.TestCase):
                 self.assertIsNone(match['accepted_task_fit'])
                 self.assertFalse(self.shown(context))
 
+    def test_all_scope_branches_preserve_restrictive_continuations(self):
+        for start in ('This role is open to beginners', 'No specialized background is required',
+                      'This is an entry-level role'):
+            for tail in (' who are experienced biologists.', ' in our other program.',
+                         ' for licensed physicians.', ' — for licensed physicians only.',
+                         '; for licensed physicians only.', '. For licensed physicians only.',
+                         ', but only for licensed physicians.', '\nfor licensed physicians only.',
+                         '\n\nFor licensed physicians only.',
+                         '\n\n- For licensed physicians only.', '\n\n1. For licensed physicians only.',
+                         ' — just a medical license.', ' — just experience in molecular biology.'):
+                with self.subTest(scope=start+tail):
+                    _, _, context, match = self.current(ENTRY.replace('This is an entry-level role.', start+tail))
+                    self.assertIsNone(match['accepted_task_fit'])
+                    self.assertFalse(self.shown(context))
+            for prefix in ('This role is for experienced biologists. ',
+                           'This role is for licensed physicians.\n\n',
+                           'This role is limited to experienced biologists.\n\n',
+                           'This position is intended for licensed physicians.\n\n',
+                           'This is a role for experienced biologists.\n\n',
+                           'For licensed physicians only.\n\n',
+                           'Only experienced biologists.\n\n',
+                           '- For licensed physicians only.\n\n',
+                           '1. For licensed physicians only.\n\n'):
+                with self.subTest(scope=prefix+start):
+                    _, _, context, match = self.current(ENTRY.replace('This is an entry-level role.', prefix+start+'.'))
+                    self.assertIsNone(match['accepted_task_fit'])
+                    self.assertFalse(self.shown(context))
+
+    def test_complete_scope_statements_allow_only_bounded_generic_quality_continuations(self):
+        for scope in ('Open to beginners.', 'This role is open to first-time workers.',
+                      'No specialized background is required.',
+                      'This is a remote, flexible role. Open to beginners.',
+                      'This is a freelance contract opportunity. No specialized background is required.',
+                      'No specialized background is required — just attention to detail and a willingness to learn.',
+                      'This is an entry-level role — just curiosity, patience and clear communication.'):
+            with self.subTest(scope=scope):
+                _, _, context, match = self.current(ENTRY.replace('This is an entry-level role.', scope))
+                self.assertTrue(match['accepted_task_fit'])
+                self.assertTrue(self.shown(context))
+
     def test_missing_degree_is_conditional_but_explicit_negative_degree_rejects(self):
         body = ENTRY + "\n\nBachelor's in Humanities."
         _, _, context, match = self.current(body)

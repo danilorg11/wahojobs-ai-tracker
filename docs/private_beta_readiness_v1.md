@@ -62,6 +62,21 @@ permissions or executed workload rejections. No model/provider calls are made.
 Native browser certificate acceptance, external authentication, current inventory,
 hosting and owner privacy/operations authorization remain separate real-beta gates.
 
+Final scope re-review: the first43b2002 freeze was interrupted after213 observed
+core passes and one unfinished invocation when review found remaining beginner/
+waiver prefix qualifiers. The owned test process tree was verified and stopped
+before source changes; its log and unknown completion remain retained. Complete
+source assertions now retain restrictive continuations across punctuation/lines.
+Generic-quality continuations are bounded and never count as candidate support.
+The repaired focused91-ID selection passes unchanged; two new whole-path tests
+cover66 negative context combinations and7 positive forms, including preceding
+restrictions, bullets and complete current-role context. Independent re-review
+closed the findings. Final acceptance selects2051 unique IDs (all2016 baseline,
+636 required,35 additions), plus the dedicated served-client receipt. It uses
+fresh release-2 receipts and the current task-fit-release-identity, never the
+interrupted tree's receipts. Unsupported scope wording stays unknown; no broad
+claim of universal language understanding is made.
+
 ### Owner acceptance corrective cycle — implementation frozen for validation
 
 Owner acceptance of delivered `fa0b57ea22bbd0f0923e308a9a15faa275c09d74`

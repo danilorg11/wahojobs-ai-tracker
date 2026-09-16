@@ -12,6 +12,55 @@ REQUIREMENT = 'Transferable activity for entry-level tasks'
 _ACTION = r'(?:review|evaluat|assess|compar|check|verif|validat)\w*'
 _OBJECT = r'(?:written\s+)?(?:responses?|answers?|text|content|documents?|information|facts?)'
 _UNOWNED = re.compile(r"\b(?:not|never|no|without|interested|interest|want|wish|hope|plan|would|could|will|learn|learning|their|his|her|friend|colleague|said|says|reported|example)\b", re.I)
+_SCOPE = (
+    r'(?:no (?:specialized|specialist|professional) background(?: or prior AI experience)? (?:is )?(?:required|needed|necessary)'
+    r'|(?:(?:this is|(?:this|the) (?:role|position|opportunity|job) is) (?:an? )?|an? )?entry[- ]level (?:role|opportunity|work|position|task)(?: (?:for|open to) (?:beginners|first[- ]time workers))?'
+    r'|(?:(?:this|the) (?:role|position|opportunity|job) is )?open to (?:beginners|first[- ]time workers))')
+# This grammar only keeps an explicitly generic continuation attached to its
+# scope assertion. It does not mark these qualities supported for a candidate.
+_QUALITY = (
+    r'(?:(?:(?:strong|good) )?attention to detail|curiosity|patience|reliability|motivation|critical thinking'
+    r'|(?:clear|good|strong|solid) (?:written )?communication(?: skills)?'
+    r'|(?:a )?(?:sharp|curious|open|analytical) mind'
+    r'|(?:a )?(?:willingness|commitment|motivation) to (?:learn|follow (?:written |project )?instructions|(?:do|doing) (?:good|quality) work))')
+_QUALITY_TAIL = r'(?:\s*[—–;,]\s*just\s+' + _QUALITY + r'(?:(?:,\s*(?:and\s+)?|\s+and\s+)' + _QUALITY + r')*)?'
+_QUALITIES = _QUALITY + r'(?:(?:,\s*(?:and\s+)?|\s+and\s+)' + _QUALITY + r')*'
+_ARRANGEMENT = r'(?:fully remote|remote|flexible|contract|freelance|part[- ]time|full[- ]time)'
+_GENERIC_ROLE_CONTEXT = (r'(?:this is|(?:this|the) (?:role|position|opportunity|job) is) an? '
+    + _ARRANGEMENT + r'(?:(?:,\s*|\s+(?:and\s+)?)' + _ARRANGEMENT + r')* '
+    r'(?:role|position|opportunity|job)(?: open to anyone(?: with ' + _QUALITIES + r')?)?[.!]?')
+_SCOPE_UNCERTAINTY = re.compile(r'\b(?:but|unless|except|however|if|no longer|used to|formerly|previously|hope|wish|future|will|would|could|may|might|intend|planned|not|never|other (?:role|team|program|opening))\b', re.I)
+_CONTINUATION = re.compile(r'^(?:for|who|which|with|only|unless|except|if|but|however|provided|assuming|in our other)\b', re.I)
+
+
+def _complete_scope_proof(quote):
+    """Read original paragraph authority before condition-waiver splitting.
+
+    Only bounded generic current-role context may precede the assertion. Neither
+    earlier audience restrictions nor following fragments are discarded.
+    """
+    plain = re.sub(r'[*#]', '', quote).strip()
+    if _SCOPE_UNCERTAINTY.search(plain):
+        return False
+    sentences = re.split(r'(?<=[.!?])\s+', plain)
+    return any(all(re.fullmatch(_GENERIC_ROLE_CONTEXT, prior, re.I) for prior in sentences[:i])
+               and re.fullmatch(_SCOPE + _QUALITY_TAIL + r'[.!]?', ' '.join(sentences[i:]), re.I)
+               for i in range(len(sentences)))
+
+
+def _unresolved_audience_context(quote):
+    """An audience fragment keeps its force in either paragraph order.
+
+    Unknown scope wording is not positive proof, including when another line
+    happens to contain an otherwise complete beginner/waiver statement.
+    """
+    plain = re.sub(r'[*#]', '', quote).strip()
+    plain = re.sub(r'^(?:[-+]\s+|\d+[.)]\s+)', '', plain)
+    audience = (_CONTINUATION.match(plain)
+                or re.match(r'^(?:(?:this|the) (?:role|position|opportunity|job)\b|this is\b)', plain, re.I)
+                or re.match(_SCOPE, plain, re.I))
+    return bool(audience and not (_complete_scope_proof(plain)
+                                or re.fullmatch(_GENERIC_ROLE_CONTEXT, plain, re.I)))
 
 
 def activity_families(text, *, source=False):
@@ -59,7 +108,7 @@ def source_scope(source):
     unavailable; preferred qualifications do not become mandatory restrictions.
     """
     from wahojobs.authenticated_card_evidence import _blocks, _source_text, _QUALIFICATION_HEADINGS
-    from wahojobs.candidate_condition_comparisons import _condition_lines, _modality
+    from wahojobs.candidate_condition_comparisons import _condition_lines, _lines, _modality
     from scripts.profile_match_digest import detect_role_match_features
     from wahojobs.matching.source_task_fit import _task
     text = _source_text(source)
@@ -70,6 +119,16 @@ def source_scope(source):
     scope = []
     for block in blocks:
         heading = block['heading'].casefold().rstrip(':')
+        # Proof uses unsplit source paragraphs. _condition_lines may split an
+        # initial waiver from a restrictive semicolon/sentence continuation.
+        original_lines = list(_lines(block))
+        if any(_unresolved_audience_context(quote) for _, quote in original_lines):
+            return []
+        for index, (number, quote) in enumerate(original_lines):
+            following = original_lines[index + 1][1] if index + 1 < len(original_lines) else ''
+            if _complete_scope_proof(quote) and not _CONTINUATION.match(re.sub(r'[*#]', '', following).strip()):
+                scope.append(dict(quote=quote, block_reference=block['reference'], line=number,
+                                  scope_kind='explicit_entry_level_or_non_specialized'))
         for number, quote in _condition_lines(block):
             plain = re.sub(r'[*#]', '', quote)
             # A paragraph can contain an absolute waiver and an independent
@@ -78,18 +137,7 @@ def source_scope(source):
             clauses = re.split(r'(?<=[.!?;])\s+|[—–]', plain)
             for clause in clauses:
                 clause = clause.strip()
-                entry_proof = False
-                # These are current-posting statements, not company history,
-                # another team's opening, a quoted example or an aspiration.
-                if (not re.search(r'\b(?:but|unless|except|however|if|no longer|used to|formerly|previously|hope|wish|future|will|would|could|may|might|intend|planned|not|never)\b', clause, re.I)
-                        and (re.match(r'^no (?:specialized|specialist|professional) background(?: or prior AI experience)? (?:is )?(?:required|needed|necessary)\b', clause, re.I)
-                             or re.fullmatch(r'(?:(?:this is|(?:this|the) (?:role|position|opportunity|job) is) (?:an? )?|an? )?entry[- ]level (?:role|opportunity|work|position|task)(?: (?:for|open to) (?:beginners|first[- ]time workers))?[.!]?', clause, re.I)
-                             or re.match(r'^(?:(?:this|the) (?:role|position|opportunity|job) is )?open to (?:beginners|first[- ]time workers)\b', clause, re.I))):
-                    proof = dict(quote=quote, block_reference=block['reference'], line=number,
-                                  scope_kind='explicit_entry_level_or_non_specialized')
-                    entry_proof = True
-                    if proof not in scope:
-                        scope.append(proof)
+                entry_proof = any(proof['line'] == number and proof['block_reference'] == block['reference'] for proof in scope)
                 mode = _modality(heading, clause)
                 if mode in ('preferred', 'not_required'):
                     continue
