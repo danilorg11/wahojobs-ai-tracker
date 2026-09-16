@@ -1164,6 +1164,11 @@ _REVIEW_CORRECTION_FIELD_TARGETS = (
         ("experience", "total_years"),
         (("experience", "total_years"),),
     ),
+    (
+        "domain_years_review",
+        ("experience", "years_by_domain"),
+        (("experience", "years_by_domain"),),
+    ),
     ("seniority", ("experience", "seniority"), (("experience", "seniority"),)),
     (
         "job_titles",

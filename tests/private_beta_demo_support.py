@@ -21,8 +21,8 @@ BACKGROUND = ('I live in Brazil. My name is Alex. I have two years of customer s
 
 
 @contextmanager
-def beta_state(*, port=None):
-    with new_candidate_state(port=port) as state:
+def beta_state(*, port=None, now=None):
+    with new_candidate_state(port=port, now=now) as state:
         with closing(sqlite3.connect(state.database_path)) as connection, connection:
             connection.row_factory=sqlite3.Row
             connection.execute('PRAGMA foreign_keys=ON')

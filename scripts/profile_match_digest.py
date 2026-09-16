@@ -1338,9 +1338,9 @@ def first_missing_subtype(profile_text, structured_text, subtype_terms):
 
 
 def profile_match_text(profile):
+    # Display names and storage identifiers identify a person; they are never
+    # evidence of a language, tool, professional domain or task capability.
     values = [
-        profile.get("profile_id", ""),
-        profile.get("display_name", ""),
         profile.get("summary", ""),
         profile.get("education_level", ""),
         " ".join(profile.get("degrees_or_domains") or []),
@@ -1480,20 +1480,7 @@ def match_quality_gate_penalties(profile, row, text=None):
 
 
 def detect_profile_match_features(profile):
-    profile_text = normalize_text(
-        " ".join(
-            [
-                profile.get("profile_id", ""),
-                profile.get("display_name", ""),
-                profile.get("summary", ""),
-                profile.get("education_level", ""),
-                " ".join(profile.get("degrees_or_domains") or []),
-                " ".join(profile.get("skills") or []),
-                " ".join(profile.get("target_opportunity_types") or []),
-                profile.get("notes", ""),
-            ]
-        )
-    )
+    profile_text = profile_match_text(profile)
     languages = tuple(sorted(profile_language_set(profile)))
     return detect_profile_match_features_cached(profile_text, languages)
 

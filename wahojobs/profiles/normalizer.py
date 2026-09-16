@@ -442,9 +442,10 @@ def detect_profile_languages(raw_input: str) -> list[dict]:
             continue
         seen.add(language)
         evidence = language_evidence(raw_input, mention)
-        proficiency = detect_language_proficiency(evidence, language)
-        if proficiency == UNKNOWN:
-            proficiency = detect_explicit_language_proficiency(raw_input, language)
+        # A short evidence excerpt is for review display only. Classify the
+        # complete source clause so a clipped third-person subject cannot turn
+        # somebody else's proficiency into the candidate's.
+        proficiency = detect_explicit_language_proficiency(raw_input, language)
         languages.append(
             {
                 "language": LANGUAGE_DISPLAY_NAMES.get(language, language.title()),
@@ -464,7 +465,7 @@ def language_evidence(raw_input: str, mention: dict) -> str:
 
 
 def detect_language_proficiency(evidence: str, language: str | None = None) -> str:
-    text = normalize_language_text(evidence)
+    text = normalize_profile_text(evidence)
     if language:
         explicit = detect_explicit_language_proficiency(text, language)
         if explicit != UNKNOWN:
@@ -481,7 +482,9 @@ def detect_language_proficiency(evidence: str, language: str | None = None) -> s
 
 
 def detect_explicit_language_proficiency(text: str, language: str | None = None) -> str:
-    text = normalize_language_text(text)
+    # Preserve sentence boundaries: a level belongs to the named language, not
+    # another language or a nearby career/education statement.
+    text = normalize_profile_text(text)
     language = normalize_language_text(language)
     if not text or not language:
         return UNKNOWN
@@ -494,34 +497,70 @@ def detect_explicit_language_proficiency(text: str, language: str | None = None)
         "advanced",
         "conversational",
     ):
-        if re.search(rf"\b{term}\s+{re.escape(language)}\b", text):
-            return term
-        if re.search(rf"\b{re.escape(language)}\s+{term}\b", text):
-            return term
-        if re.search(
-            rf"\b{re.escape(language)}\s+is\s+(?:my\s+)?{term}(?:\s+language)?\b",
-            text,
-        ):
-            return term
-        if re.search(rf"\b{term}\s+in\s+{re.escape(language)}\b", text):
-            return term
-    if re.search(rf"\bmy\s+native\s+language\s+is\s+{re.escape(language)}\b", text):
-        return "native"
-    if re.search(rf"\b{re.escape(language)}\s+reading\b", text):
-        return "reading"
+        patterns = (
+            rf"\b{term}\s+(?:(?:speaker\s+of|in)\s+)?{re.escape(language)}\b",
+            rf"\b{re.escape(language)}\s+(?:(?:is\s+(?:my\s+)?|at\s+(?:a\s+)?)?){term}\b",
+        )
+        if term == "fluent":
+            patterns += (rf"\b{re.escape(language)}\s+fluently\b",)
+        if term == "native":
+            patterns += (rf"\bmy\s+native\s+language\s+is\s+{re.escape(language)}\b",)
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                clause = qualification_clause(text, match.start(), match.end())
+                if (not term_is_negated(text, match.start(), match.end())
+                        and not re.search(r"\b(?:not|no|never|neither|nor|except|without)\b", clause.text)
+                        and personal_language_claim(clause.text, match.start() - clause.start)):
+                    return term
+    for match in re.finditer(rf"\b{re.escape(language)}\s+reading\b", text):
+        clause = qualification_clause(text, match.start(), match.end())
+        if (not term_is_negated(text, match.start(), match.end())
+                and not re.search(r"\b(?:not|no|never|neither|nor|except|without)\b", clause.text)
+                and personal_language_claim(clause.text, match.start() - clause.start)):
+            return "reading"
     return UNKNOWN
+
+
+def personal_language_claim(clause: str, claim_start: int | None = None) -> bool:
+    """Accept personal statements or terse CV language lists, not requirements."""
+    if claim_start is not None:
+        # A repeated personal subject starts a new owned claim. Keep the full
+        # clause for reporting/future guards, then inspect only its own segment.
+        if (nonpersonal_or_unrealized_claim(clause)
+                or re.search(r"\b(?:requires?|required|requirement|employer|job|advert|told|says|said)\b", clause)):
+            return False
+        boundaries = list(re.finditer(r"\b(?:and|but)\s+(?=i\s)", clause))
+        start = max((m.end() for m in boundaries if m.end() <= claim_start), default=0)
+        end = min((m.start() for m in boundaries if m.start() > claim_start), default=len(clause))
+        clause = clause[start:end]
+    clause = clause.strip()
+    if (nonpersonal_or_unrealized_claim(clause)
+            or re.search(r"\b(?:requires?|required|requirement|employer|job|advert|told|says|said)\b", clause)):
+        return False
+    mentions = find_language_mentions(clause)
+    languages = {normalize_language_text(m['language']) for m in mentions}
+    # A second subject in a language list is still another person's claim.
+    for subject in re.finditer(r"\b([a-z]+)\s+(?:speaks?|uses?|communicates?|writes?|reads?|has|is)\b", clause):
+        if subject[1] not in languages | {'i', 'language'}:
+            return False
+    if re.match(r"i\s+(?:speak|am|m|use|write|read|communicate)\b|my\s+(?:native\s+)?(?:language|" + '|'.join(re.escape(l) for l in sorted(languages)) + r")\b", clause):
+        return True
+    if not mentions:
+        return False
+    prefix = clause[:min(m['start'] for m in mentions)].strip()
+    return bool(re.fullmatch(r"(?:(?:languages?|language skills|later note)\s*:\s*)?(?:(?:native|fluent|professional|intermediate|basic|advanced|conversational)(?:\s+in)?)?", prefix))
 
 
 def detect_language_locale(language: str, evidence: str) -> str:
     text = normalize_language_text(evidence)
     if language == "portuguese":
-        if any(term in text for term in ("br", "brazilian", "pt br")):
+        if re.search(r"\bbrazilian\s+portuguese\b|\bportuguese\s+(?:brazil|brazilian)\b|\bpt\s+br\b", text):
             return "Brazil"
-        if "portugal" in text or "pt pt" in text:
+        if re.search(r"\bportuguese\s+(?:portugal|european)\b|\beuropean\s+portuguese\b|\bpt\s+pt\b", text):
             return "Portugal"
-    if language == "spanish" and "mexico" in text:
+    if language == "spanish" and re.search(r"\b(?:mexican\s+spanish|spanish\s+mexico)\b", text):
         return "Mexico"
-    if language == "french" and "canada" in text:
+    if language == "french" and re.search(r"\b(?:canadian\s+french|french\s+canada)\b", text):
         return "Canada"
     return ""
 
@@ -581,8 +620,15 @@ def detect_education(text: str, *, allow_fallbacks=True) -> dict:
     degrees = []
     fields = []
     level = "not_specified"
-    if has_degree_absence(text) or "high school" in text:
+    if has_degree_absence(text):
         level = "no_degree"
+    completed_high_school = any(
+        re.match(r"\s*i\s+(?:have\s+)?(?:completed|finished|graduated\s+from)\s+high\s+school\b", clause)
+        and not nonpersonal_or_unrealized_claim(clause)
+        for clause in re.split(r"[.;!?\n]", text)
+    )
+    if completed_high_school:
+        level = "high_school"
     if re.search(r"\bphd\b|doctorate", text):
         level = "doctorate"
         degrees.append("PhD")
@@ -608,7 +654,7 @@ def detect_education(text: str, *, allow_fallbacks=True) -> dict:
         "fields_or_domains": fields,
         "institutions": [],
         "graduation_years": [],
-        "completion_status": "unknown",
+        "completion_status": "completed" if completed_high_school and level == "high_school" else "unknown",
     }
 
 
@@ -650,11 +696,123 @@ def detect_credentials(text: str) -> dict:
     }
 
 
+def nonpersonal_or_unrealized_claim(clause: str) -> bool:
+    """Conservative guard for the bounded personal narrative forms below."""
+    return bool(re.search(
+        r"\b(?:he|she|they|their|his|her|applicant|candidate|friend|colleague|"
+        r"said|says|quoted|reported|example|suppose|imagine|if|wish|hope|want|"
+        r"learning|learn|plan|intend|will|would|could|should|expected|future|going)\b",
+        clause,
+    ))
+
+
+def detect_declared_name(raw_input: str) -> str:
+    """Read a bounded self-introduction; never derive an identity from skills."""
+    names = []
+    for sentence in re.split(r"[.!?;\n]", str(raw_input)):
+        found = re.fullmatch(r"\s*my\s+name\s+is\s+([^,]{1,100})\s*", sentence, re.I)
+        if not found:
+            continue
+        name = found[1].strip()
+        words = name.split()
+        if (1 <= len(words) <= 5 and all(re.fullmatch(r"[^\W\d_]+(?:['’\-][^\W\d_]+)*", word) for word in words)
+                and not re.search(r"\b(?:not|no|and|was|will|would|unknown|example)\b", name, re.I)):
+            names.append(name)
+    return names[0] if len(set(names)) == 1 else ""
+
+
+def detect_declared_experience_duration(text: str) -> tuple[int | None, dict]:
+    """Keep explicit aggregate years in their stated scope, without summing jobs.
+
+    Bounds, dates, overlapping jobs, qualifications and future claims remain in
+    the original narrative for review. A domain total is never a career total.
+    """
+    words = dict(zip(("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                      "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"), range(21)))
+    number = r"(?:\d{1,2}|" + "|".join(words) + r")"
+    totals = set()
+    domains = {}
+    for clause in re.split(r"[.;!?\n]", text):
+        clause = clause.strip()
+        if nonpersonal_or_unrealized_claim(clause):
+            continue
+        total = re.fullmatch(rf"i\s+have\s+(?:a\s+total\s+of\s+)?(?P<n>{number})\s+years?\s+(?:of\s+)?(?:total\s+|overall\s+)?(?:professional\s+|work\s+)?experience(?:\s+(?:overall|in\s+total))?", clause)
+        scoped = (re.fullmatch(rf"i\s+have\s+(?P<n>{number})\s+years?\s+(?:of\s+)?(?P<scope>[a-z][a-z ]{{1,79}})\s+experience", clause)
+                  or re.fullmatch(rf"i\s+have\s+(?P<n>{number})\s+years?\s+(?:of\s+)?(?:professional\s+|work\s+)?experience\s+in\s+(?P<scope>[a-z][a-z ]{{1,79}})", clause))
+        found = total or scoped
+        if not found:
+            continue
+        amount = words.get(found['n'], int(found['n']) if found['n'].isdigit() else None)
+        if amount is None or not 0 <= amount <= 80:
+            continue
+        if total:
+            totals.add(amount)
+        else:
+            scope = scoped['scope'].strip()
+            if not re.search(r"\b(?:no|not|without|neither|nor|except|and|or|at|least|most|about|approximately|total|overall|professional|work|learning|studying)\b", scope):
+                domains.setdefault(scope, set()).add(amount)
+    return (next(iter(totals)) if len(totals) == 1 else None,
+            {scope: next(iter(amounts)) for scope, amounts in domains.items() if len(amounts) == 1})
+
+
+def personal_activity_statements(text: str) -> list[str]:
+    """Keep bounded first-person task lists using their own words.
+
+    Splitting only before another task verb preserves objects such as
+    "correctness and clarity". Uncertain prose stays in the original text.
+    """
+    verbs = r"(?:answer|respond|review|check|organize|evaluate|maintain|prepare|process|write|edit|research|translate)"
+    activities = []
+    for clause in re.split(r"[.;!?\n]", text):
+        clause = clause.strip()
+        if (not re.match(rf"i\s+{verbs}\b", clause)
+                or nonpersonal_or_unrealized_claim(clause)
+                or re.search(r"\b(?:not|no|never|neither|nor|except|without)\b", clause)):
+            continue
+        tasks = re.split(rf"\s*,\s*(?:and\s+)?(?={verbs}\b)|\s+and\s+(?={verbs}\b)", clause[2:])
+        # The existing review field uses comma-separated values. An object's
+        # internal comma cannot be round-tripped as one activity in that format.
+        if all(re.fullmatch(rf"{verbs}\s+[a-z0-9][a-z0-9 ]{{1,110}}", task) for task in tasks):
+            activities.extend(tasks)
+    return unique_list(activities)
+
+
+def personal_work_activity_claims(text: str) -> list[tuple[str, str]]:
+    """Read actual personal activities separately from desired work.
+
+    Each pair retains source activity wording alongside a familiar skill label;
+    neither implies a title, employer, specialization level or duration.
+    """
+    claims = []
+    for clause in personal_activity_statements(text):
+        for label, pattern in (
+            ("customer support", r"\banswer\s+customer\s+questions\b"),
+            ("content review", r"\breview\s+(?:written\s+)?responses\b"),
+            ("review", r"\bcheck\s+information\s+against\s+instructions\b"),
+            ("spreadsheets", r"\borganize\s+spreadsheet\s+records\b"),
+        ):
+            found = re.search(pattern, clause)
+            if found and (label, found[0]) not in claims:
+                claims.append((label, found[0]))
+    return claims
+
+
+def detect_personal_work_activities(text: str) -> list[str]:
+    return unique_list(label for label, _activity in personal_work_activity_claims(text))
+
+
+def stated_preference_text(text: str) -> str:
+    clauses = []
+    for clause in re.split(r"[.;!?\n]", text):
+        clause = clause.strip()
+        if (re.match(r"(?:i\s+(?:want|prefer|am\s+interested\s+in|am\s+looking\s+for|am\s+seeking)|need|looking\s+for|interested\s+in)\b", clause)
+                and not re.search(r"\b(?:not|no|never|neither|nor|except|said|says|quoted|their|his|her)\b", clause)):
+            clauses.append(clause)
+    return "; ".join(clauses)
+
+
 def detect_experience(text: str, *, allow_fallbacks=True) -> dict:
-    years = None
-    match = re.search(r"\b(\d{1,2})\s+years?\b", text)
-    if match:
-        years = int(match.group(1))
+    years, domain_years = detect_declared_experience_duration(text)
     domains = detect_domains(text, allow_fallbacks=allow_fallbacks)
     seniority = "senior" if "senior" in text or (years is not None and years >= 7) else UNKNOWN
     recent_roles = []
@@ -677,10 +835,12 @@ def detect_experience(text: str, *, allow_fallbacks=True) -> dict:
     ):
         if contains_affirmative_qualification_term(text, term):
             recent_roles.append(term)
-    specialties = detect_specialties(text)
+    # The existing review labels this free-text field "Activities". Preserve
+    # concrete task descriptions there; no employment record is fabricated.
+    specialties = unique_list(detect_specialties(text) + personal_activity_statements(text))
     return {
         "total_years": years,
-        "years_by_domain": {},
+        "years_by_domain": domain_years,
         "seniority": seniority,
         "recent_roles": unique_list(recent_roles),
         "occupational_families": unique_list(recent_roles),
@@ -717,9 +877,11 @@ def detect_domains(text: str, *, allow_fallbacks=True) -> list[str]:
         ("education", ("teacher", "teaching", "tutor", "esl", "student", "grading")),
         ("language", ("translation", "translator", "localization", "mtpe", "subtitles", "language", "bilingual")),
         ("generalist", ("generalist", "annotation", "annotator", "online research", "web research", "content moderation", "data annotation")),
+        ("customer service", ("customer support", "customer service")),
     ]
     for domain, terms in domain_terms:
-        if any(contains_affirmative_qualification_term(text, term) for term in terms):
+        qualifies = contains_personal_background_term if domain == "customer service" else contains_affirmative_qualification_term
+        if any(qualifies(text, term) for term in terms):
             domains.append(domain)
     return unique_list(domains or (["generalist"] if allow_fallbacks else []))
 
@@ -785,13 +947,21 @@ def detect_skills(text: str, domains: list[str], *, input_style="", allow_fallba
         "accounting review",
         "valuation models",
         "scientific writing",
+        "customer support",
+        "data entry",
+        "attention to detail",
+        "spreadsheets",
+        "content review",
     ]
+    familiar_work_terms = {"customer support", "data entry", "attention to detail", "spreadsheets", "content review"}
     for term in skill_terms:
-        if contains_affirmative_qualification_term(text, term) or contains_self_reported_skill_list(text, term) or (
+        qualifies = contains_personal_background_term if term in familiar_work_terms else contains_affirmative_qualification_term
+        if qualifies(text, term) or contains_self_reported_skill_list(text, term) or (
             input_style == "resume_or_linkedin_style"
             and contains_resume_skill_evidence(text, term)
         ):
             skills.append(term)
+    skills.extend(detect_personal_work_activities(text))
     if allow_fallbacks and "language" in domains and "bilingual communication" not in skills:
         skills.append("bilingual communication")
     if allow_fallbacks and "generalist" in domains and "review" not in skills:
@@ -800,6 +970,10 @@ def detect_skills(text: str, domains: list[str], *, input_style="", allow_fallba
 
 
 def detect_preferences(text: str, domains: list[str], *, allow_fallbacks=True) -> dict:
+    if not allow_fallbacks:
+        # The manual candidate path distinguishes what someone wants from what
+        # they know: listing Python as a skill is not a request for coding work.
+        text = stated_preference_text(text)
     employment_types = []
     work_preferences = []
     target_types = []
@@ -833,6 +1007,19 @@ def detect_preferences(text: str, domains: list[str], *, allow_fallbacks=True) -
         target_types.append("science AI training")
     if "language" in domains:
         target_types.append("language review")
+    if not allow_fallbacks:
+        target_types = []
+        for label, pattern in (
+            ("AI evaluation", r"\bai\s+(?:evaluation|evaluation\s+work)\b|\breviewing\s+ai\s+generated\s+responses\b"),
+            ("data annotation", r"\b(?:data\s+)?annotation\b"),
+            ("language review", r"\blanguage\s+(?:review|evaluation)\b"),
+            ("customer support", r"\bcustomer\s+(?:support|service)\b"),
+            ("AI coding evaluation", r"\b(?:coding|code\s+review|python)\b"),
+            ("search evaluation", r"\b(?:search\s+evaluation|search\s+quality)\b"),
+            ("legal AI training", r"\b(?:legal\s+ai|legal\s+review|contract\s+review)\b"),
+        ):
+            if re.search(pattern, text):
+                target_types.append(label)
     if not target_types and allow_fallbacks:
         target_types.append("AI training")
     return {
@@ -1021,9 +1208,8 @@ def affirmative_matcher_summary(
     skills,
     preferences,
 ):
-    """Build matcher text without raw interests, hypotheticals, or negations."""
+    """Build matcher text without identity, raw interests or hypothetical claims."""
     values = [
-        display_name,
         location.get("country"),
         education.get("education_level"),
         *(education.get("degrees") or []),
@@ -1215,6 +1401,26 @@ def work_authorization_clause(text: str) -> bool:
             text,
         )
     )
+
+
+def contains_personal_background_term(text: str, term: str) -> bool:
+    """Bound newly supported work terms to personal background statements.
+
+    A familiar skill label does not inherit another person's work history or
+    become a professional background merely because it appears in a skill list.
+    """
+    for clause in re.split(r"[.;!?\n]", text):
+        clause = clause.strip()
+        if (nonpersonal_or_unrealized_claim(clause)
+                or not contains_text_term(clause, term)):
+            continue
+        personal = bool(re.match(r"(?:i\s+(?:have|am|was|work|worked)|my\s+(?:professional\s+|work\s+)?(?:experience|background))\b", clause))
+        fragment = bool(re.fullmatch(re.escape(term) + r"\s+(?:work\s+)?experience", clause))
+        if ((personal or fragment) and contains_affirmative_qualification_term(clause, term)):
+            return True
+        if re.fullmatch(r"i\s+(?:work|worked)\s+in\s+" + re.escape(term), clause):
+            return True
+    return False
 
 
 def contains_self_reported_skill_list(text: str, term: str) -> bool:

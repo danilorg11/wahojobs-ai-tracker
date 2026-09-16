@@ -7,13 +7,12 @@ import base64
 import hashlib
 import html
 import json
-import re
 
 from wahojobs.profiles.review_entries import (
     EDUCATION_EDITOR_SCRIPT, education_editor, employment_editor, unpaired_education,
 )
 from wahojobs.profiles.canonical import EDUCATION_COMPLETION_STATUSES
-from wahojobs.profiles import item_experience_editor
+from wahojobs.profiles import item_experience_editor, domain_duration_editor
 
 
 def esc(value):
@@ -21,18 +20,25 @@ def esc(value):
 
 
 def _chips(name, values, label):
-    # Reuse the candidate intake's editable skill chips, not its intake state.
-    from wahojobs.profile_intake.browser import _render_review_collection_item
+    # Correction rows use the existing CSV authority, with their own controls.
+    # Intake controls have a different removal/autosave lifecycle.
+    singular = {'job_titles': 'Role', 'specialties': 'Activity', 'skills': 'Skill',
+        'software_tools': 'Software or tool', 'degrees': 'Qualification',
+        'education_fields': 'Study topic', 'institutions': 'School',
+        'technical_skills': 'Technical skill', 'writing_research_skills': 'Writing or research skill',
+        'administrative_support_skills': 'Administration or support skill',
+        'domain_specific_skills': 'Specialist skill'}[name]
     def item(value, index):
-        result = _render_review_collection_item("skills", {"kind": "text"}, index,
-            {"value": value, "decision": "keep"})
-        result = re.sub(r"\sname='[^']*'", "", result)
-        result = result.replace("review-collection-skills-", f"correction-{name}-")
-        return result.replace(" required", "").replace("maxlength='512'", "")
+        return ("<div class='correction-item' data-collection-item>"
+            "<div class='correction-item-main'><label class='review-field'>"
+            f"<span>{esc(singular)}</span><input value='{esc(value)}'></label>"
+            "<input type='checkbox' data-collection-remove hidden>"
+            f"<button type='button' class='button-quiet' data-collection-remove-action aria-label='Remove {esc(singular.lower())}'>Remove</button>"
+            "</div></div>")
     return (f"<div class='review-collection skills-collection' id='{esc(name)}' tabindex='-1' data-chips='{esc(name)}'>"
             f"<h3>{esc(label)}</h3><div data-chip-items class='expertise-compact-list'>"
             + "".join(item(v, i) for i, v in enumerate(values)) + "</div>"
-            f"<button type='button' class='button-quiet' data-add-chip>Add {esc(label.lower())}</button>"
+            f"<button type='button' class='button-quiet' data-add-chip>Add {esc(singular.lower())}</button>"
             f"<template>{item('', 'new')}</template></div>")
 
 
@@ -114,18 +120,26 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
             + select(f'language_proficiency_{i}', 'Proficiency', support.LANGUAGE_PROFICIENCIES) + "</div>"
             + "<details><summary>Language variety (optional)</summary><p>For example, Brazilian Portuguese.</p>"
             + text(f'language_locale_{i}', 'Variety or region') + "</details>")
-        if not fields.get(f'language_{i}'):
-            content = "<details class='extra-language'><summary>Add a language</summary>" + content + "</details>"
-        language_rows.append("<div class='candidate-language'>" + content + "</div>")
-    languages = section('languages', 'Languages', ', '.join(
-        f"{v.get('language', '')} ({support.profile_review_option_label(v.get('proficiency', 'unspecified'))})"
-        for v in canonical.get('languages', [])), ''.join(language_rows), opened=focus == 'languages')
+        language_rows.append(f"<div class='candidate-language' data-language-row{' hidden' if not fields.get(f'language_{i}') else ''}>" + content
+            + "<button type='button' class='button-quiet' data-remove-language>Remove language</button></div>")
+    language_summary = ', '.join(
+        f"{fields[f'language_{i}']} ({support.profile_review_option_label(fields[f'language_proficiency_{i}'])})"
+        + (f" — {fields[f'language_locale_{i}']}" if fields.get(f'language_locale_{i}') else '')
+        for i in range(support.profile_review_language_slots(canonical)) if fields.get(f'language_{i}'))
+    languages = section('languages', 'Languages', language_summary, ''.join(language_rows)
+        + "<div data-language-undo></div><button type='button' class='button-quiet' data-add-language>Add a language</button>"
+        + "<p data-language-limit hidden>All language fields are in use. Remove an entry to add another.</p>", opened=focus == 'languages')
     experience = canonical.get('experience', {})
+    domain_years = experience.get('years_by_domain', {})
+    if isinstance(domain_years, list):
+        domain_years = {item['domain']: item['years'] for item in domain_years}
+    domain_duration = domain_duration_editor.render(domain_years, fields.get('domain_years_review', ''))
     rendered.add('recent_roles')
     roles = json.loads(fields['recent_roles'])
     employment = section('experience', 'Experience', ' · '.join(experience.get('job_titles', [])),
         chips('job_titles', experience.get('job_titles'), 'Roles') + employment_editor(roles)
         + chips('specialties', experience.get('specialties'), 'Activities')
+        + domain_duration
         + "<details><summary>Experience length (optional)</summary>" + text('total_years', 'Total years of work experience')
         + check('no_experience', 'I have no prior work experience') + "<p>Total career years do not establish years in a particular profession.</p></details>", opened=focus == 'experience')
     rendered.add('education_entries')
@@ -205,6 +219,8 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
                     'experience': 'job_titles', 'preferences': 'availability', 'location': 'country'}.get(focus, '')
     return (f"<form method='post' action='{esc(action)}' class='profile-review-form candidate-correction' id='profile-review-form' data-focus='{focus_target}'>"
         + hidden + feedback + ("<p>Add the details you want to use for matching. Optional details can stay blank.</p>" if manual_draft else "<p>Edit any section that needs a correction. Optional details can stay blank.</p>")
+        + ("<p class='field-help'>Changes are saved to an unconfirmed draft while you edit. Done editing closes a section. Review changes checks the complete profile before confirmation.</p>" if manual_draft else "<p class='field-help'>Done editing closes a section. Use Review changes to save your draft, then confirm the complete profile on the next screen.</p>")
+        + "<p data-local-edit-status role='status' aria-live='polite'></p>"
         + "<a class='primary-link' href='#review-actions'>Continue to review</a>"
         + location + languages + employment + education_section + skill_section + preferences + optional
         + "<div class='review-checks'>" + support.review_checkbox('credentials_confirmed',
@@ -234,10 +250,13 @@ EDITOR_STYLE = """
 .candidate-correction button,.candidate-correction a,.candidate-correction summary {min-height:44px;}
 .candidate-correction :focus-visible {outline:3px solid #6fa68f;outline-offset:3px;}
 .candidate-correction .skills-collection {border:0;padding:0;margin:16px 0;}
-.candidate-correction .expertise-compact-list {display:flex;flex-wrap:wrap;gap:8px;}
-.candidate-correction .expertise-compact-row {margin:0;max-width:100%;}
-.candidate-correction .compact-row-main {display:flex;align-items:center;border:1px solid #c8d4cf;border-radius:14px;padding:4px 8px;max-width:100%;}
-.candidate-correction .compact-expertise-value input {max-width:calc(100vw - 150px);}
+.candidate-correction [hidden] {display:none!important;}
+.candidate-correction .expertise-compact-list {display:grid;gap:12px;}
+.candidate-correction .correction-item {border:1px solid #dce2df;border-radius:8px;padding:12px;}
+.candidate-correction .correction-item-main {display:flex;align-items:flex-end;gap:12px;}
+.candidate-correction .correction-item-main .review-field {flex:1;margin:0;}
+.candidate-correction .correction-item-main input {width:100%;box-sizing:border-box;}
+.candidate-correction [data-undo-item],.candidate-correction [data-undo-language] {margin:8px 0;}
 .candidate-correction [data-education-entry] {border:1px solid #dce2df;border-radius:8px;margin:8px 0;padding:0 12px;}
 .candidate-correction [data-education-entry] > summary {display:block;overflow-wrap:anywhere;line-height:1.5;cursor:pointer;}
 .candidate-correction [data-study-group] {margin:16px 0;}
@@ -245,10 +264,10 @@ EDITOR_STYLE = """
 .candidate-correction [data-employment-entry] {margin:12px 0;}
 .candidate-correction .candidate-language {border-bottom:1px solid #e8ecea;padding:10px 0;}
 .candidate-correction #correction-error {padding:14px;border:1px solid #ad5145;margin:12px 0;}
-@media(max-width:700px){.candidate-correction{padding:16px;}.candidate-correction .review-grid{grid-template-columns:1fr;}.candidate-section-body{padding:0 12px 12px;}.candidate-correction .review-actions{gap:16px;}.candidate-correction .review-actions button{width:100%;}}
+@media(max-width:700px){.candidate-correction{padding:16px;}.candidate-correction .review-grid{grid-template-columns:1fr;}.candidate-section-body{padding:0 12px 12px;}.candidate-correction .review-actions{gap:16px;}.candidate-correction .review-actions button{width:100%;}.candidate-correction .correction-item-main{flex-wrap:wrap;}.candidate-correction .correction-item-main .review-field{flex-basis:100%;}}
 """
 
-EDITOR_SCRIPT = EDUCATION_EDITOR_SCRIPT + item_experience_editor.SCRIPT + """
+EDITOR_SCRIPT = EDUCATION_EDITOR_SCRIPT + item_experience_editor.SCRIPT + domain_duration_editor.SCRIPT + """
 (function(){'use strict';var form=document.querySelector('.candidate-correction');if(!form)return;
 var originalFields=JSON.stringify(Array.from(new FormData(form).entries())),submitting=false;
 function dirty(){return JSON.stringify(Array.from(new FormData(form).entries()))!==originalFields;}
@@ -257,12 +276,33 @@ window.addEventListener('beforeunload',function(event){if(!form.hasAttribute('da
 form.querySelectorAll('[data-chips]').forEach(function(group){
  var hidden=form.querySelector('[name="'+group.dataset.chips+'"]'),items=group.querySelector('[data-chip-items]');
  function sync(){hidden.value=Array.from(items.querySelectorAll('[data-collection-item]')).filter(function(item){return !item.querySelector('[data-collection-remove]').checked;}).map(function(item){return item.querySelector('input:not([type=checkbox])').value.trim();}).filter(Boolean).join(', ');}
- group.addEventListener('input',sync);group.addEventListener('change',function(e){if(e.target.matches('[data-collection-remove]')){e.target.closest('[data-collection-item]').hidden=true;}sync();});
- group.querySelector('[data-add-chip]').addEventListener('click',function(){var next=group.querySelector('template').content.cloneNode(true);next.querySelectorAll('[id]').forEach(function(el){el.removeAttribute('id');});items.appendChild(next);items.lastElementChild.querySelector('input').focus();});
+ group.addEventListener('input',sync);group.addEventListener('change',function(e){if(e.target.matches('[data-collection-remove]'))e.target.closest('[data-collection-item]').hidden=e.target.checked;sync();});
+ group.addEventListener('click',function(e){var button=e.target.closest('[data-collection-remove-action]');if(!button)return;var item=button.closest('[data-collection-item]'),removed=item.querySelector('[data-collection-remove]'),input=item.querySelector('input:not([type=checkbox])');removed.checked=true;removed.dispatchEvent(new Event('change',{bubbles:true}));var undo=document.createElement('button');undo.type='button';undo.className='button-quiet';undo.dataset.undoItem='';undo.textContent='Undo removal: '+(input.value.trim()||input.closest('label').textContent.trim());item.after(undo);undo.addEventListener('click',function(){removed.checked=false;removed.dispatchEvent(new Event('change',{bubbles:true}));undo.remove();input.focus();});undo.focus();});
+ group.querySelector('[data-add-chip]').addEventListener('click',function(){var empty=Array.from(items.querySelectorAll('[data-collection-item]')).find(function(item){return !item.hidden&&!item.querySelector('input:not([type=checkbox])').value.trim();});if(empty){empty.querySelector('input:not([type=checkbox])').focus();return;}var next=group.querySelector('template').content.cloneNode(true);items.appendChild(next);items.lastElementChild.querySelector('input:not([type=checkbox])').focus();});
 });
 form.querySelectorAll('[data-choices]').forEach(function(group){group.addEventListener('change',function(){form.querySelector('[name="'+group.dataset.choices+'"]').value=Array.from(group.querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', ');});});
-form.querySelectorAll('[data-section-done]').forEach(function(button){button.addEventListener('click',function(){var section=button.closest('.candidate-section'),names={location:['city','region','country'],experience:['job_titles'],skills:['skills','software_tools'],preferences:['availability','synchronous_preference']},id=section.id.replace('section-','');if(names[id]){section.querySelector('[data-section-summary]').textContent=names[id].map(function(n){return form.querySelector('[name="'+n+'"]').value;}).filter(function(v){return v&&v!=='unknown';}).join(' · ')||'Not specified';}section.open=false;section.querySelector('summary').focus();});});
-function reveal(input){for(var p=input.parentElement;p&&p!==form;p=p.parentElement){if(p.tagName==='DETAILS')p.open=true;}input.scrollIntoView({block:'center'});input.focus();}
+var languageRows=Array.from(form.querySelectorAll('[data-language-row]')),addLanguage=form.querySelector('[data-add-language]');
+function languageControls(row){return Array.from(row.querySelectorAll('input,select'));}
+function languageCapacity(){var full=languageRows.every(function(row){return !row.hidden;});addLanguage.disabled=full;form.querySelector('[data-language-limit]').hidden=!full;}
+languageRows.forEach(function(row){row.querySelector('[data-remove-language]').addEventListener('click',function(){var controls=languageControls(row),previous=controls.map(function(c){return c.value;});controls.forEach(function(c){c.value=c.tagName==='SELECT'?'unspecified':'';});row.hidden=true;var undo=document.createElement('button');undo.type='button';undo.className='button-quiet';undo.dataset.undoLanguage='';undo.textContent='Undo removal: '+(previous[0]||'language');row._undo=undo;form.querySelector('[data-language-undo]').appendChild(undo);undo.addEventListener('click',function(){controls.forEach(function(c,i){c.value=previous[i];});row.hidden=false;row._undo=null;undo.remove();languageCapacity();controls[0].dispatchEvent(new Event('input',{bubbles:true}));controls[0].focus();});languageCapacity();controls[0].dispatchEvent(new Event('input',{bubbles:true}));undo.focus();});});
+addLanguage.addEventListener('click',function(){var empty=languageRows.find(function(row){return !row.hidden&&!languageControls(row)[0].value.trim();});var row=empty||languageRows.find(function(r){return r.hidden&&!r._undo;})||languageRows.find(function(r){return r.hidden;});if(!row)return;if(row._undo){row._undo.remove();row._undo=null;}row.hidden=false;languageCapacity();languageControls(row)[0].focus();});languageCapacity();
+function value(name){var c=form.querySelector('[name="'+name+'"]');return c?c.value.trim():'';}
+function meaningful(v){return v&&['unknown','unspecified','not_specified'].indexOf(v)===-1;}
+function option(name){var c=form.querySelector('[name="'+name+'"]');return c&&meaningful(c.value)?c.selectedOptions[0].textContent:'';}
+function jsonValues(name){try{return JSON.parse(value(name)||'[]');}catch(e){return [];}}
+function summarize(section){var id=section.id.replace('section-',''),parts=[];
+ if(id==='languages')parts=languageRows.map(function(row){var c=languageControls(row);return c[0].value.trim()?c[0].value.trim()+' ('+c[1].selectedOptions[0].textContent+')'+(c[2].value.trim()?' — '+c[2].value.trim():''):'';});
+ else if(id==='location')parts=['city','region','country'].map(value);
+ else if(id==='experience'){parts=['job_titles','specialties'].map(value).concat(jsonValues('recent_roles'));if(value('total_years'))parts.push('Total career experience: '+value('total_years')+' years');section.querySelectorAll('[data-domain-duration-row]').forEach(function(row){if(!row.hidden)parts.push('Experience in '+row.dataset.domain+': '+(row.querySelector('input').value.trim()||'needs review')+' years');});}
+ else if(id==='skills'){var seenSkills=new Set();Array.from(section.querySelectorAll('[data-chips]')).forEach(function(g){value(g.dataset.chips).split(',').forEach(function(v){v=v.trim();var key=v.toLocaleLowerCase();if(v&&!seenSkills.has(key)){seenSkills.add(key);parts.push(v);}});});}
+ else if(id==='education'){parts=jsonValues('education_entries').map(function(e){return [e.qualification,e.field,e.institution,e.completion_year,e.status&&e.status!=='unknown'?e.status.replaceAll('_',' '):''].filter(Boolean).join(', ');});parts=parts.concat(['degrees','education_fields','institutions'].map(value),[option('education_level'),option('education_status')]);if(form.querySelector('[name=no_degree]').checked)parts.push('No university degree');}
+ else if(id==='preferences'){if(form.querySelector('[name=beta_preferences_present]')){section.querySelectorAll('fieldset').forEach(function(g){var selected=Array.from(g.querySelectorAll('input:checked')).map(function(c){return c.closest('label').textContent.trim();});if(selected.length)parts.push(g.querySelector('legend').textContent+': '+selected.join(', '));});section.querySelectorAll('.pay-expectation').forEach(function(g){var c=Array.from(g.querySelectorAll('input,select'));if(c[1].value||c[2].value)parts.push(c[0].selectedOptions[0].textContent+': '+c[2].value+' '+c[1].value+' '+c[3].selectedOptions[0].textContent.toLowerCase());});}else{parts=['availability','synchronous_preference','phone_preference'].map(option).concat(['schedule','employment_types','target_opportunity_types'].map(value));if(form.querySelector('[name=flexible]').checked)parts.push('Flexible hours preferred');}if(value('remote')==='1')parts.push('Remote work preferred');}
+ else if(id==='optional'){section.querySelectorAll('input:not([type=checkbox]),textarea,select').forEach(function(c){if(meaningful(c.value))parts.push(c.closest('label').querySelector('span').textContent+': '+(c.tagName==='SELECT'?c.selectedOptions[0].textContent:c.value));});}
+ section.querySelector('[data-section-summary]').textContent=parts.filter(meaningful).join(' · ')||'Not specified';}
+function refresh(){form.querySelectorAll('.candidate-section').forEach(summarize);form.querySelector('[data-local-edit-status]').textContent=!form.hasAttribute('data-manual-draft')&&dirty()?'Edits on this page are not saved yet. Review changes to save the draft.':'';}
+form.addEventListener('input',refresh);form.addEventListener('change',refresh);form.addEventListener('profile-editor-change',refresh);refresh();
+form.querySelectorAll('[data-section-done]').forEach(function(button){button.addEventListener('click',function(){var section=button.closest('.candidate-section');refresh();section.open=false;section.querySelector('summary').focus();});});
+function reveal(input){for(var p=input.parentElement;p&&p!==form;p=p.parentElement){if(p.tagName==='DETAILS')p.open=true;if(p.hasAttribute('data-language-row'))p.hidden=false;}languageCapacity();input.scrollIntoView({block:'center'});input.focus();}
 var reporting=false;form.addEventListener('invalid',function(e){if(reporting)return;e.preventDefault();reveal(e.target);reporting=true;e.target.reportValidity();reporting=false;},true);
 form.querySelectorAll('a[href^="#"]').forEach(function(link){link.addEventListener('click',function(e){var target=document.getElementById(link.hash.slice(1));if(target){e.preventDefault();reveal(target);}});});
 var error=form.querySelector('[aria-invalid=true]');if(!error&&form.querySelector('#correction-error a'))error=document.getElementById(form.querySelector('#correction-error a').hash.slice(1));if(error)reveal(error);else if(form.dataset.focus){var target=document.getElementById(form.dataset.focus);if(target)reveal(target.querySelector('input:not([type=checkbox]),button')||target);}
@@ -272,11 +312,24 @@ window.addEventListener('pageshow',function(){submitting=false;form.querySelecto
 EDITOR_SHA256 = base64.b64encode(hashlib.sha256(EDITOR_SCRIPT.encode()).digest()).decode()
 
 
-def actionable_issue(support, updates):
+def actionable_issue(support, updates, canonical=None):
     """Feedback only; use the same validators as canonical persistence."""
     from wahojobs.profiles.canonical_v2 import _validate_string_list, MAX_DYNAMIC_LABEL_LENGTH
     from wahojobs.profiles.countries import normalize_country
     from wahojobs.profiles.item_experience import read_items
+    if updates.get('domain_years_review'):
+        try:
+            if canonical is not None:
+                domain_duration_editor.reviewed(updates['domain_years_review'],
+                    canonical.get('experience', {}).get('years_by_domain') or {})
+            else:
+                duration_rows = json.loads(updates['domain_years_review'])['entries']
+                for row in duration_rows:
+                    value = row['years']
+                    if type(value) is not str or not value or not 0 <= float(value) <= 80:
+                        raise ValueError
+        except (ValueError, TypeError, KeyError):
+            return ('domain-duration-editor', 'Review the years for each field. Enter a whole number from 0 to 80, or use Remove duration if the value is unknown. Blank values are not saved as zero.')
     try:
         read_items(updates.get('item_experience', ''))
     except (ValueError, TypeError, KeyError):
@@ -365,6 +418,8 @@ def summary_sections(canonical):
     study_details = [*studies, *unpaired.get('degrees', []), *unpaired.get('fields_or_domains', []), *unpaired.get('institutions', [])]
     if education.get('education_level') not in (None, '', 'unknown', 'not_specified'):
         study_details.append('Education level: ' + education['education_level'].replace('_', ' '))
+    if education.get('completion_status') not in (None, '', 'unknown', 'not_specified'):
+        study_details.append('Study status: ' + education['completion_status'].replace('_', ' '))
     return ''.join((
         section('Location', [', '.join(location[k] for k in ('city', 'region', 'country') if location.get(k))]),
         section('Languages', [f"{v['language']}" + (f" ({v['locale']})" if v.get('locale') else '') + f" — {str(v.get('proficiency') or 'Not specified').replace('_', ' ')}" for v in canonical.get('languages', [])]),

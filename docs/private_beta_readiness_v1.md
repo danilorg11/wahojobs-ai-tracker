@@ -2,6 +2,74 @@
 
 ## One maintained execution plan
 
+### Owner acceptance corrective cycle — implementation frozen for validation
+
+Owner acceptance of delivered `fa0b57ea22bbd0f0923e308a9a15faa275c09d74`
+(`f79c47251153cb9533f29cee4aee9b282072b261`) is pending. The same release
+candidate now includes correction of narrative fact loss, section editing and
+repeated fields, and attribution of the empty Matches outcome. This supersedes
+the earlier next-action/completion prose below, which remains historical context.
+
+1. Preserve the populated synthetic 8861 session, logs and exact delivered source;
+   keep historical observations separate from new reproductions. **Done:** live
+   read-only backups, verified PID6204, ordinary login probe, normal stop, complete
+   cold byte copy; original storage retained. Main remains bb8b41b, untouched.
+2. Reproduce the exact supplied narrative using served JavaScript, native FormData
+   and normal synthetic invitation/login. Trace local edit → saved draft → review →
+   confirmation → later return → actual matching projection. Lead owns integration.
+3. Fix conservative explicit fact extraction/provenance (matching agent) and
+   coherent accessible repeated-field editing/summary (experience agent); retain
+   scoped duration, missing versus negative evidence and confirmation boundaries.
+4. Explain historical empty Matches using preserved inputs and declared clock;
+   compare before/after on identical intact inventory. Independent operations
+   reviewer owns attribution and evidence review. No forced admission/ranking.
+5. Add regressions for the complete failure chain, independently review/fix, then
+   freeze source and run all1882 established IDs plus additions. Prior receipts
+   remain historical and cannot cover this corrective tree.
+6. Leave a fresh, unconfirmed acceptance scenario on8861 through normal product
+   flow, preserving the failed session separately. Verify source/assets/process,
+   publish one consolidated corrective closure and separate real-participant gates.
+
+Current preserved evidence already establishes manual Native/Fluent choices did
+persist in the owner's sole confirmed synthetic revision. The stale Done summary
+and initial language extraction are separate defects. Experience and several
+explicit facts were lost; no historical HTTP body recording exists, so new runs
+must establish the precise client sequence without inventing historical payloads.
+Detailed active handles, test receipts, risks and executable next actions remain
+in the same evidence/RUN-STATE.md and INDEX.md.
+
+Corrective implementation and independent targeted re-review are complete.
+The four ordinary served-client HTTPS journeys passed against unchanged source
+(corrective-owner-integrated-2): narrative, manual language edits and later return,
+repeated-field Add/Remove/Undo including autosave, validation/stale recovery, and
+post-confirmation scoped-duration correction/removal. Nineteen focused editor/
+checkpoint tests,47 narrative/normalizer tests and129 matching/snapshot tests also
+passed. Independent reviewers closed all raised findings; their detailed scope
+and receipts remain in the single evidence bundle.
+
+The original confirmed profile already held Native Portuguese/Fluent English;
+Done editing displayed a stale summary. Initial extraction separately lost
+proficiencies, activities and other facts. The corrected path carries explicit
+facts through draft, final review, confirmation and normal matching projection.
+Scoped support duration remains distinct from total career and Python practice.
+Names and profile identifiers no longer contribute qualification evidence.
+
+Comparable fixed-clock runs retain all16 source fixtures and produce zero selected
+matches before and after. Actual support evidence now reaches matching, but the
+existing affirmative-task/section policy does not admit these transferable
+non-AI activities as AI professional evidence. Unexecuted qualification/preference
+comparisons are not reported as rejections. No admission policy or source history
+was changed to force a recommendation.
+
+Next executable actions: commit this frozen source; run the2016-ID selection
+(all1882 prior IDs, required636 and134 additions/affected IDs) sequentially with
+exact source hashes; inspect final recorded desktop/mobile pages; prepare a fresh
+unconfirmed8861 rehearsal without resetting preserved beta-demo-v1; verify its
+process, loaded source and login; reconcile all receipts and publish closure.
+Native browser HTTPS automation remains certificate-policy blocked. Verified-TLS
+served-JavaScript/FormData/HTTP tests and recorded-page visual inspection are
+separate evidence, never a claim of native browser end-to-end acceptance.
+
 Outcome: an understandable, safe invitation-only candidate product, operationally
 prepared for 5–20 users, with one synthetic local rehearsal and separate real-use
 activation gates. English candidate copy; brand Wahojobs. No framework migration.

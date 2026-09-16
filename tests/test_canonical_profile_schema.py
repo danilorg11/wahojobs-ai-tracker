@@ -463,7 +463,13 @@ class CanonicalProfileSchemaTests(unittest.TestCase):
     def test_canonical_round_trip_preserves_human_reviewed_benchmark_predictions(self):
         fixture = benchmark.load_fixture()
         profiles = benchmark.load_benchmark_profiles(fixture)
-        rows = benchmark.load_benchmark_db_rows()
+        # Pinned inputs, including accepted employer details, are the authority
+        # for these human-reviewed cases rather than a mutable developer DB.
+        for case in fixture['cases']:
+            if case.get('label_source') == 'human_reviewed':
+                self.assertIsNotNone(case.get('matcher_input_snapshot'))
+                benchmark.validate_matcher_input_snapshot(case)
+        rows = []
         original_items = []
         round_trip_items = []
 

@@ -17,7 +17,7 @@ def dialog():
         "<input data-item-months type='number' min='0' max='960' step='1' inputmode='numeric' aria-describedby='item-duration-note' disabled></label>"
         "<p id='item-duration-note'>For this item only, not your total career. Leave blank if unknown; use 0 for less than a month.</p>"
         "<p data-item-error role='alert' hidden></p><div class='item-dialog-actions'>"
-        "<button type='button' data-item-save>Save details to draft</button>"
+        "<button type='button' data-item-save>Use these details</button>"
         "<button type='button' class='button-quiet' data-item-cancel>Cancel</button>"
         "<button type='button' class='button-quiet' data-item-clear>Clear experience details</button>"
         "</div></dialog>")
@@ -53,12 +53,12 @@ function attach(item,field){if(item._experienceReady)return;item._experienceRead
 }
 form.querySelectorAll('[data-chips]').forEach(function(group){var field=group.dataset.chips;if(fields.indexOf(field)===-1)return;
  group.querySelectorAll('[data-chip-items] [data-collection-item]').forEach(function(item){attach(item,field);});
- group.addEventListener('change',function(e){if(!e.target.matches('[data-collection-remove]'))return;var item=e.target.closest('[data-collection-item]');if(e.target.checked){var undo=document.createElement('button');undo.type='button';undo.className='button-quiet';undo.dataset.undoItem='';undo.textContent='Undo removal: '+label(item);group.appendChild(undo);undo.addEventListener('click',function(){e.target.checked=false;item.hidden=false;item.removeAttribute('aria-hidden');e.target.dispatchEvent(new Event('input',{bubbles:true}));sync();undo.remove();item.querySelector('input').focus();});}sync();});
+ group.addEventListener('change',function(e){if(e.target.matches('[data-collection-remove]'))sync();});
  group.querySelector('[data-add-chip]').addEventListener('click',function(){setTimeout(function(){group.querySelectorAll('[data-chip-items] [data-collection-item]').forEach(function(item){attach(item,field);});},0);});
 });
 dialog.querySelector('[data-item-cancel]').addEventListener('click',close);
-dialog.querySelector('[data-item-clear]').addEventListener('click',function(){current._experience=null;sync();describe(current);close();});
-dialog.querySelector('[data-item-save]').addEventListener('click',function(){var input=dialog.querySelector('[data-item-months]');if(!input.checkValidity()){input.reportValidity();return;}var contexts=Array.from(dialog.querySelectorAll('[data-item-context]:checked')).map(function(i){return i.value;}).sort(),autonomy=dialog.querySelector('[data-item-autonomy]').value,months=input.value===''?null:Number(input.value);var bytes=new Uint8Array(16);crypto.getRandomValues(bytes);var id=current._experience?current._experience.item_id:Array.from(bytes).map(function(n){return n.toString(16).padStart(2,'0');}).join('');current._experience=(contexts.length||autonomy!=='unknown'||months!==null)?{item_id:id,field:current.closest('[data-chips]').dataset.chips,label:label(current),contexts:contexts,autonomy:autonomy,months:months,basis:'self_reported'}:null;sync();describe(current);close();});
+dialog.querySelector('[data-item-clear]').addEventListener('click',function(){current._experience=null;sync();describe(current);hidden.dispatchEvent(new Event('input',{bubbles:true}));close();});
+dialog.querySelector('[data-item-save]').addEventListener('click',function(){var input=dialog.querySelector('[data-item-months]');if(!input.checkValidity()){input.reportValidity();return;}var contexts=Array.from(dialog.querySelectorAll('[data-item-context]:checked')).map(function(i){return i.value;}).sort(),autonomy=dialog.querySelector('[data-item-autonomy]').value,months=input.value===''?null:Number(input.value);var bytes=new Uint8Array(16);crypto.getRandomValues(bytes);var id=current._experience?current._experience.item_id:Array.from(bytes).map(function(n){return n.toString(16).padStart(2,'0');}).join('');current._experience=(contexts.length||autonomy!=='unknown'||months!==null)?{item_id:id,field:current.closest('[data-chips]').dataset.chips,label:label(current),contexts:contexts,autonomy:autonomy,months:months,basis:'self_reported'}:null;sync();describe(current);hidden.dispatchEvent(new Event('input',{bubbles:true}));close();});
 dialog.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.tagName!=='BUTTON')e.preventDefault();});
 dialog.addEventListener('close',function(){dialog.querySelector('[data-item-months]').disabled=true;if(opener)opener.focus();});
 sync();

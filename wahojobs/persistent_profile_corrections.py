@@ -89,6 +89,7 @@ _CORRECTION_UPDATE_FIELDS = frozenset(
         "education_fields",
         "education_entries",
         "item_experience",
+        "domain_years_review",
         "recent_roles",
         "education_level",
         "education_status",
@@ -949,8 +950,12 @@ class PersistentProfileCorrectionService:
         reviewed = IdentityFreeCanonicalProfileV1.from_mapping(payload['reviewed'])
         retained_updates = dict(payload['updates'])
         retained_updates.setdefault('item_experience', '')  # Pre-extension drafts stay resumable.
+        expected_updates = _complete_updates_for_review(reviewed)
+        # Only an absent older control is upgraded from the validated reviewed
+        # profile. Supplied values still need exact agreement with that profile.
+        retained_updates.setdefault('domain_years_review', expected_updates['domain_years_review'])
         if (reviewed.canonical_bytes != IdentityFreeCanonicalProfileV1.from_mapping(project_v2_to_review_v1(proposed)).canonical_bytes
-                or retained_updates != _complete_updates_for_review(reviewed)):
+                or retained_updates != expected_updates):
             raise ValueError('correction_checkpoint_unavailable')
         base = hashlib.sha256(canonical_profile_v2_json_bytes(grant.trusted_base_profile_v2())).hexdigest()
         if revision != grant.base_revision_id or base_hash != base:

@@ -840,17 +840,17 @@ class PersistentProfileBrowserIntegration:
         except self._review_support.ActionError as exc:
             if exc.status == HTTPStatus.BAD_REQUEST and updates is not None:
                 from wahojobs.profiles.correction_editor import actionable_issue
-                return self._correction_editor_response(run, csrf_secret, submitted=form, issue=actionable_issue(self._review_support, updates))
+                return self._correction_editor_response(run, csrf_secret, submitted=form, issue=actionable_issue(self._review_support, updates, run.canonical_profile))
             return _correction_failure_response(_bounded_correction_status(exc.status))
         except ValueError:
             if updates is not None:
                 from wahojobs.profiles.correction_editor import actionable_issue
-                return self._correction_editor_response(run, csrf_secret, submitted=form, issue=actionable_issue(self._review_support, updates))
+                return self._correction_editor_response(run, csrf_secret, submitted=form, issue=actionable_issue(self._review_support, updates, run.canonical_profile))
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)
         except Exception:
             if updates is not None:
                 from wahojobs.profiles.correction_editor import actionable_issue
-                issue = actionable_issue(self._review_support, updates)
+                issue = actionable_issue(self._review_support, updates, run.canonical_profile)
                 if issue[0] != 'review-actions':
                     return self._correction_editor_response(run, csrf_secret, submitted=form, issue=issue)
             return _correction_failure_response(HTTPStatus.BAD_REQUEST)

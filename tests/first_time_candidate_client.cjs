@@ -193,6 +193,131 @@ async function importJourney(fixture) {
   await navigate('/account/profile');assert.match(document().body.textContent,/Reviewed Synthetic Candidate/);
 }
 async function settle(){const deadline=Date.now()+15000;do{await new Promise(r=>setTimeout(r,30));assert.ok(Date.now()<deadline);}while(pending);}
+function formFacts(){
+  const f=document().querySelector('#profile-review-form');
+  return f?Object.fromEntries(new dom.window.FormData(f)):null;
+}
+async function ownerCheckpoint(label){
+  const o=await checkpoint(label);o.form=formFacts();
+  o.summaries=Object.fromEntries([...document().querySelectorAll('.candidate-section')].map(s=>[s.id,s.querySelector('[data-section-summary]')?.textContent]));
+  o.pageText=document().body.textContent.replace(/\s+/g,' ').trim();
+  // Clone only for visual evidence, reflecting properties changed by real events.
+  // This does not alter the live document or create submitted values.
+  const copy=document().documentElement.cloneNode(true);
+  const live=[...document().querySelectorAll('input,select,textarea')];
+  copy.querySelectorAll('input,select,textarea').forEach((e,i)=>{
+    const value=live[i];
+    if(e.tagName==='SELECT')[...e.options].forEach((option,n)=>option.toggleAttribute('selected',value.options[n].selected));
+    else if(e.tagName==='TEXTAREA')e.textContent=value.value;
+    else {e.setAttribute('value',value.value);e.toggleAttribute('checked',value.checked);}
+  });
+  o.recordedDOM='<!doctype html>'+copy.outerHTML;return o;
+}
+async function ownerJourney(){
+  if(mode==='owner-return'){
+    await ownerCheckpoint('later-authenticated-profile');
+    await navigate('/find-matches');await ownerCheckpoint('later-authenticated-matches');return;
+  }
+  await navigate(localLink('/find-matches'));
+  const fixture=await rpc({kind:'fixture'});
+  set('input_text',fixture.background);
+  await submit('#find-matches-form');
+  await ownerCheckpoint('initial-narrative-draft');
+  const section=document().querySelector('#section-languages');section.open=true;
+  for(const input of section.querySelectorAll('input[name^="language_"]')){
+    if(!/^language_\d+$/.test(input.name))continue;
+    const select=document().querySelector('[name="language_proficiency_'+input.name.split('_')[1]+'"]');
+    if(input.value==='Portuguese')select.value='native';
+    if(input.value==='English')select.value='fluent';
+    select.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  }
+  section.querySelector('[data-section-done]').click();
+  await ownerCheckpoint('done-language-editing');
+  section.querySelector('summary').click();await ownerCheckpoint('reopened-language-editing');
+  // Current rendered fields and shipped autosave, never an idealized request body.
+  await saveDraft();await navigate(dom.window.location.pathname+dom.window.location.search);
+  await ownerCheckpoint('saved-draft-reloaded');
+  if(fixture.exercise_editors){
+    const original=formFacts();
+    const duration=document().querySelector('[data-domain-duration-row]');assert.ok(duration);
+    duration.closest('.candidate-section').open=true;
+    duration.querySelector('[data-remove-domain-duration]').click();await saveDraft();
+    document().querySelector('[data-undo-domain-duration]').click();await saveDraft();
+    assert.deepEqual(JSON.parse(formFacts().domain_years_review),JSON.parse(original.domain_years_review),'Undo restores the scoped duration after actual autosave');
+    for(const name of ['job_titles','specialties','skills']){
+      const group=document().querySelector('[data-chips="'+name+'"]');assert.ok(group);
+      group.closest('.candidate-section').open=true;
+      const before=group.querySelectorAll('[data-collection-item]').length;
+      group.querySelector('[data-add-chip]').click();group.querySelector('[data-add-chip]').click();
+      assert.equal(group.querySelectorAll('[data-collection-item]').length,before+1,'One progressive empty slot');
+      const row=[...group.querySelectorAll('[data-collection-item]')].at(-1);
+      const control=row.querySelector('input:not([type=checkbox])');
+      assert.equal(control.closest('label').querySelector('span').textContent,name==='job_titles'?'Role':name==='specialties'?'Activity':'Skill');
+      control.value='Temporary synthetic edit';control.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+      row.querySelector('[data-collection-remove-action]').click();
+      group.querySelector('[data-undo-item]').click();assert.equal(control.value,'Temporary synthetic edit');
+      row.querySelector('[data-collection-remove-action]').click();
+      assert.equal(formFacts()[name],original[name]);
+    }
+    const languages=document().querySelector('#section-languages');languages.open=true;
+    const add=languages.querySelector('[data-add-language]');assert.ok(add);
+    const count=[...languages.querySelectorAll('[data-language-row]')].filter(r=>!r.hidden).length;
+    add.click();add.click();assert.equal([...languages.querySelectorAll('[data-language-row]')].filter(r=>!r.hidden).length,count+1);
+    const extra=[...languages.querySelectorAll('[data-language-row]')].find(r=>!r.hidden&&!r.querySelector('input').value);
+    extra.querySelector('input').value='French';extra.querySelector('input').dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+    await saveDraft();await navigate(dom.window.location.pathname+dom.window.location.search);
+    await ownerCheckpoint('added-unspecified-language-saved');
+    const french=[...document().querySelectorAll('[data-language-row]')].find(r=>r.querySelector('input').value==='French');
+    french.querySelector('[data-remove-language]').click();
+    document().querySelector('[data-undo-language]').click();assert.equal(french.querySelector('input').value,'French');
+    french.querySelector('[data-remove-language]').click();
+    await saveDraft();await navigate(dom.window.location.pathname+dom.window.location.search);
+    await ownerCheckpoint('removed-rows-saved');
+    for(const name of ['job_titles','specialties','skills'])assert.equal(formFacts()[name],original[name]);
+  }
+  const stale=new dom.window.URLSearchParams(new dom.window.FormData(document().querySelector('#profile-review-form')));
+  set('city','Temporary synthetic draft value');await saveDraft();
+  // Trigger a validation error while retaining explicit choices in the real form.
+  set('country','This is not a country');document().querySelector('[name="credentials_confirmed"]').checked=true;
+  await submit('#profile-review-form',400);await ownerCheckpoint('validation-error-preserves-choices');
+  set('country','Brazil');await saveDraft();
+  stale.set('manual_action','save');stale.delete('credentials_confirmed');
+  const rejected=await transport('/find-matches',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json'},body:stale.toString()});
+  assert.equal(rejected.status,409,'Stale draft cannot replace explicit choices');
+  await navigate(dom.window.location.pathname+dom.window.location.search);
+  assert.equal(document().querySelector('[name="city"]').value,'Temporary synthetic draft value');
+  set('city','');await saveDraft();
+  await ownerCheckpoint('stale-recovery');
+  document().querySelector('[name="credentials_confirmed"]').checked=true;
+  await submit('#profile-review-form');await ownerCheckpoint('final-review-unconfirmed');
+  assert.equal((await rpc({kind:'state'})).profiles.length,0);
+  await submit('form[action="/account/profile"]');await ownerCheckpoint('confirmed-matches');
+  for(const [title,label] of [['Generalist','generalist'],['AI Content Evaluation with Python','python'],['French AI Content Evaluator','french']]){
+    await navigate('/jobs');
+    const link=[...document().querySelectorAll('a[href^="/job/"]')].find(a=>a.textContent.trim()===title);assert.ok(link,title);
+    await navigate(link.getAttribute('href'));await ownerCheckpoint(label+'-exact-detail');
+  }
+  await navigate('/account/profile');await ownerCheckpoint('confirmed-profile');
+  if(fixture.exercise_durations){
+    for(const action of ['change','remove']){
+      await navigate(localLink('/account/profile?correction=start'));await submit('form');
+      await navigate([...document().querySelectorAll('a')].find(a=>a.textContent==='Edit profile').getAttribute('href'));
+      const row=document().querySelector('[data-domain-duration-row]');assert.ok(row);
+      row.closest('.candidate-section').open=true;
+      if(action==='change'){
+        const input=row.querySelector('[data-domain-duration-value]');input.value='1';input.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+      }else row.querySelector('[data-remove-domain-duration]').click();
+      row.closest('.candidate-section').querySelector('[data-section-done]').click();
+      await ownerCheckpoint('duration-'+action+'-local');
+      document().querySelector('[name="credentials_confirmed"]').checked=true;
+      await submit('#profile-review-form');await ownerCheckpoint('duration-'+action+'-review');
+      document().querySelector('[name="confirmed"]').checked=true;await submit('form');
+      await ownerCheckpoint('duration-'+action+'-persisted');
+      await navigate('/find-matches');await ownerCheckpoint('duration-'+action+'-matches');
+      await navigate('/account/profile');
+    }
+  }
+}
 async function main() {
   const fixture=await rpc({kind:'fixture'});
   await navigate('/login?next=/account/profile');
@@ -200,6 +325,11 @@ async function main() {
   await submit('form[action="/auth/google/start"]');
   await navigate(localLink('/__fixture/google/complete'));
   const first=await checkpoint('account-entry');
+  if(mode==='owner-correction'||mode==='owner-return'){
+    await ownerJourney();
+    process.stdout.write(JSON.stringify({kind:'result',observations,requests,scriptHashes:[...scriptHashes],clientErrors})+'\n');
+    dom.window.close();return;
+  }
   if(mode==='candidate-return') {
     assert.equal(first.state.profiles.length,1);assert.equal(first.state.users.length,1);
     assert.match(document().body.textContent,/Salvador/);await navigate('/tracker');await navigate(localLink('/tracker/item?'));

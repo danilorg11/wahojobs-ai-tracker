@@ -104,6 +104,9 @@ def apply_reviewed_profile(canonical_profile, updates):
     )
 
     experience = canonical["experience"]
+    from wahojobs.profiles.domain_duration_editor import reviewed as reviewed_domain_durations
+    experience['years_by_domain'] = reviewed_domain_durations(
+        updates.get('domain_years_review'), experience.get('years_by_domain') or {})
     experience.update(
         {
             "total_years": optional_years(updates.get("total_years")),

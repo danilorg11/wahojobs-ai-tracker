@@ -17,7 +17,7 @@ BACKGROUND = ('I live in Brazil. I am a Python backend software engineer with 5 
 
 
 @contextmanager
-def new_candidate_state(*, port=None):
+def new_candidate_state(*, port=None, now=None):
     with temporary_browser_login_state(port=port or reserve_port(), seed_existing_identity=False,
             seed_existing_profile=False, enable_invited_provisioning=True,
             mutate_configuration=lambda d: d.update(environment='private_beta')) as state:
@@ -27,7 +27,7 @@ def new_candidate_state(*, port=None):
         from scripts.ai_profile_import_migration import apply_ai_profile_import_migration
         from scripts.resumable_ai_profile_intake_migration import apply_resumable_ai_profile_intake_migration
         from wahojobs import accounts
-        state.clock = ManualClock(datetime.now(timezone.utc).replace(microsecond=0))
+        state.clock = ManualClock(now or datetime.now(timezone.utc).replace(microsecond=0))
         now = state.clock()
         with closing(sqlite3.connect(state.database_path)) as connection:
             connection.execute('PRAGMA foreign_keys=ON')

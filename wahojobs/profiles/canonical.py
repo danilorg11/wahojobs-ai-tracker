@@ -466,7 +466,6 @@ def legacy_matcher_profile(canonical_profile):
 def canonical_profile_matcher_text(canonical_profile):
     """Return deterministic matching text composed only from affirmative evidence."""
     blocks = [
-        canonical_profile["identity"].get("display_name"),
         canonical_profile["location"].get("country"),
         canonical_profile["location"].get("region"),
         canonical_profile["location"].get("city"),

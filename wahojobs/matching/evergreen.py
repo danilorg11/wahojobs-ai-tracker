@@ -126,8 +126,6 @@ def _evergreen_profile_kind_cached(signature: tuple) -> str:
     text = normalize(
         " ".join(
             [
-                profile_id,
-                display_name,
                 summary,
                 education_level,
                 " ".join(degrees_or_domains),

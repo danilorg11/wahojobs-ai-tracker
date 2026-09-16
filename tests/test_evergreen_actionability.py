@@ -26,7 +26,6 @@ from wahojobs.classification import (
     OPPORTUNITY_KIND_LIVE_POSTING,
     SOURCE_TIER_CORE,
 )
-from wahojobs.db.connection import get_connection
 from wahojobs.matching.evergreen import EVERGREEN_REASON
 
 
@@ -118,13 +117,15 @@ sys.path.insert(2, str(root))
 
 import matching_quality_report as benchmark
 from product_demo_report import match_strength_from_score
-from wahojobs.db.connection import get_connection
 
 benchmark.FIXTURE_PATH = root / "tests" / "fixtures" / "matching_golden_set.json"
 fixture = benchmark.load_fixture()
 profiles = json.loads(profiles_path.read_text(encoding="utf-8"))
-with get_connection() as conn:
-    rows = [benchmark.row_to_dict(row) for row in benchmark.matcher.get_active_rows(conn)]
+cases = [case for case in fixture['cases'] if case.get('label_source') == 'human_reviewed']
+for case in cases:
+    assert case.get('matcher_input_snapshot') is not None
+    benchmark.validate_matcher_input_snapshot(case)
+rows = []
 
 result = {}
 for case in fixture["cases"]:
@@ -296,8 +297,13 @@ class EvergreenActionabilityTests(unittest.TestCase):
         committed = committed_human_reviewed_raw_predictions()
         fixture = benchmark.load_fixture()
         profiles = benchmark.load_benchmark_profiles(fixture)
-        with get_connection() as conn:
-            rows = [benchmark.row_to_dict(row) for row in benchmark.matcher.get_active_rows(conn)]
+        # Every human judgment is paired with its complete pinned input. Neither
+        # this source nor the independent HEAD source may read a mutable DB.
+        for case in fixture['cases']:
+            if case.get('label_source') == 'human_reviewed':
+                self.assertIsNotNone(case.get('matcher_input_snapshot'))
+                benchmark.validate_matcher_input_snapshot(case)
+        rows = []
 
         for case in fixture["cases"]:
             if case.get("label_source") != "human_reviewed":

@@ -2108,6 +2108,9 @@ def _identity_free_display_name(
     supplied = re.sub(r"\s+", " ", str(raw_input).strip())
     if not supplied:
         raise ValueError("Profile input is empty.")
+    declared_name = profile_normalizer.detect_declared_name(raw_input)
+    if declared_name:
+        return declared_name
     semantic_labels = unique_strings(
         list(experience.get("job_titles") or [])
         + list(experience.get("recent_roles") or [])
@@ -2130,7 +2133,6 @@ def _identity_free_display_name(
 
 def _identity_free_matcher_text(canonical):
     blocks = [
-        canonical["identity"].get("display_name"),
         canonical["location"].get("country"),
         canonical["location"].get("region"),
         canonical["location"].get("city"),
@@ -2388,6 +2390,9 @@ def apply_identity_free_profile_review(profile, updates):
     )
 
     experience = canonical["experience"]
+    from wahojobs.profiles.domain_duration_editor import reviewed as reviewed_domain_durations
+    experience['years_by_domain'] = reviewed_domain_durations(
+        updates.get('domain_years_review'), experience.get('years_by_domain') or {})
     experience.update(
         {
             "total_years": canonical_review.optional_years(updates.get("total_years")),
@@ -2924,22 +2929,34 @@ def confirm_profile_review(
                 pass
 
 
-def render_confirmed_profile_creation(offer):
+def render_confirmed_profile_creation(offer, *, reviewed_profile=None):
     if not _is_confirmed_profile_artifact_offer(offer):
         raise ValueError("invalid_confirmed_profile_creation")
     artifact = html.escape(offer.artifact_reference, quote=True)
     csrf = html.escape(offer.csrf_proof, quote=True)
+    from wahojobs.candidate_presentation import candidate_entry_style, candidate_navigation
+    navigation = candidate_navigation(current='profile') if reviewed_profile is not None else ''
+    details = ""
+    if reviewed_profile is not None:
+        from wahojobs.profiles.correction_editor import summary_sections
+        profile = reviewed_profile.to_mapping()
+        details = ("<section aria-label='Profile ready to save'><h2>"
+            + html.escape(profile['identity']['display_name']) + "</h2>"
+            + summary_sections(profile) + "</section>")
     return f"""<!doctype html>
 <html lang='en'>
 <head>
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
   <title>Create my persistent profile | Wahojobs</title>
+  <style>{candidate_entry_style()} .profile-group {{padding:12px 0;border-top:1px solid var(--line);}} .profile-group h2 {{font-size:20px;}}</style>
 </head>
 <body><main>
+  {navigation}
   <section>
     <h1>Your reviewed profile is ready</h1>
-    <p>Create the first persistent profile for this account using the details you confirmed.</p>
+    <p>Review these details, then choose Create my profile to save them to your account and use them for matching. Nothing has been saved as your confirmed profile yet.</p>
+    {details}
     <form method='post' action='/account/profile'>
       <input type='hidden' name='artifact' value='{artifact}'>
       <input type='hidden' name='csrf' value='{csrf}'>
@@ -3007,7 +3024,7 @@ def profile_review_updates_from_form(form, language_slots):
         "accessibility_constraints",
     )
     updates = {field: strict_review_value(form, field) for field in list_fields}
-    for field in ("recent_roles", "education_entries", "item_experience"):
+    for field in ("recent_roles", "education_entries", "item_experience", "domain_years_review"):
         updates[field] = strict_review_value(form, field) if field in form else ""
     for field in (
         "country",
@@ -3046,6 +3063,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
     education = canonical.get("education") or {}
     credentials = canonical.get("credentials") or {}
     experience = canonical.get("experience") or {}
+    from wahojobs.profiles.domain_duration_editor import form_value as duration_form_value
     skills = canonical.get("skills") or {}
     preferences = canonical.get("preferences") or {}
     constraints = canonical.get("constraints") or {}
@@ -3054,6 +3072,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
         "recent_roles": json.dumps(experience.get("recent_roles") or []),
         "education_entries": "",
         "item_experience": "",
+        "domain_years_review": duration_form_value(experience.get('years_by_domain') or {}),
         "edit_run_id": match_run_id,
         "review_token": review_token,
         "schema_version": SCHEMA_VERSION,
@@ -3128,7 +3147,7 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
 
 
 PROFILE_REVIEW_TEXT_FIELDS = {
-    "recent_roles", "education_entries", "item_experience",
+    "recent_roles", "education_entries", "item_experience", "domain_years_review",
     "country", "region", "city", "work_authorization", "eligible_countries",
     "geographic_restrictions", "education_level", "degrees", "education_fields",
     "institutions", "education_status", "credential_status", "certifications",
@@ -3184,7 +3203,7 @@ def validate_profile_review_submission(form, registry):
     if unsupported:
         raise MalformedProfileReview()
     # Older rendered forms cannot edit the new independent entry controls.
-    required = (PROFILE_REVIEW_TEXT_FIELDS - {"recent_roles", "education_entries", "item_experience"}) | PROFILE_REVIEW_CONTROL_FIELDS | language_fields
+    required = (PROFILE_REVIEW_TEXT_FIELDS - {"recent_roles", "education_entries", "item_experience", "domain_years_review"}) | PROFILE_REVIEW_CONTROL_FIELDS | language_fields
     for field in required:
         strict_review_value(form, field)
     for field in PROFILE_REVIEW_CHECKBOX_FIELDS:

@@ -1056,7 +1056,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             updates = {key: values[0] for key, values in form.items() if len(values) == 1}
             self._remember_manual(run, checkpoint)
             return self._manual_page(run, submitted=form,
-                issue=actionable_issue(local_product, updates), status=status)
+                issue=actionable_issue(local_product, updates, run.canonical_profile), status=status)
         return _candidate_failure_response(status, 'Profile review unavailable',
             'This request could not be completed. Your saved progress is still available. Review it and try again.')
 
@@ -1118,7 +1118,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 if type(result) is not local_product.ConfirmedProfileCreation:
                     raise RuntimeError("profile_confirmation_unavailable")
                 content = local_product.render_confirmed_profile_creation(
-                    result.artifact_offer
+                    result.artifact_offer, reviewed_profile=result.match_run.canonical_profile
                 )
                 return _form_page_response(HTTPStatus.OK, content)
             if manual:
@@ -3003,6 +3003,7 @@ def _render_candidate_entry(*, run=None):
       <p class='eyebrow'>Candidate profile</p>
       <h1>{_safe(title)}</h1>
       <p>Include your location, languages, experience, skills, and the type of work you want.</p>
+      <p>We'll prepare a draft from clear statements. Review the extracted details before confirming; some details may need to be added manually.</p>
       <form method='post' action='/find-matches' id='find-matches-form'>
         <label for='input_text'>About you</label>
         <textarea id='input_text' name='input_text' rows='8' required>{_safe(raw_input)}</textarea>
@@ -3037,7 +3038,8 @@ def _render_candidate_review(run, *, manual=False, submitted=None, issue=None):
     <section class='intro'>
       <p class='eyebrow'>Review your profile</p>
       <h1>Make sure we understood you</h1>
-      <p>Correct anything missing or inaccurate, then explicitly confirm the profile. Leave unknown information blank. Your next step saves the confirmed profile.</p>
+      <p>Check this draft against your description. Correct missing or inaccurate details, then continue to the final review. Your profile is saved only when you confirm it there. Leave unknown information blank.</p>
+      <details class='original-profile-description'><summary>Your original description</summary><p style='white-space:pre-wrap'>{_safe(run.raw_input)}</p></details>
     </section>
     {review}
     """
@@ -3905,6 +3907,7 @@ def _render_match_results(
             "<div><p class='eyebrow'>Based on your saved profile and available evidence</p>"
             "<h2 id='matches-empty-title'>No matches to show right now</h2>"
             f"<p>{_safe(availability_copy)} Matches reflect your saved profile and the opportunities currently available.</p>"
+            "<p>Details you haven't provided remain unknown; they don't mean you lack a skill or qualification. You can browse postings and check their requirements even when we cannot recommend them yet.</p>"
             "<p>New opportunities may appear as the market changes. You can also review your profile to make sure it reflects what you want.</p>"
             "</div><div class='empty-actions'>"
             f"<a class='button' href='{_safe(profile_target)}'>Review my profile</a>"

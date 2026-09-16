@@ -585,7 +585,13 @@ class ProfileNormalizerInterfaceTests(unittest.TestCase):
     def test_current_matcher_benchmark_remains_unchanged(self):
         fixture = benchmark.load_fixture()
         profiles = benchmark.load_benchmark_profiles(fixture)
-        rows = benchmark.load_benchmark_db_rows()
+        # These human-reviewed cases carry complete pinned matcher inputs.
+        # The metric must not depend on a developer's mutable/live database.
+        cases = [case for case in fixture['cases'] if case.get('label_source') == 'human_reviewed']
+        for case in cases:
+            self.assertIsNotNone(case.get('matcher_input_snapshot'))
+            benchmark.validate_matcher_input_snapshot(case)
+        rows = []
         evaluated = [
             benchmark.evaluate_case(case, profiles[case["profile_id"]], rows, matcher)
             for case in fixture["cases"]
