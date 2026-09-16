@@ -387,6 +387,11 @@ def canonical_to_matcher_profile(canonical_profile, *, include_task_evidence=Fal
     }
     _connect_confirmed_ai_work_signal(canonical_profile, matcher_profile,
                                       include_evidence=include_task_evidence)
+    if include_task_evidence:
+        from wahojobs.matching.transferable_tasks import confirmed_activities
+        activities = confirmed_activities(canonical_profile)
+        if activities:
+            matcher_profile['confirmed_transferable_activity_evidence'] = activities
     return matcher_profile
 
 

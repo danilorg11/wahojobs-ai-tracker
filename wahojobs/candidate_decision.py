@@ -13,19 +13,57 @@ def same_source(reference, packet):
         ('source_url', 'url'), ('material_content_sha256', 'source_hash')))
 
 
+def _transferable_links(accepted):
+    """Display recorded relationships only; never infer a task from prose."""
+    facts, profile_facts = accepted.get('facts'), accepted.get('profile_facts')
+    links = accepted.get('task_links')
+    if not all(isinstance(values, (list, tuple)) and values
+            for values in (facts, profile_facts, links, accepted.get('scope_evidence'))):
+        return []
+    displayed = []
+    seen = set()
+    for link in links:
+        if not isinstance(link, dict):
+            return []
+        fact = link.get('profile_fact') or {}
+        if (link.get('support_kind') != 'transferable_activity'
+                or not isinstance(link.get('task_family'), str) or not link['task_family']
+                or not isinstance(fact, dict)
+                or not all(isinstance(fact.get(k), str) and fact[k] for k in ('path', 'text'))
+                or not all(isinstance(link.get(k), str) and link[k] for k in ('quote', 'block_reference'))
+                or not any(isinstance(source, dict) and all(source.get(k) == link[k]
+                    for k in ('quote', 'block_reference')) for source in facts)
+                or not any(isinstance(profile, dict) and all(profile.get(k) == fact[k]
+                    for k in ('path', 'text')) for profile in profile_facts)):
+            return []
+        identity = (link['quote'], fact['path'], fact['text'])
+        if identity not in seen:
+            displayed.append(deepcopy(link))
+            seen.add(identity)
+    return displayed[:2]
+
+
 def attach_decision(packet, match):
     """Project only explanations actually recorded by the current computation."""
     reasons = []
     accepted = match.get('accepted_task_fit') or {}
+    packet['transferable_task_links'] = []
     if (same_source(accepted.get('source_reference') or {}, packet)
             and accepted.get('facts') and accepted.get('profile_facts')):
-        reasons.append('Your confirmed profile describes AI evaluation or annotation work that overlaps with the employer’s tasks.')
+        if accepted.get('basis') == 'transferable_activity':
+            packet['transferable_task_links'] = _transferable_links(accepted)
+            reasons.extend('Your confirmed activity “' + link['profile_fact']['text']
+                + '” can transfer to a related task in this opportunity.'
+                for link in packet['transferable_task_links'])
+        elif accepted.get('basis') in (None, 'confirmed_ai_work'):
+            reasons.append('Your confirmed profile describes AI evaluation or annotation work that overlaps with the employer’s tasks.')
     # Use recorded evidence tuples, not narrative templates which can name
     # particular skills that were never consulted for this candidate.
     for item in (match.get('affirmative_fit') or {}).get('supported_evidence') or []:
         requirement, fact = item.get('requirement'), item.get('profile_evidence')
-        if reasons and requirement == 'AI evaluation or annotation tasks':
-            continue  # already described with exact accepted-task provenance
+        if (item.get('source') in ('accepted_source_task', 'transferable_activity')
+                or requirement == 'AI evaluation or annotation tasks'):
+            continue  # task explanations require the exact accepted-task packet
         if isinstance(requirement, str) and isinstance(fact, str) and requirement and fact:
             reasons.append((f'Your stated interest relates to {requirement}; interest does not establish experience.'
                 if item.get('source') == 'preference' else
@@ -103,9 +141,16 @@ def render_reasons(packet, *, heading_level=4):
     if not reasons:
         return ''
     heading = 'h2' if heading_level == 2 else 'h4'
+    links = packet.get('transferable_task_links') or []
+    task_evidence = ("<details class='decision-source'><summary>How your activities relate to the work</summary>"
+        + ''.join('<p>Your confirmed activity: ' + escape(link['profile_fact']['text'])
+            + '</p><p>Employer task:</p><blockquote>' + escape(link['quote'])
+            + '</blockquote>' for link in links)
+        + '<p>This task overlap does not establish prior professional AI work or satisfy other requirements.</p></details>') if links else ''
     return ("<section class='decision-relevance'><" + heading + '>Why it may suit you</' + heading + '><ul>'
         + ''.join('<li>' + escape(reason) + '</li>' for reason in reasons)
-        + '</ul><p class="candidate-note">Profile evidence is self-reported; it is not independent verification.</p></section>')
+        + '</ul>' + task_evidence
+        + '<p class="candidate-note">Profile evidence is self-reported; it is not independent verification.</p></section>')
 
 
 def _ordered_rows(packet):

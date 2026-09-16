@@ -2,6 +2,66 @@
 
 ## One maintained execution plan
 
+### Explicit entry-level task-fit clarification — active corrective cycle
+
+Owner acceptance remains pending. Continue from028ebc3124e95b2f5d6080b3f97c557655b51738
+(tree27f1047986727b3350468338f1578c49911d3777) in the same isolated feature.
+The owner now explicitly authorizes relevant confirmed non-AI activities to
+support task-level relevance for genuinely generalist/entry-level accepted duties
+without requiring prior AI work. This is derived relevance, not professional AI
+history or automatic eligibility. Ranking formulas, caps and specialist/independent
+qualification guards stay unchanged. Exact authority is recorded in the existing
+evidence bundle/TASK-FIT-OWNER-AUTHORITY.md.
+
+1. Preserve corrected8861 state and all prior evidence, verify actual source/main,
+   and normally stop only its owned process. Done: PID24296 verified live and
+   uniquely bound; online backups plus cold bytes retained in task-fit-before-028e.
+   Original beta-demo-v1 and the prior corrected fixtures remain intact.
+2. Trace corrected Alex/original16 at the fixed clock; distinguish AI-only task
+   recognition from independent restrictions, unknowns and ordinary selection.
+   Done: independent TASK-FIT-BASELINE-REVIEW records actual executed losses.
+   Same16/clock/facts/scores now yield0main/1conditional Generalist versus0/0.
+   No added positive fixture, removal or displacement explains this change.
+3. Implement the bounded shared accepted-task path and truthful list/detail
+   explanation; preserve original profile facts and exact source provenance.
+   Done: confirmed activity/duty pairs with positive accepted generalist scope;
+   runtime-only evidence, durable re-binding, shared consumer/presentation path,
+   unchanged scores/caps and specialist gates. Ephemeral projection/admission
+   versions invalidate superseded computation; immutable source history stays.
+4. Exercise related/nonrelated/interest-only activity, specialist with AI waiver,
+   negative versus unknown degree, geography/language/workload and partial support
+   through real consumers. Add a separately labelled positive fixture only if
+   needed; never rewrite the original16.
+   Added actual authenticated contrasts and two new served-client journeys.
+   Existing language/editor/confirmation/duration regressions remain selected.
+   Independent source-scope/activity findings have targeted repair tests; their
+   exact dispositions and retained failed runs are in TASK-FIT-IMPLEMENTATION-REVIEW.
+5. Retain served-client intake/editor/confirmation regressions, independently
+   review/correct, freeze and execute all2016IDs plus additions/affected coverage.
+   The exact selected IDs and final source hashes live in task-fit-release-selection,
+   task-fit-release-identity and task-fit-final-gate-state JSON in the existing bundle.
+   Development client6/6 passes are explicitly not final acceptance because
+   authors were still editing. Final partitions must all prove unchanged hashes.
+6. Preserve any populated corrected demo before preparing a fresh unconfirmed
+   ordinary-entry scenario on8861; verify PID/source/assets/readiness and deliver
+   one consolidated closure with real-participant gates kept separate.
+
+Lead owns preservation, plan, actual client/HTTP integration and final gate/demo.
+Matching agent owns bounded task evidence; experience agent owns shared
+presentation; operations reviewer independently attributes original0/0 and checks
+restrictions. No overlapping test listeners. Active handles and exact next actions
+remain in the single evidence/RUN-STATE.md; no new milestone or handoff hierarchy.
+
+Material interpretation limits: this is bounded English action/object recognition,
+not universal language understanding. Unknown requirements stay unknown. Alex's
+legacy part-time preference is saved/displayed but is not an authoritative typed
+hard filter; separate confirmed typed controls exercise those existing policies.
+Generalist's five behavioral/communication clauses remain unassessed. Its remote
+geography and advertised10–40hours/week remain matters to verify, not invented
+permissions or executed workload rejections. No model/provider calls are made.
+Native browser certificate acceptance, external authentication, current inventory,
+hosting and owner privacy/operations authorization remain separate real-beta gates.
+
 ### Owner acceptance corrective cycle — implementation frozen for validation
 
 Owner acceptance of delivered `fa0b57ea22bbd0f0923e308a9a15faa275c09d74`

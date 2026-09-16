@@ -997,7 +997,7 @@ def score_opportunity(profile, row):
     quality_gate_penalty = 0
 
     for reason, keywords, points in profile["signals"]:
-        accepted_task_signal = (task_fit and
+        accepted_task_signal = (task_fit and task_fit.get('basis') != 'transferable_activity' and
             set(normalize_keywords(keywords)) == set(AI_EVALUATION_SIGNAL[1]))
         if accepted_task_signal or any(keyword_matches(text, keyword) for keyword in normalize_keywords(keywords)):
             score += points
@@ -1473,7 +1473,7 @@ def match_quality_gate_penalties(profile, row, text=None):
     from wahojobs.matching.accepted_tasks import matched_accepted_tasks
     if (not has_meaningful_positive_evidence(profile_features, role_features)
             and has_generic_only_evidence(text)
-            and not matched_accepted_tasks(profile, row)):
+            and not matched_accepted_tasks(profile, row, include_transferable=False)):
         penalties.append(("Match is based mostly on generic AI-work terms", 10))
 
     return unique_penalties(penalties)

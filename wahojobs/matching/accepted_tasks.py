@@ -13,9 +13,9 @@ from wahojobs.authenticated_card_evidence import _source_text, load_card_sources
 from wahojobs.profiles.normalizer import term_is_negated
 
 
-TASK_PROJECTION_VERSION = 3
+TASK_PROJECTION_VERSION = 4
 SOURCE_ELIGIBILITY_VERSION = 5
-TASK_ADMISSION_VERSION = 9
+TASK_ADMISSION_VERSION = 10
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -194,8 +194,22 @@ def project_accepted_tasks(connection, rows):
         evidence = dict(version=TASK_PROJECTION_VERSION, source_reference=reference,
                         facts=[dict(quote=q, professional_domains=list(d), block_reference=b)
                                for q, d, b in facts])
+        evidence['transferable_scope'] = list(_prepare_transferable_scope(
+            source.get('material_content_sha256'), source['source_slug'],
+            source['external_id'], source['url'], source.get('body'),
+            source.get('body_format'), source.get('metadata_json')))
         result.append(dict(row, accepted_task_evidence=evidence))
     return result
+
+
+@lru_cache(maxsize=16384)
+def _prepare_transferable_scope(material_hash, provider, external_id, url, body, body_format, metadata_json):
+    from wahojobs.matching.transferable_tasks import source_scope
+    try:
+        return tuple(source_scope(dict(source_slug=provider, external_id=external_id,
+            url=url, body=body, body_format=body_format, metadata_json=metadata_json)))
+    except (ValueError, TypeError, KeyError):
+        return ()
 
 
 @lru_cache(maxsize=16384)
@@ -327,8 +341,8 @@ def apply_accepted_eligibility(profile, row, match):
                                      source_reference=ref, conditions=unknowns, candidate_note=note))
 
 
-def matched_accepted_tasks(profile, row):
-    """Task support requires confirmed work; interest/language is insufficient.
+def matched_accepted_tasks(profile, row, *, include_transferable=True):
+    """Confirmed work or bounded transferable activity; never interest alone.
 
     Domain qualifications remain separate. A generic evaluation phrase in an
     unsupported professional domain does not establish that profession.
@@ -339,12 +353,17 @@ def matched_accepted_tasks(profile, row):
         return None
     evidence = row.get('accepted_task_evidence') or {}
     work = profile.get('confirmed_ai_work_evidence') or []
-    if evidence.get('version') != TASK_PROJECTION_VERSION or not work:
+    if evidence.get('version') != TASK_PROJECTION_VERSION:
         return None
     ref = evidence.get('source_reference') or {}
     if any(ref.get(k) != row.get(k) for k in ('job_id', 'canonical_opportunity_id', 'source_slug')):
         return None
     if ref.get('source_url') != row.get('url'):
+        return None
+    if not work:
+        if include_transferable:
+            from wahojobs.matching.transferable_tasks import match_activities
+            return match_activities(profile, evidence)
         return None
     # Specialist clauses stay with the existing domain-specific machinery.
     # This narrow projection establishes general task overlap only, even for
@@ -403,6 +422,15 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
     """
     # Recomputed source review must not inherit an earlier admission receipt.
     match = {k: v for k, v in match.items() if k != 'accepted_task_pre_review'}
+    transferable = (match.get('accepted_task_fit') or {}).get('basis') == 'transferable_activity'
+    if transferable:
+        from wahojobs.matching.transferable_tasks import bind_confirmed_profile
+        bound = bind_confirmed_profile(match['accepted_task_fit'], profile)
+        if bound is None:
+            return dict(match, accepted_task_fit=None, accepted_task_section_admission=False,
+                        conditional_task_fit=False, primary_recommendation_eligible=False,
+                        preview_section='explore_only')
+        match = dict(match, accepted_task_fit=bound)
     review_only = needs_accepted_task_comparison(match)
     pre_review = dict(
         review_only=review_only,
@@ -531,6 +559,9 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
         for r in (conflicts or questions)]
     note = ('Your confirmed evaluation or annotation work matches these tasks. '
             'Check the source conditions below before applying.')
+    if transferable:
+        note = ('Your confirmed activities are relevant to these entry-level tasks. '
+                'This does not establish prior professional AI work. Check the remaining source conditions.')
     if conflicts:
         note = 'Your task experience is relevant, but a required condition conflicts with your confirmed profile.'
     assessment['why_fit_statements'] = [note]
