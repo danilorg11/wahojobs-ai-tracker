@@ -133,7 +133,8 @@ def existing_owner_local_login(configuration_path, *, account_id, clock,
 
 
 @contextmanager
-def controlled_local_product(state, *, professional_background_preparer=None, allow_invited=False):
+def controlled_local_product(state, *, professional_background_preparer=None, allow_invited=False,
+                             _fixture_bridge_factory=None):
     """Shared local fixture composition; new subjects require an enabled invitation.
 
     The caller supplies a private synthetic state, never a browser-selected owner.
@@ -157,6 +158,9 @@ def controlled_local_product(state, *, professional_background_preparer=None, al
                 or path.resolve().parent != state.directory.resolve()
                 or configuration_path.resolve().parent != state.directory.resolve()):
             raise ValueError('synthetic_invitation_fixture_required')
+    if _fixture_bridge_factory is not None and (
+            not allow_invited or not callable(_fixture_bridge_factory)):
+        raise ValueError('synthetic_invitation_fixture_required')
     from wahojobs.database_lifetime_ownership import (
         acquire_database_lifetime_ownership, release_database_lifetime_ownership,
         ROLE_DURABLE_RUNTIME,
@@ -235,6 +239,7 @@ def controlled_local_product(state, *, professional_background_preparer=None, al
             now=clock, process_guard=connections.require_available,
         )
         stack.callback(browser.close)
-        bridge = _ControlledProviderBridge(browser, state, [], claims_overrides=(
-            {'email': 'new-candidate@example.test', 'email_verified': True} if allow_invited else None))
+        bridge = (_fixture_bridge_factory(browser, state) if _fixture_bridge_factory is not None
+                  else _ControlledProviderBridge(browser, state, [], claims_overrides=(
+                      {'email': 'new-candidate@example.test', 'email_verified': True} if allow_invited else None)))
         yield config.public_configuration, LocalLoginNavigation(bridge)

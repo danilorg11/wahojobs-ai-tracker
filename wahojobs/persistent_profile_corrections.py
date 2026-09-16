@@ -1026,15 +1026,45 @@ class PersistentProfileCorrectionService:
             )
             if current_v2['preferences'].get('preference_model') is not None:
                 # A narrower legacy form cannot override an existing typed
-                # preference authority or leave divergent compatibility fields.
+                # preference authority. Remote is an independent visible control;
+                # the hidden legacy availability field cannot override workload.
+                independent = {key: corrected_v2['preferences'][key] for key in ('remote',)}
+                independent_paths = ('preferences.remote',)
+                independent_refs = [r for r in corrected_v2['provenance']['field_sources']
+                                    if r['field_path'] in independent_paths]
                 corrected_v2['preferences'] = deepcopy(current_v2['preferences'])
+                corrected_v2['preferences'].update(independent)
                 corrected_v2['provenance']['field_sources'] = sorted(
                     [r for r in corrected_v2['provenance']['field_sources'] if not r['field_path'].startswith('preferences.')]
-                    + [deepcopy(r) for r in current_v2['provenance']['field_sources'] if r['field_path'].startswith('preferences.')],
+                    + [deepcopy(r) for r in current_v2['provenance']['field_sources'] if r['field_path'].startswith('preferences.')
+                       and r['field_path'] not in independent_paths] + independent_refs,
                     key=lambda r: (r['field_path'].casefold(), r['field_path']))
+                if independent['remote'] != current_v2['preferences']['remote']:
+                    from wahojobs.profiles.canonical_v2 import FIELD_PATH_VERSION
+                    work = set(corrected_v2['preferences']['work_preferences'])
+                    work.add('remote') if independent['remote'] else work.discard('remote')
+                    corrected_v2['preferences']['work_preferences'] = sorted(work)
+                    corrected_v2['provenance']['field_sources'] = sorted(
+                        [r for r in corrected_v2['provenance']['field_sources']
+                         if not r['field_path'].startswith('preferences.work_preferences[')] +
+                        [dict(field_path=f'preferences.work_preferences[{index}]',
+                              path_version=FIELD_PATH_VERSION, source_ordinals=[2],
+                              source_kind='user_correction', explicit=True)
+                         for index, _ in enumerate(sorted(work))],
+                        key=lambda r: (r['field_path'].casefold(), r['field_path']))
             if preference_model is not None:
                 from wahojobs.profiles.preference_presentation import with_reviewed_preferences
                 corrected_v2 = with_reviewed_preferences(corrected_v2, preference_model)
+            elif (current_v2['preferences'].get('preference_model') is None
+                  and corrected_v2['preferences'] != current_v2['preferences']):
+                # Opening/reviewing an older profile, or correcting an unrelated
+                # fact, must not introduce a new preference authority. Confirmed
+                # legacy workload already reaches matching through its read-only
+                # adapter. Attach a model only to an actual preference edit that
+                # will be shown in this proposal and explicitly confirmed.
+                from wahojobs.profiles.canonical_v2 import add_reviewed_legacy_preference_model
+                corrected_v2 = add_reviewed_legacy_preference_model(corrected_v2,
+                    source_kind='user_correction', source_ordinal_resolver=lambda *_: (2,))
             authoritative_review = IdentityFreeCanonicalProfileV1.from_mapping(
                 project_v2_to_review_v1(corrected_v2)
             )

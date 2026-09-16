@@ -217,11 +217,32 @@ class AuthenticatedLanguageSafetyTests(unittest.TestCase):
         self.f.update_inventory("UPDATE jobs SET commitment='Part-time' WHERE id=7006")
         self.f.set_preferences('full_time')
         _,_,ctx=self.current()
+        # A preferred workload is now a soft difference; it does not need a
+        # relaxation and cannot override the independent German conflict.
+        self.assertIn(7006,self.ids(ctx))
+        self.assertNotIn(7003,self.ids(ctx))
+
+        # Keep the substantive nonempty-relaxation contrast using the unchanged
+        # employment-relationship criterion, independent of workload semantics.
+        from tests.test_profile_preference_model import with_preference_model
+        from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+        model=empty_profile_preferences_v1()
+        model['employment_relationships']=['employee']
+        self.f.profile=with_preference_model(self.f.profile,model)
+        self.f.update_inventory("UPDATE jobs SET commitment='Freelance' WHERE id IN (7003,7006)")
+        _,_,ctx=self.current()
+        self.assertNotIn(7006,self.ids(ctx))
+        self.assertNotIn(7003,self.ids(ctx))
         scenarios=browser._presented_relaxation_scenarios(ctx)
         self.assertTrue(scenarios)
         unlocked={m['job_id'] for s in scenarios for m in s['matches']}
         self.assertIn(7006,unlocked)
         self.assertNotIn(7003,unlocked)
+        target_scenarios={s['scenario_id'] for s in scenarios
+                          if any(m['job_id']==7006 for m in s['matches'])}
+        raw=ctx['_typed_preference_enforcement']['single_criterion_relaxations']['scenarios']
+        self.assertTrue(all(s['criterion_id']=='preferences.employment_relationships'
+                            for s in raw if s['scenario_id'] in target_scenarios))
 
     def test_preparation_reuse_and_configuration_change_invalidate_old_context(self):
         from wahojobs.matching import accepted_tasks

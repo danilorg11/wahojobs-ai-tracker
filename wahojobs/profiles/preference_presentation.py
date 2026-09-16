@@ -26,8 +26,16 @@ def preference_summary(preferences):
         # These existing legacy values are independent of the typed dimensions.
         if preferences.get('remote'):
             rows.append('Remote work preferred')
-        if preferences.get('availability') not in (None, '', 'unknown', 'unspecified'):
+        if preferences.get('availability') not in (None, '', 'unknown', 'unspecified',
+                *[value.replace('_', '-') for value in model['workloads']]):
             rows.append('Workload or start preference: ' + preferences['availability'].replace('_', ' '))
+        # Stored manual free text is independent of the typed catalog. A typed
+        # workload edit must neither erase it nor make it disappear from review.
+        for key, label in (('target_opportunity_types', 'Work interests'),
+                           ('preferred_task_types', 'Task preferences')):
+            extra = [value for value in preferences.get(key, []) if value not in model['job_interests']]
+            if extra:
+                rows.append(label + ': ' + ', '.join(extra))
         return rows or ['No work preferences or pay minimum specified.']
     rows = []
     labels = {'availability': 'Workload or start preference', 'synchronous_preference': 'Team coordination',
@@ -38,7 +46,7 @@ def preference_summary(preferences):
             rows.append(label + ': ' + str(value).replace('_', ' '))
     if preferences.get('flexible'):
         rows.append('Flexible hours preferred')
-    for key, label in (('schedule', 'Schedule'), ('employment_types', 'Contract types'),
+    for key, label in (('schedule', 'Schedule'), ('employment_types', 'Workload and contract preferences'),
                        ('target_opportunity_types', 'Work interests')):
         if preferences.get(key):
             rows.append(label + ': ' + ', '.join(str(v).replace('_', ' ') for v in preferences[key]))
@@ -56,6 +64,7 @@ def render_preference_editor(model, submitted=None):
     model = preference_model_for_v2_editor(model)
     pieces = ["<input type='hidden' name='beta_preferences_present' value='1'>",
               "<p>Select every option you would consider. Leave a group empty for no preference. "
+              "Workload choices are preferences; they do not ban other schedules. "
               "Missing employer information stays unknown.</p>"]
     for dimension in profile_preference_control_catalog_v2()['dimensions']:
         values = model
@@ -136,7 +145,7 @@ def read_preference_editor(form, current):
 def with_reviewed_preferences(profile, model):
     """Replace only reviewed preference authority and server-derived mirrors."""
     from wahojobs.profiles.canonical_v2 import validate_canonical_profile_v2, _material_field_paths, FIELD_PATH_VERSION
-    from wahojobs.profiles.preference_model import validate_profile_preferences
+    from wahojobs.profiles.preference_model import validate_profile_preferences, update_preference_legacy_mirror
     result = validate_canonical_profile_v2(profile)
     model = validate_profile_preferences(model)
     existing = result['preferences'].get('preference_model')
@@ -144,13 +153,54 @@ def with_reviewed_preferences(profile, model):
         raise ValueError('preference_model_not_available')
     if preference_model_for_v2_editor(existing) == preference_model_for_v2_editor(model):
         return result  # An unchanged V1 model remains V1 with its provenance intact.
-    result['preferences'].update(preference_model_to_legacy_preferences(model,
-        legacy_base={key: result['preferences'][key] for key in ('remote', 'availability')}))
+    before_preferences = deepcopy(result['preferences'])
+    result['preferences'] = update_preference_legacy_mirror(result['preferences'], existing, model)
     result['preferences']['preference_model'] = deepcopy(model)
-    refs = [r for r in result['provenance']['field_sources'] if not r['field_path'].startswith('preferences.')]
+    changed = {key for key in result['preferences'] if before_preferences.get(key) != result['preferences'][key]}
+    def affected(path):
+        return any(path == 'preferences.' + key or path.startswith(('preferences.' + key + '.', 'preferences.' + key + '[')) for key in changed)
+    refs = [r for r in result['provenance']['field_sources'] if not affected(r['field_path'])]
     for path in _material_field_paths(result):
-        if path.startswith('preferences.'):
+        if affected(path):
             refs.append(dict(field_path=path, path_version=FIELD_PATH_VERSION,
                              source_ordinals=[2], source_kind='user_correction', explicit=True))
     result['provenance']['field_sources'] = sorted(refs, key=lambda r: (r['field_path'].casefold(), r['field_path']))
     return validate_canonical_profile_v2(result)
+
+
+def candidate_workload_context(profile, packet, match=None):
+    """Use confirmed wishes/firm constraints and actual evaluated workload only."""
+    from wahojobs.profiles.preference_model import confirmed_hard_workload, effective_preference_authority
+    from wahojobs.profiles.canonical_v2 import CanonicalProfileV2Error
+    from wahojobs.profiles.preference_model import ProfilePreferenceModelError
+    try:
+        model = (effective_preference_authority(profile)[0] or {}) if isinstance(profile, dict) else {}
+    except (CanonicalProfileV2Error, ProfilePreferenceModelError):
+        # Source-only renderers can have a partial profile view. It cannot author
+        # preference claims. The matching consumer still requires valid V2.
+        return dict(guidance=None, state='preference', outcome=None)
+    wanted = model.get('workloads') or []
+    hard = confirmed_hard_workload(profile) if isinstance(profile, dict) else ()
+    choices = hard or tuple(wanted)
+    if len(choices) != 1:
+        return dict(guidance=None, state='preference', outcome=None)
+    label = choices[0].replace('_', '-')
+    outcomes = (match or {}).get('_workload_preference_outcomes', [])
+    outcome = next((o.get('outcome') for o in outcomes if o.get('criterion_id') == 'preferences.workloads'), None)
+    if hard:
+        if outcome == 'fail':
+            state, guidance = 'hard_conflict', f'Your {label}-only requirement conflicts with this posting’s workload.'
+        elif outcome == 'pass':
+            state, guidance = 'supported', f'This posting lists {label} work; confirm the actual hours fit your availability.'
+        else:
+            state, guidance = 'hard_unresolved', f'You only consider {label} work. Confirm the employer offers that schedule before proceeding.'
+    elif outcome == 'fail':
+        other = 'full-time' if choices[0] == 'part_time' else 'part-time'
+        state, guidance = 'soft_difference', f'You prefer {label} work; this posting lists {other} work. Confirm whether your preferred schedule is possible.'
+    else:
+        state, guidance = 'preference', f'You prefer {label} work. Explain your availability and confirm the schedule with the employer.'
+    return dict(guidance=guidance, state=state, outcome=outcome)
+
+
+def candidate_workload_guidance(profile, packet, match=None):
+    return candidate_workload_context(profile, packet, match)['guidance']

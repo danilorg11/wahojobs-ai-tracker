@@ -67,7 +67,11 @@ class TransferableTaskMatchingTests(unittest.TestCase):
         _, _, context, match = self.current()
         self.assertTrue(self.shown(context))
         self.assertEqual(match['accepted_task_fit']['basis'], 'transferable_activity')
-        self.assertTrue(match['conditional_task_fit'])
+        # Owner-approved recommendation policy: the only remaining clause is
+        # an ordinary work habit. Keep it unassessed without a completeness veto.
+        self.assertTrue(browser._primary_presentation_matches(context))
+        self.assertEqual(match['source_qualification_comparisons'][0]['status'], 'unresolved')
+        self.assertEqual(match['non_decisive_source_questions'][0]['materiality']['classification'], 'generic_behavior_only')
 
     def test_no_ai_waiver_or_title_alone_cannot_prove_entry_scope(self):
         self.base.role('Entry-level AI Generalist')
@@ -155,7 +159,8 @@ class TransferableTaskMatchingTests(unittest.TestCase):
         local = notice.call_args.args[0]['_authenticated_local_checks']['match']
         self.assertEqual(local['accepted_task_fit'], match['accepted_task_fit'])
         self.assertEqual(local['score'], match['score'])
-        self.assertIn(b'This task overlap does not establish prior professional AI work', page.body)
+        self.assertIn(b'About this recommendation', page.body)
+        self.assertIn(b'does not establish prior professional AI work', page.body)
 
     def test_about_role_prerequisite_is_not_hidden_by_positive_entry_scope(self):
         for scope in ('This is an entry-level role.\n\nLicensed physician required.',
@@ -288,7 +293,8 @@ class TransferableTaskMatchingTests(unittest.TestCase):
         preference = empty_profile_preferences_v2()
         preference['workloads'] = ['part_time']
         self.base.f.profile = with_preference_model(self.base.f.profile, preference)
-        for commitment, shown, outcome in (('Part-time', True, 'pass'), ('Full-time', False, 'fail')):
+        # A confirmed wish is used and shown, but is not a mandatory schedule.
+        for commitment, shown, outcome in (('Part-time', True, 'pass'), ('Full-time', True, 'fail')):
             with self.subTest(commitment=commitment):
                 self.base.f.update_inventory('UPDATE jobs SET commitment=? WHERE id=7003', (commitment,))
                 _, _, context, match = self.current()
@@ -299,6 +305,24 @@ class TransferableTaskMatchingTests(unittest.TestCase):
                 workload = next(r for r in evaluation['outcomes'] if r['criterion_id']=='preferences.workloads')
                 self.assertEqual(workload['outcome'], outcome)
                 self.assertEqual(evaluation['admission']['status'], 'keep' if shown else 'exclude')
+
+        # The same actual consumer must enforce a separately confirmed firm
+        # restriction; transferable activity is not authority to waive it.
+        hard = deepcopy(self.base.f.profile)
+        hard['constraints']['hard_constraints'] = ['part-time only']
+        self.base.f.profile = with_preference_model(hard, preference)
+        for commitment, expected in (('Full-time', 'fail'), ('', 'unknown')):
+            with self.subTest(hard_commitment=commitment):
+                self.base.f.update_inventory('UPDATE jobs SET commitment=? WHERE id=7003', (commitment,))
+                _, _, context, match = self.current()
+                self.assertTrue(match['accepted_task_fit'])
+                self.assertFalse(self.shown(context))
+                evaluation = next(r for r in context['_typed_preference_enforcement']['evaluations']
+                                  if r['opportunity_reference']=='canonical:7002')
+                workload = next(r for r in evaluation['outcomes'] if r['criterion_id']=='preferences.workloads')
+                self.assertEqual(workload['criterion_class'], 'strict_preference')
+                self.assertEqual(workload['outcome'], expected)
+                self.assertEqual(evaluation['admission']['status'], 'exclude')
 
     def test_specialist_title_and_no_ai_waiver_keep_existing_background_guardrails(self):
         self.base.role('Biology Expert', 'Remote')

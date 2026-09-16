@@ -22,7 +22,16 @@ class GeographicProvenanceTests(unittest.TestCase):
         self.assertEqual(m['location_eligibility_status'],'unknown')
         self.assertEqual([r['job_id'] for r in browser._conditional_presentation_matches(context)],[JOB])
         self.assertFalse(browser._primary_presentation_matches(context))
-        self.assertEqual(len(m['source_task_fit']['conditions']),5)
+        self.assertEqual([r['source']['quote'] for r in m['source_task_fit']['conditions']],
+                         ['Clear written communication skills in English'])
+        generic = m['non_decisive_source_questions']
+        self.assertEqual(len(generic), 4)
+        self.assertTrue(all(r['status'] == 'unresolved' and not r['admission_decisive'] for r in generic))
+        self.assertEqual({r['source']['quote'] for r in generic}, {
+            'Strong attention to detail with a systematic, thorough approach to tasks',
+            'Comfortable evaluating a broad variety of topics and content formats',
+            'Self-motivated and reliable when working independently',
+            'Able to follow structured guidelines and apply them consistently'})
         for page in (response.body,detail.body):
             html=unescape(page.decode())
             self.assertNotIn('Vietnam',html)  # this exact body contains no Vietnam
@@ -30,10 +39,10 @@ class GeographicProvenanceTests(unittest.TestCase):
             self.assertNotIn('Geographic source provenance',html)
             self.assertNotIn('Employer page location field',html)
             self.assertIn('Eligibility from Brazil needs confirmation.',html)
-            self.assertIn('The source explicitly says this is not required.',html)
             self.assertNotIn('Listing location: Vietnam',html)
         self.assertNotIn('Vietnam',packet['text'])
-        self.assertNotIn('Vietnam',detail.body.decode().split('<h2>Employer description</h2>',1)[1])
+        self.assertIn("<details class='employer-description'>", detail.body.decode())
+        self.assertIn('No prior AI, tech, or content moderation experience required', detail.body.decode())
         ref=packet['location_context']['published_field']
         self.assertEqual(ref['external_id'],PROVENANCE['original']['url'].rsplit('/',1)[1])
         self.assertEqual(ref['source_field'],'props.pageProps.job.location')
@@ -82,9 +91,11 @@ class GeographicProvenanceTests(unittest.TestCase):
         f=self.fixture(body=body,posting='Canada');response,run,ctx,m=f.current();detail,packet=f.detail(run)
         self.assertEqual(m['location_eligibility_status'],'eligible')
         for content in (response.body,detail.body):
-            self.assertIn(b'applicants based in Brazil',content)
             self.assertNotIn(b'Canada',content)
             self.assertNotIn(b'Employer page location field',content)
+            self.assertNotIn(b'Eligibility from Brazil needs confirmation.',content)
+        self.assertIn(b'applicants based in Brazil',detail.body)
+        self.assertIn('applicants based in Brazil',packet['location_context']['applicant'])
         self.assertEqual(packet['location_context']['published_field']['value'],'Canada')
 
     def test_older_internal_packet_cannot_reintroduce_generic_tag(self):
@@ -100,8 +111,11 @@ class GeographicProvenanceTests(unittest.TestCase):
     def test_bound_free_text_location_wording_is_preserved_without_new_gate(self):
         f=self.fixture(body=BODY,posting='US citizens only');response,run,_,m=f.current();detail,packet=f.detail(run)
         for content in (response.body,detail.body):
-            self.assertIn(b'Location information:</strong> US citizens only',content)
+            from tests.test_recommendation_presentation import DisclosureText
+            visible = ''.join(DisclosureText(content.decode()).main)
+            self.assertIn('Check the source’s location information: “US citizens only”.',visible)
             self.assertNotIn(b'Employer page location field',content)
+        self.assertIn(b'Location information:</strong> US citizens only',detail.body)
         self.assertFalse(packet['location_context']['published_field']['generic_country_tag'])
         self.assertEqual(m['location_eligibility_status'],'unknown')
 
@@ -121,6 +135,19 @@ class GeographicProvenanceTests(unittest.TestCase):
                 source_url=s['url'],variant_ref='synthetic-exact',authority={'accepted_capture_ref':'synthetic-capture'})]))
         self.assertEqual(catalog(before),catalog(source))
         self.assertEqual(len(catalog(source)),9)
+
+    def test_plain_city_metadata_remains_in_disclosure_without_primary_warning(self):
+        from tests.test_recommendation_presentation import DisclosureText
+        for city in ('Vancouver', 'Boston'):
+            with self.subTest(city=city):
+                f=self.fixture(body=BODY,posting=city)
+                response,run,_,m=f.current();detail,packet=f.detail(run)
+                for content in (response.body,detail.body):
+                    self.assertNotIn(city, ''.join(DisclosureText(content.decode()).main))
+                self.assertIn('Location information:</strong> '+city, detail.body.decode())
+                self.assertEqual(packet['location_context']['published_field']['value'],city)
+                self.assertFalse(packet['location_context']['published_field']['generic_country_tag'])
+                self.assertEqual(m['location_eligibility_status'],'unknown')
 
     def test_foreign_or_changed_body_metadata_cannot_supply_location(self):
         from tests.test_accepted_title_uncertainty import profile
@@ -173,11 +200,13 @@ class GeographicProvenanceTests(unittest.TestCase):
 
     def test_non_geographic_page_fields_survive_without_becoming_qualifications(self):
         f=self.fixture(body=BODY,posting='Canada');response,run,_,_=f.current();detail,packet=f.detail(run)
-        for html in (response.body.decode(),detail.body.decode()):
-            self.assertIn('Other employer page fields',html)
-            self.assertIn('<dt>Engagement type</dt><dd>CONTRACT</dd>',html)
-            self.assertIn('<dt>Hourly range minimum</dt><dd>40</dd>',html)
-            self.assertIn('<dt>Hourly range maximum</dt><dd>120</dd>',html)
+        self.assertNotIn('Other employer page fields',response.body.decode())
+        html=detail.body.decode()
+        self.assertIn("<details class='employer-description'>",html)
+        self.assertIn('Other employer page fields',html)
+        self.assertIn('<dt>Engagement type</dt><dd>CONTRACT</dd>',html)
+        self.assertIn('<dt>Hourly range minimum</dt><dd>40</dd>',html)
+        self.assertIn('<dt>Hourly range maximum</dt><dd>120</dd>',html)
         self.assertNotIn('Engagement type',packet['text'])
         self.assertEqual([c['kind'] for c in packet['comparisons']],['waiver'])
 

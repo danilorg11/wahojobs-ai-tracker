@@ -2,7 +2,88 @@
 
 ## One maintained execution plan
 
-### Explicit entry-level task-fit clarification — active corrective cycle
+### Grounded recommendations and practical guidance — current correction
+
+Owner direction received 2026-09-16 continues this release candidate from
+`52d47099798295957453d6897c2f6054194f3957` / tree
+`b50dc540d195c5a63a1f91e2af9a7e967d81cc3e`. A match is a grounded recommendation,
+not certification of every requirement. Positive confirmed fit remains necessary;
+generic unassessed qualities do not by themselves require second-class presentation.
+Material unknowns, mandatory contradictions and central specialist requirements
+remain distinct. Ranking weights, source bindings and result caps are preserved.
+
+1. **Done — preserve and establish baseline.** Actual branch/tree are verified,
+   protected main remains `bb8b41b96c54ce577223148d2f297197e61b2136`, ancestry holds.
+   The existing PID 31140 / port 8861 source and login were verified, online synthetic
+   backups taken, and only that process normally stopped. Its original state plus
+   cold bytes are preserved in `recommendation-before-52d`; the exact source archive
+   is `recommendation-before-52d.zip`. No recovery or real database was accessed.
+2. **Implemented — bounded comparisons and recommendation policy.** Preserve the corrected
+   Alex / original 16 / fixed-clock baseline union of one conditional posting.
+   Select existing generalist/support, language, technical and specialist personas
+   before final outcomes; report gains, removals, ordering and relabelling separately.
+   Implement materiality-aware shared admission and one bounded candidate list.
+3. **Implemented, validating — candidate clarity and preferences.** Short grounded card fit, concise
+   material warnings and exact-detail Before you apply guidance use existing evidence.
+   Employer wording remains accessible. Connect manual part-time draft/review/
+   confirmation to authoritative workload preference consumers with soft semantics;
+   explicit hard constraints retain their real scope. Do not infer hours or contract
+   type. Optional correction links must lead to supported fields and be honest.
+4. **Implemented and independently reviewed — full-chain regression.** Preserve intake/editor
+   regressions; exercise soft/hard workload, ordinary and specialist fit, missing
+   versus contradictory requirements, truthful guidance, list/detail/My Jobs,
+   correction/workflow continuity and foreign/stale action protections. Use actual
+   served forms and HTTP/persistence. Independently challenge and repair findings.
+5. **Final gate — freeze and deliver.** Commit reviewed source; run all 2,052 prior IDs,
+   required 636 and additions/affected coverage with exact source hashes. Retain
+   every failed attempt. Rehearse multiple preselected personas through normal
+   synthetic authentication/forms so owner can inspect examples without redoing
+   onboarding, while full intake remains available. Leave only the verified 8861
+   acceptance process and deliver one consolidated package in the existing index.
+
+Ownership: lead handles client integration, preservation, plan, final tests and demo.
+Matching agent owns admission/selection and bounded cohort; candidate agent owns
+shared rendering/guidance; operability agent owns preference wiring. Cross-reviews
+cover other agents' changes; authors do not approve their own changes. Tests and
+listeners are serialized by lead. The immutable baseline's 10 tests passed. The
+first focused run retained its failures and corrections; intermediate actual-client
+checks use a separately hashed snapshot so edits cannot contaminate receipts.
+Current process handles and executable next actions remain in evidence/RUN-STATE.md.
+No source changes during final validation. Native certificate policy and all real
+participant activation gates remain separate. Exact owner authority is retained in
+evidence/RECOMMENDATION-OWNER-AUTHORITY.txt.
+
+Integrated validation findings and corrections are retained in the execution ledger:
+unified sorting uses an ephemeral presentation-section input; unchanged/unrelated
+legacy corrections preserve preference authority and provenance; exact-bound
+restrictive location wording stays prominent while plain city metadata remains in
+the source disclosure. Whole-clause language support must agree with displayed
+warnings; a supported language component cannot resolve a compound writing claim.
+The actual client retains languages/activities/scoped years through review,
+confirmation, correction, invalid/stale submissions and later return. The prepared
+sample composition creates invitations only; Alex/biology/software profiles are
+entered and confirmed through normal served forms, with same-browser account
+switching and a separate untouched Fresh Alex account. The sample-only persisted
+rehearsal clock is explicitly simulated; other compositions keep their clock.
+
+The preselected comparison preserves the original16-source inventory and clock.
+Development shows unchanged unions and ordering: corrected Alex1, generalist1,
+software1, biology9; the other five audience contrasts and strict-pay technical
+control remain empty. These are replay outcomes, not a coverage gain or a current
+vacancy claim. Final receipts must reproduce them before delivery. No historical
+assessment is relabelled as human ground truth and no new catalog fixture is added.
+
+No software acceptance is inferred from an intermediate run: the broad1,306-ID
+preflight retained16 failure entries/two errors, development8 retained one invalid
+new-test payload, and the corrected54-ID development9 passed unchanged. Final
+selection and all prior coverage mappings are generated in the existing bundle.
+Release identity, exact source hashes, independent dispositions, final browser
+boundary, process ownership and restart command are recorded there after the gate.
+
+The previous sections below retain their original decisions and execution history;
+this section supersedes their current-state statements only where explicitly changed.
+
+### Explicit entry-level task-fit clarification — completed prior correction
 
 Owner acceptance remains pending. Continue from028ebc3124e95b2f5d6080b3f97c557655b51738
 (tree27f1047986727b3350468338f1578c49911d3777) in the same isolated feature.

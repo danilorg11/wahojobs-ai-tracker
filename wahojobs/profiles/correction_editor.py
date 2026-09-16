@@ -183,14 +183,16 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         opened=focus in ('skills', 'software_tools', 'technical_skills', 'domain_specific_skills'))
     rendered.add('flexible')
     preferences = section('preferences', 'Work preferences', 'Optional',
-        select('availability', 'Workload / timing preference', {'unknown':'Not specified','immediate':'Prefer an immediate start','available':'Open to work','limited':'Prefer limited hours','unavailable':'Not currently looking','full-time':'Full-time','part-time':'Part-time'})
-        + "<p class='field-help'>A preference does not confirm the hours you are available.</p>"
+        check('remote', 'I prefer remote work')
+        + select('availability', 'Workload / timing preference', {'unknown':'Not specified','immediate':'Prefer an immediate start','available':'Open to work','limited':'Prefer limited hours','unavailable':'Not currently looking','full-time':'Full-time','part-time':'Part-time'})
+        + "<p class='field-help'>Workload choices are preferences, not a ban on other schedules or a statement of available hours. "
+          "For a firm restriction, use “part-time only” or “full-time only” in Firm constraints below.</p>"
         + support.review_checkbox('flexible', 'I prefer flexible hours', fields.get('flexible') == '1')
         + select('synchronous_preference', 'Meetings and scheduled collaboration', support.canonical_review.SYNCHRONOUS_PREFERENCES)
         + select('phone_preference', 'Phone work', support.canonical_review.PHONE_PREFERENCES)
         + '<details><summary>Schedule and contract preferences</summary>'
         + choices('schedule', 'Schedule preferences', support.canonical_review.SCHEDULE_PREFERENCES)
-        + choices('employment_types', 'Contract preferences', support.canonical_review.EMPLOYMENT_TYPES) + '</details>', opened=focus == 'preferences')
+        + choices('employment_types', 'Workload and contract preferences', support.canonical_review.EMPLOYMENT_TYPES) + '</details>', opened=focus == 'preferences')
     if preference_model is not None:
         from wahojobs.profiles.preference_presentation import render_preference_editor, preference_summary
         # The typed authority is editable; its legacy mirrors travel unchanged
@@ -198,7 +200,9 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         rendered.difference_update({'availability', 'flexible', 'synchronous_preference', 'phone_preference'})
         preferences = section('preferences', 'Work preferences',
             ' · '.join(preference_summary({'preference_model': preference_model})),
-            render_preference_editor(preference_model, submitted), opened=focus == 'preferences' or bool(issue and issue[0] == 'section-preferences'))
+            check('remote', 'I prefer remote work') + render_preference_editor(preference_model, submitted)
+            + "<p class='field-help'>For a firm workload restriction, use “part-time only” or “full-time only” in Firm constraints below.</p>",
+            opened=focus == 'preferences' or bool(issue and issue[0] == 'section-preferences'))
     optional = section('optional', 'Permissions, licenses and constraints', 'Optional',
         text('work_authorization', 'Work permission or permit (optional)')
         + text('eligible_countries', 'Countries where you have permission to work (optional)')
@@ -217,6 +221,8 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
     focus_target = {'education': 'degrees', 'skills': 'skills', 'technical_skills': 'technical_skills',
                     'domain_specific_skills': 'domain_specific_skills', 'software_tools': 'software_tools', 'languages': 'language_0',
                     'experience': 'job_titles', 'preferences': 'availability', 'location': 'country'}.get(focus, '')
+    if focus == 'preferences' and preference_model is not None:
+        focus_target = 'beta_preference_workloads'
     return (f"<form method='post' action='{esc(action)}' class='profile-review-form candidate-correction' id='profile-review-form' data-focus='{focus_target}'>"
         + hidden + feedback + ("<p>Add the details you want to use for matching. Optional details can stay blank.</p>" if manual_draft else "<p>Edit any section that needs a correction. Optional details can stay blank.</p>")
         + ("<p class='field-help'>Changes are saved to an unconfirmed draft while you edit. Done editing closes a section. Review changes checks the complete profile before confirmation.</p>" if manual_draft else "<p class='field-help'>Done editing closes a section. Use Review changes to save your draft, then confirm the complete profile on the next screen.</p>")
@@ -286,7 +292,7 @@ function languageControls(row){return Array.from(row.querySelectorAll('input,sel
 function languageCapacity(){var full=languageRows.every(function(row){return !row.hidden;});addLanguage.disabled=full;form.querySelector('[data-language-limit]').hidden=!full;}
 languageRows.forEach(function(row){row.querySelector('[data-remove-language]').addEventListener('click',function(){var controls=languageControls(row),previous=controls.map(function(c){return c.value;});controls.forEach(function(c){c.value=c.tagName==='SELECT'?'unspecified':'';});row.hidden=true;var undo=document.createElement('button');undo.type='button';undo.className='button-quiet';undo.dataset.undoLanguage='';undo.textContent='Undo removal: '+(previous[0]||'language');row._undo=undo;form.querySelector('[data-language-undo]').appendChild(undo);undo.addEventListener('click',function(){controls.forEach(function(c,i){c.value=previous[i];});row.hidden=false;row._undo=null;undo.remove();languageCapacity();controls[0].dispatchEvent(new Event('input',{bubbles:true}));controls[0].focus();});languageCapacity();controls[0].dispatchEvent(new Event('input',{bubbles:true}));undo.focus();});});
 addLanguage.addEventListener('click',function(){var empty=languageRows.find(function(row){return !row.hidden&&!languageControls(row)[0].value.trim();});var row=empty||languageRows.find(function(r){return r.hidden&&!r._undo;})||languageRows.find(function(r){return r.hidden;});if(!row)return;if(row._undo){row._undo.remove();row._undo=null;}row.hidden=false;languageCapacity();languageControls(row)[0].focus();});languageCapacity();
-function value(name){var c=form.querySelector('[name="'+name+'"]');return c?c.value.trim():'';}
+function value(name){var c=form.querySelector('[name="'+name+'"]');return c&&!(c.type==='checkbox'&&!c.checked)?c.value.trim():'';}
 function meaningful(v){return v&&['unknown','unspecified','not_specified'].indexOf(v)===-1;}
 function option(name){var c=form.querySelector('[name="'+name+'"]');return c&&meaningful(c.value)?c.selectedOptions[0].textContent:'';}
 function jsonValues(name){try{return JSON.parse(value(name)||'[]');}catch(e){return [];}}

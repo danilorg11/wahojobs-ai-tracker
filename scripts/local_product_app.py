@@ -2578,6 +2578,8 @@ def apply_identity_free_profile_review(profile, updates):
             "explicit": True,
         }
     provenance["field_sources"] = existing_sources
+    from wahojobs.profiles.preference_model import explicit_hard_workload
+    explicit_hard_workload(canonical["constraints"]["hard_constraints"])
     canonical["matcher_compatible_profile"] = _identity_free_matcher_projection(
         canonical
     )

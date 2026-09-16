@@ -52,10 +52,11 @@ def parse_variant_query(query):
 
 def find_presented_variant(context, canonical_id, job_id=None):
     from wahojobs.authenticated_profile_matches import (
-        _primary_presentation_matches, _presented_relaxation_scenarios, _conditional_presentation_matches,
+        _recommendation_presentation_matches, _presented_relaxation_scenarios,
     )
-    groups = [(_primary_presentation_matches(context), "main")]
-    groups.append((_conditional_presentation_matches(context), "conditional"))
+    # Membership is the actually displayed bounded union, not the sum of two
+    # independently capped internal routes. Scoped local eligibility is separate.
+    groups = [(_recommendation_presentation_matches(context), "recommendation")]
     groups.extend((scenario["matches"], "relaxation")
                   for scenario in _presented_relaxation_scenarios(context))
     for matches, section in groups:
@@ -64,6 +65,9 @@ def find_presented_variant(context, canonical_id, job_id=None):
         if len(candidates) > 1:
             raise ValueError("ambiguous_recommendation_variant")
         if candidates:
+            if section == "recommendation":
+                section = ("conditional" if candidates[0].get('conditional_task_fit') is True
+                           and candidates[0].get('primary_recommendation_eligible') is False else "main")
             return dict(candidates[0], _detail_recommendation_section=section)
     return None
 
@@ -165,7 +169,11 @@ def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now, 
         if browser._has_authoritative_preference_model(profile_v2):
             single = browser._apply_typed_preference_enforcement_v1(
                 profile_v2, single, rows, snapshot["effective"])
-        local["passes"] = bool(browser._primary_presentation_matches(single))
+        # Enforcement records the actual outcomes on copied matches, including
+        # a rejected variant. Detail guidance must use that evaluated copy.
+        local["match"] = next((item for items in single["matches"].values() for item in items
+                               if item["job_id"] == requested_id), match)
+        local["passes"] = bool(browser._recommendation_presentation_matches(single))
         local["preference_evaluations"] = single.get("_typed_preference_enforcement", {}).get("evaluations", [])
     return job, local
 

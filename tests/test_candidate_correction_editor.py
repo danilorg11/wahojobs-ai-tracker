@@ -51,8 +51,11 @@ class CandidateCorrectionEditorTests(unittest.TestCase):
         self.assertIn('Additional studies', html)
         self.assertIn("href='#review-actions'", html)
         self.assertIn('Review changes', html)
-        for unwanted in ('Needs your input', 'I prefer remote work', '>Industries<', '>Professional domains<'):
+        for unwanted in ('Needs your input', '>Industries<', '>Professional domains<'):
             self.assertNotIn(unwanted, html)
+        self.assertEqual(html.count('type="checkbox" name="remote"'), 1)
+        self.assertNotIn("type='hidden' name='remote'", html)
+        self.assertIn('I prefer remote work', html)
         fields = dict(self.f._form(response, 'edit_run_id')['fields'])
         self.assertEqual(len(json.loads(fields['education_entries'])), 11)
         self.assertIn('Example University', fields['education_entries'])

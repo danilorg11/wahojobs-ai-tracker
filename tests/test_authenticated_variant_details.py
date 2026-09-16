@@ -160,7 +160,14 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
         self.assertIn(b"href='https://jobs.example.test/same-source'", detail.body)
 
     def test_relaxation_link_keeps_exact_variant_and_is_not_a_main_match_claim(self):
-        self.f.set_preferences('part_time')
+        from tests.test_profile_preference_model import with_preference_model
+        from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+        # Soft workload is no longer an exclusion. Keep the exact same genuine
+        # relaxation/variant test using an unchanged relationship criterion.
+        model = empty_profile_preferences_v1()
+        model['employment_relationships'] = ['employee']
+        self.f.profile = with_preference_model(self.f.profile, model)
+        self.f.update_inventory("UPDATE jobs SET commitment='Freelance' WHERE id=7006")
         r, run, visible = self.matches()
         self.assertEqual(visible, [])
         self.assertIn(b'More opportunities if', r.body)
@@ -258,6 +265,7 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
     def test_profile_preference_and_configuration_changes_invalidate_membership_only(self):
         from copy import deepcopy
         from wahojobs.matching.metadata_overlay import OpportunityMetadataOverlay
+        from tests.test_profile_preference_model import with_preference_model
         r, _, _ = self.matches(); link = self.card_link(r)
         original = deepcopy(self.f.profile)
         self.f.profile['location']['country'] = 'United States'
@@ -267,8 +275,25 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
         self.f.profile = original
         self.f.set_preferences('part_time')
         body = self.f.get(link).body
+        # Changed preferences invalidate old list proof; a soft workload wish
+        # still leaves the source variant locally eligible, with actual advice.
+        self.assertTrue(self.detail_job['_authenticated_local_checks']['passes'])
+        self.assertEqual(self.detail_job['_authenticated_local_checks']['match']['_workload_preference_outcomes'][0]['outcome'], 'fail')
+        self.assertFalse(self.detail_job['_authenticated_membership_known'])
+        self.f.profile['constraints']['hard_constraints'] = ['part-time only']
+        self.f.profile = with_preference_model(self.f.profile, self.f.profile['preferences']['preference_model'])
+        self.f.get(link)
+        self.assertTrue(self.detail_job['_authenticated_local_checks']['passes'],
+                        'An external fixture label cannot become a confirmed hard limit')
+        # This is a newly confirmed synthetic limit. The historical base fixture
+        # uses external_fixture provenance, which correctly cannot author it.
+        for ref in self.f.profile['provenance']['field_sources']:
+            if ref['field_path'] == 'constraints.hard_constraints[0]':
+                ref.update(source_kind='user_confirmation', explicit=True)
+        body = self.f.get(link).body
         self.assertFalse(self.detail_job['_authenticated_local_checks']['passes'])
         self.assertFalse(self.detail_job['_authenticated_membership_known'])
+        self.f.profile = deepcopy(original)
         self.f.set_preferences('full_time')
         overlay = self.f.integration._metadata_overlay
         self.f.integration._metadata_overlay = OpportunityMetadataOverlay(overlay.path.with_suffix('.other'), {})

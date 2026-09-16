@@ -227,19 +227,61 @@ class MercorApplicantGeographyTests(unittest.TestCase):
             self.assertNotIn(f'canonical:{after_row["canonical_opportunity_id"]}', encoded)
 
     def test_preexisting_workload_relaxation_cannot_resurrect_geographic_conflict(self):
+        # Preserve this historical ID while checking the authorized soft-workload
+        # contract: the difference is evaluated guidance, not a needed unlock.
         record = self.synthetic_record(commitment="Full-time", location="Remote - Canada")
         self.fixture.set_preferences("part_time")
         self.ingest([record])
         first, _ = self.render()
         old = self.fixture.last_run()
-        self.assertIn(b"More opportunities if", first.body)
         self.assertIn(record["title"].encode(), first.body)
         context = old.recommendation_context
-        self.assertFalse(any(m["source_slug"] == "mercor" for m in browser._primary_presentation_matches(context)))
+        _, row = self.projected_check(record['listingId'])
+        match = next(m for m in browser._recommendation_presentation_matches(context)
+                     if m['job_id'] == row['job_id'])
+        self.assertEqual(match['_workload_preference_outcomes'][0]['outcome'], 'fail')
+        self.assertFalse(any(m['job_id'] == row['job_id']
+            for scenario in browser._presented_relaxation_scenarios(context) for m in scenario['matches']))
         self.ingest([dict(record, eligibleLocation=["USA"], eligibleResidenceLocation=["USA"])])
         second = self.fixture.get("/find-matches?run=" + old.match_run_id)
         self.assertEqual(second.status, 200)
         self.assertNotIn(record["title"].encode(), second.body)
+        self.assertEqual(self.projected_check(record['listingId'])[0].status, 'incompatible')
+        self.assert_not_recommended_or_relaxed(row['job_id'], self.fixture.last_run().recommendation_context)
+
+    def assert_not_recommended_or_relaxed(self, job_id, context):
+        self.assertNotIn(job_id, [m['job_id'] for m in browser._recommendation_presentation_matches(context)])
+        self.assertFalse(any(m['job_id'] == job_id
+            for scenario in browser._presented_relaxation_scenarios(context) for m in scenario['matches']))
+
+    def test_preexisting_relationship_relaxation_cannot_resurrect_geographic_conflict(self):
+        from tests.test_profile_preference_model import with_preference_model
+        from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+        record = self.synthetic_record(commitment='Freelance', location='Remote - Canada')
+        model = empty_profile_preferences_v1()
+        model['employment_relationships'] = ['employee']
+        self.fixture.profile = with_preference_model(self.fixture.profile, model)
+        self.ingest([record])
+        first, _ = self.render()
+        old = self.fixture.last_run()
+        _, row = self.projected_check(record['listingId'])
+        self.assertIn(b'More opportunities if', first.body)
+        self.assertIn(record['title'].encode(), first.body)
+        self.assertNotIn(row['job_id'], [m['job_id'] for m in
+                         browser._recommendation_presentation_matches(old.recommendation_context)])
+        scenarios = browser._presented_relaxation_scenarios(old.recommendation_context)
+        target_scenarios = [s['scenario_id'] for s in scenarios
+                           if any(m['job_id'] == row['job_id'] for m in s['matches'])]
+        self.assertTrue(target_scenarios)
+        raw = old.recommendation_context['_typed_preference_enforcement']['single_criterion_relaxations']['scenarios']
+        self.assertTrue(all(s['criterion_id'] == 'preferences.employment_relationships'
+                            for s in raw if s['scenario_id'] in target_scenarios))
+        self.ingest([dict(record, eligibleLocation=['USA'], eligibleResidenceLocation=['USA'])])
+        second = self.fixture.get('/find-matches?run=' + old.match_run_id)
+        self.assertEqual(second.status, 200)
+        self.assertNotIn(record['title'].encode(), second.body)
+        self.assertEqual(self.projected_check(record['listingId'])[0].status, 'incompatible')
+        self.assert_not_recommended_or_relaxed(row['job_id'], self.fixture.last_run().recommendation_context)
 
 
 if __name__ == "__main__":

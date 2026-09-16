@@ -169,6 +169,8 @@ _EXPLICIT_V2_CONSUMERS = (
     "wahojobs/persistent_profile_schema.py",
     "wahojobs/profiles/correction_editor.py",
     "wahojobs/profiles/item_experience.py",
+    # Validated read-only compatibility for confirmed legacy workload authority.
+    "wahojobs/profiles/preference_model.py",
     "wahojobs/profiles/preference_presentation.py",
     "wahojobs/profiles/review_entries.py",
     "scripts/persistent_profile_canonical_v2_migration.py",

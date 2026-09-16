@@ -20,6 +20,8 @@ class PrivateBetaMatchingTests(unittest.TestCase):
         emit_receipt('software_engineer_strict_pay',result)
         self.assertEqual(result['status'],200)
         self.assertEqual(result['inventory_count'],16)
+        self.assertLessEqual(len(result['recommendations']),10)
+        self.assertEqual(len(result['recommendations']),len(set(result['recommendations'])))
         self.assertTrue(result['preferences']['evaluations'])
         self.assertTrue(any(row['admission']['status']!='keep' for row in result['preferences']['evaluations']))
         self.assertNotIn(960014,result['main'])
@@ -33,6 +35,8 @@ def case(name):
         self.assertEqual(result['status'],200)
         self.assertEqual(result['inventory_count'],16)
         self.assertTrue(result['projected'],'normal canonical projection executed')
+        self.assertLessEqual(len(result['recommendations']),10)
+        self.assertEqual(len(result['recommendations']),len(set(result['recommendations'])))
         self.assertIsNotNone(result['preferences'],'normal typed preferences executed')
         self.assertEqual(len(result['outcomes']),16)
         self.assertTrue(all(r['detail_status']==(404 if r['job_id']==960000 else 200) for r in result['outcomes']))
@@ -49,10 +53,12 @@ def case(name):
         self.assertIn(result['anonymous_status'],(303,401))
         # No count/rank target: omitted opportunities are valid outcomes.
         for row in result['outcomes']:
-            if row['main_rank'] or row['conditional_rank']:
+            if row['recommendation_rank']:
                 self.assertIsNotNone(row['selected_match'])
                 self.assertIsNotNone(row['rendered_comparison'])
-                self.assertTrue(row['rendered_quotes_present'])
+                # The revised owner-approved UI keeps full employer wording in
+                # exact detail, not a repeated all-qualification card audit.
+                self.assertTrue(row['exact_quotes_present'])
                 self.assertEqual(row['rendered_comparison'],row['exact_comparison'])
     return test
 

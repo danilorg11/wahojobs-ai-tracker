@@ -1,9 +1,44 @@
 # Profile Preferences V2
 
 `profile_preferences_v2` is the authoritative preference subdocument written
-by new AI-assisted onboarding inside
+by AI-assisted onboarding and sealed manual confirmation inside
 `canonical_profile_v2.preferences.preference_model`. Canonical V2 continues to
 accept existing `profile_preferences_v1` documents without rewriting them.
+
+## Private beta manual and legacy workload contract
+
+The manual writer derives only supported deterministic values from the reviewed
+legacy controls. It preserves every legacy value and free-text interest rather
+than replacing them with the intentionally lossy typed mirror. Derived fields
+bind to the confirmed original source or the complete reviewed correction source.
+The existing AI-assisted writer retains its strict full-mirror equality check.
+Typed corrections update changed mirrors only, preserving independent free text
+and unchanged provenance. Draft saves do not change the confirmed profile.
+An older profile acquires a model through correction only when the candidate
+actually edits its preference values, reviews that proposal and confirms it.
+An unchanged submission or an unrelated correction preserves the existing legacy
+preference root and its provenance; it does not introduce new preference filters.
+
+Older reviewed canonical V2 profiles without a typed model can supply exact
+`part-time`/`full-time` values from confirmed legacy workload fields to the same
+consumer, without writing a model or revision. This bounded read compatibility
+requires explicit user-confirmation/correction provenance and is identified in
+internal evaluation evidence as `confirmed_legacy_workload`. Other historical
+free text does not silently become a new filter.
+
+A soft workload mismatch remains a `fail` comparison but keeps an otherwise
+eligible recommendation, with concise advice to check the schedule. It neither
+changes scores nor produces a fictitious preference-relaxation unlock. A missing
+workload is `unknown`; a source range such as 10–40 hours is not converted into
+full-time/part-time authority. Other preference dimensions retain their existing
+admission rules. Firm workload limits use the exact visible forms in confirmed
+Firm constraints: `part-time only`/`only part-time work` or
+`full-time only`/`only full-time work`. These create a strict workload criterion;
+a conflict or missing comparable evidence excludes. Opposing firm limits are
+rejected during review. No schema, numeric availability inference, or data
+migration is introduced.
+
+## Exact contract
 
 Every object is closed. Every accepted-choice list is unique, canonically
 sorted, and means unrestricted when empty:
@@ -39,7 +74,8 @@ industries, and specialties supply relevance evidence for AI training and
 evaluation opportunities; candidates do not have to enumerate every domain or
 activity to avoid missing work. Existing V1/V2 profiles with confirmed
 `job_interests` are neither migrated nor reinterpreted, and their existing
-typed enforcement and relaxation behavior remains unchanged.
+typed enforcement and relaxation behavior remains unchanged except for the
+explicitly approved soft-workload rule above.
 
 The AI intake editor presents each non-compensation soft dimension with an
 explicit **No preference** or **I have preferences** state. No preference is

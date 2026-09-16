@@ -42,6 +42,7 @@ def observe_matching():
         trace['rendered'].append(dict(inventory_count=kwargs['inventory_count'],
             main=[m['job_id'] for m in browser._primary_presentation_matches(context)],
             conditional=[m['job_id'] for m in browser._conditional_presentation_matches(context)],
+            recommendations=[m['job_id'] for m in browser._recommendation_presentation_matches(context)],
             matches=deepcopy(context['matches']),hidden=context.get('_hidden_posting_ids'),
             preferences=deepcopy(context.get('_typed_preference_enforcement'))))
         return render(context,**kwargs)
@@ -50,7 +51,7 @@ def observe_matching():
 
 
 class PrivateBetaOwnerCorrectionTests(unittest.TestCase):
-    def journey(self, *, background=BACKGROUND, editors=False, durations=False, label='owner'):
+    def journey(self, *, background=BACKGROUND, editors=False, durations=False, recommendations=False, label='owner'):
         def observe_draft(state):
             result=observe(state)
             sidecar=state.database_path.with_name(state.database_path.name+'.correction-drafts.sqlite3')
@@ -63,7 +64,8 @@ class PrivateBetaOwnerCorrectionTests(unittest.TestCase):
             return result
         with beta_state(now=CLOCK) as state, patch('tests.test_candidate_continuity_client.https_request',verified_https_request), patch('tests.test_first_time_candidate.observe',side_effect=observe_draft), observe_matching() as trace:
             marker=state.directory/'first-time-candidate.json'
-            data=json.loads(marker.read_text());data.update(background=background,exercise_editors=editors,exercise_durations=durations)
+            data=json.loads(marker.read_text());data.update(background=background,exercise_editors=editors,exercise_durations=durations,
+                                                          exercise_recommendations=recommendations)
             marker.write_text(json.dumps(data))
             with beta_application(state): result=client(state,'owner-correction')
             persisted=observe(state)

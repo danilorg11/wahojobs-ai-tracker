@@ -199,6 +199,7 @@ function formFacts(){
 }
 async function ownerCheckpoint(label){
   const o=await checkpoint(label);o.form=formFacts();
+  o.matchCards=[...document().querySelectorAll('article[data-action-card]')].map(card=>card.id);
   o.summaries=Object.fromEntries([...document().querySelectorAll('.candidate-section')].map(s=>[s.id,s.querySelector('[data-section-summary]')?.textContent]));
   o.pageText=document().body.textContent.replace(/\s+/g,' ').trim();
   // Clone only for visual evidence, reflecting properties changed by real events.
@@ -216,7 +217,14 @@ async function ownerCheckpoint(label){
 async function ownerJourney(){
   if(mode==='owner-return'){
     await ownerCheckpoint('later-authenticated-profile');
-    await navigate('/find-matches');await ownerCheckpoint('later-authenticated-matches');return;
+    await navigate('/find-matches');await ownerCheckpoint('later-authenticated-matches');
+    const fixture=await rpc({kind:'fixture'});
+    if(fixture.exercise_recommendations){
+      await navigate('/tracker');await navigate(localLink('/tracker/item?'));
+      await ownerCheckpoint('recommendation-later-my-jobs');
+      assert.match(document().body.textContent,/Applied/);assert.match(document().body.textContent,/Reminder set/);
+    }
+    return;
   }
   await navigate(localLink('/find-matches'));
   const fixture=await rpc({kind:'fixture'});
@@ -317,14 +325,123 @@ async function ownerJourney(){
       await navigate('/account/profile');
     }
   }
+  if(fixture.exercise_recommendations){
+    await navigate('/find-matches');await ownerCheckpoint('recommendation-list');
+    const cards=[...document().querySelectorAll('article[data-action-card]')];
+    const card=cards.find(c=>c.textContent.includes('Generalist'));assert.ok(card);
+    const exact=localLink('/job/',card);
+    await navigate(exact);await ownerCheckpoint('recommendation-detail-before');
+    const before=await rpc({kind:'state'});
+    const binding=form('save').querySelector('[name="opportunity_key"]');assert.ok(binding);
+    const valid=binding.value;binding.value='invalid-exact-posting';
+    await click('save',403);
+    assert.deepEqual((await rpc({kind:'state'})).items,before.items);
+    assert.deepEqual((await rpc({kind:'state'})).transitions,before.transitions);
+    binding.value=valid;await click('save');await click('remind_later');
+    const saved=await rpc({kind:'state'}), appliedBeforeCorrection=form('applied').outerHTML;
+    await navigate('/account/profile');await navigate(localLink('/account/profile?correction=start'));
+    await submit('form');
+    await navigate([...document().querySelectorAll('a')].find(a=>a.textContent==='Edit profile').getAttribute('href'));
+    const preferences=document().querySelector('#section-preferences');assert.ok(preferences);preferences.open=true;
+    const remote=preferences.querySelector('input[type="checkbox"][name="remote"]');
+    assert.ok(remote && remote.checked,'Existing remote preference has an editable real control');
+    for(const choice of [false,true,false]){
+      remote.checked=choice;remote.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+      preferences.querySelector('[data-section-done]').click();
+      assert.equal(preferences.querySelector('[data-section-summary]').textContent.includes('Remote work preferred'),choice,
+        'Done editing summary uses the actual checkbox state');
+      preferences.querySelector('summary').click();assert.equal(remote.checked,choice);
+    }
+    const part=preferences.querySelector('[name="beta_preference_workloads"][value="part_time"]');
+    const full=preferences.querySelector('[name="beta_preference_workloads"][value="full_time"]');
+    assert.ok(part && full,'Existing confirmed workload is editable through real controls');
+    assert.equal(part.checked,true);part.checked=false;part.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+    full.checked=true;full.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+    preferences.querySelector('[data-section-done]').click();await ownerCheckpoint('recommendation-preference-local');
+    preferences.querySelector('summary').click();assert.equal(full.checked,true);
+    document().querySelector('[name="credentials_confirmed"]').checked=true;
+    await submit('#profile-review-form');await ownerCheckpoint('recommendation-correction-review');
+    assert.deepEqual((await rpc({kind:'state'})).revisions,saved.revisions,'Correction review is unconfirmed');
+    document().querySelector('[name="confirmed"]').checked=true;await submit('form');
+    const corrected=await rpc({kind:'state'});
+    assert.equal(corrected.revisions.length,saved.revisions.length+1);
+    assert.equal(JSON.parse(corrected.revisions.at(-1).structured_profile_json).preferences.remote,false,
+      'The explicitly cleared remote choice survives real form confirmation');
+    assert.deepEqual(corrected.items,saved.items);assert.deepEqual(corrected.transitions,saved.transitions);
+    await navigate(exact);await ownerCheckpoint('recommendation-detail-after');
+    const staleReminder=form('remind_later').outerHTML;
+    form('applied').outerHTML=appliedBeforeCorrection;await click('applied');
+    const applied=await rpc({kind:'state'});
+    form('remind_later').outerHTML=staleReminder;await click('remind_later',409);
+    assert.deepEqual((await rpc({kind:'state'})).transitions,applied.transitions);
+    await navigate('/tracker');await navigate(localLink('/tracker/item?'));
+    await ownerCheckpoint('recommendation-my-jobs');
+    assert.match(document().body.textContent,/Applied/);assert.match(document().body.textContent,/Reminder set/);
+  }
+}
+async function sampleJourney(fixture){
+  if(!fixture.sample_return){
+    await navigate(localLink('/find-matches'));
+    set('input_text',fixture.background);
+    await submit('#find-matches-form');await ownerCheckpoint('sample-text-draft');
+    // The local parser is deliberately bounded. Review the declared sample facts
+    // through visible controls; do not manufacture a complete extracted payload.
+    if(fixture.review_fields){
+      const fields=fixture.review_fields;
+      document().querySelector('#section-location').open=true;set('country',fields.country);
+      for(const name of ['job_titles','skills']){
+        const group=document().querySelector('[data-chips="'+name+'"]');assert.ok(group);
+        group.closest('.candidate-section').open=true;
+        for(const fact of fields[name]){
+          const present=[...group.querySelectorAll('[data-collection-item] input:not([type=checkbox])')]
+            .some(input=>input.value.trim().toLowerCase()===fact.toLowerCase());
+          if(present)continue;
+          group.querySelector('[data-add-chip]').click();
+          const input=[...group.querySelectorAll('[data-collection-item] input:not([type=checkbox])')]
+            .find(input=>!input.value.trim()&&!input.closest('[data-collection-item]').hidden);
+          assert.ok(input);input.value=fact;input.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+        }
+        group.closest('.candidate-section').querySelector('[data-section-done]').click();
+      }
+      await ownerCheckpoint('sample-reviewed-facts');
+    }
+    document().querySelector('[name="credentials_confirmed"]').checked=true;
+    await submit('#profile-review-form');await ownerCheckpoint('sample-final-review');
+    await submit('form[action="/account/profile"]');
+  }else await navigate('/find-matches');
+  await ownerCheckpoint('sample-matches');
+  const links=[...document().querySelectorAll('article[data-action-card] a[href^="/job/"]')]
+    .map(a=>a.getAttribute('href'));
+  for(const [index,target] of [...new Set(links)].slice(0,3).entries()){
+    await navigate(target);
+    assert.ok(document().querySelector('.practice-selector'), 'Practice selection remains available on exact detail');
+    await ownerCheckpoint('sample-detail-'+index);
+  }
+  await navigate('/account/profile');await ownerCheckpoint('sample-profile');
+  if(fixture.switch_sample){
+    const choice=document().querySelector('.practice-selector a[href$="practice='+fixture.switch_sample+'"]');
+    assert.ok(choice, 'Switch through the actual visible practice link');
+    await navigate(choice.getAttribute('href'));
+    await submit('form[action="/auth/google/start"]');
+    await navigate(localLink('/__fixture/google/complete'));
+    await navigate('/account/profile');
+    assert.match(document().body.textContent,/Research Sample/);
+    await ownerCheckpoint('sample-switched-profile');
+    await navigate('/find-matches');await ownerCheckpoint('sample-switched-matches');
+  }
 }
 async function main() {
   const fixture=await rpc({kind:'fixture'});
-  await navigate('/login?next=/account/profile');
+  await navigate('/login?next=/account/profile'+(fixture.practice_sample?'&practice='+encodeURIComponent(fixture.practice_sample):''));
   set('invitation',fixture.invitation);
   await submit('form[action="/auth/google/start"]');
   await navigate(localLink('/__fixture/google/complete'));
   const first=await checkpoint('account-entry');
+  if(fixture.sample_preparation){
+    await sampleJourney(fixture);
+    process.stdout.write(JSON.stringify({kind:'result',observations,requests,scriptHashes:[...scriptHashes],clientErrors})+'\n');
+    dom.window.close();return;
+  }
   if(mode==='owner-correction'||mode==='owner-return'){
     await ownerJourney();
     process.stdout.write(JSON.stringify({kind:'result',observations,requests,scriptHashes:[...scriptHashes],clientErrors})+'\n');

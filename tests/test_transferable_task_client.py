@@ -35,8 +35,9 @@ class TransferableTaskClientTests(unittest.TestCase):
         self.assertEqual(points['final-review-unconfirmed']['state']['profiles'], [])
         for rendered in trace['rendered']:
             self.assertEqual(rendered['inventory_count'], 16)
-            self.assertEqual(rendered['main'], [])
-            self.assertEqual(rendered['conditional'], [960012])
+            # Owner-approved unified recommendation surface; the prior internal
+            # main/conditional label is not the candidate's information hierarchy.
+            self.assertEqual(rendered['recommendations'], [960012])
             selected = [m for rows in rendered['matches'].values() for m in rows]
             match = next(m for m in selected if m['job_id'] == 960012)
             fit = match['accepted_task_fit']
@@ -44,8 +45,8 @@ class TransferableTaskClientTests(unittest.TestCase):
             self.assertTrue(fit['scope_evidence'])
             self.assertTrue(fit['task_links'])
             self.assertTrue(match['source_qualification_comparisons'])
-            self.assertTrue(match['conditional_task_fit'])
-            self.assertFalse(match['primary_recommendation_eligible'])
+            self.assertTrue(any(row['status']=='unresolved'
+                                for row in match['source_qualification_comparisons']))
             self.assertTrue(match['source_task_fit']['conditions'])
             for fact in fit['profile_facts']:
                 self.assertIn(fact['text'], profile['experience']['specialties'])
@@ -54,9 +55,9 @@ class TransferableTaskClientTests(unittest.TestCase):
             self.assertNotIn(960015, rendered['conditional'], 'AI waiver does not waive French')
         for label in ('confirmed-matches', 'generalist-exact-detail'):
             html = unescape(points[label]['pageText'])
-            self.assertIn('Your confirmed activity', html)
-            self.assertIn('review written responses', html)
-            self.assertIn('does not establish prior professional AI work', html)
+            self.assertIn('is relevant to this work.', html)
+            self.assertIn('reviewing written responses', html)
+            self.assertNotIn('Comparison not established', html)
             self.assertNotIn('describes AI evaluation or annotation work', html)
         self.assertTrue(returned['observations'])
         self.assertEqual(result['clientErrors'], [])
@@ -75,6 +76,7 @@ class TransferableTaskClientTests(unittest.TestCase):
         for rendered in trace['rendered']:
             self.assertEqual(rendered['main'], [])
             self.assertEqual(rendered['conditional'], [])
+            self.assertEqual(rendered['recommendations'], [])
         for match in trace['evaluated']:
             self.assertNotEqual((match.get('accepted_task_fit') or {}).get('basis'),
                                 'transferable_activity')

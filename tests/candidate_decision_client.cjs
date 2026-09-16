@@ -192,21 +192,22 @@ async function main() {
     const item=initial.state.items[0];assert.ok(item);
     await navigate('/tracker');await navigate(localLink('/tracker/item?'));
     assert.match(document().body.textContent,/Applied/);assert.match(document().body.textContent,/Reminder set/);
-    assert.match(document().body.textContent,/supporting this tool condition/);
-    assert.equal(document().querySelector('.candidate-profile-update'),null);
+    assert.match(document().body.textContent,/Before you apply/);
+    assert.equal(document().querySelector('.candidate-profile-update a[href*="focus=skills"]'),null);
+    assert.ok(!document().querySelector('.decision-warning')?.textContent.includes('Experience with Python'),'Confirmed tool context is no longer a missing-condition warning');
     await checkpoint('fresh-process-return');
   } else {
     assert.equal(mode,'decision');
     assert.ok(document().querySelectorAll('article[data-action-card]').length>=2,'Several normally selected opportunities');
     assert.ok(document().body.textContent.includes('Alignerr'));
-    assert.ok(document().querySelector('.match-card:not(.conditional-card)#opportunity-9403'),'Normal main recommendation');
-    assert.ok(document().querySelector('.conditional-card#opportunity-9400'),'Preserved Alignerr conditional possibility');
+    assert.ok(document().querySelector('.match-card#opportunity-9403'),'Grounded recommendation remains delivered');
+    assert.ok(document().querySelector('.match-card#opportunity-9400'),'Preserved Alignerr posting remains in the unified list');
     const card=document().querySelector('#opportunity-7003,#opportunity-7006');assert.ok(card,'Normally selected Python opportunity');
     const target=localLink('/job/',card), oldRun=new URL(target,origin).searchParams.get('run');
     assert.ok(oldRun);const oldMatches='/find-matches?run='+oldRun;
-    assert.ok(card.querySelector('.candidate-profile-update'),'Conditional card offers correction');
     await navigate(target);
-    assert.match(document().body.textContent,/tool mention|profile mentions Python/);
+    assert.ok(document().querySelector('.candidate-profile-update'),'Exact detail offers an optional supported correction');
+    assert.match(document().body.textContent,/Experience with Python/);
     await click('save');await click('remind_later');
     const saved=await rpc({kind:'state'});
     const staleFields=form('applied').outerHTML;
@@ -248,8 +249,9 @@ async function main() {
     const previous=JSON.parse(saved.revisions[0].structured_profile_json),current=JSON.parse(appliedProfile.revisions.at(-1).structured_profile_json);
     assert.deepEqual(current.education,previous.education);assert.deepEqual(current.languages,previous.languages);
     await navigate(textLink('Return to opportunity'));
-    assert.match(document().body.textContent,/supporting this tool condition/);
-    assert.equal(document().querySelector('.candidate-profile-update'),null,'No repeated request for confirmed tool evidence');
+    assert.match(document().body.textContent,/Before you apply/);
+    assert.equal(document().querySelector('.candidate-profile-update a[href*="focus=skills"]'),null,'No repeated request for confirmed tool evidence');
+    assert.ok(!document().querySelector('.decision-warning')?.textContent.includes('Experience with Python'),'Actual corrected comparison no longer requests the confirmed tool evidence');
     await checkpoint('corrected-exact-assessment');
     // A profile correction does not revoke a still-current workflow decision.
     const staleReminder=form('remind_later').outerHTML;
@@ -266,7 +268,7 @@ async function main() {
     await click('show_again');
     await navigate(oldMatches);await checkpoint('old-results-recomputed');
     await navigate('/tracker');await navigate(localLink('/tracker/item?'));
-    assert.match(document().body.textContent,/supporting this tool condition/);
+    assert.match(document().body.textContent,/Before you apply/);
     assert.match(document().body.textContent,/Applied/);
     await checkpoint('workflow-preserved');
   }

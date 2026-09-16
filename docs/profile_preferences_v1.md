@@ -8,10 +8,11 @@ contract; reading V1 does not silently rewrite it.
 `canonical_profile_v2.preferences.preference_model`. It separates concepts
 that legacy `employment_types` mixes together. New AI-assisted onboarding is
 the first production writer. It validates the model on the server and writes it
-only after explicit review confirmation. Manual profile writers do not emit
-it, and no existing profile is backfilled. Authenticated primary match results
-enforce typed preferences only when this authoritative model is present;
-profiles without it retain their prior behavior.
+only after explicit review confirmation. Private Beta Readiness V1 also attaches
+V2 preferences at the sealed manual confirmation boundary, preserving all legacy
+free text. No existing profile is backfilled. A read-only compatibility path uses
+only exact, explicitly confirmed workload facts from older reviewed V2 profiles;
+it does not reinterpret their other historical preferences or write a revision.
 
 ## Exact contract
 
@@ -58,7 +59,11 @@ sorted, and an empty array means unrestricted. The closed values are:
 `accepted_career_levels` describes target opportunities. It is not the
 candidate's `experience.seniority` fact. Every accepted-choice dimension is a
 soft preference in typed matching. Compensation alone carries an explicit
-preferred/strict strength in V1.
+preferred/strict strength inside this subdocument. Under the owner-approved
+recommendation policy, a soft workload mismatch is evaluated and shown as advice,
+not an exclusion. A separately confirmed exact firm constraint (`part-time only`,
+`only part-time work`, `full-time only`, or `only full-time work`) creates a strict
+workload criterion. Ambiguous prose and numeric hours are not inferred.
 
 Compensation uses `minimum_kind` values `none`, `preferred`, or `strict`.
 `none` requires the other three fields to be null. `preferred` and `strict`
@@ -95,8 +100,8 @@ for compatibility. AI-assisted onboarding derives the complete legacy mirror
 from the validated model on the server; the browser cannot submit a second
 legacy representation. The durable V2 writer rejects any mismatch between the
 model and that mirror. Canonical V2's active matcher projection still removes
-`preference_model`, so current matching sees only those established legacy
-fields. Existing profiles retain their legacy fields unchanged.
+`preference_model`; the separate typed-criteria consumer reads its authority from
+canonical V2. Existing profiles retain their legacy fields unchanged on reads.
 
 The AI review renders each accepted-choice dimension as an independent
 multi-select generated from this contract. Employee/freelance and

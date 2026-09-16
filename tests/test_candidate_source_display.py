@@ -85,7 +85,8 @@ class CandidateSourceDisplayTests(unittest.TestCase):
         job = detail(source)
         html = render_authenticated_job_page(job, profile=PROFILE, navigation='', return_run_id='valid-run')
         self.assertIn("href='/find-matches?run=valid-run#opportunity-11242'", html)
-        self.assertIn("href='#profile-comparison'", html)
+        self.assertIn("<details class='employer-description'>", html)
+        self.assertIn('<summary>Employer description and requirements</summary>', html)
         self.assertIn("id='employer-qualifications'", html)
         self.assertLess(html.index('Before you apply'), html.index('View source listing</a>'))
         self.assertNotIn('Apply on company site</a>', html)
@@ -175,9 +176,11 @@ class CandidateSourceDisplayTests(unittest.TestCase):
         self.assertTrue(a['reason'])  # evidence remains available to diagnostics
         self.assertNotIn(a['reason'], unescape(body))
         self.assertIn('Docker', body)
-        self.assertIn('Employer preference', body)
+        detail_body = render_authenticated_job_page(detail(source), profile=PROFILE, navigation='')
+        self.assertIn('Preferred', detail_body)
+        self.assertIn('Publications in peer-reviewed journals', detail_body)
         self.assertNotIn('Source excerpt:', body)
-        self.assertIn('<summary', body)
+        self.assertIn('<summary', detail_body)
         self.assertNotIn('Opportunity type not established', body)
 
 

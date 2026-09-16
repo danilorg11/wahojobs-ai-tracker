@@ -15,7 +15,7 @@ from wahojobs.profiles.normalizer import term_is_negated
 
 TASK_PROJECTION_VERSION = 4
 SOURCE_ELIGIBILITY_VERSION = 5
-TASK_ADMISSION_VERSION = 10
+TASK_ADMISSION_VERSION = 11
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -505,11 +505,11 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
         material = (modality in ('required', 'conflicting')
                     or modality != 'preferred' and (qualification or row['kind'] == 'workload'))
         if material and row['status'] != 'supported':
-            from wahojobs.source_clause_materiality import generic_annotation
+            from wahojobs.matching.recommendation_policy import condition_materiality
             # An established contradiction cannot be waived by semantic
             # materiality or by positive evidence on another component.
-            annotation = generic_annotation(row, source) if row['status'] != 'contradicted' else None
-            if annotation is not None:
+            annotation = condition_materiality(row, source) if row['status'] != 'contradicted' else None
+            if annotation is not None and not annotation['admission_decisive']:
                 non_decisive_questions.append(dict(row, modality=modality, materiality=annotation,
                     admission_decisive=False))
                 continue

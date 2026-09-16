@@ -731,9 +731,9 @@ def legacy_preferences_to_preference_draft(legacy_preferences: dict) -> dict:
 
     if "freelance" in employment_choices:
         model["employment_relationships"].append("independent_contractor")
-    if "full-time" in employment_choices or "full-time" in schedule:
+    if "full-time" in employment_choices or "full-time" in schedule or legacy.get("availability") == "full-time":
         model["workloads"].append("full_time")
-    if "part-time" in employment_choices or "part-time" in schedule:
+    if "part-time" in employment_choices or "part-time" in schedule or legacy.get("availability") == "part-time":
         model["workloads"].append("part_time")
     for legacy_value, new_value in (
         ("temporary", "temporary"),
@@ -824,6 +824,97 @@ def legacy_preferences_to_preference_draft_v2(legacy_preferences: dict) -> dict:
         ),
         "ambiguities": deepcopy(draft["ambiguities"]),
     }
+
+
+def explicit_hard_workload(values):
+    """Recognize only the exact firm-constraint forms shown in profile review.
+
+    No sentence mining, implied numeric availability or preference-strength guess.
+    Callers separately establish confirmation authority for each input value.
+    """
+    choices = set()
+    for value in values:
+        if type(value) is str:
+            normalized = " ".join(value.strip().casefold().split())
+            if normalized in {"part-time only", "only part-time work"}:
+                choices.add("part_time")
+            elif normalized in {"full-time only", "only full-time work"}:
+                choices.add("full_time")
+    if len(choices) > 1:
+        raise ProfilePreferenceModelError("conflicting_hard_workload_constraints")
+    return tuple(sorted(choices))
+
+
+def confirmed_hard_workload(profile):
+    """Read firm workload choices only from explicitly confirmed durable facts."""
+    from wahojobs.professional_background_duration import confirmed_fact
+    values = profile.get("constraints", {}).get("hard_constraints", [])
+    return explicit_hard_workload([
+        value for index, value in enumerate(values)
+        if confirmed_fact(profile, f"constraints.hard_constraints[{index}]", value) is not None
+    ])
+
+
+def effective_preference_authority(profile):
+    """Return read-only preference input without adding durable profile facts.
+
+    Existing typed models remain authoritative. Older reviewed V2 profiles can
+    supply only exact, explicitly confirmed workload values through the same
+    consumer. Other historical free text never becomes a new filter on a read.
+    """
+    from wahojobs.profiles.canonical_v2 import validate_canonical_profile_v2
+    from wahojobs.professional_background_duration import confirmed_fact
+    checked = validate_canonical_profile_v2(profile)
+    model = checked['preferences'].get('preference_model')
+    if model is not None:
+        return model, 'stored_preference_model'
+    if checked['provenance']['reviewed'] is not True:
+        return None, 'absent'
+    workloads = set()
+    for key in ('employment_types', 'schedule', 'work_preferences', 'availability'):
+        value = checked['preferences'][key]
+        values = list(enumerate(value)) if isinstance(value, list) else [(None, value)]
+        for index, item in values:
+            path = 'preferences.' + key + (f'[{index}]' if index is not None else '')
+            if item in ('part-time', 'full-time') and confirmed_fact(checked, path, item):
+                workloads.add(item.replace('-', '_'))
+    if not workloads and not confirmed_hard_workload(checked):
+        return None, 'absent'
+    model = empty_profile_preferences_v2()
+    model['workloads'] = sorted(workloads)
+    return model, 'confirmed_legacy_workload'
+
+
+def update_preference_legacy_mirror(legacy, before_model, after_model):
+    """Update changed typed shadows while preserving independent legacy text.
+
+    Strict typed writers still use the original complete mirror and equality
+    check. This adapter is for an explicitly reviewed existing profile only.
+    """
+    legacy_base = {key: value for key, value in legacy.items() if key != 'preference_model'}
+    old = preference_model_to_legacy_preferences(before_model, legacy_base=legacy_base)
+    new = preference_model_to_legacy_preferences(after_model, legacy_base=legacy_base)
+    result = deepcopy(legacy)
+    for key, value in new.items():
+        if old[key] == value:
+            continue
+        if isinstance(value, list):
+            independent = set(legacy.get(key, [])) - set(old[key])
+            result[key] = sorted(independent | set(value))
+        else:
+            result[key] = deepcopy(value)
+    old_workloads, new_workloads = before_model['workloads'], after_model['workloads']
+    if (old_workloads != new_workloads and legacy.get('availability') in
+            [value.replace('_', '-') for value in old_workloads]):
+        result['availability'] = (new_workloads[0].replace('_', '-')
+                                  if len(new_workloads) == 1 else UNKNOWN)
+    # Remote/start availability are independent visible controls, not a typed
+    # employment relationship. Keep the established remote shadow consistent.
+    if result.get('remote'):
+        result['work_preferences'] = sorted(set(result['work_preferences']) | {'remote'})
+    else:
+        result['work_preferences'] = [value for value in result['work_preferences'] if value != 'remote']
+    return result
 
 
 def preference_model_to_legacy_preferences(

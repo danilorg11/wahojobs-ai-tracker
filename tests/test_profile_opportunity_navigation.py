@@ -26,7 +26,7 @@ class ProfileOpportunityNavigationTests(unittest.TestCase):
 
     def test_only_missing_supported_personal_fields_get_optional_action(self):
         html = render_profile_update(prepared(),RETURN)
-        self.assertEqual(html.count('>Update profile</a>'),1)
+        self.assertEqual(html.count('>Review skills and experience</a>'),1)
         self.assertIn('focus=software_tools',html)
         self.assertIn('(optional)',html)
         # The benchmark's known education and unknown hourly capacity have no

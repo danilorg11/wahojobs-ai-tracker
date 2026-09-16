@@ -320,10 +320,14 @@ class ReviewedProfileSourceBundle:
         reviewed_profile = IdentityFreeCanonicalProfileV1.from_json_bytes(
             self._reviewed_profile_json
         )
-        return convert_v1_to_v2(
+        profile = convert_v1_to_v2(
             reviewed_profile.bind_durable_profile_id(profile_id),
             persistent_profile_id=profile_id,
             source_ordinal_resolver=self._source_ordinal_resolver,
+        )
+        from wahojobs.profiles.canonical_v2 import add_reviewed_legacy_preference_model
+        return add_reviewed_legacy_preference_model(
+            profile, source_ordinal_resolver=self._source_ordinal_resolver,
         )
 
     def __repr__(self):

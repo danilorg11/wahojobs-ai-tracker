@@ -32,7 +32,9 @@ class MatchingDeliveryQualityTests(unittest.TestCase):
                 # decisions, original clauses and their confirmed facts agree.
                 self.assertEqual([{k:r[k] for k in ('kind','status','source','profile_facts')} for r in shown['routes']],
                                  [{k:r[k] for k in ('kind','status','source','profile_facts')} for r in listed['routes']])
-                self.assertIn(b'Your confirmed degree',detail.body)
+                self.assertIn(b"<details class='employer-description'>",detail.body)
+                self.assertIn(f'Alternatively, a degree in {field} is sufficient.'.encode(),detail.body)
+                self.assertIn(f'5+ years of relevant professional experience in {field}'.encode(),detail.body)
                 self.assertEqual(f.get(owner=None).status,401)
                 self.assertEqual(f.get('/find-matches?run='+run.match_run_id,owner=1).status,410)
 

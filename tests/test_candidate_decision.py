@@ -46,7 +46,14 @@ class CandidateDecisionTests(unittest.TestCase):
         from tests.test_authenticated_card_evidence import card
         from wahojobs.authenticated_card_evidence import prepare_card_evidence, render_card_evidence
         from tests.test_candidate_source_display import detail
-        from wahojobs.authenticated_source_detail import prepare_detail_display
+        from wahojobs.authenticated_source_detail import prepare_detail_display, render_authenticated_job_page
+        from wahojobs.candidate_source_display import markdown
+        from html.parser import HTMLParser
+        class Text(HTMLParser):
+            def __init__(self, html):
+                super().__init__(); self.parts=[]; self.feed(html)
+            def handle_data(self, text): self.parts.append(text)
+            def value(self): return ' '.join(' '.join(self.parts).split())
         from tests.test_provider_detail_recovery import CASES,candidate,response
         from wahojobs.crawler.provider_details import recover_detail
         root=Path(__file__).parent/'fixtures'
@@ -75,8 +82,11 @@ class CandidateDecisionTests(unittest.TestCase):
                     html=unescape(render_card_evidence(packet,'sample',profile_return_to='/job/opportunity-3809?variant=11242'))
                     self.assertEqual(packet,original,'Rendering is not authority to change an assessment')
                     self.assertEqual(packet['comparisons'],prepare_detail_display(detail(source),p)['comparisons'])
+                    full_detail=Text(render_authenticated_job_page(detail(source),profile=p,navigation='')).value()
                     for row in packet['comparisons']:
-                        self.assertIn(unescape(row['source']['quote']),html)
+                        # The compact card no longer repeats every source row;
+                        # complete wording remains accessible in exact detail.
+                        self.assertIn(Text(markdown(row['source']['quote'])).value(),full_detail)
                         states.add(row['status'])
                     providers.add(source['source_slug'])
         self.assertTrue({'mercor','alignerr','micro1'}<=providers)
@@ -91,7 +101,8 @@ class CandidateDecisionTests(unittest.TestCase):
         text=render_reasons(packet)
         self.assertIn('Frontend Development',text)
         self.assertNotIn('React',text); self.assertNotIn('TypeScript',text)
-        self.assertIn('self-reported',text);self.assertEqual(match,before)
+        self.assertIn('Your profile lists',text);self.assertEqual(match,before)
+        self.assertTrue(packet['decision_has_reported_support'])
         match['affirmative_fit']['supported_evidence']=[dict(requirement='AI evaluation',profile_evidence='interest',source='preference')]
         self.assertIn('interest does not establish experience',render_reasons(attach_decision(packet,match)))
 

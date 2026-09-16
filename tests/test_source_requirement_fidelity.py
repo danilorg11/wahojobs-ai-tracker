@@ -46,8 +46,8 @@ class SourceRequirementFidelityTests(unittest.TestCase):
         self.assertEqual((waiver['kind'],waiver['modality'],waiver['status']),('waiver','not_required','not_applicable'))
         self.assertEqual(waiver['supported_parts'],[])
         self.assertEqual(waiver['profile_facts'],[])
-        self.assertIn(b'The source explicitly says this is not required.',response.body)
-        self.assertIn(b'The source explicitly says this is not required.',detail.body)
+        self.assertIn(b"<details class='employer-description'>",detail.body)
+        self.assertNotIn(('Check the requirement: “'+WAIVER+'”.').encode(),response.body)
         self.assertIn(WAIVER.encode(),detail.body)
         self.assertEqual(m['source_qualification_comparisons'],packet['comparisons'])
         self.assertNotIn(WAIVER,[r['source']['quote'] for r in m['source_task_fit']['conditions']])
@@ -55,7 +55,15 @@ class SourceRequirementFidelityTests(unittest.TestCase):
         self.assertEqual([r['job_id'] for r in browser._conditional_presentation_matches(ctx)],[JOB])
         self.assertIn('Clear written communication skills in English',
                       [r['source']['quote'] for r in m['source_task_fit']['conditions']])
-        self.assertEqual(len(m['source_task_fit']['conditions']),5)
+        self.assertEqual(len(m['source_task_fit']['conditions']),1)
+        generic=m['non_decisive_source_questions']
+        self.assertEqual(len(generic),4)
+        self.assertTrue(all(r['status']=='unresolved' and not r['admission_decisive'] for r in generic))
+        self.assertEqual({r['source']['quote'] for r in generic}, {
+            'Strong attention to detail with a systematic, thorough approach to tasks',
+            'Comfortable evaluating a broad variety of topics and content formats',
+            'Self-motivated and reliable when working independently',
+            'Able to follow structured guidelines and apply them consistently'})
         self.assertEqual(len(m['accepted_task_fit']['facts']),1)
         self.assertTrue(all(not r['professional_domains'] for r in m['accepted_task_fit']['facts']))
 
@@ -193,7 +201,8 @@ class SourceRequirementFidelityTests(unittest.TestCase):
                     self.assertIn(quote,[r['source']['quote'] for r in m['source_task_fit']['conditions']])
                 else:
                     self.assertFalse(m.get('source_task_fit'))
-                    self.assertIn(b'The source explicitly says this is not required.',detail.body)
+                    self.assertIn(b'The employer states:',detail.body)
+                    self.assertIn(quote.encode(),detail.body)
 
     def test_source_replacement_exact_sibling_and_owner_binding(self):
         f=self.fixture(FULL,sibling=True)

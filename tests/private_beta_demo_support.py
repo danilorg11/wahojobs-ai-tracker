@@ -53,7 +53,8 @@ class BetaNotice(_SyntheticCandidateNotice):
             return response
         body=response.body.replace(b'Document extraction is disabled. Manual creation is available.',
             b'Document extraction is disabled. Sources are replayed snapshots and practice examples, not current vacancies.')
-        if args[0]=='GET' and args[1].split('?',1)[0]=='/login' and response.status==200:
+        if (args[0]=='GET' and args[1].split('?',1)[0]=='/login' and response.status==200
+                and 'recommendation_samples' not in self.marker):
             # A visible, labelled synthetic invitation is passed through the actual
             # normal invitation form. Account/profile creation still happens there.
             body=body.replace(b"name='invitation'", ("name='invitation' value='"+escape(self.marker['invitation'],quote=True)+"'").encode())
@@ -72,23 +73,33 @@ def beta_application(state, *, diagnostics=None):
     from tests.durable_google_login_browser_test_support import _running_https_browser_handler
     from tests.candidate_decision_support import publish_demo_certificate
     from wahojobs.durable_product_browser_handler import make_durable_product_browser_handler
+    marker=json.loads((state.directory/'private-beta-demo.json').read_text())
+    sample_bridge=None
+    if 'recommendation_samples' in marker:
+        from tests.recommendation_demo_support import SampleProviderBridge, SampleNotice
+        sample_bridge=SampleProviderBridge
     with patch.dict('os.environ',{'WAHOJOBS_PROFILE_INTAKE_OPENAI_ENABLED':'0','WAHOJOBS_OPENAI_ENRICHMENT':'0'}), \
          patch('wahojobs.profile_intake.openai_adapter.configured_openai_profile_adapter',return_value=None), \
-         controlled_local_product(state,allow_invited=True) as (configuration,integration), \
+         controlled_local_product(state,allow_invited=True,_fixture_bridge_factory=sample_bridge) as (configuration,integration), \
          publish_demo_certificate(state.directory), \
          _running_https_browser_handler(configuration,make_durable_product_browser_handler(
-             BetaNotice(integration,state.directory),diagnostics=diagnostics)):
+             (SampleNotice(BetaNotice(integration,state.directory),state) if sample_bridge is not None
+              else BetaNotice(integration,state.directory)),diagnostics=diagnostics)):
         yield integration
 
 
-def preserve_fresh_fixture(destination, *, port):
+def preserve_fresh_fixture(destination, *, port, samples=False):
     """Create-only synthetic storage; never reads any real configured database."""
     destination=Path(destination)
     if not destination.is_absolute() or destination.exists() or destination.resolve()!=destination:
         raise ValueError('new_absolute_demo_directory_required')
     if port in (8802,8846,8847,8850) or not 1024 <= port <= 65535:
         raise ValueError('reserved_or_invalid_demo_port')
-    with beta_state(port=port) as state:
+    from tests.private_beta_matching_support import CLOCK
+    with beta_state(port=port, now=CLOCK if samples else None) as state:
+        if samples:
+            from tests.recommendation_demo_support import configure_samples
+            configure_samples(state)
         shutil.copytree(state.directory,destination)
         document=json.loads((destination/'runtime.json').read_text())
         def relocate(value):
@@ -103,6 +114,7 @@ def preserve_fresh_fixture(destination, *, port):
 
 def reopen_fixture(directory):
     from scripts.local_recovery_login import RealtimeClock
+    from tests.google_oidc_gateway_test_support import ManualClock
     from tests.durable_google_login_browser_test_support import TemporaryBrowserLoginState,FIXTURE_SUBJECT
     directory=Path(directory).resolve(strict=True)
     marker=json.loads((directory/'private-beta-demo.json').read_text())
@@ -115,4 +127,5 @@ def reopen_fixture(directory):
     return TemporaryBrowserLoginState(directory=directory,database_path=database,
         configuration_path=directory/'runtime.json',public_origin=document['public_origin'],
         redirect_uri=document['google_redirect_uri'],subject=FIXTURE_SUBJECT,account_id='',
-        principal_id='',profile_id='',clock=RealtimeClock())
+        principal_id='',profile_id='',clock=(ManualClock(datetime.fromisoformat(marker['now']))
+            if 'recommendation_samples' in marker else RealtimeClock()))

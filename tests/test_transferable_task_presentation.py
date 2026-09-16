@@ -14,7 +14,7 @@ from tests.test_candidate_condition_comparisons import confirmed
 from tests.test_candidate_source_display import detail
 from wahojobs.authenticated_card_evidence import prepare_card_evidence, render_card_evidence
 from wahojobs.authenticated_source_detail import prepare_detail_display, render_authenticated_job_page
-from wahojobs.candidate_decision import attach_decision, render_reasons, render_assessment, render_limits
+from wahojobs.candidate_decision import attach_decision, render_reasons, render_assessment, render_limits, render_fit_support
 
 
 def explanation_fixture():
@@ -56,13 +56,15 @@ class TransferableTaskPresentationTests(unittest.TestCase):
         for rendered in (render_card_evidence(packet, 'transferable-test'),
                          render_authenticated_job_page(job, profile=profile, navigation='')):
             html = unescape(rendered)
-            self.assertIn('Your confirmed activity “review written responses”', html)
-            self.assertIn('can transfer to a related task', html)
-            self.assertIn('Employer task:', html)
-            self.assertIn(match['accepted_task_fit']['facts'][0]['quote'], html)
-            self.assertIn('does not establish prior professional AI work or satisfy other requirements', html)
-            self.assertIn('self-reported', html)
+            self.assertIn('Your experience reviewing written responses is relevant to this work.', html)
+            self.assertNotIn('Comparison not established', html)
             self.assertNotIn('describes AI evaluation or annotation work', html)
+        # The owner-approved compact card keeps the full paired proof on detail.
+        support = unescape(render_fit_support(packet))
+        self.assertIn('Employer task:', support)
+        self.assertIn(match['accepted_task_fit']['facts'][0]['quote'], support)
+        self.assertIn('does not establish prior professional AI work', support)
+        self.assertIn('self-reported', support)
         self.assertEqual(match, original, 'Presentation does not rewrite evidence or admission')
 
     def test_source_mismatch_cannot_fall_back_to_unbound_transferable_evidence(self):
@@ -110,7 +112,7 @@ class TransferableTaskPresentationTests(unittest.TestCase):
         self.assertEqual(packet['comparisons'], comparisons)
         self.assertEqual(render_assessment(packet), before_assessment)
         self.assertEqual(render_limits(packet), before_limits)
-        self.assertIn('other requirements', render_reasons(packet))
+        self.assertIn('satisfaction of every requirement', render_fit_support(packet))
         self.assertNotIn('excellent', render_reasons(packet).lower())
         self.assertNotIn('independent worker', render_reasons(packet).lower())
 
@@ -132,7 +134,7 @@ class TransferableTaskPresentationTests(unittest.TestCase):
                 changed['accepted_task_fit']['basis'] = basis
                 packet = prepare_card_evidence(changed, source, profile)
                 rendered = render_reasons(packet)
-                self.assertEqual('describes AI evaluation or annotation work' in rendered,
+                self.assertEqual('reported AI evaluation or annotation experience' in rendered,
                     basis in (None, 'confirmed_ai_work'))
                 self.assertNotIn('Your confirmed activity', rendered)
 
@@ -148,7 +150,7 @@ class TransferableTaskPresentationTests(unittest.TestCase):
         packet = {'decision_reasons': ['Activity <script>alert(1)</script>'],
             'transferable_task_links': [{'profile_fact': {'text': '<img src=x onerror=alert(1)>'},
                 'quote': '<script>alert(2)</script>'}]}
-        html = render_reasons(packet)
+        html = render_reasons(packet) + render_fit_support(packet)
         self.assertNotIn('<script>', html)
         self.assertNotIn('<img ', html)
         self.assertIn('&lt;script&gt;', html)

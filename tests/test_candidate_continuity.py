@@ -250,26 +250,43 @@ class AuthenticatedContinuityTests(unittest.TestCase):
                 client.login()
                 response=client.request('GET','/find-matches')
                 self.assertEqual(response.status,200,response.body)
-                self.assertNotIn(b"class='match-card'",response.body)
-                self.assertIn(b'Possibilities with conditions',response.body)
+                # The unified visual list preserves the conditional action
+                # authority instead of promoting its internal admission state.
+                self.assertEqual(response.body.count(b"class='match-list'"),1)
+                self.assertIn(b"class='match-card'",response.body)
                 page=Page(response.body)
                 link=next(h for h in page.links if h.startswith('/job/opportunity-7002?'))
                 job_id=int(parse_qs(urlsplit(link).query)['variant'][0])
-                hidden=client.submit(page.action('not_interested'),json_response=True)
+                hide=page.action('not_interested')
+                self.assertEqual(hide['fields']['return_to'],f'conditional-{job_id}')
+                self.assertEqual(hide['fields']['section'],'also_worth_reviewing')
+                original_key=hide['fields']['opportunity_key']
+                hidden=client.submit(hide,json_response=True)
                 self.assertEqual(hidden.status,200,hidden.body)
                 self.assertEqual(json.loads(hidden.body)['matches_refresh_url'],'/find-matches')
                 item_id=json.loads(hidden.body)['pipeline_item_id']
+                before=self.read_state(state)[0]
+                self.assertEqual(before['pipeline_item_id'],item_id)
+                self.assertEqual(before['visibility'],'hidden')
                 current=client.request('GET','/find-matches')
                 self.assertNotIn(f"id='opportunity-{job_id}'".encode(),current.body)
-                self.assertIn(b'Possibilities with conditions',current.body)
+                self.assertEqual(current.body.count(b"class='match-list'"),1)
                 run=parse_qs(urlsplit(next(h for h in Page(current.body).links if h.startswith('/job/'))).query)['run'][0]
                 self.assertNotIn(f"id='opportunity-{job_id}'".encode(),client.request('GET','/find-matches?run='+run).body)
                 detail=client.request('GET',local.tracker_item_url({'pipeline_item_id':item_id}))
                 shown=client.submit(Page(detail.body).action('show_again'),json_response=True)
                 self.assertEqual(shown.status,200,shown.body)
                 current=client.request('GET','/find-matches')
-                self.assertNotIn(b"class='match-card'",current.body)
-                self.assertIn(b'Possibilities with conditions',current.body)
+                self.assertEqual(current.body.count(b"class='match-list'"),1)
+                self.assertIn(f"id='opportunity-{job_id}'".encode(),current.body)
+                restored=Page(current.body).action('not_interested',item=item_id)
+                self.assertEqual(restored['fields']['return_to'],f'conditional-{job_id}')
+                self.assertEqual(restored['fields']['section'],'also_worth_reviewing')
+                self.assertEqual(restored['fields']['opportunity_key'],original_key)
+                after=self.read_state(state)[0]
+                self.assertEqual(after['visibility'],'visible')
+                for key in ('pipeline_item_id','workflow_status','reminder_at'):
+                    self.assertEqual(after[key],before[key])
 
     def test_legacy_ambiguous_and_unlinked_history_have_bounded_returns(self):
         from wahojobs import pipeline_actions

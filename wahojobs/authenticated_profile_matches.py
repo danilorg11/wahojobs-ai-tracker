@@ -213,11 +213,9 @@ _NO_REFERRER_POLICY = "no-referrer"
 _SAME_ORIGIN_REFERRER_POLICY = "same-origin"
 
 def _has_authoritative_preference_model(profile_v2):
-    preferences = profile_v2.get("preferences")
-    return (
-        type(preferences) is dict
-        and type(preferences.get("preference_model")) is dict
-    )
+    from wahojobs.profiles.preference_model import effective_preference_authority
+    model, _origin = effective_preference_authority(profile_v2)
+    return model is not None
 
 
 class DurableMatchesRequestContext:
@@ -2205,7 +2203,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         from wahojobs.authenticated_card_evidence import load_card_sources, prepare_card_evidence
         conditional = _conditional_presentation_matches(context)
         conditional_ids = {match["job_id"] for match in conditional}
-        matches = _primary_presentation_matches(context) + conditional
+        matches = _recommendation_presentation_matches(context)
         sources = {}
         if matches:
             try:
@@ -3053,6 +3051,7 @@ def _apply_typed_preference_enforcement_v1(
     effective_enrichments,
 ):
     """Remove disallowed items before the ranked pool receives its UI limit."""
+    from wahojobs.profiles.preference_model import effective_preference_authority
     criteria = match_criteria_v1_from_profile(profile_v2)
     if criteria.source_status != "present":
         return context
@@ -3061,6 +3060,7 @@ def _apply_typed_preference_enforcement_v1(
     candidate_references = []
     surviving_references = []
     evaluations = []
+    workload_outcomes = {}
     relaxation_candidates = []
     for original_rank, match in enumerate(ranked_pool, start=1):
         reference = _typed_presentation_reference(match)
@@ -3122,6 +3122,8 @@ def _apply_typed_preference_enforcement_v1(
             criteria,
             outcomes,
         )
+        workload_outcomes[job_id] = [item.as_dict() for item in outcomes
+                                    if item.criterion_id == 'preferences.workloads']
         if admission.status == "keep":
             surviving_references.append(reference)
         evaluations.append(
@@ -3141,8 +3143,12 @@ def _apply_typed_preference_enforcement_v1(
         # Bounded counterfactual aggregation is diagnostic-only.
         relaxation_scenarios = ()
     updated = dict(context)
+    updated['matches'] = {group: [dict(match,
+        _workload_preference_outcomes=workload_outcomes.get(_typed_match_job_id(match), []))
+        for match in matches] for group, matches in context['matches'].items()}
     updated["_typed_preference_enforcement"] = {
         "schema_version": TYPED_PREFERENCE_ENFORCEMENT_SCHEMA_VERSION,
+        "preference_authority_origin": effective_preference_authority(profile_v2)[1],
         "criteria_source_status": criteria.source_status,
         "candidate_references": candidate_references,
         "surviving_references": surviving_references,
@@ -3304,6 +3310,41 @@ def _conditional_presentation_matches(context):
             return []
         pool = [m for m in pool if _typed_presentation_reference(m) in survivors]
     return pool[:MATCH_PRESENTATION_LIMIT]
+
+
+def _recommendation_presentation_matches(context):
+    """One bounded surface for already eligible grounded recommendations.
+
+    Retain each route's substantive/source/typed-preference checks. Combining
+    routes neither creates admission nor increases either pool or the UI cap.
+    Freshness and existing section/score/source/title ordering remain primary;
+    the old complete-versus-conditional label never supplies a ranking bonus.
+    """
+    sections = {name: index for index, name in enumerate(local_product.ACTIONABLE_PRESENTATION_SECTIONS)}
+    def order(match):
+        # The additional professional-background route preserves its original
+        # explore_only row, but already uses also_worth_reviewing for display.
+        # Use that existing display section instead of inventing a new tier.
+        # The presentation contract supplies this section even when a caller
+        # has no raw preview_section. The raw section component is not used
+        # below; supply the view's section to the existing sort primitive
+        # without mutating source evidence or changing score/tie ordering.
+        key = local_product.profile_preview.match_sort_key(
+            dict(match, preview_section=match['presentation_source_section']))
+        return (0 if match.get('presentation_data_status') == 'recently_verified' else 1,
+                sections.get(match.get('presentation_source_section'), 99), *key[1:])
+    candidates = sorted(_primary_presentation_matches(context)
+                        + _conditional_presentation_matches(context), key=order)
+    result, seen = [], set()
+    for match in candidates:
+        identity = local_product.stable_opportunity_identity(match)
+        if identity is None or identity in seen:
+            continue
+        seen.add(identity)
+        result.append(dict(match, presentation_rank=len(result) + 1))
+        if len(result) == MATCH_PRESENTATION_LIMIT:
+            break
+    return result
 
 
 def _presented_relaxation_scenarios(context):
@@ -3734,210 +3775,79 @@ def _render_match_results(
     match_run_id=None,
 ):
     from wahojobs.authenticated_variant_details import variant_detail_url
-    from wahojobs.authenticated_card_evidence import render_conditions, render_opportunity_kind, render_location_context
+    from wahojobs.authenticated_card_evidence import render_card_evidence
     has_hidden = bool(context.get('_hidden_posting_ids') or
                       (tracked and pipeline_postings.hidden_job_ids(tracked.get('records', []))))
     context = _visible_workflow_context(context, tracked)
-    matches = _primary_presentation_matches(context)
+    matches = _recommendation_presentation_matches(context)
     cards = []
     for match in matches:
-        from wahojobs.authenticated_variant_details import variant_detail_url
         url = variant_detail_url(match, run_id=match_run_id)
         if url is None:
             continue
-        caution = _candidate_match_caution(match)
-        if match.get("presentation_data_status") == "recently_cached":
-            caution = " ".join(filter(None, (
-                "Availability is not recently verified. Confirm it on the application page.",
-                caution,
-            )))
-        compensation = {"note": ""}
-        description = ""
-        title = match.get("display_title") or match.get("title") or "Opportunity"
-        card_id = "match-" + str(len(cards) + 1)
-        record = (
-            local_product.demo.tracked_record_for_match(match, tracked)
-            if tracked is not None
-            else None
-        )
-        controls = (
-            local_product.render_preview_card_actions(
-                match,
-                record,
-                match_run_id,
-                match["presentation_source_section"],
-                "ranked-" + local_product.match_opportunity_key(match),
-            )
-            if match_run_id is not None
-            else ""
-        )
+        title = match.get('display_title') or match.get('title') or 'Opportunity'
+        card_id = 'match-' + str(len(cards) + 1)
+        record = local_product.demo.tracked_record_for_match(match, tracked) if tracked is not None else None
+        controls = ''
+        if match_run_id is not None:
+            # One visual list does not rewrite the proven action's source section.
+            if match.get('conditional_task_fit') is True and match.get('primary_recommendation_eligible') is False:
+                controls = local_product.render_preview_full_forms(match, record, match_run_id,
+                    'conditional-' + str(match['job_id']), 'also_worth_reviewing')
+            else:
+                controls = local_product.render_preview_card_actions(match, record, match_run_id,
+                    match['presentation_source_section'], 'ranked-' + local_product.match_opportunity_key(match))
         if tracked is not None and match.get('job_id') in tracked.get('ambiguous_job_ids', set()):
-            controls = "<p>More than one saved history is linked here. Review each item in <a href='/tracker'>My Jobs</a>.</p>"
-        status = (
-            local_product.readable_status(record["status"])
-            if record is not None
-            else ""
-        )
-        evidence = (context.get("_card_evidence") or {}).get(match.get("job_id"))
-        if evidence is not None:
-            meta = [(label, value, "source-fact") for label, value in evidence['facts']]
-            # Source facts replace the lossy enrichment summary only in the view.
-            description = ""
-            compensation = {"note": ""}
-        else:
-            # Missing exact-source evidence is unknown in both card and detail.
-            meta = []
-            description = ""
-        meta_markup = "".join(
-            "<li class='match-meta-item match-meta-"
-            + _safe(state)
-            + "'><span>"
-            + _safe(label)
-            + "</span><strong>"
-            + _safe(value)
-            + "</strong></li>"
-            for label, value, state in meta
-        )
-        from wahojobs.authenticated_card_evidence import render_card_evidence
-        evidence_markup = render_card_evidence(evidence, card_id, profile_return_to=url)
-        if evidence and caution in evidence.get('caveats', []):
-            caution = ''
+            controls = "<p>Review the separate saved histories in <a href='/tracker'>My Jobs</a>.</p>"
+        status = local_product.readable_status(record['status']) if record is not None else ''
+        packet = (context.get('_card_evidence') or {}).get(match.get('job_id'))
+        meta = ''.join("<li class='match-meta-item'><span>" + _safe(label) + '</span><strong>'
+                       + _safe(value) + '</strong></li>' for label, value in (packet or {}).get('facts', []))
+        availability = ("<p class='caution'>Availability is not recently verified. Confirm it on the application page.</p>"
+                        if match.get('presentation_data_status') == 'recently_cached' else '')
         cards.append(
             f"<article class='match-card' id='opportunity-{match['job_id']}' data-action-card aria-labelledby='{card_id}-title'>"
             "<div class='match-card-main'>"
             f"<p class='match-rank-label'>Match {len(cards) + 1}</p>"
             f"<h3 id='{card_id}-title'>{_safe(title)}</h3>"
             f"<p class='match-company'>{_safe(match.get('source') or 'Opportunity')}</p>"
-            f"<ul class='match-meta' aria-label='Job details'>{meta_markup}</ul>"
-            + (f"<p class='match-description'>{_safe(description)}</p>" if description else "")
-            + evidence_markup
-            + (
-                f"<p class='pay-note'>{_safe(compensation['note'])}</p>"
-                if compensation["note"]
-                else ""
-            )
-            + (
-                f"<p class='caution'><strong>Good to know:</strong> {_safe(caution)}</p>"
-                if caution
-                else ""
-            )
-            + (
-                f"<p class='pill card-status js-card-status'>{_safe(status)}</p>"
-                if status
-                else "<p class='pill card-status js-card-status'></p>"
-            )
+            + ("<ul class='match-meta' aria-label='Job details'>" + meta + '</ul>' if meta else '')
+            + render_card_evidence(packet, card_id, profile_return_to=url) + availability
+            + f"<p class='pill card-status js-card-status'>{_safe(status)}</p>"
             + "</div><div class='match-card-actions'>"
             + f"<a class='button match-primary-action' href='{_safe(url)}'>View job details</a>"
-            + (f"<div class='js-card-controls'>{controls}</div>" if controls else "")
-            + "</div></article>"
+            + (f"<div class='js-card-controls'>{controls}</div>" if controls else '')
+            + '</div></article>'
         )
-    profile_target = "/account/profile"
+    profile_target = '/account/profile'
     if match_run_id is not None:
-        profile_target += "?" + urlencode({"run": match_run_id})
-    relaxation_section = _render_relaxation_section(
-        context,
-        profile_target="/account/profile?correction=start",
-    )
-    conditional_cards = []
-    for index, match in enumerate(_conditional_presentation_matches(context), 1):
-        url = variant_detail_url(match, run_id=match_run_id)
-        if url is None:
-            continue
-        packet = (context.get("_card_evidence") or {}).get(match["job_id"]) or {}
-        meta = ''.join("<li class='match-meta-item'><span>" + _safe(label) + '</span><strong>'
-                       + _safe(value) + '</strong></li>' for label, value in packet.get('facts', []))
-        from wahojobs.authenticated_card_evidence import render_card_evidence
-        record = local_product.demo.tracked_record_for_match(match, tracked) if tracked is not None else None
-        controls = (local_product.render_preview_full_forms(match, record, match_run_id,
-                    'conditional-' + str(match['job_id']), 'also_worth_reviewing') if match_run_id else '')
-        if tracked is not None and match.get('job_id') in tracked.get('ambiguous_job_ids', set()):
-            controls = "<p>Review the separate histories in <a href='/tracker'>My Jobs</a>.</p>"
-        conditional_cards.append(
-            f"<article class='match-card conditional-card' data-action-card id='opportunity-{match['job_id']}' aria-labelledby='conditional-{match['job_id']}-title'><div class='match-card-main'>"
-            "<p class='match-rank-label'>Possibility · conditions to check</p>"
-            f"<h3 id='conditional-{match['job_id']}-title'>{_safe(match.get('display_title') or match.get('title'))}</h3>"
-            f"<p class='match-company'>{_safe(match.get('source'))}</p>"
-            + "<ul class='match-meta' aria-label='Job details'>" + meta + '</ul>'
-            + render_card_evidence(packet or None, f"conditional-{match['job_id']}", profile_return_to=url)
-            + ("<p>Availability needs confirmation.</p>" if match.get('presentation_data_status') == 'recently_cached' else "")
-            + (f"<p class='pill js-card-status'>{_safe(local_product.readable_status(record['status']))}</p>" if record else "<p class='pill js-card-status'></p>")
-            + f"</div><div class='match-card-actions'><a class='button match-primary-action' href='{_safe(url)}'>View job details</a><div class='js-card-controls'>{controls}</div></div></article>")
-    if conditional_cards:
-        relaxation_section = (
-            "<section class='conditional-matches' aria-labelledby='conditional-heading'><h2 id='conditional-heading'>Possibilities with conditions to check</h2>"
-            "<p>Relevant evidence connects these opportunities to your profile, but important conditions remain unresolved. Review them before deciding.</p>"
-            "<div class='match-list'>" + "".join(conditional_cards) + "</div></section>"
-            + relaxation_section)
+        profile_target += '?' + urlencode({'run': match_run_id})
+    relaxation_section = _render_relaxation_section(context, profile_target='/account/profile?correction=start')
     if cards:
-        count = len(cards)
-        summary = _visible_match_summary(count)
-        has_unverified_availability = any(
-            match.get("presentation_data_status") == "recently_cached"
-            for match in matches
-        )
-        if has_unverified_availability:
-            summary = (
-                "We found 1 opportunity to review. It needs availability confirmation."
-                if count == 1 else
-                f"We found {count} opportunities to review. Some need availability confirmation."
-            )
-        low_result_note = (
-            "<aside class='low-result-note'>Only a few recommendations are displayed right now. "
-            "Review the conditions below; a recommendation does not establish every qualification.</aside>"
-            if count <= 3 and not has_unverified_availability
-            else ""
-        )
-        content = (
-            "<section class='match-list' aria-label='Your ranked matches'>"
-            + "".join(cards)
-            + "</section>"
-            + low_result_note
-            + relaxation_section
-        )
+        summary = _visible_match_summary(len(cards))
+        content = "<section class='match-list' aria-label='Your ranked matches'>" + ''.join(cards) + '</section>'
     else:
-        summary = (("1 possibility" if len(conditional_cards) == 1 else f"{len(conditional_cards)} possibilities") + " to review; no main recommendations right now."
-                   if conditional_cards else "We don't have a current match to show yet.")
-        availability_copy = (
-            "There are no current opportunities available to compare with your profile."
-            if inventory_count == 0
-            else "There are no main recommendations displayed for your current profile, preferences and saved choices."
-        )
+        summary = "We don't have a match to show yet."
+        availability = ('There are no current opportunities available to compare with your profile.'
+                        if inventory_count == 0 else
+                        'We haven’t found a recommendation in the available listings for your saved profile and preferences.')
         content = (
-            "<section class='matches-empty' aria-labelledby='matches-empty-title'>"
-            "<div><p class='eyebrow'>Based on your saved profile and available evidence</p>"
-            "<h2 id='matches-empty-title'>No matches to show right now</h2>"
-            f"<p>{_safe(availability_copy)} Matches reflect your saved profile and the opportunities currently available.</p>"
-            "<p>Details you haven't provided remain unknown; they don't mean you lack a skill or qualification. You can browse postings and check their requirements even when we cannot recommend them yet.</p>"
-            "<p>New opportunities may appear as the market changes. You can also review your profile to make sure it reflects what you want.</p>"
-            "</div><div class='empty-actions'>"
-            f"<a class='button' href='{_safe(profile_target)}'>Review my profile</a>"
-            "<a class='secondary-action' href='/jobs'>Browse all jobs</a>"
-            + ("<p>Some opportunities are hidden by your saved choices. <a href='/tracker?view=hidden'>Review hidden jobs</a></p>" if has_hidden else "")
-            + "</div></section>"
-            + relaxation_section
+            "<section class='matches-empty' aria-labelledby='matches-empty-title'><div>"
+            "<h2 id='matches-empty-title'>Explore the available work</h2>"
+            + '<p>' + _safe(availability) + ' You can browse the listings and check their requirements.</p>'
+            + "</div><div class='empty-actions'><a class='button' href='/jobs'>Browse all jobs</a>"
+            + f"<a class='secondary-action' href='{_safe(profile_target)}'>Review my profile</a>"
+            + ("<p>Some opportunities are hidden by your saved choices. <a href='/tracker?view=hidden'>Review hidden jobs</a></p>" if has_hidden else '')
+            + '</div></section>'
         )
-        if conditional_cards:
-            content = ("<p class='candidate-note'>No main recommendations right now. The possibilities below have relevant evidence and conditions to review.</p>"
-                       + relaxation_section)
-    profile_context = (
-        "<aside class='matches-profile-context'>"
-        f"<a href='{_safe(profile_target)}'>Review profile &amp; preferences</a>"
-        "</aside>"
-        if cards or conditional_cards
-        else ""
-    )
+    profile_context = ("<aside class='matches-profile-context'>"
+        f"<a href='{_safe(profile_target)}'>Review profile &amp; preferences</a><span>Optional</span></aside>") if cards else ''
     body = f"""
     {_navigation(match_run_id=match_run_id)}
-    <header class='matches-hero'>
-      <h1>Your matches</h1>
-      <p class='matches-summary'>{_safe(summary)}</p>
-    </header>
-    {profile_context}
-    <div id='action-feedback' aria-live='polite'></div>
-    {content}
+    <header class='matches-hero'><h1>Your matches</h1><p class='matches-summary'>{_safe(summary)}</p></header>
+    {profile_context}<div id='action-feedback' aria-live='polite'></div>{content}{relaxation_section}
     """
-    return _page("Your matches", body, workflow=match_run_id is not None)
-
+    return _page('Your matches', body, workflow=match_run_id is not None)
 
 _INTERNAL_PRESENTATION_MARKERS = (
     "hard gate",

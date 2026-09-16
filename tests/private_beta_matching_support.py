@@ -8,6 +8,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from hashlib import sha256
 from html import unescape
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,18 @@ CLOCK = datetime(2026, 9, 15, 12, tzinfo=timezone.utc)
 PERSONAS = ('beginner_bilingual_generalist', 'monolingual_entry_level',
     'multilingual_language_specialist', 'customer_support_worker', 'software_engineer',
     'biology_researcher', 'restrictive_location_non_us', 'non_phone_preference')
+
+
+def visible_text(body):
+    """Text including closed native disclosures, excluding HTML syntax."""
+    class Text(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.parts=[]
+        def handle_data(self, value):
+            self.parts.append(value)
+    parsed=Text();parsed.feed(body.decode('utf-8'))
+    return ' '.join(' '.join(parsed.parts).split())
 
 
 def persona(name):
@@ -150,6 +163,7 @@ def cohort_case(name, *, strict_pay=False):
             page,run,context,_=fixture.current()
         main=browser._primary_presentation_matches(context)
         conditional=browser._conditional_presentation_matches(context)
+        recommendations=browser._recommendation_presentation_matches(context)
         selected={m['job_id']:m for group in context['matches'].values() for m in group}
         outcomes=[]
         for source in inventory:
@@ -161,6 +175,9 @@ def cohort_case(name, *, strict_pay=False):
                 detail=fixture.get(route)
             match=selected.get(source['job_id'])
             rendered=context.get('_card_evidence',{}).get(source['job_id'])
+            from wahojobs.candidate_source_display import plain
+            exact_rows=packets[0].get('comparisons',[]) if packets else []
+            exact_text=visible_text(detail.body)
             outcomes.append(dict(job_id=source['job_id'],title=source['title'],provider=source['provider'],
                 scored=[m for m in evaluated if m.get('job_id')==source['job_id']],
                 matches_qualification_admission_comparison_reached=bool(match and 'source_qualification_comparisons' in match),
@@ -169,13 +186,18 @@ def cohort_case(name, *, strict_pay=False):
                 rendered_quotes_present=all(unescape(r['source']['quote']) in unescape(page.body.decode())
                     for r in rendered.get('comparisons',[])) if rendered else None,
                 selected_match=match, detail_status=detail.status,
-                exact_comparison=packets[0].get('comparisons',[]) if packets else [],
+                exact_comparison=exact_rows,
+                exact_quotes_present=all(' '.join(plain(r['source']['quote']).split()) in exact_text
+                                         for r in exact_rows),
                 comparison_authority='authenticated exact detail; does not prove Matches admission ran',
                 main_rank=next((i for i,m in enumerate(main,1) if m['job_id']==source['job_id']),None),
                 conditional_rank=next((i for i,m in enumerate(conditional,1) if m['job_id']==source['job_id']),None)))
+            outcomes[-1]['recommendation_rank']=next((i for i,m in enumerate(recommendations,1)
+                                                     if m['job_id']==source['job_id']),None)
         return dict(persona=name, scenario='strict USD 100/hour minimum' if strict_pay else 'preselected profile', clock=CLOCK.isoformat(), status=page.status,
             inventory_count=context.get('_authenticated_inventory_count'), projected=projected,
             main=[m['job_id'] for m in main],conditional=[m['job_id'] for m in conditional],
+            recommendations=[m['job_id'] for m in recommendations],
             preferences=context.get('_typed_preference_enforcement'), outcomes=outcomes,
             anonymous_status=fixture.get(owner=None).status, other_owner_status=fixture.get(owner=1).status)
     finally:

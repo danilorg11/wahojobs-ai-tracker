@@ -287,11 +287,13 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
             packet['professional_source_binding'] = binding
     packet['comparisons'] = compare_conditions(packet, profile, include_item_experience=include_item_experience,
                                                background_context=background_context)
+    from wahojobs.matching.recommendation_policy import condition_materiality
+    packet['condition_materialities'] = [condition_materiality(row, source) for row in packet['comparisons']]
     if conditional_placement:
         packet['placement_explanation'] = _conditional_source_explanation(match, packet)
     from wahojobs.candidate_decision import attach_decision
     packet['task_fit_note'] = task_note
-    return attach_decision(packet, match)
+    return attach_decision(packet, match, profile=profile)
 
 
 def _conditional_source_explanation(match, packet):
@@ -515,16 +517,13 @@ def render_opportunity_kind(evidence):
 
 
 def render_card_evidence(evidence, card_id, *, profile_return_to=None):
-    from wahojobs.candidate_decision import render_assessment, render_reasons, render_placement_summary, render_limits
-    from wahojobs.profile_opportunity_navigation import render_profile_update
+    from wahojobs.candidate_decision import render_reasons, render_material_warnings
     if evidence is None:
         return "<p class='candidate-note'>Full requirements aren’t available in the saved listing. Check the source before applying.</p>"
     kind_html = render_opportunity_kind(evidence)
-    summary = (f"<p class='candidate-overview'>{escape(evidence['summary'])}</p>" if evidence['summary'] else '')
+    summary = evidence.get('summary') or ''
+    summary = summary if len(summary) <= 220 else summary[:217].rstrip() + '…'
     return (f"<section class='card-evidence' data-source-variant='{evidence['job_id']}'>"
-            + kind_html + summary
-            + render_reasons(evidence) + render_placement_summary(evidence)
-            + render_assessment(evidence, compact=True) + render_limits(evidence)
-            + render_location_context(evidence)
-            + render_conditions(evidence, card_id)
-            + render_profile_update(evidence, profile_return_to) + '</section>')
+            + kind_html + ("<p class='candidate-overview'>" + escape(summary) + '</p>' if summary else '')
+            + render_reasons(evidence)
+            + render_material_warnings(evidence, compact=True) + '</section>')

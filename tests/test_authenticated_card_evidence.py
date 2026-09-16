@@ -30,24 +30,30 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
         body = render_card_evidence(evidence, 'match-9')
         self.assertNotIn('Your profile lists', body)
         self.assertNotIn('topical fit only', body)
-        self.assertIn("class='decision-modality'>Required</span>", body)
-        self.assertIn('Employer preference', body)
+        self.assertIn('Check the requirement', body)
+        required = [row for row in evidence['comparisons'] if row['modality'] == 'required']
+        preferred = [row for row in evidence['comparisons'] if row['modality'] == 'preferred']
+        self.assertTrue(required)
+        self.assertTrue(preferred)
         self.assertIn('Python, R, or another relevant programming language', body)
         self.assertIn('Git/GitHub and running code in Docker', body)
         self.assertIn('depth in at least two', body)
         self.assertIn('20+ hours per week', body)
-        self.assertIn('An unassessed qualification still needs review', body)
-        self.assertIn('requested proficiency', body)
+        self.assertTrue(any(row['status'] != 'supported' for row in required))
         self.assertNotIn('you satisfy', body)
-        self.assertIn('This does not mean you lack it', body)
+        self.assertNotIn('you lack', body)
 
     def test_ideal_qualification_and_conditional_degree_are_not_promoted_to_required(self):
-        body = render_card_evidence(self.prepared(11271), 'match-7')
-        self.assertIn('Employer preference', body)
+        evidence = self.prepared(11271)
+        body = render_card_evidence(evidence, 'match-7')
+        from tests.test_candidate_source_display import detail
+        from wahojobs.authenticated_source_detail import render_authenticated_job_page
+        full = render_authenticated_job_page(detail(SOURCES[11271]), profile=PROFILE, navigation='')
+        self.assertTrue(any(row['modality'] == 'preferred' for row in evidence['comparisons']))
         self.assertNotIn("class='decision-modality'>Required</span>", body)
-        self.assertIn('doctoral candidate', body)
-        self.assertIn('exceptional depth in a specific subdomain', body)
-        self.assertIn('strong plus', body)
+        self.assertIn('doctoral candidate', full)
+        self.assertIn('exceptional depth in a specific subdomain', full)
+        self.assertIn('strong plus', full)
         self.assertIn('10+ hours/week', body)
         self.assertIn('Applicant-location eligibility isn’t specified.', body)
 
@@ -100,9 +106,14 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
         # Synthetic edge case; does not claim these fields occur in the capture.
         source = deepcopy(SOURCES[11242]); source['commitment'] = 'Full-time'
         source['body'] = '**Equipment**\n\nA Mac is required OR an approved alternative.\n\n**Engagement**\n\nPart-time, 10 hours/week.'
-        body = render_card_evidence(prepare_card_evidence(card(source), source, PROFILE), 'match-1')
+        packet = prepare_card_evidence(card(source), source, PROFILE)
+        body = render_card_evidence(packet, 'match-1')
         self.assertIn('Full-time', body)
-        self.assertIn('Part-time, 10 hours/week', body)
+        self.assertIn('10 hours/week', str(packet['facts']))
+        from tests.test_candidate_source_display import detail
+        from wahojobs.authenticated_source_detail import render_authenticated_job_page
+        full = render_authenticated_job_page(detail(source), profile=PROFILE, navigation='')
+        self.assertIn('Part-time, 10 hours/week', full)
         self.assertIn('OR an approved alternative', body)
         self.assertIn('Confirm the schedule', body)
 
@@ -127,10 +138,14 @@ class AuthenticatedCardEvidenceTests(unittest.TestCase):
     def test_source_text_is_escaped_and_native_disclosure_is_keyboard_accessible(self):
         source = deepcopy(SOURCES[11242]); source['body'] += '\n\n**Equipment**\n<script>alert(1)</script>'
         body = render_card_evidence(prepare_card_evidence(card(source), source, PROFILE), 'match-1')
+        from tests.test_candidate_source_display import detail
+        from wahojobs.authenticated_source_detail import render_authenticated_job_page
+        full = render_authenticated_job_page(detail(source), profile=PROFILE, navigation='')
         self.assertNotIn('<script>', body)
-        self.assertIn('&lt;script&gt;', body)
-        self.assertIn('<details', body)
-        self.assertIn('<summary', body)
+        self.assertNotIn('<script>', full)
+        self.assertIn('&lt;script&gt;', full)
+        self.assertIn("<details class='employer-description'>", full)
+        self.assertIn('<summary', full)
         self.assertIn("data-source-variant='11242'", body)
 
     def test_card_source_read_is_visible_only_and_preserves_matching_and_actions(self):

@@ -1225,6 +1225,15 @@ class TypedMatchCriteriaTests(unittest.TestCase):
                     original_rank=7,
                 )
 
+                if dimension == 'workload':
+                    # Owner-approved recommendation contract: a soft workload
+                    # difference is visible advice, not an exclusion to unlock.
+                    outcomes = evaluate_match_criteria_shadow(
+                        criteria, opportunity_for_dimension(dimension, proposed)).outcomes
+                    self.assertEqual(outcomes[0].outcome, 'fail')
+                    self.assertEqual(evaluate_primary_preference_admission_v1(criteria, outcomes).status, 'keep')
+                    self.assertEqual(candidates, ())
+                    continue
                 self.assertEqual(len(candidates), 1)
                 candidate = candidates[0]
                 self.assertEqual(candidate.relaxation_type, relaxation_type)
@@ -1239,12 +1248,14 @@ class TypedMatchCriteriaTests(unittest.TestCase):
         model = empty_profile_preferences_v1()
         model["workloads"] = ["full_time"]
         model["job_interests"] = ["data_annotation"]
+        model['schedule']['flexibility_modes'] = ['fixed']
         two_failure_criteria = criteria_with_model(model)
         two_failure_opportunity = project_opportunity_criteria_v1(
             effective_enrichment=enrichment(
                 engagement_type="part_time",
                 role_family="customer_support",
                 work_activities=(),
+                schedule_type='flexible',
             )
         )
         self.assertEqual(
@@ -1261,9 +1272,12 @@ class TypedMatchCriteriaTests(unittest.TestCase):
         model = empty_profile_preferences_v1()
         model["employment_relationships"] = ["employee"]
         model["workloads"] = ["full_time"]
+        model['job_interests'] = ['data_annotation']
         one_failure_criteria = criteria_with_model(model)
         one_failure_opportunity = project_opportunity_criteria_v1(
-            effective_enrichment=enrichment(engagement_type="part_time")
+            # Workload still compares as fail, but only the interest blocks.
+            effective_enrichment=enrichment(engagement_type="part_time",
+                                           role_family='customer_support', work_activities=())
         )
         self.assertEqual(
             len(
@@ -1427,11 +1441,11 @@ class TypedMatchCriteriaTests(unittest.TestCase):
 
     def test_equivalent_relaxations_aggregate_in_existing_rank_order(self):
         criterion = ProfileCriterionV1(
-            criterion_id="preferences.workloads",
+            criterion_id="preferences.job_interests",
             criterion_class="soft_preference",
-            dimension="workload",
+            dimension="job_interest",
             operator="any_of",
-            accepted_values=("full_time",),
+            accepted_values=("data_annotation",),
         )
         criteria = MatchCriteriaV1(
             source_status="present",
@@ -1439,7 +1453,9 @@ class TypedMatchCriteriaTests(unittest.TestCase):
             strict_preference_criteria=(),
             soft_preference_criteria=(criterion,),
         )
-        opportunity = opportunity_for_dimension("workload", "part_time")
+        # Preserve aggregation/rank safeguards using a still-blocking criterion;
+        # soft workload preferences no longer exclude recommendations.
+        opportunity = opportunity_for_dimension("job_interest", "customer_support")
         later = evaluate_single_criterion_relaxations_v1(
             criteria,
             opportunity,
@@ -1467,8 +1483,8 @@ class TypedMatchCriteriaTests(unittest.TestCase):
                 {"opportunity_reference": "canonical:502", "original_rank": 9},
             ],
         )
-        self.assertEqual(diagnostic["current"], {"accepted_values": ["full_time"]})
-        self.assertEqual(diagnostic["proposed"], {"add_value": "part_time"})
+        self.assertEqual(diagnostic["current"], {"accepted_values": ["data_annotation"]})
+        self.assertEqual(diagnostic["proposed"], {"add_value": "customer_support"})
 
     def test_legacy_criteria_never_produce_relaxation_scenarios(self):
         absent = MatchCriteriaV1(

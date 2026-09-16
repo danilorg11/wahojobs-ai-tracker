@@ -248,6 +248,23 @@ DISPLAY_CSS = """
 .candidate-detail .content-section {padding:20px 0}
 .candidate-detail .company-line {margin:0 0 10px}
 .candidate-detail .source-description h3 {scroll-margin-top:20px}
+.decision-fit {font-size:1rem;line-height:1.55;margin:12px 0;color:#244d3b;max-width:70ch}
+.decision-warning {border-left:3px solid #b88c46;background:#fff9ef;padding:9px 12px;margin:12px 0;font-size:.9rem;max-width:72ch}
+.decision-warning p {margin:5px 0;line-height:1.5}
+.decision-warning > strong {font-size:.85rem;color:#76551f}
+.decision-warning-conflict {border-color:#ad5145;background:#fff3ef}
+.decision-warning-conflict > strong {color:#8c3025}
+.candidate-checks .application-guidance {line-height:1.65;max-width:72ch;margin:10px 0}
+.candidate-profile-next {background:none;padding:0;margin:12px 0;font-size:.86rem;color:#52645b}
+.candidate-profile-next a {display:inline-flex;align-items:center;min-height:44px}
+.employer-description,.candidate-support {border:1px solid #d9e0dc;border-radius:10px;background:white;margin:14px 0}
+.employer-description > summary,.candidate-support > summary {padding:14px 16px;min-height:48px;font-weight:650;cursor:pointer}
+.employer-description > .source-description {padding:0 18px 18px}
+.candidate-support > p,.candidate-support > blockquote {margin:8px 18px 14px}
+.candidate-support > blockquote {border-left:2px solid #b8c5bd;padding:8px 12px}
+.employer-description > summary:focus-visible,.candidate-support > summary:focus-visible {outline:3px solid #2563eb;outline-offset:3px}
+.matches-profile-context {justify-content:flex-start;gap:8px}
+.matches-profile-context span {font-size:.84rem;color:#657168}
 @media(max-width:680px){
   .matches-hero {margin:16px 0 10px}.matches-hero h1 {font-size:2rem}
   .matches-profile-context {flex-direction:row;align-items:center;margin-bottom:14px}

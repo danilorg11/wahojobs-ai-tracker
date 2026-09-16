@@ -661,6 +661,57 @@ def add_user_confirmed_preference_model_v1(
 
 
 @_sanitized_public_boundary
+def add_reviewed_legacy_preference_model(
+    v2: dict, *, source_ordinal_resolver, source_kind=None
+) -> dict:
+    """Attach deterministic preference authority at an explicit review boundary.
+
+    This separate manual writer preserves every legacy value, including free-text
+    interests and ambiguous contract wording. It cannot accept a browser-supplied
+    model or weaken the strict mirror contract of the AI-assisted writer above.
+    Existing authoritative models are returned unchanged; reads never call this.
+    """
+    from wahojobs.profiles.preference_model import (
+        legacy_preferences_to_preference_draft_v2, explicit_hard_workload,
+    )
+    profile = validate_canonical_profile_v2(v2)
+    explicit_hard_workload(profile["constraints"]["hard_constraints"])
+    if "preference_model" in profile["preferences"]:
+        return profile
+    if profile['provenance']['reviewed'] is not True:
+        raise CanonicalProfileV2Error('profile_not_reviewed')
+    preference_refs = [ref for ref in profile['provenance']['field_sources']
+                       if ref['field_path'].startswith('preferences.')]
+    if any(ref['explicit'] is not True or ref['source_kind'] not in
+           {'user_confirmation', 'user_correction'} for ref in preference_refs):
+        raise CanonicalProfileV2Error('preference_review_not_confirmed')
+    if source_kind is None:
+        # A manual edit records the complete reviewed preference root in its
+        # correction source. Do not bind an edited choice to original prose.
+        source_kind = ('user_correction' if any(ref['source_kind'] == 'user_correction'
+                       for ref in preference_refs) else 'user_confirmation')
+    if source_kind not in {"user_confirmation", "user_correction"} or not callable(source_ordinal_resolver):
+        raise CanonicalProfileV2Error("invalid_source_resolver")
+    model = legacy_preferences_to_preference_draft_v2(profile["preferences"])["preference_model"]
+    profile["preferences"]["preference_model"] = model
+    for path in _material_field_paths(profile):
+        if not path.startswith("preferences.preference_model."):
+            continue
+        try:
+            ordinals = _validated_ordinals(source_ordinal_resolver(path, source_kind, True))
+        except Exception as exc:
+            raise CanonicalProfileV2Error("source_resolution_failed") from exc
+        profile["provenance"]["field_sources"].append(dict(
+            field_path=path, path_version=FIELD_PATH_VERSION,
+            source_ordinals=ordinals, source_kind=source_kind, explicit=True,
+        ))
+    profile["provenance"]["field_sources"].sort(
+        key=lambda item: (item["field_path"].casefold(), item["field_path"])
+    )
+    return validate_canonical_profile_v2(profile)
+
+
+@_sanitized_public_boundary
 def add_user_confirmed_preference_model_v2(
     v2: dict,
     preference_model: dict,

@@ -109,10 +109,12 @@ def cancel_link(nav):
             if nav else '')
 
 
-def render_profile_update(packet, return_to):
+def render_profile_update(packet, return_to, *, general_fallback=False):
+    general = ("<p class='candidate-profile-next'><a href='/account/profile'>Review profile &amp; preferences</a> "
+               '<span>(optional)</span></p>') if general_fallback else ''
     target = safe_opportunity_return(return_to)
     if not packet or not target:
-        return ''
+        return general
     # Navigation only. Existing confirmed facts are retained in the editor;
     # a correction does not establish employer acceptance or complete eligibility.
     tool_action = next((action for r in packet.get('comparisons', [])
@@ -132,8 +134,10 @@ def render_profile_update(packet, return_to):
                          for r in packet.get('comparisons', [])):
         focus, guidance = 'preferences', 'Review your work preferences if they have changed. A preference does not confirm available hours.'
     if not focus:
-        return ''
+        return general
     link = '/account/profile?' + urlencode({'correction': 'start', 'return_to': target, 'focus': focus})
-    return (f"<div class='candidate-profile-next'><p><a class='candidate-profile-update' href='{escape(link, quote=True)}'>Update profile</a> <span>(optional)</span></p>"
-        + ('<p>' + escape(guidance) + '</p>' if guidance else '')
-        + '<p>Keep unknown details blank. Review and confirm any change before returning to this opportunity.</p></div>')
+    label = {'education': 'Review education details', 'languages': 'Review language details',
+             'experience': 'Review experience details', 'preferences': 'Review work preferences'}.get(focus,
+             'Review skills and experience')
+    return (f"<div class='candidate-profile-next'><p><a class='candidate-profile-update' href='{escape(link, quote=True)}'>{label}</a> <span>(optional)</span></p>"
+        + ('<p>' + escape(guidance) + '</p>' if guidance else '') + '</div>')

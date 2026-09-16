@@ -900,7 +900,8 @@ class SingleCriterionRelaxationScenarioV1:
 def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
     """Build typed criteria from optional authoritative profile preferences."""
     profile = validate_canonical_profile_v2(profile_v2)
-    model = profile["preferences"].get("preference_model")
+    from wahojobs.profiles.preference_model import effective_preference_authority
+    model, _origin = effective_preference_authority(profile)
     if model is None:
         return MatchCriteriaV1(
             source_status="absent",
@@ -918,19 +919,21 @@ def match_criteria_v1_from_profile(profile_v2: dict) -> MatchCriteriaV1:
 
     strict: list[ProfileCriterionV1] = []
     soft: list[ProfileCriterionV1] = []
+    from wahojobs.profiles.preference_model import confirmed_hard_workload
+    hard_workload = confirmed_hard_workload(profile)
     for criterion_id, dimension, path in list_criteria:
-        values = _nested(model, path)
+        values = hard_workload if dimension == "workload" and hard_workload else _nested(model, path)
         allowed = DIMENSION_ALLOWED_VALUES[dimension]
         if not values or set(values) == set(allowed):
             continue
         criterion = ProfileCriterionV1(
             criterion_id=criterion_id,
-            criterion_class="soft_preference",
+            criterion_class=("strict_preference" if dimension == "workload" and hard_workload else "soft_preference"),
             dimension=dimension,
             operator="any_of",
             accepted_values=tuple(values),
         )
-        soft.append(criterion)
+        (strict if criterion.criterion_class == "strict_preference" else soft).append(criterion)
 
     compensations = (
         model["compensation_expectations"]
@@ -1158,6 +1161,7 @@ def evaluate_primary_preference_admission_v1(
             result is not None
             and result.criterion_class == "soft_preference"
             and result.outcome == "fail"
+            and criterion.dimension != "workload"
         ):
             exclusions.add(criterion.criterion_id)
 
@@ -1228,6 +1232,7 @@ def evaluate_single_criterion_relaxations_v1(
         preference_by_id[criterion.criterion_id]
         for criterion in criteria.soft_preference_criteria
         if preference_by_id[criterion.criterion_id].outcome == "fail"
+        and criterion.dimension != 'workload'
     )
     if len(soft_failures) != 1:
         return ()

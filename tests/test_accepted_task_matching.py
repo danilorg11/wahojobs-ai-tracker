@@ -225,7 +225,7 @@ class AcceptedTaskMatchingTests(unittest.TestCase):
         self.assertEqual([m['job_id'] for m in conditional], [7003])
         self.assertEqual(conditional[0]['presentation_data_status'], 'recently_cached')
         self.assertIn('MUST own a Mac', response.body.decode())
-        self.assertIn('Availability needs confirmation.', response.body.decode())
+        self.assertIn('Availability is not recently verified. Confirm it on the application page.', response.body.decode())
         self.source('Location: Remote (US Only)\n\n' + VOICE)
         _, _, context = self.current('/find-matches?run=' + run.match_run_id)
         self.assertFalse(browser._primary_presentation_matches(context))
@@ -325,7 +325,9 @@ class AcceptedTaskMatchingTests(unittest.TestCase):
                     q = m['source_task_fit']['conditions'][0]
                     self.assertEqual(q['status'], 'not_established')
                     self.assertEqual(q['source']['job_id'], 7003)
-                    self.assertIn('Qualifications &amp; conditions', response.body.decode())
+                    self.assertIn('Before applying', response.body.decode())
+                    from html import unescape
+                    self.assertIn(q['source']['quote'], unescape(response.body.decode()))
 
     def test_explicit_required_condition_conflict_is_not_a_conditional_escape(self):
         self.role('AI Generalist')
@@ -456,7 +458,10 @@ class AcceptedTaskMatchingTests(unittest.TestCase):
                 m = self.match(context)
                 self.assertTrue(browser._conditional_presentation_matches(context))
                 self.assertTrue(m['source_task_fit']['conditions'])
-                self.assertIn('Qualifications &amp; conditions', response.body.decode())
+                self.assertIn('Before applying', response.body.decode())
+                from html import unescape
+                for condition in m['source_task_fit']['conditions']:
+                    self.assertIn(condition['source']['quote'], unescape(response.body.decode()))
 
     def test_structured_required_blocks_are_not_lost_after_task_projection(self):
         self.role('AI Generalist')

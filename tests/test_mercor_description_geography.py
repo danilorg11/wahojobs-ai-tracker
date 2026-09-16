@@ -172,17 +172,57 @@ class MercorDescriptionGeographyTests(unittest.TestCase):
         self.assertNotIn(f'canonical:{current["canonical_opportunity_id"]}', json.dumps(context.get('_typed_preference_enforcement', {})))
 
     def test_preexisting_workload_relaxation_cannot_resurrect_description_conflict(self):
+        # A preferred workload no longer excludes. The previously unprepared
+        # geography must still replace this visible soft-preference outcome.
         record = dict(self.record, commitment='Full-time', location='Remote - Portugal')
         self.fixture.set_preferences('part_time')
         with patch.object(mercor, 'prepare_mercor_description_geography', return_value=None):
             self.ingest([record])
         first, _ = self.render()
         old = self.fixture.last_run()
+        self.assertIn(escape(record['title']).encode(), first.body)
+        _, row = self.check()
+        match = next(m for m in browser._recommendation_presentation_matches(old.recommendation_context)
+                     if m['job_id'] == row['job_id'])
+        self.assertEqual(match['_workload_preference_outcomes'][0]['outcome'], 'fail')
+        self.assertFalse(any(m['job_id'] == row['job_id'] for scenario in
+            browser._presented_relaxation_scenarios(old.recommendation_context) for m in scenario['matches']))
+        self.ingest([record])
+        second = self.fixture.get('/find-matches?run=' + old.match_run_id)
+        self.assertEqual(second.status, 200)
+        self.assertNotIn(escape(record['title']).encode(), second.body)
+        self.assertEqual(self.check()[0].status, 'incompatible')
+        self.support.assert_not_recommended_or_relaxed(row['job_id'], self.fixture.last_run().recommendation_context)
+
+    def test_preexisting_relationship_relaxation_cannot_resurrect_description_conflict(self):
+        from tests.test_profile_preference_model import with_preference_model
+        from wahojobs.profiles.preference_model import empty_profile_preferences_v1
+        record = dict(self.record, commitment='Freelance', location='Remote - Portugal')
+        model = empty_profile_preferences_v1()
+        model['employment_relationships'] = ['employee']
+        self.fixture.profile = with_preference_model(self.fixture.profile, model)
+        with patch.object(mercor, 'prepare_mercor_description_geography', return_value=None):
+            self.ingest([record])
+        first, _ = self.render()
+        old = self.fixture.last_run()
+        _, row = self.check()
         self.assertIn(b'More opportunities if', first.body)
         self.assertIn(escape(record['title']).encode(), first.body)
-        self.assertFalse(any(m['source_slug'] == 'mercor' for m in browser._primary_presentation_matches(old.recommendation_context)))
+        self.assertNotIn(row['job_id'], [m['job_id'] for m in
+                         browser._recommendation_presentation_matches(old.recommendation_context)])
+        scenarios = browser._presented_relaxation_scenarios(old.recommendation_context)
+        target_scenarios = [s['scenario_id'] for s in scenarios
+                           if any(m['job_id'] == row['job_id'] for m in s['matches'])]
+        self.assertTrue(target_scenarios)
+        raw = old.recommendation_context['_typed_preference_enforcement']['single_criterion_relaxations']['scenarios']
+        self.assertTrue(all(s['criterion_id'] == 'preferences.employment_relationships'
+                            for s in raw if s['scenario_id'] in target_scenarios))
         self.ingest([record])
-        self.assertNotIn(escape(record['title']).encode(), self.fixture.get('/find-matches?run=' + old.match_run_id).body)
+        second = self.fixture.get('/find-matches?run=' + old.match_run_id)
+        self.assertEqual(second.status, 200)
+        self.assertNotIn(escape(record['title']).encode(), second.body)
+        self.assertEqual(self.check()[0].status, 'incompatible')
+        self.support.assert_not_recommended_or_relaxed(row['job_id'], self.fixture.last_run().recommendation_context)
 
     def test_variants_keep_own_accepted_description_and_eligible_representative(self):
         self.ingest([self.synthetic('Applicants must be based in the United States.', 'variant-us'),
