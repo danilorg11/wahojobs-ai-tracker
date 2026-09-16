@@ -86,6 +86,14 @@ def attach_decision(packet, match, *, profile=None):
     packet['language_comparisons'] = [deepcopy(c) for c in match.get('source_language_checks') or []
         if same_source(c.get('source_reference') or {}, packet)]
     reviewed = match.get('source_task_fit') or {}
+    packet['decision_specialist_note'] = ''
+    if (reviewed.get('kind') in ('linguistic_analysis', 'language_instruction')
+            and reviewed.get('status') == 'uncertain'
+            and same_source(reviewed.get('source_reference') or {}, packet)
+            and isinstance(reviewed.get('quote'), str) and reviewed['quote']
+            and reviewed['quote'] in [part.strip() for part in re.split(r'\n\s*\n', packet.get('text') or '')]
+            and isinstance(reviewed.get('candidate_note'), str)):
+        packet['decision_specialist_note'] = reviewed['candidate_note']
     packet['decision_consumed_conditions'] = []
     if same_source(reviewed.get('source_reference') or {}, packet):
         for condition in reviewed.get('conditions') or []:
@@ -314,14 +322,17 @@ def material_warnings(packet):
     if geography and not source_locations:
         warnings.append(dict(kind='conflict' if packet.get('decision_location_status') == 'incompatible'
                              else 'location', text=geography, essential=True))
-    published_location = (packet.get('location_context') or {}).get('published_field') or {}
-    if (published_location.get('generic_country_tag') is False
-            and published_location.get('source_field') == 'props.pageProps.job.location'
+    for field, source_field in (('published_field', 'props.pageProps.job.location'),
+                                ('other_field', 'accepted_detail.record.location')):
+        published_location = (packet.get('location_context') or {}).get(field) or {}
+        if not (published_location.get('generic_country_tag') is False
+            and published_location.get('source_field') == source_field
             and same_source(published_location, packet)
             and isinstance(published_location.get('value'), str)
             and re.search(r'\b(?:only|must|required|requirements?|eligible|eligibility|citizens?(?:hip)?|'
                           r'residents?|residence|residency|restricted|restriction|excluding|except|'
                           r'unavailable|not)\b', published_location['value'], re.I)):
+            continue
         # The accepted field can contain a material restriction that the country
         # comparator cannot interpret. Keep its exact wording visible without
         # turning a page country tag into applicant eligibility or a new gate.
@@ -329,6 +340,9 @@ def material_warnings(packet):
         # it is not a material warning merely because it is not a country name.
         warnings.append(dict(kind='location', essential=True,
             text='Check the source’s location information: “' + published_location['value'] + '”.'))
+    if packet.get('decision_specialist_note'):
+        warnings.append(dict(kind='specialist_background', essential=True,
+                             text=packet['decision_specialist_note']))
     workload = packet.get('decision_profile_context', {}).get('workload') or {}
     if workload.get('guidance') and workload.get('state') in ('hard_conflict', 'hard_unresolved', 'soft_difference'):
         warnings.append(dict(kind='conflict' if workload['state'] == 'hard_conflict' else 'workload',

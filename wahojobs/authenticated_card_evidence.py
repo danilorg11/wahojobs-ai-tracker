@@ -262,6 +262,28 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
         # One attributed presentation shared by cards and item details. Independent
         # applicant comparisons and cautions above retain their existing meaning.
         location_context['other'] = ''
+    elif location_context['other'] and isinstance(source_location, str):
+        # Older accepted detail packets can carry an attributed location field
+        # outside the provider-specific published-field projection. Promote its
+        # wording only with the accepted body's existing exact identity binding.
+        # Absence of an extracted applicant invitation does not invalidate a
+        # raw field. In that case the retained display body must match exactly;
+        # an existing but invalid preparation never falls back to that path.
+        from hashlib import sha256
+        from wahojobs.source_capture import normalize_source_body
+        support = detail.get('applicant_location_support')
+        accepted_body = normalize_source_body(source.get('body')) or ''
+        body_bound = (bool(accepted_body) and
+                      normalize_source_body(detail.get('display_text')) == accepted_body
+                      if support is None else
+                      isinstance(support, dict) and support.get('version') == 1
+                      and support.get('body_sha256') == sha256(accepted_body.encode()).hexdigest())
+        if (body_bound and all(detail.get(k) == source.get(s) for k, s in
+                        [('provider', 'source_slug'), ('external_id', 'external_id'), ('url', 'url')])):
+            location_context['other_field'] = dict(value=source_location,
+                generic_country_tag=bool(opaque_location), source_field='accepted_detail.record.location',
+                job_id=source['job_id'], external_id=source['external_id'], source_url=source['url'],
+                material_content_sha256=source['material_content_sha256'])
     language_notes = []
     for check in match.get('source_language_checks') or []:
         ref = check.get('source_reference') or {}

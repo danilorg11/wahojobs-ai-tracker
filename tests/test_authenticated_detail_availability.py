@@ -115,7 +115,7 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
         self.f.advance(73)
         self.assert_unavailable(link)
         reply = self.f.get('/find-matches?run=' + run.match_run_id)
-        self.assertIn(b'It needs availability confirmation.', reply.body)
+        self.assertIn(b'Availability is not recently verified. Confirm it on the application page.', reply.body)
         self.assertNotIn(b'good fit right now', reply.body)
         self.f.advance(120)
         self.assert_unavailable(link)

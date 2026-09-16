@@ -49,6 +49,18 @@ listeners are serialized by lead. The immutable baseline's 10 tests passed. The
 first focused run retained its failures and corrections; intermediate actual-client
 checks use a separately hashed snapshot so edits cannot contaminate receipts.
 Current process handles and executable next actions remain in evidence/RUN-STATE.md.
+The first frozen recommendation gate retained 636 executed IDs with 28 failure
+entries and two errors; later partitions were not launched. Required-suite review
+identified obsolete split-list/soft-workload expectations and two real compact
+warning gaps: an older bound geographic-restriction field and a central specialist
+task caution. Correct these against the approved contract, retain stronger source,
+owner, freshness and preference protections, then commit and repeat the full gate.
+The subsequent 334-ID run passed the candidate journeys but exposed a substantive
+old-detail reuse defect: cached recommendation membership survived corruption of
+its professional evidence even though the fresh local comparison lost support.
+Retain the stronger executed-context assertion and reuse existing dependency and
+publication guards for detail membership, including final race checks. Preserve
+the immutable old run and normal source/workflow access; do not regenerate evidence.
 No source changes during final validation. Native certificate policy and all real
 participant activation gates remain separate. Exact owner authority is retained in
 evidence/RECOMMENDATION-OWNER-AUTHORITY.txt.

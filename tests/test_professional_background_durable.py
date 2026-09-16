@@ -1,5 +1,5 @@
 """Exact-binding durable reuse; offline contracts, not classifier evaluation."""
-from contextlib import closing
+from contextlib import closing, contextmanager
 from copy import deepcopy
 from datetime import timedelta
 from html import unescape
@@ -439,8 +439,9 @@ class SavedMatchesDependencyTests(unittest.TestCase):
             connection.execute("UPDATE preparation_results SET record_json='{' ")
 
     def no_support_html(self, response):
-        self.assertNotIn(b'Your declared role has partial occupational relevance.', response.body)
-        self.assertNotIn(b"<p class='decision-placement'>", response.body)
+        # The current list must not resurrect the invalid/foreign recommendation.
+        # Exact-detail eligibility is checked on its actual consumed context below.
+        self.assertNotIn(b"id='opportunity-7003'", response.body)
 
     def unavailable(self):
         count = len(self.f.f.integration._registry._runs)
@@ -483,8 +484,12 @@ class SavedMatchesDependencyTests(unittest.TestCase):
         self.assertEqual(self.run.recommendation_context, self.original)
         self.assertEqual(self.conditional(self.run), [7003])
         self.assertFalse(self.match['primary_recommendation_eligible'])
-        self.assertIn(b"<p class='decision-placement'>", response.body)
-        self.assertIn(b'Your declared role has partial occupational relevance.', response.body)
+        self.assertIn(b"id='opportunity-7003'", response.body)
+        self.assertIn('Check the requirement: “**5+ years of relevant professional experience in Customer success / support operations.**”.'.encode(), response.body)
+        comparison = self.comparison(self.match)
+        self.assertEqual(comparison['status'], 'unresolved')
+        self.assertEqual(comparison['components']['occupational_relevance']['semantic']['relation'], 'supported_partial')
+        self.assertEqual(comparison['components']['required_duration']['status'], 'unresolved')
         self.assertEqual(len(self.f.client.session.calls), 1)
 
     def test_first_saved_request_detects_original_corruption_without_prior_lookup(self):
@@ -588,10 +593,19 @@ class SavedMatchesDependencyTests(unittest.TestCase):
         self.assertEqual(action_run.owner_profile_id, self.run.owner_profile_id)
         self.corrupt()
         self.unavailable()  # saved Matches itself detects damage first
+        from tests.test_professional_background_preparation import _detail_with_checks
         for target in (self.detail_target, action_detail):
-            response = self.f.f.get(target)
-            self.assertEqual(response.status, 200)
+            response, job = _detail_with_checks(self, self.f.f, target)
             self.no_support_html(response)
+            self.assertIsNone(job['_authenticated_recommendation'])
+            self.assertFalse(job['_authenticated_membership_known'])
+            self.assertFalse(job['_authenticated_local_checks']['passes'])
+            comparison = self.comparison(job['_authenticated_local_checks']['match'])
+            self.assertNotIn('semantic', comparison['components']['occupational_relevance'])
+            self.assertIn(b'5+ years of relevant professional experience', response.body)
+            self.assertIn(b'View source listing', response.body)
+            self.assertNotIn(b'Apply on company site', response.body)
+            self.assertEqual(self.run.recommendation_context, self.original)
             current = self.f.f.last_run()
             self.assertEqual(current.owner_profile_id, self.run.owner_profile_id)
             for key in ('job_id', 'canonical_opportunity_id', 'url'):
@@ -619,6 +633,44 @@ class SavedMatchesDependencyTests(unittest.TestCase):
             self.unavailable()
         self.assertEqual(len(self.f.client.session.calls), 1)
 
+    def test_detail_dependency_change_after_membership_check_prevents_registration(self):
+        consume = self.f.evidence.consume_generation
+        guards = []
+        @contextmanager
+        def damage_before_acceptance(expected, *, dependencies=()):
+            guards.append(dependencies)
+            if len(guards) == 2:
+                self.corrupt()
+            with consume(expected, dependencies=dependencies):
+                yield
+        count = len(self.f.f.integration._registry._runs)
+        with patch.object(self.f.evidence, 'consume_generation', side_effect=damage_before_acceptance):
+            response = self.f.f.get(self.detail_target)
+        self.assertEqual(len(guards), 2)
+        self.assertTrue(all(guards))
+        self.assertEqual(response.status, 503)
+        self.assertEqual(len(self.f.f.integration._registry._runs), count)
+        self.assertEqual(self.run.recommendation_context, self.original)
+        self.assertEqual(len(self.f.client.session.calls), 1)
+
+    def test_detail_dependency_acceptance_holds_publication_guard_through_render(self):
+        from wahojobs import authenticated_source_detail as detail
+        render = detail.render_authenticated_job_page
+        observations = []
+        def guarded_render(*args, **kwargs):
+            with closing(sqlite3.connect(self.path, timeout=0)) as connection:
+                with self.assertRaises(sqlite3.OperationalError):
+                    connection.execute("UPDATE preparation_results SET record_json='{' ")
+            observations.append(True)
+            return render(*args, **kwargs)
+        with patch.object(detail, 'render_authenticated_job_page', side_effect=guarded_render):
+            response = self.f.f.get(self.detail_target)
+        self.assertEqual(observations, [True])
+        self.assertEqual(response.status, 200)
+        self.assertIn(b'Apply on company site', response.body)
+        self.assertEqual(self.run.recommendation_context, self.original)
+        self.assertEqual(len(self.f.client.session.calls), 1)
+
     def test_validated_snapshot_and_registration_hold_same_publication_guard(self):
         render = browser._render_match_results
         observed = []
@@ -632,7 +684,8 @@ class SavedMatchesDependencyTests(unittest.TestCase):
             response = self.f.f.get(self.target)
         self.assertEqual(observed, [True])
         self.assertEqual(response.status, 200)
-        self.assertIn(b"<p class='decision-placement'>", response.body)
+        self.assertIn(b"id='opportunity-7003'", response.body)
+        self.assertIn('Check the requirement: “**5+ years of relevant professional experience in Customer success / support operations.**”.'.encode(), response.body)
         # Damage after acceptance belongs to the next request, not that response.
         self.corrupt()
         self.unavailable()

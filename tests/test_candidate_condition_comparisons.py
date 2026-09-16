@@ -210,9 +210,20 @@ class CandidateConditionComparisonsTests(unittest.TestCase):
             source_commitment=source.get('commitment'),source_location=source.get('location'))
         self.assertEqual(prepare_detail_display(job, profile())['comparisons'], packet['comparisons'])
         html = render_card_evidence(packet, 'example')
-        self.assertIn('<details', html); self.assertIn('<summary', html)
-        self.assertIn('How your profile compares', html)
-        self.assertIn('Employer preference', html)
+        self.assertNotIn('How your profile compares', html)
+        self.assertTrue(any(row['modality'] == 'preferred' for row in packet['comparisons']))
+        from tests.test_candidate_source_display import detail
+        from wahojobs.authenticated_source_detail import render_authenticated_job_page
+        from wahojobs.candidate_source_display import plain
+        from html import unescape
+        full = render_authenticated_job_page(detail(source,card(source)),profile=profile(),navigation='')
+        self.assertIn("<details class='employer-description'>", full)
+        self.assertIn('<summary>Employer description and requirements</summary>', full)
+        from html.parser import HTMLParser
+        parser=HTMLParser(); text=[]; parser.handle_data=text.append; parser.feed(full)
+        visible_source = ' '.join(unescape(' '.join(text)).split())
+        for row in packet['comparisons']:
+            self.assertIn(' '.join(plain(row['source']['quote']).split()), visible_source)
         for internal in ('not_established', 'supported_parts', 'source block', 'field_path'):
             self.assertNotIn(internal, html)
 
@@ -232,6 +243,17 @@ class AuthenticatedConditionComparisonTests(unittest.TestCase):
                              (identity,'configured-production','synthetic',url,external,text,'text/markdown',
                               hashlib.sha256(text.encode()).hexdigest(),self.f.now.isoformat(),self.f.now.isoformat()))
 
+    def observed_response(self, target):
+        from wahojobs.candidate_condition_comparisons import compare_conditions
+        comparisons = {}
+        def observe(packet, profile, **kwargs):
+            rows = compare_conditions(packet, profile, **kwargs)
+            comparisons[packet['job_id']] = deepcopy(rows)
+            return rows
+        with patch('wahojobs.candidate_condition_comparisons.compare_conditions', side_effect=observe):
+            response = self.f.get(target)
+        return response, comparisons
+
     def test_old_run_uses_current_profile_and_evidence_without_changing_decisions(self):
         from wahojobs import authenticated_profile_matches as browser
         from tests.test_profile_preference_model import with_preference_model
@@ -242,20 +264,23 @@ class AuthenticatedConditionComparisonTests(unittest.TestCase):
             without = self.f.get(old)
         self.assertEqual(without.status, 200)
         self.assertEqual(run.recommendation_context['matches'], decisions)
-        current = self.f.get(old)
-        self.assertIn('requested proficiency', current.body.decode())
+        current, current_rows = self.observed_response(old)
+        self.assertIn('requested proficiency', str(current_rows[7003]))
+        self.assertIn('Check the requirement: “Proficiency in Python or R”.', current.body.decode())
         # New display facts must be read from this revision, never a cached card.
         self.f.profile['skills'].setdefault('software_tools', []).append('R')
         self.f.profile = with_preference_model(self.f.profile, self.f.profile['preferences']['preference_model'])
-        changed = self.f.get(old); self.assertEqual(changed.status, 200)
-        self.assertIn('profile mentions', changed.body.decode())
-        self.assertIn('R, an accepted tool option', changed.body.decode())
+        changed, changed_rows = self.observed_response(old); self.assertEqual(changed.status, 200)
+        self.assertIn('profile mentions', str(changed_rows[7003]))
+        self.assertIn('R, an accepted tool option', str(changed_rows[7003]))
+        self.assertIn('Check the requirement: “Proficiency in Python or R”.', changed.body.decode())
         text = '**Required**\n- Experience with Docker'
         self.f.update_inventory('UPDATE job_source_contents SET body=?,material_content_sha256=? WHERE job_id=7003',
                                 (text,hashlib.sha256(text.encode()).hexdigest()))
-        after = self.f.get(old); self.assertEqual(after.status, 200)
-        self.assertNotIn('R, an accepted tool option', after.body.decode())
-        self.assertIn('Docker experience isn’t stated', after.body.decode())
+        after, after_rows = self.observed_response(old); self.assertEqual(after.status, 200)
+        self.assertNotIn('R, an accepted tool option', str(after_rows[7003]))
+        self.assertIn('Docker experience isn’t stated', str(after_rows[7003]))
+        self.assertIn('Check the requirement: “Experience with Docker”.', after.body.decode())
         # Exact details use the same current clause without any catalog scorer.
         original = browser.profile_preview.query_preview_rows
         scoped_calls = []
@@ -264,11 +289,12 @@ class AuthenticatedConditionComparisonTests(unittest.TestCase):
             scoped_calls.append(kwargs)
             return original(conn, **kwargs)
         with patch.object(browser.profile_preview, 'query_preview_rows', side_effect=scoped):
-            detail = self.f.get('/job/opportunity-7002?variant=7003')
+            detail, detail_rows = self.observed_response('/job/opportunity-7002?variant=7003')
         self.assertEqual(len(scoped_calls),1)
         self.assertEqual(detail.status, 200)
-        self.assertIn('Docker experience isn’t stated', detail.body.decode())
-        self.assertNotIn('R, an accepted tool option', detail.body.decode())
+        self.assertIn('Docker experience isn’t stated', str(detail_rows[7003]))
+        self.assertNotIn('R, an accepted tool option', str(detail_rows[7003]))
+        self.assertIn('Check the requirement: “Experience with Docker”.', detail.body.decode())
 
     def test_only_visible_ids_are_compared_owner_isolation_and_alternative_identity(self):
         from wahojobs import authenticated_profile_matches as browser
@@ -284,9 +310,11 @@ class AuthenticatedConditionComparisonTests(unittest.TestCase):
         self.assertEqual(seen,[m['job_id'] for m in visible])
         old='/find-matches?run='+run.match_run_id
         self.f.set_preferences('part_time')
-        response=self.f.get(old);self.assertEqual(response.status,200)
-        self.assertIn('Docker experience isn’t stated',response.body.decode())
-        self.assertNotIn('accepted tool option',response.body.decode())
+        response, current_rows=self.observed_response(old);self.assertEqual(response.status,200)
+        self.assertIn('Docker experience isn’t stated',str(current_rows[7006]))
+        self.assertIn('Check the requirement: “Experience with Docker”.',response.body.decode())
+        self.assertNotIn('accepted tool option',str(current_rows[7006]))
+        self.assertEqual(current_rows[7006][0]['source']['job_id'],7006)
         self.f.owner='b'
         response=self.f.get(old);self.assertEqual(response.status,410)
         self.assertNotIn('candidate-comparisons',response.body.decode())

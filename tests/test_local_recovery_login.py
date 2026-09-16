@@ -219,6 +219,7 @@ class LocalRecoveryPreparationTests(unittest.TestCase):
 
     def read_match(self, matching, request):
         from wahojobs.authenticated_variant_details import variant_detail_url
+        from wahojobs import authenticated_variant_details as variants
         from urllib.parse import parse_qs, urlsplit
         preparer = matching._professional_background_preparer
         attempts = preparer.accounting if preparer is not None else None
@@ -230,8 +231,13 @@ class LocalRecoveryPreparationTests(unittest.TestCase):
         detail_url = variant_detail_url(match, run_id=run.match_run_id)
         self.assertEqual(parse_qs(urlsplit(detail_url).query),
                          {'variant': ['7003'], 'run': [run.match_run_id]})
-        detail = request('GET', detail_url)
+        with patch.object(variants, 'prepare_variant_notice', wraps=variants.prepare_variant_notice) as notice:
+            detail = request('GET', detail_url)
         self.assertEqual(detail.status, 200, detail.body)
+        notice.assert_called_once()
+        job = notice.call_args.args[0]
+        self.assertEqual(job['job_id'], match['job_id'])
+        self.assertEqual(job['official_url'], match['url'])
         self.assertEqual(request('GET', detail_url, jar={}).status, 401)
         rows = match['source_qualification_comparisons']
         semantic = next(row for row in rows if row['kind'] == 'professional_background')[
@@ -239,7 +245,27 @@ class LocalRecoveryPreparationTests(unittest.TestCase):
         if preparer is not None:
             self.assertEqual(preparer.accounting, attempts)
         if not semantic:
-            self.assertNotIn(b'Your declared role has partial occupational relevance.', response.body + detail.body)
+            self.assertNotIn(b"id='opportunity-7003'", response.body)
+            self.assertIsNone(job['_authenticated_recommendation'])
+            self.assertFalse(job['_authenticated_local_checks']['passes'])
+            local_background = next(row for row in job['_authenticated_local_checks']['match']['source_qualification_comparisons']
+                                    if row['kind'] == 'professional_background')
+            self.assertFalse(local_background['components']['occupational_relevance'].get('semantic'))
+            self.assertIn(b'5+ years of relevant professional experience', detail.body)
+        else:
+            self.assertEqual(job['_authenticated_recommendation']['job_id'], match['job_id'])
+            self.assertTrue(job['_authenticated_membership_known'])
+            self.assertTrue(job['_authenticated_local_checks']['passes'])
+            local_match = job['_authenticated_local_checks']['match']
+            for key in ('job_id', 'canonical_opportunity_id', 'url'):
+                self.assertEqual(local_match[key], match[key])
+            local_background = next(row for row in local_match['source_qualification_comparisons']
+                                    if row['kind'] == 'professional_background')
+            original_background = next(row for row in rows if row['kind'] == 'professional_background')
+            self.assertEqual(local_background['source'], original_background['source'])
+            self.assertEqual(local_background['status'], 'unresolved')
+            self.assertEqual(local_background['components']['occupational_relevance']['semantic'], semantic)
+            self.assertEqual(local_background['components']['required_duration']['status'], 'unresolved')
         return run, match, semantic, response, detail, detail_url
 
     def publish(self, state, preparer):
@@ -312,8 +338,13 @@ class LocalRecoveryPreparationTests(unittest.TestCase):
                 self.assertIn(url.encode().replace(b'&', b'&amp;'), response.body)
                 self.assertEqual(semantic['relation'], 'supported_partial')
                 self.assertFalse(match['primary_recommendation_eligible'])
-                self.assertIn(b'Your declared role has partial occupational relevance.', response.body)
-                self.assertIn(b'Your declared role has partial occupational relevance.', detail.body)
+                requirement = 'Check the requirement: “**5+ years of relevant professional experience in Customer success / support operations.**”.'.encode()
+                self.assertIn(requirement, response.body)
+                self.assertIn(requirement, detail.body)
+                comparison = next(row for row in match['source_qualification_comparisons']
+                                  if row['kind'] == 'professional_background')
+                self.assertEqual(comparison['status'], 'unresolved')
+                self.assertEqual(comparison['components']['required_duration']['status'], 'unresolved')
                 self.assertEqual(reader.accounting['attempts'], 0)
                 self.assertEqual(reader.accounting['physical_attempts'], 0)
                 with self.assertRaisesRegex(ValueError, 'preparation_profile_mismatch'):

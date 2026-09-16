@@ -123,9 +123,11 @@ class SourceTaskFitTests(unittest.TestCase):
         found = find_presented_variant(context, m['canonical_opportunity_id'], m['job_id'])
         self.assertEqual(found['_detail_recommendation_section'], 'conditional')
         html = browser._render_match_results(context, inventory_count=1)
-        self.assertIn('Possibilities with conditions to check', html)
+        self.assertEqual([v['job_id'] for v in browser._recommendation_presentation_matches(context)], [m['job_id']])
+        self.assertFalse(found['primary_recommendation_eligible'])
+        self.assertIn("aria-label='Your ranked matches'", html)
         self.assertIn(variant_detail_url(m).replace('&', '&amp;'), html)
-        self.assertNotIn("class='match-card'", html)
+        self.assertEqual(html.count("class='match-card'"), 1)
 
     def test_conditional_still_obeys_geography_closure_and_freshness(self):
         original = apply_source_task_fit(match(SOURCES[0]), SOURCES[0], candidate(skills=('translation',)))
@@ -201,7 +203,13 @@ class SourceTaskAuthenticatedTests(unittest.TestCase):
         job = notice.call_args.args[0]
         self.assertEqual(job['job_id'], 7003)
         self.assertEqual(job['_authenticated_recommendation']['_detail_recommendation_section'], 'conditional')
-        self.assertFalse(job['_authenticated_local_checks']['passes'])
+        # Scoped eligibility includes the same conditional pool as the unified
+        # list; this does not establish central professional experience.
+        self.assertTrue(job['_authenticated_local_checks']['passes'])
+        local_match = job['_authenticated_local_checks']['match']
+        self.assertTrue(local_match['conditional_task_fit'])
+        self.assertFalse(local_match['primary_recommendation_eligible'])
+        self.assertEqual(local_match['source_task_fit']['status'], 'uncertain')
         self.assertIn(job['official_url'], detail.body.decode())
         self.assertIn('Practical experience with these specialist tasks still needs confirmation', detail.body.decode())
         # No second inventory computation for unchanged current inputs.
@@ -222,14 +230,41 @@ class SourceTaskAuthenticatedTests(unittest.TestCase):
         self.assertEqual(len(browser._conditional_presentation_matches(context)), 1)
         self.f.set_preferences('part_time')
         _, _, context = self.current(old)
+        # A preferred workload difference is recorded without excluding this
+        # conditional result. A separately confirmed firm limit still excludes.
+        self.assertEqual(len(browser._conditional_presentation_matches(context)), 1)
+        record = next(row for row in context['_typed_preference_enforcement']['evaluations']
+                      if row['opportunity_reference'] == 'canonical:7002')
+        self.assertEqual(record['admission']['status'], 'keep')
+        self.assertEqual(next(row['outcome'] for row in record['outcomes']
+                              if row['criterion_id'] == 'preferences.workloads'), 'fail')
+        soft_profile = deepcopy(self.f.profile)
+        hard = deepcopy(soft_profile)
+        hard['constraints']['hard_constraints'] = ['part-time only']
+        self.f.profile = with_preference_model(hard, hard['preferences']['preference_model'])
+        _, _, context = self.current(old)
+        self.assertEqual(len(browser._conditional_presentation_matches(context)), 1,
+                         'An external fixture label cannot authorize a confirmed firm limit')
+        # The base fixture uses external_fixture authority. Explicitly label
+        # this separate synthetic user confirmation; do not promote all facts.
+        for ref in self.f.profile['provenance']['field_sources']:
+            if ref['field_path'] == 'constraints.hard_constraints[0]':
+                ref.update(source_kind='user_confirmation', explicit=True)
+        _, _, context = self.current(old)
         self.assertEqual(browser._conditional_presentation_matches(context), [])
+        record = next(row for row in context['_typed_preference_enforcement']['evaluations']
+                      if row['opportunity_reference'] == 'canonical:7002')
+        self.assertEqual(record['admission']['status'], 'exclude')
+        self.assertEqual(next(row['criterion_class'] for row in record['outcomes']
+                              if row['criterion_id'] == 'preferences.workloads'), 'strict_preference')
         for scenario in browser._presented_relaxation_scenarios(context):
             self.assertNotIn(7003, [m['job_id'] for m in scenario['matches']])
+        self.f.profile = soft_profile
         self.f.set_preferences('full_time')
         self.f.advance(73)
         r, _, context = self.current(old)
         self.assertEqual(len(browser._conditional_presentation_matches(context)), 1)
-        self.assertIn('Availability needs confirmation.', r.body.decode())
+        self.assertIn('Availability is not recently verified', r.body.decode())
         self.f.advance(120)
         _, _, context = self.current(old)
         self.assertEqual(browser._conditional_presentation_matches(context), [])

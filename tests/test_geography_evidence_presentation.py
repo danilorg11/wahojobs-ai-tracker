@@ -62,10 +62,10 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         self.assertEqual(result['local']['match']['location_eligibility_status'], 'eligible')
         for html in [result['card'], result['page']]:
             html = unescape(html)
-            self.assertEqual(html.count('The description explicitly mentions applicants based in Brazil.'), 1)
             self.assertNotIn('Source location field:', html)
             self.assertNotIn('Other location information', html)
             self.assertNotIn('Listing location: United States.', html)
+        self.assertEqual(unescape(result['page']).count('The description explicitly mentions applicants based in Brazil.'), 1)
         ref = result['packet']['location_context']['references'][0]
         self.assertEqual(ref['source_quote'], INVITATION)
         self.assertEqual(ref['source_field'], FIELD + ':line 3')
@@ -138,9 +138,10 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
             r = self.setup_case(invitation=invitation, posting=value)
             self.assertEqual(r['packet']['location_context']['other'], f'Source location field: “{value}”')
             for html in [r['card'], r['page']]:
-                self.assertIn(f'Source location field: “{value}”', unescape(html))
+                self.assertIn(f'Check the source’s location information: “{value}”.', unescape(html))
                 self.assertNotIn('without explaining', html)
                 self.assertNotIn('<Country>', html)
+            self.assertIn(f'Source location field: “{value}”', unescape(r['page']))
             if invitation:
                 self.assertEqual(r['packet']['location_context']['references'][0]['source_quote'], INVITATION)
 
@@ -162,29 +163,33 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         self.assertEqual([m['job_id'] for m in conditional], [7003])
         self.assertEqual(browser._primary_presentation_matches(context), [])
         self.assertEqual(conditional[0]['source_task_fit']['conditions'][0]['status'], 'not_established')
-        html = re.search(r"<article class='match-card conditional-card' data-action-card id='opportunity-7003'[^>]*>.*?</article>",
-                         response.body.decode(), re.S).group()
+        article = re.search(r"<article\b(?=[^>]*\bclass='match-card')"
+                            r"(?=[^>]*\bid='opportunity-7003')(?=[^>]*\bdata-action-card\b)"
+                            r"[^>]*>.*?</article>", response.body.decode(), re.S)
+        self.assertIsNotNone(article)
+        html = article.group()
         detail = self.f.get('/job/opportunity-7002?variant=7003')
         self.assertEqual(detail.status, 200)
         for rendered in [html, detail.body.decode()]:
             rendered = unescape(rendered)
-            self.assertEqual(rendered.count('The description explicitly mentions applicants based in Brazil.'), 1)
             self.assertNotIn('Source location field:', rendered)
             self.assertNotIn('Other location information', rendered)
             self.assertNotIn('Listing location: United States.', rendered)
             self.assertNotIn('Eligibility from Brazil needs confirmation', rendered)
             self.assertIn('Biology', rendered)
-        from wahojobs.candidate_decision import render_placement_summary
-        self.assertIn(render_placement_summary(context['_card_evidence'][7003]), html)
+        self.assertEqual(unescape(detail.body.decode()).count('The description explicitly mentions applicants based in Brazil.'), 1)
+        self.assertIn('Check the requirement:', html)
+        self.assertEqual(context['_card_evidence'][7003]['location_context']['references'][0]['source_quote'], INVITATION)
 
     def test_opaque_country_aliases_omit_only_display_and_free_text_stays(self):
-        for value in ['Canada', 'USA', 'Brasil', 'US citizens only', 'Europe with travel', 'Remote - location to confirm']:
+        for value in ['Canada', 'USA', 'Brasil', 'US citizens only', 'Europe with travel', 'Remote - location to confirm',
+                      'Vancouver', 'Boston']:
             r = self.setup_case(invitation=False, posting=value)
             is_bare_country = value in ['Canada', 'USA', 'Brasil']
             self.assertEqual(r['packet']['location_context']['omit_opaque_other'], is_bare_country)
             self.assertEqual(json.loads(r['source']['metadata_json'])[DETAIL_KEY]['record']['location'], value)
-            for html in [r['card'], r['page']]:
-                self.assertEqual('Source location field:' in html, not is_bare_country)
+            self.assertEqual('Source location field:' in r['page'], not is_bare_country)
+            self.assertEqual('Check the source’s location information:' in r['card'], value == 'US citizens only')
             self.assertEqual(r['local']['match']['location_eligibility_status'], 'unknown')
 
     def test_legacy_description_context_does_not_repeat_opaque_posting_field(self):
@@ -208,9 +213,64 @@ class GeographyEvidencePresentationTests(unittest.TestCase):
         context = self.f.last_run().recommendation_context
         self.assertEqual([m['job_id'] for m in browser._primary_presentation_matches(context)], [7003])
         html = unescape(response.body.decode())
-        self.assertIn('The description explicitly mentions applicants based in Brazil.', html)
+        self.assertEqual(context['_card_evidence'][7003]['location_context']['references'][0]['source_quote'], INVITATION)
+        self.assertNotIn('Eligibility from Brazil needs confirmation', html)
         self.assertNotIn('Source location field:', html)
         self.assertNotIn('Other location information', html)
+
+    def test_legacy_free_text_warning_rejects_stale_or_foreign_prepared_binding(self):
+        value='US citizens only'
+        result=self.setup_case(invitation=True,posting=value)
+        self.assertIn(value,result['card'])
+        self.assertEqual(result['packet']['location_context']['other_field']['value'],value)
+        for field in ('provider','external_id','url','body_sha256'):
+            with self.subTest(field=field):
+                source=deepcopy(result['source'])
+                metadata=json.loads(source['metadata_json'])
+                target=(metadata[DETAIL_KEY]['applicant_location_support'] if field=='body_sha256'
+                        else metadata[DETAIL_KEY])
+                target[field]='foreign-or-stale'
+                source['metadata_json']=json.dumps(metadata)
+                packet=prepare_card_evidence(result['local']['match'],source,self.f.profile)
+                self.assertNotIn('other_field',packet['location_context'])
+                self.assertNotIn(value,render_card_evidence(packet,'stale'))
+        source=dict(result['source'],body='Different accepted body.')
+        packet=prepare_card_evidence(result['local']['match'],source,self.f.profile)
+        self.assertNotIn('other_field',packet['location_context'])
+        self.assertNotIn(value,render_card_evidence(packet,'changed'))
+
+    def test_bound_legacy_restriction_is_visible_through_actual_list_and_detail(self):
+        from tests.test_recommendation_presentation import DisclosureText
+        for invitation in (True,False):
+            with self.subTest(invitation=invitation):
+                self.setup_case(invitation=invitation,posting='US citizens only')
+                listing=self.f.get()
+                packet=self.f.last_run().recommendation_context['_card_evidence'][7003]
+                detail=self.f.get('/job/opportunity-7002?variant=7003')
+                for response in (listing,detail):
+                    self.assertEqual(response.status,200)
+                    main=''.join(DisclosureText(response.body.decode()).main)
+                    self.assertIn('Check the source’s location information: “US citizens only”.',main)
+                    self.assertNotIn('location requirement conflicts with your profile',main)
+                # The field does not grant eligibility or override the independent invitation.
+                self.assertEqual(packet['decision_location_status'],'eligible' if invitation else 'unknown')
+
+    def test_unprepared_legacy_field_requires_unchanged_exact_accepted_body(self):
+        result=self.setup_case(invitation=False,posting='US citizens only')
+        self.assertIsNone(json.loads(result['source']['metadata_json'])[DETAIL_KEY]['applicant_location_support'])
+        self.assertIn('US citizens only',result['card'])
+        for field in ('provider','external_id','url','display_text','body'):
+            with self.subTest(field=field):
+                source=deepcopy(result['source'])
+                if field=='body':
+                    source[field]='Different accepted body.'
+                else:
+                    metadata=json.loads(source['metadata_json'])
+                    metadata[DETAIL_KEY][field]='foreign-or-stale'
+                    source['metadata_json']=json.dumps(metadata)
+                packet=prepare_card_evidence(result['local']['match'],source,self.f.profile)
+                self.assertNotIn('other_field',packet['location_context'])
+                self.assertNotIn('Check the source’s location information:',render_card_evidence(packet,'stale'))
 
 
 if __name__ == '__main__':

@@ -1337,6 +1337,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             snapshot = None
             local_checks = None
             membership_known = False
+            detail_dependencies = ()
+            membership_dependencies = ()
             evaluated_at = _trusted_utc(self._now())
             run = None
             if authenticated:
@@ -1409,11 +1411,30 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         connection.rollback()
             if snapshot is not None:
                 from wahojobs.authenticated_variant_details import resolve_scoped_variant, find_presented_variant
+                background_context = authority.professional_background_context(self._professional_background_evidence)
                 job, local_checks = resolve_scoped_variant(
                     snapshot, profile_v2, self._metadata_overlay, selected_job_id, now=evaluated_at,
-                    background_context=authority.professional_background_context(self._professional_background_evidence))
+                    background_context=background_context)
+                local_match = (local_checks or {}).get('match')
+                if local_match is not None:
+                    detail_dependencies = self._professional_background_dependencies(
+                        {'matches': {'exact_detail': [local_match]}}, profile_v2, background_context)
                 membership_known = self._can_reuse_recommendations(
                     run, inputs, snapshot["token"], _trusted_utc(self._now()))
+                if membership_known and prepared is not None:
+                    try:
+                        membership_dependencies = self._professional_background_dependencies(
+                            run.recommendation_context, profile_v2, background_context)
+                        # Generation alone cannot attest cached record bytes.
+                        # Invalid saved membership does not prevent independently
+                        # reading current exact-source details without that claim.
+                        with prepared.consume_generation(generation, dependencies=membership_dependencies):
+                            pass
+                    except ValueError as exc:
+                        if str(exc) != 'professional_evidence_dependency_invalid':
+                            raise
+                        membership_known = False
+                        membership_dependencies = ()
                 if job is not None and membership_known:
                     selected_match = find_presented_variant(
                         run.recommendation_context, canonical_opportunity_id, job["job_id"])
@@ -1439,7 +1460,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                                 and authenticated and self._write_connection_provider is not None)
             # Scoped comparisons and saved membership are accepted together.
             # A replacement before this boundary makes the whole response fail.
-            with prepared.consume_generation(generation) if prepared is not None else nullcontext():
+            with prepared.consume_generation(generation, dependencies=detail_dependencies + membership_dependencies) if prepared is not None else nullcontext():
                 if authenticated:
                     from wahojobs.authenticated_variant_details import prepare_variant_notice
                     prepare_variant_notice(job, selected_match, local=local_checks,

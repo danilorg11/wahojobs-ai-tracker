@@ -851,20 +851,22 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
 
     def test_authenticated_route_enforces_known_soft_failure_and_keeps_unknown(self):
         model = empty_profile_preferences_v1()
-        model["workloads"] = ["full_time"]
+        # Workload preference is nonblocking; the unchanged relationship
+        # preference still exercises known soft exclusion versus unknown.
+        model["employment_relationships"] = ["employee"]
         authoritative = validate_canonical_profile_v2(
             with_preference_model(self.profile_v2, model)
         )
         failed = self._row(
             job_id=951,
-            title="Known Part-time Python Backend AI Coding Evaluator",
-            url="https://jobs.example.test/known-part-time",
+            title="Known Freelance Python Backend AI Coding Evaluator",
+            url="https://jobs.example.test/known-freelance",
         )
-        failed["commitment"] = "Part-time"
+        failed["commitment"] = "Freelance"
         unknown = self._row(
             job_id=952,
-            title="Unknown Workload Python Backend AI Coding Evaluator",
-            url="https://jobs.example.test/unknown-workload",
+            title="Unknown Relationship Python Backend AI Coding Evaluator",
+            url="https://jobs.example.test/unknown-relationship",
         )
         unknown["commitment"] = "Not structured"
         query_calls = []
@@ -882,6 +884,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 "query_preview_rows",
                 side_effect=self._query_rows([failed, unknown], query_calls),
             ),
+            mock.patch.object(matches_module, '_render_match_results',
+                              wraps=matches_module._render_match_results) as rendered,
         ):
             response = integration.handle(
                 "GET",
@@ -892,10 +896,19 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         body = self._body(response)
         self.assertEqual(response.status, 200)
         self.assertEqual(len(query_calls), 1)
-        self.assertNotIn(failed["title"], body)
+        # This older authority fixture has no durable identity/run registration.
+        # Observe the real rendered context without creating that authority.
+        rendered.assert_called_once()
+        context = rendered.call_args.args[0]
+        self.assertEqual([m['job_id'] for m in matches_module._recommendation_presentation_matches(context)], [952])
+        evaluations = context['_typed_preference_enforcement']['evaluations']
+        self.assertTrue(any(row['admission']['status'] == 'exclude' and any(
+            outcome['criterion_id'] == 'preferences.employment_relationships' and outcome['outcome'] == 'fail'
+            for outcome in row['outcomes']) for row in evaluations))
         self.assertIn(unknown["title"], body)
         self.assertNotIn("typed_preference_enforcement", body)
         self.assertNotIn("preferences.workloads", body)
+        self.assertNotIn("preferences.employment_relationships", body)
         self.assertIn(
             "1 opportunity to review.",
             body,
@@ -974,7 +987,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
 
     def test_soft_enforcement_filters_ranked_pool_then_backfills_display_limit(self):
         model = empty_profile_preferences_v1()
-        model["workloads"] = ["full_time"]
+        model["employment_relationships"] = ["employee"]
         authoritative = validate_canonical_profile_v2(
             with_preference_model(self.profile_v2, model)
         )
@@ -984,7 +997,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         for index, job_id in enumerate(job_ids):
             row = self._row(job_id=job_id)
             if index in {1, 4}:
-                row["commitment"] = "Part-time"
+                row["commitment"] = "Freelance"
             elif index == 2:
                 row["commitment"] = "Not structured"
             else:
@@ -1019,7 +1032,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             for item in records["canonical:1103"]["outcomes"]
         }
         self.assertEqual(
-            unknown["preferences.workloads"]["outcome"],
+            unknown["preferences.employment_relationships"]["outcome"],
             "unknown",
         )
         self.assertEqual(
@@ -1029,7 +1042,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
 
     def test_single_criterion_relaxations_are_internal_and_preserve_primary_results(self):
         model = empty_profile_preferences_v1()
-        model["workloads"] = ["full_time"]
+        model["employment_relationships"] = ["employee"]
         authoritative = validate_canonical_profile_v2(
             with_preference_model(self.profile_v2, model)
         )
@@ -1046,9 +1059,9 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             )
         rows = []
         for job_id, commitment in (
-            (1501, "Part-time"),
+            (1501, "Freelance"),
             (1502, "Full-time"),
-            (1503, "Part-time"),
+            (1503, "Freelance"),
         ):
             row = self._row(job_id=job_id)
             row["commitment"] = commitment
@@ -1071,8 +1084,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             [1502],
         )
         self.assertEqual(len(scenarios), 1)
-        self.assertEqual(scenarios[0]["criterion_id"], "preferences.workloads")
-        self.assertEqual(scenarios[0]["proposed"], {"add_value": "part_time"})
+        self.assertEqual(scenarios[0]["criterion_id"], "preferences.employment_relationships")
+        self.assertEqual(scenarios[0]["proposed"], {"add_value": "independent_contractor"})
         self.assertEqual(scenarios[0]["unlock_count"], 2)
         self.assertEqual(
             scenarios[0]["unlocked_opportunities"],
@@ -1086,7 +1099,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         body = matches_module._render_match_results(enforced, inventory_count=3)
         self.assertEqual(enforced, before_render)
         self.assertIn("More opportunities if you're flexible", body)
-        self.assertIn("Open to part-time work?", body)
+        self.assertIn("Also consider freelance work", body)
         self.assertIn("2 more opportunities", body)
         self.assertIn("Synthetic Role 1501", body)
         self.assertIn("Synthetic Role 1503", body)
@@ -1103,6 +1116,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertIn("This preview does not save a change.", body)
         self.assertNotIn("single_criterion_relaxation", body)
         self.assertNotIn("preferences.workloads", body)
+        self.assertNotIn("preferences.employment_relationships", body)
         self.assertNotIn("accepted_value_absent", body)
 
     def test_preferred_compensation_relaxation_uses_truthful_same_unit_copy(self):
@@ -1166,7 +1180,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
 
     def test_relaxation_renderer_rejects_non_engine_scenario_shapes(self):
         model = empty_profile_preferences_v1()
-        model["workloads"] = ["full_time"]
+        model["employment_relationships"] = ["employee"]
         authoritative = validate_canonical_profile_v2(
             with_preference_model(self.profile_v2, model)
         )
@@ -1182,13 +1196,14 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             }
         )
         row = self._row(job_id=1651)
-        row["commitment"] = "Part-time"
+        row["commitment"] = "Freelance"
         enforced = matches_module._apply_typed_preference_enforcement_v1(
             authoritative,
             context,
             [row],
             {},
         )
+        self.assertEqual(len(matches_module._presented_relaxation_scenarios(enforced)), 1)
         corrupted = deepcopy(enforced)
         scenario = corrupted["_typed_preference_enforcement"][
             "single_criterion_relaxations"
@@ -1209,6 +1224,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         model["workloads"] = ["full_time"]
         model["engagement_terms"] = ["permanent"]
         model["job_interests"] = ["data_annotation"]
+        model["schedule"]["flexibility_modes"] = ["fixed"]
         authoritative = validate_canonical_profile_v2(
             with_preference_model(self.profile_v2, model)
         )
@@ -1239,7 +1255,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             authoritative,
             context,
             rows,
-            {},
+            {1702: typed_enrichment(engagement_type="part_time", schedule_type="flexible", evidence_basis="source_explicit",
+                                    evidence_confidence="high")},
         )
         body = matches_module._render_match_results(
             enforced,
@@ -1247,11 +1264,21 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         )
 
         self.assertEqual(matches_module._primary_presentation_matches(enforced), [])
+        # The part-time difference stays nonblocking. Only the independently
+        # published flexible schedule supplies this row's relaxation criterion.
+        evaluation = next(row for row in enforced['_typed_preference_enforcement']['evaluations']
+                          if row['opportunity_reference'] == 'canonical:1702')
+        outcomes = {row['criterion_id']: row for row in evaluation['outcomes']}
+        self.assertEqual(outcomes['preferences.workloads']['outcome'], 'fail')
+        self.assertEqual(outcomes['preferences.schedule.flexibility_modes']['outcome'], 'fail')
+        scenarios = enforced['_typed_preference_enforcement']['single_criterion_relaxations']['scenarios']
+        self.assertNotIn('preferences.workloads', [s['criterion_id'] for s in scenarios])
         self.assertEqual(body.count("class='relaxation-scenario'"), 4)
         self.assertEqual(body.count("class='more-relaxations'"), 1)
         self.assertIn("1 more way to broaden your search", body)
         self.assertIn("Also consider freelance work", body)
-        self.assertIn("Open to part-time work?", body)
+        self.assertIn("Open to flexible schedules?", body)
+        self.assertNotIn("Open to part-time work?", body)
         self.assertIn("Also consider temporary roles", body)
         self.assertIn("Also consider customer support opportunities", body)
         preview_positions = [
@@ -1267,7 +1294,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
     def test_relaxation_scenarios_rank_by_unlock_count_then_match_rank(self):
         model = empty_profile_preferences_v1()
         model["employment_relationships"] = ["employee"]
-        model["workloads"] = ["full_time"]
+        model["engagement_terms"] = ["permanent"]
         authoritative = validate_canonical_profile_v2(
             with_preference_model(self.profile_v2, model)
         )
@@ -1285,8 +1312,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         rows = []
         for job_id, commitment in (
             (1751, "Freelance"),
-            (1752, "Part-time"),
-            (1753, "Part-time"),
+            (1752, "Temporary"),
+            (1753, "Temporary"),
         ):
             row = self._row(job_id=job_id)
             row["commitment"] = commitment
@@ -1305,7 +1332,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertIn("2 more opportunities", body)
         self.assertIn("1 more opportunity", body)
         self.assertLess(
-            body.index("Open to part-time work?"),
+            body.index("Also consider temporary roles"),
             body.index("Also consider freelance work"),
         )
         self.assertLess(
@@ -1649,9 +1676,9 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             matches_module._primary_presentation_matches(enforced),
             [],
         )
-        self.assertIn("No matches to show right now", body)
+        self.assertIn("We don&#x27;t have a match to show yet.", body)
         self.assertIn(
-            "There are no main recommendations displayed for your current profile, preferences and saved choices.",
+            "We haven’t found a recommendation in the available listings for your saved profile and preferences.",
             body,
         )
         self.assertNotIn("More opportunities if", body)
@@ -1668,7 +1695,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
             ),
             (
                 [stale],
-                "There are no main recommendations displayed for your current profile, preferences and saved choices.",
+                "We haven’t found a recommendation in the available listings for your saved profile and preferences.",
             ),
         )
         authority = self._authority(profile_v2=self.profile_v2)
@@ -1701,7 +1728,7 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertEqual(len(query_calls), 1)
                 self.assertIn("<h1>Your matches</h1>", body)
-                self.assertIn("No matches to show right now", body)
+                self.assertIn("We don&#x27;t have a match to show yet.", body)
                 self.assertIn(detail, body)
                 self.assertIn("Review my profile", body)
                 self.assertIn("Browse all jobs", body)

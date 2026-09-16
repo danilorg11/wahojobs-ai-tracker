@@ -47,14 +47,25 @@ class RecommendationReuseTests(unittest.TestCase):
         self.assertNotIn(b"Python Backend", response.body)
 
     def test_changed_preferences_recompute_old_url_and_keep_relaxations(self):
+        # Retain an actual exclusion/relaxation after workload became guidance.
+        # Engagement terms remain independent of workload and relationships.
+        self.fixture.update_inventory("UPDATE jobs SET commitment='Temporary' WHERE id=7003")
+        self.fixture.update_inventory("UPDATE jobs SET commitment='Internship' WHERE id=7006")
+        model = empty_profile_preferences_v1()
+        model['engagement_terms'] = ['temporary']
+        self.fixture.profile = with_preference_model(self.fixture.profile, model)
         first, run = self.first()
         self.assertIn(b"More opportunities if", first.body)
-        self.fixture.set_preferences("part_time")
+        self.assertEqual([m['job_id'] for m in browser._primary_presentation_matches(run.recommendation_context)], [7003])
+        model['engagement_terms'] = ['internship']
+        self.fixture.profile = with_preference_model(self.fixture.profile, model)
         second = self.fixture.get("/find-matches?run=" + run.match_run_id)
         self.assertEqual(second.status, 200)
         current = self.fixture.last_run().recommendation_context
         self.assertEqual([m["job_id"] for m in browser._primary_presentation_matches(current)], [7006])
         self.assertIn(b"More opportunities if", second.body)
+        self.assertTrue(all(s['criterion_id'] == 'preferences.engagement_terms'
+            for s in current['_typed_preference_enforcement']['single_criterion_relaxations']['scenarios']))
         self.assertNotEqual(first.body, second.body)
 
     def test_changed_profile_recomputes_without_database_change(self):
@@ -74,11 +85,18 @@ class RecommendationReuseTests(unittest.TestCase):
         self.assertNotIn(b"class='match-card'", response.body)
 
     def test_inventory_content_change_invalidates(self):
+        model = empty_profile_preferences_v1()
+        model['employment_relationships'] = ['employee']
+        self.fixture.profile = with_preference_model(self.fixture.profile, model)
         _, run = self.first()
-        self.fixture.update_inventory("UPDATE jobs SET commitment='Part-time'")
+        self.fixture.update_inventory("UPDATE jobs SET commitment='Freelance'")
         response = self.fixture.get("/find-matches?run=" + run.match_run_id)
         self.assertEqual(response.status, 200)
         self.assertEqual(browser._primary_presentation_matches(self.fixture.last_run().recommendation_context), [])
+        current = self.fixture.last_run().recommendation_context
+        self.assertTrue(current['_typed_preference_enforcement']['evaluations'])
+        self.assertTrue(all(row['admission']['status'] == 'exclude'
+            for row in current['_typed_preference_enforcement']['evaluations']))
 
     def test_clock_expiry_is_recomputed_and_never_claimed_current(self):
         _, run = self.first()
@@ -163,7 +181,9 @@ class RecommendationReuseTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertIn(b"Availability is not recently verified", response.body)
         self.assertEqual(response.body.count(b"Availability is not recently verified"), 2)
-        self.assertIn(b"1 opportunity to review", response.body)
+        self.assertIn(b"2 opportunities to review", response.body)
+        self.assertEqual({m['job_id'] for m in browser._recommendation_presentation_matches(
+            self.fixture.last_run().recommendation_context)}, {7003, 7006})
 
     def test_explicit_diagnostic_keeps_complete_inventory_and_runs_on_revisit(self):
         self.fixture.integration._criteria_shadow_sink = lambda _: None

@@ -291,6 +291,28 @@ class RecommendationPresentationTests(unittest.TestCase):
         packet['language_comparisons'] = [dict(check, levels=['native'], status='contradicted')]
         self.assertIn('conflicts with your profile', render_material_warnings(packet))
 
+    def test_specialist_uncertainty_note_requires_current_exact_task_paragraph(self):
+        source, match, profile = explanation_fixture()
+        packet = prepare_card_evidence(match, source, profile)
+        quote = 'Review examples of phonetics and syntax through linguistic analysis.'
+        packet['text'] += '\n\n' + quote
+        note = 'Practical experience with these specialist tasks still needs confirmation.'
+        task = dict(kind='linguistic_analysis', status='uncertain', quote=quote, candidate_note=note,
+            source_reference=dict(job_id=packet['job_id'], external_id=packet['external_id'],
+                source_url=packet['url'], material_content_sha256=packet['source_hash']))
+        attach_decision(packet, dict(source_task_fit=task))
+        self.assertIn(note, render_material_warnings(packet, compact=True))
+        for field, value in (('kind', 'accepted_task_conditions'), ('status', 'supported'),
+                             ('quote', 'phonetics and syntax')):
+            with self.subTest(field=field):
+                attach_decision(packet, dict(source_task_fit=dict(task, **{field: value})))
+                self.assertNotIn(note, render_material_warnings(packet, compact=True))
+        for field in ('job_id', 'external_id', 'source_url', 'material_content_sha256'):
+            with self.subTest(binding=field):
+                changed = dict(task, source_reference=dict(task['source_reference'], **{field: 'other'}))
+                attach_decision(packet, dict(source_task_fit=changed))
+                self.assertNotIn(note, render_material_warnings(packet, compact=True))
+
     def test_preference_only_interest_does_not_imply_existing_experience_in_advice(self):
         source, match, profile = explanation_fixture()
         match.pop('accepted_task_fit')

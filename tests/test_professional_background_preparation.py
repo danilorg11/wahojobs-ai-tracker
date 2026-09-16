@@ -13,6 +13,16 @@ from wahojobs.authenticated_variant_details import variant_detail_url
 from wahojobs.professional_background_preparation import PreparationBudget, configured_background_preparer
 
 
+def _detail_with_checks(test, fixture, target):
+    """Observe the real handler's exact-detail computation without replacing it."""
+    from wahojobs import authenticated_variant_details as variants
+    with patch.object(variants, 'prepare_variant_notice', wraps=variants.prepare_variant_notice) as notice:
+        response = fixture.get(target)
+    test.assertEqual(response.status, 200)
+    notice.assert_called_once()
+    return response, notice.call_args.args[0]
+
+
 class ConditionalPoolPreparationTests(unittest.TestCase):
     """Synthetic contract controls, not additional real-model observations."""
 
@@ -124,9 +134,13 @@ class ConditionalPoolPreparationTests(unittest.TestCase):
         self.fixture.execute(replace=True)
         _, _, ids = self.result(execute=False, target='/find-matches?run=' + run.match_run_id)
         self.assertEqual(ids, [])
-        response = self.f.get(variant_detail_url(m, run_id=run.match_run_id))
-        self.assertEqual(response.status, 200)
-        self.assertNotIn(b"<p class='decision-placement'>", response.body)
+        response, job = _detail_with_checks(self, self.f, variant_detail_url(m, run_id=run.match_run_id))
+        self.assertIsNone(job['_authenticated_recommendation'])
+        self.assertFalse(job['_authenticated_local_checks']['passes'])
+        background = next(row for row in job['_authenticated_local_checks']['match']['source_qualification_comparisons']
+                          if row['kind'] == 'professional_background')
+        self.assertEqual(background['components']['occupational_relevance']['semantic']['relation'], 'not_established')
+        self.assertIn(b'5+ years of relevant professional experience', response.body)
         self.assertEqual(len(self.fixture.client.session.calls), 2)
 
     def test_invalid_response_never_creates_route(self):
@@ -192,12 +206,28 @@ class ConditionalPoolPreparationTests(unittest.TestCase):
         run, m, _ = self.result()
         url = variant_detail_url(m, run_id=run.match_run_id)
         self.assertEqual(parse_variant_query(url.split('?')[1]), dict(variant=7003, run=run.match_run_id))
-        response = self.f.get(url)
-        self.assertEqual(response.status, 200)
+        response, job = _detail_with_checks(self, self.f, url)
         body = response.body.decode('utf-8')
-        self.assertIn("<p class='decision-placement'>", body)
-        self.assertIn('The complete professional requirement is not established.', body)
-        self.assertIn('Original employer qualifications', body)
+        # The concise decision surface keeps the unresolved central requirement
+        # visible; prepared partial relevance must not imply full qualification.
+        self.assertIn("<aside class='decision-warning'>", body)
+        self.assertIn('Check the requirement: “**5+ years of relevant professional experience in Customer success / support operations.**”.', body)
+        self.assertEqual(job['_authenticated_recommendation']['job_id'], 7003)
+        self.assertEqual(job['_authenticated_recommendation']['url'], m['url'])
+        self.assertTrue(job['_authenticated_membership_known'])
+        self.assertTrue(job['_authenticated_local_checks']['passes'])
+        local_match = job['_authenticated_local_checks']['match']
+        for key in ('job_id', 'canonical_opportunity_id', 'url'):
+            self.assertEqual(local_match[key], m[key])
+        background = next(row for row in local_match['source_qualification_comparisons']
+                          if row['kind'] == 'professional_background')
+        self.assertEqual(background['source'], next(row['source'] for row in m['source_qualification_comparisons']
+                                                   if row['kind'] == 'professional_background'))
+        self.assertEqual(background['status'], 'unresolved')
+        self.assertEqual(background['components']['occupational_relevance']['semantic']['relation'], 'supported_partial')
+        self.assertEqual(background['components']['required_duration']['status'], 'unresolved')
+        self.assertIn("<details class='employer-description'>", body)
+        self.assertIn('Employer description and requirements', body)
         self.assertNotIn('OFFLINE LABELLED STUB', body)
         action_run_id = re.search(r'name="match_run_id" value="([^"]+)"', body)[1]
         key = unescape(re.search(r'name="opportunity_key" value="([^"]+)"', body)[1])
@@ -212,9 +242,13 @@ class ConditionalPoolPreparationTests(unittest.TestCase):
         self.f.profile = profile()
         self.f.profile['identity']['profile_id'] = 'prf_' + '0' * 31 + '2'
         self.assertEqual(self.f.get(url).status, 404)
-        public_detail = self.f.get(variant_detail_url(m))
-        self.assertEqual(public_detail.status, 200)
-        self.assertNotIn(b'Your declared role has partial occupational relevance.', public_detail.body)
+        public_detail, foreign_job = _detail_with_checks(self, self.f, variant_detail_url(m))
+        self.assertIsNone(foreign_job['_authenticated_recommendation'])
+        self.assertFalse(foreign_job['_authenticated_local_checks']['passes'])
+        foreign_background = next(row for row in foreign_job['_authenticated_local_checks']['match']['source_qualification_comparisons']
+                                  if row['kind'] == 'professional_background')
+        self.assertFalse(foreign_background['components']['occupational_relevance'].get('semantic'))
+        self.assertIn(b'5+ years of relevant professional experience', public_detail.body)
         self.assertNotEqual(self.f.last_run().owner_profile_id, action_run.owner_profile_id)
         self.assertEqual(len(self.fixture.client.session.calls), 1)
 
@@ -224,10 +258,14 @@ class ConditionalPoolPreparationTests(unittest.TestCase):
         run, m, ids = self.result()
         self.assertEqual(ids, [7003])
         foreign = dict(m, job_id=7006, url='https://jobs.example.test/synthetic-part-time')
-        response = self.f.get(variant_detail_url(foreign, run_id=run.match_run_id))
-        self.assertEqual(response.status, 200)
-        self.assertNotIn(b'Your declared role has partial occupational relevance.', response.body)
-        self.assertNotIn(b"<p class='decision-placement'>", response.body)
+        response, job = _detail_with_checks(self, self.f, variant_detail_url(foreign, run_id=run.match_run_id))
+        self.assertEqual(job['job_id'], 7006)
+        self.assertIsNone(job['_authenticated_recommendation'])
+        self.assertFalse(job['_authenticated_local_checks']['passes'])
+        background = next(row for row in job['_authenticated_local_checks']['match']['source_qualification_comparisons']
+                          if row['kind'] == 'professional_background')
+        self.assertFalse(background['components']['occupational_relevance'].get('semantic'))
+        self.assertIn(b'5+ years of relevant professional experience', response.body)
         self.assertEqual(len(self.fixture.client.session.calls), 1)
 
 
