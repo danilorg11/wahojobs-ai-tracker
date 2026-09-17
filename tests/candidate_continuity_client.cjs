@@ -200,4 +200,4 @@ async function main() {
   process.stdout.write(JSON.stringify({kind:'result',mode,observations,requests,
     scriptHashes:[...scriptHashes],clientErrors})+'\n');
 }
-main().then(()=>process.exit(0)).catch(e=>{console.error(e.stack);process.exit(1);});
+main().catch(e=>{process.stderr.write(e.stack+'\n');if(dom)dom.window.close();process.exitCode=1;}).finally(()=>process.stdin.destroy());
