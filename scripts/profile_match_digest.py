@@ -980,6 +980,9 @@ def opportunity_key(row, group_canonical):
 def score_opportunity(profile, row):
     from wahojobs.matching.accepted_tasks import matched_accepted_tasks
     task_fit = matched_accepted_tasks(profile, row)
+    # Relevance through an interest is not confirmed practice. Preserve the
+    # existing AI-work scoring path even when beginner access leads the reason.
+    confirmed_task_fit = matched_accepted_tasks(profile, row, include_transferable=False)
     title = row["title"] or row["canonical_title"] or "Untitled opportunity"
     expertise = row["source_category"] or row["expertise"] or row["department"] or "Unknown"
     text = searchable_text(row, title, expertise)
@@ -997,7 +1000,7 @@ def score_opportunity(profile, row):
     quality_gate_penalty = 0
 
     for reason, keywords, points in profile["signals"]:
-        accepted_task_signal = (task_fit and task_fit.get('basis') != 'transferable_activity' and
+        accepted_task_signal = (confirmed_task_fit and
             set(normalize_keywords(keywords)) == set(AI_EVALUATION_SIGNAL[1]))
         if accepted_task_signal or any(keyword_matches(text, keyword) for keyword in normalize_keywords(keywords)):
             score += points
@@ -1471,9 +1474,15 @@ def match_quality_gate_penalties(profile, row, text=None):
             penalties.append(("Finance or accounting role does not match this profile", 28))
 
     from wahojobs.matching.accepted_tasks import matched_accepted_tasks
+    accepted_fit = matched_accepted_tasks(profile, row)
+    beginner_task_relevance = bool(accepted_fit and accepted_fit.get('basis') == 'beginner_interest')
     if (not has_meaningful_positive_evidence(profile_features, role_features)
             and has_generic_only_evidence(text)
-            and not matched_accepted_tasks(profile, row, include_transferable=False)):
+            and not matched_accepted_tasks(profile, row, include_transferable=False)
+            and not beginner_task_relevance):
+        # Complete accepted beginner scope plus an actual duty/interest link
+        # is source-grounded relevance, not generic title wording alone. It
+        # does not award the confirmed-AI-work signal or waive other penalties.
         penalties.append(("Match is based mostly on generic AI-work terms", 10))
 
     return unique_penalties(penalties)

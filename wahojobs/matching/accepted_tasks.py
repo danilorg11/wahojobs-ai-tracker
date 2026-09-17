@@ -13,9 +13,9 @@ from wahojobs.authenticated_card_evidence import _source_text, load_card_sources
 from wahojobs.profiles.normalizer import term_is_negated
 
 
-TASK_PROJECTION_VERSION = 4
+TASK_PROJECTION_VERSION = 5
 SOURCE_ELIGIBILITY_VERSION = 5
-TASK_ADMISSION_VERSION = 11
+TASK_ADMISSION_VERSION = 12
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
     r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
@@ -198,8 +198,22 @@ def project_accepted_tasks(connection, rows):
             source.get('material_content_sha256'), source['source_slug'],
             source['external_id'], source['url'], source.get('body'),
             source.get('body_format'), source.get('metadata_json')))
+        evidence['beginner_scope'] = list(_prepare_beginner_scope(
+            source.get('material_content_sha256'), source['source_slug'],
+            source['external_id'], source['url'], source.get('body'),
+            source.get('body_format'), source.get('metadata_json')))
         result.append(dict(row, accepted_task_evidence=evidence))
     return result
+
+
+@lru_cache(maxsize=16384)
+def _prepare_beginner_scope(material_hash, provider, external_id, url, body, body_format, metadata_json):
+    from wahojobs.matching.beginner_access import source_scope
+    try:
+        return tuple(source_scope(dict(source_slug=provider, external_id=external_id,
+            url=url, body=body, body_format=body_format, metadata_json=metadata_json)))
+    except (ValueError, TypeError, KeyError):
+        return ()
 
 
 @lru_cache(maxsize=16384)
@@ -342,7 +356,7 @@ def apply_accepted_eligibility(profile, row, match):
 
 
 def matched_accepted_tasks(profile, row, *, include_transferable=True):
-    """Confirmed work or bounded transferable activity; never interest alone.
+    """Confirmed work, transferable activity, or source-proven beginner interest.
 
     Domain qualifications remain separate. A generic evaluation phrase in an
     unsupported professional domain does not establish that profession.
@@ -360,6 +374,11 @@ def matched_accepted_tasks(profile, row, *, include_transferable=True):
         return None
     if ref.get('source_url') != row.get('url'):
         return None
+    if include_transferable:
+        from wahojobs.matching.beginner_access import match_interests
+        beginner = match_interests(profile, evidence)
+        if beginner:
+            return beginner
     if not work:
         if include_transferable:
             from wahojobs.matching.transferable_tasks import match_activities
@@ -423,8 +442,12 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
     # Recomputed source review must not inherit an earlier admission receipt.
     match = {k: v for k, v in match.items() if k != 'accepted_task_pre_review'}
     transferable = (match.get('accepted_task_fit') or {}).get('basis') == 'transferable_activity'
-    if transferable:
-        from wahojobs.matching.transferable_tasks import bind_confirmed_profile
+    beginner = (match.get('accepted_task_fit') or {}).get('basis') == 'beginner_interest'
+    if transferable or beginner:
+        if beginner:
+            from wahojobs.matching.beginner_access import bind_confirmed_profile
+        else:
+            from wahojobs.matching.transferable_tasks import bind_confirmed_profile
         bound = bind_confirmed_profile(match['accepted_task_fit'], profile)
         if bound is None:
             return dict(match, accepted_task_fit=None, accepted_task_section_admission=False,
@@ -562,8 +585,12 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
     if transferable:
         note = ('Your confirmed activities are relevant to these entry-level tasks. '
                 'This does not establish prior professional AI work. Check the remaining source conditions.')
+    if beginner:
+        note = ('The source establishes beginner access, and its tasks align with your stated work interests. '
+                'Check the remaining source conditions.')
     if conflicts:
-        note = 'Your task experience is relevant, but a required condition conflicts with your confirmed profile.'
+        note = ('These tasks align with your interests, but a required condition conflicts with your confirmed profile.'
+                if beginner else 'Your task experience is relevant, but a required condition conflicts with your confirmed profile.')
     assessment['why_fit_statements'] = [note]
     return dict(match, affirmative_fit=assessment, affirmative_fit_status=status,
                 affirmative_fit_why=[note], primary_recommendation_eligible=False,

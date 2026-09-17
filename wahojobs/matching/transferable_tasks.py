@@ -100,6 +100,11 @@ def confirmed_activities(canonical):
     return result
 
 
+def candidate_directed_prerequisite(clause):
+    """A candidate-addressed prerequisite keeps its force outside a heading."""
+    return bool(re.search(r'\b(?:you|applicants?|candidates?)\s+(?:will\s+)?(?:need|must have|should have)\b', clause, re.I))
+
+
 def source_scope(source):
     """Positive body-level entry scope, with separate central-prerequisite vetoes.
 
@@ -141,7 +146,8 @@ def source_scope(source):
                 mode = _modality(heading, clause)
                 if mode in ('preferred', 'not_required'):
                     continue
-                explicit_prerequisite = bool(re.search(r'\b(?:must|required|requires?|necessary|prerequisite)\b', clause, re.I))
+                explicit_prerequisite = bool(re.search(r'\b(?:must|required|requires?|necessary|prerequisite)\b', clause, re.I)
+                                             or candidate_directed_prerequisite(clause))
                 if heading not in _QUALIFICATION_HEADINGS and not explicit_prerequisite and not entry_proof:
                     continue
                 # Exact central prerequisites are not waived by entry wording.

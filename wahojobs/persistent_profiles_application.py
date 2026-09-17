@@ -640,6 +640,8 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
     )
     _append_group(groups, "Professional domains", domains)
     experience_values = []
+    if 'no prior experience' in profile.get('constraints', {}).get('hard_constraints', []):
+        experience_values.append('No prior work experience')
     if experience.get("seniority") not in {None, "", "unknown"}:
         experience_values.append(
             f"Seniority: {candidate_seniority_display_label(experience['seniority'])}"
@@ -708,7 +710,8 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
     preference_values = list(preference_summary(preferences))
     for key, label in (('hard_constraints', 'Firm constraint'), ('accessibility_constraints', 'Working need'),
                        ('soft_preferences', 'Other preference'), ('excluded_domains', 'Excluded work')):
-        preference_values.extend(f'{label}: {v}' for v in profile.get('constraints', {}).get(key, []))
+        preference_values.extend(f'{label}: {v}' for v in profile.get('constraints', {}).get(key, [])
+                                 if not (key == 'hard_constraints' and v == 'no prior experience'))
     _append_group(groups, "Work preferences", tuple(preference_values))
 
     display_name = profile.get("identity", {}).get("display_name", "")

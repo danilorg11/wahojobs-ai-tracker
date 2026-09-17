@@ -1,5 +1,60 @@
 # Private beta readiness v1
 
+## Current owner correction: beginner-access recommendations
+
+Continue from9ad98219586189d3262f62e8394db39eb8cbc27f/tree3dd2ecbec223e53976cd907f403605c2ea0319bd.
+Accepted-source beginner accessibility and genuinely relevant confirmed work
+interests may ground a recommendation without previous related work. Interests
+remain interests; ordinary behavioral qualities remain unverified. Independent
+experience, specialist, language, geography, schedule, preference and freshness
+requirements retain their authority. No ranking weights, caps or forced identities change.
+
+1. Preserve the actual current demo and immutable accepted source. Establish paired
+   experienced/history-unknown/explicit-first-job behavior through normal forms,
+   profile services and the intact16-source inventory at its fixed declared clock.
+2. Correct any demonstrated shared recognition/admission dependency using the
+   existing source/task/qualification path; carry a bound beginner-relevance basis
+   through list and exact detail. Do not manufacture professional history.
+3. Lead candidate explanation with source accessibility plus relevant interest;
+   retain actual experience as an advantage and preserve employer-application
+   guidance, separate Wahojobs editing, intake and workflow continuity.
+4. Prove contrasts across original inventory and separately labelled synthetic
+   restrictions. Independently challenge policy, provenance and real consumers;
+   fix/re-review findings, freeze a clean feature commit and run the complete
+   established2165-ID selection plus additions with required636 retained.
+5. Resume the same preserved8861 state, add one labelled beginner practice account
+   via normal text/review/confirmation, verify original owner rows remain intact,
+   and deliver one indexed package. Owner acceptance and real activation stay separate.
+
+Ownership: matching agent owns shared mechanism/policy tests; candidate agent owns
+explanations/presentation tests; lead owns client/input contrasts, demo composition,
+integration and validation; operations agent owns evidence-only gate/preservation
+helpers and independent operational review. Only the lead runs listeners/tests.
+Current source/process/validation actions remain in the same bundle RUN-STATE.md.
+
+Executed discovery: original16 at 2026-09-15T12:00:00Z delivered Generalist960012
+for Alex; both unknown-history and explicit-first-job variants delivered none.
+Their score9 was identical, but no accepted task basis resolved the title before
+late qualification review. Source-supported beginner interest now reaches that
+same review without creating history. The paired served client has demonstrated
+[960012] for all three, unchanged score9 and original sources. Complete final
+validation/review still must finish on the frozen delivered tree.
+
+Connected repairs preserve the explicit no-work statement in the existing reviewed
+control, allow it to be cleared without a duplicate hidden value, and retain
+scope/duration/language/editor/history guarantees. A source-backed beginner basis
+also removes the false generic-title-only classification in that existing quality
+guard; unchanged weights still apply to actual weak or unrelated evidence.
+Separate synthetic controls cover this classification consequence. Initial failed
+invocations and corrected observer assumptions remain in the indexed bundle.
+
+Release closure requires the full additive2165 gate plus required636, independent
+policy/presentation/state review and normal-form preparation of one additional
+beginner practice account after original-state preservation. Browser navigation
+still encounters ERR_CERT_AUTHORITY_INVALID under permitted tooling; real verified
+HTTPS/shipped-client tests do not substitute for native browser acceptance. No
+external provider/current-source/hosting/privacy activation gate is declared passed.
+
 ## Current owner correction: employer-application guidance
 
 Within the same release candidate, make every shared application-guidance branch

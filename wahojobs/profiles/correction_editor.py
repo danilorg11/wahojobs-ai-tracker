@@ -299,7 +299,7 @@ function jsonValues(name){try{return JSON.parse(value(name)||'[]');}catch(e){ret
 function summarize(section){var id=section.id.replace('section-',''),parts=[];
  if(id==='languages')parts=languageRows.map(function(row){var c=languageControls(row);return c[0].value.trim()?c[0].value.trim()+' ('+c[1].selectedOptions[0].textContent+')'+(c[2].value.trim()?' — '+c[2].value.trim():''):'';});
  else if(id==='location')parts=['city','region','country'].map(value);
- else if(id==='experience'){parts=['job_titles','specialties'].map(value).concat(jsonValues('recent_roles'));if(value('total_years'))parts.push('Total career experience: '+value('total_years')+' years');section.querySelectorAll('[data-domain-duration-row]').forEach(function(row){if(!row.hidden)parts.push('Experience in '+row.dataset.domain+': '+(row.querySelector('input').value.trim()||'needs review')+' years');});}
+ else if(id==='experience'){parts=['job_titles','specialties'].map(value).concat(jsonValues('recent_roles'));if(value('no_experience')==='1')parts.push('No prior work experience');if(value('total_years'))parts.push('Total career experience: '+value('total_years')+' years');section.querySelectorAll('[data-domain-duration-row]').forEach(function(row){if(!row.hidden)parts.push('Experience in '+row.dataset.domain+': '+(row.querySelector('input').value.trim()||'needs review')+' years');});}
  else if(id==='skills'){var seenSkills=new Set();Array.from(section.querySelectorAll('[data-chips]')).forEach(function(g){value(g.dataset.chips).split(',').forEach(function(v){v=v.trim();var key=v.toLocaleLowerCase();if(v&&!seenSkills.has(key)){seenSkills.add(key);parts.push(v);}});});}
  else if(id==='education'){parts=jsonValues('education_entries').map(function(e){return [e.qualification,e.field,e.institution,e.completion_year,e.status&&e.status!=='unknown'?e.status.replaceAll('_',' '):''].filter(Boolean).join(', ');});parts=parts.concat(['degrees','education_fields','institutions'].map(value),[option('education_level'),option('education_status')]);if(form.querySelector('[name=no_degree]').checked)parts.push('No university degree');}
  else if(id==='preferences'){if(form.querySelector('[name=beta_preferences_present]')){section.querySelectorAll('fieldset').forEach(function(g){var selected=Array.from(g.querySelectorAll('input:checked')).map(function(c){return c.closest('label').textContent.trim();});if(selected.length)parts.push(g.querySelector('legend').textContent+': '+selected.join(', '));});section.querySelectorAll('.pay-expectation').forEach(function(g){var c=Array.from(g.querySelectorAll('input,select'));if(c[1].value||c[2].value)parts.push(c[0].selectedOptions[0].textContent+': '+c[2].value+' '+c[1].value+' '+c[3].selectedOptions[0].textContent.toLowerCase());});}else{parts=['availability','synchronous_preference','phone_preference'].map(option).concat(['schedule','employment_types','target_opportunity_types'].map(value));if(form.querySelector('[name=flexible]').checked)parts.push('Flexible hours preferred');}if(value('remote')==='1')parts.push('Remote work preferred');}
@@ -417,6 +417,8 @@ def summary_sections(canonical):
     studies = [' · '.join(str(e[k]).replace('_', ' ') for k in ('qualification', 'field', 'institution', 'completion_year', 'status') if e.get(k) and e[k] != 'unknown') for e in entries]
     unpaired = unpaired_education(education)
     career = ([f"Total career experience: {experience['total_years']} years (not years in each profession)"] if experience.get('total_years') is not None else [])
+    if 'no prior experience' in canonical.get('constraints', {}).get('hard_constraints', []):
+        career.append('No prior work experience')
     domain_years = experience.get('years_by_domain', ())
     if isinstance(domain_years, dict):
         domain_years = [dict(domain=domain, years=years) for domain, years in domain_years.items()]
@@ -435,5 +437,5 @@ def summary_sections(canonical):
         section('Skills and tools', list(dict.fromkeys(v for values in skills.values() if isinstance(values, list) for v in values if isinstance(v, str)))),
         section('Work preferences', preference_summary(preferences)),
         section('Permissions and credentials', [location.get('work_authorization'), *location.get('eligible_countries', []), *credentials.get('licenses', []), *credentials.get('certifications', []), *credentials.get('jurisdictions', []), *credentials.get('security_clearances', [])]),
-        section('Constraints and preferences', list(dict.fromkeys(v for values in constraints.values() if isinstance(values, list) for v in values if isinstance(v, str)))),
+        section('Constraints and preferences', list(dict.fromkeys(v for key, values in constraints.items() if isinstance(values, list) for v in values if isinstance(v, str) and not (key == 'hard_constraints' and v == 'no prior experience')))),
     ))

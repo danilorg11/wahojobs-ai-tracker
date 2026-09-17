@@ -2255,7 +2255,7 @@ def normalize_identity_free_profile_input(raw_input, input_style, *, allow_fallb
     domains = profile_normalizer.detect_domains(text, allow_fallbacks=allow_fallbacks)
     skills = profile_normalizer.detect_skills(text, domains, input_style=input_style, allow_fallbacks=allow_fallbacks)
     preferences = profile_normalizer.detect_preferences(text, domains, allow_fallbacks=allow_fallbacks)
-    constraints = profile_normalizer.detect_constraints(text)
+    constraints = profile_normalizer.detect_constraints(text, raw_input=raw_input)
     signals = profile_normalizer.signals_for_domains(domains, skills, languages)
     missing_fields = profile_normalizer.missing_fields_for_baseline(
         languages,
@@ -3133,6 +3133,12 @@ def profile_review_form_fields(canonical, match_run_id, review_token):
         fields["no_degree"] = "1"
     if "no prior experience" in hard_constraints:
         fields["no_experience"] = "1"
+        # The dedicated checkbox owns this fact in the review form. Repeating
+        # it in the general constraint field would silently restore it after
+        # the candidate explicitly unchecks the experience control.
+        fields["hard_constraints"] = review_csv([
+            value for value in hard_constraints if value != "no prior experience"
+        ])
     if any("credential" in str(value).lower() for value in hard_constraints):
         fields["no_specialized_credentials"] = "1"
     language_slots = profile_review_language_slots(canonical)

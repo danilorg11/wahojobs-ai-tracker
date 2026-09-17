@@ -439,6 +439,34 @@ async function sampleJourney(fixture){
     await ownerCheckpoint('sample-detail-'+index);
   }
   await navigate('/account/profile');await ownerCheckpoint('sample-profile');
+  if(fixture.clear_no_experience){
+    await navigate('/find-matches');
+    const exact=localLink('/job/',document().querySelector('article[data-action-card]'));
+    await navigate(exact);await click('save');await click('remind_later');
+    const saved=await rpc({kind:'state'});
+    await navigate('/account/profile');
+    await navigate(localLink('/account/profile?correction=start'));await submit('form');
+    await navigate([...document().querySelectorAll('a')].find(a=>a.textContent==='Edit profile').getAttribute('href'));
+    const experience=document().querySelector('#section-experience');experience.open=true;
+    const noExperience=experience.querySelector('[name=no_experience]');
+    assert.equal(noExperience.checked,true,'Explicit first-job fact is retained for review');
+    assert.ok(!formFacts().hard_constraints.includes('no prior experience'),'The dedicated checkbox has no duplicate hidden authority');
+    noExperience.checked=false;noExperience.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+    experience.querySelector('[data-section-done]').click();
+    assert.ok(!experience.querySelector('[data-section-summary]').textContent.includes('No prior work experience'));
+    experience.querySelector('summary').click();assert.equal(noExperience.checked,false);
+    await ownerCheckpoint('beginner-cleared-local');
+    document().querySelector('[name=credentials_confirmed]').checked=true;
+    await submit('#profile-review-form');await ownerCheckpoint('beginner-clear-review');
+    assert.deepEqual((await rpc({kind:'state'})).revisions,saved.revisions,'A reviewed draft has not changed confirmed history');
+    document().querySelector('[name=confirmed]').checked=true;await submit('form');
+    await ownerCheckpoint('beginner-clear-confirmed');
+    const corrected=await rpc({kind:'state'});
+    assert.deepEqual(corrected.items,saved.items);assert.deepEqual(corrected.transitions,saved.transitions);
+    await navigate(exact);await ownerCheckpoint('beginner-after-correction-detail');
+    await click('applied');await navigate('/tracker');await navigate(localLink('/tracker/item?'));
+    await ownerCheckpoint('beginner-tracked-detail');
+  }
   if(fixture.switch_sample){
     const choice=document().querySelector('.practice-selector a[href$="practice='+fixture.switch_sample+'"]');
     assert.ok(choice, 'Switch through the actual visible practice link');
@@ -446,7 +474,10 @@ async function sampleJourney(fixture){
     await submit('form[action="/auth/google/start"]');
     await navigate(localLink('/__fixture/google/complete'));
     await navigate('/account/profile');
-    assert.match(document().body.textContent,/Research Sample/);
+    const sampleNames={alex:'Alex',biology:'Research Sample',software:'Software Sample',beginner:'Beginner Sample'};
+    assert.ok(sampleNames[fixture.switch_sample], 'Known prepared practice identity');
+    assert.equal(document().querySelector('h1').textContent.trim(),sampleNames[fixture.switch_sample],
+      'The authenticated profile identity must match the selected practice account, not a selector label');
     await ownerCheckpoint('sample-switched-profile');
     await navigate('/find-matches');await ownerCheckpoint('sample-switched-matches');
   }

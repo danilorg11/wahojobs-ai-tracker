@@ -26,11 +26,21 @@ from scripts.local_recovery_login import _ResponseView
 CHOICE_COOKIE = '__Host-wahojobs_practice_candidate'
 PENDING_COOKIE = '__Host-wahojobs_practice_pending'
 SAMPLE_KEYS = ('alex', 'biology', 'software', 'fresh')
+BEGINNER_KEY = 'beginner'
 
 
 def sample_definitions():
     from tests.private_beta_demo_support import BACKGROUND
     return {
+        'beginner': dict(label='Beginner — first job',
+            background=('I live in Brazil. My name is Beginner Sample. '
+                'I am looking for my first job. I have no prior work experience. '
+                'I speak Portuguese at native level and English fluently. '
+                'I have completed high school and do not have a university degree. '
+                'My skills include customer support, data entry, writing, attention to detail and Python. '
+                'I want remote AI evaluation, annotation, language review and customer support work. '
+                'I am interested in reviewing AI-generated responses. I prefer part-time work.'),
+            purpose='First-job practice candidate with relevant interests, no prior work or activities; compare with Alex.'),
         'alex': dict(label='Alex — customer support', background=BACKGROUND,
                      purpose='Generalist work and the part-time preference; no AI employment is claimed.'),
         'biology': dict(label='Biology researcher — specialist contrast',
@@ -57,7 +67,7 @@ def sample_definitions():
     }
 
 
-def configure_samples(state):
+def configure_samples(state, *, include_beginner=False):
     """Create invitation records only; profiles are subsequently confirmed via HTTP."""
     from tests.accounts_test_support import INVITATION_KEY
     from wahojobs.accounts import create_invitation
@@ -67,11 +77,12 @@ def configure_samples(state):
     assert state.database_path.resolve().parent == state.directory.resolve()
     if 'recommendation_samples' in marker:
         raise ValueError('sample_rehearsal_already_configured')
-    samples = sample_definitions()
+    keys = SAMPLE_KEYS + ((BEGINNER_KEY,) if include_beginner else ())
+    samples = {key: value for key, value in sample_definitions().items() if key in keys}
     with closing(sqlite3.connect(state.database_path)) as connection:
         connection.row_factory = sqlite3.Row
         connection.execute('PRAGMA foreign_keys=ON')
-        for key in SAMPLE_KEYS:
+        for key in keys:
             email = f'practice-{key}@example.test'
             invitation = create_invitation(connection, email=email, lookup_key=INVITATION_KEY,
                 expires_at=state.clock() + timedelta(days=7), created_by='synthetic_recommendation_rehearsal',
@@ -86,7 +97,7 @@ def _samples(state):
     marker = json.loads((state.directory / 'private-beta-demo.json').read_text())
     samples = marker.get('recommendation_samples')
     if (marker.get('synthetic_private_beta_v1') is not True or type(samples) is not dict
-            or set(samples) != set(SAMPLE_KEYS)
+            or set(samples) not in (set(SAMPLE_KEYS), set(SAMPLE_KEYS) | {BEGINNER_KEY})
             or state.database_path.resolve().parent != state.directory.resolve()
             or urlsplit(state.public_origin).port == 8802):
         raise ValueError('declared_synthetic_samples_required')

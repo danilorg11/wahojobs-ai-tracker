@@ -389,9 +389,13 @@ def canonical_to_matcher_profile(canonical_profile, *, include_task_evidence=Fal
                                       include_evidence=include_task_evidence)
     if include_task_evidence:
         from wahojobs.matching.transferable_tasks import confirmed_activities
+        from wahojobs.matching.beginner_access import confirmed_interests
         activities = confirmed_activities(canonical_profile)
         if activities:
             matcher_profile['confirmed_transferable_activity_evidence'] = activities
+        interests = confirmed_interests(canonical_profile)
+        if interests:
+            matcher_profile['confirmed_beginner_interest_evidence'] = interests
     return matcher_profile
 
 

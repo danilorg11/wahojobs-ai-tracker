@@ -503,6 +503,7 @@ def _evaluate_generic_role(profile: dict, title: str, match: dict, role_result: 
     generic_ai_role = any(re.search(pattern, role_title) for pattern in GENERIC_AI_ROLE_PATTERNS)
     task_fit = match.get('accepted_task_fit')
     transferable = task_fit and task_fit.get('basis') == 'transferable_activity'
+    beginner = task_fit and task_fit.get('basis') == 'beginner_interest'
     if task_fit:
         from scripts.profile_match_digest import detect_role_match_features
         # Accepted duties can disambiguate an existing generalist task label.
@@ -510,13 +511,15 @@ def _evaluate_generic_role(profile: dict, title: str, match: dict, role_result: 
         generic_ai_role = generic_ai_role or detect_role_match_features(role_title)['generalist_task']
         # A separately proven accepted entry-level scope can resolve an opaque
         # title. It never supplies a missing specialist concept or credential.
-        if transferable and task_fit.get('scope_evidence') and task_fit.get('task_links'):
+        if ((transferable and task_fit.get('task_links') or beginner and task_fit.get('interest_links'))
+                and task_fit.get('scope_evidence')):
             generic_ai_role = True
     if generic_ai_role:
         if task_fit and not role_result['missing']:
-            requirement = 'Transferable activity for entry-level tasks' if transferable else 'AI evaluation or annotation tasks'
+            requirement = ('Beginner-accessible tasks aligned with stated interests' if beginner else
+                           'Transferable activity for entry-level tasks' if transferable else 'AI evaluation or annotation tasks')
             evidence.append(FitEvidence(requirement, task_fit['profile_facts'][0]['text'],
-                            'transferable_activity' if transferable else 'accepted_source_task'))
+                            'beginner_interest' if beginner else 'transferable_activity' if transferable else 'accepted_source_task'))
             satisfied.append(requirement)
         elif _profile_requests_general_ai_work(profile) and not role_result["missing"]:
             evidence.append(FitEvidence("General AI evaluation or data work", "stated AI evaluation/data-work interest", "preference"))

@@ -44,6 +44,49 @@ def _transferable_links(accepted):
     return displayed[:2]
 
 
+def _beginner_access(accepted, packet):
+    """Present the recorded interest route, never infer it from a waiver/title."""
+    from wahojobs.candidate_condition_comparisons import _lines
+    values = [accepted.get(key) for key in ('facts', 'profile_facts', 'scope_evidence', 'interest_links')]
+    if not all(isinstance(value, (list, tuple)) and value for value in values):
+        return None
+    facts, profile_facts, scope, links = values
+    for proof in scope:
+        if (not isinstance(proof, dict) or proof.get('scope_kind') != 'explicit_entry_level_or_non_specialized'
+                or not any(proof.get('block_reference') == block.get('reference')
+                    and proof.get('line') == number and proof.get('quote') == quote
+                    for block in packet.get('blocks') or [] for number, quote in _lines(block))):
+            return None
+    displayed = []
+    for link in links:
+        if not isinstance(link, dict):
+            return None
+        fact = link.get('profile_fact') or {}
+        provenance = fact.get('provenance') if isinstance(fact, dict) else None
+        if (link.get('support_kind') != 'beginner_interest'
+                or link.get('task_family') not in ('ai_evaluation', 'data_annotation')
+                or not isinstance(fact, dict) or fact not in profile_facts
+                or not isinstance(fact.get('path'), str)
+                or not re.fullmatch(r'preferences\.target_opportunity_types\[\d+\]', fact['path'])
+                or not isinstance(fact.get('text'), str) or not fact['text'].strip()
+                or not isinstance(provenance, list) or not provenance
+                or not all(isinstance(ref, dict) and ref.get('explicit') is True
+                    and ref.get('source_kind') in ('user_confirmation', 'user_correction') for ref in provenance)
+                or not all(isinstance(link.get(key), str) and link[key] for key in ('quote', 'block_reference'))
+                or not any(isinstance(duty, dict) and all(duty.get(key) == link[key]
+                    for key in ('quote', 'block_reference')) for duty in facts)):
+            return None
+        if link not in displayed:
+            displayed.append(deepcopy(link))
+    return dict(scope_evidence=deepcopy(scope[:2]), interest_links=displayed[:2])
+
+
+def _beginner_reason(access):
+    interests = list(dict.fromkeys('“' + link['profile_fact']['text'] + '”'
+                                  for link in access['interest_links']))
+    return 'This opportunity is open to beginners and aligns with your interest in ' + _joined(interests) + '.'
+
+
 def attach_decision(packet, match, *, profile=None):
     """Project only explanations actually recorded by the current computation."""
     reasons = []
@@ -51,9 +94,19 @@ def attach_decision(packet, match, *, profile=None):
     has_reported_support = False
     accepted = match.get('accepted_task_fit') or {}
     packet['transferable_task_links'] = []
+    packet['beginner_access'] = None
     if (same_source(accepted.get('source_reference') or {}, packet)
             and accepted.get('facts') and accepted.get('profile_facts')):
-        if accepted.get('basis') == 'transferable_activity':
+        if accepted.get('basis') == 'beginner_interest':
+            packet['beginner_access'] = _beginner_access(accepted, packet)
+            if packet['beginner_access']:
+                reasons.append(_beginner_reason(packet['beginner_access']))
+                related = accepted.get('related_activity_fit') or {}
+                if (related.get('basis') == 'transferable_activity'
+                        and same_source(related.get('source_reference') or {}, packet)):
+                    packet['transferable_task_links'] = _transferable_links(related)
+                    has_reported_support = bool(packet['transferable_task_links'])
+        elif accepted.get('basis') == 'transferable_activity':
             packet['transferable_task_links'] = _transferable_links(accepted)
             reasons.extend('Your confirmed activity “' + link['profile_fact']['text']
                 + '” can transfer to a related task in this opportunity.'
@@ -66,7 +119,7 @@ def attach_decision(packet, match, *, profile=None):
     # particular skills that were never consulted for this candidate.
     for item in (match.get('affirmative_fit') or {}).get('supported_evidence') or []:
         requirement, fact = item.get('requirement'), item.get('profile_evidence')
-        if (item.get('source') in ('accepted_source_task', 'transferable_activity')
+        if (item.get('source') in ('accepted_source_task', 'transferable_activity', 'beginner_interest')
                 or requirement == 'AI evaluation or annotation tasks'):
             continue  # task explanations require the exact accepted-task packet
         if isinstance(requirement, str) and isinstance(fact, str) and requirement and fact:
@@ -156,6 +209,8 @@ def _activity_phrase(text):
 
 
 def _short_reason(packet, match):
+    if packet.get('beginner_access'):
+        return _beginner_reason(packet['beginner_access'])
     links = packet.get('transferable_task_links') or []
     if links:
         activities = list(dict.fromkeys(_activity_phrase(link['profile_fact']['text'])
@@ -262,6 +317,19 @@ def render_fit_support(packet):
     """Optional source/fact trace, separate from the scannable recommendation."""
     packet = packet or {}
     links = packet.get('transferable_task_links') or []
+    access = packet.get('beginner_access')
+    if access:
+        interests = list(dict.fromkeys(link['profile_fact']['text'] for link in access['interest_links']))
+        duties = list(dict.fromkeys(link['quote'] for link in access['interest_links']))
+        return ("<details class='decision-source candidate-support'><summary>About this recommendation</summary>"
+            + '<p>The employer says:</p>'
+            + ''.join('<blockquote>' + escape(proof['quote']) + '</blockquote>' for proof in access['scope_evidence'])
+            + '<p>Your stated work interest: ' + escape(_joined(interests)) + '</p>'
+            + '<p>Related employer tasks:</p>'
+            + ''.join('<blockquote>' + escape(quote) + '</blockquote>' for quote in duties)
+            + (''.join('<p>Additional related activity you reported: ' + escape(link['profile_fact']['text']) + '</p>'
+                       for link in links) if links else '')
+            + '</details>')
     if not links:
         return ''
     return ("<details class='decision-source candidate-support'><summary>About this recommendation</summary>"
@@ -408,6 +476,11 @@ def render_application_guidance(packet, *, employer_name=None, has_conflict=Fals
     if links:
         activities = list(dict.fromkeys(_activity_phrase(link['profile_fact']['text']) for link in links))[:2]
         advice = 'describe your experience ' + _joined(activities) + ' and give a concrete example.'
+    elif packet.get('beginner_access'):
+        families = list(dict.fromkeys({'ai_evaluation': 'evaluation', 'data_annotation': 'annotation'}[link['task_family']]
+                                      for link in packet['beginner_access']['interest_links']))
+        advice = ('explain what interests you about the ' + _joined(families)
+                  + ' tasks and how you would approach them.')
     elif facts:
         advice = ('highlight the relevant background you reported: '
             + _joined(['“' + fact + '”' for fact in facts[:2]]) + '. Give a concrete example if you have one.')

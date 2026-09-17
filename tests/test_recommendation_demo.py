@@ -19,10 +19,11 @@ from tests.test_first_time_candidate import observe
 from tests.test_recommendation_client import assert_application_destination
 
 
-def sample_client(state, key, *, returning=False, switch_sample=None):
+def sample_client(state, key, *, returning=False, switch_sample=None, clear_no_experience=False):
     marker=json.loads((state.directory/'private-beta-demo.json').read_text())
     sample=marker['recommendation_samples'][key]
-    fixture=dict(sample,practice_sample=key,sample_preparation=True,sample_return=returning,switch_sample=switch_sample)
+    fixture=dict(sample,practice_sample=key,sample_preparation=True,sample_return=returning,switch_sample=switch_sample,
+                 clear_no_experience=clear_no_experience)
     return run_client(state,'owner-return' if returning else 'owner-correction',
         script=Path(__file__).with_name('first_time_candidate_client.cjs'),observe=observe,fixture=fixture)
 

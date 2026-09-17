@@ -150,7 +150,7 @@ class BaselineHeuristicProfileNormalizer:
         domains = detect_domains(text)
         skills = detect_skills(text, domains, input_style=input_style)
         preferences = detect_preferences(text, domains)
-        constraints = detect_constraints(text)
+        constraints = detect_constraints(text, raw_input=raw_input)
         signals = signals_for_domains(domains, skills, languages)
         missing_fields = missing_fields_for_baseline(languages, location, credentials, experience)
         ambiguous_fields = ambiguous_fields_for_baseline(text, input_style, languages)
@@ -1047,10 +1047,48 @@ def explicit_legal_work_interest(text: str) -> bool:
     )
 
 
-def detect_constraints(text: str) -> dict:
+def unquoted_personal_clauses(raw_input: str):
+    """Quoted multi-sentence speech is not the candidate's own declaration."""
+    # Keep sentence boundaries outside quotations. An unmatched opening quote
+    # conservatively excludes its remaining text; apostrophes inside words are
+    # not quote delimiters. No assertion is extracted from reported dialogue.
+    visible = []
+    closing = None
+    quoted_tail = ''
+    pairs = {'"':'"', '\u201c':'\u201d', '\u2018':'\u2019', "'":"'"}
+    for index, char in enumerate(raw_input):
+        apostrophe = char in ("'", '\u2019') and index > 0 and index + 1 < len(raw_input) and raw_input[index-1].isalnum() and raw_input[index+1].isalnum()
+        if closing is not None:
+            if char == closing and not apostrophe:
+                closing = None
+                # A completed quoted sentence still separates a subsequent
+                # independent personal sentence. The opaque placeholder keeps
+                # any preceding outside assertion from losing its qualifier.
+                if quoted_tail in '.!?' and quoted_tail:
+                    visible.append(quoted_tail)
+            elif not char.isspace():
+                quoted_tail = char
+            continue
+        if char in pairs and not apostrophe:
+            closing = pairs[char]
+            quoted_tail = ''
+            visible.append(' quoted material ')
+        else:
+            visible.append(char)
+    return [clause.strip() for clause in re.split(r'[.!?;\n]+', ''.join(visible))]
+
+
+def detect_constraints(text: str, *, raw_input: str | None = None) -> dict:
     hard = []
     soft = []
     avoid = []
+    # The existing reviewed no_experience control owns this value. A personal
+    # complete declaration is different from omitted history, a first-job
+    # aspiration alone, or no experience in one particular domain.
+    if any(re.fullmatch(r'i (?:have no (?:prior |previous )?work experience|have never worked|have not worked before)',
+                        clause.strip(), re.I)
+           for clause in unquoted_personal_clauses(raw_input if raw_input is not None else text)):
+        hard.append('no prior experience')
     if has_degree_absence(text):
         hard.append("no college degree")
     if has_medical_license_absence(text):
