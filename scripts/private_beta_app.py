@@ -2,6 +2,7 @@
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import argparse
+import os
 import signal
 import socket
 import sys
@@ -20,7 +21,9 @@ from wahojobs.workos_authkit_staging import (
 
 
 class BetaServer(ThreadingHTTPServer):
-    allow_reuse_address = False
+    # Linux must rebind after a clean stop while prior connections are in
+    # TIME_WAIT. This is not SO_REUSEPORT; the lifetime lease still precedes bind.
+    allow_reuse_address = os.name == 'posix'
     daemon_threads = False
     block_on_close = True
     request_queue_size = 16

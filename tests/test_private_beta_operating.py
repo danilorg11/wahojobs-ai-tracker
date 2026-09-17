@@ -191,6 +191,20 @@ class RemoteBetaTests(unittest.TestCase):
                 run(str(self.root/'absent.json'),server_factory=server)
             server.assert_not_called()
 
+    @unittest.skipUnless(os.name=='posix','Linux/POSIX listening-socket restart contract')
+    def test_immediate_socket_restart_after_served_response(self):
+        address=('127.0.0.1',0)
+        for cycle in range(3):
+            server=BetaServer(address,make_remote_handler(self.runtime,'a'*64,clock=self.clock))
+            address=server.server_address
+            thread=threading.Thread(target=server.serve_forever);thread.start()
+            try:
+                client=HTTPConnection(*address,timeout=5)
+                client.request('GET','/login',headers={'Host':'beta.example.test',PROXY_HEADER:'a'*64})
+                reply=client.getresponse();self.assertEqual(reply.status,200);reply.read();client.close()
+            finally:
+                server.shutdown();server.server_close();thread.join()
+
     def test_private_config_staging_keeps_proxy_and_invitation_secrets_consistent(self):
         from scripts.private_beta_configure import stage_configuration
         target=self.root/'staged-configuration'
