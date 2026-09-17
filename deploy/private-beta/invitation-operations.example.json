@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "purpose": "private_beta_invitations",
+  "environment": "private_beta",
+  "database_path": "/var/lib/wahojobs-beta/rehearsal-001/product.sqlite3",
+  "account_invitation_lookup_key_file": "/var/lib/wahojobs-beta/operator-config-001/invitation.key"
+}

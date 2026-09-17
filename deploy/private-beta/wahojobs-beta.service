@@ -1,0 +1,43 @@
+[Unit]
+Description=Wahojobs invitation-only beta (one SQLite lifetime owner)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=wahojobs-beta
+Group=wahojobs-beta
+WorkingDirectory=/opt/wahojobs-beta/current
+LoadCredential=runtime.json:/etc/wahojobs-beta/config-001/runtime.json
+ExecStart=/opt/wahojobs-beta/current/.venv/bin/python -B scripts/private_beta_app.py --config %d/runtime.json --logs /var/log/wahojobs-beta
+ExecStartPost=/opt/wahojobs-beta/current/.venv/bin/python -B scripts/private_beta_health.py --config %d/runtime.json
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=45
+TimeoutStopSec=60
+KillSignal=SIGTERM
+KillMode=control-group
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/wahojobs-beta /var/log/wahojobs-beta
+TasksMax=64
+MemoryMax=1500M
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=20
+
+[Install]
+WantedBy=multi-user.target

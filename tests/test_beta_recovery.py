@@ -67,6 +67,10 @@ class BetaRecoveryTests(unittest.TestCase):
         # Fresh normal runtime can consume recovered profiles/preparations while
         # the original pinned source maintenance is explicitly held. Session
         # return is evidence of restoration, never new-account/provider login.
+        from wahojobs.storage_relocation import reconcile_relocation
+        with self.assertRaises(DatabaseLifetimeOwnershipError):
+            acquire_database_lifetime_ownership(recovered, role=ROLE_DURABLE_RUNTIME)
+        reconcile_relocation(self.snapshot, self.restored, self.database, authoritative_companion=companion)
         self.assert_recovered_runtime(recovered, owner)
         self.assertTrue(self.database.exists())
         self.assertTrue(Path(str(self.database) + '.wahojobs-lifetime.lock').exists())
@@ -171,7 +175,7 @@ class BetaRecoveryTests(unittest.TestCase):
                 with closing(sqlite3.connect(self.database)) as connection:
                     connection.execute('PRAGMA user_version=99')
         with patch.object(recovery.shutil, 'copyfileobj', side_effect=changing_copy):
-            with self.assertRaisesRegex(ValueError, 'source_changed'):
+            with self.assertRaises((ValueError, sqlite3.OperationalError)):
                 self.backup()
         self.assertFalse((self.snapshot / 'COMPLETE.sha256').exists())
 

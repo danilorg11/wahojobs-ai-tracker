@@ -8,3 +8,4 @@ tests/fixtures/opportunity_semantic_staging_v0_fresh_canary_raw.json -text
 tests/fixtures/source_detail_recovery/*.html -text
 tests/fixtures/alignerr_variant_relationship/*.html -text
 tests/fixtures/geographic_provenance/*.html -text
+deploy/private-beta/* text eol=lf

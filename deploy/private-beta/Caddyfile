@@ -1,0 +1,47 @@
+{
+    admin 127.0.0.1:2019
+    # Even error logs can contain a callback URL or credential-bearing headers.
+    # Python emits the bounded, allowlisted request diagnostics instead.
+    log default {
+        output discard
+    }
+    servers {
+        timeouts {
+            read_header 10s
+            read_body 30s
+            write 40s
+            idle 60s
+        }
+    }
+}
+
+{$WAHOJOBS_BETA_HOST} {
+    header {
+        Strict-Transport-Security "max-age=86400"
+        X-Robots-Tag "noindex, nofollow"
+        Cache-Control "no-store"
+        -Server
+    }
+    @operator path /_ops/*
+    respond @operator 404
+    @unsupported not method GET POST HEAD
+    respond @unsupported 405
+    request_body {
+        max_size 1MB
+    }
+    reverse_proxy 127.0.0.1:8870 {
+        # The HTTPS site matcher selects the authority; arbitrary forwarded
+        # headers never determine the application's origin, cookies or redirects.
+        header_up Host {$WAHOJOBS_BETA_HOST}
+        header_up -Forwarded
+        header_up -X-Forwarded-*
+        header_up -Via
+        header_up -X-Real-IP
+        header_up -X-Original-Host
+        header_up X-Wahojobs-Proxy {$WAHOJOBS_BETA_PROXY_SECRET}
+        transport http {
+            dial_timeout 3s
+            response_header_timeout 35s
+        }
+    }
+}

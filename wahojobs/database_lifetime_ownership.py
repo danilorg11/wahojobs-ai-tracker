@@ -274,6 +274,7 @@ def acquire_database_lifetime_ownership(
     role,
     _checkpoint=None,
     _publisher=None,
+    _recovery_authority=None,
 ):
     """Acquire one exclusive OS-backed ownership capability or fail closed."""
 
@@ -291,6 +292,12 @@ def acquire_database_lifetime_ownership(
         with _REGISTRY_LOCK:
             epoch = _current_process_epoch_locked()
             path, database_identity = _capture_database_identity(database_path)
+            from wahojobs.storage_relocation import RECOVERY_AUTHORITY, require_storage_activation
+            if not (_recovery_authority is RECOVERY_AUTHORITY and role == ROLE_OFFLINE_OPERATOR):
+                try:
+                    require_storage_activation(path)
+                except (OSError, ValueError, KeyError, TypeError):
+                    raise _error("unavailable") from None
             coordination_path = _coordination_path_for_database(path)
             key = _coordination_key(coordination_path)
             existing = _OWNERS.get(key)
@@ -340,6 +347,8 @@ def acquire_database_lifetime_ownership(
             record.state = "native_owned"
             _emit_checkpoint(_checkpoint, "native_acquired")
             _revalidate_record_files(record)
+            if not (_recovery_authority is RECOVERY_AUTHORITY and role == ROLE_OFFLINE_OPERATOR):
+                require_storage_activation(path)
             token = object()
             lease = DatabaseLifetimeOwnership(
                 _LEASE_CAPABILITY,

@@ -1206,7 +1206,20 @@ def _load_pinned_configuration(
         )
 
         try:
-            pure = _validated_configuration(document)
+            if type(document) is dict and document.get('purpose') == 'private_beta_invitations':
+                from types import SimpleNamespace
+                if (set(document) != {'version', 'purpose', 'environment', 'database_path',
+                                      'account_invitation_lookup_key_file'}
+                        or type(document['version']) is not int or document['version'] != 2
+                        or document['environment'] != PRIVATE_BETA_ENVIRONMENT
+                        or type(document['database_path']) is not str
+                        or type(document['account_invitation_lookup_key_file']) is not str):
+                    raise _error('CONFIGURATION_INVALID', 3)
+                pure = SimpleNamespace(version=CONFIGURATION_VERSION,
+                    environment=PRIVATE_BETA_ENVIRONMENT, database_path_text=document['database_path'],
+                    account_invitation_lookup_key_path_text=document['account_invitation_lookup_key_file'])
+            else:
+                pure = _validated_configuration(document)
         except DurableGoogleLoginConfigurationError:
             raise _error("CONFIGURATION_INVALID", 3) from None
         if (
@@ -3184,14 +3197,29 @@ def _attest_database(connection: sqlite3.Connection, targets: _TargetSet):
     try:
         account_valid = attest_account_schema(connection)
         oidc_attestation = attest_google_oidc_authorization_transaction_schema(connection)
+        descendant_valid = False
+        if oidc_attestation.get("state") != "correctly_installed":
+            # Exact descendant closures include the original transaction schema.
+            # Keep M006/M007 support; do not accept a marker/version alone.
+            from wahojobs.workos_authkit_schema import attest_workos_authkit_schema
+            from wahojobs.public_job_identity_schema import attest_public_job_identity_schema
+            from wahojobs.ai_profile_import_schema import attest_ai_profile_import_schema
+            from wahojobs.resumable_ai_profile_intake_schema import attest_resumable_ai_profile_intake_schema
+            for attestor in (attest_workos_authkit_schema, attest_public_job_identity_schema,
+                             attest_ai_profile_import_schema, attest_resumable_ai_profile_intake_schema):
+                descendant = attestor(connection)
+                if (descendant.get("state") == "correctly_installed"
+                        and descendant.get("blocking") is False):
+                    descendant_valid = True
+                    break
     except BaseException:
         raise _error("DATABASE_ATTESTATION_FAILED", 3) from None
     if (
         account_valid is not True
-        or type(oidc_attestation) is not dict
-        or oidc_attestation.get("state") != "correctly_installed"
-        or oidc_attestation.get("blocking") is not False
-        or oidc_attestation.get("migration_marker_present") is not True
+        or not (descendant_valid or (type(oidc_attestation) is dict
+            and oidc_attestation.get("state") == "correctly_installed"
+            and oidc_attestation.get("blocking") is False
+            and oidc_attestation.get("migration_marker_present") is True))
         or connection.in_transaction
     ):
         raise _error("DATABASE_ATTESTATION_FAILED", 3)

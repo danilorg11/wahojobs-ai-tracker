@@ -65,7 +65,8 @@ def _new_directory(path):
 
 
 def _write(path, raw):
-    with path.open('xb') as stream:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, 'wb') as stream:
         stream.write(raw)
         stream.flush()
         os.fsync(stream.fileno())
@@ -113,6 +114,22 @@ def _check_sqlite(path, *, product=False, companion=False, read_only=True):
 
 def _inventory(database, companion):
     files = {'product.sqlite3': database}
+    from wahojobs.storage_relocation import LINEAGE, HOLD, sidecar, relocation_binding
+    if sidecar(database, LINEAGE).exists():
+        relocation_binding(database)
+    for name, suffix in (('maintenance-lineage.json', LINEAGE), ('recovery-hold.json', HOLD)):
+        path = sidecar(database, suffix)
+        if path.exists():
+            files[name] = _file(path)
+    history = database.parent / 'lineage-history'
+    if history.exists():
+        for path in history.iterdir():
+            import re
+            if not re.fullmatch('[0-9a-f]{64}\\.json', path.name):
+                raise ValueError('recovery_lineage_invalid')
+            if _hash(path) != path.stem:
+                raise ValueError('recovery_lineage_invalid')
+            files['lineage-history/' + path.name] = _file(path)
     drafts = database.with_name(database.name + '.correction-drafts.sqlite3')
     if drafts.exists():
         files['correction-drafts.sqlite3'] = local_database_path(drafts)
@@ -154,6 +171,7 @@ def create_snapshot(database, destination, *, companion=None, code_commit, confi
         raise ValueError('recovery_nonsecret_release_labels_required')
     database = local_database_path(database)
     lease = acquire_database_lifetime_ownership(database, role=ROLE_OFFLINE_OPERATOR)
+    cold_connections = []
     try:
         sources = _inventory(database, companion)
         before = {name: dict(identity=database_identity(path), sha256=_hash(path))
@@ -161,6 +179,9 @@ def create_snapshot(database, destination, *, companion=None, code_commit, confi
         for name, path in sources.items():
             if name.endswith('.sqlite3'):
                 _check_sqlite(path, product=name == 'product.sqlite3', companion=name == 'companion.sqlite3', read_only=False)
+                cold = sqlite3.connect(path.as_uri() + '?mode=rw', uri=True, timeout=0)
+                cold_connections.append(cold)
+                cold.execute('BEGIN EXCLUSIVE')
         target = _new_directory(destination)
         for name, path in sources.items():
             output = target / name
@@ -187,6 +208,9 @@ def create_snapshot(database, destination, *, companion=None, code_commit, confi
         _write(target / 'COMPLETE.sha256', (sha256(raw).hexdigest() + '\n').encode())
         return manifest
     finally:
+        for cold in reversed(cold_connections):
+            cold.rollback()
+            cold.close()
         release_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
 
 
@@ -198,20 +222,35 @@ def verify_snapshot(snapshot):
     manifest = json.loads(raw)
     files = manifest.get('files', {})
     if (manifest.get('version') != VERSION or type(files) is not dict
-            or not 1 <= len(files) <= MAX_FILES or 'product.sqlite3' not in files):
+            or not 1 <= len(files) <= MAX_FILES or 'product.sqlite3' not in files
+            or type(manifest.get('companion_configured')) is not bool
+            or type(manifest.get('maintenance_pinned')) is not bool
+            or manifest['companion_configured'] != ('companion.sqlite3' in files)
+            or manifest['maintenance_pinned'] != ('maintenance-pin.json' in files)
+            or ('maintenance-lineage.json' in files) != ('recovery-hold.json' in files)):
         raise ValueError('recovery_manifest_invalid')
     for name, record in files.items():
         relative = PurePosixPath(name)
         if (relative.is_absolute() or '..' in relative.parts or '\\' in name or ':' in name
                 or relative.as_posix() != name or name not in {
                     'product.sqlite3', 'companion.sqlite3', 'correction-drafts.sqlite3',
-                    'maintenance-pin.json'} and not name.startswith('journal/')):
+                    'maintenance-pin.json', 'maintenance-lineage.json', 'recovery-hold.json'}
+                and not name.startswith(('journal/', 'lineage-history/'))):
             raise ValueError('recovery_manifest_invalid')
         if _hash(snapshot / name) != record.get('sha256'):
             raise ValueError('recovery_snapshot_integrity_failed')
         if name.endswith('.sqlite3') and '/' not in name:
             _check_sqlite(snapshot / name, product=name == 'product.sqlite3', companion=name == 'companion.sqlite3')
     return manifest
+
+
+def restored_name(name, record):
+    names = {'product.sqlite3': 'product.sqlite3', 'companion.sqlite3': 'companion.sqlite3',
+        'correction-drafts.sqlite3': 'product.sqlite3.correction-drafts.sqlite3',
+        'maintenance-pin.json': 'product.sqlite3.evidence-maintenance.json'}
+    if name in ('maintenance-lineage.json', 'recovery-hold.json'):
+        return 'lineage-history/' + record['sha256'] + '.json'
+    return names.get(name, name)
 
 
 def restore_snapshot(snapshot, destination):
@@ -224,11 +263,11 @@ def restore_snapshot(snapshot, destination):
     snapshot = Path(snapshot)
     manifest = verify_snapshot(snapshot)
     target = _new_directory(destination)
-    names = {'product.sqlite3': 'product.sqlite3', 'companion.sqlite3': 'companion.sqlite3',
-        'correction-drafts.sqlite3': 'product.sqlite3.correction-drafts.sqlite3',
-        'maintenance-pin.json': 'product.sqlite3.evidence-maintenance.json'}
+    from wahojobs.storage_relocation import VERSION as RELOCATION_VERSION, HOLD, sidecar, _durable_write
+    _durable_write(sidecar(target / 'product.sqlite3', HOLD), dict(version=RELOCATION_VERSION,
+        database_path=str(target / 'product.sqlite3'), snapshot_manifest_sha256=_hash(snapshot / 'manifest.json')))
     for name, record in manifest['files'].items():
-        output = target / names.get(name, name)
+        output = target / restored_name(name, record)
         output.parent.mkdir(parents=True, exist_ok=True)
         with (snapshot / name).open('rb') as src, output.open('xb') as dst:
             shutil.copyfileobj(src, dst)
@@ -244,7 +283,7 @@ def restore_snapshot(snapshot, destination):
         file_count=len(manifest['files']), product_database='product.sqlite3',
         companion_database='companion.sqlite3' if manifest['companion_configured'] else None,
         maintenance='held_original_physical_identity' if manifest['maintenance_pinned'] else 'unconfigured',
-        activation='explicit_runtime_configuration_required', code_commit=manifest['code_commit'],
+        activation='blocked_until_lossless_authoritative_reconciliation', code_commit=manifest['code_commit'],
         configuration_revision=manifest['configuration_revision'],
         limitation='No history, consumed attempt, pin or journal is rewritten. Reconcile any post-snapshot writes before activation.')
     _write(target / 'RECOVERY-READY.json', _json(receipt))

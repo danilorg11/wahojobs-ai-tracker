@@ -652,8 +652,7 @@ class WorkOSAuthKitGateway:
             or connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
             or connection.execute("PRAGMA query_only").fetchone()[0] != 0
             or not attest_account_schema(connection)
-            or attest_workos_authkit_schema(connection)["state"]
-            != "correctly_installed"
+            or not _supported_workos_schema(connection)
         ):
             raise WorkOSAuthKitUnavailable()
 
@@ -661,6 +660,18 @@ class WorkOSAuthKitGateway:
         with self._lock:
             state = "closed" if self._closed else "configured"
         return f"WorkOSAuthKitGateway(<{state}>)"
+
+
+def _supported_workos_schema(connection):
+    # Migration attestors deliberately recognize only their exact prerequisite
+    # and installed schema. Authentication also supports accepted descendants;
+    # a marker alone is never proof that the provider table remains trustworthy.
+    from wahojobs.public_job_identity_schema import attest_public_job_identity_schema
+    from wahojobs.ai_profile_import_schema import attest_ai_profile_import_schema
+    from wahojobs.resumable_ai_profile_intake_schema import attest_resumable_ai_profile_intake_schema
+    return any(attestor(connection).get('state') == 'correctly_installed' for attestor in (
+        attest_workos_authkit_schema, attest_public_job_identity_schema,
+        attest_ai_profile_import_schema, attest_resumable_ai_profile_intake_schema))
 
 
 def _validated_authentication(authentication):

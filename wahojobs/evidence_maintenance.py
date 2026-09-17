@@ -77,13 +77,19 @@ def journal_binding(target):
         return None
     binding = json.loads(pin.read_text(encoding='utf-8'))
     if binding.get('database') != database_identity(target):
-        raise ValueError('maintenance_journal_database_identity_changed')
+        from wahojobs.storage_relocation import LINEAGE, sidecar, relocation_binding
+        if not sidecar(target, LINEAGE).exists():
+            raise ValueError('maintenance_journal_database_identity_changed')
+        return relocation_binding(target, binding)
     return binding
 
 
 def pin_journal(target, root):
     """Database-local durable recovery location; never silently replace it."""
     expected = dict(database=database_identity(target), journal_root=str(Path(root).resolve()))
+    from wahojobs.storage_relocation import LINEAGE, sidecar, relocation_binding
+    if sidecar(target, LINEAGE).exists() and relocation_binding(target) != expected:
+        raise ValueError('maintenance_journal_root_changed')
     binding = journal_binding(target)
     if binding is not None and binding != expected:
         raise ValueError('maintenance_journal_root_changed')

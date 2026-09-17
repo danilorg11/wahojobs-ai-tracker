@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "runtime_mode": "remote_beta",
+  "environment_namespace": "private_beta",
+  "database_path": "/var/lib/wahojobs-beta/rehearsal-001/product.sqlite3",
+  "public_origin": "https://beta.wahojobs.com",
+  "redirect_uri": "https://beta.wahojobs.com/auth/workos/callback",
+  "workos_client_id": "REPLACE_WITH_SELECTED_WORKOS_ENVIRONMENT_CLIENT_ID",
+  "workos_api_key": "REPLACE_FROM_PRIVATE_SECRET_STORE",
+  "wahojobs_invitation_lookup_key_base64": "REPLACE_WITH_NEW_BETA_KEY_BASE64",
+  "proxy_secret": "REPLACE_WITH_64_RANDOM_LOWERCASE_HEX_CHARACTERS",
+  "session_idle_ttl_seconds": 3600,
+  "session_absolute_ttl_seconds": 28800,
+  "public_job_canary_ids": []
+}

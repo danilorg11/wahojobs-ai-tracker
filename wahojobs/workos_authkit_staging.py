@@ -95,16 +95,22 @@ _ERROR_MESSAGES = {
     "migration_unavailable": "The explicit offline M008 operation failed.",
 }
 
+# Failed cleanup must retain its service references as well as its native lease,
+# even if a caller discards the sanitized exception. The supervisor terminates
+# the failed process; an explicit close retry may finish in an embedded caller.
+_INCOMPLETE_RUNTIMES = set()
+
 
 class WorkOSAuthKitStagingError(Exception):
     """One fixed, secret-free Staging activation error."""
 
-    __slots__ = ("code",)
+    __slots__ = ("code", "cleanup_owner")
 
-    def __init__(self, code):
+    def __init__(self, code, *, cleanup_owner=None):
         if code not in _ERROR_MESSAGES:
             code = "runtime_unavailable"
         self.code = code
+        self.cleanup_owner = cleanup_owner
         super().__init__(_ERROR_MESSAGES[code])
 
     def __repr__(self):
@@ -126,15 +132,18 @@ class WorkOSAuthKitStagingConfiguration:
     session_absolute_ttl: timedelta
     public_job_canary_gate: PublicJobCanaryRoutingGate
     professional_background_companion: tuple[Path, str, str] | None = None
+    runtime_mode: str = "local"
+    proxy_secret: str | None = None
 
     @property
     def bind_address(self):
-        return (STAGING_BIND_HOST, STAGING_BIND_PORT)
+        return (STAGING_BIND_HOST, 8870 if self.runtime_mode == "remote_beta" else STAGING_BIND_PORT)
 
     def clear_secrets(self):
         self.workos_api_key = None
         _clear_buffer(self.invitation_lookup_key)
         self.invitation_lookup_key = None
+        self.proxy_secret = None
 
     def __repr__(self):
         return "WorkOSAuthKitStagingConfiguration(<redacted>)"
@@ -216,6 +225,7 @@ class WorkOSAuthKitStagingRuntime:
         "_gateway",
         "_profile_integration",
         "_lock",
+        "_close_lock",
         "_closed",
     )
 
@@ -240,6 +250,7 @@ class WorkOSAuthKitStagingRuntime:
         self._gateway = gateway
         self._profile_integration = profile_integration
         self._lock = threading.Lock()
+        self._close_lock = threading.Lock()
         self._closed = False
 
     def prepare_professional_background(self, **selection):
@@ -250,11 +261,14 @@ class WorkOSAuthKitStagingRuntime:
             integration = self._profile_integration
         return integration.prepare_professional_background(**selection)
 
-    def close(self):
+    def close(self, *, retain_ownership=False):
+        with self._close_lock:
+            return self._close(retain_ownership=retain_ownership)
+
+    def _close(self, *, retain_ownership=False):
         with self._lock:
             if self._closed:
                 return True
-            self._closed = True
             resources = (
                 self.browser_integration,
                 self._profile_integration,
@@ -263,12 +277,6 @@ class WorkOSAuthKitStagingRuntime:
             )
             ownership = self._ownership
             database_path = self._database_path
-            self.browser_integration = None
-            self._profile_integration = None
-            self._gateway = None
-            self._connections = None
-            self._ownership = None
-            self._database_path = None
         failed = False
         for resource in resources:
             if resource is None:
@@ -280,6 +288,11 @@ class WorkOSAuthKitStagingRuntime:
             except BaseException as exc:
                 failed = True
                 _detach_exception(exc)
+        if failed or retain_ownership:
+            # Keep the lifetime lease and resource references until every
+            # service is terminal. A subsequent close may finish cleanup.
+            _INCOMPLETE_RUNTIMES.add(self)
+            raise WorkOSAuthKitStagingError("shutdown_incomplete", cleanup_owner=self)
         if ownership is not None:
             try:
                 release_database_lifetime_ownership(
@@ -291,7 +304,13 @@ class WorkOSAuthKitStagingRuntime:
                 failed = True
                 _detach_exception(exc)
         if failed:
-            raise WorkOSAuthKitStagingError("shutdown_incomplete")
+            _INCOMPLETE_RUNTIMES.add(self)
+            raise WorkOSAuthKitStagingError("shutdown_incomplete", cleanup_owner=self)
+        with self._lock:
+            self._closed = True
+            self.browser_integration = self._profile_integration = None
+            self._gateway = self._connections = self._ownership = self._database_path = None
+        _INCOMPLETE_RUNTIMES.discard(self)
         return True
 
     def __repr__(self):
@@ -300,7 +319,7 @@ class WorkOSAuthKitStagingRuntime:
         return f"WorkOSAuthKitStagingRuntime(<{state}>)"
 
 
-def load_workos_authkit_staging_configuration(configuration_path):
+def load_workos_authkit_staging_configuration(configuration_path, *, remote_beta=False):
     """Load one strict, permission-restricted external JSON document."""
 
     raw = None
@@ -318,11 +337,12 @@ def load_workos_authkit_staging_configuration(configuration_path):
         except (UnicodeError, ValueError, TypeError):
             raise WorkOSAuthKitStagingError("configuration_invalid") from None
         fields = frozenset(document) if type(document) is dict else frozenset()
+        remote_fields = {"runtime_mode", "proxy_secret"} if remote_beta else set()
         if (
             type(document) is not dict
-            or not _CONFIGURATION_FIELDS.issubset(fields)
+            or not (_CONFIGURATION_FIELDS | remote_fields).issubset(fields)
             or not fields.issubset(
-                _CONFIGURATION_FIELDS | _OPTIONAL_CONFIGURATION_FIELDS
+                _CONFIGURATION_FIELDS | _OPTIONAL_CONFIGURATION_FIELDS | remote_fields
             )
         ):
             raise WorkOSAuthKitStagingError("configuration_invalid")
@@ -330,14 +350,16 @@ def load_workos_authkit_staging_configuration(configuration_path):
             raise WorkOSAuthKitStagingError("configuration_invalid")
         if (
             type(document["version"]) is not int
-            or document["version"] != CONFIGURATION_VERSION
+            or document["version"] != (2 if remote_beta else CONFIGURATION_VERSION)
         ):
             raise WorkOSAuthKitStagingError("configuration_invalid")
         if document["environment_namespace"] != STAGING_ENVIRONMENT_NAMESPACE:
             raise WorkOSAuthKitStagingError("configuration_invalid")
-        if document["public_origin"] != STAGING_PUBLIC_ORIGIN:
-            raise WorkOSAuthKitStagingError("configuration_invalid")
-        if document["redirect_uri"] != STAGING_REDIRECT_URI:
+        if remote_beta:
+            from wahojobs.remote_beta import validate_remote_configuration
+            validate_remote_configuration(document)
+        elif (document["public_origin"] != STAGING_PUBLIC_ORIGIN
+                or document["redirect_uri"] != STAGING_REDIRECT_URI):
             raise WorkOSAuthKitStagingError("configuration_invalid")
         client_id = document["workos_client_id"]
         api_key = document["workos_api_key"]
@@ -387,8 +409,8 @@ def load_workos_authkit_staging_configuration(configuration_path):
         configuration = WorkOSAuthKitStagingConfiguration(
             environment_namespace=STAGING_ENVIRONMENT_NAMESPACE,
             database_path=database_path,
-            public_origin=STAGING_PUBLIC_ORIGIN,
-            redirect_uri=STAGING_REDIRECT_URI,
+            public_origin=document["public_origin"],
+            redirect_uri=document["redirect_uri"],
             workos_client_id=client_id,
             workos_api_key=api_key,
             invitation_lookup_key=invitation_key,
@@ -396,6 +418,8 @@ def load_workos_authkit_staging_configuration(configuration_path):
             session_absolute_ttl=absolute,
             public_job_canary_gate=public_job_canary_gate,
             professional_background_companion=companion,
+            runtime_mode="remote_beta" if remote_beta else "local",
+            proxy_secret=document.get("proxy_secret"),
         )
         invitation_key = None
         return configuration
@@ -497,6 +521,11 @@ def build_workos_authkit_staging_runtime(
         clock = lambda: datetime.now(timezone.utc)
     if not callable(clock):
         raise WorkOSAuthKitStagingError("configuration_invalid")
+    if configuration.runtime_mode == "remote_beta":
+        from wahojobs.remote_beta import require_remote_capabilities
+        require_remote_capabilities()
+        if professional_background_preparer is not None:
+            raise WorkOSAuthKitStagingError("configuration_invalid")
 
     ownership = None
     connections = None
@@ -570,7 +599,10 @@ def build_workos_authkit_staging_runtime(
             configuration,
             clock,
             professional_background_preparer=professional_background_preparer,
+            activate=False,
         )
+        if profile_integration.activate() is not True:
+            raise WorkOSAuthKitStagingError('runtime_unavailable')
         from wahojobs.trusted_login_completion import (
             create_workos_authkit_trusted_login_completion_policy,
         )
@@ -614,27 +646,14 @@ def build_workos_authkit_staging_runtime(
     finally:
         configuration.clear_secrets()
         if not completed:
-            for resource in (
-                browser_integration,
-                profile_integration,
-                gateway,
-                connections,
-            ):
-                try:
-                    close = getattr(resource, "close", None)
-                    if callable(close):
-                        close()
-                except BaseException as exc:
-                    _detach_exception(exc)
-            if ownership is not None:
-                try:
-                    release_database_lifetime_ownership(
-                        ownership,
-                        role=ROLE_DURABLE_RUNTIME,
-                        database_path=configuration.database_path,
-                    )
-                except BaseException as exc:
-                    _detach_exception(exc)
+            cleanup = WorkOSAuthKitStagingRuntime(
+                browser_integration=browser_integration,
+                bind_address=configuration.bind_address,
+                public_origin=configuration.public_origin,
+                database_path=configuration.database_path,
+                ownership=ownership, connections=connections, gateway=gateway,
+                profile_integration=profile_integration)
+            cleanup.close()
 
 
 def apply_m008_to_explicit_database(database_path):
@@ -681,7 +700,7 @@ def apply_m008_to_explicit_database(database_path):
 
 
 def _build_profile_integration(connections, configuration, clock, *, professional_background_evidence=None,
-                               professional_background_preparer=None):
+                               professional_background_preparer=None, activate=True):
     from wahojobs.authenticated_profile_matches import (
         AuthenticatedProfileMatchesBrowserIntegration,
         AuthenticatedProfileMatchesService,
@@ -768,7 +787,8 @@ def _build_profile_integration(connections, configuration, clock, *, professiona
     try:
         intake_adapter = configured_openai_profile_adapter(
             enabled=(
-                os.environ.get("WAHOJOBS_PROFILE_INTAKE_OPENAI_ENABLED") == "1"
+                getattr(configuration, 'runtime_mode', 'local') == "local"
+                and os.environ.get("WAHOJOBS_PROFILE_INTAKE_OPENAI_ENABLED") == "1"
             )
         )
     except ProfileIntakeError:
@@ -822,7 +842,7 @@ def _build_profile_integration(connections, configuration, clock, *, professiona
     )
     if integration.attach_matches_integration(matches_integration) is not True:
         raise WorkOSAuthKitStagingError("runtime_unavailable")
-    if integration.activate() is not True:
+    if activate and integration.activate() is not True:
         raise WorkOSAuthKitStagingError("runtime_unavailable")
     return integration
 

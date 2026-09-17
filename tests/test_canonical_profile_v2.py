@@ -174,6 +174,7 @@ _EXPLICIT_V2_CONSUMERS = (
     "wahojobs/profiles/preference_presentation.py",
     "wahojobs/profiles/review_entries.py",
     "scripts/persistent_profile_canonical_v2_migration.py",
+    "scripts/private_beta_storage.py",  # Explicit supported fresh migration wrapper.
 )
 
 

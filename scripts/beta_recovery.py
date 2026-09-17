@@ -52,6 +52,11 @@ def main(argv=None):
     restore = commands.add_parser('restore', help='Restore to a NEW directory. Never replace current storage or rebind maintenance.')
     restore.add_argument('--snapshot', required=True)
     restore.add_argument('--destination', required=True)
+    relocate = commands.add_parser('reconcile-relocation', help='Lossless handoff from the still-available authoritative source; never accept an older ledger.')
+    relocate.add_argument('--snapshot', required=True)
+    relocate.add_argument('--destination', required=True)
+    relocate.add_argument('--authoritative-database', required=True)
+    relocate.add_argument('--authoritative-companion')
     args = parser.parse_args(argv)
     try:
         if args.command == 'backup':
@@ -60,11 +65,17 @@ def main(argv=None):
             count = len(result['files'])
         elif args.command == 'verify':
             count = len(verify_snapshot(args.snapshot)['files'])
-        else:
+        elif args.command == 'restore':
             count = restore_snapshot(args.snapshot, args.destination)['file_count']
+        else:
+            from wahojobs.storage_relocation import reconcile_relocation
+            reconcile_relocation(args.snapshot, args.destination, args.authoritative_database,
+                authoritative_companion=args.authoritative_companion)
+            print('relocation reconciled; source retired, original history preserved; select new runtime configuration explicitly.')
+            return 0
         print(f'{args.command}: verified {count} files; no network or current-storage replacement.')
         if args.command == 'restore':
-            print('Review RECOVERY-READY.json. Recovered maintenance remains held by original immutable identity; no activation performed.')
+            print('Review RECOVERY-READY.json. Runtime and maintenance remain held until lossless authoritative reconciliation.')
         return 0
     except Exception as error:
         print('Recovery operation failed: ' + failure_category(error)
