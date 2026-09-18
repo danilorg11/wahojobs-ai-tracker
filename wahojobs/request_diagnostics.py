@@ -13,6 +13,31 @@ import stat
 import threading
 
 
+LOGIN_START_OUTCOMES = frozenset({
+    'login_form_rejected', 'login_cookie_header_absent',
+    'login_cookie_headers_multiple', 'login_cookie_size_rejected',
+    'login_cookie_pairs_rejected', 'login_cookie_segment_rejected',
+    'login_cookie_target_absent', 'login_cookie_target_duplicate',
+    'login_cookie_target_invalid', 'login_csrf_mismatch',
+    'login_invitation_shape_rejected', 'login_prepare_unavailable',
+    'login_authorization_prepared',
+})
+
+
+def login_start_outcome(response, status):
+    """Read optional closed metadata; diagnostics cannot change delivery."""
+    try:
+        value = getattr(response, 'login_start_outcome', None)
+        if type(value) is str and value in LOGIN_START_OUTCOMES:
+            expected = 303 if value == 'login_authorization_prepared' else 403
+            if status == expected:
+                return value
+    except BaseException:
+        # A faulty optional observer/property must not reject a valid response.
+        pass
+    return None
+
+
 def route_category(target: str) -> str:
     # Never retain a query, posting/profile identifier, callback code, or arbitrary path.
     path = target.split('?', 1)[0]

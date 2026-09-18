@@ -113,6 +113,7 @@ class WorkOSAuthKitBrowserResponse:
         "_connection_owner",
         "_lock",
         "_state",
+        "login_start_outcome",
     )
 
     def __init__(
@@ -123,6 +124,7 @@ class WorkOSAuthKitBrowserResponse:
         *,
         delivery_lease=None,
         connection_owner=None,
+        login_start_outcome=None,
     ):
         if (
             type(status) is not int
@@ -155,6 +157,7 @@ class WorkOSAuthKitBrowserResponse:
         self._connection_owner = connection_owner
         self._lock = threading.Lock()
         self._state = "pending"
+        self.login_start_outcome = login_start_outcome
 
     def acknowledge_delivery(self):
         return self._terminalize("acknowledge_delivery")
@@ -451,12 +454,14 @@ class WorkOSAuthKitBrowserIntegration:
             expected=("csrf",),
             optional=("invitation",),
         )
-        cookie, valid = _cookie(header_items, LOGIN_CSRF_COOKIE_NAME, _OPAQUE)
+        cookie, valid, cookie_reason = _cookie_check(header_items, LOGIN_CSRF_COOKIE_NAME, _OPAQUE)
         if form is None or not valid or not _constant_equal(form["csrf"], cookie):
             return _failure(
                 HTTPStatus.FORBIDDEN,
                 "Sign-in request rejected",
                 extra_headers=(("Set-Cookie", _clear_login_csrf_cookie()),),
+                login_start_outcome=("login_form_rejected" if form is None
+                    else cookie_reason if not valid else "login_csrf_mismatch"),
             )
         invitation_text = form.get("invitation") or None
         if invitation_text is not None and _INVITATION.fullmatch(invitation_text) is None:
@@ -465,6 +470,7 @@ class WorkOSAuthKitBrowserIntegration:
                 HTTPStatus.FORBIDDEN,
                 "Sign-in request rejected",
                 extra_headers=(("Set-Cookie", _clear_login_csrf_cookie()),),
+                login_start_outcome="login_invitation_shape_rejected",
             )
         invitation = None if invitation_text is None else bytearray(invitation_text.encode("ascii"))
         form["invitation"] = None
@@ -484,6 +490,7 @@ class WorkOSAuthKitBrowserIntegration:
                 raise RuntimeError("invalid_prepared_authorization")
             return _redirect(
                 prepared.authorization_url,
+                login_start_outcome="login_authorization_prepared",
                 extra_headers=(
                     ("Set-Cookie", _transaction_cookie(prepared.transaction_id)),
                     ("Set-Cookie", _clear_login_csrf_cookie()),
@@ -497,6 +504,7 @@ class WorkOSAuthKitBrowserIntegration:
                 HTTPStatus.FORBIDDEN,
                 "Sign-in request rejected",
                 extra_headers=(("Set-Cookie", _clear_login_csrf_cookie()),),
+                login_start_outcome="login_prepare_unavailable",
             )
         finally:
             _clear_buffer(invitation)
@@ -819,22 +827,36 @@ def _strict_form(header_items, stream, *, expected, optional):
 
 
 def _cookie(header_items, name, pattern):
+    value, valid, _reason = _cookie_check(header_items, name, pattern)
+    return value, valid
+
+
+def _cookie_check(header_items, name, pattern):
+    # Same accepted cookie contract; the third value is a fixed internal label.
     headers = _header_values(header_items, "cookie")
-    if len(headers) != 1 or len(headers[0].encode("latin-1")) > 4096:
-        return None, False
+    if not headers:
+        return None, False, "login_cookie_header_absent"
+    if len(headers) != 1:
+        return None, False, "login_cookie_headers_multiple"
+    if len(headers[0].encode("latin-1")) > 4096:
+        return None, False, "login_cookie_size_rejected"
     found = []
     parts = headers[0].split(";")
     if len(parts) > 16:
-        return None, False
+        return None, False, "login_cookie_pairs_rejected"
     for part in parts:
         if "=" not in part:
-            return None, False
+            return None, False, "login_cookie_segment_rejected"
         key, value = (item.strip() for item in part.split("=", 1))
         if key == name:
             found.append(value)
-    if len(found) != 1 or pattern.fullmatch(found[0]) is None:
-        return None, False
-    return found[0], True
+    if not found:
+        return None, False, "login_cookie_target_absent"
+    if len(found) != 1:
+        return None, False, "login_cookie_target_duplicate"
+    if pattern.fullmatch(found[0]) is None:
+        return None, False, "login_cookie_target_invalid"
+    return found[0], True, None
 
 
 def _delivery_cookies(lease):
@@ -868,7 +890,8 @@ def _compensation_time(completion):
     return parsed.astimezone(timezone.utc) - timedelta(seconds=1)
 
 
-def _response(status, content, *, extra_headers=(), delivery_lease=None, connection_owner=None):
+def _response(status, content, *, extra_headers=(), delivery_lease=None, connection_owner=None,
+        login_start_outcome=None):
     payload = content.encode("utf-8") if type(content) is str else content
     if type(payload) is not bytes:
         raise ValueError("invalid_workos_authkit_browser_response")
@@ -896,10 +919,12 @@ def _response(status, content, *, extra_headers=(), delivery_lease=None, connect
         tuple(headers),
         delivery_lease=delivery_lease,
         connection_owner=connection_owner,
+        login_start_outcome=login_start_outcome,
     )
 
 
-def _redirect(location, *, extra_headers=(), delivery_lease=None, connection_owner=None):
+def _redirect(location, *, extra_headers=(), delivery_lease=None, connection_owner=None,
+        login_start_outcome=None):
     if type(location) is not str or not location or _CONTROL.search(location) is not None:
         raise ValueError("invalid_browser_redirect")
     return _response(
@@ -908,10 +933,11 @@ def _redirect(location, *, extra_headers=(), delivery_lease=None, connection_own
         extra_headers=(("Location", location), *extra_headers),
         delivery_lease=delivery_lease,
         connection_owner=connection_owner,
+        login_start_outcome=login_start_outcome,
     )
 
 
-def _failure(status, title, *, extra_headers=()):
+def _failure(status, title, *, extra_headers=(), login_start_outcome=None):
     return _response(
         status,
         _page(
@@ -920,6 +946,7 @@ def _failure(status, title, *, extra_headers=()):
             f"<p><a href='{LOGIN_ROUTE}'>Return to sign in</a></p></section>",
         ),
         extra_headers=extra_headers,
+        login_start_outcome=login_start_outcome,
     )
 
 

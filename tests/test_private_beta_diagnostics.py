@@ -6,9 +6,62 @@ from unittest.mock import patch
 
 from tests.test_durable_product_browser_handler import _handler, _Integration, _plain_response, _DeliveryResponse
 from wahojobs.request_diagnostics import RequestDiagnostic, RequestDiagnostics, diagnostic_log
+from wahojobs.workos_authkit_browser import _cookie, _cookie_check, _OPAQUE
 
 
 class PrivateBetaDiagnosticsTests(unittest.TestCase):
+    def test_cookie_classification_preserves_the_shared_cookie_contract(self):
+        name = '__Host-wahojobs_login_csrf'
+        token = 'a' * 43
+        cases = (
+            ((), 'login_cookie_header_absent'),
+            ((('Cookie', name + '=' + token), ('Cookie', 'another=value')),
+                'login_cookie_headers_multiple'),
+            ((('Cookie', name + '=' + token + '; malformed'),), 'login_cookie_segment_rejected'),
+            ((('Cookie', name + '=' + token + '; ' + name + '=' + token),),
+                'login_cookie_target_duplicate'),
+            ((('Cookie', name + '=' + token),), None),
+            ((('Cookie', name + '=' + token + '; ' + '; '.join(f'other{i}=value' for i in range(15))),), None),
+        )
+        for headers, reason in cases:
+            with self.subTest(reason=reason):
+                value, valid, actual = _cookie_check(headers, name, _OPAQUE)
+                self.assertEqual(actual, reason)
+                self.assertEqual(_cookie(headers, name, _OPAQUE), (value, valid))
+                self.assertEqual(valid, reason is None)
+                self.assertEqual(value, token if reason is None else None)
+
+    def test_optional_login_labels_cannot_expose_values_or_reject_valid_delivery(self):
+        from wahojobs.durable_product_browser_handler import make_durable_product_browser_handler
+        class Response:
+            status = 403
+            body = b'rejected'
+            headers = (('Content-Length', '8'),)
+            def __init__(self, value):
+                self.value = value
+            @property
+            def login_start_outcome(self):
+                if isinstance(self.value, BaseException):
+                    raise self.value
+                return self.value
+        for value, expected in (
+            ('private-secret', 'response'),
+            ([], 'response'),
+            (RuntimeError('private-secret'), 'response'),
+            ('login_authorization_prepared', 'response'),
+            ('login_csrf_mismatch', 'login_csrf_mismatch'),
+        ):
+            with self.subTest(kind=type(value).__name__):
+                records = RequestDiagnostics()
+                integration = _Integration(Response(value))
+                handler, _, events = _handler(integration, target='/auth/workos/start')
+                handler.__class__ = make_durable_product_browser_handler(integration, diagnostics=records)
+                handler.do_POST()
+                record = records.snapshot()[-1]
+                self.assertEqual((record.status, record.outcome), (403, expected))
+                self.assertNotIn('private-secret', repr(record) + repr(events))
+                self.assertNotIn('login_csrf_mismatch', repr(events))
+
     def test_request_identifiers_are_generated_and_private_request_data_is_omitted(self):
         records = RequestDiagnostics(capacity=2)
         secrets = 'private-email@example.test&code=provider-secret&profile_id=owner-secret'

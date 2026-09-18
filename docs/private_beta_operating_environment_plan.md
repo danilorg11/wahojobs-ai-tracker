@@ -67,3 +67,61 @@ or missing authoritative disk/ledger remains held, including runtime and dispatc
 No pin reset, discarded reservations or claim of total-host-loss recovery is made.
 Authoritative-ledger-loss recovery and the owner's availability/retention policies
 are explicit gates in the external package, alongside real TLS, WorkOS and sources.
+
+## Authorized hosted sign-in correction — 18 September 2026
+
+The implementation-only authority above is historical. The owner subsequently
+approved and completed the separately recorded hosted rehearsal, then authorized
+one corrective continuation for the newly observed returning-user rejection.
+The exact new request and observation are retained in
+../../operating-evidence/hosted-rehearsal/signin-correction/OWNER-OBSERVED-FAILURE.md.
+The prior sealed
+release fa752697f22ff8a0091724e65d34eb217bc87e2c and successful receipts remain
+historical evidence; the recovered storage must remain authoritative.
+
+1. **In progress:** preserve relevant sanitized host/configuration/authentication
+   diagnostics; reproduce the actual rendered blank-invitation form submission;
+   establish the exact rejecting branch and reconcile the original ten attempts.
+2. **Pending:** implement the demonstrated narrow cause and actual form/HTTP
+   regression, including valid return, uninvited denial, malformed/stale requests,
+   invitation edges and account/profile/workflow isolation.
+3. **Pending:** affected regression validation and independent review; bind the
+   corrected immutable commit/archive to the evidence without a full-suite rerun.
+4. **Pending:** verify schema compatibility, snapshot active recovered storage
+   coherently, preserve target overrides, deploy/restart only the new beta service
+   and retain compatible code rollback without restoring older data.
+5. **Pending:** real ordinary-browser blank submission and owner-private code
+   completion within the reconciled allowance, protected read-only continuity,
+   final correction closure and updated operating selection.
+
+No new invitation/account, provider architecture, schema migration, public-site
+change, main integration/push, source/model operation, additional spending or
+local8802/8861 access is included. Related local feature changes and the existing
+host's reviewed corrective deployment are explicitly authorized by the new request.
+
+### Diagnostic continuation status
+
+The saved initial host capture confirms original source/config002 and recovered001,
+one owner/profile/saved item, and two workflow transitions. It preserves the
+rejected submissions but cannot identify their exact rejecting check.
+
+An actual native blank-invitation form submission in the internal browser reached
+real WorkOS on 18 September at 19:04 UTC. Owner-private code completion returned to
+the confirmed profile and existing saved item with both history entries. This is
+comparison attempt 5 of the original 10, not a repair result. The owner then
+reproduced “Sign-in request rejected” in Google Chrome from a fresh login page.
+
+The next immutable release adds only closed, private login-start diagnostic
+labels. Cookie/form/invitation acceptance and session delivery remain unchanged.
+Independent review passed 26 affected tests, 1,177 cookie-equivalence inputs and
+delivery-failure precedence checks. A test-only record-delivery race was repaired.
+The four DOM/native HTTP tests are Windows evidence; the 22 other affected tests
+must also pass on the actual Ubuntu runtime before this diagnostic release is
+selected. An unchanged installed dependency environment is reused.
+
+The reviewed operational continuation must preserve a coherent current-storage
+snapshot and exact target overrides, activate only the diagnostic code, then
+capture the next ordinary Chrome submission using fixed private labels. Only
+after that trace establishes the failure boundary will an authentication behavior
+correction be selected. No candidate-readiness or historical-cause claim follows
+from either the comparison login or the diagnostic implementation.
