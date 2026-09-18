@@ -38,6 +38,7 @@ from wahojobs.trusted_login_completion import (
     issue_workos_authkit_trusted_authentication,
 )
 from wahojobs.workos_authkit_schema import attest_workos_authkit_schema
+from wahojobs.request_diagnostics import CALLBACK_DENIAL_OUTCOMES
 
 
 PROVIDER = "workos_authkit"
@@ -76,7 +77,13 @@ class WorkOSAuthKitUnavailable(Exception):
 
 
 class _AuthenticationDenied(Exception):
-    __slots__ = ()
+    __slots__ = ('callback_outcome',)
+
+    def __init__(self, callback_outcome='callback_authentication_denied'):
+        if type(callback_outcome) is not str or callback_outcome not in CALLBACK_DENIAL_OUTCOMES:
+            raise ValueError('invalid_callback_diagnostic')
+        super().__init__()
+        self.callback_outcome = callback_outcome
 
 
 class _IdentityMissing(Exception):
@@ -147,10 +154,17 @@ class PreparedWorkOSAuthKitAuthorization:
 @dataclass(frozen=True, slots=True)
 class WorkOSAuthKitFailure:
     status: str
+    callback_outcome: str | None = None
 
     def __post_init__(self):
         if self.status not in _OUTCOMES:
             raise ValueError("invalid_workos_authkit_failure")
+        if self.callback_outcome is not None and (
+            self.status != 'authentication_denied'
+            or type(self.callback_outcome) is not str
+            or self.callback_outcome not in CALLBACK_DENIAL_OUTCOMES
+        ):
+            raise ValueError('invalid_callback_diagnostic')
 
 
 class WorkOSSDKBoundary:
@@ -480,9 +494,9 @@ class WorkOSAuthKitGateway:
                 now,
             )
             if callback["code"] is None:
-                raise _AuthenticationDenied()
+                raise _AuthenticationDenied('callback_provider_error_returned')
             if _AUTHORIZATION_CODE.fullmatch(callback["code"]) is None:
-                raise _AuthenticationDenied()
+                raise _AuthenticationDenied('callback_code_format_rejected')
             verifier = bytes(transaction.code_verifier).decode("ascii", "strict")
             authentication = self._boundary.exchange_code(
                 code=callback["code"],
@@ -491,8 +505,10 @@ class WorkOSAuthKitGateway:
             callback["code"] = None
             verifier = None
             completed_at = _canonical_now(self._clock)
-            if completed_at < now or completed_at >= transaction.expires_at:
-                raise _AuthenticationDenied()
+            if completed_at < now:
+                raise _AuthenticationDenied('callback_completion_clock_reversed')
+            if completed_at >= transaction.expires_at:
+                raise _AuthenticationDenied('callback_completion_expired')
             values = _validated_authentication(authentication)
             normalized_email = normalize_email(values["email"])
             verified_identity = (
@@ -511,7 +527,7 @@ class WorkOSAuthKitGateway:
                 )
             except _IdentityMissing:
                 if transaction.invitation is None:
-                    raise _AuthenticationDenied() from None
+                    raise _AuthenticationDenied('callback_durable_identity_missing_uninvited') from None
                 invitation_text = bytes(transaction.invitation).decode(
                     "ascii",
                     "strict",
@@ -526,7 +542,7 @@ class WorkOSAuthKitGateway:
                 )
                 invitation_text = None
                 if type(created) is not CreatedUser:
-                    raise _AuthenticationDenied()
+                    raise _AuthenticationDenied('callback_invitation_admission_rejected')
                 created = None
                 resolved = _resolve_durable_identity(
                     connection,
@@ -565,8 +581,8 @@ class WorkOSAuthKitGateway:
                 trusted_now=completed_at,
                 idempotency_key=transaction.request_key,
             )
-        except _AuthenticationDenied:
-            return WorkOSAuthKitFailure("authentication_denied")
+        except _AuthenticationDenied as exc:
+            return WorkOSAuthKitFailure("authentication_denied", exc.callback_outcome)
         except WorkOSAuthKitUnavailable as exc:
             _detach_exception(exc)
             return WorkOSAuthKitFailure("provider_unavailable")
@@ -621,17 +637,17 @@ class WorkOSAuthKitGateway:
             or type(state) is not str
             or _OPAQUE.fullmatch(state) is None
         ):
-            raise _AuthenticationDenied()
+            raise _AuthenticationDenied('callback_transaction_input_rejected')
         with self._lock:
             if self._closed:
-                raise _AuthenticationDenied()
+                raise _AuthenticationDenied('callback_transaction_gateway_closed')
             self._prune_locked(now)
             transaction = self._transactions.get(transaction_id)
             if transaction is None:
-                raise _AuthenticationDenied()
+                raise _AuthenticationDenied('callback_transaction_not_found')
             expected = bytes(transaction.state).decode("ascii", "strict")
             if not hmac.compare_digest(expected, state):
-                raise _AuthenticationDenied()
+                raise _AuthenticationDenied('callback_transaction_state_mismatch')
             transaction = self._transactions.pop(transaction_id)
         return transaction
 
@@ -676,15 +692,15 @@ def _supported_workos_schema(connection):
 
 def _validated_authentication(authentication):
     if type(authentication) is not WorkOSAuthKitAuthentication:
-        raise _AuthenticationDenied()
-    if (
-        type(authentication.user_id) is not str
-        or _WORKOS_USER_ID.fullmatch(authentication.user_id) is None
-        or type(authentication.email) is not str
-        or authentication.email_verified is not True
-        or authentication.authentication_method != AUTHENTICATION_METHOD
-    ):
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_claim_projection_rejected')
+    if type(authentication.user_id) is not str or _WORKOS_USER_ID.fullmatch(authentication.user_id) is None:
+        raise _AuthenticationDenied('callback_claim_subject_rejected')
+    if type(authentication.email) is not str:
+        raise _AuthenticationDenied('callback_claim_email_type_rejected')
+    if authentication.email_verified is not True:
+        raise _AuthenticationDenied('callback_claim_email_unverified')
+    if authentication.authentication_method != AUTHENTICATION_METHOD:
+        raise _AuthenticationDenied('callback_claim_method_rejected')
     normalize_email(authentication.email)
     return {
         "user_id": authentication.user_id,
@@ -713,7 +729,7 @@ def _resolve_durable_identity(connection, subject, now):
         or identity["provider_subject"] != subject
         or identity["disabled_at"] is not None
     ):
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_durable_identity_rejected')
     accounts = _rows(
         connection,
         "SELECT user_id, lifecycle_status, row_version, created_at, updated_at, "
@@ -729,7 +745,7 @@ def _resolve_durable_identity(connection, subject, now):
     ):
         raise WorkOSAuthKitUnavailable()
     if account["lifecycle_status"] != "active":
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_durable_account_inactive')
     identity_created = _database_time(identity["created_at"])
     account_created = _database_time(account["created_at"])
     account_updated = _database_time(account["updated_at"])
@@ -760,13 +776,13 @@ def _resolve_durable_identity(connection, subject, now):
 
 def _validated_callback(target):
     if type(target) is not str or not 1 <= len(target.encode("utf-8")) <= 8192:
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_target_rejected')
     if _INVALID_PERCENT_ESCAPE.search(target) is not None:
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_parameters_rejected')
     try:
         parsed = urlsplit(target)
     except ValueError:
-        raise _AuthenticationDenied() from None
+        raise _AuthenticationDenied('callback_target_rejected') from None
     if (
         parsed.scheme
         or parsed.netloc
@@ -774,7 +790,7 @@ def _validated_callback(target):
         or parsed.fragment
         or not parsed.query
     ):
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_target_rejected')
     try:
         pairs = parse_qsl(
             parsed.query,
@@ -785,11 +801,11 @@ def _validated_callback(target):
             max_num_fields=4,
         )
     except (UnicodeError, ValueError):
-        raise _AuthenticationDenied() from None
+        raise _AuthenticationDenied('callback_parameters_rejected') from None
     values = {}
     for key, value in pairs:
         if key in values:
-            raise _AuthenticationDenied()
+            raise _AuthenticationDenied('callback_parameters_rejected')
         values[key] = value
     if set(values) == {"state", "code"}:
         code = values["code"]
@@ -800,9 +816,9 @@ def _validated_callback(target):
     }:
         code = None
     else:
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_parameters_rejected')
     if _OPAQUE.fullmatch(values["state"]) is None:
-        raise _AuthenticationDenied()
+        raise _AuthenticationDenied('callback_state_format_rejected')
     return {"state": values["state"], "code": code}
 
 

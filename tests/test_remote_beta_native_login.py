@@ -136,6 +136,7 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
         self.assertEqual(self.counts(), (0, 0, 0, 0))
         denied, _ = self.callback(headers)
         self.assertEqual(denied[0], 401)
+        self.assertEqual(self.diagnostics.snapshot()[-1].outcome, 'callback_durable_identity_missing_uninvited')
         self.assertEqual(self.counts(), (0, 0, 0, 0))
 
         invitation = create_invitation(self.fixture.seed, self.fixture.boundary.email)
@@ -143,6 +144,7 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
         self.assertEqual(status, 303)
         issued, _ = self.callback(headers)
         self.assertEqual(issued[0], 303)
+        self.assertEqual(self.diagnostics.snapshot()[-1].outcome, 'callback_session_prepared')
         self.assertEqual(self.counts(), (1, 1, 0, 0))
         self.assertEqual(self.request('GET', '/account/profile')[0], 200)
 
@@ -153,10 +155,12 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
         self.assertEqual(status, 303)
         returned, callback_target = self.callback(headers)
         self.assertEqual(returned[0], 303)
+        self.assertEqual(self.diagnostics.snapshot()[-1].outcome, 'callback_session_prepared')
         self.assertEqual(self.request('GET', '/account/profile')[0], 200)
         self.assertEqual(self.counts(), (1, 2, 0, 0))
         exchange_count = self.fixture.boundary.exchange_count
         self.assertEqual(self.request('GET', callback_target)[0], 401)
+        self.assertEqual(self.diagnostics.snapshot()[-1].outcome, 'callback_cookie_target_absent')
         self.assertEqual(self.fixture.boundary.exchange_count, exchange_count)
         self.assertEqual(self.counts(), (1, 2, 0, 0))
         self.assertEqual(self.fixture.seed.execute(
@@ -171,6 +175,26 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
         self.assertEqual(self.submit(self.rendered_form(), origin='https://foreign.example.test')[0], 400)
         self.assertEqual(self.fixture.boundary.authorization_count, 0)
         self.assertEqual(self.submit(self.rendered_form())[0], 303)
+        self.assertEqual(self.counts(), (0, 0, 0, 0))
+
+
+    def test_native_callback_diagnostics_remain_private_and_preserve_parser_precedence(self):
+        self.cookies.update({f'unrelated{i}': 'private-cookie' for i in range(24)})
+        status, headers, _ = self.submit(self.rendered_form())
+        self.assertEqual(status, 303)
+        self.cookies.pop('__Host-wahojobs_workos_tx')
+        failed, _ = self.callback(headers)
+        self.assertEqual(failed[0], 401)
+        record = self.diagnostics.snapshot()[-1]
+        self.assertEqual(record.outcome, 'callback_cookie_target_absent')
+        self.assertEqual(record.request_id, failed[1]['x-wahojobs-request-id'])
+        self.assertNotIn(record.outcome, repr(failed[1])+failed[2].decode())
+        self.assertNotIn('private-cookie', repr(record))
+        self.assertEqual(self.fixture.boundary.exchange_count, 0)
+        self.request('GET', '/auth/workos/callback?state=%QQ&code=private-code')
+        self.assertEqual(self.diagnostics.snapshot()[-1].outcome, 'callback_parameters_rejected')
+        self.assertNotIn('private-code', repr(self.diagnostics.snapshot()))
+        self.assertEqual(self.fixture.boundary.exchange_count, 0)
         self.assertEqual(self.counts(), (0, 0, 0, 0))
 
     def test_invalid_and_expired_invitations_fail_before_provider_preparation(self):

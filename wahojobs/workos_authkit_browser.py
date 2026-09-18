@@ -22,8 +22,9 @@ from wahojobs.browser_session_lifecycle import (
     create_request_scoped_session_secret_vault,
     discard_request_scoped_session_secret_vault,
 )
-from wahojobs.trusted_login_completion import prepare_session_delivery
-from wahojobs.workos_authkit import CALLBACK_PATH
+from wahojobs.trusted_login_completion import prepare_session_delivery, TrustedLoginCompletionResult
+from wahojobs.workos_authkit import CALLBACK_PATH, WorkOSAuthKitFailure
+from wahojobs.request_diagnostics import CALLBACK_DENIAL_OUTCOMES
 
 
 LOGIN_ROUTE = "/login"
@@ -114,6 +115,7 @@ class WorkOSAuthKitBrowserResponse:
         "_lock",
         "_state",
         "login_start_outcome",
+        "callback_outcome",
     )
 
     def __init__(
@@ -125,6 +127,7 @@ class WorkOSAuthKitBrowserResponse:
         delivery_lease=None,
         connection_owner=None,
         login_start_outcome=None,
+        callback_outcome=None,
     ):
         if (
             type(status) is not int
@@ -158,6 +161,7 @@ class WorkOSAuthKitBrowserResponse:
         self._lock = threading.Lock()
         self._state = "pending"
         self.login_start_outcome = login_start_outcome
+        self.callback_outcome = callback_outcome
 
     def acknowledge_delivery(self):
         return self._terminalize("acknowledge_delivery")
@@ -512,7 +516,7 @@ class WorkOSAuthKitBrowserIntegration:
             owner = None
 
     def _complete_login(self, target, header_items):
-        transaction_id, valid = _cookie(
+        transaction_id, valid, cookie_reason = _cookie_check(
             header_items,
             WORKOS_TRANSACTION_COOKIE_NAME,
             _TRANSACTION_ID,
@@ -541,7 +545,7 @@ class WorkOSAuthKitBrowserIntegration:
                 vault = None
                 _close_quietly(owner)
                 owner = None
-                return _callback_failure(status)
+                return _callback_failure(status, callback_outcome=_completion_outcome(completion, cookie_reason, status=status))
             lease = self._prepare_delivery(
                 connection,
                 completion,
@@ -558,6 +562,7 @@ class WorkOSAuthKitBrowserIntegration:
                 ),
                 delivery_lease=lease,
                 connection_owner=owner,
+                callback_outcome='callback_session_prepared',
             )
             lease = None
             owner = None
@@ -569,7 +574,7 @@ class WorkOSAuthKitBrowserIntegration:
         except Exception as exc:
             _detach_exception(exc)
             self._compensate(connection, completion, vault, lease)
-            return _callback_failure("unavailable")
+            return _callback_failure("unavailable", callback_outcome='callback_completion_unavailable')
         finally:
             _close_quietly(owner)
             connection = None
@@ -890,7 +895,7 @@ def _compensation_time(completion):
 
 
 def _response(status, content, *, extra_headers=(), delivery_lease=None, connection_owner=None,
-        login_start_outcome=None):
+        login_start_outcome=None, callback_outcome=None):
     payload = content.encode("utf-8") if type(content) is str else content
     if type(payload) is not bytes:
         raise ValueError("invalid_workos_authkit_browser_response")
@@ -919,11 +924,12 @@ def _response(status, content, *, extra_headers=(), delivery_lease=None, connect
         delivery_lease=delivery_lease,
         connection_owner=connection_owner,
         login_start_outcome=login_start_outcome,
+        callback_outcome=callback_outcome,
     )
 
 
 def _redirect(location, *, extra_headers=(), delivery_lease=None, connection_owner=None,
-        login_start_outcome=None):
+        login_start_outcome=None, callback_outcome=None):
     if type(location) is not str or not location or _CONTROL.search(location) is not None:
         raise ValueError("invalid_browser_redirect")
     return _response(
@@ -933,10 +939,11 @@ def _redirect(location, *, extra_headers=(), delivery_lease=None, connection_own
         delivery_lease=delivery_lease,
         connection_owner=connection_owner,
         login_start_outcome=login_start_outcome,
+        callback_outcome=callback_outcome,
     )
 
 
-def _failure(status, title, *, extra_headers=(), login_start_outcome=None):
+def _failure(status, title, *, extra_headers=(), login_start_outcome=None, callback_outcome=None):
     return _response(
         status,
         _page(
@@ -946,10 +953,44 @@ def _failure(status, title, *, extra_headers=(), login_start_outcome=None):
         ),
         extra_headers=extra_headers,
         login_start_outcome=login_start_outcome,
+        callback_outcome=callback_outcome,
     )
 
 
-def _callback_failure(status):
+def _completion_outcome(completion, cookie_reason, *, status=None):
+    """Closed operator metadata; no change to callback result or wire response."""
+    try:
+        if status is None:
+            status = getattr(completion, 'status', None)
+        if type(status) is not str:
+            return None
+        if type(completion) is WorkOSAuthKitFailure and status == 'authentication_denied':
+            value = completion.callback_outcome
+            if value is None:
+                value = 'callback_authentication_denied'
+            if type(value) is not str or value not in CALLBACK_DENIAL_OUTCOMES:
+                return None
+            # Preserve parser/state precedence: refine only a rejected transaction input.
+            if value == 'callback_transaction_input_rejected' and type(cookie_reason) is str:
+                refined = cookie_reason.replace('login_cookie_', 'callback_cookie_', 1)
+                if refined in CALLBACK_DENIAL_OUTCOMES:
+                    return refined
+            return value
+        if type(completion) is TrustedLoginCompletionResult and status == 'authentication_denied':
+            return 'callback_session_authentication_denied'
+        if status == 'authentication_denied':
+            return 'callback_authentication_denied'
+        if status == 'provider_unavailable':
+            return 'callback_provider_unavailable'
+        if status in ('unavailable', 'idempotency_conflict'):
+            return 'callback_completion_unavailable'
+    except BaseException:
+        # Optional metadata must never alter authentication or cookie cleanup.
+        pass
+    return None
+
+
+def _callback_failure(status, *, callback_outcome=None):
     http_status = (
         HTTPStatus.UNAUTHORIZED
         if status == "authentication_denied"
@@ -961,6 +1002,7 @@ def _callback_failure(status):
         http_status,
         "Sign-in not completed",
         extra_headers=(("Set-Cookie", _clear_transaction_cookie()),),
+        callback_outcome=callback_outcome,
     )
 
 

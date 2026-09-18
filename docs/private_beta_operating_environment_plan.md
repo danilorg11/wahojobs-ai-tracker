@@ -167,3 +167,37 @@ snapshot, requires the first new session to be logged out before the second
 issuance and the latest new session to be unrevoked. Owner-observed protected
 profile, saved-job and history access remains separate evidence; database session
 issuance alone cannot close the browser failure.
+
+The cookie-count corrective release d840a38775ffa6f1c3b09d434611c41b33695d5c
+was deployed at 21:46:18 UTC on 18 September. All 25 Ubuntu tests passed with
+zero skips, the new 220-file supported snapshot verified, and protected domain
+rows remained identical across the beta-only restart. Config-002 and the existing
+recovered database remain authoritative; public routing and WorkOS Staging did
+not change. Original deployment and snapshot receipts are retained separately.
+
+The next owner Chrome blank-invitation submission passed with
+login_authorization_prepared at 21:46:55 UTC. The owner reached WorkOS, entered
+the sixth accounted-for code, and received “Sign-in not completed.” The callback
+returned 401 at 21:48:54 UTC without a new session; original account/profile/job/
+history counts remain unchanged. The owner confirmed using the same email.
+This fixes the original initiation rejection but does not establish authenticated
+return. The wait-stage comparison flag was not evaluated, not a proven mismatch.
+
+The next bounded diagnostic continuation adds callback-specific fixed private
+labels for parser, transaction, provider-claim, durable-identity and session
+admission boundaries. Existing decision order, transaction consumption, public
+statuses and cleanup are preserved; no policy correction is inferred from the
+401 or its timing. Optional diagnostic formatting fails safely and cannot change
+authentication results. No cookie, code, email, provider subject, token or raw
+error is recorded or sent to the browser in diagnostic metadata. Same-email
+confirmation does not permit identity linking or another invitation.
+
+Seven offline diagnostic tests plus native HTTP assertions cover reason
+propagation, parser precedence, replay, claim validation, same-email/different-
+subject denial and unsafe metadata. Fresh immutable release, snapshot and trace
+slots use the signin-callback-diagnostic names; the Linux gate requires 32 tests
+without skips, retaining the POSIX restart case. The private helper observes one
+next owner callback after deployment and saves a sanitized receipt. Review and
+exact artifact binding precede deployment. A seventh provider attempt is not
+automatic. Full return/logout/return and preserved-domain evidence remain open;
+candidate invitations, fresh-beta storage and WorkOS Production remain excluded.

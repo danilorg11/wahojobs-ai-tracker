@@ -23,6 +23,42 @@ LOGIN_START_OUTCOMES = frozenset({
     'login_authorization_prepared',
 })
 
+# These labels contain no provider response, request data or account identifiers.
+CALLBACK_DENIAL_OUTCOMES = frozenset({
+    'callback_target_rejected', 'callback_parameters_rejected',
+    'callback_state_format_rejected', 'callback_transaction_input_rejected',
+    'callback_transaction_gateway_closed', 'callback_transaction_not_found',
+    'callback_transaction_state_mismatch', 'callback_provider_error_returned',
+    'callback_code_format_rejected', 'callback_completion_clock_reversed',
+    'callback_completion_expired', 'callback_claim_projection_rejected',
+    'callback_claim_subject_rejected', 'callback_claim_email_type_rejected',
+    'callback_claim_email_unverified', 'callback_claim_method_rejected',
+    'callback_durable_identity_missing_uninvited', 'callback_durable_identity_rejected',
+    'callback_durable_account_inactive', 'callback_invitation_admission_rejected',
+    'callback_session_authentication_denied', 'callback_authentication_denied',
+    'callback_cookie_header_absent', 'callback_cookie_headers_multiple',
+    'callback_cookie_size_rejected', 'callback_cookie_segment_rejected',
+    'callback_cookie_target_absent', 'callback_cookie_target_duplicate',
+    'callback_cookie_target_invalid',
+})
+CALLBACK_OUTCOME_STATUS = {
+    **dict.fromkeys(CALLBACK_DENIAL_OUTCOMES, 401),
+    'callback_provider_unavailable': 503,
+    'callback_completion_unavailable': 503,
+    'callback_session_prepared': 303,
+}
+
+
+def callback_outcome(response, status):
+    """Read only a fixed callback label paired with its unchanged HTTP status."""
+    try:
+        value = getattr(response, 'callback_outcome', None)
+        if type(value) is str and CALLBACK_OUTCOME_STATUS.get(value) == status:
+            return value
+    except BaseException:
+        pass
+    return None
+
 
 def login_start_outcome(response, status):
     """Read optional closed metadata; diagnostics cannot change delivery."""

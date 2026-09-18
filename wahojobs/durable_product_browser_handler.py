@@ -14,7 +14,7 @@ import re
 import time
 import uuid
 
-from wahojobs.request_diagnostics import RequestDiagnostic, RequestDiagnostics, route_category, login_start_outcome
+from wahojobs.request_diagnostics import RequestDiagnostic, RequestDiagnostics, route_category, login_start_outcome, callback_outcome
 
 
 MAX_DURABLE_RESPONSE_BODY_BYTES = 1_048_576
@@ -47,6 +47,7 @@ class _ValidatedDurableResponse:
     acknowledge_delivery: object | None
     fail_delivery: object | None
     login_start_outcome: str | None = None
+    callback_outcome: str | None = None
 
 
 def make_durable_product_browser_handler(durable_integration, *, diagnostics=None):
@@ -133,6 +134,9 @@ def make_durable_product_browser_handler(durable_integration, *, diagnostics=Non
             if (self._diagnostic_method == 'POST' and self.path == '/auth/workos/start'
                     and response.login_start_outcome is not None):
                 self._diagnostic_outcome = response.login_start_outcome
+            if (self._diagnostic_method == 'GET' and self.path.split('?', 1)[0] == '/auth/workos/callback'
+                    and response.callback_outcome is not None):
+                self._diagnostic_outcome = response.callback_outcome
             headers_complete = False
             try:
                 self.send_response(response.status)
@@ -260,6 +264,7 @@ def _validate_durable_response(response):
         acknowledge_delivery=acknowledge,
         fail_delivery=fail,
         login_start_outcome=login_start_outcome(response, status),
+        callback_outcome=callback_outcome(response, status),
     )
 
 
