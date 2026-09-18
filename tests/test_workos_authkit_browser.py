@@ -120,7 +120,7 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
             ("Content-Length", str(len(payload))),
         )
 
-    def _start(self, *, invitation_token=None):
+    def _start(self, *, invitation_token=None, unrelated_cookies=()):
         login = self.browser.handle("GET", LOGIN_ROUTE, self._get_headers())
         self.assertEqual(login.status, 200)
         self.assertIn(b"one-time email code", login.body)
@@ -136,7 +136,7 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
         start = self.browser.handle(
             "POST",
             WORKOS_LOGIN_START_ROUTE,
-            self._post_headers(payload, cookie=login_cookie),
+            self._post_headers(payload, cookie="; ".join((login_cookie, *unrelated_cookies))),
             BytesIO(payload),
         )
         self.assertEqual(start.status, 303)
@@ -235,6 +235,39 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
         self.assertIsNotNone(row[0])
         self.assertEqual(tuple(row[1:]), ("security_reset", 2))
 
+    def test_existing_owner_returns_and_logs_out_with_more_than_sixteen_cookies(self):
+        first, _target, _code, _transaction_cookie = self._successful_login()
+        first.acknowledge_delivery()
+        identity = tuple(tuple(row) for row in self.seed.execute("SELECT * FROM auth_identities"))
+        owner = self.seed.execute("SELECT user_id FROM users").fetchone()[0]
+        for count in (16, 32, 64):
+            with self.subTest(unrelated_cookie_count=count):
+                unrelated = tuple(f"unrelated{i}=offline" for i in range(count))
+                authorization, transaction = self._start(unrelated_cookies=unrelated)
+                returned, target, _code = self._callback(authorization, "; ".join((*unrelated, transaction)))
+                self.assertEqual(returned.status, 303)
+                session = _cookie_pair(returned, SESSION_COOKIE_NAME)
+                csrf = _cookie_pair(returned, SESSION_CSRF_COOKIE_NAME)
+                returned.acknowledge_delivery()
+                validated = accounts.validate_session_csrf(self.seed,
+                    session_token=_cookie_value(session), csrf_secret=_cookie_value(csrf), now=NOW)
+                self.assertEqual(validated.user_id, owner)
+                cookies = "; ".join((*unrelated, session, csrf))
+                page = self.browser.handle("GET", LOGOUT_ROUTE, self._get_headers(cookie=cookies))
+                self.assertEqual(page.status, 200)
+                page.acknowledge_delivery()
+                payload = urlencode({"csrf": _cookie_value(csrf)}).encode("ascii")
+                logout = self.browser.handle("POST", LOGOUT_ROUTE,
+                    self._post_headers(payload, cookie=cookies), BytesIO(payload))
+                self.assertEqual(logout.status, 303)
+                logout.acknowledge_delivery()
+                with self.assertRaises(accounts.SessionUnavailable):
+                    accounts.validate_session_csrf(self.seed, session_token=_cookie_value(session),
+                        csrf_secret=_cookie_value(csrf), now=NOW)
+        self.assertEqual(tuple(tuple(row) for row in self.seed.execute("SELECT * FROM auth_identities")), identity)
+        self.assertEqual(self.seed.execute("SELECT count(*) FROM users").fetchone()[0], 1)
+        self.assertEqual(self.seed.execute("SELECT count(*) FROM account_invitations").fetchone()[0], 1)
+
     def test_existing_logout_routes_revoke_delivered_session(self):
         response, _target, _code, _transaction_cookie = self._successful_login()
         session_pair = _cookie_pair(response, SESSION_COOKIE_NAME)
@@ -262,6 +295,40 @@ class WorkOSAuthKitBrowserTests(unittest.TestCase):
         ).fetchone()
         self.assertIsNotNone(row[0])
         self.assertEqual(row[1], "user_logout")
+
+    def test_many_unrelated_cookies_do_not_bypass_cookie_or_csrf_checks(self):
+        unrelated = "; ".join(f"unrelated{i}=offline" for i in range(64))
+        for case in ('multiple_headers', 'duplicate_target', 'invalid_target',
+                     'missing_target', 'malformed_segment', 'too_large', 'csrf_mismatch'):
+            with self.subTest(case=case):
+                page = self.browser.handle("GET", LOGIN_ROUTE, self._get_headers())
+                pair = _cookie_pair(page, LOGIN_CSRF_COOKIE_NAME)
+                csrf = _cookie_value(pair)
+                page.acknowledge_delivery()
+                cookie = unrelated + "; " + pair
+                if case == 'duplicate_target':
+                    cookie += "; " + pair
+                elif case == 'invalid_target':
+                    cookie = unrelated + "; " + LOGIN_CSRF_COOKIE_NAME + "=invalid"
+                elif case == 'missing_target':
+                    cookie = unrelated
+                elif case == 'malformed_segment':
+                    cookie += "; invalid-segment"
+                elif case == 'too_large':
+                    cookie += "; excessive=" + "x" * 4096
+                elif case == 'csrf_mismatch':
+                    csrf = secrets.token_urlsafe(32)
+                payload = urlencode({'csrf': csrf, 'invitation': ''}).encode('ascii')
+                headers = self._post_headers(payload, cookie=cookie)
+                if case == 'multiple_headers':
+                    headers += (("Cookie", pair),)
+                response = self.browser.handle("POST", WORKOS_LOGIN_START_ROUTE, headers, BytesIO(payload))
+                self.assertEqual(response.status, 403)
+                self.assertIn(b'Sign-in request rejected', response.body)
+                response.acknowledge_delivery()
+        self.assertEqual(self.boundary.authorization_count, 0)
+        self.assertEqual(self.boundary.exchange_count, 0)
+        self.assertEqual(self.seed.execute("SELECT count(*) FROM users").fetchone()[0], 0)
 
     def test_provider_failure_is_sanitized_and_has_no_wahojobs_mutation(self):
         invitation = create_invitation(self.seed, self.boundary.email)

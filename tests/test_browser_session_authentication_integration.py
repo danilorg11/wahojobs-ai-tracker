@@ -81,7 +81,7 @@ class BrowserSessionAuthenticationIntegrationTests(unittest.TestCase):
         status, headers, body = self.request(token=self.state["session_token"])
         self.assertEqual(status, 200)
         self.assertEqual(headers["Cache-Control"], "no-store")
-        self.assertIn(b"No persistent profile yet", body)
+        self.assertIn(b"<h1>Create your profile", body)
         self.assertEqual(self.provider.opened, 1)
         self.assertEqual(self.provider.closed, 1)
         self.assertEqual(len(set(self.provider.connection_ids)), 1)
@@ -223,7 +223,7 @@ class BrowserSessionAuthenticationIntegrationTests(unittest.TestCase):
             thread.join(timeout=5)
         self.assertFalse(thread.is_alive())
         self.assertEqual(observed[0][0], 200)
-        self.assertIn(b"No persistent profile yet", observed[0][2])
+        self.assertIn(b"<h1>Create your profile", observed[0][2])
         self.assertEqual(self.request(token=self.state["session_token"])[0], 401)
 
     def test_durable_mode_is_explicit_and_has_no_legacy_fallback(self):

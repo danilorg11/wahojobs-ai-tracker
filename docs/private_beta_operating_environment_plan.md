@@ -125,3 +125,45 @@ capture the next ordinary Chrome submission using fixed private labels. Only
 after that trace establishes the failure boundary will an authentication behavior
 correction be selected. No candidate-readiness or historical-cause claim follows
 from either the comparison login or the diagnostic implementation.
+
+The first accepted diagnostic handoff stopped without a deployment receipt at
+the local administration boundary. A bounded credential-free TCP probe isolated
+the local socket sandbox restriction; the host remains reachable outside it.
+The original reservation is retained. An independently reviewed continuation
+requires the original runtime and absence of every operation artifact before
+exclusive upload; no partially consumed operation is reset or reused. Eight
+offline continuation tests pass. The guarded continuation completed at
+21:11:49UTC:22 target tests passed without skips, the220-file coherent snapshot
+verified, and protected rows were identical across the beta-only restart.
+
+The owner's fresh Chrome submission at21:12:59UTC produced the sole classified
+login_cookie_pairs_rejected event and the owner confirmed the rejection heading.
+The form parsed and the single Cookie header passed the4096-byte bound; the
+greater-than16-pair guard was the first rejecting check, before WorkOS preparation.
+No raw cookies or request body were collected, and later target-cookie/CSRF checks
+were not reached by that rejected request.
+
+The narrow correction removes that count guard from the shared WorkOS browser
+cookie reader while retaining the byte bound, target uniqueness/format, CSRF and
+invitation policy. The same reader serves callback and logout. Regression evidence
+shows the old403 failure with16/32/64 synthetic unrelated cookies and corrected
+return/callback/logout behavior. Native emitted-form HTTP coverage carries24
+unrelated cookies through uninvited denial, invited creation and blank returning
+sign-in. Independent review passed28 affected tests and420 bounded parser cases.
+
+A broader163-test run had160passes, two pre-existing stale profile-heading
+assertions and one Windows POSIX-only skip. The two failures were reproduced
+against the sealed diagnostic source, then repaired only in their assertions;
+the six-test module passed again independently. Product profile rendering is
+unchanged. The corrective target gate includes the existing Linux listening-socket
+restart case along with24 core tests and requires25passes, zero skips before stop.
+
+The separate persistent-profile mutation cookie-count limit is outside this
+returning-owner repair. No general cookie-policy/authentication refactor or UI
+change is included. The final immutable corrective deployment, same-owner Chrome
+sign-in, logout and fresh blank-invitation return remain required. The readonly
+verification compares current protected rows with the hash-bound predeploy
+snapshot, requires the first new session to be logged out before the second
+issuance and the latest new session to be unrevoked. Owner-observed protected
+profile, saved-job and history access remains separate evidence; database session
+issuance alone cannot close the browser failure.

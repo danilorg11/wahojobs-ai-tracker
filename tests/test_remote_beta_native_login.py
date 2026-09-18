@@ -128,6 +128,9 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
                      for name in ('users', 'account_sessions', 'product_profiles', 'user_pipeline_transitions'))
 
     def test_blank_native_form_requires_invitation_only_for_new_verified_user(self):
+        # Reproduce the hosted Chrome boundary with synthetic unrelated cookies.
+        unrelated = {f'unrelated{i}': 'offline' for i in range(24)}
+        self.cookies.update(unrelated)
         status, headers, _ = self.submit(self.rendered_form())
         self.assertEqual(status, 303)
         self.assertEqual(self.counts(), (0, 0, 0, 0))
@@ -145,6 +148,7 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
 
         # Separate offline browser cookie jar; no real account/session deletion.
         self.cookies.clear()
+        self.cookies.update(unrelated)
         status, headers, _ = self.submit(self.rendered_form())
         self.assertEqual(status, 303)
         returned, callback_target = self.callback(headers)
@@ -181,7 +185,7 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
         self.assertEqual(self.counts(), (0, 0, 0, 0))
 
     def test_native_rejection_labels_are_private_and_correlate_without_changing_checks(self):
-        for failure in ('absent', 'target_absent', 'target_invalid', 'pairs', 'size'):
+        for failure in ('absent', 'target_absent', 'target_invalid', 'target_duplicate', 'size'):
             with self.subTest(failure=failure):
                 self.cookies.clear()
                 form = self.rendered_form()
@@ -194,9 +198,9 @@ class RemoteBetaNativeLoginTests(unittest.TestCase):
                 elif failure == 'target_invalid':
                     self.cookies['__Host-wahojobs_login_csrf'] = 'private-fixture-value'
                     expected = 'login_cookie_target_invalid'
-                elif failure == 'pairs':
-                    self.cookies.update({f'unrelated{i}': 'private-fixture-value' for i in range(16)})
-                    expected = 'login_cookie_pairs_rejected'
+                elif failure == 'target_duplicate':
+                    self.cookies['unrelated'] = 'offline; __Host-wahojobs_login_csrf=' + self.cookies['__Host-wahojobs_login_csrf']
+                    expected = 'login_cookie_target_duplicate'
                 else:
                     self.cookies['unrelated'] = 'private-fixture-value' * 220
                     expected = 'login_cookie_size_rejected'

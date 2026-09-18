@@ -832,7 +832,8 @@ def _cookie(header_items, name, pattern):
 
 
 def _cookie_check(header_items, name, pattern):
-    # Same accepted cookie contract; the third value is a fixed internal label.
+    # The byte limit bounds parsing even when a browser sends unrelated cookies.
+    # A count limit here would also block callbacks and logout for that browser.
     headers = _header_values(header_items, "cookie")
     if not headers:
         return None, False, "login_cookie_header_absent"
@@ -842,8 +843,6 @@ def _cookie_check(header_items, name, pattern):
         return None, False, "login_cookie_size_rejected"
     found = []
     parts = headers[0].split(";")
-    if len(parts) > 16:
-        return None, False, "login_cookie_pairs_rejected"
     for part in parts:
         if "=" not in part:
             return None, False, "login_cookie_segment_rejected"
