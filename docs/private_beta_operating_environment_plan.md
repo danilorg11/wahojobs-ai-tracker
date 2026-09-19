@@ -201,3 +201,47 @@ next owner callback after deployment and saves a sanitized receipt. Review and
 exact artifact binding precede deployment. A seventh provider attempt is not
 automatic. Full return/logout/return and preserved-domain evidence remain open;
 candidate invitations, fresh-beta storage and WorkOS Production remain excluded.
+
+### Returning-owner repair closure
+
+The immutable callback diagnostic release ca5ca62107f76e98668a8b7d74fcbbc6056dbb0d
+was deployed on 18 September at 22:29:07 UTC after all 32 actual Ubuntu gate tests
+passed without skips. Its 220-file coherent snapshot and protected rows verified;
+config-002 and rehearsal-recovered-001 remained authoritative. This release
+retains the narrow cookie-count correction and adds fixed private labels only.
+
+Attempts 7 and 8 reached verified WorkOS callbacks but had no matching stored
+provider subject; blank-invitation account creation was correctly denied. A
+private comparison established that the owner's submitted failed address differed
+from the existing owner's address. The owner reported direct provider code entry
+without email selection. No email/subject/token/cookie values were retained in
+diagnostic receipts, and no identity linking or policy relaxation was introduced.
+
+The owner identified the exact staging AuthKit hostname through narrowly scoped
+Chrome site-data/history labels, including a Wahojobs title, and removed only that
+site's browser data. Wahojobs/root and WorkOS dashboard storage were preserved.
+Using the privately displayed existing address, ordinary Chrome attempt 9 reached
+"My profile | Wahojobs". Attempt 10 followed normal Wahojobs logout and a fresh
+blank-invitation login without another site-data clearing. The owner then confirmed
+that the profile, saved job and history worked as expected.
+
+The two parsed read-only receipts completed on 19 September at 00:32:13 and
+00:35:16 UTC. They compare every protected user/identity/profile/workflow/history
+row with the hash-bound deployment snapshot. They require exactly two new sessions,
+the first explicitly logged out before the second issuance, and the latest
+unrevoked. One owner, one verified identity, one profile, one saved job and two
+history entries remain; no account/profile recreation or data reset occurred.
+
+The original ten-interaction allowance is fully accounted for. The private helper
+discarded its SSH material and exited; prior failed/expired slots are preserved.
+The final read-only controller and its bounded handoff retry received independent
+review, including a repaired late-handoff cleanup race. No new deployment followed
+the callback diagnostic release. This final plan update is documentation only;
+the tested hosted source remains ca5ca62107f76e98668a8b7d74fcbbc6056dbb0d.
+
+The observed owner-return blocker is closed. General provider-wide logout and
+account switching are not implemented by the one-time browser recovery. Candidate
+invitations, WorkOS Production, fresh real-beta storage, source/model operations
+and full invitation readiness are not authorized by this closure. The consolidated
+sanitized record is operating-evidence/hosted-rehearsal/signin-correction/
+SIGNIN-REPAIR-CLOSURE.md; CALLBACK-CONTINUATION.md retains intermediate evidence.
