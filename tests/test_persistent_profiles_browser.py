@@ -429,7 +429,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         text = body.decode("utf-8")
         self.assertEqual(status, 200)
         self.assertIn("Account profile", text)
-        self.assertIn("Professional domains", text)
+        self.assertIn("What you can do", text)
         self.assertNotIn("Revision history", text)
         self.assertNotIn("Revision 2", text)
         self.assertNotIn("Revision 1", text)
@@ -481,7 +481,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertIn(b"archived and remains read-only", archived)
-        self.assertIn(b"Professional domains", archived)
+        self.assertIn(b"What you can do", archived)
         self.assertNotIn(b"Reactivate", archived)
 
         self.append(created, 2, "deletion_request")
@@ -490,7 +490,7 @@ class PersistentProfileBrowserTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertIn(b"Profile content is hidden", deleting)
-        self.assertNotIn(b"Professional domains", deleting)
+        self.assertNotIn(b"What you can do", deleting)
         self.assertNotIn(b"Delete", deleting)
         self.assertNotIn(b"Purge", deleting)
 

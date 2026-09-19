@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from scripts.build_public_catalog_preview_database import (
     build_public_catalog_preview_database,
@@ -197,6 +198,10 @@ class PublicCatalogOriginTests(unittest.TestCase):
         self.configuration = load_public_catalog_origin_configuration(
             str(self.configuration_path)
         )
+        # Publication/freshness fixtures must use the fixture clock on every read.
+        fixture_clock = patch('wahojobs.public_catalog_origin.datetime', wraps=datetime)
+        fixture_clock.start().now.return_value = NOW
+        self.addCleanup(fixture_clock.stop)
         self.integration = PublicCatalogOriginIntegration(
             self.configuration, origin_auth_token=TOKEN
         )

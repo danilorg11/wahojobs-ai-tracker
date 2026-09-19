@@ -75,7 +75,7 @@ class PrivateBetaPreferenceTests(unittest.TestCase):
         review = summary_sections(current)
         self.assertIn('Total career experience: 9 years', review)
         self.assertIn('Experience in Biology: 2 years', review)
-        self.assertIn('in progress', review)
+        self.assertIn('In progress', review)
 
     def test_pay_change_preserves_supported_independent_remote_and_start_preferences(self):
         from wahojobs.profiles.preference_presentation import with_reviewed_preferences
@@ -91,7 +91,7 @@ class PrivateBetaPreferenceTests(unittest.TestCase):
         self.assertEqual(after['preferences']['availability'], 'immediate')
         self.assertIn('remote', after['preferences']['work_preferences'])
         self.assertEqual(after['preferences']['preference_model']['compensation_expectations'][0]['amount'], '18')
-        self.assertIn('Remote work preferred', preference_summary(after['preferences']))
+        self.assertNotIn('Remote work preferred', preference_summary(after['preferences']))
         self.assertIn('Workload or start preference: immediate', preference_summary(after['preferences']))
 
     def test_rendered_typed_preferences_remain_draft_then_apply_exactly_once(self):
@@ -142,8 +142,8 @@ class PrivateBetaPreferenceTests(unittest.TestCase):
         result = self.submit(form, {'phone_preference':'phone preferred', 'availability':'full-time'})
         self.assertEqual(result.status, 303)
         page = self.t.get(self.f._response_header(result, 'Location'))
-        self.assertIn(b'No profile details have changed', page.body)
-        self.assertEqual(self.t.apply(self.f._form(page, 'draft', 'review_token')).status, 200)
+        self.assertIn(b'No changes to save', page.body)
+        self.assertFalse(self.f._markup(page).forms)
         self.assertEqual(self.t.current()['preferences']['preference_model']['accepted_phone_voice_modes'], ['non_phone'])
 
     def test_duplicate_or_unknown_preference_is_rejected_without_write(self):
@@ -167,7 +167,7 @@ class PrivateBetaPreferenceTests(unittest.TestCase):
         self.assertEqual(result.status, 303)
         self.f.registry_time += TTL + 1
         resume = self.t.get('/account/profile?correction=resume')
-        form = self.f._form(resume, 'retained_draft')
+        form = self.f._form(resume, 'edit_run_id')
         result = self.f._post_form(self.t.browser, form['action'], form['fields'])[0]
         self.assertEqual(result.status, 303)
         page = self.t.get(self.f._response_header(result, 'Location'))

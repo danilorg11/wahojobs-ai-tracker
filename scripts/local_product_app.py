@@ -711,6 +711,8 @@ class MalformedProfileReview(ActionError):
         super().__init__(message, HTTPStatus.BAD_REQUEST)
 
 ACTION_STATUSES = {
+    "undo_applied": "saved",
+    "correct_applied": "saved",
     "show_again": "saved",
     "save": "saved",
     "applied": "applied",
@@ -723,6 +725,8 @@ ACTION_STATUSES = {
 }
 
 ACTION_LABELS = {
+    "undo_applied": "Undo",
+    "correct_applied": "Restore previous status",
     "show_again": "Show again",
     "save": "Save",
     "applied": "Mark as applied",
@@ -2315,7 +2319,7 @@ def normalize_identity_free_profile_input(raw_input, input_style, *, allow_fallb
     return IdentityFreeCanonicalProfileV1.from_mapping(canonical)
 
 
-def apply_identity_free_profile_review(profile, updates):
+def apply_identity_free_profile_review(profile, updates, *, prior_education=None):
     """Apply authoritative review updates while identity remains absent."""
 
     if type(profile) is not IdentityFreeCanonicalProfileV1:
@@ -2371,7 +2375,7 @@ def apply_identity_free_profile_review(profile, updates):
     )
 
     from wahojobs.profiles.review_entries import apply_education_entries, employment_records
-    canonical["education"] = apply_education_entries(education, updates.get("education_entries", ""))
+    canonical["education"] = apply_education_entries(education, updates.get("education_entries", ""), prior_education=prior_education)
 
     credentials = canonical["credentials"]
     credential_status = canonical_review.text(updates.get("credential_status")) or UNKNOWN
@@ -3181,7 +3185,7 @@ def profile_review_language_slots(canonical):
     return min(8, max(4, len(canonical.get("languages") or [])))
 
 
-def validate_profile_review_submission(form, registry):
+def validate_profile_review_submission(form, registry, *, require_credential_attestation=True):
     if strict_review_value(form, "form_action") != "confirm_profile":
         raise MalformedProfileReview()
     run_id = strict_review_value(form, "edit_run_id")
@@ -3228,7 +3232,7 @@ def validate_profile_review_submission(form, registry):
         fingerprint, profile_draft_fingerprint(run.canonical_profile)
     ):
         raise ActionError("This profile draft is no longer current.", HTTPStatus.FORBIDDEN)
-    if not strict_review_checkbox(form, "credentials_confirmed"):
+    if require_credential_attestation and not strict_review_checkbox(form, "credentials_confirmed"):
         raise ActionError(
             "Confirm that the licenses and certifications shown are accurate."
         )
@@ -3574,6 +3578,7 @@ def normalized_browser_record(record, *, normalized_state=None, compatibility=No
         "match_score": None,
         "unresolved_workflow": workflow is None,
         "integrity_error": not record.diagnostics["mutation_grade"],
+        "restorable_applied": record.diagnostics.get("restorable_applied", False),
     }
     result["next_action"] = lightweight_next_action(result)
     result["match_key"] = preview_pipeline_match_key(result)
@@ -5626,8 +5631,8 @@ def tracker_item_url(record):
 def render_workflow_summary(record):
     workflow = (readable_status(record['workflow_status']) if record.get('workflow_status')
                 else 'Application progress unknown (legacy history)')
-    visibility = 'Hidden from matches' if record.get('visibility') == 'hidden' else 'Visible for consideration'
-    return f"<p class='workflow-summary'>{e(workflow)} · {e(visibility)}</p>"
+    visibility = 'Hidden from your matches' if record.get('visibility') == 'hidden' else ''
+    return f"<p class='workflow-summary'>{e(visibility)}</p>" if visibility else ''
 
 
 def render_my_jobs_forms(record, match_run_id, return_to, tracker_view="all"):
@@ -5732,7 +5737,7 @@ def render_pipeline_group(records, match_run_id, empty, tracker_only=False):
 
 def render_reminder_note(record):
     if record.get("reminder_date"):
-        return f"<p class='reminder-note'>Reminder set for {e(record['reminder_date'])}.</p>"
+        return f"<p class='reminder-note'>{e(reminder_success_message(record['reminder_date']))}</p>"
     return ""
 
 
@@ -5895,7 +5900,7 @@ def action_form(
         if resolution_mode
         else ""
     )
-    return f"""
+    markup = f"""
     <form method="post" action="/action" class="js-inline-action action-form action-form-{e(action)} action-{e(visual_variant)}">
       <input type="hidden" name="match_run_id" value="{e(match_run_id)}">
       <input type="hidden" name="action" value="{e(action)}">
@@ -5910,6 +5915,12 @@ def action_form(
       <button type="submit" class="action-button">{e(label)}</button>
     </form>
     """
+
+    if action == 'correct_applied':
+        return ("<details class='change-tracking-status'><summary>Change status</summary>"
+            "<p>Marked Applied by mistake? Restore the status from before that action. Your reminder and hidden choice are kept.</p>"
+            "<p>This changes your Wahojobs tracking only. It does not submit or withdraw an employer application.</p>" + markup + '</details>')
+    return markup
 
 
 def action_visual_variant(action):
@@ -5949,6 +5960,12 @@ def action_json_payload(result, run, form):
         )
         for action in actions
     )
+    undo_html = ''
+    if first_value(form, 'action') == 'applied' and item.get('workflow_status') == 'applied' and not result.get('replayed'):
+        undo_html = action_form('undo_applied', 'Undo', run.match_run_id,
+            opportunity_key=first_value(form, 'opportunity_key'), pipeline_id=item['pipeline_item_id'],
+            expected_version=item['state_version'], return_to=return_to, section=section,
+            tracker_view=tracker_view if section == 'tracker' else '')
     if not controls:
         controls = terminal_status_label(item["status"])
     remains_in_view = record_remains_in_browser_view(
@@ -5976,9 +5993,11 @@ def action_json_payload(result, run, form):
         "status": item["status"],
         "status_label": readable_status(item["status"]),
         "controls_html": controls,
+        "undo_html": undo_html,
         "state_version": item["state_version"],
         "replayed": result["replayed"],
         "reminder_date": item["reminder_date"],
+        "reminder_label": reminder_success_message(item["reminder_date"]),
         "next_action": item["next_action"],
         "workflow_summary_html": render_workflow_summary(item),
         "remains_in_view": remains_in_view,
@@ -6040,7 +6059,7 @@ def render_inline_action_script():
         notice.setAttribute("aria-live", isError ? "assertive" : "polite");
         notice.textContent = message;
       };
-      const showPageMessage = (message, isError = false) => {
+      const showPageMessage = (message, isError = false, undo = "") => {
         const region = document.querySelector("#action-feedback");
         if (!region) return;
         region.innerHTML = "";
@@ -6050,6 +6069,10 @@ def render_inline_action_script():
         notice.setAttribute("role", isError ? "alert" : "status");
         notice.textContent = message;
         region.append(notice);
+        if (undo) {
+          const holder = document.createElement('div'); holder.dataset.actionCard = '';
+          holder.className = 'js-card-controls'; holder.innerHTML = undo; region.append(holder);
+        }
       };
       document.addEventListener("submit", async (event) => {
         const form = event.target.closest("form.js-inline-action");
@@ -6107,7 +6130,7 @@ def render_inline_action_script():
             const main = page.querySelector('main');
             if (!main) throw userFacingError(payload.message + ' Refresh Matches to continue.');
             document.querySelector('main').replaceWith(document.importNode(main, true));
-            showPageMessage(payload.message);
+            showPageMessage(payload.message, false, payload.undo_html);
             document.querySelector('#action-feedback')?.focus();
             return;
           }
@@ -6118,7 +6141,7 @@ def render_inline_action_script():
             if (trackerHeader && payload.tracker_header_html) {
               trackerHeader.outerHTML = payload.tracker_header_html;
             }
-            showPageMessage(payload.message);
+            showPageMessage(payload.message, false, payload.undo_html);
             document.querySelector('#action-feedback')?.focus();
             return;
           }
@@ -6136,7 +6159,7 @@ def render_inline_action_script():
               empty.textContent = "No personalized opportunities remain in this view.";
               container.append(empty);
             }
-            showPageMessage(payload.message);
+            showPageMessage(payload.message, false, payload.undo_html);
             document.querySelector('#action-feedback')?.focus();
             return;
           }
@@ -6154,7 +6177,7 @@ def render_inline_action_script():
               reminder.className = "reminder-note";
               (card.querySelector(".card-main") || card).append(reminder);
             }
-            reminder.textContent = `Reminder set for ${payload.reminder_date}.`;
+            reminder.textContent = payload.reminder_label;
           } else if (!payload.workflow_history_html && reminder) {
             reminder.remove();
           }
@@ -6169,6 +6192,8 @@ def render_inline_action_script():
           }
           if (controls) controls.innerHTML = payload.controls_html;
           showCardMessage(card, payload.message);
+          card.querySelectorAll('.immediate-undo').forEach(node => node.remove());
+          if (payload.undo_html) card.querySelector('.js-action-feedback').insertAdjacentHTML('afterend', '<div class="immediate-undo">' + payload.undo_html + '</div>');
           const replacement = card.querySelector('.js-card-controls button');
           if (replacement) replacement.focus();
         } catch (error) {
@@ -6197,12 +6222,12 @@ def actions_for_record(record):
     if record.get("integrity_error"):
         return ()
     if record.get("visibility") == "hidden":
-        return ("show_again",)
+        return ("show_again",) + (("correct_applied",) if record.get("workflow_status") == "applied" and record.get("restorable_applied", True) else ())
     if record.get("workflow_status") is None:
         if not record.get("reminder_at"):
             return ()
         return ("save", "applied", "remind_later", "not_interested")
-    return actions_for_status(record["workflow_status"])
+    return actions_for_status(record["workflow_status"]) + (("correct_applied",) if record["workflow_status"] == "applied" and record.get("restorable_applied", True) else ())
 
 
 def action_label_for_record(action, record):
@@ -6246,6 +6271,8 @@ def terminal_status_label(status):
 
 def action_note(action):
     labels = {
+        "undo_applied": "Previous tracking status restored. Employer applications are unchanged.",
+        "correct_applied": "Previous tracking status restored. Employer applications are unchanged.",
         "show_again": "Shown again from local UI",
         "save": "Saved from local UI",
         "applied": "Marked applied from local UI",
@@ -6261,6 +6288,8 @@ def action_note(action):
 
 def action_success_message(action):
     labels = {
+        "undo_applied": "Previous tracking status restored. Employer applications are unchanged.",
+        "correct_applied": "Previous tracking status restored. Employer applications are unchanged.",
         "show_again": "Shown again. This job can be considered for matches; your progress is unchanged.",
         "save": "Saved to My Jobs.",
         "applied": "Marked as applied.",
@@ -6275,7 +6304,8 @@ def action_success_message(action):
 
 
 def reminder_success_message(reminder_date):
-    return f"Reminder set for {reminder_date}."
+    from wahojobs.candidate_readability import readable_date
+    return f"Reminder set for {readable_date(reminder_date)}."
 
 
 def render_error(message):

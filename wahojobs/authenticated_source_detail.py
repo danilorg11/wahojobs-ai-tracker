@@ -33,7 +33,7 @@ def _availability_message(job):
             'The saved description is shown for reference.')
 
 
-def prepare_detail_display(job, profile):
+def prepare_detail_display(job, profile, *, personalized=True):
     """Use the same exact-source display packet as cards, with no new reads."""
     from wahojobs.authenticated_card_evidence import prepare_card_evidence
     source = {
@@ -47,7 +47,7 @@ def prepare_detail_display(job, profile):
     }
     if job.get('rich_provider') != job['company_slug']:
         return None
-    local = job.get('_authenticated_local_checks') or {}
+    local = (job.get('_authenticated_local_checks') or {}) if personalized else {}
     match = dict(local.get('match') or job.get('_authenticated_recommendation') or {})
     match.update({k: source[k] for k in ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')})
     conditional = ((job.get('_authenticated_recommendation') or {}).get('_detail_recommendation_section')
@@ -67,12 +67,12 @@ def prepare_detail_display(job, profile):
             from wahojobs.candidate_decision import attach_decision
             return attach_decision(prepared, match, profile=profile)
     return prepare_card_evidence(match, source, profile, include_item_experience=True,
-                                 conditional_placement=conditional)
+                                 conditional_placement=conditional, personalized=personalized)
 
 
 def render_authenticated_job_page(job, *, profile, navigation, workflow_controls='',
                                   workflow_status='', catalog_return_to=None, return_run_id=None,
-                                  workflow_history='', tracker_return=False):
+                                  workflow_history='', tracker_return=False, personalized=True):
     """Normal signed-in job page. Availability and recommendation proof are inputs.
 
     Local eligibility is not list membership. Neither is inferred by this view;
@@ -84,13 +84,16 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     from wahojobs.candidate_decision import render_reasons, render_material_warnings, render_application_guidance, render_fit_support
     from wahojobs.profile_opportunity_navigation import render_profile_update
     from wahojobs.authenticated_variant_details import variant_detail_url
-    packet = prepare_detail_display(job, profile)
+    profile = profile if personalized else {}
+    packet = prepare_detail_display(job, profile, personalized=personalized)
     current = job['public_state'] == public.PUBLIC_JOB_STATE_LIVE
     recommended = job.get('_authenticated_recommendation') is not None and current
     title = job.get('source_title') or job.get('canonical_title') or 'Opportunity'
     company = job.get('company_name') or ''
     url = public.first_human_facing_url(job.get('official_url'))
     facts = public.render_fact_grid(packet['facts']) if packet else ''
+    if packet and packet['pay'].get('currency_note'):
+        facts += "<p class='candidate-note compensation-note'>" + escape(packet['pay']['currency_note']) + '</p>'
     kind = packet['kind'] if packet else ''
     if kind == 'Opportunity type not established':
         kind = ''
@@ -118,14 +121,17 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     qualification_block = next((i for i, block in enumerate(blocks)
                                 if block['heading'].casefold().rstrip(':') in _QUALIFICATION_HEADINGS), None)
     checks = ("<section class='candidate-checks' id='before-apply'><h2>Before you apply</h2>"
-              + (render_material_warnings(packet) if packet else
+              + (render_material_warnings(packet) if packet and personalized else
                  (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else ''))
               + render_application_guidance(packet, employer_name=company,
-                    has_conflict=packet is None and location == 'incompatible') + '</section>')
+                    has_conflict=packet is None and location == 'incompatible') + '</section>') if personalized else (
+        "<section class='candidate-checks'><h2>Before you apply</h2>"
+        + (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else '')
+        + '<p>Review the employer’s requirements and confirm the terms before applying.</p></section>')
     personalization = ("<section id='recommendation-personalization' aria-labelledby='personalization-heading'>"
         "<h2 id='personalization-heading'>Personalize your Wahojobs recommendations</h2>"
         + render_profile_update(packet, variant_detail_url(job, run_id=return_run_id),
-                                general_fallback=True, for_recommendations=True) + '</section>')
+                                general_fallback=True, for_recommendations=True) + '</section>') if personalized else ''
     overview = (f"<p class='candidate-overview'>{escape(packet['summary'])}</p>"
                 if packet and packet['summary'] else '')
     description = ''
@@ -156,7 +162,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
         description = ''.join(sections)
         description = ("<details class='employer-description'><summary>Employer description and requirements</summary>"
                        + "<div class='source-description'>" + description
-                       + render_location_context(packet) + '</div></details>' + render_fit_support(packet))
+                       + render_location_context(packet) + '</div></details>' + (render_fit_support(packet) if personalized else ''))
     else:
         description = "<p>Full requirements aren’t available in the saved listing. Check the original source before applying.</p>"
     pay_wording = ''
@@ -171,7 +177,7 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
                   f"rel='noopener noreferrer nofollow'>{action_label}</a>")
     workflow = ''
     if workflow_controls or workflow_history:
-        workflow = ("<aside class='workflow-card' data-action-card><h2>My Jobs</h2>"
+        workflow = ("<aside class='workflow-card' id='my-jobs' data-action-card><h2>My Jobs</h2>"
                     f"<p class='pill js-card-status' aria-label='Current status: {escape(workflow_status)}'>{escape(workflow_status)}</p>"
                     "<p class='candidate-note'>Your saved decisions and history stay with this posting.</p>"
                     + workflow_history +
@@ -193,15 +199,17 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
 <meta name='viewport' content='width=device-width, initial-scale=1'><meta name='robots' content='noindex,follow'>
 <title>{escape(title)} at {escape(company)} | Wahojobs</title>
 <style>{public.PUBLIC_JOB_CSS}\n{DISPLAY_CSS}\n{candidate_style()}
+.workflow-history li {{margin-bottom:10px}}
+.workflow-history time {{display:block;color:#596a62;font-size:.85em;margin-top:2px}}
 #recommendation-personalization {{border-top:1px solid #d9e0dc;margin:24px 0 0;padding:20px 0}}
 #recommendation-personalization h2 {{font-size:1rem;line-height:1.4;margin:0 0 8px}}
 #recommendation-personalization .candidate-profile-next {{margin:0;max-width:72ch}}
 #recommendation-personalization a {{overflow-wrap:anywhere}}
 </style></head><body class='candidate-detail'>
-<main>{navigation}<p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← {'Back to My Jobs' if tracker_return else 'Back to opportunities'}</a></p>
+<main>{navigation}<p class='back-to-jobs'><a href='{escape(back, quote=True)}'>← {'Back to My Jobs' if tracker_return else 'Back to Browse jobs' if catalog_return_to else 'Back to opportunities'}</a></p>
 <article><header class='hero'><div class='hero-copy'><h1>{escape(title)}</h1>
 <p class='company-line'>{escape(company)}</p>{kind_html}{status}{facts}{overview}
-{render_reasons(packet, heading_level=2)}
+{render_reasons(packet, heading_level=2) if personalized else ''}
 {checks}<div class='hero-actions'>{action}</div></div>{workflow}</header>
 <div id='action-feedback' aria-live='polite'></div><div class='job-description' id='profile-comparison'>{pay_wording}{description}</div>{personalization}
 <footer class='verification-footer'>{source_link}<p>Based on saved source information. Confirm current terms and application availability with the employer.</p></footer>

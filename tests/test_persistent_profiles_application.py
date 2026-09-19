@@ -191,7 +191,7 @@ class PersistentProfileApplicationTests(unittest.TestCase):
             profile["experience"]["seniority"] = raw_value
             view = _build_profile_view(summary, profile)
             experience = next(
-                group for group in view.field_groups if group.label == "Experience"
+                group for group in view.field_groups if group.label == "Work history"
             )
             self.assertIn(expected, experience.values)
             self.assertEqual(profile["experience"]["seniority"], raw_value)

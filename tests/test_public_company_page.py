@@ -150,6 +150,7 @@ class PublicCompanyPageTests(unittest.TestCase):
         for index in range(31):
             job = deepcopy(base)
             job["job_id"] = 20_000 + index
+            job["canonical_opportunity_id"] = 20_000 + index
             job["path"] = f"/job/opportunity-{20_000 + index}"
             job["source_title"] = f"Role {index:02d}"
             public_jobs_catalog.prepare_catalog_presentation(job)

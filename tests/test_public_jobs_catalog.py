@@ -96,7 +96,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         )
         back = integration.handle("GET", "/jobs", (("Host", "app.test"),))
 
-        self.assertEqual([first.status, next_page.status, back.status], [200, 404, 200])
+        self.assertEqual([first.status, next_page.status, back.status], [200, 303, 200])
         self.assertEqual(provider.calls, 1)
 
         current[0] += timedelta(seconds=301)
@@ -196,7 +196,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
             "Brazil",
             {item["value"] for item in catalog["facets"]["location"]},
         )
-        self.assertNotIn(
+        self.assertIn(
             "Remote",
             {item["value"] for item in catalog["facets"]["location"]},
         )
@@ -268,10 +268,10 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertIn("Eligible in Brazil", page)
         self.assertNotIn(">Unknown<", page)
         self.assertNotIn("enrichment", page.casefold())
-        self.assertIn("name='work'", page)
-        self.assertIn("name='field'", page)
-        self.assertNotIn("name='arrangement'", page)
-        self.assertGreaterEqual(page.count("placeholder='Not available yet'"), 2)
+        self.assertNotIn("name='work'", page)
+        self.assertNotIn("name='field'", page)
+        self.assertIn("name='arrangement'", page)
+        self.assertNotIn("placeholder='Not available yet'", page)
 
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
@@ -291,7 +291,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         brazil = self.load()[0]
         worldwide = deepcopy(brazil)
         worldwide.update(
-            job_id=40_001,
+            job_id=40_001, canonical_opportunity_id=40_001,
             path="/job/opportunity-40001",
             source_location="Remote worldwide",
         )
@@ -309,7 +309,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
 
         americas = deepcopy(brazil)
         americas.update(
-            job_id=40_002,
+            job_id=40_002, canonical_opportunity_id=40_002,
             path="/job/opportunity-40002",
             source_location="Remote — Americas",
         )
@@ -327,7 +327,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
 
         united_states = deepcopy(brazil)
         united_states.update(
-            job_id=40_003,
+            job_id=40_003, canonical_opportunity_id=40_003,
             path="/job/opportunity-40003",
             source_location="Remote — United States",
         )
@@ -364,7 +364,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
             worldwide["_catalog_filter_values"]["location"],
         )
         self.assertEqual(worldwide["catalog_location"], "Work from anywhere")
-        self.assertNotIn(
+        self.assertIn(
             "Remote",
             {item["label"] for item in brazil_catalog["facets"]["location"]},
         )
@@ -455,10 +455,10 @@ class PublicJobsCatalogTests(unittest.TestCase):
         body = response.body.decode("utf-8")
         self.assertEqual(response.status, 200, body)
         self.assertEqual(dict(response.headers)["Cache-Control"], "public, max-age=300")
-        self.assertIn("Browse current opportunities", body)
+        self.assertIn("Browse jobs", body)
         self.assertIn("Showing 1–1 of 1 current opportunities", body)
-        self.assertIn(f"href='{JOB_PATH}'", body)
-        self.assertNotIn("return_to=", body)
+        self.assertIn(f"href='{JOB_PATH}?variant=9003&amp;return_to=%2Fjobs'", body)
+        self.assertIn("return_to=", body)
         self.assertNotIn("name='robots'", body)
         self.assertNotIn("href='/jobs?", body)
         self.assertEqual(body.count("class='jobs-list'"), 1)
@@ -481,7 +481,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertIn("<span>Where can you work from?</span>", filtered_body)
         self.assertIn("placeholder='Country or region'", filtered_body)
         self.assertNotIn("<span>Work arrangement</span>", filtered_body)
-        self.assertNotIn("name='arrangement'", filtered_body)
+        self.assertIn("name='arrangement'", filtered_body)
         self.assertNotIn("<select", filtered_body)
 
         rejected = integration.handle("POST", "/jobs", (("Host", "app.test"),))
@@ -566,6 +566,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         for index in range(65):
             job = deepcopy(base)
             job["job_id"] = 10_000 + index
+            job["canonical_opportunity_id"] = 10_000 + index
             job["path"] = f"/job/opportunity-{10_000 + index}"
             job["source_title"] = f"Python Engineer {index:02d}"
             job["source_updated_at"] = None
@@ -592,14 +593,14 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertIn("Page 2 of 3", page)
         self.assertIn("/jobs?q=Python&amp;location=Brazil", page)
         self.assertIn("/jobs?q=Python&amp;location=Brazil&amp;page=3", page)
-        self.assertNotIn("return_to=", page)
+        self.assertIn("return_to=", page)
         self.assertEqual(page.count("class='job-card'"), public_jobs_catalog.PAGE_SIZE)
 
     def test_recency_uses_source_update_then_first_seen_and_search_uses_relevance(self):
         base = self.load()[0]
         source_updated = deepcopy(base)
         source_updated.update(
-            job_id=10_001,
+            job_id=10_001, canonical_opportunity_id=10_001,
             path="/job/opportunity-10001",
             source_title="Operations Specialist",
             source_expertise="Python workflows",
@@ -609,7 +610,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         )
         title_match = deepcopy(base)
         title_match.update(
-            job_id=10_002,
+            job_id=10_002, canonical_opportunity_id=10_002,
             path="/job/opportunity-10002",
             source_title="Python Engineer",
             source_expertise="",
@@ -630,7 +631,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
 
         alphabetical_first = deepcopy(base)
         alphabetical_first.update(
-            job_id=20_001,
+            job_id=20_001, canonical_opportunity_id=20_001,
             path="/job/opportunity-20001",
             source_title="Aardvark Role",
             source_updated_at=None,
@@ -638,7 +639,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         )
         later_identity = deepcopy(base)
         later_identity.update(
-            job_id=20_002,
+            job_id=20_002, canonical_opportunity_id=20_002,
             path="/job/opportunity-20002",
             source_title="Zoology Role",
             source_updated_at=None,
@@ -659,6 +660,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
                 job = deepcopy(base)
                 job.update(
                     job_id=50_000 + company_index * 10 + position,
+                    canonical_opportunity_id=50_000 + company_index * 10 + position,
                     path=f"/job/{company.casefold()}-{50_000 + company_index * 10 + position}",
                     company_name=company,
                     company_slug=company.casefold(),
@@ -769,7 +771,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertEqual(job["catalog_location"], "Eligible in Saudi Arabia")
         self.assertEqual(
             {item["label"] for item in catalog["facets"]["location"]},
-            {"Saudi Arabia"},
+            {"Saudi Arabia", "Remote"},
         )
         self.assertEqual(
             {item["label"] for item in catalog["facets"]["language"]},

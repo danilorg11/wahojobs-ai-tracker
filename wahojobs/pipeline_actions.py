@@ -136,6 +136,10 @@ def perform_pipeline_action(
     transitions use derived keys and are committed only with that terminal
     transition, which acts as the complete-operation replay marker.
     """
+    if action in {'undo_applied', 'correct_applied'}:
+        from wahojobs.candidate_status_correction import correct_applied
+        return correct_applied(conn, action=action, pipeline_item_id=pipeline_item_id, owner_profile_id=owner_profile_id,
+            expected_version=expected_version, idempotency_key=idempotency_key)
     item_identity_supplied = pipeline_item_id is not None
     expected_version_was_supplied = expected_version is not EXPECTED_VERSION_ABSENT
     action = str(action or "").strip()

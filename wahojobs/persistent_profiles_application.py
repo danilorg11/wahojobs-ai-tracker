@@ -635,10 +635,6 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
     _append_group(groups, "Languages", languages)
 
     experience = profile.get("experience", {})
-    domains = tuple(experience.get("professional_domains", ())) + tuple(
-        experience.get("specialties", ())
-    )
-    _append_group(groups, "Professional domains", domains)
     experience_values = []
     if 'no prior experience' in profile.get('constraints', {}).get('hard_constraints', []):
         experience_values.append('No prior work experience')
@@ -653,25 +649,14 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
         domain_years = [dict(domain=domain, years=years) for domain, years in domain_years.items()]
     experience_values.extend(f"Experience in {item['domain']}: {item['years']} years" for item in domain_years)
     experience_values.extend(experience.get("job_titles", ()))
-    experience_values.extend(value for value in experience.get("recent_roles", ()) if value not in experience_values)
+    from wahojobs.profiles.work_history_editor import summary as work_summary
+    experience_values.extend(work_summary(value) for value in experience.get("recent_roles", ()) if value not in experience_values)
     from wahojobs.profiles.item_experience import summary as item_summary
-    experience_values.extend(item_summary(item) for item in experience.get('item_details', []))
-    _append_group(groups, "Experience", tuple(experience_values))
+    _append_group(groups, "Work history", tuple(experience_values))
 
     education = profile.get("education", {})
-    education_values = []
-    if education.get("education_level") not in {None, "", "unknown", "not_specified"}:
-        education_values.append(f"Level: {education['education_level'].replace('_', ' ')}")
-    from wahojobs.profiles.review_entries import unpaired_education
-    for entry in education.get('entries', []):
-        parts = [str(entry[k]) for k in ('qualification', 'field', 'institution', 'completion_year') if entry.get(k)]
-        if entry.get('status') not in (None, '', 'unknown'):
-            parts.append(entry['status'].replace('_', ' ').capitalize())
-        education_values.append(' — '.join(parts))
-    unpaired = unpaired_education(education)
-    education_values.extend(unpaired.get("degrees", ()))
-    education_values.extend(unpaired.get("fields_or_domains", ()))
-    education_values.extend(unpaired.get("institutions", ()))
+    from wahojobs.candidate_readability import education_summary
+    education_values = education_summary(education)
     _append_group(groups, "Education", tuple(education_values))
 
     credentials = profile.get("credentials", {})
@@ -680,7 +665,8 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
     )
     status = credentials.get("credential_status")
     if status not in {None, "", "unknown"}:
-        credential_values += (f"Credential status: {status}",)
+        from wahojobs.candidate_readability import credential_status_label
+        credential_values += (credential_status_label(status),)
     _append_group(groups, "Credentials", credential_values)
 
     location = profile.get("location", {})
@@ -693,8 +679,6 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
         )
         if value
     )
-    if location.get("remote_eligibility") not in {None, "", "unknown"}:
-        location_values += (f"Remote eligibility: {location['remote_eligibility']}",)
     if location.get("work_authorization") not in {None, "", "unknown"}:
         location_values += (f"Work authorization: {location['work_authorization']}",)
     location_values += tuple(f'Eligible country (self-reported): {v}' for v in location.get('eligible_countries', []))
@@ -702,8 +686,11 @@ def _build_profile_view(summary, profile: dict | None) -> PersistentProfileView:
     _append_group(groups, "Location and eligibility", location_values)
 
     skills = profile.get("skills", {})
-    skill_values = tuple(dict.fromkeys(v for key in ('normalized', 'software_tools', 'technical', 'writing_research', 'administrative_support', 'domain_specific') for v in skills.get(key, ())))
-    _append_group(groups, "Skills", skill_values)
+    skill_values = list(experience.get('specialties', ())) + [v for key in ('normalized', 'software_tools', 'technical', 'writing_research', 'administrative_support', 'domain_specific') for v in skills.get(key, ())]
+    skill_values = list(dict.fromkeys(skill_values))
+    skill_values.extend('Field: ' + v for v in experience.get('professional_domains', ()) if v not in skill_values)
+    skill_values.extend(item_summary(item) for item in experience.get('item_details', []))
+    _append_group(groups, "What you can do", tuple(skill_values))
 
     preferences = profile.get("preferences", {})
     from wahojobs.profiles.preference_presentation import preference_summary

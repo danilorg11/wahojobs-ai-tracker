@@ -102,7 +102,7 @@ def _source_text(source, *, include_structured_lists=True):
 
 
 def prepare_card_evidence(match, source, profile, *, include_item_experience=False,
-                          conditional_placement=False, background_context=None):
+                          conditional_placement=False, background_context=None, personalized=True):
     if not source or any(source.get(k) != match.get(k) for k in
                          ('job_id', 'canonical_opportunity_id', 'url', 'source_slug')):
         return None
@@ -207,7 +207,11 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
                          if location == 'unknown' and not location_context['applicant'] else '')
     if source_place_note:
         geography = source_place_note + ' ' + geography
-    pay = pay_facts(metadata, text)
+    # Compensation may use only the detail record accepted for this exact source.
+    pay_metadata = dict(metadata)
+    pay_metadata[DETAIL_KEY] = detail if (detail.get('provider') == source.get('source_slug')
+        and detail.get('external_id') == source.get('external_id') and detail.get('url') == source.get('url')) else {}
+    pay = pay_facts(pay_metadata, text)
     # Formatting of explicit arrangement labels is separate from eligibility.
     arrangement = ''
     for line in text.splitlines():
@@ -301,6 +305,8 @@ def prepare_card_evidence(match, source, profile, *, include_item_experience=Fal
             'workload': workload, 'listing_commitment': commitment, 'facts': fields,
             'pay': pay, 'caveats': caveats, 'language_notes': language_notes,
             'location_context': location_context}
+    if not personalized:
+        return packet
     from wahojobs.candidate_condition_comparisons import compare_conditions
     if source.get('professional_source_binding'):
         from wahojobs.professional_background_semantics import current_source_binding

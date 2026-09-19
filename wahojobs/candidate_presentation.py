@@ -3,15 +3,16 @@ from html import escape
 from urllib.parse import urlencode
 
 
-def candidate_navigation(*, current='', run=None):
+def candidate_navigation(*, current='', run=None, links_only=False):
     query = '?' + urlencode({'run': run}) if run else ''
-    links = [('matches', '/find-matches' + query, 'Matches'),
+    links = [('jobs', '/jobs', 'Browse jobs'),
+             ('matches', '/find-matches' + query, 'Matches'),
              ('tracker', '/tracker' + query, 'My Jobs'),
              ('profile', '/account/profile' + query, 'My profile')]
-    return ("<header class='candidate-header'><a class='candidate-brand' href='/find-matches'>Wahojobs</a>"
-            "<nav class='candidate-nav' aria-label='Product navigation'>"
+    navigation = ("<nav class='candidate-nav' aria-label='Product navigation'>"
             + ''.join(f"<a href='{escape(url, quote=True)}'" + (" aria-current='page'" if key == current else '') + f'>{label}</a>' for key,url,label in links)
-            + "<a class='candidate-signout' href='/logout'>Sign out</a></nav></header>")
+            + "<a class='candidate-signout' href='/logout'>Sign out</a></nav>")
+    return navigation if links_only else ("<header class='candidate-header'><a class='candidate-brand' href='/jobs'>Wahojobs</a>" + navigation + '</header>')
 
 
 def candidate_style():

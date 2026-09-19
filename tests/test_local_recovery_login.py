@@ -68,6 +68,10 @@ class LocalRecoveryLoginTests(unittest.TestCase):
                     unauth=request('GET','/account/profile')
                     self.assertEqual(unauth.status,401)
                     self.assertIn(b'/login',unauth.body)
+                    self.assertEqual(request('GET','/jobs').status,303)
+                    self.assertEqual(request('GET','/job/opportunity-7002?return_to=%2Fjobs').status,303)
+                    self.assertEqual(login('/jobs'),'/jobs')
+                    self.assertEqual(request('GET','/jobs').status,200)
                     self.assertEqual(login(),'/account/profile')
                     self.assertEqual(request('GET','/account/profile').status,200, list(cookies))
                     with closing(sqlite3.connect(state.database_path)) as c:
@@ -238,7 +242,7 @@ class LocalRecoveryPreparationTests(unittest.TestCase):
         job = notice.call_args.args[0]
         self.assertEqual(job['job_id'], match['job_id'])
         self.assertEqual(job['official_url'], match['url'])
-        self.assertEqual(request('GET', detail_url, jar={}).status, 401)
+        self.assertEqual(request('GET', detail_url, jar={}).status, 303)
         rows = match['source_qualification_comparisons']
         semantic = next(row for row in rows if row['kind'] == 'professional_background')[
             'components']['occupational_relevance'].get('semantic')

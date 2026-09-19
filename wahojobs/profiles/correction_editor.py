@@ -19,7 +19,7 @@ def esc(value):
     return html.escape(str(value if value is not None else ""), quote=True)
 
 
-def _chips(name, values, label):
+def _chips(name, values, label, *, combined=False):
     # Correction rows use the existing CSV authority, with their own controls.
     # Intake controls have a different removal/autosave lifecycle.
     singular = {'job_titles': 'Role', 'specialties': 'Activity', 'skills': 'Skill',
@@ -28,17 +28,21 @@ def _chips(name, values, label):
         'technical_skills': 'Technical skill', 'writing_research_skills': 'Writing or research skill',
         'administrative_support_skills': 'Administration or support skill',
         'domain_specific_skills': 'Specialist skill'}[name]
+    if combined:
+        singular = 'Skill, tool or task'
+    examples = {'job_titles': 'Customer support representative', 'specialties': 'Reviewing AI answers',
+                'skills': 'e.g. Excel', 'software_tools': 'e.g. Excel'}
     def item(value, index):
         return ("<div class='correction-item' data-collection-item>"
             "<div class='correction-item-main'><label class='review-field'>"
-            f"<span>{esc(singular)}</span><input value='{esc(value)}'></label>"
+            f"<span>{esc(singular)}</span><input value='{esc(value)}' placeholder='{esc(examples.get(name, ''))}'></label>"
             "<input type='checkbox' data-collection-remove hidden>"
             f"<button type='button' class='button-quiet' data-collection-remove-action aria-label='Remove {esc(singular.lower())}'>Remove</button>"
             "</div></div>")
     return (f"<div class='review-collection skills-collection' id='{esc(name)}' tabindex='-1' data-chips='{esc(name)}'>"
-            f"<h3>{esc(label)}</h3><div data-chip-items class='expertise-compact-list'>"
+            + ('' if combined else f"<h3>{esc(label)}</h3>") + "<div data-chip-items class='expertise-compact-list'>"
             + "".join(item(v, i) for i, v in enumerate(values)) + "</div>"
-            f"<button type='button' class='button-quiet' data-add-chip>Add {esc(singular.lower())}</button>"
+            f"<button type='button' class='button-quiet{' secondary-add' if combined else ''}' data-add-chip{' hidden' if combined and name != 'skills' else ''}>Add {esc(singular.lower())}</button>"
             f"<template>{item('', 'new')}</template></div>")
 
 
@@ -90,10 +94,10 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
                 + ''.join(f"<option value='{esc(v)}'{' selected' if v == current else ''}>{esc(t)}</option>"
                           for v, t in options.items()) + "</select></label>")
 
-    def chips(name, values, label):
+    def chips(name, values, label, *, combined=False):
         if submitted:
             values = support.canonical_review.string_list(fields.get(name, ""))
-        return _chips(name, values or [], label)
+        return _chips(name, values or [], label, combined=combined)
 
     def check(name, label):
         rendered.add(name)
@@ -136,12 +140,17 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
     domain_duration = domain_duration_editor.render(domain_years, fields.get('domain_years_review', ''))
     rendered.add('recent_roles')
     roles = json.loads(fields['recent_roles'])
-    employment = section('experience', 'Experience', ' · '.join(experience.get('job_titles', [])),
-        chips('job_titles', experience.get('job_titles'), 'Roles') + employment_editor(roles)
-        + chips('specialties', experience.get('specialties'), 'Activities')
-        + domain_duration
+    employment = section('experience', 'Work history (optional)', ' · '.join(experience.get('job_titles', [])),
+        '<p>Add jobs, freelance work or internships you have held. You can leave this section blank.</p>'
+        '<p class="field-help">For example: Customer support representative at Acme, 2021–2024. '
+        'For skills learned through study or personal projects, use What you can do above.</p>'
+        + ("<details" + ('' if fields.get('job_titles') else ' hidden') + "><summary>Job titles already saved</summary>"
+           '<p class="field-help">These titles were saved without an employer or dates. You can keep or edit them here.</p>'
+           + chips('job_titles', experience.get('job_titles'), 'Job titles') + '</details>')
+        + employment_editor(roles)
         + "<details><summary>Experience length (optional)</summary>" + text('total_years', 'Total years of work experience')
-        + check('no_experience', 'I have no prior work experience') + "<p>Total career years do not establish years in a particular profession.</p></details>", opened=focus == 'experience')
+        + check('no_experience', 'I have no prior work experience') + domain_duration
+        + "<p class='field-help'>Leave unknown durations blank. Dates above do not fill these values automatically.</p></details>", opened=focus == 'experience')
     rendered.add('education_entries')
     entries = None
     try:
@@ -173,18 +182,20 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
     education_section = section('education', 'Education and studies', f"{len(education.get('entries', []))} entries" if education.get('entries') else support.review_csv(canonical.get('education', {}).get('degrees')),
         education_body, opened=focus == 'education')
     skills = canonical.get('skills', {})
-    skill_content = chips('skills', skills.get('normalized'), 'Skills') + chips('software_tools', skills.get('software_tools'), 'Software and tools')
-    extra = ''.join(chips(name, skills.get(key), label) for name, key, label in (
+    skill_content = chips('specialties', experience.get('specialties'), '', combined=True) + chips('software_tools', skills.get('software_tools'), '', combined=True)
+    extra = ''.join(chips(name, skills.get(key), label, combined=True) for name, key, label in (
         ('technical_skills', 'technical', 'Technical skills'), ('writing_research_skills', 'writing_research', 'Writing and research'),
         ('administrative_support_skills', 'administrative_support', 'Administration and support'), ('domain_specific_skills', 'domain_specific', 'Specialist skills')) if skills.get(key))
-    skill_section = section('skills', 'Skills and tools', support.review_csv(skills.get('normalized') or skills.get('software_tools')),
-        skill_content + ('<details open>' if focus in ('technical_skills', 'domain_specific_skills') else '<details>')
-        + '<summary>Additional skills</summary>' + extra + '</details>',
+    skill_section = section('skills', 'What you can do', support.review_csv(skills.get('normalized') or skills.get('software_tools')),
+        '<p>List skills, tools and tasks you know how to do, including things learned through work, study or personal projects.</p>'
+        '<p class="field-help" id="ability-examples"><strong>Examples:</strong> Python, Excel, proofreading, translating Portuguese, labeling images, reviewing AI answers.</p>'
+        '<p class="field-help">Add one per entry. You do not need to decide which category it belongs to. Details about how you used it are optional.</p>'
+        + '<div data-ability-list aria-describedby="ability-examples">' + skill_content + extra
+        + chips('skills', skills.get('normalized'), '', combined=True) + '</div>',
         opened=focus in ('skills', 'software_tools', 'technical_skills', 'domain_specific_skills'))
     rendered.add('flexible')
     preferences = section('preferences', 'Work preferences', 'Optional',
-        check('remote', 'I prefer remote work')
-        + select('availability', 'Workload / timing preference', {'unknown':'Not specified','immediate':'Prefer an immediate start','available':'Open to work','limited':'Prefer limited hours','unavailable':'Not currently looking','full-time':'Full-time','part-time':'Part-time'})
+        select('availability', 'Workload / timing preference', {'unknown':'Not specified','immediate':'Prefer an immediate start','available':'Open to work','limited':'Prefer limited hours','unavailable':'Not currently looking','full-time':'Full-time','part-time':'Part-time'})
         + "<p class='field-help'>Workload choices are preferences, not a ban on other schedules or a statement of available hours. "
           "For a firm restriction, use “part-time only” or “full-time only” in Firm constraints below.</p>"
         + support.review_checkbox('flexible', 'I prefer flexible hours', fields.get('flexible') == '1')
@@ -200,7 +211,7 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
         rendered.difference_update({'availability', 'flexible', 'synchronous_preference', 'phone_preference'})
         preferences = section('preferences', 'Work preferences',
             ' · '.join(preference_summary({'preference_model': preference_model})),
-            check('remote', 'I prefer remote work') + render_preference_editor(preference_model, submitted)
+            render_preference_editor(preference_model, submitted)
             + "<p class='field-help'>For a firm workload restriction, use “part-time only” or “full-time only” in Firm constraints below.</p>",
             opened=focus == 'preferences' or bool(issue and issue[0] == 'section-preferences'))
     optional = section('optional', 'Permissions, licenses and constraints', 'Optional',
@@ -220,17 +231,17 @@ def render_editor(support, canonical, run_id, token, *, action, back_url,
     feedback = (f"<div role='alert' id='correction-error'><a href='#{esc(issue[0])}'>{esc(issue[1])}</a></div>" if issue else '')
     focus_target = {'education': 'degrees', 'skills': 'skills', 'technical_skills': 'technical_skills',
                     'domain_specific_skills': 'domain_specific_skills', 'software_tools': 'software_tools', 'languages': 'language_0',
-                    'experience': 'job_titles', 'preferences': 'availability', 'location': 'country'}.get(focus, '')
+                    'experience': 'work-history', 'preferences': 'availability', 'location': 'country'}.get(focus, '')
     if focus == 'preferences' and preference_model is not None:
         focus_target = 'beta_preference_workloads'
     return (f"<form method='post' action='{esc(action)}' class='profile-review-form candidate-correction' id='profile-review-form' data-focus='{focus_target}'>"
         + hidden + feedback + ("<p>Add the details you want to use for matching. Optional details can stay blank.</p>" if manual_draft else "<p>Edit any section that needs a correction. Optional details can stay blank.</p>")
-        + ("<p class='field-help'>Changes are saved to an unconfirmed draft while you edit. Done editing closes a section. Review changes checks the complete profile before confirmation.</p>" if manual_draft else "<p class='field-help'>Done editing closes a section. Use Review changes to save your draft, then confirm the complete profile on the next screen.</p>")
+        + ("<p class='field-help'>Changes are saved to an unconfirmed draft while you edit. Done editing closes a section. Review changes checks the complete profile before confirmation.</p>" if manual_draft else "<p class='field-help'>Done editing closes a section. Review changes saves a draft. Matching uses your confirmed profile until you choose Save changes.</p>")
         + "<p data-local-edit-status role='status' aria-live='polite'></p>"
         + "<a class='primary-link' href='#review-actions'>Continue to review</a>"
-        + location + languages + employment + education_section + skill_section + preferences + optional
-        + "<div class='review-checks'>" + support.review_checkbox('credentials_confirmed',
-            'The license and certification information I reviewed is accurate.', fields.get('credentials_confirmed') == '1', required=True) + "</div>"
+        + location + languages + skill_section + employment + education_section + preferences + optional
+        + ("<div class='review-checks'>" + support.review_checkbox('credentials_confirmed',
+            'The license and certification information I reviewed is accurate.', fields.get('credentials_confirmed') == '1', required=True) + '</div>' if manual_draft else '')
         + f"<div class='review-actions' id='review-actions'><a data-correction-back href='{esc(back_url)}'>Back</a>"
         + f"<a href='{esc(cancel_url)}'>Cancel</a><button type='submit' id='confirm-profile-button'>Review changes</button></div>"
         + "<p class='field-help'>You will confirm the complete profile on the next screen.</p>" + ('' if manual_draft else item_experience_editor.dialog()) + '</form>'
@@ -265,6 +276,17 @@ EDITOR_STYLE = """
 .candidate-correction [data-undo-item],.candidate-correction [data-undo-language] {margin:8px 0;}
 .candidate-correction [data-education-entry] {border:1px solid #dce2df;border-radius:8px;margin:8px 0;padding:0 12px;}
 .candidate-correction [data-education-entry] > summary {display:block;overflow-wrap:anywhere;line-height:1.5;cursor:pointer;}
+.candidate-correction [data-remove-education] {padding-left:0;margin:4px 0 8px;}
+.candidate-correction .education-add-action {margin:16px 0 20px;}
+.candidate-correction [data-add-education] {border:1px solid #aebbb5;text-decoration:none;color:#174d3b;}
+.candidate-correction .secondary-add {border:1px solid #aebbb5;text-decoration:none;color:#174d3b;margin-top:16px;}
+.candidate-correction [data-education-undo],.candidate-correction [data-section-undo] {display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;margin:12px 0;padding:8px 12px;background:#f1f5f3;border-radius:6px;}
+.candidate-correction [data-education-undo] span,.candidate-correction [data-section-undo] span {overflow-wrap:anywhere;flex:1 1 180px;}
+.candidate-correction [data-education-undo] button,.candidate-correction [data-section-undo] button {padding:6px 8px;}
+.candidate-correction [data-ability-list] .skills-collection {margin:0;}
+.candidate-correction [data-ability-list] .correction-item {margin-bottom:12px;}
+.candidate-correction #section-skills .field-help,.candidate-correction #section-experience .field-help {font-size:14px;line-height:1.55;color:#53605b;}
+.candidate-correction [data-remove-employment] {padding-left:0;margin-top:8px;}
 .candidate-correction [data-study-group] {margin:16px 0;}
 .candidate-correction [data-study-group] > summary {font-weight:700;}
 .candidate-correction [data-employment-entry] {margin:12px 0;}
@@ -283,7 +305,7 @@ form.querySelectorAll('[data-chips]').forEach(function(group){
  var hidden=form.querySelector('[name="'+group.dataset.chips+'"]'),items=group.querySelector('[data-chip-items]');
  function sync(){hidden.value=Array.from(items.querySelectorAll('[data-collection-item]')).filter(function(item){return !item.querySelector('[data-collection-remove]').checked;}).map(function(item){return item.querySelector('input:not([type=checkbox])').value.trim();}).filter(Boolean).join(', ');}
  group.addEventListener('input',sync);group.addEventListener('change',function(e){if(e.target.matches('[data-collection-remove]'))e.target.closest('[data-collection-item]').hidden=e.target.checked;sync();});
- group.addEventListener('click',function(e){var button=e.target.closest('[data-collection-remove-action]');if(!button)return;var item=button.closest('[data-collection-item]'),removed=item.querySelector('[data-collection-remove]'),input=item.querySelector('input:not([type=checkbox])');removed.checked=true;removed.dispatchEvent(new Event('change',{bubbles:true}));var undo=document.createElement('button');undo.type='button';undo.className='button-quiet';undo.dataset.undoItem='';undo.textContent='Undo removal: '+(input.value.trim()||input.closest('label').textContent.trim());item.after(undo);undo.addEventListener('click',function(){removed.checked=false;removed.dispatchEvent(new Event('change',{bubbles:true}));undo.remove();input.focus();});undo.focus();});
+ group.addEventListener('click',function(e){var button=e.target.closest('[data-collection-remove-action]');if(!button)return;var item=button.closest('[data-collection-item]'),removed=item.querySelector('[data-collection-remove]'),input=item.querySelector('input:not([type=checkbox])');if(removed.checked)return;removed.checked=true;removed.dispatchEvent(new Event('change',{bubbles:true}));var education=group.closest('.candidate-section');if(education&&education._educationUndo){education._educationUndo.remember({label:input.closest('label').textContent.trim().toLowerCase()+': '+(input.value.trim()||'empty item'),restore:function(){removed.checked=false;removed.dispatchEvent(new Event('change',{bubbles:true}));},focus:function(){for(var parent=item.parentElement;parent;parent=parent.parentElement){if(parent.tagName==='DETAILS')parent.open=true;}(input.disabled?button:input).focus();}});return;}var undo=document.createElement('button');undo.type='button';undo.className='button-quiet';undo.dataset.undoItem='';undo.textContent='Undo removal: '+(input.value.trim()||input.closest('label').textContent.trim());item.after(undo);undo.addEventListener('click',function(){removed.checked=false;removed.dispatchEvent(new Event('change',{bubbles:true}));undo.remove();input.focus();});undo.focus();});
  group.querySelector('[data-add-chip]').addEventListener('click',function(){var empty=Array.from(items.querySelectorAll('[data-collection-item]')).find(function(item){return !item.hidden&&!item.querySelector('input:not([type=checkbox])').value.trim();});if(empty){empty.querySelector('input:not([type=checkbox])').focus();return;}var next=group.querySelector('template').content.cloneNode(true);items.appendChild(next);items.lastElementChild.querySelector('input:not([type=checkbox])').focus();});
 });
 form.querySelectorAll('[data-choices]').forEach(function(group){group.addEventListener('change',function(){form.querySelector('[name="'+group.dataset.choices+'"]').value=Array.from(group.querySelectorAll('input:checked')).map(function(i){return i.value;}).join(', ');});});
@@ -299,10 +321,10 @@ function jsonValues(name){try{return JSON.parse(value(name)||'[]');}catch(e){ret
 function summarize(section){var id=section.id.replace('section-',''),parts=[];
  if(id==='languages')parts=languageRows.map(function(row){var c=languageControls(row);return c[0].value.trim()?c[0].value.trim()+' ('+c[1].selectedOptions[0].textContent+')'+(c[2].value.trim()?' — '+c[2].value.trim():''):'';});
  else if(id==='location')parts=['city','region','country'].map(value);
- else if(id==='experience'){parts=['job_titles','specialties'].map(value).concat(jsonValues('recent_roles'));if(value('no_experience')==='1')parts.push('No prior work experience');if(value('total_years'))parts.push('Total career experience: '+value('total_years')+' years');section.querySelectorAll('[data-domain-duration-row]').forEach(function(row){if(!row.hidden)parts.push('Experience in '+row.dataset.domain+': '+(row.querySelector('input').value.trim()||'needs review')+' years');});}
+ else if(id==='experience'){parts=['job_titles'].map(value).concat(jsonValues('recent_roles').map(function(v){return form.querySelector('[data-employment-editor]')._summary(v);}));if(value('no_experience')==='1')parts.push('No prior work experience');if(value('total_years'))parts.push('Total career experience: '+value('total_years')+' years');section.querySelectorAll('[data-domain-duration-row]').forEach(function(row){if(!row.hidden)parts.push('Experience in '+row.dataset.domain+': '+(row.querySelector('input').value.trim()||'needs review')+' years');});}
  else if(id==='skills'){var seenSkills=new Set();Array.from(section.querySelectorAll('[data-chips]')).forEach(function(g){value(g.dataset.chips).split(',').forEach(function(v){v=v.trim();var key=v.toLocaleLowerCase();if(v&&!seenSkills.has(key)){seenSkills.add(key);parts.push(v);}});});}
- else if(id==='education'){parts=jsonValues('education_entries').map(function(e){return [e.qualification,e.field,e.institution,e.completion_year,e.status&&e.status!=='unknown'?e.status.replaceAll('_',' '):''].filter(Boolean).join(', ');});parts=parts.concat(['degrees','education_fields','institutions'].map(value),[option('education_level'),option('education_status')]);if(form.querySelector('[name=no_degree]').checked)parts.push('No university degree');}
- else if(id==='preferences'){if(form.querySelector('[name=beta_preferences_present]')){section.querySelectorAll('fieldset').forEach(function(g){var selected=Array.from(g.querySelectorAll('input:checked')).map(function(c){return c.closest('label').textContent.trim();});if(selected.length)parts.push(g.querySelector('legend').textContent+': '+selected.join(', '));});section.querySelectorAll('.pay-expectation').forEach(function(g){var c=Array.from(g.querySelectorAll('input,select'));if(c[1].value||c[2].value)parts.push(c[0].selectedOptions[0].textContent+': '+c[2].value+' '+c[1].value+' '+c[3].selectedOptions[0].textContent.toLowerCase());});}else{parts=['availability','synchronous_preference','phone_preference'].map(option).concat(['schedule','employment_types','target_opportunity_types'].map(value));if(form.querySelector('[name=flexible]').checked)parts.push('Flexible hours preferred');}if(value('remote')==='1')parts.push('Remote work preferred');}
+ else if(id==='education'){var editor=form.querySelector('[data-education-editor]');parts=jsonValues('education_entries').map(function(e){return editor._entrySummary(e);});parts=parts.concat(['degrees','education_fields','institutions'].map(value),[option('education_level'),option('education_status')]);if(form.querySelector('[name=no_degree]').checked)parts.push('No university degree');}
+ else if(id==='preferences'){if(form.querySelector('[name=beta_preferences_present]')){section.querySelectorAll('fieldset').forEach(function(g){var selected=Array.from(g.querySelectorAll('input:checked')).map(function(c){return c.closest('label').textContent.trim();});if(selected.length)parts.push(g.querySelector('legend').textContent+': '+selected.join(', '));});section.querySelectorAll('.pay-expectation').forEach(function(g){var c=Array.from(g.querySelectorAll('input,select'));if(c[1].value||c[2].value)parts.push(c[0].selectedOptions[0].textContent+': '+c[2].value+' '+c[1].value+' '+c[3].selectedOptions[0].textContent.toLowerCase());});}else{parts=['availability','synchronous_preference','phone_preference'].map(option).concat(['schedule','employment_types','target_opportunity_types'].map(value));if(form.querySelector('[name=flexible]').checked)parts.push('Flexible hours preferred');}}
  else if(id==='optional'){section.querySelectorAll('input:not([type=checkbox]),textarea,select').forEach(function(c){if(meaningful(c.value))parts.push(c.closest('label').querySelector('span').textContent+': '+(c.tagName==='SELECT'?c.selectedOptions[0].textContent:c.value));});}
  section.querySelector('[data-section-summary]').textContent=parts.filter(meaningful).join(' · ')||'Not specified';}
 function refresh(){form.querySelectorAll('.candidate-section').forEach(summarize);form.querySelector('[data-local-edit-status]').textContent=!form.hasAttribute('data-manual-draft')&&dirty()?'Edits on this page are not saved yet. Review changes to save the draft.':'';}
@@ -383,20 +405,30 @@ def changed_profile_sections(before, after):
 def change_summary(before, after, *, saved=False):
     sections = changed_profile_sections(before, after)
     if not sections:
-        return ("<section id='profile-change-summary' role='status'><h2>No profile details have changed</h2>"
+        return ("<section id='profile-change-summary' role='status'><h2>No changes to save</h2>"
                 "<p>This proposal is the same as your saved profile. No changes need to be applied.</p></section>")
     labels = dict(identity='Display name', location='Location', languages='Languages',
-        experience='Experience and activities', education='Education and studies',
-        skills='Skills and tools', preferences='Work preferences', credentials='Credentials',
+        experience='Work history and abilities', education='Education and studies',
+        skills='What you can do', preferences='Work preferences', credentials='Credentials',
         constraints='Constraints')
-    detail = summary_sections({key: after[key] for key in sections})
-    if 'identity' in sections:
-        detail = '<p>Display name: ' + esc(after['identity'].get('display_name')) + '</p>' + detail
+    import re
+    # Compare displayed facts rather than provenance, and show actual additions
+    # and removals without repeating every unchanged fact in a changed section.
+    def rows(profile):
+        result = re.findall(r'<li>(.*?)</li>', summary_sections(profile))
+        name = profile.get('identity', {}).get('display_name')
+        if name:
+            result.append(esc(name))
+        return list(dict.fromkeys(result))
+    previous, proposed = rows(before), rows(after)
+    removed = [v for v in previous if v not in proposed]
+    added = [v for v in proposed if v not in previous]
+    changes = ''.join('<li><strong>' + label + ':</strong> ' + value + '</li>'
+                      for label, values in (('Removed', removed), ('Added', added)) for value in values)
     return ("<section id='profile-change-summary' role='status'><h2>"
-            + ('Profile changes saved' if saved else 'Changes awaiting confirmation') + '</h2><ul>'
-            + ''.join('<li>' + esc(labels[key]) + '</li>' for key in sections) + '</ul>'
-            + '<details><summary>' + ('See saved details' if saved else 'See proposed details')
-            + '</summary>' + detail + '</details></section>')
+            + ('Profile changes saved' if saved else 'Changes awaiting confirmation') + '</h2>'
+            + '<p>' + ', '.join(esc(labels[key]) for key in sections) + '</p><ul>'
+            + changes + '</ul></section>')
 
 
 def summary_sections(canonical):
@@ -412,10 +444,9 @@ def summary_sections(canonical):
     credentials = canonical.get('credentials', {})
     constraints = canonical.get('constraints', {})
     entries = education.get('entries', [])
+    from wahojobs.profiles.work_history_editor import summary as work_summary
     from wahojobs.profiles.item_experience import summary as item_summary
     from wahojobs.profiles.preference_presentation import preference_summary
-    studies = [' · '.join(str(e[k]).replace('_', ' ') for k in ('qualification', 'field', 'institution', 'completion_year', 'status') if e.get(k) and e[k] != 'unknown') for e in entries]
-    unpaired = unpaired_education(education)
     career = ([f"Total career experience: {experience['total_years']} years (not years in each profession)"] if experience.get('total_years') is not None else [])
     if 'no prior experience' in canonical.get('constraints', {}).get('hard_constraints', []):
         career.append('No prior work experience')
@@ -423,19 +454,20 @@ def summary_sections(canonical):
     if isinstance(domain_years, dict):
         domain_years = [dict(domain=domain, years=years) for domain, years in domain_years.items()]
     career.extend(f"Experience in {item['domain']}: {item['years']} years" for item in domain_years)
-    study_details = [*studies, *unpaired.get('degrees', []), *unpaired.get('fields_or_domains', []), *unpaired.get('institutions', [])]
-    if education.get('education_level') not in (None, '', 'unknown', 'not_specified'):
-        study_details.append('Education level: ' + education['education_level'].replace('_', ' '))
-    if education.get('completion_status') not in (None, '', 'unknown', 'not_specified'):
-        study_details.append('Study status: ' + education['completion_status'].replace('_', ' '))
+    from wahojobs.candidate_readability import education_summary, credential_status_label
+    study_details = education_summary(education)
     return ''.join((
+        section('Name', [canonical.get('identity', {}).get('display_name')]),
         section('Location', [', '.join(location[k] for k in ('city', 'region', 'country') if location.get(k))]),
         section('Languages', [f"{v['language']}" + (f" ({v['locale']})" if v.get('locale') else '') + f" — {str(v.get('proficiency') or 'Not specified').replace('_', ' ')}" for v in canonical.get('languages', [])]),
-        section('Experience', list(dict.fromkeys([*experience.get('job_titles', []), *experience.get('recent_roles', []), *experience.get('specialties', []), *career]))),
-        section('Optional experience details', [item_summary(i) for i in experience.get('item_details', [])]),
+        section('Work history', list(dict.fromkeys([*experience.get('job_titles', []), *[work_summary(v) for v in experience.get('recent_roles', [])], *career]))),
         section('Education and studies', study_details),
-        section('Skills and tools', list(dict.fromkeys(v for values in skills.values() if isinstance(values, list) for v in values if isinstance(v, str)))),
+        section('What you can do', list(dict.fromkeys([*experience.get('specialties', []), *[v for values in skills.values() if isinstance(values, list) for v in values if isinstance(v, str)], *[item_summary(i) for i in experience.get('item_details', [])]]))),
         section('Work preferences', preference_summary(preferences)),
-        section('Permissions and credentials', [location.get('work_authorization'), *location.get('eligible_countries', []), *credentials.get('licenses', []), *credentials.get('certifications', []), *credentials.get('jurisdictions', []), *credentials.get('security_clearances', [])]),
+        section('Permissions and credentials', [location.get('work_authorization'),
+            *['Country where you can work: ' + v for v in location.get('eligible_countries', [])],
+            *['Location constraint: ' + v for v in dict.fromkeys(location.get('restrictions', []) + location.get('geographic_work_restrictions', []))],
+            credential_status_label(credentials.get('credential_status')),
+            *credentials.get('licenses', []), *credentials.get('certifications', []), *credentials.get('jurisdictions', []), *credentials.get('security_clearances', [])]),
         section('Constraints and preferences', list(dict.fromkeys(v for key, values in constraints.items() if isinstance(values, list) for v in values if isinstance(v, str) and not (key == 'hard_constraints' and v == 'no prior experience')))),
     ))

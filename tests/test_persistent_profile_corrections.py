@@ -716,15 +716,11 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             "same-origin",
         )
         self._assert_self_only_form_policy(start)
-        form = self._form(start, "intent")
-        response, probe = self._post_form(
-            browser,
-            form["action"],
-            form["fields"],
-            session=session,
-        )
-        self.assertEqual((response.status, probe.read_count), (303, 1))
-        return self._response_header(response, "Location")
+        # Direct populated editor; this helper returns its equivalent read-only
+        # review route for tests of the low-level review/artifact contract.
+        form = self._form(start, 'edit_run_id', 'review_token')
+        fields = dict(form['fields'])
+        return '/account/profile?correction=review&draft=' + fields['edit_run_id'] + '&token=' + fields['review_token']
 
     def _browser_apply_offer(self, browser, *, changes=()):
         review_target = self._start_browser_correction(browser)
@@ -927,7 +923,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         )
         self.assertEqual((before_bytes, before_counts), (after_bytes, self._profile_counts()))
         self.assertIn("Find matches", body)
-        self.assertIn("Update profile", body)
+        self.assertIn("Edit profile", body)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", body)
         self.assertNotIn("<script>alert(1)</script>", body)
         self.assertEqual(
@@ -938,7 +934,6 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
                 "/find-matches",
                 "/tracker",
                 "/account/profile?correction=start",
-                "/account/profile?correction=resume",
             },
         )
         self.assertIn("href='/tracker'>My Jobs</a>", body)
@@ -1710,8 +1705,8 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
         )
         self.assertEqual(reviewed.status, 200)
         reviewed_body = reviewed.body.decode("utf-8")
-        self.assertIn(f"<h1>{display_name}</h1>", reviewed_body)
-        self.assertNotIn("Dutch", reviewed_body)
+        self.assertIn("<h1>Review changes</h1>", reviewed_body)
+        self.assertIn("Removed:</strong> Dutch", reviewed_body)
         for language in (*language_names[1:], "Zulu"):
             self.assertIn(language, reviewed_body)
         confirm_form = self._form(reviewed, "draft", "review_token")
@@ -2701,18 +2696,8 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             "/account/profile?correction=start",
             self._browser_headers(self.session),
         )
-        start_form = self._form(start, "intent")
-        started, start_probe = self._post_form(
-            browser,
-            start_form["action"],
-            start_form["fields"],
-        )
-        self.assertEqual((started.status, start_probe.read_count), (303, 1))
-        review = browser.handle(
-            "GET",
-            self._response_header(started, "Location"),
-            self._browser_headers(self.session),
-        )
+        started = start
+        review = browser.handle('GET', self._start_browser_correction(browser), self._browser_headers(self.session))
         edit_target = next(
             href for href in self._markup(review).links if "correction=edit" in href
         )
@@ -2732,6 +2717,7 @@ class PersistentProfileCorrectionTests(unittest.TestCase):
             "credentials_confirmed",
             "1",
         )
+        edit_fields = self._set_form_field(edit_fields, 'region', 'Changed region')
         redrafted, redraft_probe = self._post_form(
             browser,
             edit_form["action"],

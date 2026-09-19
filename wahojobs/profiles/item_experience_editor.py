@@ -7,8 +7,8 @@ def dialog():
     short = {'unknown': 'Not specified', 'guided': 'With guidance',
              'independent': 'Independent routine tasks', 'complex': 'Independent complex tasks'}
     return ("<dialog id='item-experience-dialog' aria-labelledby='item-experience-title'>"
-        "<h2 id='item-experience-title'>Experience details</h2><p data-item-label></p>"
-        "<p>Optional, self-reported information. Nothing is confirmed until you review and apply your profile update.</p>"
+        "<h2 id='item-experience-title'>How you have used this</h2><p data-item-label></p>"
+        "<p>For example, you may have used Python in a course, a personal project or a job. Choose only what applies to you. All details are optional.</p>"
         "<fieldset><legend>Where have you used it?</legend>"
         + ''.join(f"<label class='item-context'><input type='checkbox' data-item-context value='{key}'> {escape(label)}</label>" for key,label in CONTEXTS.items())
         + "</fieldset><label class='review-field'><span>How do you use it?</span><select data-item-autonomy>"
@@ -19,7 +19,7 @@ def dialog():
         "<p data-item-error role='alert' hidden></p><div class='item-dialog-actions'>"
         "<button type='button' data-item-save>Use these details</button>"
         "<button type='button' class='button-quiet' data-item-cancel>Cancel</button>"
-        "<button type='button' class='button-quiet' data-item-clear>Clear experience details</button>"
+        "<button type='button' class='button-quiet' data-item-clear>Clear these details</button>"
         "</div></dialog>")
 
 
@@ -44,7 +44,7 @@ dialog.querySelector('[data-item-autonomy]').addEventListener('change',autonomyD
 var fields=['skills','software_tools','technical_skills','writing_research_skills','administrative_support_skills','domain_specific_skills','specialties'];
 function label(item){return item.querySelector('input:not([type=checkbox])').value.trim();}
 function sync(){var out=[];form.querySelectorAll('[data-chips] [data-collection-item]').forEach(function(item){if(item._experience&&!item.querySelector('[data-collection-remove]').checked&&label(item)){item._experience.label=label(item);out.push(item._experience);}});out.sort(function(a,b){return a.item_id.localeCompare(b.item_id);});hidden.value=JSON.stringify(out);}
-function describe(item){var record=item._experience,summary=item.querySelector('[data-item-summary]'),button=item.querySelector('[data-experience-open]');button.textContent=record?'Edit experience details':'Add experience details';var parts=[];if(record){if(record.contexts.length)parts.push(record.contexts.map(function(c){return {study:'study or training',projects:'projects',professional:'professional use'}[c];}).join(', '));if(record.autonomy!=='unknown')parts.push({guided:'with guidance',independent:'independent routine tasks',complex:'independent complex tasks'}[record.autonomy]);if(record.months!==null)parts.push(record.months===0?'less than one month':'about '+record.months+' months');}summary.textContent=parts.length?parts.join(' · ')+' · self-reported':'';summary.hidden=!parts.length;}
+function describe(item){var record=item._experience,summary=item.querySelector('[data-item-summary]'),button=item.querySelector('[data-experience-open]');button.textContent=record?'Edit how you have used this':'How you have used this (optional)';var parts=[];if(record){if(record.contexts.length)parts.push(record.contexts.map(function(c){return {study:'study or training',projects:'projects',professional:'professional use'}[c];}).join(', '));if(record.autonomy!=='unknown')parts.push({guided:'with guidance',independent:'independent routine tasks',complex:'independent complex tasks'}[record.autonomy]);if(record.months!==null)parts.push(record.months===0?'less than one month':'about '+record.months+' months');}summary.textContent=parts.length?parts.join(' · ')+' · self-reported':'';summary.hidden=!parts.length;}
 function close(){dialog.close();if(opener)opener.focus();}
 function attach(item,field){if(item._experienceReady)return;item._experienceReady=true;item._experience=records.find(function(r){return r.field===field&&r.label===label(item);})||null;
  var button=document.createElement('button');button.type='button';button.className='button-quiet';button.dataset.experienceOpen='';var summary=document.createElement('p');summary.dataset.itemSummary='';item.append(button,summary);describe(item);

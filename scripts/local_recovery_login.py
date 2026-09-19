@@ -27,7 +27,7 @@ from wahojobs.workos_authkit_staging import _build_profile_integration, _Staging
 
 
 RETURN_COOKIE = "__Host-wahojobs_local_return"
-SAFE_RETURNS = frozenset({"/account/profile", "/find-matches"})
+SAFE_RETURNS = frozenset({"/account/profile", "/find-matches", "/jobs"})
 
 
 class RealtimeClock:
@@ -51,14 +51,20 @@ class _ResponseView:
 
 
 class LocalLoginNavigation:
-    def __init__(self, delegate):
+    def __init__(self, delegate, *, catalog_authorized=None):
         self.delegate = delegate
+        self.catalog_authorized = catalog_authorized
 
     def matches_route(self, path):
         return self.delegate.matches_route(path)
 
     def handle(self, method, target, headers, body_stream=None):
         parsed = urlsplit(target)
+        if (self.catalog_authorized is not None
+                and (parsed.path == '/jobs' or parsed.path.startswith(('/job/', '/company/')))
+                and not self.catalog_authorized(headers)):
+            from wahojobs.remote_beta import response
+            return response(303, 'Sign in to browse jobs.\n', location='/login?next=/jobs')
         login = method == "GET" and parsed.path == "/login"
         destination = parse_qs(parsed.query).get("next", ["/find-matches"])[0]
         if destination not in SAFE_RETURNS:
@@ -242,4 +248,14 @@ def controlled_local_product(state, *, professional_background_preparer=None, al
         bridge = (_fixture_bridge_factory(browser, state) if _fixture_bridge_factory is not None
                   else _ControlledProviderBridge(browser, state, [], claims_overrides=(
                       {'email': 'new-candidate@example.test', 'email_verified': True} if allow_invited else None)))
-        yield config.public_configuration, LocalLoginNavigation(bridge)
+        def catalog_authorized(headers):
+            # Match the beta's session boundary without requiring a profile or
+            # changing the shared public catalog's publication rules.
+            from wahojobs.browser_session_authentication import DurableBrowserSessionAuthenticationGateway
+            from wahojobs.persistent_profiles_application import BrowserRequestContext
+            gateway = DurableBrowserSessionAuthenticationGateway(
+                trusted_environment_namespace=config.environment, clock=clock)
+            with connections.read_only_connection_provider() as connection:
+                return gateway.authenticate_browser_request(connection,
+                    BrowserRequestContext('GET', '/account/profile', headers)) is not None
+        yield config.public_configuration, LocalLoginNavigation(bridge, catalog_authorized=catalog_authorized)

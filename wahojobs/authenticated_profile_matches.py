@@ -1204,13 +1204,13 @@ class AuthenticatedProfileMatchesBrowserIntegration:
     def _with_workflow_events(self, record):
         with self._connection_provider() as connection:
             events = connection.execute(
-                'SELECT occurred_at, affected_dimension, action_name, after_state_json '
-                'FROM user_pipeline_transitions WHERE pipeline_item_id=? AND profile_id=? ORDER BY id',
+                'SELECT occurred_at, affected_dimension, action_name, before_state_json, after_state_json, metadata_json '
+                'FROM user_pipeline_transitions WHERE pipeline_item_id=? AND profile_id=? ORDER BY id DESC',
                 (record['pipeline_item_id'], record['profile_id'])).fetchall()
         return dict(record, _workflow_events=[dict(e) for e in events])
 
-    def _history_controls(self, record, authority):
-        target = local_product.tracker_item_url(record)
+    def _history_controls(self, record, authority, *, return_to=None):
+        target = return_to or local_product.tracker_item_url(record)
         run = self._registry.create(owner_profile_id=authority.candidate_workflow_authority()[4],
             raw_input='', input_style='short_paragraph',
             recommendation_context={'matches': {}, '_workflow_return': target}, profile_confirmed=True)
@@ -1227,6 +1227,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         body = ("<section class='panel' data-action-card><h1>" + _safe(record['title']) + '</h1>'
                 + "<p>Current local source details cannot be linked safely to this saved history. "
                 "Your progress is preserved; no other posting has been substituted.</p>"
+                + "<p class='js-card-status'>" + _safe(local_product.readable_status(record['workflow_status']) if record.get('workflow_status') else 'Progress unknown') + '</p>'
                 + history + "<div class='js-card-controls'>" + controls + '</div>'
                 + (f"<p><a href='{_safe(record['url'])}' target='_blank' rel='noopener noreferrer'>Original saved listing</a></p>"
                    if local_product.safe_job_url(record['url']) else '')
@@ -1265,7 +1266,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     payload['workflow_history_html'] = _render_workflow_history(
                         self._with_workflow_events(result['item']))
                 if (section not in {'tracker','tracker_item','public_job'}
-                        and form['action'][0] in {'not_interested','show_again'}):
+                        and form['action'][0] in {'not_interested','show_again','undo_applied','correct_applied'}):
                     payload['matches_refresh_url'] = '/find-matches'
                 return _json_response(
                     HTTPStatus.OK,
@@ -1328,9 +1329,16 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             route_decision = None
             canonical_opportunity_id = public_job_page.parse_public_job_path(path)
             authenticated = authority is not None and authority.state == "profile"
-            prepared = self._professional_background_evidence if authenticated else None
+            signed_in = authority is not None and authority.state in {'profile', 'empty'}
+            catalog_mode = bool(catalog_return_to and not match_run_id) or (signed_in and not authenticated)
+            if catalog_mode and not catalog_return_to:
+                catalog_return_to = '/jobs'
+            profile_v2 = {}
+            records = []
+            workflow_bindings = {}
+            prepared = self._professional_background_evidence if authenticated and not catalog_mode else None
             generation = prepared.generation_token if prepared is not None else None
-            if (selected_job_id is not None or match_run_id is not None) and not authenticated:
+            if ((selected_job_id is not None and not signed_in and not catalog_return_to) or (match_run_id is not None and not authenticated)):
                 return _failure_response(HTTPStatus.UNAUTHORIZED, "Sign in required",
                                          "Sign in to view this recommendation.")
             selected_match = None
@@ -1348,8 +1356,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                                              'Return to your current matches or My Jobs.')
                 profile_v2 = authority.trusted_profile_v2()
                 records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else []
-                inputs = self._recommendation_input_key(profile_v2, authority,
-                    hidden_ids=pipeline_postings.hidden_job_ids(records))
+                inputs = (self._recommendation_input_key(profile_v2, authority,
+                    hidden_ids=pipeline_postings.hidden_job_ids(records)) if not catalog_mode else None)
             with self._connection_provider() as connection:
                 if (
                     not isinstance(connection, sqlite3.Connection)
@@ -1374,7 +1382,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             else None
                         )
                     elif (self._public_job_canary_gate.enabled and tracker_record is None
-                          and selected_job_id is None):
+                          and (selected_job_id is None or not signed_in)):
                         route_decision = self._public_job_canary_gate.resolve_canonical(
                             connection,
                             canonical_opportunity_id,
@@ -1388,7 +1396,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     elif route_decision is not None and route_decision.kind != "serve":
                         job = None
                     elif canonical_opportunity_id is not None:
-                        if authenticated:
+                        if authenticated and not catalog_mode:
                             from wahojobs.authenticated_variant_details import load_scoped_snapshot
                             snapshot = load_scoped_snapshot(connection, canonical_opportunity_id,
                                                             selected_job_id, now=evaluated_at)
@@ -1402,6 +1410,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                             job = public_job_page.load_public_job(
                                 connection, public_job_page.public_job_path(canonical_opportunity_id),
                                 now=evaluated_at, selected_job_id=selected_job_id)
+                        if job is not None and authenticated:
+                            workflow_bindings[job['job_id']] = pipeline_postings.source_binding(connection, job['job_id'])
                         if job is not None and route_decision is not None:
                             job["path"] = route_decision.primary_path
                     else:
@@ -1442,7 +1452,14 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     job["path"] = route_decision.primary_path
             if route_decision is not None:
                 if public_job_page.parse_public_job_path(path) is not None:
-                    return _permanent_redirect_response(route_decision.primary_path)
+                    redirect_query = {}
+                    if selected_job_id is not None:
+                        redirect_query['variant'] = selected_job_id
+                    if match_run_id:
+                        redirect_query['run'] = match_run_id
+                    if catalog_return_to:
+                        redirect_query['return_to'] = catalog_return_to
+                    return _permanent_redirect_response(route_decision.primary_path + ('?' + urlencode(redirect_query) if redirect_query else ''))
                 if route_decision.kind == "redirect":
                     return _permanent_redirect_response(route_decision.location)
                 if route_decision.kind == "gone":
@@ -1461,7 +1478,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             # Scoped comparisons and saved membership are accepted together.
             # A replacement before this boundary makes the whole response fail.
             with prepared.consume_generation(generation, dependencies=detail_dependencies + membership_dependencies) if prepared is not None else nullcontext():
-                if authenticated:
+                if authenticated and not catalog_mode:
                     from wahojobs.authenticated_variant_details import prepare_variant_notice
                     prepare_variant_notice(job, selected_match, local=local_checks,
                                            membership_known=membership_known)
@@ -1473,14 +1490,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         local_product.demo.build_tracked_index(records))
                 if record is not None and self._write_connection_provider is not None:
                     record = self._with_workflow_events(record)
-                    controls = self._history_controls(record, authority)
+                    from wahojobs.authenticated_variant_details import variant_detail_url
+                    history_return = (variant_detail_url(job['workflow_match']) + '&' + urlencode({'return_to': catalog_return_to})) if catalog_return_to else None
+                    controls = self._history_controls(record, authority, return_to=history_return)
                     status = local_product.readable_status(record['status'])
                 elif workflow_enabled:
                     match = job["workflow_match"]
                     match = dict(match, _workflow_posting_id=job['job_id'],
-                                 _workflow_source_binding=snapshot['_workflow_bindings'][job['job_id']])
+                                 _workflow_source_binding=(workflow_bindings if catalog_mode else snapshot['_workflow_bindings'])[job['job_id']])
                     from wahojobs.authenticated_variant_details import variant_detail_url
                     target = variant_detail_url(match)
+                    if catalog_return_to:
+                        target += '&' + urlencode({'return_to': catalog_return_to})
                     context = {"matches": {"do_these_first": [match]}, '_workflow_return': target}
                     run = self._registry.create(
                         owner_profile_id=authority.candidate_workflow_authority()[4],
@@ -1499,16 +1520,18 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     if job['job_id'] in local_product.demo.build_tracked_index(records)['ambiguous_job_ids']:
                         controls = "<p>Separate histories are linked to this posting. Review each in <a href='/tracker'>My Jobs</a>.</p>"
 
-                if authenticated:
+                if signed_in:
+                    if not authenticated:
+                        controls = "<p><a href='/account/profile'>Create your profile to save jobs</a>.</p>"
                     from wahojobs.authenticated_source_detail import render_authenticated_job_page
                     content = render_authenticated_job_page(
                         job, profile=profile_v2,
-                        navigation=_navigation(current=''),
+                        navigation=_navigation(current='jobs' if catalog_mode else ''),
                         workflow_controls=controls, workflow_status=status,
                         workflow_history=_render_workflow_history(record) if record is not None else '',
                         tracker_return=tracker_record is not None,
                         catalog_return_to=catalog_return_to,
-                        return_run_id=match_run_id if membership_known else None)
+                        return_run_id=match_run_id if membership_known else None, personalized=not catalog_mode)
                 else:
                     content = public_job_page.render_public_job_page(
                         job, public_origin=self._public_origin, authenticated=False,
@@ -1519,12 +1542,12 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     content,
                     referrer_policy=(
                         _SAME_ORIGIN_REFERRER_POLICY
-                        if authenticated
+                        if signed_in
                         else _NO_REFERRER_POLICY
                     ),
                     cache_control=(
                         "no-store"
-                        if authenticated
+                        if signed_in
                         else "public, max-age=300"
                     ),
                     robots_directive=(
@@ -1555,12 +1578,23 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             jobs = self._load_public_jobs_inventory()
 
             authority = self._optional_public_authority(header_items)
-            authenticated = authority is not None and authority.state == "profile"
+            authenticated = authority is not None and authority.state in {"profile", "empty"}
             catalog = public_jobs_catalog.build_catalog(jobs, params)
+            # Per-account status never enters the shared inventory cache.
+            if authority is not None and authority.state == 'profile' and self._write_connection_provider is not None:
+                index = local_product.demo.build_tracked_index(self._load_pipeline_records(authority))
+                catalog['jobs'] = [dict(job) for job in catalog['jobs']]
+                for job in catalog['jobs']:
+                    record = local_product.demo.tracked_record_for_match(job['workflow_match'], index)
+                    if record:
+                        job['_catalog_saved_status'] = local_product.readable_status(record['status'])
             request_target = public_jobs_catalog.PUBLIC_JOBS_ROUTE + (
                 "?" + raw_query if raw_query or raw_query_present else ""
             )
             if request_target != catalog["normalized_target"]:
+                # Availability changes: do not permanently cache a page clamp.
+                if catalog['requested_page'] != catalog['page']:
+                    return _redirect_response(catalog['normalized_target'])
                 return _permanent_redirect_response(catalog["normalized_target"])
             content = public_jobs_catalog.render_public_jobs_page(
                 catalog,
@@ -1572,7 +1606,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         self._public_catalog_auth_routes_enabled
                     ),
                 ),
-                query_present=query_present,
+                query_present=query_present, authenticated=authenticated,
             )
             return _html_response(
                 HTTPStatus.OK,
@@ -1638,7 +1672,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             if request_target != normalized_target:
                 return _permanent_redirect_response(normalized_target)
             authority = self._optional_public_authority(header_items)
-            authenticated = authority is not None and authority.state == "profile"
+            authenticated = authority is not None and authority.state in {"profile", "empty"}
             content = public_company_page.render_public_company_page(
                 company,
                 public_origin=self._public_origin,
@@ -1789,7 +1823,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         now=now,
                     )
                     if self._public_job_canary_gate.enabled:
-                        for job in jobs:
+                        for job in (variant for group in jobs for variant in (group, *group.get("_catalog_variants", ()))):
                             decision = self._public_job_canary_gate.resolve_canonical(
                                 connection,
                                 job["canonical_opportunity_id"],
@@ -1830,7 +1864,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             session_token=session_token,
             csrf_secret=None,
         )
-        if result.state != "profile":
+        if result.state not in {"profile", "empty"}:
             return None
         return result.authorized_state()
 
@@ -4032,19 +4066,34 @@ def _valid_presentation_amount(value, *, optional):
 
 def _render_workflow_history(record):
     summary = local_product.render_workflow_summary(record) + local_product.render_reminder_note(record)
+    from wahojobs.candidate_readability import readable_date
     events = []
+    labels = {'product_initialize': 'Added to My Jobs', 'product_save': 'Saved job',
+        'product_noop_save': 'Save confirmed', 'product_applied': 'Marked as applied',
+        'resolve_unknown_workflow_applied': 'Marked as applied',
+        'product_not_interested': 'Hidden from your matches', 'product_show_again': 'Shown in your matches again',
+        'product_remind_later': 'Reminder set', 'undo_applied': 'Undid Mark as applied',
+        'correct_applied': 'Corrected application tracking status'}
     for event in record.get('_workflow_events', []):
-        state = json.loads(event['after_state_json'])
-        workflow = state.get('workflow_status')
-        label = local_product.readable_status(workflow) if workflow else 'Progress unknown'
-        visibility = 'hidden' if state.get('visibility') == 'hidden' else 'visible'
-        reminder = state.get('reminder_at') or 'none'
-        events.append(f"<li>{_safe(event['occurred_at'])}: {_safe(label)}, {visibility}; reminder {_safe(reminder)}.</li>")
+        after = json.loads(event['after_state_json'])
+        metadata = json.loads(event.get('metadata_json') or '{}')
+        action = event['action_name']
+        if metadata.get('transition_class') == 'user_initialization' or event['affected_dimension'] == 'baseline':
+            label = 'Added to My Jobs'
+        else:
+            label = labels.get(action, action.removeprefix('product_').replace('_', ' ').capitalize())
+        if action in {'undo_applied', 'correct_applied'}:
+            label += ' — ' + (local_product.readable_status(after['workflow_status']) if after.get('workflow_status') else 'Previous progress unknown')
+        if event['affected_dimension'] == 'reminder' and after.get('reminder_at'):
+            label += ' for ' + readable_date(after['reminder_at'])
+        events.append(f"<li><span>{_safe(label)}</span> <time datetime='{_safe(event['occurred_at'])}'>{_safe(readable_date(event['occurred_at']))}</time></li>")
     legacy = record.get('_posting_link_state', '')
     limitation = ("<p>More than one history is linked to this posting. Each history is kept separately.</p>"
                   if legacy == 'ambiguous_history' else '')
+    if record.get('workflow_status') == 'applied' and record.get('restorable_applied') is False:
+        limitation += "<p>An earlier tracking status cannot be restored from this activity.</p>"
     return ("<div class='workflow-history'>" + summary + limitation
-            + ("<details><summary>Application history</summary><ol>" + ''.join(events) + '</ol></details>' if events else '')
+            + ("<details><summary>Your activity</summary><ol>" + ''.join(events) + '</ol></details>' if events else '')
             + '</div>')
 
 
@@ -4062,7 +4111,7 @@ def _render_authenticated_tracker(
             current='tracker',
         )
         + local_product.render_lightweight_tracker_header(records)
-        + "<p class='workflow-assessment-note'>Your decisions and reminders stay saved here. Open a job to see its current assessment; profile and listing changes do not erase your application history.</p>"
+        + "<p class='workflow-assessment-note'>Your decisions and reminders stay saved here. Open a job to see its current assessment; profile and listing changes do not erase your activity.</p>"
         + "<div id='action-feedback' aria-live='polite'></div>"
         + local_product.render_my_jobs_workspace(
             records,
@@ -4083,9 +4132,9 @@ def _navigation(*, match_run_id=None, show_current_matches=False, current='match
 
 def _public_navigation(*, authenticated, current, auth_routes_enabled=True):
     jobs_link = (
-        "<a href='/jobs' aria-current='page'>Jobs</a>"
+        "<a href='/jobs' aria-current='page'>Browse jobs</a>"
         if current == "jobs"
-        else "<a href='/jobs'>Jobs</a>"
+        else "<a href='/jobs'>Browse jobs</a>"
     )
     if not auth_routes_enabled:
         return (
@@ -4101,17 +4150,9 @@ def _public_navigation(*, authenticated, current, auth_routes_enabled=True):
             "<a href='/login'>Sign in</a>"
             "</nav>"
         )
-    # Public catalog/company templates already own the site header and brand.
-    # Their slot accepts navigation only; exact candidate detail owns its header.
-    return (
-        "<nav class='account-nav' aria-label='Account'>"
-        + jobs_link
-        + "<a href='/find-matches'>Matches</a>"
-        "<a href='/tracker'>My Jobs</a>"
-        "<a href='/account/profile'>My profile</a>"
-        "<a href='/logout'>Sign out</a>"
-        "</nav>"
-    )
+    from wahojobs.candidate_presentation import candidate_navigation
+    return candidate_navigation(current=current, links_only=True)
+
 
 
 def _page(title, body, *, workflow=False):

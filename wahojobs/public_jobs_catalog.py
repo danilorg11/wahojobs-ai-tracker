@@ -81,7 +81,11 @@ class CatalogPageOutOfRange(ValueError):
 
 
 def load_public_jobs(connection, *, now=None):
-    """Load one trusted active source variant per canonical opportunity."""
+    """Keep eligible variants until all catalog predicates can be applied.
+
+    The default representative remains compatible with existing company pages.
+    Each variant uses the same exact-source projection as its detail page.
+    """
 
     rows = connection.execute(
         """
@@ -94,6 +98,7 @@ def load_public_jobs(connection, *, now=None):
           j.commitment AS source_commitment,
           j.url AS listing_url,
           j.external_id,
+          j.source_hash,
           j.opportunity_kind,
           j.availability_basis,
           j.include_in_live_market_estimate,
@@ -118,6 +123,10 @@ def load_public_jobs(connection, *, now=None):
           sc.provider AS rich_provider,
           sc.source_type AS rich_source_type,
           sc.source_url AS rich_source_url,
+          sc.external_id AS rich_external_id,
+          sc.body AS rich_body,
+          sc.body_format AS rich_body_format,
+          sc.material_content_sha256,
           sc.metadata_json AS rich_metadata_json,
           sc.source_updated_at,
           sc.first_captured_at,
@@ -147,8 +156,7 @@ def load_public_jobs(connection, *, now=None):
             ORDER BY COALESCE(cr.finished_at, cr.started_at) DESC, cr.id DESC
             LIMIT 1
           )
-        WHERE j.is_active = 1
-          AND co.is_active = 1
+        WHERE co.is_active = 1
           AND j.title NOT LIKE '[SIMULATION]%'
         ORDER BY co.id, j.id
         """
@@ -157,39 +165,30 @@ def load_public_jobs(connection, *, now=None):
     grouped = {}
     for raw in rows:
         row = dict(raw)
-        if not public_job_page.public_opportunity_is_eligible(row, now=now):
-            continue
-        row["_catalog_official_url"] = public_job_page.first_human_facing_url(
-            row.get("rich_source_url"),
-            row.get("listing_url"),
-        )
         grouped.setdefault(int(row["canonical_opportunity_id"]), []).append(row)
-
-    representatives = {
-        canonical_id: max(variants, key=representative_variant_rank)
-        for canonical_id, variants in grouped.items()
-    }
     effective_by_canonical = resolve_effective_enrichments(
         connection,
-        representatives,
+        grouped,
     )
 
     jobs = []
-    for canonical_id, row in representatives.items():
-        effective = effective_by_canonical.get(canonical_id)
-        document = effective["document"] if effective is not None else blank_document()
-        job = dict(row)
-        job.update(
-            path=public_job_page.public_job_path(canonical_id),
-            official_url=row["_catalog_official_url"],
-            careers_url=public_job_page.human_facing_company_url(row["careers_url"]),
-            enrichment=document,
-            enrichment_field_sources=(effective or {}).get("field_sources", {}),
-            overridden_fields=(effective or {}).get("overridden_fields", []),
-            stale_override_fields=(effective or {}).get("stale_override_fields", []),
-        )
-        prepare_catalog_presentation(job)
-        jobs.append(job)
+    for canonical_id, rows in grouped.items():
+        evidence = dict(rows=rows, effective=effective_by_canonical.get(canonical_id))
+        variants = []
+        for row in rows:
+            if not public_job_page.public_opportunity_is_eligible(row, now=now):
+                continue
+            job = public_job_page.prepare_public_job(evidence, selected_job_id=row['job_id'], now=now)
+            if len(rows) > 1:
+                job['canonical_title'] = job['source_title']
+                job['canonical_language'] = None
+                job['source_category'] = None
+            prepare_catalog_presentation(job)
+            variants.append(job)
+        if variants:
+            representative = dict(max(variants, key=representative_variant_rank))
+            representative['_catalog_variants'] = tuple(variants)
+            jobs.append(representative)
     return jobs
 
 
@@ -198,6 +197,7 @@ def representative_variant_rank(row):
 
 
 def prepare_catalog_presentation(job):
+    job.pop("_catalog_variants", None)  # Re-preparing a standalone variant discards any old grouping.
     attributes = job["enrichment"]["attributes"]
     role = attributes["role"]
     arrangement = attributes["work_arrangement"]
@@ -215,6 +215,10 @@ def prepare_catalog_presentation(job):
     eligible_regions = set(eligibility["regions"])
 
     location_labels = set(eligible_countries) | set(eligible_regions)
+    if scope == LOCATION_SCOPE_REMOTE_WORLDWIDE:
+        location_labels.add('Worldwide')
+    if mode == REMOTE_STATUS_REMOTE:
+        location_labels.add('Remote')
     job["_catalog_location_model"] = {
         "scope": scope,
         "mode": mode,
@@ -250,7 +254,9 @@ def prepare_catalog_presentation(job):
     )
 
     remote = eligibility["summary"]
-    job["catalog_location"] = eligibility["summary"]
+    job["catalog_location"] = eligibility["summary"] or (
+        'Remote · applicant location not specified' if mode == REMOTE_STATUS_REMOTE
+        else 'Applicant location not specified')
     job["catalog_summary"] = concise_summary(content.get("quick_take"))
     job["_catalog_engagement"] = engagement
     candidate_labels = {
@@ -292,24 +298,39 @@ def prepare_catalog_presentation(job):
         *field_labels,
         *language_labels,
         *arrangement_labels,
+        *requirements.get('skills_required', []),
+        *requirements.get('skills_preferred', []),
     ]
+    if job.get('rich_external_id') == job.get('external_id') and job.get('rich_source_url') == job.get('official_url'):
+        from wahojobs.authenticated_card_evidence import _source_text
+        source = dict(job_id=job['job_id'], external_id=job.get('external_id'),
+            source_slug=job.get('company_slug'), url=job.get('official_url'),
+            body=job.get('rich_body'), body_format=job.get('rich_body_format'),
+            metadata_json=job.get('rich_metadata_json'), material_content_sha256=job.get('material_content_sha256'))
+        try:
+            search_values.append(_source_text(source))
+        except (ValueError, TypeError, KeyError):
+            pass  # Invalid optional detail metadata supplies no search evidence.
     job["_catalog_search"] = normalize_search(" ".join(filter(None, search_values)))
 
 
 def build_catalog(jobs, params=None):
     requested = normalize_catalog_params(params or {})
-    facets = catalog_facets(jobs)
+    variants = [variant for job in jobs for variant in job.get('_catalog_variants', (job,))]
+    facets = catalog_facets(variants)
     filters, resolved_filters = resolve_candidate_filters(requested, facets)
     visible = [
-        job for job in jobs if catalog_job_matches(job, filters, resolved_filters)
+        job for job in variants if catalog_job_matches(job, filters, resolved_filters)
     ]
+    groups = {}
+    for job in visible:
+        groups.setdefault(job['canonical_opportunity_id'], []).append(job)
+    visible = [max(group, key=representative_variant_rank) for group in groups.values()]
     visible = order_catalog_results(visible, filters.get("q"))
     result_count = len(visible)
     total_pages = max(1, math.ceil(result_count / PAGE_SIZE))
     requested_page = requested.get("page", 1)
-    if requested_page > total_pages:
-        raise CatalogPageOutOfRange("catalog_page_out_of_range")
-    page = requested_page
+    page = min(requested_page, total_pages)
     first_index = (page - 1) * PAGE_SIZE
     page_jobs = visible[first_index : first_index + PAGE_SIZE]
     return {
@@ -320,9 +341,10 @@ def build_catalog(jobs, params=None):
         "first_result_number": first_index + 1 if page_jobs else 0,
         "last_result_number": first_index + len(page_jobs),
         "page": page,
+        "requested_page": requested_page,
         "page_size": PAGE_SIZE,
         "total_pages": total_pages,
-        "facets": facets,
+        "facets": catalog_facets(variants, filters=filters, resolved_filters=resolved_filters) if filters else facets,
         "filters": filters,
         "normalized_target": catalog_target(filters, page=page),
     }
@@ -380,7 +402,7 @@ def catalog_job_matches(job, filters, resolved_filters):
     return True
 
 
-def catalog_facets(jobs):
+def catalog_facets(jobs, *, filters=None, resolved_filters=None):
     counters = {key: Counter() for key in CATALOG_FACET_KEYS}
     labels = {key: {} for key in counters}
     for job in jobs:
@@ -388,15 +410,15 @@ def catalog_facets(jobs):
             for token in job["_catalog_filter_values"][key]:
                 counters[key][token] += 1
             labels[key].update(job["_catalog_filter_labels"][key])
-    location_identities = {
-        candidate_key: location_filter_identity(label)
-        for candidate_key, label in labels["location"].items()
-    }
-    for candidate_key, identity in location_identities.items():
-        counters["location"][candidate_key] = sum(
-            location_model_matches(job["_catalog_location_model"], identity)
-            for job in jobs
-        )
+    location_identities = {key: location_filter_identity(label) for key, label in labels["location"].items()}
+    for key in counters:
+        remaining = {k: v for k, v in (filters or {}).items() if k != key}
+        resolved = {k: v for k, v in (resolved_filters or {}).items() if k != key}
+        for candidate_key, label in labels[key].items():
+            counters[key][candidate_key] = len({job['canonical_opportunity_id'] for job in jobs
+                if catalog_job_matches(job, remaining, resolved)
+                and (location_model_matches(job['_catalog_location_model'], location_identities[candidate_key]) if key == 'location'
+                     else candidate_key in job['_catalog_filter_values'][key])})
     return {
         key: [
             {
@@ -516,7 +538,9 @@ def render_public_jobs_page(
     public_origin,
     navigation="",
     query_present=False,
+    authenticated=False,
 ):
+    from wahojobs.candidate_presentation import candidate_style
     filters = catalog["filters"]
     filters_present = bool(filters)
     canonical_url = (
@@ -535,29 +559,28 @@ def render_public_jobs_page(
         else ""
     )
     q = filters.get("q", "")
-    filter_controls = "".join(
-        (
-            render_filter_search(
-                key,
-                label,
-                catalog["facets"][key],
-                filters.get(key, ""),
-            )
-            for key, label in (
-                ("location", "Where can you work from?"),
-                ("work", "Type of work"),
-                ("field", "Professional field"),
-                ("language", "Language"),
-            )
-        )
-    )
+    location_control = render_filter_search('location', 'Where can you work from?',
+        catalog['facets']['location'], filters.get('location', ''))
+    secondary = [('work', 'Type of work'), ('field', 'Professional field'),
+                 ('language', 'Language'), ('arrangement', 'Engagement')]
+    secondary_controls = ''.join(render_filter_search(key, label, catalog['facets'][key], filters.get(key, ''))
+        for key, label in secondary if catalog['facets'][key] or filters.get(key))
+    expanded = ' open' if any(filters.get(key) for key, _ in secondary) else ''
+    filter_controls = (f"<details class='secondary-filters'{expanded}><summary>More filters</summary>"
+        + "<div class='secondary-filter-fields'>" + secondary_controls + '</div></details>') if secondary_controls else ''
+    labels = dict(secondary, q='Keyword', location='Location')
+    active_filters = ''.join(
+        f"<a class='active-filter' href='{public_job_page.e(catalog_target({k: v for k, v in filters.items() if k != key}))}' "
+        f"aria-label='Remove {public_job_page.e(labels[key])} filter: {public_job_page.e(value)}'>"
+        f"{public_job_page.e(labels[key])}: {public_job_page.e(value)} <span aria-hidden='true'>×</span></a>"
+        for key, value in filters.items())
     clear = (
         f"<a class='clear-filters' href='{PUBLIC_JOBS_ROUTE}'>Clear filters</a>"
         if filters_present
         else ""
     )
     cards = "".join(
-        render_job_card(job, return_to=None)
+        render_job_card(job, return_to=catalog["normalized_target"], include_variant=True)
         for job in catalog["jobs"]
     )
     if cards:
@@ -573,7 +596,7 @@ def render_public_jobs_page(
             f"of {catalog['result_count']} current opportunities"
         )
     else:
-        count_label = "No current opportunities match"
+        count_label = "0 opportunities"
     pagination = render_pagination(catalog)
     page_suffix = f" — Page {catalog['page']}" if catalog["page"] > 1 else ""
     description_suffix = f" Page {catalog['page']}." if catalog["page"] > 1 else ""
@@ -587,7 +610,7 @@ def render_public_jobs_page(
   <meta name='description' content='Browse and search current Wahojobs opportunities.{public_job_page.e(description_suffix)}'>
   {robots}
   {canonical}
-  <style>{public_job_page.PUBLIC_JOB_CSS}{PUBLIC_JOBS_CSS}</style>
+  <style>{public_job_page.PUBLIC_JOB_CSS}{PUBLIC_JOBS_CSS}{candidate_style()}</style>
 </head>
 <body>
   <header class='site-header'>
@@ -596,21 +619,22 @@ def render_public_jobs_page(
   </header>
   <main class='catalog-main'>
     <header class='catalog-hero'>
-      <p class='eyebrow'>Jobs</p>
-      <h1>Browse current opportunities</h1>
-      <p>Search Wahojobs opportunities and open any job for the available details and official application link.</p>
+      <h1>Browse jobs</h1>
+      <p>Explore all available opportunities. Use filters to narrow your search.</p>
     </header>
     <form class='catalog-filters' method='get' action='/jobs' role='search'>
       <label class='keyword-field' for='jobs-q'>
         <span>Keyword</span>
-        <input id='jobs-q' name='q' type='search' maxlength='120' value='{public_job_page.e(q)}' placeholder='Title, company, skill, or location'>
+        <input id='jobs-q' name='q' type='search' maxlength='120' value='{public_job_page.e(q)}' placeholder='Job title, company, or skill'>
       </label>
+      {location_control}
       {filter_controls}
       <div class='filter-actions'>
         <button type='submit'>Search jobs</button>
-        {clear}
       </div>
     </form>
+    <p class='location-help'>Country filters include explicitly worldwide and relevant regional opportunities. Jobs with unspecified applicant locations remain available when location is cleared.</p>
+    <div class='active-filters' aria-label='Active filters'>{active_filters}{clear}</div>
     <div class='catalog-summary' aria-live='polite'><strong>{public_job_page.e(count_label)}</strong></div>
     {results}
     {pagination}
@@ -649,7 +673,7 @@ def render_filter_search(name, label, options, selected):
     )
 
 
-def render_job_card(job, *, return_to):
+def render_job_card(job, *, return_to, include_variant=False):
     title = candidate_text(job.get("source_title")) or candidate_text(
         job.get("canonical_title")
     )
@@ -668,7 +692,10 @@ def render_job_card(job, *, return_to):
     )
     detail_target = job.get("catalog_detail_target", job.get("path"))
     if isinstance(detail_target, str) and detail_target.startswith("/"):
-        safe_target = detail_target
+        query = {'variant': job['job_id']} if include_variant else {}
+        if validate_catalog_return_target(return_to):
+            query['return_to'] = return_to
+        safe_target = detail_target + ('?' + urlencode(query) if query else '')
     else:
         safe_target = public_job_page.first_human_facing_url(detail_target)
     title_markup = (
@@ -679,7 +706,7 @@ def render_job_card(job, *, return_to):
     view_link = (
         f"<a class='view-job' href='{public_job_page.e(safe_target)}' "
         f"aria-label='View {public_job_page.e(title)} at {public_job_page.e(company)}'>"
-        "View job</a>"
+        "View details</a>"
         if safe_target
         else ""
     )
@@ -692,7 +719,8 @@ def render_job_card(job, *, return_to):
         {chips}
         {summary_html}
       </div>
-      {view_link}
+      <div class='catalog-card-actions'>{view_link}
+      {f"<span class='catalog-saved'>{public_job_page.e(job['_catalog_saved_status'])}</span>" if job.get('_catalog_saved_status') else ''}</div>
     </article>
     """
 
@@ -891,7 +919,7 @@ def catalog_cache_deadline(jobs, loaded_at):
     """Bound a snapshot by both response caching and the next trust expiry."""
 
     deadline = loaded_at + timedelta(seconds=CATALOG_CACHE_MAX_AGE_SECONDS)
-    for job in jobs:
+    for job in (variant for group in jobs for variant in group.get("_catalog_variants", (group,))):
         max_age_hours = freshness_max_age_hours(
             public_job_page.clean(job.get("inventory_model")),
             public_job_page.clean(job.get("market_count_policy")),
@@ -953,6 +981,8 @@ def location_filter_identity(value):
     special = {
         facet_value_key("Remote"): ("remote", None),
         facet_value_key("Remote worldwide"): ("remote_worldwide", None),
+        facet_value_key("Worldwide"): ("remote_worldwide", None),
+        facet_value_key("Work from anywhere"): ("remote_worldwide", None),
         facet_value_key("Remote with location limits"): (
             "remote_restricted",
             None,
@@ -1004,7 +1034,8 @@ def location_model_matches(model, identity):
         return value in model["countries"] or COUNTRY_REGION.get(value) in model[
             "regions"
         ]
-    return kind == "region" and value in model["regions"]
+    return kind == "region" and (value in model["regions"]
+        or any(COUNTRY_REGION.get(country) == value for country in model['countries']))
 
 
 def engagement_type_from_source(value):
@@ -1033,17 +1064,17 @@ def engagement_label(value):
 
 PUBLIC_JOBS_CSS = """
 .catalog-main { padding-top: 8px; }
-.catalog-hero { border: 1px solid #d9e2dd; border-radius: 18px 18px 0 0; background: #fff; padding: clamp(28px, 5vw, 52px); }
-.catalog-hero h1 { max-width: 820px; }
+.catalog-hero { border: 1px solid #d9e2dd; border-radius: 18px 18px 0 0; background: #fff; padding: 24px; }
+.catalog-hero h1 { max-width: 820px; font-size:clamp(2rem,5vw,2.5rem); margin:0; }
 .catalog-hero > p:last-child { max-width: 760px; margin: 18px 0 0; color: #4d6359; font-size: 1.06rem; }
-.catalog-filters { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; border: 1px solid #d9e2dd; border-top: 0; border-radius: 0 0 18px 18px; background: #f9fbfa; padding: 22px; }
-.keyword-field { grid-column: span 2; }
+.catalog-filters { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 14px; border: 1px solid #d9e2dd; border-top: 0; border-radius: 0 0 18px 18px; background: #f9fbfa; padding: 22px; }
+.keyword-field { grid-column: auto; }
 .catalog-filters label { display: grid; align-content: start; gap: 6px; color: #40564c; font-size: .86rem; font-weight: 800; }
-.catalog-filters input, .catalog-filters select { width: 100%; min-height: 44px; border: 1px solid #aebeb5; border-radius: 8px; background: #fff; color: #18231e; padding: 9px 10px; font: inherit; }
+.catalog-filters input, .catalog-filters select { width: 100%; min-height: 44px; border: 1px solid #aebeb5; border-radius: 8px; background: #fff; color: #18231e; padding: 9px 10px; font: inherit; font-weight:400; }
 .catalog-filters input:disabled { background: #eef2f0; color: #6c7a73; cursor: not-allowed; }
-.filter-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; }
+.filter-actions { grid-column: 3; grid-row:1; align-self:end; display: flex; align-items: center; gap: 16px; }
 .filter-actions button { border: 0; border-radius: 8px; background: #176b52; color: #fff; padding: 11px 18px; font: inherit; font-weight: 800; cursor: pointer; }
-.clear-filters { font-size: .92rem; }
+.clear-filters { font-size: .92rem; display:inline-flex;align-items:center;min-height:44px;padding:0 6px; }
 .catalog-summary { padding: 28px 2px 14px; color: #40564c; }
 .jobs-list { display: grid; gap: 12px; }
 .job-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; border: 1px solid #d9e2dd; border-radius: 13px; background: #fff; padding: 22px 24px; }
@@ -1059,8 +1090,21 @@ PUBLIC_JOBS_CSS = """
 .empty-results p { margin-bottom: 0; color: #52665c; }
 .pagination { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; align-items: center; margin: 24px 0 0; border: 1px solid #d9e2dd; border-radius: 11px; background: #fff; padding: 14px 18px; color: #52665c; font-weight: 750; }
 .pagination-side.next { text-align: right; }
-@media (max-width: 1000px) { .catalog-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .keyword-field { grid-column: 1 / -1; } }
-@media (max-width: 680px) { .catalog-filters { grid-template-columns: 1fr; } .keyword-field, .filter-actions { grid-column: auto; } .job-card { grid-template-columns: 1fr; gap: 16px; } .view-job { justify-self: start; } }
+.secondary-filters {grid-column:1 / -1;}
+.secondary-filters summary::after {content:'⌄';margin-left:8px;}
+.secondary-filters[open] summary::after {content:'⌃';}
+.secondary-filters summary {cursor:pointer;min-height:44px;display:flex;align-items:center;color:#315447;font-weight:650;}
+.secondary-filter-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:8px 0;}
+.active-filters:empty {display:none;}
+.active-filters {display:flex;flex-wrap:wrap;gap:8px;margin-top:18px;}
+.active-filter {display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:6px 12px;border:1px solid #bdd5c9;border-radius:8px;background:#edf5f1;text-decoration:none;font-size:.9rem;}
+.location-help {font-size:.85rem;color:#5b6861;margin:12px 2px 0;max-width:90ch;}
+.catalog-card-actions {display:grid;justify-items:start;gap:10px;}
+.catalog-saved {font-size:.9rem;color:#315447;}
+.site-header {max-width:960px;}
+.catalog-main {max-width:960px;}
+
+@media (max-width: 680px) { .site-header{flex-direction:column;align-items:flex-start;gap:8px;} .secondary-filter-fields{grid-template-columns:1fr;} .catalog-filters { grid-template-columns: 1fr; } .keyword-field, .filter-actions { grid-column: auto; grid-row:auto; } .job-card { grid-template-columns: 1fr; gap: 16px; } .view-job { justify-self: start; } }
 """
 
 

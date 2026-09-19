@@ -134,6 +134,7 @@ def render_public_company_page(
     authenticated=False,
     query_present=False,
 ):
+    from wahojobs.candidate_presentation import candidate_style
     name = company["name"]
     path = company["path"]
     catalog = company["catalog"]
@@ -200,7 +201,7 @@ def render_public_company_page(
   <meta name='description' content='{public_job_page.e(meta_description)}'>
   {robots}
   <link rel='canonical' href='{public_job_page.e(canonical_url)}'>
-  <style>{public_job_page.PUBLIC_JOB_CSS}{public_jobs_catalog.PUBLIC_JOBS_CSS}{PUBLIC_COMPANY_CSS}</style>
+  <style>{public_job_page.PUBLIC_JOB_CSS}{public_jobs_catalog.PUBLIC_JOBS_CSS}{PUBLIC_COMPANY_CSS}{candidate_style()}</style>
 </head>
 <body>
   <header class='site-header'>

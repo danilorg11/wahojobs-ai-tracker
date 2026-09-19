@@ -57,11 +57,33 @@ class CandidateSourceDisplayTests(unittest.TestCase):
             'shortDescription': 'Help build AI, fully remote, and up to $90/hr.'}}}, '')
         self.assertEqual(pay['label'], '$75-90/hr')
         self.assertEqual(pay['wording'], ['$75-90/hr', 'up to $90/hr'])
-        self.assertEqual(pay['notes'], ['Confirm which dollar currency applies.'])
+        self.assertEqual(pay['notes'], [])
+        self.assertEqual(pay['currency_note'], 'Currency not specified in the listing.')
         self.assertNotIn('Help build', str(pay))
 
+    def test_explicit_iso_dollar_currency_stays_attached_to_its_rate(self):
+        for code in ('NZD', 'SGD', 'CAD', 'AUD', 'USD'):
+            pay = pay_facts({'pay': code + ' $75 per hour'}, '')
+            self.assertEqual(pay['label'], code + ' $75 per hour')
+            self.assertEqual(pay['currency_note'], '')
+
+    def test_different_rate_currency_does_not_denominate_dollar_amount(self):
+        pay = pay_facts({'pay': '$6-to-$65 per hour'}, 'EUR 20 per task')
+        self.assertEqual(pay['label'], '$6-to-$65 per hour')
+        self.assertEqual(pay['currency_note'], 'Currency not specified in the listing.')
+        self.assertTrue(pay['notes'])
+
+    def test_typed_salary_currency_is_shown_without_unspecified_note(self):
+        from wahojobs.crawler.provider_details import DETAIL_KEY
+        pay = pay_facts({DETAIL_KEY: {'record': {'salaryType': 'HOURLY', 'lowerBoundHourlyRate': 20,
+            'upperBoundHourlyRate': 30, 'salaryCurrency': 'USD'}}}, '')
+        self.assertIn('USD', pay['label'])
+        self.assertNotIn('currency not specified', pay['label'])
+        self.assertEqual(pay['currency_note'], '')
+
     def test_dollar_symbol_does_not_establish_a_currency_denomination(self):
-        self.assertIn('Confirm which dollar currency applies.', pay_facts({'pay': '$75-90/hr'}, '')['notes'])
+        self.assertEqual(pay_facts({'pay': '$75-90/hr'}, '')['currency_note'], 'Currency not specified in the listing.')
+        self.assertEqual(pay_facts({'pay': '90 per hour'}, '')['currency_note'], 'Currency not specified in the listing.')
         for wording in ('USD 75-90/hr', 'CAD 75-90/hr', '75-90 USD/hr', 'EUR 50 per task'):
             self.assertNotIn('Confirm which dollar currency applies.', pay_facts({'pay': wording}, '')['notes'])
 

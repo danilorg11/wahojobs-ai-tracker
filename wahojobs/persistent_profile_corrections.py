@@ -71,7 +71,7 @@ PROFILE_CORRECTION_ACTION_CSRF_MESSAGE_PREFIX = (
     b"wahojobs.profile-correction-action.v1\x00"
 )
 
-CORRECTION_ACTIONS = frozenset({"start", "redraft", "confirm", "apply", "resume"})
+CORRECTION_ACTIONS = frozenset({"start", "redraft", "confirm", "apply", "resume", "discard"})
 
 _CORRECTION_UPDATE_FIELDS = frozenset(
     {
@@ -430,6 +430,7 @@ class _ConfirmedCorrectionSnapshot:
     base_profile_json: bytes = field(repr=False)
     purpose: str
     content_fingerprint: str = field(repr=False)
+    source_draft_reference: str | None = field(default=None, repr=False)
 
     def confirmation_binding(self):
         return (
@@ -909,7 +910,7 @@ class PersistentProfileCorrectionService:
         # A new, normally authenticated session of the same owner may resume.
         return hashlib.sha256(_canonical_json_bytes([account, environment, principal, profile, purpose])).hexdigest()
 
-    def retain_review(self, grant, reference, preparation, *, navigation=None):
+    def retain_review(self, grant, reference, preparation, *, navigation=None, predecessor=None):
         from wahojobs import profile_correction_drafts as drafts
         if type(reference) is not str or _CORRECTION_DRAFT_REFERENCE.fullmatch(reference) is None:
             raise ValueError('invalid_profile_correction_draft')
@@ -921,7 +922,17 @@ class PersistentProfileCorrectionService:
             drafts.save(connection, reference=reference, owner=self._retained_owner(grant),
                         base_revision=grant.base_revision_id,
                         base_hash=hashlib.sha256(canonical_profile_v2_json_bytes(grant.trusted_base_profile_v2())).hexdigest(),
-                        payload=payload, created_at=_trusted_utc(self._clock()).isoformat())
+                        payload=payload, created_at=_trusted_utc(self._clock()).isoformat(), predecessor=predecessor)
+
+    def draft_discarded(self, grant, reference):
+        from wahojobs import profile_correction_drafts as drafts
+        with self._read_connection_provider() as account, drafts.store_connection(account) as connection:
+            return drafts.is_discarded(connection, owner=self._retained_owner(grant), reference=reference)
+
+    def discard_review(self, grant, reference):
+        from wahojobs import profile_correction_drafts as drafts
+        with self._read_connection_provider() as account, drafts.store_connection(account, write=True) as connection:
+            drafts.discard(connection, owner=self._retained_owner(grant), reference=reference)
 
     def retained_review(self, grant, reference=None):
         """Read only: verify ownership, base revision and canonical meaning.
@@ -957,6 +968,9 @@ class PersistentProfileCorrectionService:
         if (reviewed.canonical_bytes != IdentityFreeCanonicalProfileV1.from_mapping(project_v2_to_review_v1(proposed)).canonical_bytes
                 or retained_updates != expected_updates):
             raise ValueError('correction_checkpoint_unavailable')
+        from wahojobs.profiles.correction_editor import changed_profile_sections
+        if not changed_profile_sections(grant.trusted_base_profile_v2(), proposed):
+            return None
         base = hashlib.sha256(canonical_profile_v2_json_bytes(grant.trusted_base_profile_v2())).hexdigest()
         if revision != grant.base_revision_id or base_hash != base:
             return dict(state='conflict', reference=reference, proposed=proposed)
@@ -1152,6 +1166,7 @@ class PersistentProfileCorrectionService:
         _confirmation_witness=None,
         _confirmation_recovery_only=False,
         _prepared_review=None,
+        _source_draft_reference=None,
     ):
         del authentication_input
         confirmation_enabled = _confirmation_identity is not None
@@ -1272,6 +1287,7 @@ class PersistentProfileCorrectionService:
                 corrected_profile_v2=corrected_v2,
                 raw_about_you=raw_about_you,
                 normalized_updates=durable_updates,
+                source_draft_reference=_source_draft_reference,
             )
             self._vault.issue(
                 reference,
@@ -1348,6 +1364,7 @@ class PersistentProfileCorrectionService:
         corrected_profile_v2,
         raw_about_you,
         normalized_updates,
+        source_draft_reference=None,
     ):
         from wahojobs.persistent_profile_creation import (
             PROFILE_CREATE_NORMALIZER_VERSION,
@@ -1355,6 +1372,8 @@ class PersistentProfileCorrectionService:
             prepare_reviewed_profile_source_bundle,
         )
 
+        if source_draft_reference is not None and _CORRECTION_DRAFT_REFERENCE.fullmatch(source_draft_reference) is None:
+            raise ValueError('invalid_draft_reference')
         accepted_at = _trusted_utc(self._clock())
         bundle = prepare_reviewed_profile_source_bundle(
             reviewed_profile=reviewed_profile,
@@ -1391,6 +1410,7 @@ class PersistentProfileCorrectionService:
         binding = grant.confirmation_binding()
         values = {
             "artifact_reference": reference,
+            "source_draft_reference": source_draft_reference,
             "command": command,
             "account_id": binding[0],
             "session_id": binding[1],
@@ -1423,10 +1443,15 @@ class PersistentProfileCorrectionService:
         ):
             return ProfileCorrectionOutcome("unavailable")
         try:
-            with self._write_connection_provider() as connection:
-                if not isinstance(connection, sqlite3.Connection):
-                    return ProfileCorrectionOutcome("unavailable")
-                result = self._append_revision(connection, snapshot.command)
+            from wahojobs import profile_correction_drafts as drafts
+            with self._read_connection_provider() as account, drafts.confirmation_guard(
+                    account, owner=self._retained_owner(grant), reference=snapshot.source_draft_reference) as valid:
+                if not valid:
+                    return ProfileCorrectionOutcome('gone')
+                with self._write_connection_provider() as connection:
+                    if not isinstance(connection, sqlite3.Connection):
+                        return ProfileCorrectionOutcome("unavailable")
+                    result = self._append_revision(connection, snapshot.command)
             if (
                 getattr(result, "revision_kind", None) != "correction"
                 or getattr(result, "profile_id", None) != snapshot.profile_id
@@ -1676,12 +1701,13 @@ def _prepared_review_proof_payload(
     )
 
 
-def _apply_review_updates(reviewed_profile, normalized_updates):
+def _apply_review_updates(reviewed_profile, normalized_updates, *, prior_education=None):
     from scripts.local_product_app import apply_identity_free_profile_review
 
     return apply_identity_free_profile_review(
         reviewed_profile,
         normalized_updates,
+        prior_education=prior_education,
     )
 
 
@@ -1811,6 +1837,7 @@ def _server_authoritative_review_correction(
     expected_browser_review = _apply_review_updates(
         base_draft,
         normalized_updates,
+        prior_education=base_profile_v2['education'],
     )
 
     base_languages = base_draft.to_mapping()["languages"]
@@ -1838,10 +1865,12 @@ def _server_authoritative_review_correction(
     baseline_review = _apply_review_updates(
         base_draft,
         complete_baseline_updates,
+        prior_education=base_profile_v2['education'],
     )
     durable_review = _apply_review_updates(
         base_draft,
         complete_corrected_updates,
+        prior_education=base_profile_v2['education'],
     )
     corrected_v2 = merge_server_review_correction_v2(
         base_profile_v2,
@@ -2113,6 +2142,7 @@ def _snapshot_fingerprint(
     base_revision_number,
     base_profile_json,
     purpose,
+    source_draft_reference=None,
 ):
     if type(command) is not AppendProfileRevisionCommand:
         raise _configuration_error()
@@ -2121,6 +2151,7 @@ def _snapshot_fingerprint(
             {
                 "account_id": account_id,
                 "artifact_reference": artifact_reference,
+                "source_draft_reference": source_draft_reference,
                 "base_profile_sha256": hashlib.sha256(base_profile_json).hexdigest(),
                 "base_revision_id": base_revision_id,
                 "base_revision_number": base_revision_number,
@@ -2141,6 +2172,7 @@ def _snapshot_integrity_valid(snapshot):
     try:
         expected = _snapshot_fingerprint(
             artifact_reference=snapshot.artifact_reference,
+            source_draft_reference=snapshot.source_draft_reference,
             command=snapshot.command,
             account_id=snapshot.account_id,
             session_id=snapshot.session_id,

@@ -24,8 +24,6 @@ def preference_summary(preferences):
         rows.extend(f"{e['minimum_kind'].title()} minimum: {e['currency']} {e['amount']}/{e['period']}"
                     for e in model['compensation_expectations'])
         # These existing legacy values are independent of the typed dimensions.
-        if preferences.get('remote'):
-            rows.append('Remote work preferred')
         if preferences.get('availability') not in (None, '', 'unknown', 'unspecified',
                 *[value.replace('_', '-') for value in model['workloads']]):
             rows.append('Workload or start preference: ' + preferences['availability'].replace('_', ' '))
@@ -34,6 +32,8 @@ def preference_summary(preferences):
         for key, label in (('target_opportunity_types', 'Work interests'),
                            ('preferred_task_types', 'Task preferences')):
             extra = [value for value in preferences.get(key, []) if value not in model['job_interests']]
+            if key == 'preferred_task_types' and set(preferences.get(key, [])) == set(preferences.get('target_opportunity_types', [])):
+                continue
             if extra:
                 rows.append(label + ': ' + ', '.join(extra))
         return rows or ['No work preferences or pay minimum specified.']
@@ -50,8 +50,6 @@ def preference_summary(preferences):
                        ('target_opportunity_types', 'Work interests')):
         if preferences.get(key):
             rows.append(label + ': ' + ', '.join(str(v).replace('_', ' ') for v in preferences[key]))
-    if preferences.get('remote'):
-        rows.append('Remote work preferred')
     return rows or ['No work preferences specified.']
 
 

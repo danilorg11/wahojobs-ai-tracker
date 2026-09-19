@@ -20,7 +20,7 @@ class CompensationRangeWordingTests(unittest.TestCase):
             b = prepare_detail_display(detail(source), PROFILE)
             self.assertEqual(a['pay'], b['pay'])
             self.assertEqual(a['pay']['label'], '$6-to- $65 per hour')
-            self.assertIn('Confirm which dollar currency applies.', a['pay']['notes'])
+            self.assertEqual(a['pay']['currency_note'], 'Currency not specified in the listing.')
 
     def test_word_separators_qualifiers_units_and_currencies_are_not_discarded(self):
         for wording in ('$6-to-\u202f$65 per hour', '$6 to $65 per hour',

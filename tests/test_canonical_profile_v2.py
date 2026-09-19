@@ -2097,6 +2097,12 @@ print(canonical_v2.SCHEMA_VERSION)
                                     )
 
     def test_workspace_database_is_not_accessed_or_changed(self):
+        if not DB_PATH.exists():
+            # An isolated checkout need not contain a workspace database.
+            # Conversion must neither require nor create one.
+            self.convert_case()
+            self.assertFalse(DB_PATH.exists())
+            return
         before = (
             DB_PATH.stat().st_size,
             DB_PATH.stat().st_mtime_ns,

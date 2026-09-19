@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from urllib.parse import urljoin, urlsplit
 
 from scripts.build_public_catalog_production_database import (
@@ -149,6 +150,10 @@ class PublicCatalogProductionTests(unittest.TestCase):
         self.configuration = load_public_catalog_origin_configuration(
             str(self.configuration_path)
         )
+        # Publication/freshness fixtures must use the fixture clock on every read.
+        fixture_clock = patch('wahojobs.public_catalog_origin.datetime', wraps=datetime)
+        fixture_clock.start().now.return_value = NOW
+        self.addCleanup(fixture_clock.stop)
         self.integration = PublicCatalogOriginIntegration(
             self.configuration,
             origin_auth_token=TOKEN,
@@ -216,7 +221,12 @@ class PublicCatalogProductionTests(unittest.TestCase):
             "rel='canonical' href='https://www.wahojobs.com/jobs'",
             body,
         )
-        self.assertEqual(body.count(f"href='{HANDSHAKE_CANARY_PUBLIC_JOB_PATH}'"), 2)
+        collector = _HrefCollector()
+        collector.feed(body)
+        links = [href for href in collector.hrefs if urlsplit(href).path == HANDSHAKE_CANARY_PUBLIC_JOB_PATH]
+        self.assertEqual(len(links), 2)
+        from urllib.parse import parse_qs
+        self.assertTrue(all(parse_qs(urlsplit(href).query) == {'variant': ['7003'], 'return_to': ['/jobs']} for href in links))
         self.assertNotIn(KARL_PUBLIC_JOB_PATH, body)
         self.assertNotIn("/job/opportunity-", body)
         self.assertNotIn("href='/find-matches'", body)

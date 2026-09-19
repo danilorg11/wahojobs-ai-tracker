@@ -172,6 +172,16 @@ def load_pipeline_record(
         except pipeline_state.PipelineStateError:
             mirror_matches = False
 
+    restorable_applied = False
+    if normalized_state and normalized_state['workflow_status'] == 'applied':
+        effective = conn.execute("SELECT action_name,before_state_json FROM user_pipeline_transitions WHERE pipeline_item_id=? AND profile_id=? "
+            "AND affected_dimension IN ('workflow','correction','undo') AND before_state_json != after_state_json "
+            "ORDER BY state_version_after DESC LIMIT 1", (pipeline_item_id, item['profile_id'])).fetchone()
+        import json
+        previous = json.loads(effective['before_state_json']) if effective else None
+        restorable_applied = bool(effective and previous and effective['action_name'] in {'product_applied', 'resolve_unknown_workflow_applied'}
+            and (previous.get('workflow_status') is not None or normalized_state['visibility'] == 'hidden' or normalized_state['reminder_at']))
+
     return PipelineRecord(
         pipeline_item={
             "id": item["id"],
@@ -206,6 +216,7 @@ def load_pipeline_record(
         },
         diagnostics={
             "invariants": sorted(set(invariants)),
+            "restorable_applied": restorable_applied,
             "unresolved_workflow": "unresolved_legacy_workflow" in invariants,
             "mutation_grade": not bool(blocking.intersection(invariants)),
             "transition_owner_profiles": sorted(transition_profiles),

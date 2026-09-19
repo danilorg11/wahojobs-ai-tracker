@@ -35,7 +35,7 @@ class ProfileReviewTransferTests(unittest.TestCase):
             result, _ = self.f._post_form(self.browser, form['action'], fields)
             self.assertEqual(result.status, 303)
             page = self.get(self.f._response_header(result, 'Location'))
-        return page, self.f._form(page, 'draft', 'review_token')
+        return page, (self.f._form(page, 'draft', 'review_token') if changes else None)
 
     def apply(self, form, **kwargs):
         fields = self.f._set_form_field(form['fields'], 'confirmed', '1')
@@ -71,11 +71,9 @@ class ProfileReviewTransferTests(unittest.TestCase):
         before = self.current()
         counts = self.f._profile_counts()
         page, form = self.review()
-        self.assertIn(b'No profile details have changed', page.body)
-        result = self.apply(form)
-        self.assertEqual(result.status, 200)
-        self.assertIn(b'No profile details have changed', result.body)
-        self.assertNotIn(b'Profile changes saved', result.body)
+        self.assertIn(b'No changes to save', page.body)
+        self.assertNotIn(b'>Save changes</button>', page.body)
+        self.assertFalse(self.f._markup(page).forms)
         self.assertEqual(self.f._profile_counts(), counts)
         self.assertEqual(self.current(), before)
 
@@ -83,6 +81,7 @@ class ProfileReviewTransferTests(unittest.TestCase):
         _, form = self.review(dict(city='Example City'))
         before = self.f._profile_counts()
         fields = self.f._set_form_field(form['fields'], 'apply_now', '1')
+        fields = self.f._set_form_field(fields, 'confirmed', None)
         result, _ = self.f._post_form(self.browser, form['action'], fields)
         self.assertEqual(result.status, 400)
         self.assertEqual(self.f._profile_counts(), before)

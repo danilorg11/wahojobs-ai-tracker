@@ -446,7 +446,7 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
             dict(authenticated_catalog.headers)["Cache-Control"],
             "no-store",
         )
-        self.assertIn("href='/jobs' aria-current='page'>Jobs</a>", catalog_page)
+        self.assertIn("href='/jobs' aria-current='page'>Browse jobs</a>", catalog_page)
         self.assertIn("href='/find-matches'>Matches</a>", catalog_page)
         self.assertIn("href='/tracker'>My Jobs</a>", catalog_page)
         self.assertIn("href='/account/profile'>My profile</a>", catalog_page)
@@ -457,7 +457,7 @@ class AuthenticatedCandidateWorkflowTests(unittest.TestCase):
         company_page = authenticated_company.body.decode("utf-8")
         self.assertEqual(authenticated_company.status, 200, company_page)
         self.assertEqual(dict(authenticated_company.headers)["Cache-Control"], "no-store")
-        self.assertIn("href='/jobs'>Jobs</a>", company_page)
+        self.assertIn("href='/jobs'>Browse jobs</a>", company_page)
         self.assertIn("href='/tracker'>My Jobs</a>", company_page)
         for public_page in (catalog_page, company_page):
             self.assertEqual(len(re.findall(r"<a\b[^>]*>Wahojobs</a>", public_page)), 1)

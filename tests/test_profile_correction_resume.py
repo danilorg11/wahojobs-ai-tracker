@@ -36,7 +36,10 @@ class ProfileCorrectionResumeTests(unittest.TestCase):
         return self.t.get('/account/profile?correction=resume')
 
     def resume(self, landing):
-        form = self.f._form(landing, 'retained_draft')
+        if b"id='profile-review-form'" in landing.body:
+            form = self.f._form(landing, 'edit_run_id')
+        else:
+            form = self.f._form(landing, 'retained_draft')
         response, _ = self.f._post_form(self.browser, form['action'], form['fields'])
         self.assertEqual(response.status, 303)
         return self.t.get(self.f._response_header(response, 'Location'))
@@ -88,7 +91,7 @@ class ProfileCorrectionResumeTests(unittest.TestCase):
 
     def test_new_revision_conflicts_and_keeps_owner_inspection(self):
         _, form, _ = self.proposal()
-        landing = self.landing()
+        landing = self.t.get('/account/profile')
         grant = self.f._grant()
         offer, *_ = self.f._issue(grant, city='New Saved City')
         self.assertEqual(self.f._consume(grant, offer).state, 'corrected')
@@ -99,6 +102,8 @@ class ProfileCorrectionResumeTests(unittest.TestCase):
         self.assertIn(b'Example City', conflict.body)
         self.assertNotIn(b'Apply profile update', conflict.body)
         f = self.f._form(landing, 'retained_draft')
+        from wahojobs.persistent_profile_corrections import profile_correction_action_csrf_proof
+        f['action'] = '/account/profile?action=resume&proof=' + profile_correction_action_csrf_proof(self.f.session['csrf_secret'], 'resume')
         result, _ = self.f._post_form(self.browser, f['action'], f['fields'])
         self.assertEqual(result.status, 409)
         self.assertEqual(self.t.apply(form).status, 409)
@@ -111,7 +116,7 @@ class ProfileCorrectionResumeTests(unittest.TestCase):
             create_persistent_profile(connection, create_command(outsider['principal'], idempotency_key='other-owner-resume-test'))
         grant = self.f._grant(session=outsider)
         self.assertIsNone(self.f.service.retained_review(grant, dict(form['fields'])['draft']))
-        resume = self.f._form(self.landing(), 'retained_draft')
+        resume = self.f._form(self.t.get('/account/profile'), 'retained_draft')
         from wahojobs.persistent_profile_corrections import profile_correction_action_csrf_proof
         target = '/account/profile?action=resume&proof=' + profile_correction_action_csrf_proof(outsider['csrf_secret'], 'resume')
         response, _ = self.f._post_form(self.browser, target, resume['fields'], session=outsider)

@@ -1080,7 +1080,7 @@ def merge_server_review_correction_v2(
             )
 
     if changed_fields.intersection(
-        {"education_level", "degrees", "education_fields", "institutions", "education_status"}
+        {"education_level", "degrees", "education_fields", "institutions", "education_status", "education_years"}
     ):
         # The legacy correction form cannot author structured entries.  An
         # explicit legacy education correction therefore returns this section
@@ -1174,6 +1174,9 @@ _REVIEW_CORRECTION_FIELD_TARGETS = (
         (("education", "education_level"),),
     ),
     ("degrees", ("education", "degrees"), (("education", "degrees"),)),
+    # Structured education review now represents completion years. These are
+    # server-validated review values, just like the other education shadows.
+    ("education_years", ("education", "graduation_years"), (("education", "graduation_years"),)),
     (
         "education_fields",
         ("education", "fields_or_domains"),

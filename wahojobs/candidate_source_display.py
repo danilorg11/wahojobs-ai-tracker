@@ -81,11 +81,15 @@ def markdown(text, *, heading_level=3):
     return ''.join(output)
 
 
+from wahojobs.profiles.preference_model import ISO_4217_CURRENCIES
+_CURRENCY_CODES = '|'.join(sorted(ISO_4217_CURRENCIES))
+_CURRENCY = re.compile(r'\b(?:' + _CURRENCY_CODES + r')\b', re.I)
+
 _RATE = re.compile(
     r'(?<![\w.])(?:(?:up to|from|starting at|at least)\s+)?'
-    r'(?:(?:USD|EUR|GBP|CAD|AUD)\s*|[\$€£])?\d+(?:[,.]\d+)*\+?'
-    r'(?:\s*(?:[-–—]\s*to\s*[-–—]|to\b|[-–—])\s*(?:(?:USD|EUR|GBP|CAD|AUD)\s*|[\$€£])?\d+(?:[,.]\d+)*\+?)?'
-    r'\s*(?:(?:USD|EUR|GBP|CAD|AUD)\s*)?(?:/\s*|per\s+)'
+    rf'(?:(?:{_CURRENCY_CODES})\s*[$€£]?|[\$€£])?\d+(?:[,.]\d+)*\+?'
+    rf'(?:\s*(?:[-–—]\s*to\s*[-–—]|to\b|[-–—])\s*(?:(?:{_CURRENCY_CODES})\s*[$€£]?|[\$€£])?\d+(?:[,.]\d+)*\+?)?'
+    rf'\s*(?:(?:{_CURRENCY_CODES})\s*)?(?:/\s*|per\s+)'
     r'(?:accepted\s+)?(?:hour|hr|month|year|project|task)s?\b', re.I)
 
 
@@ -135,10 +139,27 @@ def pay_facts(metadata, text):
                      + ' and rates are both listed; confirm the payment terms.')
     elif len(phrases) > 1 and not _compatible_pay_wording(phrases):
         notes.append('The source uses more than one pay description; confirm the applicable rate.')
-    if any('$' in phrase and not re.search(r'\b(?:USD|CAD|AUD)\b', phrase, re.I)
-           for phrase in phrases):
-        notes.append('Confirm which dollar currency applies.')
-    return {'label': label, 'wording': phrases, 'notes': notes}
+    currency_note = ''
+    # A captured structured salary denomination belongs to this listing's pay.
+    # A denomination on another quoted rate/unit does not denominate this rate.
+    record_currencies = {record[key].upper() for key in ('salaryCurrency', 'currency', 'currencyCode')
+                         if isinstance(record.get(key), str) and record[key].upper() in ISO_4217_CURRENCIES}
+    record_currency = next(iter(record_currencies)) if len(record_currencies) == 1 else None
+    unknown = lambda phrase: bool(re.search(r'\d', phrase) and not _CURRENCY.search(phrase) and not re.search(r'[€£]', phrase))
+    if record_currency:
+        # Retain literal advertised amounts and symbols; add only source-backed denomination.
+        def denominated(phrase):
+            if 'currency not specified' in phrase:
+                return phrase.replace('(currency not specified)', record_currency)
+            if unknown(phrase):
+                return phrase + ' ' + record_currency
+            return phrase
+        label = denominated(label)
+        phrases = [denominated(phrase) for phrase in phrases]
+    elif any(unknown(phrase) for phrase in phrases):
+        currency_note = 'Currency not specified in the listing.'
+    return {'label': label, 'wording': phrases, 'notes': notes, 'currency_note': currency_note}
+
 
 
 def _compatible_pay_wording(phrases):

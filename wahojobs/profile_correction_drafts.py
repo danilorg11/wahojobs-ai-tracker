@@ -47,11 +47,14 @@ def encode(payload):
     return value
 
 
-def save(connection, *, reference, owner, base_revision, base_hash, payload, created_at):
+def save(connection, *, reference, owner, base_revision, base_hash, payload, created_at, predecessor=None):
     value = encode(payload)
     # Installed on the first authenticated draft save, in private sidecar
     # storage. No migration or write is performed by a read/resume GET.
     with connection:
+        connection.execute('BEGIN IMMEDIATE')
+        if predecessor and is_discarded(connection, owner=owner, reference=predecessor):
+            raise ValueError('draft_discarded')
         connection.execute('CREATE TABLE IF NOT EXISTS ' + TABLE + ''' (
             draft_reference TEXT PRIMARY KEY NOT NULL,
             owner_binding TEXT NOT NULL,
@@ -79,6 +82,8 @@ def load(connection, *, owner, reference=None):
     row = connection.execute(sql + ' ORDER BY rowid DESC LIMIT 1', args).fetchone()
     if row is None:
         return None
+    if is_discarded(connection, owner=owner, reference=row[0]):
+        return None
     value = row[3]
     if (type(value) is not str or len(value.encode('utf-8')) > MAX_PAYLOAD_BYTES
             or hashlib.sha256(value.encode('utf-8')).hexdigest() != row[4]):
@@ -87,3 +92,36 @@ def load(connection, *, owner, reference=None):
     if encode(payload) != value:
         raise ValueError('correction_checkpoint_unavailable')
     return row[0], row[1], row[2], payload
+
+
+def is_discarded(connection, *, owner, reference):
+    if connection is None or not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='discarded_profile_drafts'").fetchone():
+        return False
+    return connection.execute('SELECT 1 FROM discarded_profile_drafts WHERE owner_binding=? AND draft_reference=?',
+                              (owner, reference)).fetchone() is not None
+
+
+def discard(connection, *, owner, reference):
+    """Retain immutable proposals, invalidate their authority, preserve newer work."""
+    with connection:
+        connection.execute('BEGIN IMMEDIATE')
+        latest = connection.execute('SELECT rowid,draft_reference FROM ' + TABLE +
+            ' WHERE owner_binding=? ORDER BY rowid DESC LIMIT 1', (owner,)).fetchone()
+        if latest is None or latest[1] != reference:
+            raise ValueError('draft_changed')
+        connection.execute('CREATE TABLE IF NOT EXISTS discarded_profile_drafts ('
+            'draft_reference TEXT PRIMARY KEY, owner_binding TEXT NOT NULL)')
+        connection.execute('INSERT OR IGNORE INTO discarded_profile_drafts '
+            'SELECT draft_reference,owner_binding FROM ' + TABLE + ' WHERE owner_binding=? AND rowid<=?',
+            (owner, latest[0]))
+
+
+@contextmanager
+def confirmation_guard(account, *, owner, reference):
+    if reference is None:
+        yield True
+        return
+    with store_connection(account, write=True) as connection, connection:
+        connection.execute('BEGIN IMMEDIATE')
+        yield not is_discarded(connection, owner=owner, reference=reference)

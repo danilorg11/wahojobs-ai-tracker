@@ -74,6 +74,57 @@ class CorrectionEditorLifecycleTests(unittest.TestCase):
         _, response = self.f.editor()
         self.client(response, 'item')
 
+    def test_guided_work_history_and_combined_abilities_save_without_reclassification(self):
+        _, response = self.f.long_editor()
+        result = self.client(response, 'work-simple')
+        expected = json.loads(dict(result['fields'])['recent_roles'])
+        current = self.apply_client(result)
+        self.assertEqual(set(current['experience']['recent_roles']), set(expected))
+        self.assertEqual(current['location']['city'], 'Unrelated work edit')
+        self.assertEqual(set(current['experience']['specialties']), {'Image review', 'Quality checks'})
+        self.assertIn('Spreadsheet formulas', current['skills']['normalized'])
+        page = self.f.get('/account/profile').body.decode()
+        self.assertIn('Reviewer · Example, Inc. · 2021–Present', page)
+        self.assertIn('What you can do', page)
+        self.assertNotIn('Professional domains', page)
+        _, reopened = self.f.editor()
+        self.client(reopened, 'work-reopen')
+
+    def test_work_summary_does_not_infer_current_work_from_unknown_end(self):
+        from wahojobs.profiles.work_history_editor import summary
+        self.assertEqual(summary('Title: Reviewer | From: 2021'), 'Reviewer · Started 2021')
+        self.assertEqual(summary('Title: Reviewer | From: 2021 | To: Present'), 'Reviewer · 2021–Present')
+        self.assertEqual(summary('Reviewer, Example Company, dates unknown'), 'Reviewer, Example Company, dates unknown')
+
+    def test_education_shared_undo_preserves_identity_values_and_real_save(self):
+        _, response = self.f.editor()
+        result = self.client(response, 'education')
+        expected = json.loads(dict(result['fields'])['education_entries'])
+        current = self.apply_client(result)
+        self.assertEqual(current['location']['city'], 'Unrelated unsaved city')
+        self.assertEqual({json.dumps(e, sort_keys=True) for e in current['education']['entries']},
+                         {json.dumps(e, sort_keys=True) for e in expected})
+        self.assertEqual(sum(e['kind'] == 'phd' and e['field'] == 'Biology'
+                             for e in current['education']['entries']), 1)
+        self.assertNotIn('Genetics', current['education']['fields_or_domains'])
+        self.assertIn('Second degrees', current['education']['degrees'])
+        self.assertNotIn('First degrees', current['education']['degrees'])
+        self.assertIn(b'PhD in Biology', self.f.get('/account/profile').body)
+
+    def test_education_restore_over_capacity_keeps_all_values_for_correction(self):
+        _, response = self.f.editor()
+        result = self.client(response, 'education-capacity')
+        before = self.f.f._profile_counts()
+        rejected, _ = self.f.f._post_form(self.f.browser, result['action'], result['fields'])
+        self.assertEqual(rejected.status, 400)
+        retained = dict(self.f.f._form(rejected, 'edit_run_id')['fields'])
+        self.assertEqual(len(json.loads(retained['education_entries'])), 25)
+        self.assertEqual(self.f.f._profile_counts(), before)
+
+    def test_empty_group_has_no_footprint_and_undo_reopens_group(self):
+        _, response = self.f.long_editor()
+        self.client(response, 'education-group')
+
     def duration_editor(self):
         from wahojobs.profiles.canonical_v2 import _material_field_paths
         from tests.test_professional_background_components import confirmed
@@ -129,7 +180,7 @@ class CorrectionEditorLifecycleTests(unittest.TestCase):
         posted, _ = self.f.f._post_form(self.f.browser, form['action'], fields)
         self.assertEqual(posted.status, 303)
         review = self.f.get(self.f.f._response_header(posted, 'Location'))
-        self.assertIn(b'No profile details have changed', review.body)
+        self.assertIn(b'No changes to save', review.body)
         current = self.f.f._current().trusted_dict(include_structured_profile=True)['structured_profile']
         self.assertEqual(current['experience']['years_by_domain'],
                          [dict(domain='customer support', years=2), dict(domain='writing', years=1.5)])
@@ -151,7 +202,9 @@ class CorrectionEditorLifecycleTests(unittest.TestCase):
         self.duration_editor()
         service = self.f.f.service
         grant = self.f.f._grant()
-        preparation = service.prepare_initial_review(grant)
+        _, editor = self.f.editor(dict(city='Pending duration draft'))
+        draft = dict(self.f.f._form(editor, 'edit_run_id')['fields'])['edit_run_id']
+        preparation = self.f.browser._correction_registry.peek(draft).recommendation_context['correction_preparation']
         service.retain_review(grant, 'c' * 24, preparation)
         connection = self.f.f._connection()
         try:
@@ -187,8 +240,8 @@ class CorrectionEditorLifecycleTests(unittest.TestCase):
         from wahojobs.profiles.correction_editor import summary_sections
         text = summary_sections(dict(education=dict(education_level='high_school', completion_status='completed',
             degrees=[], fields_or_domains=[], institutions=[])))
-        self.assertIn('Education level: high school', text)
-        self.assertIn('Study status: completed', text)
+        self.assertIn('High school', text)
+        self.assertIn('Study status: Completed', text)
 
 
 class DomainDurationReviewContractTests(unittest.TestCase):
