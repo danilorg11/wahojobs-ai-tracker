@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 import math
 import re
 import unicodedata
@@ -175,10 +176,7 @@ def load_public_jobs(connection, *, now=None):
     for canonical_id, rows in grouped.items():
         evidence = dict(rows=rows, effective=effective_by_canonical.get(canonical_id))
         variants = []
-        for row in rows:
-            if not public_job_page.public_opportunity_is_eligible(row, now=now):
-                continue
-            job = public_job_page.prepare_public_job(evidence, selected_job_id=row['job_id'], now=now)
+        for job in public_job_page.prepare_public_job_variants(evidence, now=now):
             if len(rows) > 1:
                 job['canonical_title'] = job['source_title']
                 job['canonical_language'] = None
@@ -414,11 +412,11 @@ def catalog_facets(jobs, *, filters=None, resolved_filters=None):
     for key in counters:
         remaining = {k: v for k, v in (filters or {}).items() if k != key}
         resolved = {k: v for k, v in (resolved_filters or {}).items() if k != key}
+        matching_jobs = [job for job in jobs if catalog_job_matches(job, remaining, resolved)]
         for candidate_key, label in labels[key].items():
-            counters[key][candidate_key] = len({job['canonical_opportunity_id'] for job in jobs
-                if catalog_job_matches(job, remaining, resolved)
-                and (location_model_matches(job['_catalog_location_model'], location_identities[candidate_key]) if key == 'location'
-                     else candidate_key in job['_catalog_filter_values'][key])})
+            counters[key][candidate_key] = len({job['canonical_opportunity_id'] for job in matching_jobs
+                if (location_model_matches(job['_catalog_location_model'], location_identities[candidate_key]) if key == 'location'
+                    else candidate_key in job['_catalog_filter_values'][key])})
     return {
         key: [
             {
@@ -976,6 +974,7 @@ def work_activity_label(value):
     return WORK_ACTIVITY_LABELS.get(public_job_page.clean(value))
 
 
+@lru_cache(maxsize=256)
 def location_filter_identity(value):
     key = facet_value_key(value)
     special = {

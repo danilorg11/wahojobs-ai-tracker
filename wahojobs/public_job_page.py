@@ -248,7 +248,45 @@ def load_public_job_evidence(connection, path):
             "effective": resolve_effective_enrichment(connection, canonical_opportunity_id) if rows else None}
 
 
-def prepare_public_job(evidence, *, now=None, selected_job_id=None):
+def prepare_public_job_variants(evidence, *, now=None):
+    """Prepare a catalog group, sharing only identical scoped fact projections.
+
+    The cache lives for this evidence snapshot only. Two references can share a
+    document only if they select exactly the same facts, including conflicts and
+    known-empty facts. Catalog cards use attributes only, so they do not expand
+    provenance for every source. Normal detail projection retains full evidence.
+    Returned enrichment documents are shared read-only, like effective evidence.
+    """
+    rows = evidence["rows"]
+    eligible = [row for row in rows if public_opportunity_is_eligible(row, now=now)]
+    documents = {}
+    if len(rows) > 1 and eligible:
+        from wahojobs.opportunity_enrichment import project_variant_facts
+
+        document = (evidence.get("effective") or {}).get("document") or blank_document()
+        facts = document.get("variant_facts", [])
+        by_reference = {"source_hash:" + row["source_hash"]: [] for row in eligible}
+        for index, fact in enumerate(facts):
+            for reference in fact.get("variant_refs", []):
+                if reference in by_reference:
+                    by_reference[reference].append(index)
+        projections = {}
+        for reference, indices in by_reference.items():
+            signature = tuple(indices)
+            if signature not in projections:
+                scoped = blank_document()
+                attribute_facts = [dict(facts[index], evidence=[]) for index in indices]
+                project_variant_facts(scoped, attribute_facts, [reference])
+                projections[signature] = scoped
+            documents[reference] = projections[signature]
+    return [
+        prepare_public_job(evidence, now=now, selected_job_id=row["job_id"],
+                           _variant_documents=documents)
+        for row in eligible
+    ]
+
+
+def prepare_public_job(evidence, *, now=None, selected_job_id=None, _variant_documents=None):
     """Prepare copied evidence without retaining a database connection."""
     if evidence is None:
         return None
@@ -261,8 +299,8 @@ def prepare_public_job(evidence, *, now=None, selected_job_id=None):
     historical = [
         dict(row)
         for row in rows
-        if public_historical_inventory_is_eligible(dict(row))
-        and (selected_job_id is None or row["job_id"] == selected_job_id)
+        if (selected_job_id is None or row["job_id"] == selected_job_id)
+        and public_historical_inventory_is_eligible(dict(row))
     ]
     if not historical:
         return None
@@ -284,11 +322,14 @@ def prepare_public_job(evidence, *, now=None, selected_job_id=None):
         # Use the existing scoped-fact projection; otherwise retain unknowns.
         from wahojobs.opportunity_enrichment import project_variant_facts
         reference = "source_hash:" + result["source_hash"]
-        scoped = blank_document()
-        facts = [fact for fact in document.get("variant_facts", [])
-                 if reference in fact.get("variant_refs", [])]
-        project_variant_facts(scoped, facts, [reference])
-        document = scoped
+        if _variant_documents is not None and reference in _variant_documents:
+            document = _variant_documents[reference]
+        else:
+            scoped = blank_document()
+            facts = [fact for fact in document.get("variant_facts", [])
+                     if reference in fact.get("variant_refs", [])]
+            project_variant_facts(scoped, facts, [reference])
+            document = scoped
     official_url = first_human_facing_url(
         result["rich_source_url"],
         result["listing_url"],

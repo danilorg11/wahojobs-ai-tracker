@@ -19,3 +19,11 @@ Use the existing private SSH handoff and pinned-host procedure. The prior helper
 After deployment, record read-only real-inventory queries, canonical/variant counts, details/back context, navigation and authenticated page observations. Owner history must not receive disposable smoke-test writes. Clearly separate server-side checks from checks needing an owner's authenticated browser.
 
 At this source checkpoint deployment has not yet occurred. The operational handoff will identify the exact hosted commit and observed results. Main/public-site changes, inventory refresh, external model/source calls, synthetic hosted data/authentication, WorkOS Production activation and invitations remain excluded. Privacy/retention, disaster recovery, hosted second-account isolation and invitation readiness remain separate gates.
+
+## Hosted inventory performance gate
+
+The initial candidate `ee3695c20100e781adddb65fd1fd6a2f35e25fbe` passed 32 isolated Ubuntu tests, including the immediate socket restart test, but its read-only catalog check timed out before any service stop or release switch. It was never deployed. The hosted inventory contains much larger groups of source variants than the synthetic preview.
+
+The follow-up code shares identical scoped attribute projections within one inventory snapshot, avoids expanding detail-only provenance in catalog cards, checks a selected variant before evaluating unrelated rows, and evaluates facet predicates once per facet rather than once per option. Detail pages retain the complete source evidence; canonical/variant identity, geographic eligibility, conflict/unknown handling and matching rules are unchanged. Country identities use a bounded cache of pure label parsing only.
+
+The read-only hosted probe of the corrected code loaded 491 eligible canonical opportunities and 5,624 eligible source variants in about 7.1 seconds on its first load; cached-inventory queries took under one second in that probe. All 17 pages, ten keyword/location queries and six detail/context links were checked. These observations describe the existing inventory at the probe time, not a guarantee of full-catalog correctness. The exact committed release must still pass the deployment guards and current-data comparison before promotion is reported complete.

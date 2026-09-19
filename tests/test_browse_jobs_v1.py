@@ -95,6 +95,49 @@ class BrowseCatalogTests(unittest.TestCase):
         self.assertEqual(catalog.build_catalog(self.load(), {'location': 'Portugal'})['result_count'], 0)
         self.assertEqual(catalog.build_catalog(self.load())['result_count'], 1)
 
+    def test_batch_projection_matches_details_and_scales_by_distinct_facts(self):
+        from wahojobs.opportunity_enrichment import (
+            make_variant_fact, project_variant_facts, scoped_fact_evidence,
+        )
+        with closing(sqlite3.connect(self.path)) as c:
+            c.row_factory = sqlite3.Row
+            evidence = public_job_page.load_public_job_evidence(c, JOB_PATH)
+        template = evidence['rows'][0]
+        evidence['rows'] = [dict(template, job_id=10000+i, source_hash=f'batch-{i}') for i in range(120)]
+        references = ['source_hash:' + row['source_hash'] for row in evidence['rows']]
+        proof = scoped_fact_evidence(source_ref=references[0], kind='source_body', label='fixture',
+            evidence_text='Explicit requirements', basis='deterministic_parse', confidence='high')
+        facts = [
+            make_variant_fact('attributes.requirements.skills_required', 'Python', references[:119], [proof]),
+            make_variant_fact('attributes.work_arrangement.workplace_mode', 'remote', references[:119], [proof]),
+            # Scalar conflict, known-empty conflict, and mixed language modes
+            # must keep exactly the standalone projection's behavior.
+            make_variant_fact('attributes.work_arrangement.workplace_mode', 'onsite', references[60:119], [proof]),
+            make_variant_fact('attributes.requirements.skills_required', None, references[60:119], [proof], knowledge_state='known_empty'),
+        ]
+        for mode in ('single', 'all_required'):
+            facts.append(make_variant_fact('attributes.requirements.languages',
+                dict(language='English', locale=None, requirement_mode=mode), references[60:119], [proof]))
+        evidence['effective']['document']['variant_facts'] = facts
+        original = deepcopy(evidence)
+        expected = [public_job_page.prepare_public_job(evidence, selected_job_id=row['job_id'], now=NOW)
+                    for row in evidence['rows']]
+        for job in expected:
+            job['enrichment']['field_evidence'] = []
+            for fact in job['enrichment']['variant_facts']:
+                fact['evidence'] = []
+        with patch('wahojobs.opportunity_enrichment.project_variant_facts', wraps=project_variant_facts) as project:
+            actual = public_job_page.prepare_public_job_variants(evidence, now=NOW)
+        self.assertEqual(actual, expected)
+        self.assertEqual(project.call_count, 3)  # 120 variants, three exact fact sets (including unknown).
+        self.assertEqual(evidence, original)
+        self.assertIs(actual[0]['enrichment'], actual[59]['enrichment'])
+        self.assertIsNot(actual[0]['enrichment'], actual[60]['enrichment'])
+        # A later snapshot must not reuse a projection from the prior load.
+        evidence['effective']['document']['variant_facts'] = []
+        refreshed = public_job_page.prepare_public_job_variants(evidence, now=NOW)
+        self.assertEqual(refreshed[0]['enrichment']['attributes']['requirements']['skills_required'], [])
+
     def test_country_worldwide_region_unknown_and_remote_are_distinct(self):
         base = self.load()[0]
         jobs = []
@@ -116,6 +159,18 @@ class BrowseCatalogTests(unittest.TestCase):
             self.assertEqual(catalog.build_catalog(jobs, {'location': place})['result_count'], count, place)
         self.assertEqual(catalog.build_catalog(jobs)['result_count'], 5)
         self.assertIn('not specified', jobs[3]['catalog_location'])
+
+    def test_facet_predicate_work_does_not_multiply_by_number_of_options(self):
+        jobs = self.variants()[0]['_catalog_variants']
+        for job in jobs:
+            job['_catalog_filter_labels']['work'] = {f'task-{i}': f'Task {i}' for i in range(100)}
+            job['_catalog_filter_values']['work'] = set(job['_catalog_filter_labels']['work'])
+        with patch.object(catalog, 'catalog_job_matches', wraps=catalog.catalog_job_matches) as matches:
+            facets = catalog.catalog_facets(jobs, filters={'location': 'Portugal'},
+                                           resolved_filters={'location': 'portugal'})
+        self.assertEqual(len(facets['work']), 100)
+        self.assertEqual({option['count'] for option in facets['work']}, {1})
+        self.assertLessEqual(matches.call_count, len(jobs) * len(catalog.CATALOG_FACET_KEYS))
 
     def test_search_includes_explicit_skills_and_bound_description(self):
         with closing(sqlite3.connect(self.path)) as c, c:
