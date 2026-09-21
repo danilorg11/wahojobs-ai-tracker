@@ -131,7 +131,7 @@ ROLE_DOMAIN_ALIASES = {
     ),
     "chemistry": ("chemistry", "chemical engineering"),
     "physics": ("physics", "physicist"),
-    "mathematics": ("mathematics", "math expert", "statistics expert"),
+    "mathematics": ("mathematics", "mathematician", "mathematicians", "math expert", "statistics expert"),
     "material_science": ("material science", "materials science"),
 }
 

@@ -227,7 +227,7 @@ def _prepare_transferable_scope(material_hash, provider, external_id, url, body,
 
 
 @lru_cache(maxsize=16384)
-def _prepare_eligibility(material_hash, provider, external_id, url, body, body_format, metadata_json):
+def _prepare_eligibility(material_hash, provider, external_id, url, body, body_format, metadata_json, *, include_ungraded_languages=False):
     """Reuse accepted source blocks/cache before per-variant comparisons.
 
     No request-time fetch and no repeated description parsing for unchanged
@@ -256,7 +256,8 @@ def _prepare_eligibility(material_hash, provider, external_id, url, body, body_f
             if mode == 'conflicting':
                 mode = 'unresolved'
             ref = f"{block['reference']}:line {line}"
-            language_conditions = prepare_language_conditions(quote, mode)
+            language_conditions = prepare_language_conditions(
+                quote, mode, include_ungraded=include_ungraded_languages)
             if mode == 'not_required':
                 language_conditions = [dict(c, modality=mode) for c in language_conditions]
             languages.extend(dict(c, source_field=ref, heading=block['heading'])

@@ -164,8 +164,10 @@ def load_public_job_evidence(connection, path):
     canonical_opportunity_id = parse_public_job_path(path)
     if canonical_opportunity_id is None:
         return None
+    from wahojobs.source_verification import SOURCE_VERIFICATION_FIELDS, SOURCE_VERIFICATION_JOINS
+
     rows = connection.execute(
-        """
+        f"""
         SELECT
           j.id AS job_id,
           j.title AS source_title,
@@ -214,37 +216,23 @@ def load_public_job_evidence(connection, path):
           oe.model_provider,
           oe.model_name,
           oe.generated_at AS enrichment_generated_at,
-          source_run.id AS source_run_id,
-          source_run.started_at AS source_run_started_at,
-          COALESCE(source_run.finished_at, source_run.started_at)
-            AS latest_successful_source_run_at,
-          CASE WHEN source_run.id IS NULL THEN 0 ELSE 1 END
-            AS source_run_qualifies
+          {SOURCE_VERIFICATION_FIELDS}
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
         LEFT JOIN opportunity_enrichments oe
           ON oe.canonical_opportunity_id = co.id
         LEFT JOIN job_source_contents sc ON sc.job_id = j.id
-        LEFT JOIN crawl_runs source_run
-          ON source_run.id = (
-            SELECT cr.id
-            FROM crawl_runs cr
-            WHERE cr.company_id = c.id
-              AND cr.status = 'success'
-              AND cr.used_sample_data = 0
-              AND cr.error_message IS NULL
-            ORDER BY COALESCE(cr.finished_at, cr.started_at) DESC, cr.id DESC
-            LIMIT 1
-          )
+        {SOURCE_VERIFICATION_JOINS}
         WHERE co.id = ?
           AND j.title NOT LIKE '[SIMULATION]%'
         ORDER BY j.id
         """,
         (canonical_opportunity_id,),
     ).fetchall()
+    from wahojobs.catalog_source_geography import attach_catalog_geography
     return {"canonical_opportunity_id": canonical_opportunity_id,
-            "rows": [dict(row) for row in rows],
+            "rows": attach_catalog_geography(connection, [dict(row) for row in rows]),
             "effective": resolve_effective_enrichment(connection, canonical_opportunity_id) if rows else None}
 
 
@@ -277,7 +265,7 @@ def prepare_public_job_variants(evidence, *, now=None):
                 scoped = blank_document()
                 attribute_facts = [dict(facts[index], evidence=[]) for index in indices]
                 project_variant_facts(scoped, attribute_facts, [reference])
-                projections[signature] = scoped
+                projections[signature] = apply_projected_overrides(scoped, evidence.get('effective'))
             documents[reference] = projections[signature]
     return [
         prepare_public_job(evidence, now=now, selected_job_id=row["job_id"],
@@ -322,6 +310,7 @@ def prepare_public_job(evidence, *, now=None, selected_job_id=None, _variant_doc
         # Use the existing scoped-fact projection; otherwise retain unknowns.
         from wahojobs.opportunity_enrichment import project_variant_facts
         reference = "source_hash:" + result["source_hash"]
+        canonical_document = document
         if _variant_documents is not None and reference in _variant_documents:
             document = _variant_documents[reference]
         else:
@@ -330,6 +319,12 @@ def prepare_public_job(evidence, *, now=None, selected_job_id=None, _variant_doc
                      if reference in fact.get("variant_refs", [])]
             project_variant_facts(scoped, facts, [reference])
             document = scoped
+        document = restore_bound_role_classifications(
+            document, canonical_document, result,
+            include_evidence=_variant_documents is None,
+        )
+        if _variant_documents is None:
+            document = apply_projected_overrides(document, effective)
     official_url = first_human_facing_url(
         result["rich_source_url"],
         result["listing_url"],
@@ -367,6 +362,65 @@ def prepare_public_job(evidence, *, now=None, selected_job_id=None, _variant_doc
         "_public_job_workflow": True,
     }
     return result
+
+
+def apply_projected_overrides(document, effective):
+    """Human edits apply after projection, once per cached exact fact set."""
+    if not effective or not effective.get('overridden_fields'):
+        return document
+    from copy import deepcopy
+    from wahojobs.opportunity_enrichment import apply_override_value, get_path
+    result = deepcopy(document)
+    original = effective['document']
+    for field_path in effective['overridden_fields']:
+        unknown = field_path in original.get('unknown_fields', [])
+        apply_override_value(result, field_path, 'set_unknown' if unknown else 'set',
+                             get_path(original, field_path))
+    return result
+
+
+def restore_bound_role_classifications(scoped, original, row, *, include_evidence=True):
+    """Recover stored title/category classifications with exact variant proof.
+
+    Older deterministic output stores these fields outside variant_facts. Its
+    aggregate evidence is reusable only when it is exactly this source row's
+    title/category text. A hash reference alone does not authorize copying a
+    classification derived from several different titles. Scoped facts, even
+    empty or conflicting ones, always take precedence. No classification runs.
+    """
+    from wahojobs.opportunity_enrichment import unique_strings
+
+    title = clean(row.get('source_title'))
+    if not title or not row.get('source_hash'):
+        return scoped
+    reference = 'source_hash:' + row['source_hash']
+    categories = ' | '.join(unique_strings(
+        [row.get('source_department'), row.get('source_expertise')]))
+    exact_text = f'{title} | {categories}'.strip(' |')
+    touched = {fact['field_path'] for fact in original.get('variant_facts', [])
+               if reference in fact.get('variant_refs', [])}
+    recovered, evidence = {}, []
+    for field in ('professional_domains', 'work_activities'):
+        path = 'attributes.role.' + field
+        values = original['attributes']['role'].get(field)
+        if not values or path in touched or scoped['attributes']['role'].get(field):
+            continue
+        proof = next((item for item in original.get('field_evidence', [])
+                      if item.get('field_path') == path
+                      and item.get('basis') == 'deterministic_classification'
+                      and item.get('source_ref') == 'role_text'
+                      and item.get('evidence_text') == exact_text
+                      and reference in item.get('variant_refs', [])), None)
+        if proof is not None:
+            recovered[field] = list(values)
+            evidence.append(dict(proof, variant_refs=[reference]))
+    if not recovered:
+        return scoped
+    return dict(scoped, attributes=dict(scoped['attributes'],
+        role=dict(scoped['attributes']['role'], **recovered)),
+        field_evidence=[*scoped.get('field_evidence', []), *(evidence if include_evidence else [])],
+        unknown_fields=[path for path in scoped.get('unknown_fields', [])
+                        if path not in {'attributes.role.' + field for field in recovered}])
 
 
 def public_opportunity_is_eligible(row, *, now=None):
@@ -766,16 +820,20 @@ def render_public_job_page(
 
     raw_source_location = candidate_text(job["source_location"])
     variant_label = source_variant_label(job)
-    eligibility = candidate_eligibility(
-        arrangement,
-        raw_source_location,
-        variant_label=variant_label,
-    )
+    eligibility = candidate_job_eligibility(job)
     source_location = candidate_source_location(raw_source_location)
+    if job.get('company_slug') == 'mercor':
+        # Unqualified listing wording is attributed below, not presented as
+        # permission that could contradict the accepted applicant packet.
+        source_location = enum_label(eligibility['mode'])
     eligibility_adds_information = candidate_eligibility_adds_information(
         source_location,
         eligibility,
     )
+    if job.get('company_slug') == 'mercor':
+        eligibility_adds_information = True
+    from wahojobs.catalog_display import has_applicant_geography, advertised_compensation
+    eligibility_adds_information = eligibility_adds_information and has_applicant_geography(eligibility)
     eligibility_fact = (
         eligibility["fact"] if eligibility_adds_information else None
     )
@@ -787,12 +845,12 @@ def render_public_job_page(
     workplace_label = enum_label(arrangement["workplace_mode"])
     fact_items = unique_pairs_by_value(compact_pairs(
         (
-            ("Location", source_location),
+            ("Work arrangement" if (source_location or '').casefold() in ('remote', 'onsite', 'hybrid') else "Location", source_location),
             (
                 "Where you can work from",
                 eligibility_fact,
             ),
-            ("Compensation", compensation_label(compensation)),
+            ("Compensation", advertised_compensation(job)),
             (
                 "Engagement",
                 enum_label(arrangement["engagement_type"])
@@ -922,7 +980,6 @@ def render_public_job_page(
         else e(company_name)
     )
     verified_at = first_timestamp(
-        job["last_captured_at"],
         job["latest_successful_source_run_at"],
         job["job_last_seen_at"],
         job["canonical_last_seen_at"],
@@ -1091,6 +1148,8 @@ def render_workflow_panel(job, *, authenticated, controls, status):
           <a class='button button-secondary' href='/login'>Create a profile or sign in</a>
         </aside>
         """
+    if not controls and not status:
+        return ""
     status_html = (
         f"<p class='pill js-card-status' aria-label='Current status: {e(status)}'>{e(status)}</p>"
         if status
@@ -1169,6 +1228,36 @@ def render_labeled_list(label, values):
     return [f"<div class='requirement-group'><h3>{e(label)}</h3><ul>{rendered}</ul></div>"]
 
 
+def candidate_job_eligibility(job):
+    """Keep exact prepared applicant invitations distinct from restrictions."""
+    eligibility = candidate_eligibility(job['enrichment']['attributes']['work_arrangement'],
+                                        job.get('source_location'))
+    from wahojobs.catalog_source_geography import mercor_candidate_eligibility
+    accepted = mercor_candidate_eligibility(job, eligibility)
+    if accepted is not None:
+        return accepted
+    if eligibility['summary']:
+        return eligibility
+    # A scoped restriction/conflict must not be softened by a recruitment hint.
+    guarded = {'attributes.work_arrangement.' + field for field in
+               ('location_scope', 'eligible_countries', 'eligible_regions', 'eligible_locations')}
+    if any(fact.get('field_path') in guarded for fact in job['enrichment'].get('variant_facts', [])):
+        return eligibility
+    from wahojobs.source_detail_presentation import bound_alignerr_job_detail, bound_applicant_invitation_countries
+    source_detail = bound_alignerr_job_detail(job)
+    if source_detail is None:
+        return eligibility
+    try:
+        countries = bound_applicant_invitation_countries(*source_detail)
+    except (ValueError, TypeError):
+        return eligibility
+    if not countries:
+        return eligibility
+    text = 'Applicants in ' + natural_join(countries) + ' mentioned'
+    return dict(eligibility, countries=countries, summary=text, fact=text,
+                applicant_geography_basis='invitation')
+
+
 def candidate_eligibility(arrangement, source_location=None, *, variant_label=None):
     """Build one concise candidate-facing eligibility presentation."""
 
@@ -1193,10 +1282,7 @@ def candidate_eligibility(arrangement, source_location=None, *, variant_label=No
         countries = set(countries_in_location(source_location))
     if not regions:
         regions = set(regions_in_location(source_location))
-    if not countries:
-        countries = set(countries_in_location(candidate_text(variant_label)))
-    if not regions:
-        regions = set(regions_in_location(candidate_text(variant_label)))
+    # Language/locale labels do not establish applicant residence.
 
     countries = tuple(sorted(countries, key=str.casefold))
     regions = tuple(sorted(regions, key=str.casefold))
@@ -1350,6 +1436,16 @@ def candidate_language_display(value):
 
 
 def render_eligibility_details(eligibility):
+    if eligibility.get('applicant_geography_basis') == 'accepted_source':
+        rows = eligibility.get('dimension_details') or []
+        wording = eligibility.get('source_wording')
+        if not rows and not wording:
+            return ''
+        fields = ''.join(f'<dt>{e(label)}</dt><dd>{e(value)}</dd>' for label, value in rows)
+        original = (f"<p><strong>Employer’s location wording:</strong> {e(wording)}</p>"
+                    if wording else '')
+        return ("<details class='eligibility-details'><summary>Location and residence requirements</summary>"
+                + ('<dl>' + fields + '</dl>' if fields else '') + original + '</details>')
     countries = eligibility["detail_countries"]
     if not countries:
         return ""
@@ -1693,6 +1789,7 @@ a { color: #146149; font-weight: 700; }
 main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 8px 0 48px; }
 .back-to-jobs { margin: 0 0 12px 2px; }
 .hero { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .75fr); gap: 24px; align-items: start; background: #fff; border: 1px solid #d9e2dd; border-radius: 18px; padding: clamp(24px, 5vw, 52px); box-shadow: 0 14px 40px rgba(28, 53, 42, .07); }
+.hero:not(:has(> .workflow-card)) { grid-template-columns: minmax(0, 1fr); }
 .eyebrow { margin: 0 0 8px; color: #527064; font-size: .78rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 h1 { margin: 0; max-width: 780px; font-size: clamp(2rem, 5vw, 3.65rem); line-height: 1.04; letter-spacing: -.035em; }
 h2 { margin: 0 0 12px; font-size: clamp(1.35rem, 2.5vw, 1.8rem); line-height: 1.2; }

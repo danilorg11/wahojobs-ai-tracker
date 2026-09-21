@@ -349,22 +349,35 @@ def language_variants(language: str) -> list[str]:
     return variants or [canonical]
 
 
-def prepare_language_conditions(quote: str, modality: str) -> list[dict]:
+def prepare_language_conditions(quote: str, modality: str, *, include_ungraded=False) -> list[dict]:
     """Bounded applicant-proficiency clauses, never titles or country adjectives.
 
     The caller supplies accepted qualification context. Unsupported logical
     scope stays unresolved; no CEFR equivalences or inferred expertise.
     """
     text = re.sub(r'[*#]', '', quote).replace('\u2011', '-').replace('\u2010', '-')
+    levels = (r'native(?:-level)?(?: or near-native)?|near-native|fluent|'
+              r'bilingual|working fluency|working proficiency')
+    if include_ungraded:
+        # Required communication in a named human language establishes its
+        # identity, not a fluency level. Matching's proficiency contract keeps
+        # its default behavior; offline enrichment may retain this weaker fact.
+        levels += (r'|(?:(?:clear|strong|excellent|effective)\s+)?'
+                   r'(?:written|oral|verbal)(?:\s+and\s+(?:written|oral|verbal))?'
+                   r'\s+communication(?:\s+skills?)?')
     pattern = re.compile(
-        r'\b(?P<level>native(?:-level)?(?: or near-native)?|near-native|fluent|'
-        r'bilingual|working fluency|working proficiency)'
+        r'\b(?P<level>' + levels + r')'
         r'(?:\s+(?:fluency|proficiency|command))?(?:\s+(?:in|of))?\s+', re.I)
     results = []
     for found in pattern.finditer(text):
         # Do not match the tail of "non-native" or "near-native" a second time.
         if found.start() and text[found.start()-1] == '-':
             continue
+        ungraded = 'communication' in found['level'].lower()
+        if ungraded and text[:found.start()].strip() and not re.fullmatch(
+                r'(?:(?:you|applicants?|candidates?)\s+)?(?:must have|need|require[sd]?)\s*',
+                text[:found.start()], re.I):
+            continue  # incidental client/company capability is not applicant evidence
         tail = text[found.end():]
         mentions = find_language_mentions(tail)
         if not mentions or mentions[0]['start'] != 0:
@@ -400,8 +413,11 @@ def prepare_language_conditions(quote: str, modality: str) -> list[dict]:
             mode = 'unresolved'
         if re.search(r'\band\b', span) and re.search(r'\bor\b', span):
             mode = 'unresolved'
+        if ungraded and re.search(r'\bor\b', normalized[group[-1]['end']:]):
+            mode = 'unresolved'  # an unnamed alternative cannot become a hard language gate
         results.append(dict(languages=sorted({m['language'] for m in group}),
-                            levels=['native', 'near-native'] if ' or ' in found['level'].lower()
+                            levels=['unspecified'] if ungraded else
+                            ['native', 'near-native'] if ' or ' in found['level'].lower()
                             else [found['level'].lower().replace('-level', '')],
                             operator=operator, modality=mode, quote=quote))
     return results

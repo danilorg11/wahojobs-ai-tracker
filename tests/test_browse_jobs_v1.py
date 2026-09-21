@@ -155,10 +155,10 @@ class BrowseCatalogTests(unittest.TestCase):
                 eligible_regions=regions, eligible_locations=[])
             catalog.prepare_catalog_presentation(job)
             jobs.append(job)
-        for place, count in [('Brazil', 3), ('Americas', 3), ('Portugal', 2), ('EMEA', 2), ('Worldwide', 1), ('Remote', 5)]:
+        for place, count in [('Brazil', 3), ('Americas', 3), ('Portugal', 2), ('EMEA', 2), ('Worldwide', 1), ('Remote', 0)]:
             self.assertEqual(catalog.build_catalog(jobs, {'location': place})['result_count'], count, place)
         self.assertEqual(catalog.build_catalog(jobs)['result_count'], 5)
-        self.assertIn('not specified', jobs[3]['catalog_location'])
+        self.assertIn('unconfirmed', jobs[3]['catalog_location'])
 
     def test_facet_predicate_work_does_not_multiply_by_number_of_options(self):
         jobs = self.variants()[0]['_catalog_variants']

@@ -1,7 +1,7 @@
 """Explicit, identity-bound detail recovery; never called by a matching request.
 
 Detail retrieval is content evidence, not a catalog refresh or application test.
-Only Alignerr and micro1's existing official per-job pages are supported.
+Only explicitly supported official per-job pages are accepted.
 """
 
 from dataclasses import dataclass, replace
@@ -32,6 +32,14 @@ class DetailResponse:
 
 def validate_detail_url(provider, external_id, url):
     parsed = urlparse(url)
+    if provider == 'mercor':
+        if (parsed.scheme != 'https' or parsed.hostname != 'work.mercor.com'
+                or parsed.port is not None or parsed.username or parsed.password
+                or parsed.query or parsed.fragment
+                or not re.fullmatch(r'[A-Za-z0-9_-]+', external_id)
+                or not re.fullmatch(r'/jobs/' + re.escape(external_id) + r'(?:/[a-z0-9-]+)?', parsed.path)):
+            raise ValueError('Detail URL does not match the official source record')
+        return
     host, prefix = {
         "alignerr": ("www.alignerr.com", "/jobs/"),
         "micro1": ("jobs.micro1.ai", "/post/"),
@@ -208,9 +216,11 @@ Raw provider objects live in metadata alongside the original listing metadata.
 Dates from different source representations are not silently substituted.
 """
     validate_detail_url(provider, candidate.external_id, response.url)
-    if response.url != candidate.url:
+    if response.url != candidate.url and provider != 'mercor':
         raise ValueError("Detail response belongs to another URL")
     scripts = _scripts(response)
+    if provider == 'mercor':
+        return _recover_mercor_pay(candidate, response, scripts)
     if provider == "alignerr":
         packets = [json.loads(text) for attrs, text in scripts
                    if attrs.get("id") == "__NEXT_DATA__"]
@@ -324,6 +334,76 @@ def _prepare_detail_geography(candidate):
     return replace(candidate, source_metadata=metadata)
 
 
+def _recover_mercor_pay(candidate, response, scripts):
+    """Accept only pay plus an unchanged description from the exact public page.
+
+    The page also publishes SEO geography and availability. Neither is adopted
+    by this content-only operation. Existing listing fields remain untouched.
+    """
+    from wahojobs.candidate_source_display import _RATE, pay_facts
+    from wahojobs.source_capture import normalize_source_body
+    validate_detail_url('mercor', candidate.external_id, candidate.url)
+    packets = [json.loads(text) for attrs, text in scripts if attrs.get('id') == '__NEXT_DATA__']
+    if len(packets) != 1:
+        raise ValueError('Missing or duplicate Mercor page record')
+    props = packets[0].get('props', {}).get('pageProps', {})
+    role = props.get('role')
+    from wahojobs.crawler.providers.mercor import should_include_listing
+    if (not isinstance(role, dict) or not should_include_listing(role)
+            or role.get('listingId') != candidate.external_id or role.get('title') != candidate.title
+            or normalize_source_body(role.get('description')) != normalize_source_body(candidate.source_body)):
+        raise ValueError('Mercor identity, status or retained description conflicts with page')
+    class PayHeader(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.values = {}; self.active = None
+        def handle_starttag(self, tag, attrs):
+            key = dict(attrs).get('data-test')
+            if key in ('listing-rate-range', 'listing-rate-range-text'):
+                if key in self.values:
+                    raise ValueError('Duplicate advertised pay header')
+                self.active = (tag, key); self.values[key] = ''
+        def handle_data(self, text):
+            if self.active: self.values[self.active[1]] += text
+        def handle_endtag(self, tag):
+            if self.active and self.active[0] == tag: self.active = None
+    header = PayHeader(); header.feed(response.body.decode('utf8'))
+    wording = ' '.join(header.values.get(k, '').strip() for k in ('listing-rate-range', 'listing-rate-range-text')).strip()
+    if not _RATE.fullmatch(wording):
+        raise ValueError('No unambiguous advertised compensation header')
+    from wahojobs.opportunity_enrichment import parse_explicit_compensation
+    parsed = parse_explicit_compensation(wording)
+    lo, hi = role.get('rateMin'), role.get('rateMax')
+    if (not parsed or type(lo) not in (int, float) or type(hi) not in (int, float)
+            or lo < 0 or hi < lo or parsed['amount_min'] != lo or parsed['amount_max'] != hi
+            or {'hourly': 'hour', 'annually': 'year', 'monthly': 'month'}.get(role.get('payRateFrequency')) != parsed['period']):
+        raise ValueError('Advertised and structured salary fields disagree')
+    record = {key: role.get(key) for key in ('listingId', 'title', 'description', 'status', 'isPrivate', 'deletedAt', 'rateMin', 'rateMax', 'payRateFrequency')}
+    salary = props.get('structuredData', {}).get('jobPosting', {})
+    amount = salary.get('baseSalary', {})
+    values = amount.get('value', {})
+    from wahojobs.profiles.preference_model import ISO_4217_CURRENCIES
+    currency = amount.get('currency')
+    if (salary.get('identifier', {}).get('value') == candidate.external_id
+            and salary.get('title') == candidate.title and values.get('minValue') == lo
+            and values.get('maxValue') == hi and values.get('unitText', '').lower() == parsed['period']
+            and currency in ISO_4217_CURRENCIES):
+        record['salaryCurrency'] = currency
+    metadata = dict(candidate.source_metadata or {})
+    previous_currency = metadata.get(DETAIL_KEY, {}).get('record', {}).get('salaryCurrency')
+    if ((metadata.get('pay') and metadata['pay'] != wording)
+            or (previous_currency and record.get('salaryCurrency') and previous_currency != record['salaryCurrency'])):
+        raise ValueError('New pay conflicts with retained listing pay; reconciliation required')
+    metadata['pay'] = wording
+    metadata[DETAIL_KEY] = dict(version=1, provider='mercor', external_id=candidate.external_id,
+        url=candidate.url, response_url=response.url, observed_at=response.observed_at,
+        http_status=response.status, response_sha256=sha256(response.body).hexdigest(),
+        application_acceptance_verified=False, field='props.pageProps.role.description',
+        record=record, display_text=candidate.source_body,
+        pay_evidence=dict(wording=wording, fields=['listing-rate-range', 'listing-rate-range-text'],
+        structured_salary=amount if 'salaryCurrency' in record else None))
+    return replace(candidate, source_metadata=metadata)
+
+
 def reprocess_saved_detail(connection, job_id, response=None, *, catalog_capture_id=None):
     """Reprocess one accepted catalog record using a separately dated detail.
 
@@ -343,7 +423,7 @@ def reprocess_saved_detail(connection, job_id, response=None, *, catalog_capture
         "SELECT j.*, c.slug AS provider FROM jobs j JOIN companies c ON c.id=j.company_id WHERE j.id=?",
         (job_id,),
     ).fetchone()
-    if job is None or job["provider"] not in {"alignerr", "micro1"}:
+    if job is None or job["provider"] not in {"alignerr", "micro1", "mercor"}:
         raise ValueError("Unsupported detail record")
     # Verify the accepted chain before using its catalog authority context.
     get_job_source_capture_evidence(connection, job_id)
@@ -465,7 +545,8 @@ def update_returned_details(connection, provider, company_id, crawl_run_id, cand
                     sync_fallback_canonical_opportunities(connection, company_id)
                     canonical = connection.execute("SELECT canonical_opportunity_id FROM jobs WHERE id=?", (job_id,)).fetchone()[0]
                     if canonical is not None:
-                        enrich_selected_opportunities(connection, {canonical}, llm_client=None)
+                        enrich_selected_opportunities(connection, {canonical}, llm_client=None,
+                                                      preserve_supported_facts=True)
             counts['accepted' if outcome.accepted else 'held'] += 1
         except RequestBudgetExceeded:
             counts['pending'] += 1

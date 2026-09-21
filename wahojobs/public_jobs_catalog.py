@@ -59,7 +59,8 @@ PROFESSIONAL_FIELD_LABELS = {
 }
 WORK_ACTIVITY_LABELS = {
     "ads_evaluation": "Ads evaluation",
-    "ai_training_evaluation": "AI training & evaluation",
+    # The persisted key mixes the product umbrella and evaluation. It cannot
+    # truthfully identify a substantive activity without separate source proof.
     "audio_speech": "Audio & speech",
     "content_moderation": "Content moderation",
     "data_annotation": "Data annotation",
@@ -88,8 +89,10 @@ def load_public_jobs(connection, *, now=None):
     Each variant uses the same exact-source projection as its detail page.
     """
 
+    from wahojobs.source_verification import SOURCE_VERIFICATION_FIELDS, SOURCE_VERIFICATION_JOINS
+
     rows = connection.execute(
-        """
+        f"""
         SELECT
           j.id AS job_id,
           j.title AS source_title,
@@ -134,35 +137,22 @@ def load_public_jobs(connection, *, now=None):
           sc.last_captured_at,
           CASE WHEN sc.job_id IS NULL THEN 0 ELSE 1 END AS has_rich_content,
           oe.status AS enrichment_status,
-          source_run.id AS source_run_id,
-          source_run.started_at AS source_run_started_at,
-          COALESCE(source_run.finished_at, source_run.started_at)
-            AS latest_successful_source_run_at,
-          CASE WHEN source_run.id IS NULL THEN 0 ELSE 1 END
-            AS source_run_qualifies
+          {SOURCE_VERIFICATION_FIELDS}
         FROM jobs j
         JOIN companies c ON c.id = j.company_id
         JOIN canonical_opportunities co ON co.id = j.canonical_opportunity_id
         LEFT JOIN opportunity_enrichments oe
           ON oe.canonical_opportunity_id = co.id
         LEFT JOIN job_source_contents sc ON sc.job_id = j.id
-        LEFT JOIN crawl_runs source_run
-          ON source_run.id = (
-            SELECT cr.id
-            FROM crawl_runs cr
-            WHERE cr.company_id = c.id
-              AND cr.status = 'success'
-              AND cr.used_sample_data = 0
-              AND cr.error_message IS NULL
-            ORDER BY COALESCE(cr.finished_at, cr.started_at) DESC, cr.id DESC
-            LIMIT 1
-          )
+        {SOURCE_VERIFICATION_JOINS}
         WHERE co.is_active = 1
           AND j.title NOT LIKE '[SIMULATION]%'
         ORDER BY co.id, j.id
         """
     ).fetchall()
 
+    from wahojobs.catalog_source_geography import attach_catalog_geography
+    rows = attach_catalog_geography(connection, [dict(row) for row in rows])
     grouped = {}
     for raw in rows:
         row = dict(raw)
@@ -202,11 +192,7 @@ def prepare_catalog_presentation(job):
     requirements = attributes["requirements"]
     content = attributes["content"]
     source_location = candidate_text(job.get("source_location"))
-    eligibility = public_job_page.candidate_eligibility(
-        arrangement,
-        source_location,
-        variant_label=public_job_page.source_variant_label(job),
-    )
+    eligibility = public_job_page.candidate_job_eligibility(job)
     mode = eligibility["mode"]
     scope = eligibility["scope"]
     eligible_countries = set(eligibility["countries"])
@@ -215,13 +201,13 @@ def prepare_catalog_presentation(job):
     location_labels = set(eligible_countries) | set(eligible_regions)
     if scope == LOCATION_SCOPE_REMOTE_WORLDWIDE:
         location_labels.add('Worldwide')
-    if mode == REMOTE_STATUS_REMOTE:
-        location_labels.add('Remote')
     job["_catalog_location_model"] = {
         "scope": scope,
         "mode": mode,
         "countries": frozenset(eligible_countries),
         "regions": frozenset(eligible_regions),
+        "country_filter_dimension": eligibility.get('country_filter_dimension'),
+        "applicant_country_dimensions": eligibility.get('applicant_country_dimensions'),
     }
 
     work_labels = public_job_page.unique_text(
@@ -247,14 +233,20 @@ def prepare_catalog_presentation(job):
     engagement = public_job_page.clean(arrangement.get("engagement_type"))
     if not engagement or engagement == "unknown":
         engagement = engagement_type_from_source(job.get("source_commitment"))
+    if not engagement and not any(fact.get('field_path') == 'attributes.work_arrangement.engagement_type'
+                                  for fact in job['enrichment'].get('variant_facts', [])):
+        from wahojobs.source_detail_presentation import bound_alignerr_job_detail
+        source_detail = bound_alignerr_job_detail(job)
+        if source_detail:
+            engagement = engagement_type_from_source(source_detail[1]['record'].get('jobType'))
     arrangement_labels = public_job_page.unique_text(
         [engagement_label(engagement)]
     )
 
     remote = eligibility["summary"]
     job["catalog_location"] = eligibility["summary"] or (
-        'Remote · applicant location not specified' if mode == REMOTE_STATUS_REMOTE
-        else 'Applicant location not specified')
+        'Remote · applicant location unconfirmed' if mode == REMOTE_STATUS_REMOTE
+        else 'Applicant location unconfirmed')
     job["catalog_summary"] = concise_summary(content.get("quick_take"))
     job["_catalog_engagement"] = engagement
     candidate_labels = {
@@ -557,7 +549,7 @@ def render_public_jobs_page(
         else ""
     )
     q = filters.get("q", "")
-    location_control = render_filter_search('location', 'Where can you work from?',
+    location_control = render_filter_search('location', 'Country or region',
         catalog['facets']['location'], filters.get('location', ''))
     secondary = [('work', 'Type of work'), ('field', 'Professional field'),
                  ('language', 'Language'), ('arrangement', 'Engagement')]
@@ -631,7 +623,7 @@ def render_public_jobs_page(
         <button type='submit'>Search jobs</button>
       </div>
     </form>
-    <p class='location-help'>Country filters include explicitly worldwide and relevant regional opportunities. Jobs with unspecified applicant locations remain available when location is cleared.</p>
+    <p class='location-help'>Filters use stated work locations or required residence, including worldwide and regional listings. Clear the location filter to include jobs without stated eligibility.</p>
     <div class='active-filters' aria-label='Active filters'>{active_filters}{clear}</div>
     <div class='catalog-summary' aria-live='polite'><strong>{public_job_page.e(count_label)}</strong></div>
     {results}
@@ -676,8 +668,11 @@ def render_job_card(job, *, return_to, include_variant=False):
         job.get("canonical_title")
     )
     company = candidate_text(job.get("company_name"))
-    location = job.get("catalog_location")
+    from wahojobs.catalog_display import location_summary, advertised_compensation
+    location = location_summary(job)
     location_html = f"<p class='job-location'>{public_job_page.e(location)}</p>" if location else ""
+    pay = advertised_compensation(job)
+    pay_html = f"<p class='job-pay'>{public_job_page.e(pay)}</p>" if pay else ""
     summary = job.get("catalog_summary")
     summary_html = f"<p class='job-summary'>{public_job_page.e(summary)}</p>" if summary else ""
     attributes = catalog_card_attributes(job)[:3]
@@ -713,6 +708,7 @@ def render_job_card(job, *, return_to, include_variant=False):
       <div class='job-card-copy'>
         {f"<p class='job-company'>{public_job_page.e(company)}</p>" if company else ""}
         <h2>{title_markup}</h2>
+        {pay_html}
         {location_html}
         {chips}
         {summary_html}
@@ -978,16 +974,9 @@ def work_activity_label(value):
 def location_filter_identity(value):
     key = facet_value_key(value)
     special = {
-        facet_value_key("Remote"): ("remote", None),
         facet_value_key("Remote worldwide"): ("remote_worldwide", None),
         facet_value_key("Worldwide"): ("remote_worldwide", None),
         facet_value_key("Work from anywhere"): ("remote_worldwide", None),
-        facet_value_key("Remote with location limits"): (
-            "remote_restricted",
-            None,
-        ),
-        facet_value_key("Hybrid"): ("hybrid", None),
-        facet_value_key("On-site"): ("onsite", None),
     }
     if key in special:
         return special[key]
@@ -1081,6 +1070,7 @@ PUBLIC_JOBS_CSS = """
 .job-card h2 { margin: 0 0 7px; font-size: clamp(1.15rem, 2vw, 1.42rem); }
 .job-card h2 a { color: #18231e; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .job-location { margin: 0; color: #4d6359; font-weight: 650; }
+.job-pay { margin: 4px 0; color: #195f4c; font-weight: 700; }
 .card-attributes { display: flex; flex-wrap: wrap; gap: 7px; margin: 13px 0 0; padding: 0; list-style: none; }
 .card-attributes li { border-radius: 999px; background: #edf5f1; color: #315447; padding: 4px 9px; font-size: .82rem; font-weight: 750; }
 .job-summary { max-width: 820px; margin: 14px 0 0; color: #354b41; }

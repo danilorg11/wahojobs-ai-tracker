@@ -37,7 +37,8 @@ TAXONOMY_VERSION = "opportunity_taxonomy_v2_2026_08"
 EXTRACTOR_VERSION = "hybrid_evidence_vnext_v4"
 SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v3"
 LEGACY_SEMANTIC_INPUT_VERSION = "opportunity_semantic_input_v1"
-DERIVATION_RECIPE_VERSION = "opportunity_enrichment_derivation_v8"
+DERIVATION_RECIPE_VERSION = "opportunity_enrichment_derivation_v10"
+RETAINED_FACTS_RECIPE_PREFIX = "retained-exact-facts-v1:"
 LLM_ACCEPTANCE_GUARDS_VERSION = "opportunity_llm_acceptance_guards_v10"
 
 STALE_REASON_DERIVATION_CONTRACT_CHANGED = "derivation_contract_changed"
@@ -880,6 +881,7 @@ def derivation_recipe_fingerprint(
     prompt_version: str | None = None,
     recipe_version: str = DERIVATION_RECIPE_VERSION,
     llm_acceptance_guards_version: str = LLM_ACCEPTANCE_GUARDS_VERSION,
+    preserve_supported_facts: bool = False,
 ) -> str:
     """Hash the recipe independently from the source payload it derives."""
 
@@ -901,7 +903,10 @@ def derivation_recipe_fingerprint(
         "extractor_version": extractor_version,
         "llm": llm_recipe,
     }
-    return hashlib.sha256(canonical_json(recipe).encode("utf-8")).hexdigest()
+    if preserve_supported_facts:
+        recipe['evidence_policy'] = 'retain_supported_exact_variant_facts_v1'
+    fingerprint = hashlib.sha256(canonical_json(recipe).encode("utf-8")).hexdigest()
+    return (RETAINED_FACTS_RECIPE_PREFIX + fingerprint) if preserve_supported_facts else fingerprint
 
 
 def _persisted_value(row, key):
@@ -994,6 +999,8 @@ def classify_enrichment_freshness(semantic_input: dict, persisted) -> dict:
     stored_derivation_fingerprint = _persisted_value(
         persisted, "derivation_fingerprint"
     )
+    retained_policy = str(stored_derivation_fingerprint or '').startswith(RETAINED_FACTS_RECIPE_PREFIX)
+    current_derivation_fingerprint = derivation_recipe_fingerprint(preserve_supported_facts=retained_policy)
     model_values = tuple(
         _persisted_value(persisted, field)
         for field in ("model_provider", "model_name", "prompt_version")
@@ -1106,37 +1113,11 @@ def extract_deterministic_document(semantic_input: dict) -> dict:
         attributes["role"]["role_family"] = role_family
         add_evidence(evidence, "attributes.role.role_family", "title", title_text or category_text, "deterministic_classification", "medium", variant_refs=all_variant_refs)
 
-    domain_row = {
-        "title": title_text,
-        "canonical_title": canonical["canonical_title"],
-        "expertise": " | ".join(fields["expertise"]),
-        "department": " | ".join(fields["department"]),
-        "source_category": canonical["source_category"],
-    }
-    domains = sorted(detect_role_domains(domain_row) & PROFESSIONAL_DOMAINS)
-    if domains:
-        attributes["role"]["professional_domains"] = domains
-        add_evidence(evidence, "attributes.role.professional_domains", "role_text", f"{title_text} | {category_text}".strip(" |"), "deterministic_classification", "medium", variant_refs=all_variant_refs)
-
-    # Category labels can contain incidental capabilities (for example, a coding
-    # role grouped under "Creator (Writer)"). A title is a sufficiently direct
-    # deterministic signal; richer activity classification belongs to the
-    # evidence-grounded semantic pass.
-    normalized_title = normalize_text(title_text)
-    activities = classify_many(normalized_title, WORK_ACTIVITY_RULES)
-    if (
-        "research_analysis" in activities
-        and re.search(r"\bresearch (?:study|participant|project)\b", normalized_title)
-        and re.search(
-            r"\b(?:analys(?:is|t)|researcher|conduct research)\b",
-            normalized_title,
-        )
-        is None
-    ):
-        activities.remove("research_analysis")
-    if activities:
-        attributes["role"]["work_activities"] = activities
-        add_evidence(evidence, "attributes.role.work_activities", "role_text", f"{title_text} | {category_text}".strip(" |"), "deterministic_classification", "medium", variant_refs=all_variant_refs)
+    # Classifications belong to each accepted listing, not the union of
+    # canonical titles/categories. Prepare once during enrichment so serving
+    # a variant only projects stored facts and never reruns the classifiers.
+    recover_variant_role_facts(document, semantic_input)
+    evidence = document["field_evidence"]
 
     specialization_groups = specialization_requirements(title_text)
     specializations = sorted(
@@ -1177,6 +1158,59 @@ def extract_deterministic_document(semantic_input: dict) -> dict:
     )
     validate_enrichment_document(document)
     return document
+
+
+def extract_variant_role_facts(semantic_input: dict) -> list[dict]:
+    """Use existing classifiers on exact listing fields, with accepted authority."""
+    sources = {s.get("variant_ref"): s for s in semantic_input.get("rich_content") or []}
+    facts = []
+    for variant in semantic_input.get("variants") or []:
+        ref = variant.get("variant_ref")
+        if not ref:
+            continue
+        title = clean(variant.get("title"))
+        categories = unique_strings([variant.get("department"), variant.get("expertise")])
+        domain_row = {"title": title, "canonical_title": title,
+                      "department": clean(variant.get("department")),
+                      "expertise": clean(variant.get("expertise")), "source_category": ""}
+        domains = sorted(detect_role_domains(domain_row) & PROFESSIONAL_DOMAINS)
+        normalized_title = normalize_text(title)
+        activities = classify_many(normalized_title, WORK_ACTIVITY_RULES)
+        if ("research_analysis" in activities
+                and re.search(r"\bresearch (?:study|participant|project)\b", normalized_title)
+                and not re.search(r"\b(?:analys(?:is|t)|researcher|conduct research)\b", normalized_title)):
+            activities.remove("research_analysis")
+        for field, values, text, label in (
+            ("professional_domains", domains, " | ".join([title, *categories]).strip(" |"),
+             "listing.title_department_expertise"),
+            ("work_activities", activities, title, "listing.title"),
+        ):
+            for value in values:
+                facts.append(make_variant_fact("attributes.role." + field, value, [ref], [
+                    scoped_fact_evidence(source_ref=ref, kind="listing_field", label=label,
+                        evidence_text=text, basis="deterministic_classification", confidence="medium",
+                        authority_refs=_listing_authority_refs(sources.get(ref) or {}))]))
+    return normalize_variant_facts(facts)
+
+
+def recover_variant_role_facts(document: dict, semantic_input: dict) -> None:
+    """Offline supplement only unprepared variant/path pairs; retain explicit facts.
+
+    In particular, a known-empty, contradictory or semantic classification is
+    never replaced by a title heuristic. Original captures and clocks are untouched.
+    """
+    occupied = {(f["field_path"], ref) for f in document.get("variant_facts") or []
+                for ref in f["variant_refs"]}
+    facts = []
+    for fact in extract_variant_role_facts(semantic_input):
+        refs = [ref for ref in fact["variant_refs"] if (fact["field_path"], ref) not in occupied]
+        if not refs:
+            continue
+        fact["variant_refs"] = refs
+        fact["evidence"] = [e for e in fact["evidence"] if set(e["source_refs"]) & set(refs)]
+        facts.append(fact)
+    project_variant_facts(document, facts, semantic_variant_refs(semantic_input))
+    refresh_unknown_fields(document)
 
 
 def classify_role_family(text: str) -> str | None:
@@ -1928,7 +1962,8 @@ def parse_preferred_education_levels(text: str) -> list[str]:
 
 def parse_required_years_experience(text: str):
     normalized = normalize_text(text)
-    if re.search(r"\b(?:no prior|no previous)\b.{0,30}\bexperience\b.{0,20}\b(?:necessary|required|needed)\b", normalized):
+    if re.search(r"\bno (?:prior|previous) (?:(?:work|professional) )?experience "
+                 r"(?:is )?(?:necessary|required|needed)\b", normalized):
         return 0
     if re.search(r"\b(?:preferred|a plus|helpful|not required|ideal|valuable)\b", normalized):
         return None
@@ -2124,6 +2159,33 @@ def extract_deterministic_objective_facts(semantic_input: dict) -> list[dict]:
         if not variant_ref or not source_ref:
             continue
         authority_refs = _body_authority_refs(source)
+        # Reuse the accepted qualification grammar at the offline preparation
+        # boundary. Preferences, alternatives and unresolved clauses stay raw;
+        # do not flatten them into independently required language facets.
+        from wahojobs.matching.accepted_tasks import _prepare_eligibility
+        from wahojobs.candidate_condition_comparisons import _waiver_modality, _condition_lines
+        paragraphs = source_body_paragraphs(source.get("body"), source.get("body_format"))
+        waived_languages = {m["language"] for paragraph in paragraphs
+                            for _, quote in _condition_lines(dict(text=paragraph))
+                            if _waiver_modality(quote) == 'not_required'
+                            and not re.search(r'\bexperience\b', quote, re.I)
+                            for m in find_language_mentions(quote)}
+        language_conditions, _ = _prepare_eligibility(
+            source.get("material_content_sha256"), source.get("provider"),
+            source.get("external_id"), source.get("source_url"), source.get("body"),
+            source.get("body_format"), canonical_json(source.get("metadata") or {}),
+            include_ungraded_languages=True)
+        for condition in language_conditions:
+            if condition['modality'] != 'required' or condition['operator'] != 'all_of':
+                continue
+            for language in condition['languages']:
+                if language in waived_languages:
+                    continue
+                facts.append(_objective_fact("attributes.requirements.languages",
+                    dict(language=language, locale=source_language_locale(language, condition['quote']),
+                         requirement_mode="all_required"),
+                    variant_ref, source_ref, condition['quote'], kind="body_paragraph",
+                    label=condition['source_field'], authority_refs=authority_refs))
         paragraphs = source_body_paragraphs(
             source.get("body"), source.get("body_format")
         )
@@ -2292,6 +2354,13 @@ def extract_deterministic_objective_facts(semantic_input: dict) -> list[dict]:
                 )
             previous_was_hours_heading = normalized.rstrip(":") == "hours"
     return normalize_variant_facts(facts)
+
+
+def source_language_locale(language, quote):
+    # Reuse the established language-locale mapping. This never prepares an
+    # applicant country, and a locale on a different variant is not consulted.
+    from wahojobs.profiles.normalizer import detect_language_locale
+    return detect_language_locale(language, quote) or None
 
 
 def _engagement_value(text):
@@ -4210,6 +4279,7 @@ def enrich_canonical_opportunity(
     now: str | None = None,
     ensure_schema: bool = True,
     llm_client=None,
+    preserve_supported_facts: bool = False,
 ) -> dict:
     from wahojobs.db.repository import ensure_opportunity_enrichment_schema
 
@@ -4232,6 +4302,8 @@ def enrich_canonical_opportunity(
             model_provider=existing["model_provider"],
             model_name=existing["model_name"],
             prompt_version=existing["prompt_version"],
+            preserve_supported_facts=llm_client is None and (
+                preserve_supported_facts or str(stored_derivation_fingerprint or '').startswith(RETAINED_FACTS_RECIPE_PREFIX)),
         )
     same_automatic_input = (
         existing is not None
@@ -4299,6 +4371,43 @@ def enrich_canonical_opportunity(
                     "prompt_version": existing["prompt_version"],
                 },
             }
+
+    if preserve_supported_facts and llm_client is None and existing is not None:
+        previous = json.loads(existing['automatic_document_json'])
+        validate_enrichment_document(previous)
+        has_semantic_history = any(existing[key] is not None for key in
+            ('model_provider', 'model_name', 'prompt_version')) or any(
+                proof.get('basis') == 'llm_source_evidence'
+                for fact in previous.get('variant_facts', []) for proof in fact.get('evidence', []))
+        has_semantic_history |= any(proof.get('basis') == 'llm_source_evidence'
+                                    for proof in previous.get('field_evidence', []))
+        has_semantic_history |= bool(previous.get('clause_materiality'))
+        if has_semantic_history:
+            # A deterministic pass cannot certify that prior semantic output
+            # was reinterpreted against new content. Leave its envelope stale.
+            return dict(canonical_opportunity_id=canonical_opportunity_id,
+                outcome='unchanged', status=existing['status'],
+                input_sha256=existing['input_sha256'], document=previous,
+                semantic_input_version=freshness_evidence['stored_semantic_input_version'],
+                derivation_fingerprint=stored_derivation_fingerprint,
+                llm=dict(eligible=llm_eligible, called=False,
+                         outcome='semantic_refresh_required',
+                         model_provider=existing['model_provider'],
+                         model_name=existing['model_name'], prompt_version=existing['prompt_version']))
+        # New accepted content participates in the full deterministic recipe.
+        # Silence is not a retraction of an earlier supported observation.
+        # Keep exact-source history and let the existing reducer expose scalar
+        # conflicts; never copy a sibling's or canonical-only attributes.
+        current_refs = set(semantic_variant_refs(semantic_input))
+        retained = []
+        for fact in previous.get('variant_facts', []):
+            refs = sorted(current_refs.intersection(fact['variant_refs']))
+            if refs:
+                retained.append(dict(fact, variant_refs=refs))
+        project_variant_facts(document, retained, current_refs)
+        refresh_unknown_fields(document)
+        validate_enrichment_document(document)
+        status = STATUS_PARTIAL if document['unknown_fields'] else STATUS_COMPLETE
 
     generated_at = now or utc_now()
     model_provider = None
@@ -4410,6 +4519,7 @@ def enrich_canonical_opportunity(
         model_provider=model_provider,
         model_name=model_name,
         prompt_version=prompt_version,
+        preserve_supported_facts=preserve_supported_facts and llm_client is None,
     )
     outcome = "created" if existing is None else "updated"
     conn.execute(
@@ -4525,12 +4635,15 @@ def enrich_selected_opportunities(
     *,
     llm_client=None,
     ensure_schema: bool = True,
+    preserve_supported_facts: bool = False,
 ) -> dict:
     """Enrich an explicit canonical set without recipe-driven bulk discovery.
 
     Tracking uses this boundary for canonicals whose accepted semantic input or
     active-variant membership changed in the current crawl.  Manual migration
-    tools may still choose the company/all helpers explicitly.
+    tools may still choose the company/all helpers explicitly. Content-only
+    detail augmentation can retain supported historical scoped facts without
+    relabeling old semantic output as a newly completed model run.
     """
 
     from wahojobs.db.repository import ensure_opportunity_enrichment_schema
@@ -4545,6 +4658,7 @@ def enrich_selected_opportunities(
                 item,
                 ensure_schema=False,
                 llm_client=llm_client,
+                preserve_supported_facts=preserve_supported_facts,
             )
             for item in ids
         ]

@@ -90,7 +90,7 @@ _RATE = re.compile(
     rf'(?:(?:{_CURRENCY_CODES})\s*[$€£]?|[\$€£])?\d+(?:[,.]\d+)*\+?'
     rf'(?:\s*(?:[-–—]\s*to\s*[-–—]|to\b|[-–—])\s*(?:(?:{_CURRENCY_CODES})\s*[$€£]?|[\$€£])?\d+(?:[,.]\d+)*\+?)?'
     rf'\s*(?:(?:{_CURRENCY_CODES})\s*)?(?:/\s*|per\s+)'
-    r'(?:accepted\s+)?(?:hour|hr|month|year|project|task)s?\b', re.I)
+    rf'(?:accepted\s+)?(?:hour|hr|month|year|project|task)s?\b(?:\s+(?:{_CURRENCY_CODES})\b)?', re.I)
 
 
 def pay_facts(metadata, text):
@@ -116,7 +116,8 @@ def pay_facts(metadata, text):
         lo, hi = record.get('lowerBoundHourlyRate'), record.get('upperBoundHourlyRate')
         valid = lambda n: type(n) in (int, float) and n >= 0
         if valid(lo) and valid(hi) and lo <= hi:
-            phrases.append(f'{lo:g}–{hi:g} per hour (currency not specified)')
+            amount = f'{lo:g}' if lo == hi else f'{lo:g}–{hi:g}'
+            phrases.append(f'{amount} per hour (currency not specified)')
         elif valid(lo) and hi is None:
             phrases.append(f'From {lo:g} per hour (currency not specified)')
         elif lo is None and valid(hi):
@@ -130,7 +131,8 @@ def pay_facts(metadata, text):
     if isinstance(hourly, dict):
         lo, hi = hourly.get('min'), hourly.get('max')
         if all(type(n) in (int, float) and n >= 0 for n in (lo, hi)) and lo <= hi:
-            phrases.append(f'{lo:g}–{hi:g} per hour (currency not specified)')
+            amount = f'{lo:g}' if lo == hi else f'{lo:g}–{hi:g}'
+            phrases.append(f'{amount} per hour (currency not specified)')
     label = ('Per accepted task' if task_pay else 'Output-based pay' if output_pay
              else (phrases[0] if phrases else ''))
     notes = []

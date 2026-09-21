@@ -4,8 +4,28 @@ No source rewrite, eligibility inference or HTTP parsing. Historical display_tex
 is a cached presentation, not authority to append prose to the employer's body.
 """
 from html import escape
+import json
 
 from wahojobs.source_capture import normalize_source_body
+
+
+def bound_alignerr_job_detail(job):
+    """Adapt a public job row using the same exact listing/source identity."""
+    if (job.get('company_slug') != 'alignerr'
+            or job.get('rich_provider') != job.get('company_slug')
+            or job.get('rich_external_id') != job.get('external_id')
+            or job.get('rich_source_url') != job.get('official_url')
+            or job.get('rich_source_url') != job.get('listing_url')):
+        return None
+    source = dict(source_slug=job['company_slug'], external_id=job.get('external_id'),
+                  url=job.get('official_url'), body=job.get('rich_body'),
+                  body_format=job.get('rich_body_format'))
+    try:
+        metadata = json.loads(job.get('rich_metadata_json') or '{}')
+        detail = bound_alignerr_detail(source, metadata.get('wahojobs_source_detail_v1')) if isinstance(metadata, dict) else None
+    except (ValueError, TypeError):
+        return None
+    return (source, detail) if detail else None
 
 
 def bound_alignerr_detail(source, detail):
@@ -37,6 +57,43 @@ def bound_alignerr_detail(source, detail):
             or normalize_source_body(record.get(field.rsplit('.', 1)[1])) != normalize_source_body(body)):
         return None
     return detail
+
+
+def bound_applicant_invitation_countries(source, detail):
+    """Read existing prepared recruitment evidence, without parsing geography.
+
+    These countries are positively mentioned in an applicant invitation, not an
+    exhaustive eligibility list. Generic page location tags are never read here.
+    """
+    from hashlib import sha256
+    from wahojobs.profiles.countries import normalize_country
+
+    detail = bound_alignerr_detail(source, detail)
+    if detail is None:
+        return ()
+    prepared = detail.get('applicant_location_support') or {}
+    body = normalize_source_body(source.get('body')) or ''
+    if (not isinstance(prepared, dict) or prepared.get('version') != 1
+            or prepared.get('body_sha256') != sha256(body.encode()).hexdigest()):
+        return ()
+    clauses = prepared.get('clauses')
+    if not isinstance(clauses, list) or not clauses:
+        return ()
+    countries = set()
+    for clause in clauses:
+        if (not isinstance(clause, dict) or clause.get('modality') != 'invitation'
+                or clause.get('mode') != 'allow' or clause.get('dimension') != 'location'
+                or clause.get('unresolved') is not False or clause.get('source_conflict')
+                or clause.get('ambiguous_statement') or not clause.get('source_field')
+                or not isinstance(clause.get('source_quote'), str) or not clause['source_quote']
+                or clause['source_quote'] not in body
+                or not isinstance(clause.get('countries'), list)):
+            return ()
+        try:
+            countries.update(normalize_country(country) for country in clause['countries'])
+        except (TypeError, ValueError):
+            return ()
+    return tuple(sorted(countries))
 
 
 def alignerr_location_provenance(source, detail):

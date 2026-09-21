@@ -525,7 +525,7 @@ def _validate_provider_detail_content_v1(attestation, candidate, prepared, conte
     evidence = json.loads(attestation.authority_evidence_json)
     metadata = json.loads(prepared.metadata_json)
     detail = metadata.get(DETAIL_KEY, {})
-    expected_type = {"alignerr": "alignerr-marketplace", "micro1": "micro1-marketplace"}.get(provider)
+    expected_type = {"alignerr": "alignerr-marketplace", "micro1": "micro1-marketplace", "mercor": "mercor-marketplace"}.get(provider)
     if (set(evidence) != {"url", "external_id", "response_sha256", "observed_at", "content_only"}
             or not expected_type or source_type != expected_type
             or evidence["content_only"] is not True
@@ -551,6 +551,14 @@ def _validate_provider_detail_content_v1(attestation, candidate, prepared, conte
         if record.get("id") != candidate.external_id or record.get("isActive") is not True:
             raise ValueError("Alignerr detail record identity/status is invalid")
         body = record.get("longDescription") or record.get("htmlLongDescription")
+    elif provider == 'mercor':
+        from wahojobs.crawler.providers.mercor import should_include_listing
+        if (not should_include_listing(record) or record.get('listingId') != candidate.external_id
+                or record.get('title') != candidate.title
+                or detail.get('pay_evidence', {}).get('wording') != metadata.get('pay')):
+            raise ValueError('Mercor pay detail identity/status is invalid')
+        validate_detail_url(provider, candidate.external_id, detail.get('response_url', ''))
+        body = record.get('description')
     else:
         if record.get("client_job_id") != candidate.external_id or record.get("job_status") != "open":
             raise ValueError("micro1 detail record identity/status is invalid")

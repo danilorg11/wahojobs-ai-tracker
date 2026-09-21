@@ -700,7 +700,7 @@ class PublicJobPageTests(unittest.TestCase):
         self.assertIn("<li>United States</li>", many_country_page)
         self.assertNotIn("Argentina (Remote) |", many_country_page)
 
-    def test_oneforma_variant_scopes_location_and_languages_to_this_job(self):
+    def test_oneforma_language_locale_does_not_establish_applicant_location(self):
         job = self.load()
         job.update(
             source_location="Remote; Selected Locations",
@@ -726,7 +726,8 @@ class PublicJobPageTests(unittest.TestCase):
         page = public_job_page.render_public_job_page(job, public_origin=ORIGIN)
 
         self.assertIn("Where you can work from", page)
-        self.assertIn(">Saudi Arabia<", page)
+        self.assertNotIn(">Saudi Arabia<", page)
+        self.assertIn("Available in selected locations", page)
         self.assertIn("<li>Arabic</li>", page)
         self.assertNotIn("Selected Locations", page)
         self.assertNotIn("Ambiguous", page)

@@ -196,11 +196,11 @@ class PublicJobsCatalogTests(unittest.TestCase):
             "Brazil",
             {item["value"] for item in catalog["facets"]["location"]},
         )
-        self.assertIn(
+        self.assertNotIn(
             "Remote",
             {item["value"] for item in catalog["facets"]["location"]},
         )
-        self.assertIn(
+        self.assertNotIn(
             "AI training & evaluation",
             {item["value"] for item in catalog["facets"]["work"]},
         )
@@ -222,9 +222,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         )
         for filters in (
             {"q": "Python evaluation"},
-            {"location": "Remote"},
             {"location": "Brazil"},
-            {"work": "AI training & evaluation"},
             {"work": "Software development"},
             {"field": "Software engineering"},
             {"language": "English"},
@@ -364,7 +362,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
             worldwide["_catalog_filter_values"]["location"],
         )
         self.assertEqual(worldwide["catalog_location"], "Work from anywhere")
-        self.assertIn(
+        self.assertNotIn(
             "Remote",
             {item["label"] for item in brazil_catalog["facets"]["location"]},
         )
@@ -478,7 +476,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         )
         self.assertIn("Showing 1–1 of 1 current opportunities", filtered_body)
         self.assertIn("<datalist id='jobs-location-options'>", filtered_body)
-        self.assertIn("<span>Where can you work from?</span>", filtered_body)
+        self.assertIn("<span>Country or region</span>", filtered_body)
         self.assertIn("placeholder='Country or region'", filtered_body)
         self.assertNotIn("<span>Work arrangement</span>", filtered_body)
         self.assertIn("name='arrangement'", filtered_body)
@@ -692,7 +690,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         field_labels = {item["label"] for item in catalog["facets"]["field"]}
         self.assertEqual(
             work_labels,
-            {"AI training & evaluation", "Software development"},
+            {"Software development"},
         )
         self.assertEqual(field_labels, {"Software engineering"})
         self.assertNotIn("AI & machine learning", work_labels)
@@ -700,7 +698,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         self.assertEqual(
             public_jobs_catalog.build_catalog(
                 jobs,
-                {"work": "AI training & evaluation", "field": "Software engineering"},
+                {"work": "Software development", "field": "Software engineering"},
             )["result_count"],
             1,
         )
@@ -768,16 +766,17 @@ class PublicJobsCatalogTests(unittest.TestCase):
         catalog = public_jobs_catalog.build_catalog([job])
         card = public_jobs_catalog.render_job_card(job, return_to="/jobs")
 
-        self.assertEqual(job["catalog_location"], "Eligible in Saudi Arabia")
+        self.assertEqual(job["catalog_location"], "Available in selected locations")
         self.assertEqual(
             {item["label"] for item in catalog["facets"]["location"]},
-            {"Saudi Arabia", "Remote"},
+            set(),
         )
         self.assertEqual(
             {item["label"] for item in catalog["facets"]["language"]},
             {"Arabic"},
         )
-        self.assertIn("Eligible in Saudi Arabia", card)
+        self.assertNotIn("Eligible in Saudi Arabia", card)
+        self.assertIn("Available in selected locations", card)
         self.assertIn(">Arabic<", card)
         self.assertNotIn("Selected Locations", card)
         self.assertNotIn("Ambiguous", card)
@@ -831,7 +830,7 @@ class PublicJobsCatalogTests(unittest.TestCase):
         catalog = public_jobs_catalog.build_catalog([job])
         self.assertEqual(
             {item["label"] for item in catalog["facets"]["work"]},
-            {"AI training & evaluation", "Audio & speech", "Data annotation"},
+            {"Audio & speech", "Data annotation"},
         )
         self.assertEqual(
             {item["label"] for item in catalog["facets"]["field"]},

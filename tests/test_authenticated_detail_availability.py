@@ -106,8 +106,10 @@ class AuthenticatedDetailAvailabilityTests(unittest.TestCase):
             self.assertNotIn(self.observed.encode(), response.body)  # raw dates stay out of the candidate view
         with self.f.provider() as conn:
             public = public_job_page.load_public_job(conn, self.path().split('?')[0], now=self.f.now)
-        self.assertEqual(public['public_state'], 'temporarily_unavailable')
-        self.assertEqual(public['latest_successful_source_run_at'], self.old)
+        # Public browsing now consumes the same individual source verification,
+        # without requiring a candidate recommendation or provider completeness.
+        self.assertEqual(public['public_state'], 'live')
+        self.assertEqual(public['latest_successful_source_run_at'], self.observed)
 
     def test_expiry_invalidates_old_run_and_keeps_existing_recent_cache_warning(self):
         _, run, visible = self.selected_run()
