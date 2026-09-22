@@ -1,33 +1,110 @@
-# Daily Inventory Operations V1 â€” implementation and activation handoff
+# Daily Inventory Operations V1 — all-source activation package
 
-Prepared 2026-09-22 UTC. **Implemented and tested locally; not deployed or active.**
-This is the single proposed activation procedure. Owner approval, an approved alert
-recipient/adapter and the native checks below are still required. Routine runs
-inside the approved policy need no new conversational approval after activation.
+Prepared 2026-09-22 UTC. **Tested development implementation; no hosted deployment,
+live collection, delivery or recurring activation in this execution.** This file
+and the [consolidated manifest](../deploy/private-beta/daily-inventory-activation-manifest.json)
+replace the earlier two-source operating proposal. All 15 existing core sources
+are accounted for: ten are ready for controlled activation checks, five are
+blocked by specific contract gaps. Overall daily coverage is not yet complete.
 
-## Checkpoint and scope
+Continue `codex/daily-inventory-operations-v1` from the preserved checkpoint
+`9bd47127228856095e4164beb8dc309e52d1ea75`. Its compensation correction and accepted
+beta ancestry remain intact. The final release receipt supplies the exact new
+commit, tree and archive SHA-256. Never deploy a moving branch tip or main.
 
-Development branch: `codex/daily-inventory-operations-v1`, created directly from
-`f8346ae02661c6f01e64433af182242e39438822` on `codex/candidate-ux-cleanup-v1`.
-That preserves the accepted `4ee28ce1de994eaac2afcd46e8d89eb8642c06c9` implementation
-and subsequent documentation. The final delivery receipt supplies the full new
-commit and archive SHA-256; substitute that exact commit for `IMPLEMENTATION_COMMIT`
-below. Never substitute main or a branch tip that has moved.
-
-The governing retained operational checkpoint is:
+The governing host checkpoint remains:
 `C:/Users/danrg/.codex/visualizations/2026/09/19/01a0ba06-976c-77f3-b156-3646f54e9aab/candidate-ux-evidence/access-recovery-20260921/daily-inventory-operations-v1-checkpoint.md`.
-Its sibling `release-completion.md`, `release-completion.json`, `release-deploy.py`,
-`operation_body.py`, `availability_worker.py`, `reconcile_pay_worker.py` and
-`hosted-read-011.json` retain the deployment, protected-domain and source evidence.
-Use the established private administrative handoff and pinned-host procedure;
-do not print credentials or reconstruct private access from account data.
+Its sibling `release-completion.md/json`, `release-deploy.py`, `operation_body.py`,
+`availability_worker.py`, `reconcile_pay_worker.py` and `hosted-read-011.json`
+retain the accepted procedures and evidence. Use the established pinned private
+administrative access; do not reconstruct credentials from account data.
 
-The last reported host state remains release `4ee28ce1de994eaac2afcd46e8d89eb8642c06c9`,
-862 current opportunities / 5,995 current variants, 902 stored opportunities /
-6,035 stored records. These are historical observations, not expected activation
-counts. No new host inspection, employer request, hosted write, notification,
-model call, provider activation, main/public-site change or Meridial pilot occurred
-in this implementation task.
+Historical hosted state: release `4ee28ce1de994eaac2afcd46e8d89eb8642c06c9`,
+862 current canonical opportunities / 5,995 variants, 902 stored opportunities /
+6,035 records. These are previous observations, not counts to force at activation.
+No accepted corrections or later documentation were discarded. No Meridial pilot
+was run; Meridial's existing approved production contract is included in the plan.
+
+## Coverage, request units and readiness
+
+The owner-authorized September 4 endpoint plan and executed transaction ledger
+cover all 15 public sources. Their exact paths and SHA-256 values are in the
+manifest. The old Alignerr/Mercor pilot is not an exclusion rule. Meridial has
+structured approved terms/readiness entries in the existing source registry.
+The other legacy adapters have retained public retrieval scope; this package
+does not fabricate a separate terms approval, waive an access restriction or
+authorize authentication/bypass. A current challenge or contract change fails
+closed and remains visible while independent ready sources continue.
+
+An **HTTP request** is a dispatched attempt, including a 3xx response. Redirects
+are rejected before a follow-up request, and there are no retries. A fetched
+**page** is a successful response document: API page, HTML page or public probe;
+it is not a posting count. Parsed upstream rows/posts, emitted exact variants
+and distinct canonical opportunities have separate counters. Filtered corporate
+or private rows are neither rejected malformed records nor eligible variants.
+A complete check describes only the adapter's supported public surface.
+
+**Alignerr:** the current contract is `jobs`, stable `total`, `limit` and `offset`,
+with unique IDs and exact pagination checks. At 120 rows per page, 5,624 retained
+rows need `ceil(5624/120) = 47` HTTP requests, yielding 491 canonical opportunities.
+The 100-request cap is a safety ceiling. A smaller validated page size can require
+more requests; the runner then uses the validated size. At full pages the cap
+covers at most 12,000 returned rows, even though the adapter has a separate
+20,000-record ceiling. A cap, changing total, duplicate, premature empty page or
+interruption cannot be labelled complete or authorize absence closure.
+
+**Mercor:** one GET returns the public `listings` array. The latest retained run
+qualified 371 exact records; 40 absent records remained expired/unconfirmed, not
+closed. Hundreds of returned rows do not prove provider-wide coverage. The locally
+retained evidence does not establish a pagination/cursor contract. The runner
+retains the full response and reports envelope keys/continuation signals for the
+controlled validation. It does not invent a second endpoint or repeatedly fetch
+the same response. If the captured envelope establishes more discovery steps,
+review that narrow endpoint/body/cursor contract and revise the finite budget;
+until then this source is explicitly `partial_individual`.
+
+| Source | Initial plan | Retained HTTP / hard cap | Per-source deadline | Surface and admission requirement |
+|---|---|---:|---:|---|
+| Alignerr | Ready | 47 / 100 | 360s | Validated public API pagination |
+| Appen | Ready | 1 / 1 | 60s | Complete validated Lever list; new strict required-field/duplicate checks |
+| DataAnnotation | Blocked | 1 stopped / 11 | 360s, disabled | `/coding` redirected outside the approved paths. Review canonical route/fixed page set, validate evergreen page evidence and every redirect hop. |
+| DataForce | Blocked | 3 / 20 | 360s, disabled | Any 200 without `views-row` currently looks like an empty terminal page. Require genuine inventory/empty-state structure; retain and test terminal HTML before admission. |
+| Handshake | Blocked | 29 / 40 | 360s, disabled | Unbounded modules, unvalidated CMS destination, chunk-0-only discovery, no qualifying record contract. Constrain linked assets/chunks and retain raw identity/visibility evidence. |
+| Meridial | Ready | 2 / 2 | 150s | Existing approved Greenhouse full jobs + AI department tree, exact attestations and count-drop guard |
+| Mercor | Ready, limited surface | 1 / 1 | 60s | Individual public active records; never absent-record closure or provider-wide completion |
+| micro1 | Ready | 4 / 50 | 240s | Native 50 pages × 100 rows / 5,000-record limit; exact totals and identities |
+| Mindrift | Ready, cooldown | 17 / 70 | 360s | Two public probes + up to 68 token pages; stable total, public published rows, 0.2s spacing, zero retries; 12h since last successful crawl start |
+| OneForma | Ready | 1 / 3 | 210s | Stable WordPress page count; 100 posts/page. Retained 29 post identities emitted 429 variants. Header evidence is now retained. |
+| Outlier | Blocked | 1 / 1 | 60s, disabled | Existing failure/empty sample fallback and no qualifying public-record contract. Daily sample output is now rejected before tracking, but real envelope/visibility validation is still needed. |
+| RWS | Ready | 1 / 1 | 60s | Strict public Lever list, existing TrainAI filter and category mapping |
+| Surge | Blocked | 9 / 20 | 360s, disabled | Slug fallback can accept generic 200 pages. Require actual title, role and application evidence and a qualifying public/evergreen record contract. Retain raw index/page fixtures. |
+| Turing | Ready | 1 / 3 | 210s | Exact public success/totalCount pagination; 500 rows/page, at most 1,500 under this policy |
+| Welocalize | Ready | 1 / 1 | 90s | Complete Lever list, existing AI Services department filter: retained 562 upstream rows, 440 eligible variants, 122 filtered |
+
+All five blocked entries require their stated narrow repair, fixture validation
+and a bounded live validation before joining execution. The manifest includes
+exact endpoint scopes, historical counters, timeout/cooldown, corrective action
+and admission condition for each source. Disabled ceilings are review proposals,
+not permission for the runner to dispatch those broken adapters. Their combined
+92-request ceiling is excluded from daily totals. A hypothetical 324-request sum
+across all entries is not an executable or approved all-ready plan.
+
+The initial ten-source set expects about **76 requests** at retained surface sizes,
+with **232 requests maximum**. Source deadlines total 1,800 seconds; 240 seconds
+cover stop checks, one backup, final integrity and process cleanup: **2,040 seconds
+(34 minutes) execution plus at most 120 seconds recovery = 36 minutes**. The request
+cap and time cap are independent: a slow source can time out before spending its
+HTTP allowance. Three-page OneForma/Turing and 70-request Mindrift limits are
+explicit operating ceilings, not native completeness guarantees. Mindrift's cap
+also accommodates the retained older 647-row inventory at approximately ten rows
+per token page. Caps never change completeness rules to fit expected counts.
+
+September 4 ready-source processing took 174.681 seconds in total, excluding this
+new runner's backup/recovery and host conditions. **Expected hosted maintenance
+duration must be measured at activation.** The earlier 2m14s deployment is not an
+ordinary-run benchmark. The 36-minute bound limits automated attempts; damaged
+infrastructure can still require operator recovery. Optional reporting/delivery
+must never extend the unavailable interval.
 
 ## Proven compensation failure and correction
 
@@ -72,222 +149,201 @@ explicitly cleared fields. Failed/unqualified observations cannot clear that
 geography. Browse, detail and Matches keep the shared exact-record verification
 and pay contracts. This does not broaden detail collection or enrichment.
 
-## Daily operation and native units
+## Implemented operation and publication
 
-`scripts/daily_inventory.py` supplies `run`, `worker`, `recover`, `health` and
-`report`. `wahojobs/daily_inventory.py` implements policy, stored receipts and
-health evaluation. Unit files and a **disabled** example policy are under
-`deploy/private-beta/`. Nothing runs on import or by installing source files.
-The example deliberately has an invalid commit placeholder until pinned.
+The existing systemd units, `scripts/daily_inventory.py`, maintenance plans,
+append-only evidence journal, backup/recovery and SQLite ownership contracts are
+reused. The disabled example policy pins all 15 entries and the exact beta paths.
+Owner configuration may reduce budgets or disable a ready source; it cannot widen
+an endpoint, exceed compiled ceilings or enable a blocked contract. Changes to
+readiness need code review and validation. Existing registry dispatch gates remain.
 
-| Policy | Enforced behavior |
-|---|---|
-| Schedule | Daily at 06:00 UTC (03:00 America/Sao_Paulo) |
-| Sources | Alignerr and Mercor only; never unrestricted adapter dispatch |
-| HTTP budget | At most 100 Alignerr attempts and 1 Mercor attempt per consumed daily slot |
-| Redirects | Rejected; the initial HTTP attempt counts, no unbudgeted follow-up |
-| Details, retries, models | Zero detail requests, zero retries, zero model calls |
-| Execution | 900 seconds, including stop, verified backup and collection; remaining time clips request timeouts |
-| Recovery | Up to 120 additional seconds; existing deadline survives fallback recovery |
-| Freshness | Existing 72-hour record semantics, using real runtime clocks |
-| Health | Stored-state check hourly at :25 UTC; no employer or product database requests |
+At 06:00 UTC the root supervisor verifies the actual host, immutable release,
+`current` symlink, beta process/command, LoadCredential and effective config-002.
+It takes the common maintenance gate and durably reserves the UTC slot. The normal
+beta service is stopped, one cold storage cohort backup is verified, and the
+coverage plan records due, cooldown, disabled and blocked entries. The parent keeps
+the gate throughout. A separate beta-user process acquires the existing lifetime
+lease for each phase: backup, each due source, final protected-data/integrity check.
+Parent PID, source phase, single-use claim and deadline bind every dispatch.
 
-The native run requires root on `wahojobs-private-beta-rehearsal-20260917`, inside
-`wahojobs-inventory.service`; it verifies the exact immutable release, selected
-`current` link, normal beta process/command/working directory/service user,
-LoadCredential selection and effective configuration. Required authority is:
+A failed/timed-out source is reaped before the next independent source starts;
+it cannot spend a sibling's allowance. SIGTERM cancels the entire run rather than
+continuing to the next source. Central backup/storage failure also stops safely.
+The supervisor restores normal beta in `finally`; ExecStopPost and boot recovery
+handle interruption under the original remaining recovery allowance. Optional
+receipt reconstruction and all email preparation/delivery occur after restoration.
+The gate also excludes manual maintenance and backup; database lifetime ownership
+excludes other writers. No preview database or synthetic authentication can pass
+the native configuration checks.
 
-* Database `/var/lib/wahojobs-beta/rehearsal-recovered-001/product.sqlite3` and its
-  existing correction-draft sidecar.
-* Pinned journal `/var/lib/wahojobs-beta/rehearsal-recovered-001/journal`.
-* Root configuration `/etc/wahojobs-beta/config-002/runtime.json`, matching the
-  effective `/run/wahojobs-beta/runtime.json`, namespace `private_beta`, origin
-  `https://beta.wahojobs.com`, no preparation companion.
+All ready adapters now share audited endpoint/method/query/body validation,
+request reservation before network dispatch, no-redirect transport, remaining-time
+clipping and raw response retention before parsing. Only public completeness
+headers are retained, never Set-Cookie. This applies to ordinary bounded maintenance
+plans as well as daily plans; standalone legacy scripts are not the scheduled
+entry point. The runner never calls the unrestricted 15-adapter workflow.
 
-Recovery rechecks host, release, selected root configuration and service credential
-pins even when the beta process is stopped. Preview and synthetic runtime
-configuration cannot pass these guards.
+Daily due is independent of the existing 72-hour eligibility clock. Mindrift alone
+also checks its documented 12-hour cooldown from the latest non-synthetic successful
+crawl start. A cooldown skip is reported, not a qualifying check; no same-slot retry
+occurs when the cooldown elapses. Real runtime clocks and expiry semantics remain.
+Persistent timers can catch only the latest missed slot within one hour. Duplicate,
+failed and interrupted slots remain consumed; no burst of backfill requests.
+On boot, recovery orders before the inventory service without ordering cycles
+against its timer or beta. A beta-not-ready preflight fails closed; no automatic
+retry or employer requests follow. Do not delete slot directories or claims.
 
-The supervisor takes a persistent cross-process operation gate shared with manual
-maintenance and backup, reserves the UTC slot durably, stops only
-`wahojobs-beta.service`, and starts a parent-bound, single-dispatch beta-user worker.
-The worker holds the existing offline database lifetime lease continuously across
-verified cold backup and both source plans. Daily discovery is an explicit hashed
-plan option independent of freshness; a still-fresh source is due each day.
-Existing source rate constraints and contract guards remain in force.
+Successful new observations use the normal crawl/tracking/source acceptance,
+canonical rollup and deterministic publication pipeline, with paid enrichment off.
+The integration tests verify new source opportunities reach shared detail/Matches
+reads. Complete-source absence rules remain provider-specific; failures, partial
+results and Mercor absence cannot infer closure. Exact IDs, canonical relations,
+manual overrides, user saved jobs and application history remain intact. Public
+inventory/evergreen classifications are preserved; a public application is not
+relabelled a guaranteed active project. Surge's inherent allowlisted opportunity
+page requests are specified in its blocked manifest, not confused with optional
+full-description enrichment. Daily detail enrichment remains zero.
 
-Alignerr must prove pagination and count completeness inside its budget. A capped,
-interrupted or partial observation cannot infer closures. Mercor remains a partial
-catalog: only qualifying individually returned records renew; exact identity,
-activity, execution, count integrity and non-synthetic evidence checks still
-apply. An absent Mercor record keeps its old clock and can expire without being
-marked closed. User tracking/history survives all catalog lifecycle outcomes.
+Existing Alignerr/micro1 accepted-detail precedence keeps dated supplementary
+content when a catalog arrives. Daily reports now expose held catalog content and
+reason counts separately from renewed availability; a changed held summary can be
+reviewed through the existing maintenance evidence report. It does not silently
+refresh the detail capture date or initiate a detail request. The retained Mercor
+fix below continues to preserve compatible pay while applying supported current
+conditions and superseding contradicted compensation.
 
-The worker verifies product schema/integrity/foreign keys and hashes protected
-non-inventory tables plus the complete correction-draft sidecar. These hashes
-expose no user records in reports. Failure or timeout terminates the child process
-group before normal beta restoration. Supervisor cleanup, native `ExecStopPost`
-and the boot recovery unit cover interrupted operation. Receipt-write failure
-cannot prevent the restoration attempt. Optional summary reconstruction and alert
-delivery take place after normal-service restoration.
+## Reporting and alert setup
 
-`Persistent=true` permits a native missed timer to fire after restart. The runner
-accepts only the latest slot within one hour of 06:00, at most once, with the same
-locks and budgets. Later triggers record `missed_window` without collection.
-Interrupted/failed reservations remain consumed; no same-slot retry or burst of
-older catch-up requests occurs. Manual operation must use the native service and
-does not grant a second daily budget. On a much later reboot, recovery observes
-an already restored normal beta service without reopening the old recovery window.
-Do not delete reservation directories or persistent lock/journal files.
+Private receipts remain under `/var/lib/wahojobs-beta/daily-inventory-v1`, with
+per-source plans, summaries, failures, coverage plan, verified backup and final
+worker proof. Journald and the existing CLI `report` / maintenance `report` remain
+the operational interface. No dashboard or candidate-card warnings were added.
 
-Boot recovery orders before the inventory **service**, not its timer, avoiding
-the implicit timer/basic-target dependency cycle. On a clean boot, if normal beta
-is still starting when the persistent trigger reaches preflight, that attempt
-fails closed without employer requests. The health check reports the missed run;
-there is no automatic retry before the next daily slot. Include this simultaneous
-startup case in native activation testing.
+Every source is accounted for. Reports distinguish complete, partial-individual,
+partial/failed, interrupted, blocked, disabled, cooldown and not-started outcomes.
+They include trigger/run/plan identity, times, HTTP attempts, received/fetched
+response pages, upstream record units, normalized variants, canonical opportunity
+counts, new/changed/reconfirmed/closed records, held content, missing/uncertain/stale
+cohorts, qualifying verification dates, expiry, next scheduled execution and actual
+maintenance duration. Unknown counts stay null. A zero exit code does not qualify
+an observation. A successful ready-set run with blocked sources is labelled
+`complete_with_coverage_gaps`, never overall complete coverage.
 
-Timer semantics are documented by [systemd](https://github.com/systemd/systemd/blob/main/man/systemd.timer.xml).
-The units intentionally have no ordering dependency on the beta service: recovery
-must be able to start that service while the inventory unit is stopping.
-Trigger provenance uses invocation-bound `TRIGGER_UNIT`,
-`TRIGGER_TIMER_REALTIME_USEC` and `INVOCATION_ID`, documented in
-[systemd.exec](https://github.com/systemd/systemd/blob/v255/man/systemd.exec.xml).
-A scheduled firing delayed by recovery remains `timer`; a late firing is
-`timer_catch_up`. Unsupported/absent metadata is explicitly `unknown`, not proof
-of a manual run. Activation must correlate the actual timer and invocation
-records before declaring automatic operation active.
+Hourly stored-state health runs at **:40 UTC**, following the maximum 37-minute run
+grace, so an absent 06:00 execution is detected at 06:40. It contacts no employers.
+It detects missed/failed/partial runs, all-source coverage gaps, count drops below
+half the retained baseline (baseline at least ten records), and each active cohort
+reaching 36 hours / escalating at 48 hours. Renewal of one provider cohort cannot
+hide another approaching expiry. Failed attempts preserve old cohort dates and
+count baselines. The normal Mercor partial-surface limitation remains informational.
+Stable issue keys deduplicate unchanged hourly problems and record recovery.
 
-## Operational reports and alert boundary
+**Approved recipient: danilo@wahojobs.com.** No suitable operational email sender
+is implemented in the existing code; authentication-code delivery is not reused.
+The smallest configured boundary is an absolute reviewed executable receiving one
+version-2 JSON batch on stdin per health invocation:
 
-Private operational state lives at `/var/lib/wahojobs-beta/daily-inventory-v1`:
-`runs/<YYYYMMDDT060000Z>/run.json`, per-source plans/summaries, worker and backup
-proofs; latest `<provider>-state.json`; and `health.json` with active issues and a
-durable alert outbox. The existing maintenance journal remains authoritative for
-transport reservations and observations. Native service output goes to journald.
-Use the CLI `report` plus existing `evidence_maintenance.py report` for inspection.
-No candidate-card warnings or new dashboard were added.
+```json
+{"version":2,"recipient":"danilo@wahojobs.com","application":"wahojobs-beta","events":[{"id":"durable-event-id","kind":"opened","key":"source:issue"}]}
+```
 
-Source rows distinguish complete, qualifying partial-individual, partial/failed,
-interrupted, not-started and unavailable-accounting outcomes. They report trigger,
-run/plan IDs, start/end, HTTP attempts, exact posting-record counts for observed,
-new, changed, reconfirmed and confirmed-closed records, missing/uncertain/stale
-records, all active verification cohorts, last qualifying date, next expiry,
-next scheduled execution and measured maintenance duration. Changed counts compare
-accepted semantic hashes; identical sightings are reconfirmations. Unknown counts
-after failure are null, not invented zeros. Interrupted accounting is recovered
-from durable journal reservations without another request. Ordinary process exit
-alone is never proof of source qualification.
+The command runs as the beta user, has 15 seconds for the batch, and must deduplicate
+each event ID. Events are durably marked attempted before dispatch. Failed or
+uncertain delivery is not retried automatically. Adapter acceptance is not owner
+receipt. Isolated tests use a test transport only.
 
-Health detects a missing/unfinished expected run after 06:20 UTC, failed or partial
-source observations, a record-count drop below half the retained baseline (baseline
-at least 10 records), 36-hour warnings and 48-hour escalation. Age checks evaluate
-every active-record cohort, including old absent Mercor records when newer records
-were renewed. The normal Mercor partial-catalog limitation has informational
-severity. Failed attempts keep the previous qualifying dates and aging cohorts.
-Count-drop alerts remain open until recovery; entering a new day's grace interval
-does not falsely recover an earlier failed/missed-run alert.
+**Remaining email setup:** choose an authorized existing delivery service and sender
+identity; install the reviewed absolute adapter command and separately supplied
+service credentials if needed; approve that delivery policy. Do not infer a sender,
+change DNS, buy a service or use personal/account authentication credentials.
+The recipient is resolved and must not be requested again. `approved=false`, empty
+command and `enabled=false` keep live delivery/recurrence disabled. Real delivery
+and recipient confirmation belong to the single controlled activation below.
 
-Stable issue keys deduplicate unchanged hourly problems. Opening, escalation and
-recovery events have unique IDs. The smallest delivery boundary is a reviewed
-absolute executable plus argument list receiving JSON on stdin:
-`{"recipient": "owner-configured", "application": "wahojobs-beta", "event": {...}}`.
-There is no suitable existing operational alert sender; authentication-code
-delivery and candidate reminders are not repurposed. The adapter runs as
-`wahojobs-beta`, has 15 seconds per event, and must deduplicate event IDs. Dispatch
-is durably marked attempted first; ambiguous/failing delivery is not retried
-automatically. `accepted_by_adapter` proves adapter acceptance only; actual owner
-receipt must be checked separately. Pending/failed delivery remains visible in
-the report. Adapter credentials, if needed, stay outside Git and runtime logs.
+## Validation and independent review
 
-**Minimal missing configuration:** an owner-selected recipient, approved delivery
-transport, installed/reviewed absolute adapter command and any separately supplied
-transport credential. Set `alert_delivery.approved=true` only after that approval.
-No recipient was inferred, no account credential was used, and no live delivery
-was tested. These missing details block activation, not this implementation.
+The affected suite ran **352 tests: 349 passed, three Windows platform skips,
+zero failures/errors**, in 116.848 seconds. The final release receipt records the
+exact command and subsequent focused checks, including cooldown enforcement and
+manifest consistency, plus independent review results. Tests use isolated storage, retained
+real Mercor pay captures and recorded Alignerr content, existing provider fixtures,
+explicit synthetic transport envelopes and injected clocks only. September 4 URL,
+count and timing receipts have null raw-body hashes: they are not falsely presented
+as retained HTTP bodies. Handshake/Surge HTML and DataForce terminal fixtures are
+still missing, which is part of their explicit admission work.
 
-## Validation and review
+Tests cover all ten ready transports and new-record publication, all 15 policy
+entries, source-specific scope/budgets, daily due within freshness, Mindrift cooldown,
+request/deadline/redirect limits, partial-result safety, ordinary maintenance budget
+isolation, source timeout/failure isolation, SIGTERM cancellation, phase replay,
+original Mercor compensation through bounded maintenance, changed/held detailed
+content, preserved user domains, closure/expiry, alert batching/deduplication,
+missed schedules and restart calculations. Earlier unchanged UI/release evidence
+is reused. Independent reviews identified and verified fixes for ordinary
+maintenance budget bypass, cancellation dispatch, private headers and retention
+of completeness headers. No unresolved reviewed implementation blocker remains.
 
-The final affected suite ran **253 tests: 250 passed, three Windows platform
-skips, zero failures/errors**, in 99.822 seconds. This includes 39 milestone
-regressions and the existing affected source, maintenance, backup, ownership,
-card, variant and compensation suites. The validation receipt records the exact
-command. Tests use isolated SQLite/filesystem
-storage, retained real Mercor fields, fixture HTTP transports and test-only clocks.
-They never contact employers or change real expiry semantics.
+This Windows environment has no usable native systemd environment. Native unit
+execution, Linux permissions, real stop/recovery and live email receipt are still
+activation checks. Unit tests and isolated/manual runs do not activate recurrence.
 
-Coverage includes the real retention regression under old and corrected policies;
-repeated summaries; changed/new pay and currency; same catalog timestamp;
-workload changes; superseded-origin rejection; manual overrides and sibling
-isolation; shared Browse/detail/Matches consumers; fresh-but-due daily execution;
-100-request incomplete Alignerr pagination; missing Mercor records; source failure;
-cross-process/manual locking; duplicate dispatch; elapsed request deadlines;
-process-group timeout; stop/restore and receipt-write failures; remaining recovery
-allowance; protected user-domain equality; age cohorts/count drops; alert
-deduplication/recovery; native-trigger record interpretation; and restart/next-slot
-calculation.
+## One controlled validation and activation procedure
 
-Independent retention and operational reviews found concrete edge cases and their
-corrections were retested; neither review has an outstanding blocker in its
-reviewed scope. Earlier unchanged UI/catalog and hosted Linux evidence
-from the accepted checkpoint remains applicable. This Windows environment has no
-usable Linux execution environment. The new native systemd units, Linux filesystem
-permissions and real stop/timeout/recovery behavior are **not yet host-verified**.
-Unit tests and a fixture/manual runner are not scheduler activation evidence.
+Proposed activation window: **2026-09-23 05:30 UTC**, first timer execution
+**2026-09-23 06:00 UTC**, then daily 06:00 UTC (03:00 America/Sao_Paulo).
+If approval/preflight is later, select the first future 06:00 after completing the
+checks, update `first_run_at`, and verify that next timer. Do not backdate or fill
+missed days. The owner reviews this one package and its manifest, including the
+initial ten-source 232-request / 34-minute execution / two-minute recovery policy.
+Ordinary daily runs inside the subsequently activated policy need no new
+conversational approval. Blocked admission, new scopes/budgets/access requirements,
+paid work, new providers and delivery changes are explicit exceptions.
 
-## One bounded owner-approved activation
-
-Proposed window: **2026-09-23 05:30 UTC** (02:30 America/Sao_Paulo). First collection:
-**2026-09-23 06:00 UTC**, then daily 06:00 UTC, with the fixed 100+1 attempt budget,
-15-minute execution and two-minute recovery limits. If approval/preflight is later,
-select the first future 06:00 UTC after completing these checks and explicitly
-update `first_run_at`; do not backdate it or manually fill missed days.
-
-1. Using the existing pinned private administrative procedure, reverify hostname,
-   deployed commit, config-002, normal process, authoritative database/journal and
-   current protected-data baseline. Inspect actual timers/cron again for later
-   legitimate changes; stop on conflicts. Stage the exact committed archive under
-   `/opt/wahojobs-beta/releases/IMPLEMENTATION_COMMIT` and verify its archive hash.
-   Reuse the existing Python 3.12 environment and pinned dependencies. Do not copy
-   any fixture/preview database into authority or reapply completed corrections.
-2. Before authoritative downtime, run the affected tests in isolated Linux storage,
-   including POSIX ownership and socket restart. Verify the supplied units with
-   `systemd-analyze verify` and calendar expressions with `systemd-analyze calendar`.
-   Exercise the supervisor's stop, worker timeout, SIGTERM/SIGKILL cleanup and
-   restart/ExecStopPost path against disposable service/storage fixtures under the
-   actual systemd version. Verify that recovery has no ordering cycle. Record the
-   results; do not use employer requests for this preparation. Abort activation
-   if these native checks fail.
-3. Prepare private directories `daily-inventory-v1`, `runs` and `backups` owned by
-   `wahojobs-beta:wahojobs-beta`, mode 0700. Create the shared adjacent
-   `product.sqlite3.wahojobs-maintenance.lock` as that user, mode 0600, only if absent;
-   never replace/truncate an existing lock inode. Install the reviewed policy at
-   **`/etc/wahojobs-inventory-v1.json`**, root:wahojobs-beta, mode 0640. This separate
-   path avoids changing traversal permissions of private config-002 directories.
-   Pin the exact commit and future `first_run_at`; keep `enabled=false` initially.
-   Check readability as the beta user and writable/private state/backups, free disk
-   space and existing immutable journal binding. Daily snapshots are not deleted
-   automatically; use the existing approved backup custody/retention procedure.
-4. Install the five native service/timer files under `/etc/systemd/system`, mode
-   0644; `systemctl daemon-reload`. Keep both timers and boot recovery disabled.
-   Deploy code through the established stopped-writer cold-backup procedure:
-   stop only normal beta, confirm exclusive ownership, capture and verify the
-   storage cohort with `scripts/beta_recovery.py backup` / `verify`, record protected
-   hashes, atomically select this immutable release, start normal beta and run
-   `scripts/private_beta_health.py --config /run/wahojobs-beta/runtime.json` as
-   the beta user. Compare fresh protected/inventory/schema/acceptance fingerprints
-   and ordinary read-only Browse/detail/Matches behavior. Deployment performs no
-   collection or correction replay. Measure deployment downtime separately.
-5. Install the owner-approved alert adapter/credentials outside the release and
-   populate the recipient, absolute command list and approval bit. With timers
-   still disabled, set the reviewed policy `enabled=true` and run the hourly
-   health service once. It only reads stored operational state and sends queued
-   operational events. Use its initial unverified-state event to confirm **real
-   owner receipt**, then repeat the health check to prove unchanged issues do not
-   resend. A zero exit code is insufficient. If delivery is uncertain, leave
-   recurring timers disabled; resolve the adapter's event-ID receipt without an
-   automatic resend. This step requires the later explicit delivery approval.
-6. After the preceding checks pass, enable boot recovery and both timers:
+1. Through the established pinned administrative procedure, reverify actual host
+   `wahojobs-private-beta-rehearsal-20260917`, HEAD/release/current link, normal
+   beta process, config-002 and all later legitimate timers/cron/configuration
+   changes. Stop on conflicts. Stage the exact archived commit under
+   `/opt/wahojobs-beta/releases/IMPLEMENTATION_COMMIT`; verify archive SHA-256 and
+   reuse the existing Python 3.12 dependencies. Never copy a fixture database into
+   authority or replay accepted corrections.
+2. Before authoritative downtime, run the affected tests in isolated Linux storage.
+   Use `systemd-analyze verify` on all five units and `systemd-analyze calendar` on
+   daily 06:00 UTC / hourly :40 UTC. Exercise source timeout, SIGTERM/SIGKILL,
+   process-group reaping, stop/restore, ExecStopPost and restart with disposable
+   service/storage fixtures under the real systemd version. Verify lock/ownership
+   exclusion and beta/startup ordering. No employer calls are needed for this step.
+3. Pin authority to database
+   `/var/lib/wahojobs-beta/rehearsal-recovered-001/product.sqlite3`, its existing
+   `.correction-drafts.sqlite3` sidecar and journal in that same directory. Use
+   root config `/etc/wahojobs-beta/config-002/runtime.json`, matching
+   `/run/wahojobs-beta/runtime.json`, namespace `private_beta`, origin
+   `https://beta.wahojobs.com`, no preparation companion. Prepare state, `runs` and
+   `backups` directories owned by beta with mode 0700; prepare adjacent
+   `product.sqlite3.wahojobs-maintenance.lock` as beta, 0600 only if absent. Never
+   replace an existing lock inode. Install root:beta 0640 policy at
+   `/etc/wahojobs-inventory-v1.json`, exact commit and future first-run date, disabled.
+   Verify source company rows/configuration and the existing journal binding;
+   missing source configuration is a coverage blocker, not a synthetic seed.
+4. Install units disabled, daemon-reload, and deploy using the retained beta stopped-
+   writer cold-backup/recovery procedure. Take the common gate, stop only
+   `wahojobs-beta.service`, confirm exclusive ownership, use existing
+   `scripts/beta_recovery.py backup` / `verify` for the storage cohort, record
+   protected hashes, atomically select the immutable release, then start beta and
+   run `scripts/private_beta_health.py --config /run/wahojobs-beta/runtime.json`
+   as beta. Compare protected/inventory/schema/acceptance fingerprints and ordinary
+   Browse/detail/Matches reads. No collection or correction replay during deployment.
+   Measure deployment downtime separately. Preserve backup custody; no automatic
+   snapshot deletion is introduced.
+5. Install the approved email adapter/sender configuration outside Git. Confirm its
+   beta-user permissions and required credential mechanism without exposing secrets.
+   Set recipient as above, approved command and approval bit, then `enabled=true`
+   with timers still disabled. Run stored-state health once through the health
+   service; the initial issues form one delivery batch. Verify actual receipt at
+   danilo@wahojobs.com and repeat stored-state health to verify deduplication.
+   Ambiguous acceptance is not a reason to resend. If delivery or native checks
+   fail, leave timers disabled and resolve them without employer requests.
+6. Enable boot recovery and both timers only after approval and the preceding checks:
 
    ```sh
    systemctl enable wahojobs-inventory-recovery.service
@@ -296,57 +352,44 @@ update `first_run_at`; do not backdate it or manually fill missed days.
    systemctl show wahojobs-inventory.timer -p ActiveState -p LastTriggerUSec -p NextElapseUSecRealtime
    ```
 
-   Confirm the actual next trigger is the approved first 06:00 UTC, and health is
-   hourly at :25 UTC. Check the recovery unit's boot ordering. A persistent trigger
-   before `first_run_at` must consume no provider budget. Do not invoke the worker
-   or an unrestricted crawler manually.
-7. Observe the first timer-initiated execution, recording systemd invocation/result,
-   actual timer LastTriggerUSec and next execution, UTC run ID/trigger, all source
-   journal plan IDs, budgets, qualifying observations and per-record cohorts.
-   Verify the original supplemental pay date and current workload, integrity,
-   protected user history, normal beta readiness, actual maintenance duration and
-   next daily schedule. Verify hourly alert delivery and recovery deduplication.
-   Counts may change legitimately; do not weaken expiry/closure rules to meet old
-   totals. Only after this evidence may recurring operation be called active.
+   Verify the actual next daily trigger is the approved first 06:00 UTC, health is
+   hourly :40, and persistent pre-first-run triggers make no employer requests.
+   Do not invoke workers directly or run all 15 adapters against hosted storage.
+7. Observe that first timer-initiated run as the single bounded live validation of
+   the initial ready set. Capture systemd invocation/result, timer LastTrigger and
+   next trigger, coverage plan, source journal IDs, HTTP/page/record/canonical
+   counters, completeness and cohort evidence. Inspect Mercor's retained envelope
+   for unsupported continuation; verify no provider-wide claim. Confirm original
+   pay dates/current supported conditions, user tracking and protected domains,
+   normal beta readiness and measured backup/source/restart/unavailable intervals.
+   Check hourly alert/recovery delivery. A failing source remains incomplete or
+   blocked; keep independent healthy sources scheduled within policy. Disable the
+   affected entry if access/contract needs repair, recalculate the aggregate policy
+   deadline, and document its admission work. Do not weaken safeguards to match
+   historical counts. Only real scheduler execution/next-trigger/delivery/data
+   evidence supports declaring the ready subset active; five blocked sources mean
+   the overall coverage milestone remains incomplete.
 
-The ordinary daily unavailable interval is measured from the stop request through
-normal readiness. It includes verified backup, bounded collection, deterministic
-processing and integrity checks. **Expected duration is not yet measured**: record
-the first real daily interval and backup/collection/restart timings during
-activation; the earlier 2m14s deployment/reconciliation window is not a benchmark.
-The automated execution/recovery budget is at most **17 minutes**. This is not a
-guarantee that damaged infrastructure can become healthy within that time: a
-failed readiness/recovery remains a visible failure requiring operator recovery.
-Optional reports/alerts must never extend the service stop. A late reboot records
-unknown interruption duration rather than inventing a measured interval.
-
-## Disable and recover using the existing beta mechanisms
-
-Disable future invocations first:
+## Disable and recovery
 
 ```sh
 systemctl disable --now wahojobs-inventory.timer wahojobs-inventory-health.timer
 ```
 
-Set policy `enabled=false`. If an inventory service is running, use
-`systemctl stop wahojobs-inventory.service`; its bounded cleanup/ExecStopPost
-restores normal beta. Keep the recovery unit available until normal readiness is
-confirmed, then disable that unit if retiring this operation. Inspect journald,
-`run.json`, the existing maintenance journal report and health state; do not delete
-consumed slots, worker claims, source reservations or persistent lock files.
+Set policy `enabled=false`. If running, `systemctl stop wahojobs-inventory.service`
+interrupts collection and invokes bounded normal-beta recovery. Keep boot recovery
+available until normal readiness is confirmed; disable it only when retiring the
+operation. Inspect journald, run/source receipts and existing maintenance reports.
+Never delete consumed slots, phase claims, journals or persistent lock files.
 
-If native recovery failed, use the established operator procedure to confirm no
-worker/lifetime owner remains, start the same selected normal beta service and
-verify readiness/current protected data. Never launch a preview/recovery app over
-authoritative storage. A fresh source retry is not part of V1 automatic recovery;
-the next approved slot is the next opportunity.
+If recovery fails, use the established operator procedure to confirm no worker or
+lifetime owner remains, start the same selected beta service and verify readiness
+and current protected data. Do not start a preview app over authoritative storage.
+There is no automatic retry; the next approved daily slot is the next collection.
 
-**Rollback compatibility:** before any v2 observation has been written, the prior
-immutable code can be selected with current unchanged storage using the established
-code-only rollback procedure. After v2 captures/compositions exist, the old
-`4ee28ce1...` code does not understand those acceptance policies. Disable scheduling,
-restore normal beta using this compatible release, and fix forward or choose a
-proven compatible release. Do not blindly switch to old code or restore an older
-database over newer user activity. Disaster recovery remains the existing verified
-snapshot-to-new-directory procedure with journal/pin and consumed-operation
-reconciliation, never an overwrite of live authority.
+After v2 capture policies exist, blindly rolling back to `4ee28ce1...` cannot read
+those policies. Disable recurrence and keep a compatible release (this extension
+or proven compatible `9bd4712...`) while fixing forward. New filtered-count reporting
+adds no database migration. Never restore an old database over newer user history.
+Disaster recovery remains the existing verified snapshot-to-new-directory procedure
+with journal/pin and consumed-operation reconciliation, not live-file replacement.

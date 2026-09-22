@@ -79,6 +79,29 @@ class RetentionTests(unittest.TestCase):
             self.assertEqual(matching['latest_successful_source_run_at'],view['latest_successful_source_run_at'])
             self.assertEqual(view['source_commitment'],'hourly')
 
+    def test_retained_refresh_through_bounded_maintenance_keeps_pay_and_original_date(self):
+        import tempfile
+        from wahojobs import daily_inventory as daily, evidence_maintenance as maintenance
+        from tests.evidence_maintenance_support import BytesResponse
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);path=root/'inventory.sqlite3'
+            with closing(sqlite3.connect(path)) as disk:self.db.backup(disk)
+            plan=maintenance.build_plan(path,['mercor'],now=self.at,http_limit=1,details=None,phase='source',daily_discovery=True)
+            class RetainedRefresh:
+                def open(inner,request,timeout):
+                    self.assertEqual(request.full_url,MERCOR_ENDPOINT)
+                    return BytesResponse(json.dumps({'listings':[self.listing]}).encode(),request.full_url)
+            with patch('urllib.request.build_opener',return_value=RetainedRefresh()),patch('socket.create_connection',side_effect=AssertionError('No network')),patch('wahojobs.crawler.pipeline.utc_now',return_value=self.at.isoformat()):
+                report=maintenance.execute_plan(plan,root/'journal',authorized=True,authorize_sources=True,now=self.at)
+            summary=daily.summarize_source(plan,report,self.at,self.at)
+            self.assertTrue(summary['qualifying_observation']);self.assertEqual(summary['requests_used'],1)
+            with maintenance.read_connection(path) as disk:
+                accepted=dict(disk.execute('SELECT * FROM job_source_contents').fetchone())
+                self.assertEqual(accepted,self.baseline)
+                verify_job_source_acceptance_integrity(disk,self.job['id'])
+                view=public_job_page.load_public_job(disk,public_job_page.public_job_path(self.job['canonical_opportunity_id']),now=self.at,selected_job_id=self.job['id'])
+                self.assertEqual(advertised_compensation(view),'$50 per hour USD')
+
     def test_summary_explicit_null_pay_is_unknown_but_changed_terms_invalidate_reuse(self):
         self.observe(dict(self.listing,payRate=None),self.at.isoformat())
         self.assertEqual(advertised_compensation(self.load()),'$50 per hour USD')

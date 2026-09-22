@@ -2,7 +2,8 @@ import html
 import json
 import re
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_public as urlopen
 
 from wahojobs.crawler.types import JobCandidate
 
@@ -47,6 +48,8 @@ def fetch_oneforma_jobs(api_url):
                 raise ValueError("OneForma returned a duplicate job variant identifier.")
             seen_external_ids.add(candidate.external_id)
             jobs.append(candidate)
+    from wahojobs.crawler.local_inventory import record_surface_counts
+    record_surface_counts(upstream_records=len(posts), upstream_unit="WordPress job posts", variants=len(jobs))
     return jobs
 
 

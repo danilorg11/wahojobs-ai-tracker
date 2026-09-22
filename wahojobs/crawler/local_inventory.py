@@ -184,7 +184,9 @@ def open_catalog(request, *, timeout):
     allowed = {('www.alignerr.com', '/api/jobs'): 'GET',
                ('aws.api.mercor.com', '/work/listings-explore-page'): 'GET',
                ('prod-api.micro1.ai', '/api/v1/job/portal'): 'POST'}
-    if (parsed.scheme != 'https' or parsed.port is not None or parsed.username
+    from wahojobs.daily_source_policy import current_source, validate_request
+    validate_request(request)
+    if current_source() is None and (parsed.scheme != 'https' or parsed.port is not None or parsed.username
             or parsed.password or parsed.fragment
             or allowed.get((parsed.hostname, parsed.path)) != request.get_method()):
         raise ValueError('Catalog destination/method is outside the supported scope')
@@ -201,7 +203,36 @@ def open_catalog(request, *, timeout):
         raise
     if entry is not None:
         entry['status'] = response.status
+        entry['contract_headers'] = {name: response.headers[name] for name in
+            ('X-WP-TotalPages', 'X-WP-Total') if response.headers.get(name) is not None}
     return _AuditedResponse(response, entry) if entry is not None else response
+
+
+def open_public(request, *, timeout):
+    """Legacy public adapters share the audited transport inside a daily plan."""
+    from wahojobs.daily_source_policy import current_source
+    if current_source() is not None:
+        if _REQUEST_BUDGET.get() is None:raise ValueError('daily_request_budget_required')
+        return open_catalog(request, timeout=timeout)
+    from urllib.request import urlopen
+    return urlopen(request, timeout=timeout)
+
+
+def record_surface_counts(*, upstream_records, upstream_unit, variants, filtered=0):
+    budget = _REQUEST_BUDGET.get()
+    if budget is not None and budget.audit_sink is not None:
+        budget.audit_sink(dict(event='surface_counts', upstream_records=upstream_records,
+            upstream_unit=upstream_unit, variants=variants, filtered_records=filtered))
+
+
+def record_envelope_shape(payload):
+    budget = _REQUEST_BUDGET.get()
+    if budget is not None and budget.audit_sink is not None and isinstance(payload, dict):
+        # Raw envelope is already retained by transport. Report only shape and
+        # continuation presence; never guess or dispatch an undocumented cursor.
+        names=('nextPage','nextCursor','cursor','hasMore','pagination','total','totalCount','offset','limit')
+        budget.audit_sink(dict(event='envelope_shape',keys=sorted(payload),
+            pagination_signals={k:bool(payload[k]) for k in names if k in payload}))
 
 
 def local_database_path(value):
@@ -290,7 +321,10 @@ def inspect_refresh(value, sources, *, details=None):
             else:
                 item['first_request_url'] = company['careers_url']
                 if slug == 'mercor': item['limits'] = dict(pages=1, timeout_seconds=30)
-            item['catalog_transport'] = "Alignerr/Mercor/micro1: no retries; redirects rejected before dispatch. Batch ceilings are shared across these catalog and detail requests."
+            from wahojobs.daily_source_policy import POLICY
+            if slug in POLICY:
+                item['daily_contract']=POLICY[slug]
+            item['catalog_transport'] = "Daily ready-source execution: exact endpoint/query/body checks, shared audited budget, no retries, redirects rejected before dispatch. Legacy standalone adapters retain their existing transport policy."
             if details and slug in {"alignerr", "micro1"}:
                 urls=[]
                 for row in conn.execute("SELECT external_id,url FROM jobs WHERE company_id=? AND is_active=1 ORDER BY id", (company['id'],)):

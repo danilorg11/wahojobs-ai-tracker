@@ -102,7 +102,7 @@ class DailyPolicyTests(unittest.TestCase):
             dict(verified_at=d.stamp(self.at),records=90),dict(verified_at=d.stamp(self.at-timedelta(hours=35)),records=10)])
         for name in d.SOURCES:d.write_json(self.root/(name+'-state.json'),source)
         initial=d.health(self.config,self.at)
-        self.assertFalse(initial['active'])
+        self.assertEqual(set(initial['active']),{s+':coverage' for s in d.SOURCES if d.POLICY[s]['readiness']=='blocked'})
         warning=d.health(self.config,self.at+timedelta(hours=1))
         self.assertEqual(warning['active']['mercor:age36']['records'],10)
         self.assertIn('run:missing',warning['active'])
@@ -251,7 +251,7 @@ class DailyPolicyTests(unittest.TestCase):
         for provider in d.SOURCES:
             self.assertEqual(d.read_json(self.root/(provider+'-state.json')),newest)
             old=d.read_json(self.root/'runs'/receipt['run_id']/(provider+'.json'))
-            self.assertEqual(old['outcome'],'not_started');self.assertEqual(old['cohorts'],[])
+            self.assertEqual(old['outcome'],'blocked' if d.POLICY[provider]['readiness']=='blocked' else 'not_started');self.assertEqual(old['cohorts'],[])
 
 
     def test_deadline_prevents_new_physical_request_and_redirect_does_not_expand_budget(self):
@@ -291,6 +291,8 @@ class DailyIntegrationTests(unittest.TestCase):
         self.assertTrue(any(o['kind']=='catalog_observation' for o in daily['operations']))
         before=d.protected_domains(self.database)
         config=dict(database=str(self.database),journal=str(self.journal),state_directory=str(self.root/'state'),code_commit='a'*40)
+        config['sources']=d.default_sources()
+        for source,row in config['sources'].items():row['enabled']=source in ('alignerr','mercor')
         with offline_transport(fresh) as calls,patch.object(d,'now',return_value=fresh):d.collect(config,'fixture')
         self.assertEqual(len(calls),2)
         self.assertEqual(before,d.protected_domains(self.database))

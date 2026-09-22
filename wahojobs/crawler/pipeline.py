@@ -100,6 +100,9 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
                         conn, company["id"]
                     ),
                 )
+            from wahojobs.daily_source_policy import current_source
+            if current_source() is not None and crawl_result.used_sample_data:
+                raise ValueError("daily_synthetic_evidence_forbidden")
             removal_authorization = evaluate_removal_authorization(crawl_result)
 
             if crawl_result.outcome == ProviderOutcome.CONTRACT_DRIFT:

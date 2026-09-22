@@ -39,7 +39,10 @@ def fetch_mercor_observations(api_url):
             raise ValueError("Mercor response did not come from the public endpoint.")
         charset = response.headers.get_content_charset() or "utf-8"
         payload = response.read().decode(charset, errors="replace")
-    return parse_mercor_observations(json.loads(payload))
+    data = json.loads(payload)
+    from wahojobs.crawler.local_inventory import record_envelope_shape
+    record_envelope_shape(data)
+    return parse_mercor_observations(data)
 
 
 def parse_mercor_observations(data):

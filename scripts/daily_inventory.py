@@ -120,22 +120,28 @@ def native_trigger():
     return result
 
 
-def claim_dispatch(directory,run_id,parent_pid,monotonic):
+def claim_dispatch(directory,run_id,parent_pid,monotonic,phase=None):
     target=Path(directory)/'runs'/run_id
     receipt=daily.read_json(target/'run.json')
     if (not receipt or receipt.get('run_id')!=run_id or receipt.get('outcome')!='running'
             or receipt.get('supervisor_pid')!=parent_pid
             or not isinstance(receipt.get('execution_deadline_monotonic'),(int,float))):
         raise ValueError('active_supervisor_reservation_required')
-    remaining=receipt['execution_deadline_monotonic']-monotonic
+    phase_deadline=receipt['execution_deadline_monotonic']
+    if phase is not None:
+        dispatch=receipt.get('active_phase',{})
+        if dispatch.get('name')!=phase or not isinstance(dispatch.get('deadline'),(float,int)):
+            raise ValueError('active_phase_reservation_required')
+        phase_deadline=min(phase_deadline,dispatch['deadline'])
+    remaining=phase_deadline-monotonic
     if not 0<remaining<=daily.EXECUTION_SECONDS:raise ValueError('worker_execution_deadline_expired')
     # Reservation precedes every possible provider request and survives crashes.
-    with (target/'worker-dispatch.claim').open('x') as stream:
+    with (target/((phase or 'worker')+'-dispatch.claim')).open('x') as stream:
         stream.write(str(os.getpid()));stream.flush();os.fsync(stream.fileno())
     return remaining
 
 
-def claim_worker(config,run_id):
+def claim_worker(config,run_id,phase):
     import pwd,socket,math
     if (socket.gethostname()!=daily.HOST or os.geteuid()!=pwd.getpwnam('wahojobs-beta').pw_uid
             or ROOT!=Path('/opt/wahojobs-beta/releases')/config['code_commit']):
@@ -143,7 +149,7 @@ def claim_worker(config,run_id):
     parent=Path('/proc')/str(os.getppid())
     if parent.stat().st_uid!=0 or '/system.slice/wahojobs-inventory.service' not in (parent/'cgroup').read_text():
         raise ValueError('native_supervisor_required')
-    remaining=claim_dispatch(config['state_directory'],run_id,os.getppid(),time.monotonic())
+    remaining=claim_dispatch(config['state_directory'],run_id,os.getppid(),time.monotonic(),phase)
     def expired(*_):raise TimeoutError('worker_execution_deadline_expired')
     signal.signal(signal.SIGALRM,expired)
     signal.setitimer(signal.ITIMER_REAL,remaining)
@@ -159,9 +165,30 @@ class NativeOperations:
         state=subprocess.check_output(['/usr/bin/systemctl','show',daily.SERVICE,'--property=ActiveState,MainPID'],timeout=10,text=True)
         if dict(line.split('=',1) for line in state.splitlines())!={'ActiveState':'inactive','MainPID':'0'}:
             raise ValueError('beta_not_stopped')
+    def phase(self,run_id,phase,deadline):
+        target=Path(self.config['state_directory'])/'runs'/run_id/'run.json'
+        receipt=daily.read_json(target)
+        receipt['active_phase']=dict(name=phase,deadline=deadline)
+        daily.write_json(target,receipt)
+        bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'worker','--policy',str(self.policy),
+            '--run-id',run_id,'--phase',phase],timeout=deadline-time.monotonic(),user='wahojobs-beta')
+
     def collect(self,run_id,remaining):
-        bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'worker','--policy',str(self.policy),'--run-id',run_id],
-            timeout=remaining,user='wahojobs-beta')
+        deadline=time.monotonic()+remaining
+        self.phase(run_id,'backup',min(deadline,time.monotonic()+60))
+        target=Path(self.config['state_directory'])/'runs'/run_id
+        schedule=daily.read_json(target/'coverage-plan.json')
+        if not schedule or set(schedule)!=set(daily.SOURCES):raise ValueError('coverage_plan_required')
+        for source in daily.SOURCES:
+            if schedule[source]['state']!='due':continue
+            cap=daily.source_settings(self.config)[source]['seconds_max']
+            try:self.phase(run_id,source,min(deadline-30,time.monotonic()+cap))
+            except InterruptedError:
+                raise  # SIGTERM cancels the whole run; restore without more dispatch.
+            except Exception as error:
+                # Child is reaped before another source obtains the lifetime lease.
+                daily.write_json(target/(source+'-failure.json'),dict(error_type=type(error).__name__))
+        self.phase(run_id,'finish',min(deadline,time.monotonic()+30))
     def restore(self,remaining):
         started=time.monotonic()
         bounded_process(['/usr/bin/systemctl','start',daily.SERVICE],timeout=min(75,remaining))
@@ -191,7 +218,7 @@ def supervise(config,policy,trigger,*,operations=None):
             import pwd
             account=pwd.getpwnam('wahojobs-beta')
             os.chown(target.parent,account.pw_uid,account.pw_gid)
-        start=time.monotonic();deadline=start+daily.EXECUTION_SECONDS
+        start=time.monotonic();deadline=start+daily.execution_seconds(config)
         receipt.update(outcome='running',maintenance_started_at=daily.stamp(daily.now()),normal_service_resumed=False,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline)
         daily.write_json(target,receipt)
         try:
@@ -202,7 +229,8 @@ def supervise(config,policy,trigger,*,operations=None):
             receipt['sources']=summaries
             if not worker or worker.get('protected_domains_unchanged') is not True:
                 raise ValueError('worker_receipt_missing')
-            receipt['outcome']='partial_individual' if all(s and s['qualifying_observation'] for s in summaries.values()) else 'partial_or_failed'
+            enabled=[s for name,s in summaries.items() if daily.source_settings(config)[name]['enabled']]
+            receipt['outcome']='complete_with_coverage_gaps' if all(s and s['qualifying_observation'] for s in enabled) else 'partial_or_failed'
         except BaseException as error:
             receipt.update(outcome='failed',error_type=type(error).__name__)
         finally:
@@ -241,7 +269,7 @@ def recover(config,policy):
         p=pending[-1];receipt=daily.read_json(p)
         # The parent cgroup is terminated by systemd before ExecStopPost.
         recovery_start=receipt.get('recovery_started_at')
-        remaining=min(daily.RECOVERY_SECONDS, daily.EXECUTION_SECONDS+daily.RECOVERY_SECONDS-(daily.now()-daily.parse(receipt['maintenance_started_at'])).total_seconds())
+        remaining=min(daily.RECOVERY_SECONDS, daily.execution_seconds(config)+daily.RECOVERY_SECONDS-(daily.now()-daily.parse(receipt['maintenance_started_at'])).total_seconds())
         if recovery_start:remaining=min(remaining,daily.RECOVERY_SECONDS-(daily.now()-daily.parse(recovery_start)).total_seconds())
         if remaining<=0:
             # A reboot can already have restored the enabled beta service. Observe
@@ -274,16 +302,18 @@ def deliver(config,state):
     WorkOS/email-account reuse. The receiver must deduplicate the event ID.
     """
     delivery=config['alert_delivery'];path=Path(config['state_directory'])/'health.json'
-    for event in state['events']:
-        if event['delivery']!='pending':continue
-        event['delivery']='attempted';daily.write_json(path,state)
-        packet=dict(recipient=delivery['recipient'],event=event,application='wahojobs-beta')
-        try:
-            subprocess.run(delivery['command'],input=json.dumps(packet).encode(),stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,timeout=15,check=True)
-            event['delivery']='accepted_by_adapter'
-        except (OSError,subprocess.SubprocessError):event['delivery']='failed_or_uncertain'
-        daily.write_json(path,state)
+    pending=[event for event in state['events'] if event['delivery']=='pending']
+    if not pending:return
+    for event in pending:event['delivery']='attempted'
+    daily.write_json(path,state)
+    packet=dict(recipient=delivery['recipient'],events=pending,application='wahojobs-beta',version=2)
+    try:
+        subprocess.run(delivery['command'],input=json.dumps(packet).encode(),stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,timeout=15,check=True)
+        status='accepted_by_adapter'
+    except (OSError,subprocess.SubprocessError):status='failed_or_uncertain'
+    for event in pending:event['delivery']=status
+    daily.write_json(path,state)
 
 
 def main(argv=None):
@@ -291,7 +321,7 @@ def main(argv=None):
     parser.add_argument('command',choices=('run','worker','recover','health','report'))
     parser.add_argument('--policy',type=Path,required=True)
     parser.add_argument('--trigger',choices=('auto','timer','manual','restart'),default='auto')
-    parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true')
+    parser.add_argument('--phase',choices=('backup','finish',*daily.SOURCES));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true')
     args=parser.parse_args(argv)
     config=private_policy(args.policy)
     daily.validate_policy(config,activation=args.command in ('run','worker') or args.deliver)
@@ -299,16 +329,17 @@ def main(argv=None):
     if args.command=='worker':
         import re
         if not args.run_id or not re.fullmatch(r'\d{8}T060000Z',args.run_id):raise ValueError('run_identity_required')
-        deadline=claim_worker(config,args.run_id)
+        if args.phase is None:raise ValueError('worker_phase_required')
+        deadline=claim_worker(config,args.run_id,args.phase)
         from wahojobs.crawler.local_inventory import request_deadline
-        with request_deadline(deadline):daily.collect(config,args.run_id)
+        with request_deadline(deadline):daily.collect_phase(config,args.run_id,args.phase)
     elif args.command=='recover':recover(config,args.policy)
     elif args.command=='run':
         def interrupted(*_):raise InterruptedError('supervisor_terminated')
         signal.signal(signal.SIGTERM,interrupted)
         result=supervise(config,args.policy,args.trigger)
         print(json.dumps(result))
-        return 0 if result['outcome'] in ('partial_individual','already_consumed_or_not_due') else 2
+        return 0 if result['outcome'] in (*daily.SUCCESSFUL_RUN_OUTCOMES,'already_consumed_or_not_due') else 2
     elif args.command=='health':
         with operation_gate(str(Path(config['state_directory'])/'health')):
             result=daily.health(config)

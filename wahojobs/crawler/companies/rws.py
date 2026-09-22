@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from wahojobs.crawler.providers.lever import fetch_lever_jobs
+from wahojobs.crawler.providers.lever import fetch_lever_jobs, complete_board
 from wahojobs.crawler.types import CompanyCrawlResult
 
 
@@ -26,19 +26,13 @@ AI_WORK_KEYWORDS = (
 
 def crawl_rws(api_url):
     jobs = []
-    for job in fetch_lever_jobs(api_url):
-        if not (job.external_id and job.title and job.url):
-            continue
+    observed = fetch_lever_jobs(api_url)
+    for job in observed:
         if not is_ai_work_role(job.title):
             continue
         jobs.append(enrich_rws_job(job))
 
-    return CompanyCrawlResult(
-        jobs=jobs,
-        used_sample_data=False,
-        source_type="lever",
-        source_message=f"Fetched live RWS TrainAI jobs from Lever API: {api_url}",
-    )
+    return complete_board(jobs, len(observed), f"Observed public RWS TrainAI Lever board: {api_url}")
 
 
 def is_ai_work_role(title):

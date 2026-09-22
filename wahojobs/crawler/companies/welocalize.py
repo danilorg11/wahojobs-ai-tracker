@@ -1,5 +1,6 @@
 from wahojobs.crawler.providers.lever import (
     clean_value,
+    complete_board,
     fetch_lever_postings,
     lever_source_fields,
 )
@@ -27,17 +28,7 @@ def crawl_welocalize(api_url):
             seen_external_ids.add(candidate.external_id)
             jobs.append(candidate)
 
-    return CompanyCrawlResult(
-        jobs=jobs,
-        used_sample_data=False,
-        source_type="lever",
-        source_message=f"Fetched live Welocalize AI Services jobs from Lever API: {api_url}",
-        outcome=ProviderOutcome.SUCCESS,
-        snapshot_complete=True,
-        pagination_complete=True,
-        raw_record_count=len(postings),
-        normalized_record_count=len(jobs),
-    )
+    return complete_board(jobs, len(postings), f"Observed public Welocalize AI Services Lever board: {api_url}")
 
 
 def parse_welocalize_posting(posting):

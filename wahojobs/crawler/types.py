@@ -114,6 +114,7 @@ class CompanyCrawlResult:
     raw_record_count: int = 0
     normalized_record_count: int = 0
     rejected_record_count: int = 0
+    filtered_record_count: int = 0
     warnings: tuple[str, ...] = ()
     schema_fingerprint: str = ""
     source_records: tuple[object, ...] = ()
@@ -126,6 +127,7 @@ class CompanyCrawlResult:
             "raw_record_count",
             "normalized_record_count",
             "rejected_record_count",
+            "filtered_record_count",
         ):
             if getattr(self, field_name) < 0:
                 raise ValueError(f"{field_name} cannot be negative.")
@@ -196,6 +198,7 @@ class TrackingSummary:
     raw_record_count: int = 0
     normalized_record_count: int = 0
     rejected_record_count: int = 0
+    filtered_record_count: int = 0
     warnings: tuple[str, ...] = ()
     payload_shape: str = ""
     schema_fingerprint: str = ""

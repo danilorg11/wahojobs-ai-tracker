@@ -1,0 +1,54 @@
+{
+  "milestone": "Daily Inventory Operations V1 - all-source extension",
+  "base_commit": "9bd47127228856095e4164beb8dc309e52d1ea75",
+  "branch": "codex/daily-inventory-operations-v1",
+  "environment": "Windows, Python 3.12.6",
+  "suite": {
+    "command": "python -m unittest tests.test_daily_source_coverage tests.test_daily_inventory tests.test_mercor_supplemental_retention tests.test_source_capture tests.test_mercor_observation_semantics tests.test_mercor_applicant_geography tests.test_mercor_description_geography tests.test_catalog_display_feedback tests.test_catalog_source_verification tests.test_provider_detail_recovery tests.test_local_inventory_refresh tests.test_evidence_maintenance tests.test_beta_recovery tests.test_database_lifetime_ownership tests.test_authenticated_card_evidence tests.test_authenticated_variant_details tests.test_compensation_range_wording tests.test_authoritative_refresh_providers tests.test_provider_result_contract tests.test_rich_source_provider_content tests.test_micro1_provider_contract tests.test_alignerr_provider_contract tests.test_greenhouse_provider_contract tests.test_greenhouse_pilot -q",
+    "tests_run": 352,
+    "passed": 349,
+    "skipped": 3,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 116.848
+  },
+  "follow_up": {
+    "reason": "Added maintenance-level Mindrift cooldown enforcement and activation-manifest consistency assertion after broad suite; reran affected source coverage and maintenance.",
+    "command": "python -m unittest tests.test_daily_source_coverage tests.test_evidence_maintenance -q",
+    "tests_run": 43,
+    "passed": 43,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 53.94
+  },
+  "independent_review": {
+    "source_contracts": "Read-only source/transport review; 43 affected regressions and narrow transport reproductions passed. Ordinary maintenance budget bypass, private header guard and response completeness header evidence findings fixed and independently verified. Held detail reporting added.",
+    "operations": "Read-only operations review; 26 operations tests and eight focused batching tests passed. SIGTERM sibling-dispatch finding fixed and independently verified. No outstanding reviewed blocker."
+  },
+  "preserved": [
+    "Mercor compensation retention policy and dated provenance",
+    "Canonical/exact-variant identities and manual overrides",
+    "Candidate accounts, profiles, saved jobs, application history and draft sidecar",
+    "Existing provider lifecycle and real runtime expiry rules"
+  ],
+  "boundaries": {
+    "live_employer_requests": 0,
+    "hosted_actions": 0,
+    "notifications_sent": 0,
+    "paid_model_calls": 0,
+    "recurring_activation": false,
+    "new_providers": false,
+    "public_main_changes": false
+  },
+  "remaining_native_validation": [
+    "Linux/systemd units, timer invocation and next schedule",
+    "Permissions, process-group timeout, stop/restart/ExecStopPost recovery in disposable native fixtures",
+    "Bounded first ready-set live observation and current source access/shape",
+    "Actual maintenance interval and preserved hosted data",
+    "Approved email service/sender/adapter configuration and real recipient receipt"
+  ],
+  "activation_package": "deploy/private-beta/daily-inventory-activation-manifest.json",
+  "procedure": "docs/daily_inventory_operations_v1.md",
+  "checkpoint_binding": "Final release receipt supplies exact commit, tree and git archive SHA-256; no circular self-commit embedded here."
+}

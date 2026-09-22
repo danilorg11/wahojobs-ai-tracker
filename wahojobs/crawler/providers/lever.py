@@ -1,5 +1,6 @@
 import json
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_public as urlopen
 
 from wahojobs.crawler.types import JobCandidate
 from wahojobs.crawler.source_content import nonempty_metadata, selected_metadata
@@ -23,7 +24,34 @@ def fetch_lever_postings(api_url):
     postings = json.loads(payload)
     if not isinstance(postings, list):
         raise ValueError("Lever response was not a list of postings.")
+    validate_postings(postings)
     return postings
+
+
+def validate_postings(postings):
+    """A public Lever list is one board snapshot; malformed rows cannot vanish."""
+    seen = set()
+    for posting in postings:
+        if (not isinstance(posting, dict)
+                or any(not isinstance(posting.get(k), str) or not posting[k].strip()
+                       for k in ('id', 'text', 'hostedUrl'))
+                or not isinstance(posting.get('categories') or {}, dict)):
+            raise ValueError('Lever posting omitted required fields')
+        identity = posting['id'].strip()
+        if identity in seen:raise ValueError('Lever returned duplicate posting identifiers')
+        seen.add(identity)
+
+
+def complete_board(jobs, total, message):
+    from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
+    from wahojobs.crawler.local_inventory import record_surface_counts
+    record_surface_counts(upstream_records=total, upstream_unit='Lever postings',
+        variants=len(jobs), filtered=total-len(jobs))
+    return CompanyCrawlResult(jobs=jobs, used_sample_data=False, source_type='lever',
+        source_message=message, outcome=ProviderOutcome.SUCCESS,
+        snapshot_complete=True, pagination_complete=True,
+        raw_record_count=total, normalized_record_count=len(jobs),
+        filtered_record_count=total-len(jobs))
 
 
 def parse_lever_posting(posting):

@@ -2,7 +2,8 @@ from dataclasses import dataclass
 import hashlib
 import json
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_public as urlopen
 
 from wahojobs.crawler.types import (
     BODY_OBSERVATION_EXPLICITLY_EMPTY,

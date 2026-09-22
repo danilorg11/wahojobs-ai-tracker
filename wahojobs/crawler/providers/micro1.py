@@ -167,7 +167,7 @@ def fetch_micro1_snapshot(api_url):
 
 def validated_total(data):
     total = data.get("total")
-    if isinstance(total, bool):
+    if isinstance(total, bool) or isinstance(total, float):
         raise ValueError("micro1 response total was not a non-negative integer.")
     try:
         total = int(total)

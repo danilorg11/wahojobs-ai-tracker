@@ -1,5 +1,5 @@
 {
-  "version": "daily_inventory_v1",
+  "version": "daily_inventory_v1_all_sources",
   "enabled": false,
   "host": "wahojobs-private-beta-rehearsal-20260917",
   "database": "/var/lib/wahojobs-beta/rehearsal-recovered-001/product.sqlite3",
@@ -10,12 +10,92 @@
   "code_commit": "REPLACE_WITH_APPROVED_40_HEX_IMPLEMENTATION_COMMIT",
   "schedule": "06:00 UTC",
   "first_run_at": "2026-09-23T06:00:00Z",
-  "sources": {"alignerr": 100, "mercor": 1},
-  "execution_seconds": 900,
+  "sources": {
+    "alignerr": {
+      "enabled": true,
+      "http_max": 100,
+      "seconds_max": 360
+    },
+    "appen": {
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 60
+    },
+    "dataannotation": {
+      "enabled": false,
+      "http_max": 11,
+      "seconds_max": 360
+    },
+    "dataforce": {
+      "enabled": false,
+      "http_max": 20,
+      "seconds_max": 360
+    },
+    "handshake": {
+      "enabled": false,
+      "http_max": 40,
+      "seconds_max": 360
+    },
+    "meridial": {
+      "enabled": true,
+      "http_max": 2,
+      "seconds_max": 150
+    },
+    "mercor": {
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 60
+    },
+    "micro1": {
+      "enabled": true,
+      "http_max": 50,
+      "seconds_max": 240
+    },
+    "mindrift": {
+      "enabled": true,
+      "http_max": 70,
+      "seconds_max": 360
+    },
+    "oneforma": {
+      "enabled": true,
+      "http_max": 3,
+      "seconds_max": 210
+    },
+    "outlier": {
+      "enabled": false,
+      "http_max": 1,
+      "seconds_max": 60
+    },
+    "rws": {
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 60
+    },
+    "surge": {
+      "enabled": false,
+      "http_max": 20,
+      "seconds_max": 360
+    },
+    "turing": {
+      "enabled": true,
+      "http_max": 3,
+      "seconds_max": 210
+    },
+    "welocalize": {
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 90
+    }
+  },
+  "execution_seconds": 2040,
   "recovery_seconds": 120,
   "catch_up_seconds": 3600,
   "details": 0,
   "retries": 0,
   "model_calls": 0,
-  "alert_delivery": {"approved": false, "recipient": null, "command": []}
+  "alert_delivery": {
+    "approved": false,
+    "recipient": "danilo@wahojobs.com",
+    "command": []
+  }
 }

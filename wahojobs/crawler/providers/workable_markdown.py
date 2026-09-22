@@ -1,7 +1,8 @@
 import json
 import time
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_public as urlopen
 
 from wahojobs.crawler.types import JobCandidate
 from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
@@ -32,6 +33,8 @@ def fetch_workable_jobs(api_url, account_slug):
             raise ValueError("Workable returned a duplicate job shortcode.")
         seen_external_ids.add(candidate.external_id)
         jobs.append(candidate)
+    from wahojobs.crawler.local_inventory import record_surface_counts
+    record_surface_counts(upstream_records=len(rows), upstream_unit="Workable rows", variants=len(jobs), filtered=len(rows)-len(jobs))
     return jobs
 
 
@@ -40,6 +43,7 @@ def verify_public_markdown_feeds(account_slug):
         url = f"https://apply.workable.com/{account_slug}/{path}"
         request = Request(url, headers={"User-Agent": REQUEST_HEADERS["User-Agent"]})
         with urlopen(request, timeout=30) as response:
+            response.read()  # Retain the public probe body before continuing.
             if response.status >= 400:
                 raise RuntimeError(f"Workable {path} returned HTTP {response.status}")
 
@@ -89,7 +93,7 @@ def fetch_all_api_rows(api_url):
 
 def validated_total_count(data):
     total = data.get("total")
-    if isinstance(total, bool):
+    if isinstance(total, bool) or isinstance(total, float):
         raise ValueError("Workable total was not a non-negative integer.")
     try:
         total = int(total)
@@ -104,7 +108,9 @@ def validated_total_count(data):
 
 def fetch_api_page(api_url, body):
     payload = None
-    for attempt in range(1, MAX_RETRIES + 1):
+    from wahojobs.daily_source_policy import current_source
+    attempts = 1 if current_source() is not None else MAX_RETRIES
+    for attempt in range(1, attempts + 1):
         request = Request(
             api_url,
             data=json.dumps(body).encode("utf-8"),
@@ -117,7 +123,7 @@ def fetch_api_page(api_url, body):
                 payload = response.read().decode(charset, errors="replace")
             break
         except HTTPError as exc:
-            if exc.code != 429 or attempt == MAX_RETRIES:
+            if exc.code != 429 or attempt == attempts:
                 raise
             time.sleep(2 * attempt)
 

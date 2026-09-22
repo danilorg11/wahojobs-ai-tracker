@@ -15,11 +15,14 @@ import uuid
 
 from wahojobs import evidence_maintenance as maintenance
 
-SOURCES={'alignerr':100,'mercor':1}
-EXECUTION_SECONDS=900
+from wahojobs.daily_source_policy import (CORE_SOURCES, POLICY, READY_SOURCES, ALERT_RECIPIENT,
+    default_sources, validate_sources, aggregate)
+SOURCES=CORE_SOURCES
+EXECUTION_SECONDS=aggregate(default_sources())['execution_seconds']
 RECOVERY_SECONDS=120
 CATCH_UP_SECONDS=3600
-VERSION='daily_inventory_v1'
+VERSION='daily_inventory_v1_all_sources'
+SUCCESSFUL_RUN_OUTCOMES=('complete','partial_individual','complete_with_coverage_gaps')
 DATABASE='/var/lib/wahojobs-beta/rehearsal-recovered-001/product.sqlite3'
 JOURNAL='/var/lib/wahojobs-beta/rehearsal-recovered-001/journal'
 RUNTIME='/etc/wahojobs-beta/config-002/runtime.json'
@@ -77,14 +80,16 @@ def validate_policy(config,*,activation=False):
     if (config.get('version')!=VERSION or type(config.get('enabled')) is not bool
             or config.get('database')!=DATABASE or config.get('journal')!=JOURNAL
             or config.get('runtime_config')!=RUNTIME or config.get('host')!=HOST
-            or config.get('sources')!=SOURCES or config.get('schedule')!='06:00 UTC'
-            or config.get('execution_seconds')!=EXECUTION_SECONDS
+            or config.get('schedule')!='06:00 UTC'
+            or config.get('execution_seconds')!=aggregate(validate_sources(config.get('sources')))['execution_seconds']
             or config.get('recovery_seconds')!=RECOVERY_SECONDS
             or config.get('catch_up_seconds')!=CATCH_UP_SECONDS
             or config.get('configuration_revision')!='config-002'
             or config.get('details')!=0 or config.get('retries')!=0 or config.get('model_calls')!=0
             or config.get('state_directory')!='/var/lib/wahojobs-beta/daily-inventory-v1'):
         raise ValueError('incompatible_daily_policy')
+    if (config.get('alert_delivery') or {}).get('recipient') != ALERT_RECIPIENT:
+        raise ValueError('approved_operational_recipient_required')
     commit=config.get('code_commit','')
     import re
     if not re.fullmatch('[a-f0-9]{40}',commit):raise ValueError('exact_release_required')
@@ -93,7 +98,7 @@ def validate_policy(config,*,activation=False):
     if activation:
         delivery=config.get('alert_delivery') or {}
         if (not config['enabled'] or delivery.get('approved') is not True
-                or not delivery.get('recipient') or not delivery.get('command')
+                or delivery.get('recipient')!=ALERT_RECIPIENT or not delivery.get('command')
                 or not isinstance(delivery['command'],list)
                 or not Path(delivery['command'][0]).is_absolute()):
             raise ValueError('activation_and_approved_alert_delivery_required')
@@ -153,6 +158,16 @@ def summarize_source(plan,report,started,ended):
         confirmed_closed=None,missing=None,uncertain=None,stale=None,cohorts=[],last_qualifying_verification=None,
         next_verification_deadline=None,next_scheduled_execution=stamp(next_trigger(ended)))
     if finished:row['requests_used']=finished[-1]['request_usage']['http_transactions']
+    responses=[e['data'] for e in events if e['event']=='source_transport' and e['data'].get('event')=='response']
+    row.update(http_responses_received=len({e['ordinal'] for e in responses}),
+        pages_fetched=sum(1 for e in responses if 200<=e.get('status',0)<300),
+        page_unit='successful HTTP response pages (API pages and public probes, not records)',
+        surface_coverage=POLICY[provider]['verification_rule'], upstream_records=None,
+        upstream_record_unit=None, observed_canonical_opportunities=None,new_canonical_opportunities=None,
+        filtered_records=None,held_catalog_content=None,content_hold_reasons={},
+        request_cap_reached=row['requests_used']>=plan['config'].get('http_limit',POLICY[provider]['http_max']))
+    envelopes=[e['data'] for e in events if e['event']=='source_transport' and e['data'].get('event')=='envelope_shape']
+    if envelopes:row['listing_envelope_shape']=envelopes[-1]
     before={j['job_id']:j for j in plan['sources'][0]['jobs']}
     if not results or 'summary' not in results[-1].get('result',{}):return row
     result=results[-1]['result'];summary=result['summary'];state=result['after'];run=state.get('latest_run') or {}
@@ -161,14 +176,33 @@ def summarize_source(plan,report,started,ended):
           and j['verification'].get('latest_successful_source_run_at')]
     valid=(row['requests_used']>0 and not summary['used_sample_data'] and run.get('status') in ('success','partial')
         and summary['normalized_record_count']==summary['jobs_found']
-        and summary['raw_record_count']==summary['normalized_record_count']+summary['rejected_record_count'])
+        and summary['raw_record_count']==summary['normalized_record_count']+summary['rejected_record_count']+summary.get('filtered_record_count',0))
     qualifies=valid and (bool(good) if provider=='mercor' else
         summary['snapshot_complete'] and summary['pagination_complete'] and run.get('status')=='success')
     row.update(qualifying_observation=bool(qualifies),outcome=('partial_individual' if provider=='mercor' else 'complete') if qualifies else 'partial_or_failed',
         observed=summary['jobs_found'],new=summary['jobs_new'],confirmed_closed=summary['jobs_removed'])
+    surfaces=[e['data'] for e in events if e['event']=='source_transport' and e['data'].get('event')=='surface_counts']
+    surface=surfaces[-1] if surfaces else {}
+    row.update(upstream_records=surface.get('upstream_records',summary['raw_record_count']),
+        upstream_record_unit=surface.get('upstream_unit','source listing rows'),
+        filtered_records=surface.get('filtered_records',summary.get('filtered_record_count',0)),
+        normalized_variants=summary['normalized_record_count'],rejected_records=summary['rejected_record_count'])
+    if provider in ('oneforma','mindrift') and not surfaces:
+        # Legacy wrapper raw_count is normalized variants. Never mislabel it as
+        # the upstream posts/rows when the actual collector counter is absent.
+        row.update(upstream_records=None,upstream_record_unit='not retained')
     # jobs_updated in the old tracker includes identical reconfirmations. Compare
     # actual accepted semantic hashes instead of labelling every sighting changed.
     observed_ids={j['job_id'] for j in good}
+    canonicals={j.get('canonical_id') for j in good if j.get('canonical_id') is not None}
+    prior_canonicals={j.get('canonical_id') for j in before.values() if j.get('canonical_id') is not None}
+    row.update(observed_canonical_opportunities=len(canonicals),
+        new_canonical_opportunities=len(canonicals-prior_canonicals))
+    held=[j for j in state['jobs'] if j['evidence'].get('latest_capture_id') is not None
+        and j['evidence'].get('latest_capture_id')!=j['evidence'].get('accepted_capture_id')]
+    row.update(held_catalog_content=len(held),
+        content_hold_reasons=dict(Counter(reason for j in held for reason in j["evidence"].get("latest_decision_reasons",[]))),
+        content_hold_note='Availability reconfirmation does not mean held catalog content replaced dated detail. Inspect the existing maintenance evidence report; no daily detail requests.')
     row['changed']=sum(j['job_id'] in before and j['job_id'] in observed_ids and
         j['evidence']['accepted_semantic_material_sha256']!=before[j['job_id']]['evidence']['accepted_semantic_material_sha256'] for j in state['jobs'])
     row['reconfirmed']=max(0,len(good)-row['new']-row['changed'])
@@ -186,47 +220,121 @@ def summarize_source(plan,report,started,ended):
     return row
 
 
-def collect(config,run_id):
-    """One child process, one lifetime lease, verified backup, two bounded plans."""
+def source_settings(config):
+    return config.get('sources', default_sources())
+
+
+def execution_seconds(config):
+    return aggregate(source_settings(config))['execution_seconds']
+
+
+def coverage_plan(config, database, at):
+    """Account for every core source; daily due is separate from TTL eligibility."""
+    result={}
+    with maintenance.read_connection(database) as db:
+        for source, settings in source_settings(config).items():
+            policy=POLICY[source]
+            row=dict(source=source, **settings, readiness=policy['readiness'],
+                state='due', reason=None, next_eligible_at=None,
+                verification_rule=policy['verification_rule'])
+            if policy['readiness']=='blocked':row.update(state='blocked',reason=policy['blocker'])
+            elif not settings['enabled']:row.update(state='disabled',reason='owner_configuration_disabled')
+            else:
+                company=db.execute('SELECT id FROM companies WHERE slug=?',(source,)).fetchone()
+                if not company:row.update(state='blocked',reason='source_not_configured_in_authoritative_database')
+                elif policy['cooldown_hours']:
+                    last=db.execute("SELECT started_at FROM crawl_runs WHERE company_id=? AND status='success' AND used_sample_data=0 AND error_message IS NULL ORDER BY started_at DESC,id DESC LIMIT 1",(company['id'],)).fetchone()
+                    if last:
+                        due=parse(last[0])+timedelta(hours=policy['cooldown_hours'])
+                        if at<due:row.update(state='cooldown',reason='source_success_cooldown',next_eligible_at=stamp(due))
+            result[source]=row
+    return result
+
+
+def empty_source(source, at, *, outcome, reason=None):
+    row=summarize_source(dict(plan_id=None,config=dict(providers=[source]),sources=[dict(jobs=[])]),{},at,at)
+    row.update(outcome=outcome,reason=reason)
+    return row
+
+
+def save_source(config, run_id, summary):
+    directory=Path(config['state_directory']);source=summary['provider'];target=directory/'runs'/run_id
+    previous=read_json(directory/(source+'-state.json'),{})
+    summary=merge_source_history(summary,previous)
+    summary.update(run_id=run_id,trigger=read_json(target/'run.json',{}).get('trigger','isolated_worker'))
+    write_json(target/(source+'.json'),summary)
+    write_json(directory/(source+'-state.json'),summary)
+
+
+def collect_phase(config, run_id, phase):
+    """One backup, independently bounded source processes, one integrity finish.
+
+    Native parent holds the common operation gate throughout. Each phase obtains
+    the existing lifetime lease; a killed source releases it before the next one.
+    No provider can spend a sibling's request or time allowance.
+    """
     from wahojobs.database_lifetime_ownership import acquire_database_lifetime_ownership,release_database_lifetime_ownership,ROLE_OFFLINE_OPERATOR
     from wahojobs.beta_recovery import create_snapshot,verify_snapshot
     database=Path(config['database']);directory=Path(config['state_directory']);target=directory/'runs'/run_id
+    if phase not in ('backup','finish',*SOURCES):raise ValueError('invalid_worker_phase')
     lease=acquire_database_lifetime_ownership(database,role=ROLE_OFFLINE_OPERATOR)
     try:
         binding=maintenance.journal_binding(database)
         if not binding or Path(binding['journal_root'])!=Path(config['journal']):raise ValueError('authoritative_journal_mismatch')
-        before=protected_domains(database)
-        snapshot=directory/'backups'/run_id
-        snapshot.parent.mkdir(parents=True,exist_ok=True)
-        create_snapshot(database,snapshot,code_commit=config['code_commit'],configuration_revision='config-002',ownership=lease)
-        manifest=verify_snapshot(snapshot)
-        write_json(target/'backup.json',dict(verified=True,files=len(manifest['files'])))
-        for provider,cap in SOURCES.items():
-            from wahojobs.crawler.local_inventory import remaining_request_seconds
-            remaining_request_seconds()
-            started=now()
-            plan=maintenance.build_plan(database,[provider],http_limit=cap,detail_limit=0,
+        if phase=='backup':
+            before=protected_domains(database)
+            snapshot=directory/'backups'/run_id
+            snapshot.parent.mkdir(parents=True,exist_ok=True)
+            create_snapshot(database,snapshot,code_commit=config['code_commit'],configuration_revision='config-002',ownership=lease)
+            manifest=verify_snapshot(snapshot)
+            write_json(target/'backup.json',dict(verified=True,files=len(manifest['files']),protected_domains=before))
+            plan=coverage_plan(config,database,now())
+            write_json(target/'coverage-plan.json',plan)
+            for source,row in plan.items():
+                if row['state']!='due':
+                    summary=empty_source(source,now(),outcome=row['state'],reason=row['reason'])
+                    summary['next_eligible_at']=row['next_eligible_at']
+                    save_source(config,run_id,summary)
+        elif phase=='finish':
+            before=read_json(target/'backup.json')
+            if not before or before.get('verified') is not True:raise ValueError('verified_backup_required')
+            if before['protected_domains']!=protected_domains(database):raise ValueError('protected_domain_changed')
+            with maintenance.read_connection(database) as db:
+                if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok' or db.execute('PRAGMA foreign_key_check').fetchone():
+                    raise ValueError('post_collection_integrity_failed')
+            write_json(target/'worker.json',dict(completed=True,protected_domains_unchanged=True))
+        else:
+            source=phase
+            schedule=read_json(target/'coverage-plan.json')
+            if not schedule or schedule[source]['state']!='due' or not source_settings(config)[source]['enabled']:
+                raise ValueError('source_not_due_in_reserved_plan')
+            cap=source_settings(config)[source]['http_max'];started=now()
+            plan=maintenance.build_plan(database,[source],http_limit=cap,detail_limit=0,
                 details=None,phase='source',daily_discovery=True)
-            # Fail closed if adapter/configuration policy changes unexpectedly.
             operations=[o for o in plan['operations'] if o['kind']=='catalog_observation']
             if len(operations)!=1 or operations[0]['blocked'] or operations[0]['details'] is not None:
                 raise ValueError('daily_catalog_contract_incompatible')
-            maintenance.save_json(target/(provider+'-plan.json'),plan)
+            maintenance.save_json(target/(source+'-plan.json'),plan)
             result=maintenance.execute_plan(plan,config['journal'],authorized=True,authorize_sources=True,ownership=lease)
             summary=summarize_source(plan,result,started,now())
             if summary['requests_used']>cap:raise ValueError('daily_request_limit_violated')
-            previous=read_json(directory/(provider+'-state.json'),{})
-            summary=merge_source_history(summary,previous)
-            summary.update(run_id=run_id,trigger=read_json(target/'run.json',{}).get('trigger','isolated_worker'))
-            write_json(target/(provider+'.json'),summary)
-            # Persist all cohorts even on partial qualification, including expired absent records.
-            write_json(directory/(provider+'-state.json'),summary)
-        if before!=protected_domains(database):raise ValueError('protected_domain_changed')
-        with maintenance.read_connection(database) as db:
-            if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok' or db.execute('PRAGMA foreign_key_check').fetchone():
-                raise ValueError('post_collection_integrity_failed')
-        write_json(target/'worker.json',dict(completed=True,protected_domains_unchanged=True))
+            save_source(config,run_id,summary)
     finally:release_database_lifetime_ownership(lease,role=ROLE_OFFLINE_OPERATOR,database_path=database)
+
+
+def collect(config,run_id):
+    """Isolated callable path; native execution adds a process deadline per phase."""
+    from wahojobs.crawler.local_inventory import request_deadline
+    import time
+    collect_phase(config,run_id,'backup')
+    schedule=read_json(Path(config['state_directory'])/'runs'/run_id/'coverage-plan.json')
+    for source,row in schedule.items():
+        if row['state']!='due':continue
+        try:
+            with request_deadline(time.monotonic()+row['seconds_max']):collect_phase(config,run_id,source)
+        except Exception as error:
+            write_json(Path(config['state_directory'])/'runs'/run_id/(source+'-failure.json'),dict(error_type=type(error).__name__))
+    collect_phase(config,run_id,'finish')
 
 
 def health_issues(config,at):
@@ -237,15 +345,20 @@ def health_issues(config,at):
     except (OSError,ValueError):
         latest=None
         issues['run:unreadable']=dict(severity='error',reason='expected_run_receipt_unreadable')
-    if slot>=first and at-slot<=timedelta(minutes=20) and (not latest or latest.get('outcome') not in ('complete','partial_individual')):
+    grace=timedelta(seconds=execution_seconds(config)+RECOVERY_SECONDS+60)
+    if slot>=first and at-slot<=grace and (not latest or latest.get('outcome') not in SUCCESSFUL_RUN_OUTCOMES):
         # Starting a new calendar day is not recovery from a missed/failed run.
         previous=read_json(directory/'health.json',{'active':{}})
         issues.update({k:v for k,v in previous['active'].items() if k in ('run:missing','run:failed')})
-    if slot>=first and at-slot>timedelta(minutes=20):
+    if slot>=first and at-slot>grace:
         if latest is None:issues['run:missing']=dict(severity='error',reason='expected_daily_run_missing',scheduled_at=stamp(slot))
-        elif latest['outcome'] not in ('complete','partial_individual'):
+        elif latest['outcome'] not in SUCCESSFUL_RUN_OUTCOMES:
             issues['run:failed']=dict(severity='error',reason=latest['outcome'],run_id=latest['run_id'])
     for provider in SOURCES:
+        policy=POLICY[provider]
+        if policy['readiness']=='blocked' or not source_settings(config)[provider]['enabled']:
+            issues[provider+':coverage']=dict(severity='warning',reason=policy['blocker'] or 'owner_configuration_disabled',
+                corrective_action=policy['corrective_action'], readiness=policy['readiness'])
         try:
             source=read_json(directory/(provider+'-state.json'))
         except (OSError,ValueError):
@@ -320,8 +433,14 @@ def finish_run_sources(config,receipt):
                 scaffold=plan or dict(plan_id=None,config=dict(providers=[provider]),sources=[dict(jobs=[])])
                 report=maintenance.report(config['journal'],plan['plan_id']) if plan else {}
                 row=summarize_source(scaffold,report,parse(receipt['started_at']),now())
-                if not plan:row['outcome']='not_started'
-                elif report['status']=='interrupted':row.update(outcome='interrupted',qualifying_observation=False)
+                if not plan:
+                    schedule=read_json(target/'coverage-plan.json',{})
+                    policy=POLICY[provider];scheduled=schedule.get(provider,{})
+                    row.update(outcome=scheduled.get('state','blocked' if policy['readiness']=='blocked' else 'not_started'),reason=scheduled.get('reason',policy['blocker']))
+                    if row['outcome']=='due':row['outcome']='not_started'
+                failure=read_json(target/(provider+'-failure.json'))
+                if failure:row.update(outcome='interrupted_or_failed',error_type=failure['error_type'])
+                elif report.get('status')=='interrupted':row.update(outcome='interrupted',qualifying_observation=False)
                 row=merge_source_history(row,history)
         except (OSError,ValueError,KeyError,TypeError):
             row=summarize_source(dict(plan_id=None,config=dict(providers=[provider]),sources=[dict(jobs=[])]),{},parse(receipt['started_at']),now())

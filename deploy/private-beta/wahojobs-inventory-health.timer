@@ -2,7 +2,7 @@
 Description=Wahojobs hourly stored inventory health (disabled until owner activation)
 
 [Timer]
-OnCalendar=*-*-* *:25:00 UTC
+OnCalendar=*-*-* *:40:00 UTC
 Persistent=true
 AccuracySec=1s
 Unit=wahojobs-inventory-health.service

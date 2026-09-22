@@ -1,6 +1,7 @@
 import json
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_public as urlopen
 
 from wahojobs.crawler.types import JobCandidate
 from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
@@ -56,7 +57,7 @@ def fetch_turing_jobs(api_url):
 
 def validated_total_count(data):
     total = data.get("totalCount")
-    if isinstance(total, bool):
+    if isinstance(total, bool) or isinstance(total, float):
         raise ValueError("Turing totalCount was not a non-negative integer.")
     try:
         total = int(total)

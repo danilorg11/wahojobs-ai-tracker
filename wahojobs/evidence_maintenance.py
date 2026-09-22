@@ -25,7 +25,8 @@ from wahojobs.opportunity_enrichment import (
 )
 
 VERSION = 'evidence_maintenance_v1'
-PROVIDERS = ('alignerr', 'mercor')
+from wahojobs.daily_source_policy import CORE_SOURCES, POLICY, daily_source
+PROVIDERS = CORE_SOURCES
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -380,6 +381,12 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
                 blocks = []
                 if state['input_status'] != 'available' or 'unavailable' in contract:
                     blocks.append('source_inputs_unavailable')
+                if POLICY[slug]['readiness'] != 'ready':
+                    blocks.append(POLICY[slug]['blocker'])
+                if POLICY[slug]['cooldown_hours']:
+                    last=connection.execute("SELECT cr.started_at FROM crawl_runs cr JOIN companies c ON c.id=cr.company_id WHERE c.slug=? AND cr.status='success' AND cr.used_sample_data=0 AND cr.error_message IS NULL ORDER BY cr.started_at DESC,cr.id DESC LIMIT 1",(slug,)).fetchone()
+                    if last and now < utc(datetime.fromisoformat(last[0]))+timedelta(hours=POLICY[slug]['cooldown_hours']):
+                        blocks.append('source_success_cooldown')
                 if http_limit is None or http_limit == 0:
                     blocks.append('execution_budget_absent')
                 operations.append(dict(id='catalog:' + slug, kind='catalog_observation', provider=slug,
@@ -623,8 +630,9 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                 journal.append('started', dict(operation=oid, kind=kind))
                 try:
                     if kind == 'catalog_observation':
-                        _, summary = run_crawl(operation['provider'], db_path=target,
-                            details=operation['details'], ownership=lease)
+                        with daily_source(operation['provider']):
+                            _, summary = run_crawl(operation['provider'], db_path=target,
+                                details=operation['details'], ownership=lease)
                         budget.finish_source(operation['provider'])
                         with read_connection(target) as connection:
                             after = inspect_source(connection, operation['provider'], now)
