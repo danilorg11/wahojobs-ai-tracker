@@ -1,7 +1,7 @@
-# Daily Inventory Operations V1 — all-source activation package
+# Daily Inventory Operations V1 â€” all-source activation package
 
-Prepared 2026-09-22 UTC. **Tested development implementation; no hosted deployment,
-live collection, delivery or recurring activation in this execution.** This file
+Prepared 2026-09-22 UTC. **Deployment, live delivery and recurring status are recorded
+in the separately dated activation receipt; this document does not activate them.** This file
 and the [consolidated manifest](../deploy/private-beta/daily-inventory-activation-manifest.json)
 replace the earlier two-source operating proposal. All 15 existing core sources
 are accounted for: ten are ready for controlled activation checks, five are
@@ -72,7 +72,7 @@ until then this source is explicitly `partial_individual`.
 | Handshake | Blocked | 29 / 40 | 360s, disabled | Unbounded modules, unvalidated CMS destination, chunk-0-only discovery, no qualifying record contract. Constrain linked assets/chunks and retain raw identity/visibility evidence. |
 | Meridial | Ready | 2 / 2 | 150s | Existing approved Greenhouse full jobs + AI department tree, exact attestations and count-drop guard |
 | Mercor | Ready, limited surface | 1 / 1 | 60s | Individual public active records; never absent-record closure or provider-wide completion |
-| micro1 | Ready | 4 / 50 | 240s | Native 50 pages × 100 rows / 5,000-record limit; exact totals and identities |
+| micro1 | Ready | 4 / 50 | 240s | Native 50 pages Ã— 100 rows / 5,000-record limit; exact totals and identities |
 | Mindrift | Ready, cooldown | 17 / 70 | 360s | Two public probes + up to 68 token pages; stable total, public published rows, 0.2s spacing, zero retries; 12h since last successful crawl start |
 | OneForma | Ready | 1 / 3 | 210s | Stable WordPress page count; 100 posts/page. Retained 29 post identities emitted 429 variants. Header evidence is now retained. |
 | Outlier | Blocked | 1 / 1 | 60s, disabled | Existing failure/empty sample fallback and no qualifying public-record contract. Daily sample output is now rejected before tracking, but real envelope/visibility validation is still needed. |
@@ -91,7 +91,7 @@ across all entries is not an executable or approved all-ready plan.
 
 The initial ten-source set expects about **76 requests** at retained surface sizes,
 with **232 requests maximum**. Source deadlines total 1,800 seconds; 240 seconds
-cover stop checks, one backup, final integrity and process cleanup: **2,040 seconds
+cover separately bounded publication, backup and final integrity: **2,040 seconds
 (34 minutes) execution plus at most 120 seconds recovery = 36 minutes**. The request
 cap and time cap are independent: a slow source can time out before spending its
 HTTP allowance. Three-page OneForma/Turing and 70-request Mindrift limits are
@@ -99,12 +99,17 @@ explicit operating ceilings, not native completeness guarantees. Mindrift's cap
 also accommodates the retained older 647-row inventory at approximately ten rows
 per token page. Caps never change completeness rules to fit expected counts.
 
-September 4 ready-source processing took 174.681 seconds in total, excluding this
-new runner's backup/recovery and host conditions. **Expected hosted maintenance
-duration must be measured at activation.** The earlier 2m14s deployment is not an
-ordinary-run benchmark. The 36-minute bound limits automated attempts; damaged
-infrastructure can still require operator recovery. Optional reporting/delivery
-must never extend the unavailable interval.
+Public network collection runs while beta remains online. Only current-storage
+backup, publication and final integrity require the stopped writer. This interval
+has a separate **240-second hard bound**, followed by at most 120 seconds of
+recovery; it is never the full 34-minute collection interval. Publication workers
+share the remaining publication interval with reserved sibling time and 30 seconds
+for final checks. The bound is a safety ceiling, not an expected outage duration.
+Representative native publication timing must pass before activation; actual stop
+to ready time is then measured separately from total runtime. The old 2m14s release
+outage and historical network timings are not ordinary-run measurements. Optional
+report reconstruction, health checks and email run after normal service resumes.
+Damaged infrastructure can still require manual recovery beyond the automated cap.
 
 ## Proven compensation failure and correction
 
@@ -160,22 +165,35 @@ readiness need code review and validation. Existing registry dispatch gates rema
 
 At 06:00 UTC the root supervisor verifies the actual host, immutable release,
 `current` symlink, beta process/command, LoadCredential and effective config-002.
-It takes the common maintenance gate and durably reserves the UTC slot. The normal
-beta service is stopped, one cold storage cohort backup is verified, and the
-coverage plan records due, cooldown, disabled and blocked entries. The parent keeps
-the gate throughout. A separate beta-user process acquires the existing lifetime
-lease for each phase: backup, each due source, final protected-data/integrity check.
-Parent PID, source phase, single-use claim and deadline bind every dispatch.
+It takes the common maintenance gate and durably reserves the UTC slot. A read-only
+coverage plan records due, cooldown, disabled and blocked sources. Separate bounded
+beta-user collectors run while the normal beta service retains database ownership.
+They write strict adapter-result envelopes and raw responses into the existing
+pinned maintenance journal. They do not write product records, renew availability
+or qualify publication. The existing backup procedure includes this raw evidence.
 
-A failed/timed-out source is reaped before the next independent source starts;
-it cannot spend a sibling's allowance. SIGTERM cancels the entire run rather than
-continuing to the next source. Central backup/storage failure also stops safely.
-The supervisor restores normal beta in `finally`; ExecStopPost and boot recovery
-handle interruption under the original remaining recovery allowance. Optional
-receipt reconstruction and all email preparation/delivery occur after restoration.
-The gate also excludes manual maintenance and backup; database lifetime ownership
-excludes other writers. No preview database or synthetic authentication can pass
-the native configuration checks.
+After online collection, only completed bound observations are offered for
+publication. If none is admissible, beta is never stopped. Otherwise the parent
+records the maintenance marker immediately before stopping beta, takes a verified
+cold backup of current storage and protected domains, and publishes through the
+existing pipeline under the offline lifetime lease. This preserves user activity
+accepted during collection. It never swaps in an old database copy. Publication
+has a zero-HTTP budget and cannot invoke an employer adapter. Original collection
+and detailed-capture dates survive the delay; a publication timestamp is not a new
+observation. Source/run/release/contract bindings, a verified hash chain and an
+exclusive publication claim prevent cross-run reuse and replay.
+
+Parent PID, phase, one-use claim and deadline bind every worker dispatch. A timed-
+out source is reaped before its sibling starts. SIGTERM cancels further dispatch.
+The supervisor restores normal beta in finally; ExecStopPost and boot recovery
+handle stopped-service interruption under the remaining recovery allowance.
+Online-only interruption is finalized as consumed without stopping or restarting
+beta. Pending maintenance restoration always precedes optional accounting. Journals
+with proven publication results can reconstruct qualification after a reporting
+failure; a collected-only journal is explicitly unpublished. The common gate also
+excludes manual maintenance and backup throughout both phases. The beta's lifetime
+lease remains held during collection and is required exclusively for publication.
+No preview storage or synthetic authentication can pass native configuration checks.
 
 All ready adapters now share audited endpoint/method/query/body validation,
 request reservation before network dispatch, no-redirect transport, remaining-time
@@ -253,13 +271,14 @@ each event ID. Events are durably marked attempted before dispatch. Failed or
 uncertain delivery is not retried automatically. Adapter acceptance is not owner
 receipt. Isolated tests use a test transport only.
 
-**Remaining email setup:** choose an authorized existing delivery service and sender
-identity; install the reviewed absolute adapter command and separately supplied
-service credentials if needed; approve that delivery policy. Do not infer a sender,
-change DNS, buy a service or use personal/account authentication credentials.
-The recipient is resolved and must not be requested again. `approved=false`, empty
-command and `enabled=false` keep live delivery/recurrence disabled. Real delivery
-and recipient confirmation belong to the single controlled activation below.
+The reviewed Resend HTTPS adapter is documented in [operational_email_v1.md](operational_email_v1.md).
+Its fixed sender is `Wahojobs Operations <alerts@ops.wahojobs.com>` and recipient is
+`danilo@wahojobs.com`. It uses a sending-only key restricted to the verified domain,
+provided through systemd LoadCredential. Linux root-owned 0440 credentials
+are accepted only with the exact read-only ACL for the service UID; group/world-readable or
+writable credentials are rejected. No SMTP, auth-code transport, redirects, retries,
+paid overages or provider SDK is introduced. The domain/DNS authorization and actual
+receipt belong in the activation evidence. Disabled examples stay disabled.
 
 ## Validation and independent review
 
@@ -284,9 +303,15 @@ is reused. Independent reviews identified and verified fixes for ordinary
 maintenance budget bypass, cancellation dispatch, private headers and retention
 of completeness headers. No unresolved reviewed implementation blocker remains.
 
-This Windows environment has no usable native systemd environment. Native unit
-execution, Linux permissions, real stop/recovery and live email receipt are still
-activation checks. Unit tests and isolated/manual runs do not activate recurrence.
+The initial Windows evidence did not establish native systemd behavior. During
+controlled commissioning, 140 isolated Linux regressions passed on systemd 255;
+transient timer metadata, manager timeout, descendant reaping and ExecStopPost lock
+recovery were verified with normal beta uninterrupted. Native LoadCredential uses
+a service-UID POSIX ACL, now checked by the adapter. The online-collection split
+adds original-date/provenance, concurrent user activity, retained backup custody,
+per-source publication isolation and interrupted-reporting tests. The separately
+dated activation receipt records final native timing and real email receipt.
+Unit tests and isolated/manual runs do not activate recurrence.
 
 ## One controlled validation and activation procedure
 

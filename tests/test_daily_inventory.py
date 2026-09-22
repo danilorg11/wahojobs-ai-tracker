@@ -62,7 +62,7 @@ class DailyPolicyTests(unittest.TestCase):
             root=self.root/str(len(list(self.root.iterdir())))
             config=dict(self.config,state_directory=str(root))
             operations=Mock()
-            operations.collect.side_effect=error
+            operations.publish.side_effect=error
             with patch.object(d,'now',return_value=self.at):
                 result=cli.supervise(config,self.root/'policy','timer',operations=operations)
             self.assertEqual(result['outcome'],'failed')
@@ -77,7 +77,7 @@ class DailyPolicyTests(unittest.TestCase):
         operations=Mock();operations.stop.side_effect=TimeoutError();operations.restore.side_effect=OSError()
         with patch.object(d,'now',return_value=self.at):result=cli.supervise(self.config,self.root/'policy','timer',operations=operations)
         self.assertEqual(result['outcome'],'recovery_failed');self.assertFalse(result['normal_service_resumed'])
-        operations.collect.assert_not_called()
+        operations.publish.assert_not_called()
 
     def test_supervisor_receipt_success_requires_source_qualification(self):
         operations=Mock()
@@ -85,7 +85,7 @@ class DailyPolicyTests(unittest.TestCase):
             target=self.root/'runs'/run_id
             d.write_json(target/'worker.json',dict(completed=True,protected_domains_unchanged=True))
             for source in d.SOURCES:d.write_json(target/(source+'.json'),dict(qualifying_observation=source=='mercor'))
-        operations.collect.side_effect=collect
+        operations.publish.side_effect=collect
         with patch.object(d,'now',return_value=self.at):result=cli.supervise(self.config,self.root/'policy','timer',operations=operations)
         self.assertEqual(result['outcome'],'partial_or_failed')
         self.assertTrue(result['normal_service_resumed'])
@@ -128,7 +128,7 @@ class DailyPolicyTests(unittest.TestCase):
 
 
     def test_receipt_write_failure_cannot_prevent_service_restoration(self):
-        operations=Mock();operations.collect.side_effect=TimeoutError()
+        operations=Mock();operations.publish.side_effect=TimeoutError()
         original=d.write_json;calls=[]
         def failing(path,value):
             calls.append(path)

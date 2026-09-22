@@ -175,18 +175,42 @@ class NativeOperations:
 
     def collect(self,run_id,remaining):
         deadline=time.monotonic()+remaining
-        self.phase(run_id,'backup',min(deadline,time.monotonic()+60))
+        self.phase(run_id,'prepare',min(deadline,time.monotonic()+20))
         target=Path(self.config['state_directory'])/'runs'/run_id
         schedule=daily.read_json(target/'coverage-plan.json')
         if not schedule or set(schedule)!=set(daily.SOURCES):raise ValueError('coverage_plan_required')
         for source in daily.SOURCES:
             if schedule[source]['state']!='due':continue
             cap=daily.source_settings(self.config)[source]['seconds_max']
-            try:self.phase(run_id,source,min(deadline-30,time.monotonic()+cap))
+            try:self.phase(run_id,'collect-'+source,min(deadline-daily.PUBLICATION_SECONDS,time.monotonic()+cap))
             except InterruptedError:
                 raise  # SIGTERM cancels the whole run; restore without more dispatch.
             except Exception as error:
                 # Child is reaped before another source obtains the lifetime lease.
+                daily.write_json(target/(source+'-failure.json'),dict(error_type=type(error).__name__))
+        from wahojobs.crawler import staged_observation as staged
+        available=[]
+        for source in daily.SOURCES:
+            if schedule[source]['state']!='due':continue
+            try:staged.load(target,source,run_id=run_id,code_commit=self.config['code_commit'],journal_root=self.config['journal'])
+            except (OSError,ValueError,KeyError,TypeError):continue
+            available.append(source)
+        daily.write_json(target/'publication-sources.json',available)
+        return bool(available)
+
+    def publish(self,run_id,remaining):
+        deadline=time.monotonic()+remaining
+        self.phase(run_id,'backup',min(deadline,time.monotonic()+60))
+        target=Path(self.config['state_directory'])/'runs'/run_id
+        sources=daily.read_json(target/'publication-sources.json',[])
+        for index,source in enumerate(sources):
+            # A failed publisher gets only its share of the remaining interval.
+            # Unused shares remain available to subsequent sources.
+            current=time.monotonic()
+            source_deadline=current+max(0,(deadline-30-current)/(len(sources)-index))
+            try:self.phase(run_id,'publish-'+source,source_deadline)
+            except InterruptedError:raise
+            except Exception as error:
                 daily.write_json(target/(source+'-failure.json'),dict(error_type=type(error).__name__))
         self.phase(run_id,'finish',min(deadline,time.monotonic()+30))
     def restore(self,remaining):
@@ -219,11 +243,22 @@ def supervise(config,policy,trigger,*,operations=None):
             account=pwd.getpwnam('wahojobs-beta')
             os.chown(target.parent,account.pw_uid,account.pw_gid)
         start=time.monotonic();deadline=start+daily.execution_seconds(config)
-        receipt.update(outcome='running',maintenance_started_at=daily.stamp(daily.now()),normal_service_resumed=False,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline)
+        receipt.update(outcome='running',normal_service_resumed=True,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline)
         daily.write_json(target,receipt)
+        maintenance_start=None
         try:
-            operations.stop(deadline-time.monotonic())
-            operations.collect(receipt['run_id'],deadline-time.monotonic())
+            available=operations.collect(receipt['run_id'],deadline-time.monotonic())
+            receipt['collection_finished_at']=daily.stamp(daily.now())
+            if available is False:raise ValueError('no_completed_observations_to_publish')
+            publication_deadline=min(deadline,time.monotonic()+daily.PUBLICATION_SECONDS)
+            if publication_deadline<=time.monotonic():raise TimeoutError('publication_deadline_expired')
+            # The online phase never creates a maintenance marker or stops beta.
+            maintenance_start=time.monotonic()
+            receipt.update(maintenance_started_at=daily.stamp(daily.now()),normal_service_resumed=False,
+                publication_deadline_monotonic=publication_deadline)
+            daily.write_json(target,receipt)
+            operations.stop(publication_deadline-time.monotonic())
+            operations.publish(receipt['run_id'],publication_deadline-time.monotonic())
             worker=daily.read_json(target.parent/'worker.json')
             summaries={source:daily.read_json(target.parent/(source+'.json')) for source in daily.SOURCES}
             receipt['sources']=summaries
@@ -236,15 +271,17 @@ def supervise(config,policy,trigger,*,operations=None):
         finally:
             # Reporting and alert delivery happen only after this recovery block.
             recovery_started=time.monotonic()
-            receipt['recovery_started_at']=daily.stamp(daily.now())
-            with suppress(OSError):daily.write_json(target,receipt)
-            try:
-                operations.restore(daily.RECOVERY_SECONDS)
-                receipt.update(normal_service_resumed=True,maintenance_finished_at=daily.stamp(daily.now()))
-            except BaseException as error:
-                receipt.update(outcome='recovery_failed',recovery_error_type=type(error).__name__)
-            receipt.update(ended_at=daily.stamp(daily.now()),maintenance_seconds=round(time.monotonic()-start,3),
-                recovery_seconds=round(time.monotonic()-recovery_started,3))
+            if maintenance_start is not None:
+                receipt['recovery_started_at']=daily.stamp(daily.now())
+                with suppress(OSError):daily.write_json(target,receipt)
+                try:
+                    operations.restore(daily.RECOVERY_SECONDS)
+                    receipt.update(normal_service_resumed=True,maintenance_finished_at=daily.stamp(daily.now()))
+                except BaseException as error:
+                    receipt.update(outcome='recovery_failed',recovery_error_type=type(error).__name__)
+            receipt.update(ended_at=daily.stamp(daily.now()),total_runtime_seconds=round(time.monotonic()-start,3),
+                maintenance_seconds=round(time.monotonic()-maintenance_start,3) if maintenance_start is not None else 0,
+                recovery_seconds=round(time.monotonic()-recovery_started,3) if maintenance_start is not None else 0)
             for source in receipt.get('sources',{}).values():
                 if source:source.update(run_id=receipt['run_id'],trigger=receipt['trigger'],maintenance_seconds=receipt['maintenance_seconds'])
             with suppress(OSError):daily.write_json(target,receipt)
@@ -263,13 +300,26 @@ def recover(config,policy):
     with operation_gate(config['database'],require_existing=True):
         operations=NativeOperations(config,policy)
         operations.recovery_preflight()
+        def finish_online():
+            for path in sorted((directory/'runs').glob('*/run.json')):
+                interrupted=daily.read_json(path)
+                if interrupted.get('outcome') not in ('running','reserved') or interrupted.get('maintenance_started_at'):continue
+                # Reporting follows any necessary restoration, even if its
+                # persistence fails or an old collection journal is large.
+                interrupted.update(outcome='interrupted',normal_service_resumed=True,
+                    ended_at=daily.stamp(daily.now()),maintenance_seconds=0,recovery_seconds=0)
+                daily.write_json(path,interrupted)
+                with suppress(OSError,ValueError):
+                    daily.finish_run_sources(config,interrupted)
+                    daily.write_json(path,interrupted)
         pending=[p for p in sorted((directory/'runs').glob('*/run.json'))
                  if (r:=daily.read_json(p)).get('maintenance_started_at') and not r.get('normal_service_resumed')]
-        if not pending:return
+        if not pending:
+            finish_online();return
         p=pending[-1];receipt=daily.read_json(p)
         # The parent cgroup is terminated by systemd before ExecStopPost.
         recovery_start=receipt.get('recovery_started_at')
-        remaining=min(daily.RECOVERY_SECONDS, daily.execution_seconds(config)+daily.RECOVERY_SECONDS-(daily.now()-daily.parse(receipt['maintenance_started_at'])).total_seconds())
+        remaining=min(daily.RECOVERY_SECONDS, daily.PUBLICATION_SECONDS+daily.RECOVERY_SECONDS-(daily.now()-daily.parse(receipt['maintenance_started_at'])).total_seconds())
         if recovery_start:remaining=min(remaining,daily.RECOVERY_SECONDS-(daily.now()-daily.parse(recovery_start)).total_seconds())
         if remaining<=0:
             # A reboot can already have restored the enabled beta service. Observe
@@ -282,6 +332,7 @@ def recover(config,policy):
             with suppress(OSError,ValueError):
                 daily.finish_run_sources(config,receipt)
                 daily.write_json(p,receipt)
+            finish_online()
             return
         receipt['recovery_started_at']=recovery_start or daily.stamp(daily.now())
         with suppress(OSError):daily.write_json(p,receipt)
@@ -293,6 +344,7 @@ def recover(config,policy):
         with suppress(OSError,ValueError):
             daily.finish_run_sources(config,receipt)
             daily.write_json(p,receipt)
+        finish_online()
 
 
 def deliver(config,state):
@@ -321,7 +373,7 @@ def main(argv=None):
     parser.add_argument('command',choices=('run','worker','recover','health','report'))
     parser.add_argument('--policy',type=Path,required=True)
     parser.add_argument('--trigger',choices=('auto','timer','manual','restart'),default='auto')
-    parser.add_argument('--phase',choices=('backup','finish',*daily.SOURCES));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true')
+    parser.add_argument('--phase',choices=('prepare','backup','finish',*('collect-'+s for s in daily.SOURCES),*('publish-'+s for s in daily.SOURCES)));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true')
     args=parser.parse_args(argv)
     config=private_policy(args.policy)
     daily.validate_policy(config,activation=args.command in ('run','worker') or args.deliver)

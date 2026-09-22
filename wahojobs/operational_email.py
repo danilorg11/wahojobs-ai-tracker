@@ -141,11 +141,17 @@ def systemd_credential():
     path = directory / 'resend-api-key'
     value = path.lstat()
     mode = stat.S_IMODE(value.st_mode)
-    # systemd 255 uses root:service-group 0440 inside the unit's protected
-    # credential directory when User/Group are set. It is not a public file.
-    native_group_read = (os.name == 'posix' and value.st_uid == 0
-        and value.st_gid == os.getegid() and mode == 0o440)
+    # systemd 255 grants only the service UID access using a POSIX ACL. The
+    # group bits in stat show the ACL mask, not permission for the root group.
+    native_acl = False
+    if os.name == 'posix' and value.st_uid == 0 and mode == 0o440:
+        import struct
+        uid = os.geteuid()
+        expected = struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *entry) for entry in (
+            (1, 4, 0xffffffff), (2, 4, uid), (4, 0, 0xffffffff), (16, 4, 0xffffffff), (32, 0, 0xffffffff)))
+        try: native_acl = os.getxattr(path, 'system.posix_acl_access') == expected
+        except (AttributeError, OSError): pass
     if (not stat.S_ISREG(value.st_mode) or path.is_symlink() or value.st_nlink != 1
-            or (mode & 0o077 and not native_group_read) or value.st_size > 512):
+            or (mode & 0o077 and not native_acl) or value.st_size > 512):
         raise ValueError('private_systemd_credential_required')
     return path.read_text().strip()

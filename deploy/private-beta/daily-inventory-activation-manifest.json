@@ -435,25 +435,26 @@
     "expected_http_from_retained_surface_sizes": 76,
     "retained_ready_execution_seconds": 174.681,
     "recovery_seconds": 120,
-    "maximum_automated_maintenance_seconds": 2160,
+    "maximum_automated_maintenance_seconds": 360,
     "blocked_validation_only_proposed_http_ceiling": 92,
     "complete_manifest_hypothetical_http_ceiling": 324,
-    "maintenance_expectation": "Expected current-host downtime must be measured at activation: backup+serial source processing+integrity+restart. Historical source-only timings do not establish host downtime. Optional reporting and alerts occur after restore."
+    "maintenance_expectation": "Network collection is online. Current-storage cold backup, publication and final integrity are capped at 240 seconds, with at most 120 seconds recovery. Representative native timing must pass before activation; measure actual stop-to-ready separately from total runtime. Reporting and delivery follow restoration.",
+    "publication_seconds_max": 240
   },
   "controls": {
     "detail_enrichment_requests": 0,
     "paid_model_calls": 0,
     "retries": 0,
     "redirect_policy": "Initial 3xx counts; no redirect follow-up. Scope change requires review.",
-    "locks": "existing shared maintenance gate plus per-phase database lifetime ownership; one cold verified backup; process-group timeout; root restores normal beta",
+    "locks": "Shared maintenance gate spans online collection and offline publication. Runtime keeps DB ownership online; offline lifetime ownership, verified current-storage backup and original observation provenance cover publication. Worker timeouts reap the process group.",
     "failure_isolation": "A source timeout/failure does not consume sibling allowance. SIGTERM/global storage failure cancels collection and restores beta. No absence closure on failed/partial collections.",
-    "publication": "existing pipeline, tracking, source acceptance, canonical rollup and deterministic enrichment; no user-domain replacement"
+    "publication": "Strict bound staged observations in existing authoritative journal; current-data publication through existing tracking/acceptance/rollup; zero HTTP; original timestamps, exclusive publication claim, preserved candidate history."
   },
   "alert": {
     "recipient": "danilo@wahojobs.com",
     "approved": false,
     "command": [],
-    "remaining": "Owner-approved existing delivery service and sender identity, absolute reviewed adapter command, and service credentials if required. Version 2 JSON batch on stdin; 15s deadline; deduplicate each event ID. Real delivery and recipient confirmation occur during controlled activation."
+    "remaining": "Reviewed Resend HTTPS adapter and domain-restricted sending key through LoadCredential. Sender ops.wahojobs.com and recipient danilo@wahojobs.com are selected; activation receipt records verified DNS, real delivery and owner receipt. Examples remain disabled."
   },
   "evidence": [
     {

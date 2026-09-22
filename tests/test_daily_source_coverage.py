@@ -258,9 +258,9 @@ class CoveragePolicyTests(unittest.TestCase):
             native=cli.NativeOperations(config,root/'policy');calls=[]
             def phase(run_id,name,deadline):
                 calls.append(name)
-                if name=='appen':raise TimeoutError()
+                if name=='collect-appen':raise TimeoutError()
             with patch.object(native,'phase',side_effect=phase):native.collect('fixture',daily.EXECUTION_SECONDS)
-            self.assertEqual(calls,['backup',*policy.READY_SOURCES,'finish'])
+            self.assertEqual(calls,['prepare',*('collect-'+s for s in policy.READY_SOURCES)])
             receipt=dict(run_id='fixture',outcome='running',supervisor_pid=123,execution_deadline_monotonic=1000,
                 active_phase=dict(name='appen',deadline=60))
             daily.write_json(target/'run.json',receipt)
@@ -276,9 +276,9 @@ class CoveragePolicyTests(unittest.TestCase):
             native=cli.NativeOperations(dict(state_directory=temp,sources=policy.default_sources()),'fixture');calls=[]
             def phase(run_id,name,deadline):
                 calls.append(name)
-                if name=='appen':raise InterruptedError()
+                if name=='collect-appen':raise InterruptedError()
             with patch.object(native,'phase',side_effect=phase),self.assertRaises(InterruptedError):native.collect('fixture',2040)
-            self.assertEqual(calls,['backup','alignerr','appen'])
+            self.assertEqual(calls,['prepare','collect-alignerr','collect-appen'])
 
     def test_alerts_batch_all_coverage_issues_to_approved_recipient_without_hourly_repeats(self):
         with tempfile.TemporaryDirectory() as temp:

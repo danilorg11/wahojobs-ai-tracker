@@ -60,7 +60,7 @@ CRAWLERS = {
 }
 
 
-def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=None):
+def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=None, observation=None):
     if ownership is not None and db_path is None:
         raise ValueError("Owned crawl requires an explicit local database")
     if details not in (None, "needed", "all"):
@@ -68,6 +68,11 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
     if details and db_path is None:
         raise ValueError("Detail recovery requires an explicit local database")
     registry_entry = assert_production_dispatch_allowed(company_slug)
+    if observation is not None:
+        from wahojobs.crawler.staged_observation import validate_observation
+        if db_path is None or ownership is None or details is not None:
+            raise ValueError('staged_publication_requires_owned_catalog_only')
+        validate_observation(observation, company_slug)
     from wahojobs.crawler.local_inventory import local_inventory_connection
     connection = get_connection() if db_path is None else local_inventory_connection(db_path, ownership=ownership)
     with connection as conn:
@@ -78,7 +83,9 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
                 f"Company '{company_slug}' is not configured. {preparation}"
             )
 
-        started_at = utc_now()
+        if observation is not None and observation.careers_url != company['careers_url']:
+            raise ValueError('staged_source_configuration_changed')
+        started_at = observation.started_at if observation is not None else utc_now()
         crawl_run_id = create_crawl_run(conn, company["id"], started_at)
         conn.commit()
 
@@ -89,7 +96,7 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
             if crawler is None:
                 raise ValueError(f"No crawler is implemented for '{company_slug}'.")
 
-            crawl_result = crawler(company["careers_url"])
+            crawl_result = observation.result if observation is not None else crawler(company["careers_url"])
             if registry_entry is not None and registry_entry.ats_provider == "greenhouse":
                 from wahojobs.crawler.greenhouse_pilot import apply_count_drop_policy
 
@@ -122,7 +129,7 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
                     company["id"],
                     crawl_run_id,
                     crawl_result,
-                    utc_now(),
+                    observation.completed_at if observation is not None else utc_now(),
                     **tracking_options,
                 )
                 conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
@@ -136,7 +143,7 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
                 conn,
                 crawl_run_id,
                 summary,
-                utc_now(),
+                observation.completed_at if observation is not None else utc_now(),
                 status=crawl_run_status,
                 error_message=non_success_diagnostic(crawl_run_status, summary),
             )

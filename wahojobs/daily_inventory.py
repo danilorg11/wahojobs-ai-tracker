@@ -20,6 +20,9 @@ from wahojobs.daily_source_policy import (CORE_SOURCES, POLICY, READY_SOURCES, A
 SOURCES=CORE_SOURCES
 EXECUTION_SECONDS=aggregate(default_sources())['execution_seconds']
 RECOVERY_SECONDS=120
+# The outage is bounded independently from the online network cycle. Stop,
+# cold backup, publication and integrity share this smaller execution allowance.
+PUBLICATION_SECONDS=240
 CATCH_UP_SECONDS=3600
 VERSION='daily_inventory_v1_all_sources'
 SUCCESSFUL_RUN_OUTCOMES=('complete','partial_individual','complete_with_coverage_gaps')
@@ -269,13 +272,39 @@ def save_source(config, run_id, summary):
 def collect_phase(config, run_id, phase):
     """One backup, independently bounded source processes, one integrity finish.
 
-    Native parent holds the common operation gate throughout. Each phase obtains
-    the existing lifetime lease; a killed source releases it before the next one.
+    Native parent holds the common operation gate throughout. Publication obtains
+    the existing lifetime lease; online collection changes no product records.
     No provider can spend a sibling's request or time allowance.
     """
     from wahojobs.database_lifetime_ownership import acquire_database_lifetime_ownership,release_database_lifetime_ownership,ROLE_OFFLINE_OPERATOR
     from wahojobs.beta_recovery import create_snapshot,verify_snapshot
     database=Path(config['database']);directory=Path(config['state_directory']);target=directory/'runs'/run_id
+    from wahojobs.crawler import staged_observation as staged
+    if phase=='prepare':
+        # Read-only source/configuration inspection is safe while beta owns the
+        # database. No database copy or offline lifetime lease is taken here.
+        plan=coverage_plan(config,database,now())
+        write_json(target/'coverage-plan.json',plan)
+        for source,row in plan.items():
+            if row['state']!='due':
+                summary=empty_source(source,now(),outcome=row['state'],reason=row['reason'])
+                summary['next_eligible_at']=row['next_eligible_at'];save_source(config,run_id,summary)
+        return
+    if phase.startswith('collect-'):
+        source=phase.removeprefix('collect-')
+        schedule=read_json(target/'coverage-plan.json')
+        if source not in SOURCES or not schedule or schedule[source]['state']!='due' or not source_settings(config)[source]['enabled']:
+            raise ValueError('source_not_due_in_reserved_plan')
+        with maintenance.read_connection(database) as connection:
+            company=connection.execute('SELECT careers_url FROM companies WHERE slug=?',(source,)).fetchone()
+        if not company:raise ValueError('configured_source_required')
+        binding=maintenance.journal_binding(database)
+        if not binding or Path(binding['journal_root'])!=Path(config['journal']):raise ValueError('authoritative_journal_mismatch')
+        staged.collect(source,company['careers_url'],target,run_id=run_id,code_commit=config['code_commit'],
+            http_max=source_settings(config)[source]['http_max'],journal_root=config['journal'])
+        return
+    publishing=phase.startswith('publish-')
+    if publishing:phase=phase.removeprefix('publish-')
     if phase not in ('backup','finish',*SOURCES):raise ValueError('invalid_worker_phase')
     lease=acquire_database_lifetime_ownership(database,role=ROLE_OFFLINE_OPERATOR)
     try:
@@ -288,13 +317,8 @@ def collect_phase(config, run_id, phase):
             create_snapshot(database,snapshot,code_commit=config['code_commit'],configuration_revision='config-002',ownership=lease)
             manifest=verify_snapshot(snapshot)
             write_json(target/'backup.json',dict(verified=True,files=len(manifest['files']),protected_domains=before))
-            plan=coverage_plan(config,database,now())
-            write_json(target/'coverage-plan.json',plan)
-            for source,row in plan.items():
-                if row['state']!='due':
-                    summary=empty_source(source,now(),outcome=row['state'],reason=row['reason'])
-                    summary['next_eligible_at']=row['next_eligible_at']
-                    save_source(config,run_id,summary)
+            if not read_json(target/'coverage-plan.json'):
+                collect_phase(config,run_id,'prepare')
         elif phase=='finish':
             before=read_json(target/'backup.json')
             if not before or before.get('verified') is not True:raise ValueError('verified_backup_required')
@@ -309,14 +333,27 @@ def collect_phase(config, run_id, phase):
             if not schedule or schedule[source]['state']!='due' or not source_settings(config)[source]['enabled']:
                 raise ValueError('source_not_due_in_reserved_plan')
             cap=source_settings(config)[source]['http_max'];started=now()
+            observation=None;collection_report=None
+            if publishing:
+                observation,collection_report=staged.load(target,source,run_id=run_id,code_commit=config['code_commit'],journal_root=config['journal'],consume=True)
+                started=parse(observation.started_at)
             plan=maintenance.build_plan(database,[source],http_limit=cap,detail_limit=0,
                 details=None,phase='source',daily_discovery=True)
             operations=[o for o in plan['operations'] if o['kind']=='catalog_observation']
             if len(operations)!=1 or operations[0]['blocked'] or operations[0]['details'] is not None:
                 raise ValueError('daily_catalog_contract_incompatible')
             maintenance.save_json(target/(source+'-plan.json'),plan)
-            result=maintenance.execute_plan(plan,config['journal'],authorized=True,authorize_sources=True,ownership=lease)
+            result=maintenance.execute_plan(plan,config['journal'],authorized=True,authorize_sources=True,ownership=lease,
+                **({'observation':observation} if observation is not None else {}))
+            if observation is not None:
+                # Collection accounting stays in its original retained journal.
+                # Combine evidence for the report without inventing HTTP attempts
+                # in the authoritative publication journal (which must use zero).
+                result=staged.publication_report(collection_report,result)
             summary=summarize_source(plan,result,started,now())
+            if observation is not None:
+                summary.update(collection_plan_id=observation.collection_plan_id,collection_completed_at=observation.completed_at,
+                    publication_completed_at=stamp(now()),publication_requests_used=0)
             if summary['requests_used']>cap:raise ValueError('daily_request_limit_violated')
             save_source(config,run_id,summary)
     finally:release_database_lifetime_ownership(lease,role=ROLE_OFFLINE_OPERATOR,database_path=database)
@@ -326,15 +363,25 @@ def collect(config,run_id):
     """Isolated callable path; native execution adds a process deadline per phase."""
     from wahojobs.crawler.local_inventory import request_deadline
     import time
-    collect_phase(config,run_id,'backup')
+    started=now()
+    collect_phase(config,run_id,'prepare')
     schedule=read_json(Path(config['state_directory'])/'runs'/run_id/'coverage-plan.json')
     for source,row in schedule.items():
         if row['state']!='due':continue
         try:
-            with request_deadline(time.monotonic()+row['seconds_max']):collect_phase(config,run_id,source)
+            with request_deadline(time.monotonic()+row['seconds_max']):collect_phase(config,run_id,'collect-'+source)
+        except Exception as error:
+            write_json(Path(config['state_directory'])/'runs'/run_id/(source+'-failure.json'),dict(error_type=type(error).__name__))
+    collect_phase(config,run_id,'backup')
+    for source,row in schedule.items():
+        if row['state']!='due':continue
+        try:collect_phase(config,run_id,'publish-'+source)
         except Exception as error:
             write_json(Path(config['state_directory'])/'runs'/run_id/(source+'-failure.json'),dict(error_type=type(error).__name__))
     collect_phase(config,run_id,'finish')
+    receipt=read_json(Path(config['state_directory'])/'runs'/run_id/'run.json',
+        dict(run_id=run_id,trigger='isolated_worker',started_at=stamp(started),maintenance_seconds=None))
+    finish_run_sources(config,receipt)
 
 
 def health_issues(config,at):
@@ -430,8 +477,13 @@ def finish_run_sources(config,receipt):
             row=read_json(target/(provider+'.json'))
             if row is None:
                 plan=read_json(target/(provider+'-plan.json'))
-                scaffold=plan or dict(plan_id=None,config=dict(providers=[provider]),sources=[dict(jobs=[])])
+                scaffold=plan or dict(plan_id=None,config=dict(providers=[provider],http_limit=source_settings(config)[provider]['http_max']),sources=[dict(jobs=[])])
                 report=maintenance.report(config['journal'],plan['plan_id']) if plan else {}
+                collection=read_json(target/(provider+'-collection.json'))
+                retained=maintenance.report(config['journal'],collection['plan_id']) if collection else None
+                if retained and report.get('events') and report['events'][-1]['event']=='finished':
+                    from wahojobs.crawler.staged_observation import publication_report
+                    report=publication_report(retained,report)
                 row=summarize_source(scaffold,report,parse(receipt['started_at']),now())
                 if not plan:
                     schedule=read_json(target/'coverage-plan.json',{})
@@ -439,8 +491,19 @@ def finish_run_sources(config,receipt):
                     row.update(outcome=scheduled.get('state','blocked' if policy['readiness']=='blocked' else 'not_started'),reason=scheduled.get('reason',policy['blocker']))
                     if row['outcome']=='due':row['outcome']='not_started'
                 failure=read_json(target/(provider+'-failure.json'))
-                if failure:row.update(outcome='interrupted_or_failed',error_type=failure['error_type'])
+                if failure:
+                    row['worker_error_type']=failure['error_type']
+                    if not row['qualifying_observation']:row.update(outcome='interrupted_or_failed',error_type=failure['error_type'])
                 elif report.get('status')=='interrupted':row.update(outcome='interrupted',qualifying_observation=False)
+                if collection:
+                    measured=summarize_source(scaffold,retained,parse(receipt['started_at']),now())
+                    for field in ('requests_used','http_responses_received','pages_fetched','request_cap_reached','listing_envelope_shape'):
+                        if field in measured:row[field]=measured[field]
+                    row['collection_plan_id']=collection['plan_id']
+                    row['publication_requests_used']=0
+                    if not plan:
+                        row.update(outcome='collected_unpublished' if retained['status']=='collected_unpublished' else 'collection_failed_or_interrupted',
+                            qualifying_observation=False)
                 row=merge_source_history(row,history)
         except (OSError,ValueError,KeyError,TypeError):
             row=summarize_source(dict(plan_id=None,config=dict(providers=[provider]),sources=[dict(jobs=[])]),{},parse(receipt['started_at']),now())

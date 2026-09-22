@@ -111,6 +111,38 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(current['payRate'],80)
         verify_job_source_acceptance_integrity(self.db,self.job['id'])
 
+    def test_actual_refresh_staged_then_published_keeps_original_pay_and_verification_dates(self):
+        import tempfile
+        from wahojobs import evidence_maintenance as maintenance, daily_inventory as daily
+        from wahojobs.crawler import staged_observation as staged
+        from tests.evidence_maintenance_support import BytesResponse
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);path=root/'inventory.sqlite3';journal=root/'journal';run=root/'run'
+            with closing(sqlite3.connect(path)) as disk:self.db.backup(disk)
+            class RetainedRefresh:
+                def open(inner,request,timeout):
+                    self.assertEqual(request.full_url,MERCOR_ENDPOINT)
+                    return BytesResponse(json.dumps({'listings':[self.listing]}).encode(),request.full_url)
+            with patch('urllib.request.build_opener',return_value=RetainedRefresh()),patch('socket.create_connection',side_effect=AssertionError('No network')),patch.object(pipeline,'utc_now',return_value=self.at.isoformat()):
+                staged.collect('mercor',MERCOR_ENDPOINT,run,run_id='retained',code_commit='a'*40,http_max=1,journal_root=journal)
+            later=self.at+timedelta(minutes=20)
+            with patch.object(pipeline,'utc_now',return_value=later.isoformat()),patch.object(maintenance,'clock_now',return_value=later),patch('urllib.request.build_opener',side_effect=AssertionError('No publication HTTP')):
+                observation,collection=staged.load(run,'mercor',run_id='retained',code_commit='a'*40,journal_root=journal,consume=True)
+                plan=maintenance.build_plan(path,['mercor'],now=later,http_limit=1,details=None,phase='source',daily_discovery=True)
+                from wahojobs.database_lifetime_ownership import acquire_database_lifetime_ownership, release_database_lifetime_ownership, ROLE_OFFLINE_OPERATOR
+                lease=acquire_database_lifetime_ownership(path,role=ROLE_OFFLINE_OPERATOR)
+                try:published=maintenance.execute_plan(plan,journal,authorized=True,authorize_sources=True,now=later,observation=observation,ownership=lease)
+                finally:release_database_lifetime_ownership(lease,role=ROLE_OFFLINE_OPERATOR,database_path=path)
+            self.assertEqual(published['events'][-1]['data']['request_usage']['http_transactions'],0)
+            summary=daily.summarize_source(plan,staged.publication_report(collection,published),self.at,later)
+            self.assertTrue(summary['qualifying_observation'],summary)
+            self.assertEqual(daily.parse(summary['last_qualifying_verification']),self.at)
+            with maintenance.read_connection(path) as disk:
+                self.assertEqual(dict(disk.execute('SELECT * FROM job_source_contents').fetchone()),self.baseline)
+                view=public_job_page.load_public_job(disk,public_job_page.public_job_path(self.job['canonical_opportunity_id']),now=later,selected_job_id=self.job['id'])
+                self.assertEqual(advertised_compensation(view),'$50 per hour USD')
+                self.assertEqual(view['latest_successful_source_run_at'],self.at.isoformat())
+
     def test_changed_body_and_explicit_non_pay_empty_are_not_silently_merged(self):
         self.observe(dict(self.listing,description=self.listing['description']+'\nUpdated workload: 5 hours.'),self.at.isoformat())
         self.assertIn(DETAIL_KEY,json.loads(self.db.execute('SELECT metadata_json FROM job_source_contents').fetchone()[0]))

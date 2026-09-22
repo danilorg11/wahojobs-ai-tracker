@@ -556,8 +556,16 @@ def _validate_plan(plan):
 
 def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                  authorize_derived=False, authorize_preparation=False, owner=None, now=None,
-                 transport_binding='production', enrichment=None, authorize_enrichment=False, ownership=None):
+                 transport_binding='production', enrichment=None, authorize_enrichment=False, ownership=None,
+                 observation=None):
     _validate_plan(plan)
+    if observation is not None:
+        from wahojobs.crawler.staged_observation import validate_observation
+        if (len(plan['config']['providers']) != 1 or ownership is None or not authorize_sources
+                or authorize_derived or authorize_preparation or authorize_enrichment
+                or plan['config'].get('details') is not None):
+            raise ValueError('catalog_only_staged_publication_required')
+        validate_observation(observation, plan['config']['providers'][0])
     if (any(type(v) is not bool for v in (authorized, authorize_sources, authorize_derived,
                                          authorize_preparation, authorize_enrichment)) or not authorized):
         raise ValueError('explicit_maintenance_execution_required')
@@ -610,9 +618,14 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
             raise ValueError('maintenance_plan_operations_changed')
         pin_journal(target, root)
         journal = Journal(root, plan)
+        if observation is not None:
+            journal.append('staged_observation', dict(collection_plan_id=observation.collection_plan_id,
+                collection_journal_hash=observation.journal_hash, source=observation.source,
+                started_at=observation.started_at, completed_at=observation.completed_at,
+                publication_started_at=clock_now().isoformat()))
         outcomes = []
         with refresh_request_budget(sources=[o['provider'] for o in plan['operations'] if o.get('details')],
-                http_limit=plan['config']['http_limit'] or 0, detail_limit=plan['config']['detail_limit'],
+                http_limit=0 if observation is not None else plan['config']['http_limit'] or 0, detail_limit=plan['config']['detail_limit'],
                 audit_sink=lambda event: journal.append('source_transport', event)) as budget:
             for operation in plan['operations']:
                 kind, oid = operation['kind'], operation['id']
@@ -632,7 +645,7 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                     if kind == 'catalog_observation':
                         with daily_source(operation['provider']):
                             _, summary = run_crawl(operation['provider'], db_path=target,
-                                details=operation['details'], ownership=lease)
+                                details=operation['details'], ownership=lease, **({'observation': observation} if observation is not None else {}))
                         budget.finish_source(operation['provider'])
                         with read_connection(target) as connection:
                             after = inspect_source(connection, operation['provider'], now)
