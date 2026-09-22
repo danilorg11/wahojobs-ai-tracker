@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "enabled": false,
+  "provider": "resend",
+  "plan": "free",
+  "paid_overages": false,
+  "sender": "Wahojobs Operations <alerts@ops.wahojobs.com>",
+  "recipient": "danilo@wahojobs.com",
+  "domain": "ops.wahojobs.com",
+  "state_directory": "/var/lib/wahojobs-beta/daily-inventory-v1"
+}
