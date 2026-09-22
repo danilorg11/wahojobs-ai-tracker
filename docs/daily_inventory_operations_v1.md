@@ -103,13 +103,23 @@ Public network collection runs while beta remains online. Only current-storage
 backup, publication and final integrity require the stopped writer. This interval
 has a separate **240-second hard bound**, followed by at most 120 seconds of
 recovery; it is never the full 34-minute collection interval. Publication workers
-share the remaining publication interval with reserved sibling time and 30 seconds
-for final checks. The bound is a safety ceiling, not an expected outage duration.
+share the remaining publication interval by the larger of observed and stored
+record counts, with up to five seconds reserved per remaining sibling and 30 seconds
+for final checks. Unused shares remain available; the four-minute cap cannot grow.
+The bound is a safety ceiling, not an expected outage duration.
 Representative native publication timing must pass before activation; actual stop
 to ready time is then measured separately from total runtime. The old 2m14s release
 outage and historical network timings are not ordinary-run measurements. Optional
 report reconstruction, health checks and email run after normal service resumes.
 Damaged infrastructure can still require manual recovery beyond the automated cap.
+The September 22 native benchmark used a private copy of all current stored data
+and journals, 47 retained Alignerr responses / 5,624 records and one retained Mercor
+response / 371 records. The other eight sources used small labelled contract
+fixtures. Backup plus publication and integrity took 103.651 seconds (12.988s
+backup, 76.958s Alignerr, 9.172s Mercor); actual beta downtime was zero. This supports
+an initial estimate around two minutes plus real source growth and restart time,
+not a guarantee for the other sources' full inventories. Their first live results
+and actual stop-to-ready duration remain commissioning measurements.
 
 ## Proven compensation failure and correction
 

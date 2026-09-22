@@ -245,7 +245,9 @@ def coverage_plan(config, database, at):
             else:
                 company=db.execute('SELECT id FROM companies WHERE slug=?',(source,)).fetchone()
                 if not company:row.update(state='blocked',reason='source_not_configured_in_authoritative_database')
-                elif policy['cooldown_hours']:
+                else:
+                    row['stored_records']=db.execute('SELECT count(*) FROM jobs WHERE company_id=?',(company['id'],)).fetchone()[0]
+                if company and policy['cooldown_hours']:
                     last=db.execute("SELECT started_at FROM crawl_runs WHERE company_id=? AND status='success' AND used_sample_data=0 AND error_message IS NULL ORDER BY started_at DESC,id DESC LIMIT 1",(company['id'],)).fetchone()
                     if last:
                         due=parse(last[0])+timedelta(hours=policy['cooldown_hours'])

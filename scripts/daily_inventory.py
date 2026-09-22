@@ -189,13 +189,15 @@ class NativeOperations:
                 # Child is reaped before another source obtains the lifetime lease.
                 daily.write_json(target/(source+'-failure.json'),dict(error_type=type(error).__name__))
         from wahojobs.crawler import staged_observation as staged
-        available=[]
+        available=[];weights={}
         for source in daily.SOURCES:
             if schedule[source]['state']!='due':continue
-            try:staged.load(target,source,run_id=run_id,code_commit=self.config['code_commit'],journal_root=self.config['journal'])
+            try:observation,_=staged.load(target,source,run_id=run_id,code_commit=self.config['code_commit'],journal_root=self.config['journal'])
             except (OSError,ValueError,KeyError,TypeError):continue
             available.append(source)
+            weights[source]=min(20_000,max(1,len(observation.result.jobs),schedule[source].get('stored_records',0)))
         daily.write_json(target/'publication-sources.json',available)
+        daily.write_json(target/'publication-weights.json',weights)
         return bool(available)
 
     def publish(self,run_id,remaining):
@@ -203,11 +205,18 @@ class NativeOperations:
         self.phase(run_id,'backup',min(deadline,time.monotonic()+60))
         target=Path(self.config['state_directory'])/'runs'/run_id
         sources=daily.read_json(target/'publication-sources.json',[])
+        weights=daily.read_json(target/'publication-weights.json',{s:1 for s in sources})
+        if set(weights)!=set(sources) or any(type(n) is not int or not 1<=n<=20_000 for n in weights.values()):
+            raise ValueError('bounded_publication_weights_required')
         for index,source in enumerate(sources):
-            # A failed publisher gets only its share of the remaining interval.
-            # Unused shares remain available to subsequent sources.
+            # Full-size native evidence requires more time for 5,624 Alignerr
+            # variants than for a small source. Reserve each sibling's minimum,
+            # then allocate by existing/observed records inside the SAME cap.
             current=time.monotonic()
-            source_deadline=current+max(0,(deadline-30-current)/(len(sources)-index))
+            remaining_sources=sources[index:];budget=max(0,deadline-30-current)
+            minimum=min(5,budget/len(remaining_sources))
+            extra=budget-minimum*len(remaining_sources)
+            source_deadline=current+minimum+extra*weights[source]/sum(weights[s] for s in remaining_sources)
             try:self.phase(run_id,'publish-'+source,source_deadline)
             except InterruptedError:raise
             except Exception as error:

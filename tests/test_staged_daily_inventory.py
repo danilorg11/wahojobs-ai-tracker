@@ -105,9 +105,11 @@ class StagedSupervisorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
             daily.write_json(target/'publication-sources.json',['appen','mercor','rws'])
+            daily.write_json(target/'publication-weights.json',dict(appen=5624,mercor=411,rws=1))
             native=cli.NativeOperations(dict(state_directory=temp),'fixture');clock=[0];calls=[]
             def phase(run_id,name,deadline):
                 self.assertGreater(deadline,clock[0]);calls.append(name)
+                if name=='publish-appen':self.assertGreater(deadline-clock[0],77)
                 if name=='publish-appen':clock[0]=deadline;raise TimeoutError()
                 clock[0]+=1
             with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
