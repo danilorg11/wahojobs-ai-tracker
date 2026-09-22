@@ -105,5 +105,19 @@ class OperationalEmailTests(unittest.TestCase):
         with patch.object(email,'build_opener',return_value=opener),self.assertRaises(email.DeliveryUnavailable):
             email.https_send({},KEY,'fixture-key')
 
+    def test_systemd_root_service_group_credential_and_unsafe_modes(self):
+        from types import SimpleNamespace
+        import stat
+        path=Mock();path.is_symlink.return_value=False;path.read_text.return_value=KEY
+        directory=Mock();directory.is_absolute.return_value=True
+        directory.__truediv__=Mock(return_value=path)
+        for owner,group,mode,allowed in [(0,501,0o440,True),(0,502,0o440,False),
+                (501,501,0o440,False),(0,501,0o460,False),(0,501,0o444,False),(501,501,0o400,True)]:
+            path.lstat.return_value=SimpleNamespace(st_uid=owner,st_gid=group,st_mode=stat.S_IFREG|mode,st_size=len(KEY),st_nlink=1)
+            with self.subTest(owner=owner,group=group,mode=mode),patch.object(email,'Path',return_value=directory),patch.object(email.os,'name','posix'),patch.object(email.os,'getegid',return_value=501,create=True):
+                if allowed:self.assertEqual(email.systemd_credential(),KEY)
+                else:
+                    with self.assertRaises(ValueError):email.systemd_credential()
+
 
 if __name__ == '__main__': unittest.main()

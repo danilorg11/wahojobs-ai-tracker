@@ -140,7 +140,12 @@ def systemd_credential():
     if not directory.is_absolute(): raise ValueError('systemd_credential_required')
     path = directory / 'resend-api-key'
     value = path.lstat()
+    mode = stat.S_IMODE(value.st_mode)
+    # systemd 255 uses root:service-group 0440 inside the unit's protected
+    # credential directory when User/Group are set. It is not a public file.
+    native_group_read = (os.name == 'posix' and value.st_uid == 0
+        and value.st_gid == os.getegid() and mode == 0o440)
     if (not stat.S_ISREG(value.st_mode) or path.is_symlink() or value.st_nlink != 1
-            or value.st_mode & 0o077 or value.st_size > 512):
+            or (mode & 0o077 and not native_group_read) or value.st_size > 512):
         raise ValueError('private_systemd_credential_required')
     return path.read_text().strip()
