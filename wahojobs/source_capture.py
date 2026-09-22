@@ -24,8 +24,9 @@ from wahojobs.crawler.types import (
 
 SOURCE_CAPTURE_CONTRACT_VERSION = "job_source_capture_v1"
 SOURCE_PROMOTION_POLICY_VERSION = "job_source_promotion_v2"
-MERCOR_PROMOTION_POLICY_VERSION = "mercor_record_promotion_v1"
+MERCOR_PROMOTION_POLICY_VERSION = "mercor_record_promotion_v2"
 PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
+MERCOR_DETAIL_PROMOTION_POLICY_VERSION = "mercor_detail_content_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
 
 SEMANTIC_AUTHORITY_LEGACY_ACCEPTED = "legacy_accepted"
@@ -1004,6 +1005,50 @@ def decide_mercor_record_promotion_v1(
     )
 
 
+def decide_mercor_record_promotion_v2(
+    prepared, context, accepted_row, *, same_accepted_semantic_material=False,
+    record_attestation=None, accepted_record_attestation=None,
+    job_fields_json=None, accepted_job_fields_json=None,
+):
+    """Retain dated exact-page evidence when a compatible summary omits it.
+
+    This is a content hold, not a new detail observation. Null/empty pay in the
+    summary has no documented retraction authority. Any other changed supplied
+    field, body or identity invalidates reuse and follows ordinary promotion.
+    Historical V1 decisions remain replayable without this rule.
+    """
+    ordinary = decide_mercor_record_promotion_v1(prepared, context, accepted_row,
+        same_accepted_semantic_material=same_accepted_semantic_material,
+        record_attestation=record_attestation,
+        accepted_record_attestation=accepted_record_attestation)
+    compatible_timestamp = (ordinary.decision == PROMOTION_DECISION_HELD_SOURCE_CONFLICT
+                            and ordinary.reasons == (REASON_SOURCE_TIMESTAMP_CONFLICT,))
+    if (not (ordinary.accepted or compatible_timestamp) or accepted_row is None
+            or accepted_record_attestation is None
+            or accepted_record_attestation.contract_id not in (PROVIDER_DETAIL_RECORD_CONTRACT_ID, 'mercor_supplemental_composition_v1')
+            or not job_fields_json or job_fields_json != accepted_job_fields_json):
+        return ordinary
+    from wahojobs.crawler.provider_details import DETAIL_KEY
+    previous = json.loads(accepted_row['metadata_json'])
+    current = json.loads(prepared.metadata_json)
+    detail = previous.get(DETAIL_KEY, {})
+    if (detail.get('provider') != 'mercor' or not detail.get('pay_evidence')
+            or prepared.body != accepted_row['body']
+            or prepared.body_format != accepted_row['body_format']):
+        return ordinary
+    # Summary payRate:null/empty means undisclosed in this envelope, not that
+    # the exact page withdrew its advertised rate. Other explicit empties are
+    # real field changes and must not be erased by a generic dictionary merge.
+    compared = {k: v for k, v in current.items()
+                if not (k in ('payRate', 'payRateFrequency') and v in (None, ''))}
+    if (all(k in previous and previous[k] == v for k, v in compared.items())
+            and 'pay' not in current and DETAIL_KEY not in current):
+        return SourcePromotionDecision(PROMOTION_DECISION_HELD_DEGRADED,
+            ('summary_omits_compatible_supplemental_content',),
+            _accepted_timestamp(accepted_row))
+    return ordinary
+
+
 def decide_provider_detail_content_promotion_v1(
     prepared, context, accepted_row, *, same_accepted_semantic_material=False,
     record_attestation=None, accepted_record_attestation=None,
@@ -1020,22 +1065,53 @@ def decide_provider_detail_content_promotion_v1(
         same_accepted_semantic_material=same_accepted_semantic_material, authority_reasons=())
 
 
+def decide_mercor_detail_content_promotion_v2(prepared, context, accepted_row, **options):
+    ordinary = decide_provider_detail_content_promotion_v1(prepared, context, accepted_row, **options)
+    if (ordinary.decision != PROMOTION_DECISION_HELD_SOURCE_CONFLICT
+            or ordinary.reasons != (REASON_SOURCE_TIMESTAMP_CONFLICT,) or accepted_row is None):
+        return ordinary
+    # Catalog updatedAt is not the clock for separately observed exact-page pay.
+    # Keep the former while requiring a strictly later detail observation.
+    from wahojobs.crawler.provider_details import DETAIL_KEY
+    current = json.loads(prepared.metadata_json).get(DETAIL_KEY, {})
+    previous = json.loads(accepted_row['metadata_json']).get(DETAIL_KEY, {})
+    old_status, old_time = parse_source_timestamp(previous.get('observed_at'))
+    new_status, new_time = parse_source_timestamp(current.get('observed_at'))
+    capture_status, capture_time = parse_source_timestamp(accepted_row['last_captured_at'])
+    if (current.get('provider') == 'mercor' and not previous
+            and new_status == capture_status == SOURCE_TIMESTAMP_VALID
+            and new_time >= capture_time and prepared.body == accepted_row['body']):
+        return SourcePromotionDecision(PROMOTION_DECISION_PROMOTED,
+            ('separately_dated_exact_detail_observation',), _accepted_timestamp(accepted_row))
+    if (current.get('provider') == previous.get('provider') == 'mercor'
+            and old_status == new_status == SOURCE_TIMESTAMP_VALID and new_time > old_time):
+        return SourcePromotionDecision(PROMOTION_DECISION_PROMOTED,
+            ('later_exact_detail_observation',), _accepted_timestamp(accepted_row))
+    return ordinary
+
+
 # Historical capture and policy implementations are permanently pinned.  A
 # future current-version bump must add a new literal mapping rather than making
 # old captures follow mutable current behavior.
+from wahojobs.mercor_supplemental import CONTRACT as SUPPLEMENTAL_CONTRACT, validate as validate_supplemental, decide as decide_supplemental
+
 SOURCE_CAPTURE_CONTRACT_PREPARERS = {
     "job_source_capture_v1": prepare_source_capture_v1,
 }
 RECORD_PROMOTION_CONTRACT_VALIDATORS = {
+    SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,
     "provider_detail_content_v1": _validate_provider_detail_content_v1,
 }
 SOURCE_PROMOTION_POLICY_DECIDERS = {
+    SUPPLEMENTAL_CONTRACT: decide_supplemental,
     "job_source_promotion_v1": decide_source_promotion_v1,
     "job_source_promotion_v2": decide_source_promotion_v2,
     "mercor_record_promotion_v1": decide_mercor_record_promotion_v1,
+    "mercor_record_promotion_v2": decide_mercor_record_promotion_v2,
     "provider_detail_content_promotion_v1": decide_provider_detail_content_promotion_v1,
+    "mercor_detail_content_promotion_v2": decide_mercor_detail_content_promotion_v2,
 }
 
 # Current write aliases remain convenient for callers while replay uses the

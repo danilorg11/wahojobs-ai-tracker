@@ -392,7 +392,14 @@ def _recover_mercor_pay(candidate, response, scripts):
     previous_currency = metadata.get(DETAIL_KEY, {}).get('record', {}).get('salaryCurrency')
     if ((metadata.get('pay') and metadata['pay'] != wording)
             or (previous_currency and record.get('salaryCurrency') and previous_currency != record['salaryCurrency'])):
-        raise ValueError('New pay conflicts with retained listing pay; reconciliation required')
+        from wahojobs.source_capture import parse_source_timestamp, SOURCE_TIMESTAMP_VALID
+        old_status, old_time = parse_source_timestamp(metadata.get(DETAIL_KEY, {}).get('observed_at'))
+        new_status, new_time = parse_source_timestamp(response.observed_at)
+        if (old_status != SOURCE_TIMESTAMP_VALID or new_status != SOURCE_TIMESTAMP_VALID
+                or new_time <= old_time):
+            raise ValueError('Conflicting pay requires a later validated detail observation')
+    from wahojobs.mercor_supplemental import KEY as COMPOSITION_KEY
+    metadata.pop(COMPOSITION_KEY, None)
     metadata['pay'] = wording
     metadata[DETAIL_KEY] = dict(version=1, provider='mercor', external_id=candidate.external_id,
         url=candidate.url, response_url=response.url, observed_at=response.observed_at,

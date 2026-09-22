@@ -17,8 +17,8 @@ LEFT JOIN job_source_content_captures record_observation
     WHERE c.slug = 'mercor' AND sc.job_id = j.id
       AND sc.provider = 'mercor' AND sc.source_type = 'mercor-marketplace'
       AND sc.record_promotion_contract_id = 'mercor_public_active_record_v1'
-      AND sc.promotion_policy_version = 'mercor_record_promotion_v1'
-      AND sc.promotion_decision IN ('promoted', 'confirmed')
+      AND sc.promotion_policy_version IN ('mercor_record_promotion_v1', 'mercor_record_promotion_v2')
+      AND (sc.promotion_decision IN ('promoted', 'confirmed') OR (sc.promotion_policy_version = 'mercor_record_promotion_v2' AND sc.promotion_decision = 'held_degraded' AND sc.decision_reasons_json = '["summary_omits_compatible_supplemental_content"]'))
       AND sc.used_sample_data = 0
       AND sc.provider_outcome IN ('success', 'partial')
       AND sc.normalized_record_count = sc.candidate_count

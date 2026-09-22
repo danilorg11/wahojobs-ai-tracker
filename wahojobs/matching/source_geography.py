@@ -263,9 +263,7 @@ def apply_mercor_applicant_geography(connection, rows):
     cursor = connection.execute(f"""
         SELECT sc.job_id, sc.id AS capture_id, sc.metadata_json,
                sc.source_url, sc.observed_at, sc.material_content_sha256
-        FROM job_source_content_acceptances a
-        JOIN job_source_content_captures sc
-          ON sc.id = a.accepted_capture_id AND sc.job_id = a.job_id
+        FROM job_source_content_captures sc
         JOIN jobs j ON j.id = sc.job_id
         JOIN companies c ON c.id = j.company_id
         JOIN crawl_runs cr ON cr.id = sc.crawl_run_id AND cr.company_id = c.id
@@ -273,11 +271,16 @@ def apply_mercor_applicant_geography(connection, rows):
           AND c.slug = 'mercor' AND sc.provider = 'mercor'
           AND sc.source_type = 'mercor-marketplace'
           AND sc.record_promotion_contract_id = 'mercor_public_active_record_v1'
-          AND sc.promotion_policy_version = 'mercor_record_promotion_v1'
-          AND sc.promotion_decision IN ('promoted', 'confirmed')
+          AND sc.promotion_policy_version IN ('mercor_record_promotion_v1', 'mercor_record_promotion_v2')
+          AND (sc.promotion_decision IN ('promoted', 'confirmed') OR
+               (sc.promotion_policy_version = 'mercor_record_promotion_v2'
+                AND sc.promotion_decision = 'held_degraded'
+                AND sc.decision_reasons_json = '["summary_omits_compatible_supplemental_content"]'))
           AND sc.provider_outcome IN ('success', 'partial')
           AND sc.used_sample_data = 0 AND cr.used_sample_data = 0
           AND cr.status IN ('success', 'partial')
+          AND sc.normalized_record_count = sc.candidate_count
+        ORDER BY sc.id
     """, sorted(wanted))
     columns = [column[0] for column in cursor.description]
     evidence = {}
@@ -285,6 +288,7 @@ def apply_mercor_applicant_geography(connection, rows):
         capture = dict(zip(columns, raw))
         if capture["job_id"] not in wanted:
             continue
+        evidence.pop(capture["job_id"], None)
         metadata = json.loads(capture.pop("metadata_json"))
         if type(metadata) is not dict:
             raise ValueError("accepted Mercor metadata is not an object")

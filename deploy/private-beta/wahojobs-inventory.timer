@@ -1,0 +1,12 @@
+[Unit]
+Description=Wahojobs daily discovery at 06:00 UTC (disabled until owner activation)
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+Persistent=true
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=wahojobs-inventory.service
+
+[Install]
+WantedBy=timers.target

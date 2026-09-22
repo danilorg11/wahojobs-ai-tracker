@@ -158,7 +158,7 @@ def _inventory(database, companion):
     return files
 
 
-def create_snapshot(database, destination, *, companion=None, code_commit, configuration_revision):
+def _create_snapshot(database, destination, *, companion=None, code_commit, configuration_revision, ownership=None):
     """Snapshot quiescent storage; never inspect or copy runtime configuration.
 
     code_commit and configuration_revision are operator-selected nonsecret labels.
@@ -170,7 +170,9 @@ def create_snapshot(database, destination, *, companion=None, code_commit, confi
             or not re.fullmatch('[A-Za-z0-9_.-]{1,80}', configuration_revision)):
         raise ValueError('recovery_nonsecret_release_labels_required')
     database = local_database_path(database)
-    lease = acquire_database_lifetime_ownership(database, role=ROLE_OFFLINE_OPERATOR)
+    from wahojobs.database_lifetime_ownership import require_database_lifetime_ownership
+    lease = ownership or acquire_database_lifetime_ownership(database, role=ROLE_OFFLINE_OPERATOR)
+    require_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
     cold_connections = []
     try:
         sources = _inventory(database, companion)
@@ -211,7 +213,8 @@ def create_snapshot(database, destination, *, companion=None, code_commit, confi
         for cold in reversed(cold_connections):
             cold.rollback()
             cold.close()
-        release_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
+        if ownership is None:
+            release_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
 
 
 def verify_snapshot(snapshot):
@@ -288,3 +291,11 @@ def restore_snapshot(snapshot, destination):
         limitation='No history, consumed attempt, pin or journal is rewritten. Reconcile any post-snapshot writes before activation.')
     _write(target / 'RECOVERY-READY.json', _json(receipt))
     return receipt
+
+
+def create_snapshot(database, destination, *, ownership=None, **options):
+    if ownership is not None:
+        return _create_snapshot(database, destination, ownership=ownership, **options)
+    from wahojobs.maintenance_gate import operation_gate
+    with operation_gate(database):
+        return _create_snapshot(database, destination, **options)

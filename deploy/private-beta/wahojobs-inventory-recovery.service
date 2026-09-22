@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore normal beta after interrupted daily inventory on restart
+After=network-online.target
+Before=wahojobs-inventory.service
+ConditionPathExists=/etc/wahojobs-inventory-v1.json
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/wahojobs-beta/current
+ExecStart=/opt/wahojobs-beta/current/.venv/bin/python -B scripts/daily_inventory.py recover --policy /etc/wahojobs-inventory-v1.json
+TimeoutStartSec=120
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

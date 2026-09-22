@@ -2,6 +2,7 @@
 from contextlib import contextmanager, closing
 from pathlib import Path
 import sqlite3
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from urllib.parse import urlsplit
 MAX_DETAIL_REQUESTS = 500
 MAX_HTTP_TRANSACTIONS = 1000
 _REQUEST_BUDGET = ContextVar('local_refresh_request_budget', default=None)
+_REQUEST_DEADLINE = ContextVar('local_refresh_request_deadline', default=None)
 DETAIL_HOSTS = {'www.alignerr.com': 'alignerr', 'jobs.micro1.ai': 'micro1'}
 
 
@@ -97,8 +99,26 @@ def refresh_request_budget(*, sources=(), http_limit=None, detail_limit=None, au
 
 
 def reserve_http_request(request, *, detail=False):
+    remaining_request_seconds()
     budget = _REQUEST_BUDGET.get()
     return budget.reserve(request, detail=detail) if budget is not None else None
+
+
+def remaining_request_seconds():
+    deadline = _REQUEST_DEADLINE.get()
+    remaining = deadline - time.monotonic() if deadline is not None else None
+    if remaining is not None and remaining <= 0:
+        raise TimeoutError('daily_collection_deadline_expired')
+    return remaining
+
+
+@contextmanager
+def request_deadline(monotonic_deadline):
+    token = _REQUEST_DEADLINE.set(monotonic_deadline)
+    try:
+        yield
+    finally:
+        _REQUEST_DEADLINE.reset(token)
 
 
 def audit_http_response(entry, *, body=None, error=None, capture_complete=True):
@@ -169,6 +189,9 @@ def open_catalog(request, *, timeout):
             or allowed.get((parsed.hostname, parsed.path)) != request.get_method()):
         raise ValueError('Catalog destination/method is outside the supported scope')
     entry = reserve_http_request(request)
+    remaining = remaining_request_seconds()
+    if remaining is not None:
+        timeout = min(timeout, remaining)
     try:
         response = build_opener(_NoRedirect()).open(request, timeout=timeout)
     except OSError as exc:

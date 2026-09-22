@@ -59,6 +59,7 @@ from wahojobs.source_capture import (
     SOURCE_CAPTURE_EVIDENCE_VERSION,
     SOURCE_PROMOTION_POLICY_VERSION,
     MERCOR_PROMOTION_POLICY_VERSION,
+    MERCOR_DETAIL_PROMOTION_POLICY_VERSION,
     PROVIDER_DETAIL_PROMOTION_POLICY_VERSION,
     SOURCE_PROMOTION_POLICY_DECIDERS,
     SourceCapturePersistenceResult,
@@ -714,8 +715,18 @@ def upsert_job_source_content(
             provider=provider,
             source_type=source_type,
         )
+        from wahojobs.mercor_supplemental import CONTRACT as SUPPLEMENTAL_CONTRACT, validate_references
+        if prepared_attestation.contract_id == SUPPLEMENTAL_CONTRACT:
+            catalog_origin = validate_references(conn, candidate, capture_context)
+            current_origin = conn.execute('SELECT accepted_capture_id FROM job_source_content_acceptances WHERE job_id=?', (job_id,)).fetchone()
+            if (current_origin is None or current_origin['accepted_capture_id'] != catalog_origin['id']
+                    or now != catalog_origin['observed_at']):
+                raise ValueError('composition_requires_current_catalog_predecessor')
         promotion_policy_version = (
-            PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
+            SUPPLEMENTAL_CONTRACT if prepared_attestation.contract_id == SUPPLEMENTAL_CONTRACT else
+            MERCOR_DETAIL_PROMOTION_POLICY_VERSION
+            if provider == "mercor" and prepared_attestation.contract_id == PROVIDER_DETAIL_RECORD_CONTRACT_ID
+            else PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
             if prepared_attestation.contract_id == PROVIDER_DETAIL_RECORD_CONTRACT_ID
             else MERCOR_PROMOTION_POLICY_VERSION
             if prepared_attestation.contract_id == MERCOR_RECORD_CONTRACT_ID
@@ -753,7 +764,7 @@ def upsert_job_source_content(
             promotion_policy_version = PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
         policy_decider = (
             SOURCE_PROMOTION_POLICY_DECIDERS[promotion_policy_version]
-            if promotion_policy_version in {MERCOR_PROMOTION_POLICY_VERSION, PROVIDER_DETAIL_PROMOTION_POLICY_VERSION}
+            if promotion_policy_version in {MERCOR_PROMOTION_POLICY_VERSION, PROVIDER_DETAIL_PROMOTION_POLICY_VERSION, MERCOR_DETAIL_PROMOTION_POLICY_VERSION, SUPPLEMENTAL_CONTRACT}
             else decide_source_promotion
         )
         decision = policy_decider(
@@ -766,6 +777,9 @@ def upsert_job_source_content(
             ),
             record_attestation=prepared_attestation,
             accepted_record_attestation=accepted_attestation,
+            **(dict(job_fields_json=prepared_semantic.job_fields_json,
+                    accepted_job_fields_json=accepted_capture['semantic_job_fields_json'] if accepted_capture else None)
+               if promotion_policy_version == 'mercor_record_promotion_v2' else {}),
         )
         if (
             existing_acceptance is None
@@ -940,6 +954,10 @@ def upsert_job_source_content(
                     now,
                 ),
             )
+        composed_result = None
+        if provider == 'mercor' and capture_context.crawl_run_id is not None and decision.accepted:
+            from wahojobs.mercor_supplemental import compose_after_catalog
+            composed_result = compose_after_catalog(conn, accepted_capture, capture_id, candidate)
         conn.execute(f"RELEASE SAVEPOINT {savepoint}")
     except Exception:
         conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
@@ -947,6 +965,8 @@ def upsert_job_source_content(
         if started_transaction:
             conn.rollback()
         raise
+    if composed_result is not None:
+        return composed_result
     return SourceCapturePersistenceResult(
         capture_id=int(capture_id),
         material_content_sha256=prepared.material_content_sha256,
@@ -1027,7 +1047,12 @@ def get_job_source_capture_evidence(conn, job_id):
     )
     evidence_stale_reasons = []
     current_promotion_policy_version = (
-        PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
+        'mercor_supplemental_composition_v1'
+        if accepted_capture is not None and accepted_capture['record_promotion_contract_id'] == 'mercor_supplemental_composition_v1' else
+        MERCOR_DETAIL_PROMOTION_POLICY_VERSION
+        if accepted_capture is not None and accepted_capture["provider"] == "mercor"
+        and accepted_capture["record_promotion_contract_id"] == PROVIDER_DETAIL_RECORD_CONTRACT_ID
+        else PROVIDER_DETAIL_PROMOTION_POLICY_VERSION
         if accepted_capture is not None
         and accepted_capture["record_promotion_contract_id"] == PROVIDER_DETAIL_RECORD_CONTRACT_ID
         else MERCOR_PROMOTION_POLICY_VERSION
@@ -1397,6 +1422,15 @@ def _replay_source_capture_history(conn, job, accepted_capture_id):
             context,
         )
         _verify_capture_crawl_provenance(conn, job, row, context)
+        if row['record_promotion_contract_id'] == 'mercor_supplemental_composition_v1':
+            from wahojobs.mercor_supplemental import validate_references
+            candidate = SimpleNamespace(**json.loads(row['semantic_job_fields_json']),
+                source_body=row['body'], source_body_format=row['body_format'],
+                source_updated_at=row['source_updated_at'], source_metadata=metadata)
+            catalog = validate_references(conn, candidate, context)
+            if (catalog['id'] >= row['id'] or catalog['observed_at'] != row['observed_at']
+                    or accepted_state is None or accepted_state['capture']['id'] != catalog['id']):
+                raise RuntimeError('Invalid composition chronology')
         decider = SOURCE_PROMOTION_POLICY_DECIDERS.get(
             row["promotion_policy_version"]
         )
@@ -1406,6 +1440,9 @@ def _replay_source_capture_history(conn, job, accepted_capture_id):
         if accepted_state is not None:
             accepted_row = {
                 "body": accepted_state["body"],
+                "body_format": accepted_state['capture']['body_format'],
+                "metadata_json": accepted_state['capture']['metadata_json'],
+                "last_captured_at": accepted_state['capture']['observed_at'],
                 "material_content_sha256": accepted_state[
                     "material_content_sha256"
                 ],
@@ -1425,6 +1462,9 @@ def _replay_source_capture_history(conn, job, accepted_capture_id):
                 if accepted_state is not None
                 else None
             ),
+            **(dict(job_fields_json=row['semantic_job_fields_json'],
+                    accepted_job_fields_json=accepted_state['capture']['semantic_job_fields_json'] if accepted_state else None)
+               if row['promotion_policy_version'] == 'mercor_record_promotion_v2' else {}),
         )
         if (
             decision.decision != row["promotion_decision"]

@@ -1,0 +1,20 @@
+[Unit]
+Description=Wahojobs hourly stored inventory health and approved alert delivery
+ConditionPathExists=/etc/wahojobs-inventory-v1.json
+
+[Service]
+Type=oneshot
+User=wahojobs-beta
+Group=wahojobs-beta
+WorkingDirectory=/opt/wahojobs-beta/current
+ExecStart=/opt/wahojobs-beta/current/.venv/bin/python -B scripts/daily_inventory.py health --policy /etc/wahojobs-inventory-v1.json --deliver
+TimeoutStartSec=120
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/wahojobs-beta/daily-inventory-v1
+Environment=PYTHONDONTWRITEBYTECODE=1
+StandardOutput=journal
+StandardError=journal

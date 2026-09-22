@@ -1,5 +1,10 @@
 # Accepted catalog release and Daily Inventory Operations V1
 
+Implementation follow-up (2026-09-22): see
+[the tested implementation and bounded activation procedure](daily_inventory_operations_v1.md).
+The historical report below is preserved; the September 21 operational checkpoint
+supersedes its earlier host-access and deployment observations.
+
 Prepared 2026-09-21. This is an operational handoff, not scheduler activation.
 
 ## Release checkpoint and deployment blocker

@@ -344,7 +344,9 @@ class EnrichmentRepair:
 
 
 def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0,
-               details='needed', phase='all', owner=None, transport_binding='production', enrichment=None):
+               details='needed', phase='all', owner=None, transport_binding='production', enrichment=None, daily_discovery=False):
+    if type(daily_discovery) is not bool:
+        raise ValueError('invalid_daily_discovery')
     now = utc(now or clock_now())
     target = local_database_path(database)
     providers = list(dict.fromkeys(providers))
@@ -355,7 +357,7 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
             or type(detail_limit) is not int or not 0 <= detail_limit <= MAX_DETAIL_REQUESTS):
         raise ValueError('invalid_refresh_budget')
     config = dict(providers=providers, http_limit=http_limit, detail_limit=detail_limit, details=details,
-                  phase=phase, transport_binding=transport_binding)
+                  phase=phase, transport_binding=transport_binding, daily_discovery=daily_discovery)
     states, contracts, operations = [], [], []
     with read_connection(target) as connection:
         connection.execute('BEGIN')
@@ -373,7 +375,7 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
             stale = [j['job_id'] for j in state['jobs'] if j['verification']['status'] in ('stale_source','unverified_source','unavailable')]
             missing = [j['job_id'] for j in state['jobs'] if j['verification']['status'] != 'inactive'
                        and j['description'] in ('missing_accepted_body', 'catalog_only_not_full_detail')]
-            need_catalog = not state['jobs'] or bool(stale) or bool(failed) or bool(details and missing) or details == 'all'
+            need_catalog = daily_discovery or not state['jobs'] or bool(stale) or bool(failed) or bool(details and missing) or details == 'all'
             if phase != 'derived' and need_catalog:
                 blocks = []
                 if state['input_status'] != 'available' or 'unavailable' in contract:
@@ -381,7 +383,7 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
                 if http_limit is None or http_limit == 0:
                     blocks.append('execution_budget_absent')
                 operations.append(dict(id='catalog:' + slug, kind='catalog_observation', provider=slug,
-                    reasons=dict(stale_or_unverified_ids=stale, detail_gap_ids=missing,
+                    reasons=dict(daily_discovery=daily_discovery, stale_or_unverified_ids=stale, detail_gap_ids=missing,
                                  no_inventory=not state['jobs'], unsuccessful_latest=bool(failed),
                                  explicit_detail_recheck=details == 'all'),
                     prerequisites=['offline_database_ownership', 'explicit_source_authorization'],
@@ -545,9 +547,9 @@ def _validate_plan(plan):
         raise ValueError('maintenance_plan_integrity_failed')
 
 
-def execute_plan(plan, root, *, authorized=False, authorize_sources=False,
+def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                  authorize_derived=False, authorize_preparation=False, owner=None, now=None,
-                 transport_binding='production', enrichment=None, authorize_enrichment=False):
+                 transport_binding='production', enrichment=None, authorize_enrichment=False, ownership=None):
     _validate_plan(plan)
     if (any(type(v) is not bool for v in (authorized, authorize_sources, authorize_derived,
                                          authorize_preparation, authorize_enrichment)) or not authorized):
@@ -558,7 +560,9 @@ def execute_plan(plan, root, *, authorized=False, authorize_sources=False,
     from wahojobs.database_lifetime_ownership import (
         acquire_database_lifetime_ownership, release_database_lifetime_ownership, ROLE_OFFLINE_OPERATOR)
     # Ownership covers preflight through final receipts, not just each provider.
-    lease = acquire_database_lifetime_ownership(target, role=ROLE_OFFLINE_OPERATOR)
+    from wahojobs.database_lifetime_ownership import require_database_lifetime_ownership
+    lease = ownership or acquire_database_lifetime_ownership(target, role=ROLE_OFFLINE_OPERATOR)
+    require_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=target)
     try:
         now = utc(now or clock_now())
         if (transport_binding != plan['config']['transport_binding']
@@ -667,4 +671,16 @@ def execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                                             request_usage=budget.summary()))
         return report(root, plan['plan_id'])
     finally:
-        release_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=target)
+        if ownership is None:
+            release_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=target)
+
+
+def execute_plan(plan, root, *, ownership=None, **options):
+    # A daily worker already holds lifetime ownership continuously across its
+    # verified backup and both source plans. Ordinary manual operations also
+    # share the supervisor gate, so they cannot enter its stop/start interval.
+    if ownership is not None:
+        return _execute_plan(plan, root, ownership=ownership, **options)
+    from wahojobs.maintenance_gate import operation_gate
+    with operation_gate(Path(plan['database']['path'])):
+        return _execute_plan(plan, root, **options)

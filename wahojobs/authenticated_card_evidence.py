@@ -76,7 +76,7 @@ def _source_text(source, *, include_structured_lists=True):
     if not isinstance(metadata, dict):
         raise ValueError('invalid_source_metadata')
     detail = metadata.get(DETAIL_KEY, {})
-    if source.get('source_slug') == 'alignerr':
+    if source.get('source_slug') == 'alignerr' or 'wahojobs_supplemental_composition_v1' in metadata:
         # The accepted body is employer wording. Cached display_text also contains
         # our historical field labels; never feed those back as employer prose.
         text = source.get('body') or ''

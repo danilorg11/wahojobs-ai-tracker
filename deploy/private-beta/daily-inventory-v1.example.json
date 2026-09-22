@@ -1,0 +1,21 @@
+{
+  "version": "daily_inventory_v1",
+  "enabled": false,
+  "host": "wahojobs-private-beta-rehearsal-20260917",
+  "database": "/var/lib/wahojobs-beta/rehearsal-recovered-001/product.sqlite3",
+  "journal": "/var/lib/wahojobs-beta/rehearsal-recovered-001/journal",
+  "runtime_config": "/etc/wahojobs-beta/config-002/runtime.json",
+  "configuration_revision": "config-002",
+  "state_directory": "/var/lib/wahojobs-beta/daily-inventory-v1",
+  "code_commit": "REPLACE_WITH_APPROVED_40_HEX_IMPLEMENTATION_COMMIT",
+  "schedule": "06:00 UTC",
+  "first_run_at": "2026-09-23T06:00:00Z",
+  "sources": {"alignerr": 100, "mercor": 1},
+  "execution_seconds": 900,
+  "recovery_seconds": 120,
+  "catch_up_seconds": 3600,
+  "details": 0,
+  "retries": 0,
+  "model_calls": 0,
+  "alert_delivery": {"approved": false, "recipient": null, "command": []}
+}
