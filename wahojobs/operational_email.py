@@ -28,19 +28,23 @@ class DeliveryUnavailable(RuntimeError):
 
 
 def validate_packet(packet):
-    if (type(packet) is not dict or set(packet) != {'version', 'application', 'recipient', 'events'}
+    if (type(packet) is not dict or set(packet) not in ({'version', 'application', 'recipient', 'events'},
+                                                       {'version', 'application', 'recipient', 'events', 'context'})
             or type(packet['version']) is not int or packet['version'] != 2
             or packet['application'] != 'wahojobs-beta' or packet['recipient'] != ALERT_RECIPIENT
-            or type(packet['events']) is not list or not 0 < len(packet['events']) <= MAX_EVENTS):
+            or type(packet['events']) is not list or not 0 < len(packet['events']) <= MAX_EVENTS
+            or 'context' in packet and type(packet['context']) is not dict):
         raise ValueError('invalid_operational_delivery_packet')
     seen = set()
     for event in packet['events']:
         if (type(event) is not dict or not {'id', 'kind', 'key', 'at'} <= set(event)
-                or set(event) - {'id', 'kind', 'key', 'at', 'issue', 'delivery'}
+                or set(event) - {'id', 'kind', 'key', 'at', 'issue', 'delivery', 'from_key'}
                 or type(event['id']) is not str or not re.fullmatch('[a-f0-9]{32}', event['id'])
-                or event['id'] in seen or event['kind'] not in ('opened', 'recovered')
+                or event['id'] in seen or event['kind'] not in ('opened', 'recovered', 'escalated', 'status_changed', 'first_verified')
                 or type(event['key']) is not str or not re.fullmatch('[a-z0-9_]+:[a-z0-9_]+', event['key'])
                 or type(event['at']) is not str or len(event['at']) > 64
+                or 'from_key' in event and (type(event['from_key']) is not str or
+                    not re.fullmatch('[a-z0-9_]+:[a-z0-9_]+',event['from_key']))
                 or 'issue' in event and type(event['issue']) is not dict):
             raise ValueError('invalid_operational_event')
         parse(event['at']); seen.add(event['id'])
@@ -49,20 +53,94 @@ def validate_packet(packet):
     return packet
 
 
-def message(events):
-    opened = sum(event['kind'] == 'opened' for event in events)
-    recovered = len(events) - opened
-    lines = ['Wahojobs beta inventory operations', '',
-             f'{opened} new issue(s); {recovered} recovery notice(s).', '']
+def _readable(value):
+    return parse(value).strftime('%d %b %Y %H:%M UTC') if value else 'time unavailable'
+
+
+def _name(key):
+    source=key.split(':',1)[0]
+    return {'micro1':'micro1','rws':'RWS','oneforma':'OneForma','welocalize':'Welocalize',
+            'dataannotation':'DataAnnotation','dataforce':'DataForce'}.get(source,source.capitalize())
+
+
+def _event_line(event):
+    key=event['key'];issue=event.get('issue') or {};name=_name(key)
+    if event['kind']=='first_verified':return f'{name}: first daily verification completed.'
+    if event['kind']=='recovered':return f'{name}: the {key.split(":",1)[1].replace("_"," ")} problem resolved. Other open conditions remain separate.'
+    if key.endswith(':coverage'):
+        reason=issue.get('reason','coverage unavailable')
+        if reason=='disabled_after_http_403':
+            line=f'{name}: disabled after its approved endpoint returned HTTP 403 on {_readable(issue.get("last_attempt_at"))}.'
+        else:line=f'{name}: daily coverage unavailable — {reason.rstrip(".")}.'
+    elif ':cohort_' in key:
+        state=issue.get('state');count=issue.get('records');unit='exact posting records'
+        if state=='expired':line=f'{name}: verification expired for {count} {unit}; availability is unconfirmed, not employer-closed.'
+        elif state=='escalated':line=f'{name}: {count} {unit} have gone at least 48 hours without verification.'
+        else:line=f'{name}: {count} {unit} are approaching the verification deadline.'
+        if issue.get('expires_at'):line+=' Deadline: '+_readable(issue['expires_at'])+'.'
+    elif key.endswith(':collection'):
+        status=issue.get('http_status')
+        line=f'{name}: collection failed'+(f' (HTTP {status})' if status else '')+'.'
+        if issue.get('last_attempt_at'):line+=' Last attempt: '+_readable(issue['last_attempt_at'])+'.'
+    elif key.startswith('run:'):
+        line='Daily cycle: '+issue.get('reason','execution problem').replace('_',' ')+'.'
+    elif key=='delivery:uncertain':line='Operational email delivery failed or is uncertain; the original message was not retried.'
+    else:line=f'{name}: '+issue.get('reason','operational condition').replace('_',' ')+'.'
+    if issue.get('corrective_action'):line+=' Next: '+issue['corrective_action']
+    return line
+
+
+def message(events,context=None):
+    context=context or {};cycle=context.get('cycle') or {}
+    counts={kind:sum(event['kind']==kind for event in events)
+            for kind in ('opened','escalated','status_changed','first_verified','recovered')}
+    state=cycle.get('state')
+    state_text={'scheduled':'First daily check scheduled','pending':'Daily check due','running':'Daily check running',
+                'missed':'Daily check missed','partial':'Partial daily check','complete':'Daily check complete',
+                'failed':'Daily check failed'}.get(state,'Stored operational update')
+    headline=state_text
+    if counts['status_changed'] and not counts['opened'] and any(
+            e.get('issue',{}).get('reason')=='disabled_after_http_403' for e in events):
+        headline='Source paused after HTTP 403'
+    change=[]
+    for kind,label in (('opened','new alert'),('escalated','escalation'),('status_changed','status change'),
+                       ('first_verified','first verification'),('recovered','resolved alert')):
+        if counts[kind]:change.append(f'{counts[kind]} {label}'+('s' if counts[kind]!=1 else ''))
+    subject='Wahojobs inventory: '+headline+('; '+', '.join(change) if change else '')
+    lines=['Wahojobs beta inventory operations','',
+           'Checked: '+_readable(context.get('checked_at') or events[0]['at'])+'.',
+           'Current state: '+state_text+'.']
+    if state=='partial':
+        qualified=len(cycle.get('qualified_sources',[]));failed=len(cycle.get('failed_sources',[]))
+        lines.append(f"Last cycle: {qualified} source{'s' if qualified!=1 else ''} verified and published; "
+                     f"{failed} attempted source{'s' if failed!=1 else ''} failed. "
+                     'Publication succeeded for the verified sources; the daily check was incomplete.')
+    elif state=='complete':lines.append('Last cycle completed its qualifying source checks.')
+    if cycle.get('new_opportunities') is not None and state in ('partial','complete'):
+        lines.append(f"Catalog impact: {cycle['new_opportunities']:,} newly published opportunities "
+                     f"({cycle['new_variants']:,} variants); {cycle['changed_variants']:,} changed variants; "
+                     f"{cycle['confirmed_closed']} confirmed closures.")
+    if context.get('expired_records'):
+        lines.append(f"{context['expired_records']} exact posting records have expired verification; "
+                     'their availability is unconfirmed, not employer-closed.')
+    if 'active_incidents' in context:
+        affected=context.get('affected_sources',[])
+        conditions=context['active_incidents'];sources=len(affected)
+        lines.append(f"Currently open: {conditions} distinct condition{'s' if conditions!=1 else ''} across "
+                     f"{sources} source{'s' if sources!=1 else ''}"+
+                     ((' — '+', '.join(_name(s+':coverage') for s in affected)) if affected else '')+'.')
+    if context.get('next_scheduled_execution'):
+        lines.append('Next scheduled collection: '+_readable(context['next_scheduled_execution'])+'.')
+    lines.extend(['','This notification: '+(', '.join(change) if change else 'no new change')+'.',''])
     for event in events:
-        lines.extend([f"{event['kind'].upper()}: {event['key']}", f"Observed: {event['at']}",
-                      'Event: ' + event['id']])
-        if event.get('issue'): lines.append(json.dumps(event['issue'], ensure_ascii=True, sort_keys=True))
-        lines.append('')
-    lines.append('This message reports stored operational state. It does not perform employer requests.')
-    return dict(from_=SENDER, to=[ALERT_RECIPIENT],
-                subject=f'Wahojobs inventory: {opened} issue(s), {recovered} recovery notice(s)',
-                text='\n'.join(lines))
+        if event['kind']=='first_verified':continue
+        lines.append('- '+_event_line(event))
+    first=[_name(e['key']) for e in events if e['kind']=='first_verified']
+    if first:lines.append('- First daily verification completed: '+', '.join(first)+'.')
+    lines.extend(['','Technical references (retained in operational logs):'])
+    for event in events:
+        lines.append(f"{event['kind']} {event['key']} {event['id']} {event['at']}")
+    return dict(from_=SENDER,to=[ALERT_RECIPIENT],subject=subject,text='\n'.join(lines))
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -113,7 +191,7 @@ def send_packet(packet, credential, state_directory, *, transport=None, at=None)
             raise DeliveryUnavailable('operational_daily_message_limit')
         ids = sorted(event['id'] for event in fresh)
         key = 'wahojobs-inventory-' + sha256('\n'.join(ids).encode()).hexdigest()
-        payload = message(fresh); payload['from'] = payload.pop('from_')
+        payload = message(fresh,packet.get('context')); payload['from'] = payload.pop('from_')
         digest = sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         ledger['attempts_by_day'][day] = ledger['attempts_by_day'].get(day, 0) + 1
         for event_id in ids:

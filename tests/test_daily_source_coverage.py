@@ -284,13 +284,15 @@ class CoveragePolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             config=dict(state_directory=temp,sources=policy.default_sources(),first_run_at=daily.stamp(T0.replace(hour=6)),
                 alert_delivery=dict(recipient=policy.ALERT_RECIPIENT,command=['/reviewed/test-adapter']))
-            state=daily.health(config,T0)
+            with patch.object(daily,'_baseline_cohorts',return_value={}):
+                state=daily.health(config,T0)
             with patch.object(cli.subprocess,'run') as transport:
                 cli.deliver(config,state)
                 packet=json.loads(transport.call_args.kwargs['input'])
                 self.assertEqual(packet['recipient'],'danilo@wahojobs.com')
                 self.assertGreater(len(packet['events']),15)
-                cli.deliver(config,daily.health(config,T0+timedelta(hours=1)))
+                with patch.object(daily,'_baseline_cohorts',return_value={}):
+                    cli.deliver(config,daily.health(config,T0+timedelta(hours=1)))
                 self.assertEqual(transport.call_count,1)
 
 

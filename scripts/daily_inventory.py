@@ -367,7 +367,8 @@ def deliver(config,state):
     if not pending:return
     for event in pending:event['delivery']='attempted'
     daily.write_json(path,state)
-    packet=dict(recipient=delivery['recipient'],events=pending,application='wahojobs-beta',version=2)
+    packet=dict(recipient=delivery['recipient'],events=pending,context=state.get('context',{}),
+                application='wahojobs-beta',version=2)
     try:
         subprocess.run(delivery['command'],input=json.dumps(packet).encode(),stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,timeout=15,check=True)
