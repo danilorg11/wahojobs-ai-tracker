@@ -1,0 +1,2040 @@
+{
+  "version": "daily_inventory_first_automatic_commissioning_v1",
+  "at": "2026-09-23T21:25:06.556414+00:00",
+  "status": "nine_sources_active; micro1_disabled_after_403; five_preexisting_sources_disabled; overall_15_source_coverage_incomplete",
+  "deployed_release": "33262a4856ce3af04b0781a794055d0dcb0d9801",
+  "branch": "codex/daily-inventory-operations-v1",
+  "release_tree": "b567c67ba2f096613080cf0b98e5caa01073369d",
+  "archive": "daily-online-33262a4.tar.gz",
+  "archive_sha256": "a3934390017ed4d370deaeac1595e479513e759a94d96cbd0bebd35e86ee9a6e",
+  "preserved_ancestors": [
+    "094f496bb5df71d02ac5f493c252b96392ecebfe",
+    "9bd47127228856095e4164beb8dc309e52d1ea75"
+  ],
+  "reviewed_manifest_sha256": "9c76c0b2676a2c56212a6200d30be15850f287aca528cc03a01ba3a7549ff540",
+  "reviewed_manifest_hash_basis": "Exact manifest bytes inside the verified immutable release archive.",
+  "run": {
+    "run_id": "20260923T060000Z",
+    "trigger": "timer",
+    "trigger_evidence": {
+      "invocation_id": "285d087ad5a94db6a4a0ada73d4c4a06",
+      "provenance": "systemd_invocation_environment",
+      "trigger": "timer",
+      "trigger_unit": "wahojobs-inventory.timer",
+      "triggered_at": "2026-09-23T06:00:00.224426+00:00"
+    },
+    "scheduled_at": "2026-09-23T06:00:00+00:00",
+    "started_at": "2026-09-23T06:00:01.714853+00:00",
+    "collection_finished_at": "2026-09-23T06:01:10.331918+00:00",
+    "maintenance_started_at": "2026-09-23T06:01:10.331975+00:00",
+    "maintenance_finished_at": "2026-09-23T06:04:23.218601+00:00",
+    "ended_at": "2026-09-23T06:04:23.218665+00:00",
+    "outcome": "partial_or_failed",
+    "normal_service_resumed": true,
+    "total_runtime_seconds": 261.472,
+    "maintenance_seconds": 192.887,
+    "recovery_seconds": 6.479,
+    "next_scheduled_execution": "2026-09-24T06:00:00+00:00"
+  },
+  "initial_cycle_caps": {
+    "http_max": 232,
+    "execution_seconds": 2040,
+    "recovery_seconds": 120
+  },
+  "actual_cycle_totals": {
+    "requests_used": 70,
+    "pages_fetched": 69,
+    "observed": 8147,
+    "observed_canonical_opportunities": 1946,
+    "new": 2161,
+    "new_canonical_opportunities": 1093,
+    "changed": 8,
+    "reconfirmed": 5978
+  },
+  "totals_note": "Observed/new/change totals sum qualifying sources only; micro1 is unknown, not zero.70 HTTP attempts include its403;69 successful response pages.0 closures across qualifying sources.",
+  "effective_policy_reduction": {
+    "after_sha256": "5c07229ddc5711955ff7383992bf727009dd4cb4388f30ef2fb7c8531c592554",
+    "aggregate": {
+      "execution_seconds": 1800,
+      "http_max": 182
+    },
+    "at": "2026-09-23T21:19:06.987828+00:00",
+    "before_sha256": "e77acf3774f15627258ccc7b03c6ec830c7280a2f5618e5b35bb7d9eadb6716e",
+    "changed": true,
+    "disabled_source": "micro1",
+    "employer_requests": 0,
+    "enabled_sources": [
+      "alignerr",
+      "appen",
+      "mercor",
+      "meridial",
+      "mindrift",
+      "oneforma",
+      "rws",
+      "turing",
+      "welocalize"
+    ],
+    "evidence_plan": "c2001eeaddca91b3c12f3011e63760335dc8c7ab83beb0290636bf68bd12cf6f",
+    "first_run_at": "2026-09-23T06:00:00Z",
+    "maintenance_seconds": 0,
+    "only_changes": [
+      "sources.micro1.enabled: true -> false",
+      "execution_seconds: 2040 -> 1800"
+    ],
+    "policy_backup": "/etc/wahojobs-inventory-v1.pre-micro1-disable-20260923.json",
+    "publication_seconds": 240,
+    "reason": "Approved endpoint returned HTTP 403 Forbidden in first scheduled collection; access requirement unresolved.",
+    "recovery_seconds": 120,
+    "runtime_after": {
+      "app_active": true,
+      "app_expected_owner_command_cgroup": true,
+      "caddy_active": true,
+      "caddy_expected_owner_command_cgroup": true,
+      "current_release_matches": true,
+      "effective_load_credential_config_002": true,
+      "effective_private_runtime_matches": true,
+      "public_caddy_hash_match": true,
+      "public_origin_callback_match": true,
+      "public_runtime_dropin_hash_match": true,
+      "recovered_database_selected": true,
+      "selected_config_002": true,
+      "selected_configuration_dropin_exact": true,
+      "staging_manual_only": true
+    },
+    "runtime_before": {
+      "app_active": true,
+      "app_expected_owner_command_cgroup": true,
+      "caddy_active": true,
+      "caddy_expected_owner_command_cgroup": true,
+      "current_release_matches": true,
+      "effective_load_credential_config_002": true,
+      "effective_private_runtime_matches": true,
+      "public_caddy_hash_match": true,
+      "public_origin_callback_match": true,
+      "public_runtime_dropin_hash_match": true,
+      "recovered_database_selected": true,
+      "selected_config_002": true,
+      "selected_configuration_dropin_exact": true,
+      "staging_manual_only": true
+    },
+    "timers": {
+      "wahojobs-inventory-health.timer": {
+        "ActiveState": "active",
+        "LastTriggerUSec": "Wed 2026-09-23 20:40:00 UTC",
+        "NextElapseUSecRealtime": "Wed 2026-09-23 21:40:00 UTC",
+        "UnitFileState": "enabled"
+      },
+      "wahojobs-inventory.timer": {
+        "ActiveState": "active",
+        "LastTriggerUSec": "Wed 2026-09-23 06:00:00 UTC",
+        "NextElapseUSecRealtime": "Thu 2026-09-24 06:00:00 UTC",
+        "UnitFileState": "enabled"
+      }
+    }
+  },
+  "sources": {
+    "alignerr": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://www.alignerr.com/api/jobs?limit=120&offset=<validated offset>"
+      ],
+      "enabled": true,
+      "http_max": 100,
+      "seconds_max": 360,
+      "request_timeout_seconds": 90,
+      "cooldown_hours": 0,
+      "verification_rule": "Stable total, offset/limit, unique IDs, exact final count; no closure on cap/interruption.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 47,
+        "pages_fetched": 47,
+        "http_responses_received": 47,
+        "upstream_records": 5624,
+        "upstream_record_unit": "source listing rows",
+        "filtered_records": 0,
+        "rejected_records": 0,
+        "observed": 5624,
+        "observed_canonical_opportunities": 491,
+        "new": 0,
+        "new_canonical_opportunities": 0,
+        "changed": 0,
+        "reconfirmed": 5624,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 30,
+        "content_hold_reasons": {
+          "catalog_cannot_replace_accepted_detail": 30
+        }
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:00:17+00:00",
+          "records": 5624,
+          "verified_at": "2026-09-23T06:00:17+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:17+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:00:17+00:00",
+      "lineage": {
+        "collection_http": 47,
+        "collection_plan": "259fc940401e7288abf551ed818e607fb3ad624fd7ee76f400e2c8edcbec2561",
+        "completion_reason": null,
+        "normalized_variants": 5624,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "56d9f7b541a57e7154262cf376ac6eadafc0abff209c5eedbde07369fbc15d52",
+        "publication_status": "completed",
+        "raw_records": 5624,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 491,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 5624
+          },
+          "include_in_live_market_estimate": {
+            "1": 5624
+          },
+          "inventory_model": {
+            "live_feed": 5624
+          },
+          "opportunity_kind": {
+            "live_posting": 5624
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:00:17+00:00",
+            "variants": 5624,
+            "verified_at": "2026-09-23T06:00:17+00:00"
+          }
+        ],
+        "variants": 5624
+      },
+      "note": null
+    },
+    "appen": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://api.lever.co/v0/postings/appen?mode=json&expand=location"
+      ],
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 60,
+      "request_timeout_seconds": 30,
+      "cooldown_hours": 0,
+      "verification_rule": "Complete public board list with required fields and unique IDs; no authenticated or corporate search.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 1,
+        "pages_fetched": 1,
+        "http_responses_received": 1,
+        "upstream_records": 32,
+        "upstream_record_unit": "Lever postings",
+        "filtered_records": 0,
+        "rejected_records": 0,
+        "observed": 32,
+        "observed_canonical_opportunities": 32,
+        "new": 32,
+        "new_canonical_opportunities": 32,
+        "changed": 0,
+        "reconfirmed": 0,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 0,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:00:20+00:00",
+          "records": 32,
+          "verified_at": "2026-09-23T06:00:20+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:20+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:00:20+00:00",
+      "lineage": {
+        "collection_http": 1,
+        "collection_plan": "5c79757b5be2bb33b0675edbc7980d973fb3d40ad0bca75148a227bb72474c66",
+        "completion_reason": null,
+        "normalized_variants": 32,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "42c77aec683af604e6ba898fb98f2e57ac8cb7ab26137e7fed4d46f7a0f81447",
+        "publication_status": "completed",
+        "raw_records": 32,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 32,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 32
+          },
+          "include_in_live_market_estimate": {
+            "1": 32
+          },
+          "inventory_model": {
+            "live_feed": 32
+          },
+          "opportunity_kind": {
+            "live_posting": 32
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:00:20+00:00",
+            "variants": 32,
+            "verified_at": "2026-09-23T06:00:20+00:00"
+          }
+        ],
+        "variants": 32
+      },
+      "note": null
+    },
+    "dataannotation": {
+      "operational_status": "disabled_contract_blocked",
+      "endpoint_scope": [
+        "GET https://www.dataannotation.tech/coding",
+        "GET https://www.dataannotation.tech/generalist",
+        "GET https://www.dataannotation.tech/law",
+        "GET https://www.dataannotation.tech/math",
+        "GET https://www.dataannotation.tech/medicine",
+        "GET https://www.dataannotation.tech/physics",
+        "GET https://www.dataannotation.tech/finance",
+        "GET https://www.dataannotation.tech/accounting",
+        "GET https://www.dataannotation.tech/bilingual",
+        "GET https://www.dataannotation.tech/chemistry",
+        "GET https://www.dataannotation.tech/biology"
+      ],
+      "enabled": false,
+      "http_max": 11,
+      "seconds_max": 360,
+      "request_timeout_seconds": 30,
+      "cooldown_hours": 0,
+      "verification_rule": "Evergreen application pages; not active-project inventory.",
+      "blocker": "Retained /coding response redirects to /job-board/software-engineer outside the approved path contract.",
+      "next_action": "Review canonical path and fixed page list, validate redirect destinations and evergreen page evidence; count every redirect hop.",
+      "qualifying_observation": false,
+      "outcome": "blocked",
+      "actual": {
+        "requests_used": 0,
+        "pages_fetched": 0,
+        "http_responses_received": 0,
+        "upstream_records": null,
+        "upstream_record_unit": null,
+        "filtered_records": null,
+        "rejected_records": null,
+        "observed": null,
+        "observed_canonical_opportunities": null,
+        "new": null,
+        "new_canonical_opportunities": null,
+        "changed": null,
+        "reconfirmed": null,
+        "confirmed_closed": null,
+        "missing": null,
+        "uncertain": null,
+        "stale": null,
+        "held_catalog_content": null,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [],
+      "last_qualifying_verification": null,
+      "next_scheduled_check": null,
+      "next_verification_deadline": null,
+      "lineage": null,
+      "current_catalog": null,
+      "note": null
+    },
+    "dataforce": {
+      "operational_status": "disabled_contract_blocked",
+      "endpoint_scope": [
+        "GET https://dataforcecommunity.transperfect.com/projects",
+        "GET https://dataforcecommunity.transperfect.com/projects?project_type=All&page=<1..19>"
+      ],
+      "enabled": false,
+      "http_max": 20,
+      "seconds_max": 360,
+      "request_timeout_seconds": 45,
+      "cooldown_hours": 0,
+      "verification_rule": "Pagination must prove a genuine empty terminal page, not merely absence of views-row markup.",
+      "blocker": "Adapter treats any HTTP 200 without views-row as complete, allowing false absence closures; terminal HTML not retained.",
+      "next_action": "Capture and validate explicit inventory/empty-state structure; reject changed or challenge templates before lifecycle writes.",
+      "qualifying_observation": false,
+      "outcome": "blocked",
+      "actual": {
+        "requests_used": 0,
+        "pages_fetched": 0,
+        "http_responses_received": 0,
+        "upstream_records": null,
+        "upstream_record_unit": null,
+        "filtered_records": null,
+        "rejected_records": null,
+        "observed": null,
+        "observed_canonical_opportunities": null,
+        "new": null,
+        "new_canonical_opportunities": null,
+        "changed": null,
+        "reconfirmed": null,
+        "confirmed_closed": null,
+        "missing": null,
+        "uncertain": null,
+        "stale": null,
+        "held_catalog_content": null,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [],
+      "last_qualifying_verification": null,
+      "next_scheduled_check": null,
+      "next_verification_deadline": null,
+      "lineage": null,
+      "current_catalog": null,
+      "note": null
+    },
+    "handshake": {
+      "operational_status": "disabled_contract_blocked",
+      "endpoint_scope": [
+        "GET https://joinhandshake.com/ai/opportunities[/]",
+        "GET page-linked https://framerusercontent.com/sites/<public module>.mjs",
+        "GET module-linked https://framerusercontent.com/cms/<public collection>.framercms"
+      ],
+      "enabled": false,
+      "http_max": 40,
+      "seconds_max": 360,
+      "request_timeout_seconds": 60,
+      "cooldown_hours": 0,
+      "verification_rule": "Public inventory, not guaranteed active projects; module/chunk coverage is unproven.",
+      "blocker": "Unbounded module traversal, unvalidated CMS destination, chunk-0-only discovery and no qualifying record contract.",
+      "next_action": "Constrain linked assets, account for all declared chunks and retain raw visibility/identity evidence; test individual public-inventory promotion.",
+      "qualifying_observation": false,
+      "outcome": "blocked",
+      "actual": {
+        "requests_used": 0,
+        "pages_fetched": 0,
+        "http_responses_received": 0,
+        "upstream_records": null,
+        "upstream_record_unit": null,
+        "filtered_records": null,
+        "rejected_records": null,
+        "observed": null,
+        "observed_canonical_opportunities": null,
+        "new": null,
+        "new_canonical_opportunities": null,
+        "changed": null,
+        "reconfirmed": null,
+        "confirmed_closed": null,
+        "missing": null,
+        "uncertain": null,
+        "stale": null,
+        "held_catalog_content": null,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [],
+      "last_qualifying_verification": null,
+      "next_scheduled_check": null,
+      "next_verification_deadline": null,
+      "lineage": null,
+      "current_catalog": null,
+      "note": null
+    },
+    "meridial": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://boards-api.greenhouse.io/v1/boards/agency/jobs?content=true",
+        "GET https://boards-api.greenhouse.io/v1/boards/agency/departments/4012485101?render_as=tree"
+      ],
+      "enabled": true,
+      "http_max": 2,
+      "seconds_max": 150,
+      "request_timeout_seconds": 60,
+      "cooldown_hours": 0,
+      "verification_rule": "Existing approved Greenhouse jobs/meta.total and AI department tree crosscheck, exact record attestations and count-drop guard.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 2,
+        "pages_fetched": 2,
+        "http_responses_received": 2,
+        "upstream_records": 832,
+        "upstream_record_unit": "source listing rows",
+        "filtered_records": 0,
+        "rejected_records": 0,
+        "observed": 832,
+        "observed_canonical_opportunities": 569,
+        "new": 832,
+        "new_canonical_opportunities": 569,
+        "changed": 0,
+        "reconfirmed": 0,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 0,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:00:23+00:00",
+          "records": 832,
+          "verified_at": "2026-09-23T06:00:23+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:23+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:00:23+00:00",
+      "lineage": {
+        "collection_http": 2,
+        "collection_plan": "bafcc6a5eb87ac0a2c92f7ee439076632f3cadf266aa0fd8f5eea5c5aec82ad7",
+        "completion_reason": null,
+        "normalized_variants": 832,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "01bb4e3fac64296161768dd27e19b3c431056a1913984d0e334bd19b2af59177",
+        "publication_status": "completed",
+        "raw_records": 832,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 569,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 832
+          },
+          "include_in_live_market_estimate": {
+            "1": 832
+          },
+          "inventory_model": {
+            "live_feed": 832
+          },
+          "opportunity_kind": {
+            "live_posting": 832
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:00:23+00:00",
+            "variants": 832,
+            "verified_at": "2026-09-23T06:00:23+00:00"
+          }
+        ],
+        "variants": 832
+      },
+      "note": null
+    },
+    "mercor": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://aws.api.mercor.com/work/listings-explore-page"
+      ],
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 60,
+      "request_timeout_seconds": 30,
+      "cooldown_hours": 0,
+      "verification_rule": "Partial public listings array only: unique exact active, nonprivate, nondeleted records; absence never closes. No retained pagination contract proves provider-wide completeness.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "partial_individual",
+      "actual": {
+        "requests_used": 1,
+        "pages_fetched": 1,
+        "http_responses_received": 1,
+        "upstream_records": 375,
+        "upstream_record_unit": "source listing rows",
+        "filtered_records": 0,
+        "rejected_records": 0,
+        "observed": 375,
+        "observed_canonical_opportunities": 375,
+        "new": 13,
+        "new_canonical_opportunities": 13,
+        "changed": 8,
+        "reconfirmed": 354,
+        "confirmed_closed": 0,
+        "missing": 49,
+        "uncertain": 0,
+        "stale": 39,
+        "held_catalog_content": 1,
+        "content_hold_reasons": {
+          "summary_omits_compatible_supplemental_content": 1
+        }
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-21T13:07:32+00:00",
+          "records": 39,
+          "verified_at": "2026-09-18T13:07:32+00:00"
+        },
+        {
+          "expires_at": "2026-09-24T23:00:39+00:00",
+          "records": 10,
+          "verified_at": "2026-09-21T23:00:39+00:00"
+        },
+        {
+          "expires_at": "2026-09-26T06:00:27+00:00",
+          "records": 375,
+          "verified_at": "2026-09-23T06:00:27+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:27+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-21T13:07:32+00:00",
+      "lineage": {
+        "collection_http": 1,
+        "collection_plan": "729b2149ab695f1e749698693ccaeac0df17e31b0ba2220fb96b476345fa99cf",
+        "completion_reason": null,
+        "normalized_variants": 375,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "fd0564f6c7495681ca43e889eb57ff1af90cb4dffba66b205423c1b18738036f",
+        "publication_status": "partially_completed",
+        "raw_records": 375,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 385,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 385
+          },
+          "include_in_live_market_estimate": {
+            "1": 385
+          },
+          "inventory_model": {
+            "live_feed": 385
+          },
+          "opportunity_kind": {
+            "live_posting": 385
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-24T23:00:39+00:00",
+            "variants": 10,
+            "verified_at": "2026-09-21T23:00:39+00:00"
+          },
+          {
+            "expires_at": "2026-09-26T06:00:27+00:00",
+            "variants": 375,
+            "verified_at": "2026-09-23T06:00:27+00:00"
+          }
+        ],
+        "variants": 385
+      },
+      "note": "Partial supported listings surface;49 missing are not closed.39 expired,10 still fresh from September21.375 individually reconfirmed."
+    },
+    "micro1": {
+      "operational_status": "disabled_access_blocked",
+      "endpoint_scope": [
+        "POST https://prod-api.micro1.ai/api/v1/job/portal?page=<1..50>&limit=100&keyword= ; body {\"action\":\"get_all_jobs\",\"filters\":{\"type\":[\"EXPERT\"]}}"
+      ],
+      "enabled": false,
+      "http_max": 50,
+      "seconds_max": 240,
+      "request_timeout_seconds": 60,
+      "cooldown_hours": 0,
+      "verification_rule": "Stable declared total and exact unique-ID pagination; native 50-page ceiling; optional /post detail requests excluded.",
+      "blocker": "Approved endpoint returned HTTP 403 Forbidden in first scheduled collection; access requirement unresolved.",
+      "next_action": "Resolve authorized access to the existing POST endpoint, then one bounded validation before re-enabling. No endpoint expansion, access bypass or retry was performed.",
+      "qualifying_observation": false,
+      "outcome": "collection_failed_or_interrupted",
+      "actual": {
+        "requests_used": 1,
+        "pages_fetched": 0,
+        "http_responses_received": 1,
+        "upstream_records": null,
+        "upstream_record_unit": null,
+        "filtered_records": null,
+        "rejected_records": null,
+        "observed": null,
+        "observed_canonical_opportunities": null,
+        "new": null,
+        "new_canonical_opportunities": null,
+        "changed": null,
+        "reconfirmed": null,
+        "confirmed_closed": null,
+        "missing": null,
+        "uncertain": null,
+        "stale": null,
+        "held_catalog_content": null,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [],
+      "last_qualifying_verification": null,
+      "next_scheduled_check": null,
+      "next_verification_deadline": null,
+      "lineage": null,
+      "current_catalog": null,
+      "note": "HTTP403 on page1; unknown observations, no publication, not a complete empty inventory."
+    },
+    "mindrift": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://apply.workable.com/toloka-ai/llms.txt",
+        "GET https://apply.workable.com/toloka-ai/jobs.md",
+        "POST https://apply.workable.com/api/v3/accounts/toloka-ai/jobs ; body {} then {\"token\":\"<returned nextPage>\"}"
+      ],
+      "enabled": true,
+      "http_max": 70,
+      "seconds_max": 360,
+      "request_timeout_seconds": 45,
+      "cooldown_hours": 12,
+      "verification_rule": "Stable total, unique shortcodes, terminal nextPage; publish only public published records. Two probes plus at most 68 token pages, 0.2s spacing, zero retries.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 14,
+        "pages_fetched": 14,
+        "http_responses_received": 14,
+        "upstream_records": 117,
+        "upstream_record_unit": "Workable rows",
+        "filtered_records": 0,
+        "rejected_records": 0,
+        "observed": 117,
+        "observed_canonical_opportunities": 12,
+        "new": 117,
+        "new_canonical_opportunities": 12,
+        "changed": 0,
+        "reconfirmed": 0,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 0,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:00:36+00:00",
+          "records": 117,
+          "verified_at": "2026-09-23T06:00:36+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:36+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:00:36+00:00",
+      "lineage": {
+        "collection_http": 14,
+        "collection_plan": "da7201335bbf18e0af7f9da6a199a35978cc0da66de7548b0a58100123449188",
+        "completion_reason": null,
+        "normalized_variants": 117,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "c4c823377965205a7948066b0ad2889cec4b792934bdca85a8f339289baefc23",
+        "publication_status": "completed",
+        "raw_records": 117,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 12,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 117
+          },
+          "include_in_live_market_estimate": {
+            "1": 117
+          },
+          "inventory_model": {
+            "live_feed": 117
+          },
+          "opportunity_kind": {
+            "live_posting": 117
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:00:36+00:00",
+            "variants": 117,
+            "verified_at": "2026-09-23T06:00:36+00:00"
+          }
+        ],
+        "variants": 117
+      },
+      "note": null
+    },
+    "oneforma": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://www.oneforma.com/wp-json/wp/v2/job?per_page=100&_embed=wp:term&page=<1..3>"
+      ],
+      "enabled": true,
+      "http_max": 3,
+      "seconds_max": 210,
+      "request_timeout_seconds": 60,
+      "cooldown_hours": 0,
+      "verification_rule": "Stable X-WP-TotalPages and unique post IDs; each post may emit many language/application variants; cap before final page is incomplete.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 1,
+        "pages_fetched": 1,
+        "http_responses_received": 1,
+        "upstream_records": 32,
+        "upstream_record_unit": "WordPress job posts",
+        "filtered_records": 0,
+        "rejected_records": 0,
+        "observed": 457,
+        "observed_canonical_opportunities": 32,
+        "new": 457,
+        "new_canonical_opportunities": 32,
+        "changed": 0,
+        "reconfirmed": 0,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 0,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:00:48+00:00",
+          "records": 457,
+          "verified_at": "2026-09-23T06:00:48+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:48+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:00:48+00:00",
+      "lineage": {
+        "collection_http": 1,
+        "collection_plan": "9043683984d6249a1e48197c5a8e4b626e8aa5ead6dfd7f7319ae05356af4d8d",
+        "completion_reason": null,
+        "normalized_variants": 457,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "481ba4c9f0d3d8bf6c026ba8a4f7f081eb5d1f9923c5f4c2fc231772297eaf64",
+        "publication_status": "completed",
+        "raw_records": 457,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 32,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 457
+          },
+          "include_in_live_market_estimate": {
+            "1": 457
+          },
+          "inventory_model": {
+            "live_feed": 457
+          },
+          "opportunity_kind": {
+            "live_posting": 457
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:00:48+00:00",
+            "variants": 457,
+            "verified_at": "2026-09-23T06:00:48+00:00"
+          }
+        ],
+        "variants": 457
+      },
+      "note": null
+    },
+    "outlier": {
+      "operational_status": "disabled_contract_blocked",
+      "endpoint_scope": [
+        "POST https://app.outlier.ai/internal/experts/job-board/jobs ; body {}"
+      ],
+      "enabled": false,
+      "http_max": 1,
+      "seconds_max": 60,
+      "request_timeout_seconds": 30,
+      "cooldown_hours": 0,
+      "verification_rule": "Existing unauthenticated public job board; no inference from endpoint path name.",
+      "blocker": "Legacy wrapper falls back to synthetic jobs on empty/error and lacks validated public record/snapshot authority.",
+      "next_action": "Remove daily sample fallback before tracking; retain real envelope and validate visibility, IDs and supported promotion contract.",
+      "qualifying_observation": false,
+      "outcome": "blocked",
+      "actual": {
+        "requests_used": 0,
+        "pages_fetched": 0,
+        "http_responses_received": 0,
+        "upstream_records": null,
+        "upstream_record_unit": null,
+        "filtered_records": null,
+        "rejected_records": null,
+        "observed": null,
+        "observed_canonical_opportunities": null,
+        "new": null,
+        "new_canonical_opportunities": null,
+        "changed": null,
+        "reconfirmed": null,
+        "confirmed_closed": null,
+        "missing": null,
+        "uncertain": null,
+        "stale": null,
+        "held_catalog_content": null,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [],
+      "last_qualifying_verification": null,
+      "next_scheduled_check": null,
+      "next_verification_deadline": null,
+      "lineage": null,
+      "current_catalog": null,
+      "note": null
+    },
+    "rws": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://api.lever.co/v0/postings/rws?mode=json&expand=location"
+      ],
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 60,
+      "request_timeout_seconds": 30,
+      "cooldown_hours": 0,
+      "verification_rule": "Complete validated Lever list with existing TrainAI keyword filter and category transformation; excluded corporate postings counted separately.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 1,
+        "pages_fetched": 1,
+        "http_responses_received": 1,
+        "upstream_records": 73,
+        "upstream_record_unit": "Lever postings",
+        "filtered_records": 31,
+        "rejected_records": 0,
+        "observed": 42,
+        "observed_canonical_opportunities": 42,
+        "new": 42,
+        "new_canonical_opportunities": 42,
+        "changed": 0,
+        "reconfirmed": 0,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 0,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:00:52+00:00",
+          "records": 42,
+          "verified_at": "2026-09-23T06:00:52+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:52+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:00:52+00:00",
+      "lineage": {
+        "collection_http": 1,
+        "collection_plan": "e4ecd56b1d2887add850030d1e717a6806e2d0e338ea51c7cf34f89929422a0f",
+        "completion_reason": null,
+        "normalized_variants": 42,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "e240ad9e4f8c4acd32cb2adb2ba49b48cc566fac55399c1819b58c172b769027",
+        "publication_status": "completed",
+        "raw_records": 73,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 42,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 42
+          },
+          "include_in_live_market_estimate": {
+            "1": 42
+          },
+          "inventory_model": {
+            "live_feed": 42
+          },
+          "opportunity_kind": {
+            "live_posting": 42
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:00:52+00:00",
+            "variants": 42,
+            "verified_at": "2026-09-23T06:00:52+00:00"
+          }
+        ],
+        "variants": 42
+      },
+      "note": null
+    },
+    "surge": {
+      "operational_status": "disabled_contract_blocked",
+      "endpoint_scope": [
+        "GET https://surgehq.ai/workforce",
+        "GET index-linked https://surgehq.ai/workforce/<slug> (at most 18)",
+        "GET https://surgehq.ai/fellowship"
+      ],
+      "enabled": false,
+      "http_max": 20,
+      "seconds_max": 360,
+      "request_timeout_seconds": 30,
+      "cooldown_hours": 0,
+      "verification_rule": "Public inventory plus evergreen fellowship, excluded from live-market estimate; inherent page discovery is not optional detail enrichment.",
+      "blocker": "Slug-derived title fallback can accept generic HTTP 200 pages; no qualifying individual public-page contract or retained raw HTML replay.",
+      "next_action": "Require source title, role and application evidence; retain allowlisted page HTML, test exact individual public/evergreen promotion without absence closure.",
+      "qualifying_observation": false,
+      "outcome": "blocked",
+      "actual": {
+        "requests_used": 0,
+        "pages_fetched": 0,
+        "http_responses_received": 0,
+        "upstream_records": null,
+        "upstream_record_unit": null,
+        "filtered_records": null,
+        "rejected_records": null,
+        "observed": null,
+        "observed_canonical_opportunities": null,
+        "new": null,
+        "new_canonical_opportunities": null,
+        "changed": null,
+        "reconfirmed": null,
+        "confirmed_closed": null,
+        "missing": null,
+        "uncertain": null,
+        "stale": null,
+        "held_catalog_content": null,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [],
+      "last_qualifying_verification": null,
+      "next_scheduled_check": null,
+      "next_verification_deadline": null,
+      "lineage": null,
+      "current_catalog": null,
+      "note": null
+    },
+    "turing": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "POST https://work.turing.com/api/jobs/all ; body {\"searchQuery\":\"\",\"expertise\":[],\"location\":[],\"pageNumber\":<1..3>,\"pageSize\":500,\"sortingCriteria\":\"newest\"}"
+      ],
+      "enabled": true,
+      "http_max": 3,
+      "seconds_max": 210,
+      "request_timeout_seconds": 60,
+      "cooldown_hours": 0,
+      "verification_rule": "success plus stable totalCount, unique IDs and exact pagination; at most 1500 returned rows under this policy, not provider-wide completeness.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 1,
+        "pages_fetched": 1,
+        "http_responses_received": 1,
+        "upstream_records": 247,
+        "upstream_record_unit": "source listing rows",
+        "filtered_records": 0,
+        "rejected_records": 0,
+        "observed": 247,
+        "observed_canonical_opportunities": 223,
+        "new": 247,
+        "new_canonical_opportunities": 223,
+        "changed": 0,
+        "reconfirmed": 0,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 0,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:00:54+00:00",
+          "records": 247,
+          "verified_at": "2026-09-23T06:00:54+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:00:54+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:00:54+00:00",
+      "lineage": {
+        "collection_http": 1,
+        "collection_plan": "1a4e785db263767fdcbaf23a59c494c660c254973f00515fae2de1243d522e08",
+        "completion_reason": null,
+        "normalized_variants": 247,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "92b12345c01f476872596a432e3b59c874e7a601d6ac1444c2564cc283fbc467",
+        "publication_status": "completed",
+        "raw_records": 247,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 223,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 247
+          },
+          "include_in_live_market_estimate": {
+            "1": 247
+          },
+          "inventory_model": {
+            "live_feed": 247
+          },
+          "opportunity_kind": {
+            "live_posting": 247
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:00:54+00:00",
+            "variants": 247,
+            "verified_at": "2026-09-23T06:00:54+00:00"
+          }
+        ],
+        "variants": 247
+      },
+      "note": null
+    },
+    "welocalize": {
+      "operational_status": "active_qualified",
+      "endpoint_scope": [
+        "GET https://api.lever.co/v0/postings/weloglobal?mode=json&expand=location"
+      ],
+      "enabled": true,
+      "http_max": 1,
+      "seconds_max": 90,
+      "request_timeout_seconds": 30,
+      "cooldown_hours": 0,
+      "verification_rule": "Complete validated Lever list, exact Welo Data - AI Services filter; excluded board records are neither rejected nor variants.",
+      "blocker": null,
+      "next_action": null,
+      "qualifying_observation": true,
+      "outcome": "complete",
+      "actual": {
+        "requests_used": 1,
+        "pages_fetched": 1,
+        "http_responses_received": 1,
+        "upstream_records": 530,
+        "upstream_record_unit": "Lever postings",
+        "filtered_records": 109,
+        "rejected_records": 0,
+        "observed": 421,
+        "observed_canonical_opportunities": 170,
+        "new": 421,
+        "new_canonical_opportunities": 170,
+        "changed": 0,
+        "reconfirmed": 0,
+        "confirmed_closed": 0,
+        "missing": 0,
+        "uncertain": 0,
+        "stale": 0,
+        "held_catalog_content": 0,
+        "content_hold_reasons": {}
+      },
+      "fresh_cohorts": [
+        {
+          "expires_at": "2026-09-26T06:01:08+00:00",
+          "records": 421,
+          "verified_at": "2026-09-23T06:01:08+00:00"
+        }
+      ],
+      "last_qualifying_verification": "2026-09-23T06:01:08+00:00",
+      "next_scheduled_check": "2026-09-24T06:00:00+00:00",
+      "next_verification_deadline": "2026-09-26T06:01:08+00:00",
+      "lineage": {
+        "collection_http": 1,
+        "collection_plan": "e56df09bd898eaac2ea2affc4c972f9e5c879a1a80ab0773cceef442317e79a6",
+        "completion_reason": null,
+        "normalized_variants": 421,
+        "operation_result_keys": [
+          [
+            "operation",
+            "result",
+            "status"
+          ]
+        ],
+        "publication_http": 0,
+        "publication_plan": "6b7792a125bf4fee5fbd95c56783ca9e10393f92549a03a257bd751cabe0e1e3",
+        "publication_status": "completed",
+        "raw_records": 530,
+        "result_keys": [
+          "empty_snapshot_validated",
+          "filtered_record_count",
+          "jobs",
+          "normalized_record_count",
+          "outcome",
+          "pagination_complete",
+          "payload_shape",
+          "raw_record_count",
+          "rejected_record_count",
+          "schema_fingerprint",
+          "snapshot_complete",
+          "source_message",
+          "source_records",
+          "source_type",
+          "used_sample_data",
+          "warnings"
+        ],
+        "used_sample_data": false,
+        "verified": true
+      },
+      "current_catalog": {
+        "canonical": 170,
+        "classifications": {
+          "availability_basis": {
+            "api_feed": 421
+          },
+          "include_in_live_market_estimate": {
+            "1": 421
+          },
+          "inventory_model": {
+            "live_feed": 421
+          },
+          "opportunity_kind": {
+            "live_posting": 421
+          }
+        },
+        "detail_browse_matches_consistent": true,
+        "fresh_cohorts": [
+          {
+            "expires_at": "2026-09-26T06:01:08+00:00",
+            "variants": 421,
+            "verified_at": "2026-09-23T06:01:08+00:00"
+          }
+        ],
+        "variants": 421
+      },
+      "note": null
+    }
+  },
+  "product": {
+    "canonical_current": 1956,
+    "canonical_stored": 1995,
+    "current_opportunities_by_source": {
+      "alignerr": 491,
+      "appen": 32,
+      "mercor": 385,
+      "meridial": 569,
+      "mindrift": 12,
+      "oneforma": 32,
+      "rws": 42,
+      "turing": 223,
+      "welocalize": 170
+    },
+    "current_variants_by_source": {
+      "alignerr": 5624,
+      "appen": 32,
+      "mercor": 385,
+      "meridial": 832,
+      "mindrift": 117,
+      "oneforma": 457,
+      "rws": 42,
+      "turing": 247,
+      "welocalize": 421
+    },
+    "records_stored": 8196,
+    "variants_current": 8157,
+    "verification": {
+      "canonical_current": 1956,
+      "catalog_rendered": true,
+      "facets": {
+        "arrangement": 5,
+        "field": 9,
+        "language": 151,
+        "location": 122,
+        "work": 13
+      },
+      "filter_checks": {
+        "arrangement": {
+          "canonical_result_count": 460,
+          "passed": true,
+          "value": "Contract"
+        },
+        "field": {
+          "canonical_result_count": 23,
+          "passed": true,
+          "value": "Biology"
+        },
+        "language": {
+          "canonical_result_count": 4,
+          "passed": true,
+          "value": "Afrikaans"
+        },
+        "location": {
+          "canonical_result_count": 207,
+          "passed": true,
+          "value": "Afghanistan"
+        },
+        "work": {
+          "canonical_result_count": 31,
+          "passed": true,
+          "value": "Ads evaluation"
+        }
+      },
+      "mercor_pay": {
+        "availability_verified_at": "2026-09-23T06:00:27+00:00",
+        "captured_at": "2026-09-21T01:49:14.011208+00:00",
+        "compensation": "$50 per hour USD"
+      },
+      "sources": {
+        "alignerr": {
+          "canonical": 491,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 5624
+            },
+            "include_in_live_market_estimate": {
+              "1": 5624
+            },
+            "inventory_model": {
+              "live_feed": 5624
+            },
+            "opportunity_kind": {
+              "live_posting": 5624
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:00:17+00:00",
+              "variants": 5624,
+              "verified_at": "2026-09-23T06:00:17+00:00"
+            }
+          ],
+          "variants": 5624
+        },
+        "appen": {
+          "canonical": 32,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 32
+            },
+            "include_in_live_market_estimate": {
+              "1": 32
+            },
+            "inventory_model": {
+              "live_feed": 32
+            },
+            "opportunity_kind": {
+              "live_posting": 32
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:00:20+00:00",
+              "variants": 32,
+              "verified_at": "2026-09-23T06:00:20+00:00"
+            }
+          ],
+          "variants": 32
+        },
+        "mercor": {
+          "canonical": 385,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 385
+            },
+            "include_in_live_market_estimate": {
+              "1": 385
+            },
+            "inventory_model": {
+              "live_feed": 385
+            },
+            "opportunity_kind": {
+              "live_posting": 385
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-24T23:00:39+00:00",
+              "variants": 10,
+              "verified_at": "2026-09-21T23:00:39+00:00"
+            },
+            {
+              "expires_at": "2026-09-26T06:00:27+00:00",
+              "variants": 375,
+              "verified_at": "2026-09-23T06:00:27+00:00"
+            }
+          ],
+          "variants": 385
+        },
+        "meridial": {
+          "canonical": 569,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 832
+            },
+            "include_in_live_market_estimate": {
+              "1": 832
+            },
+            "inventory_model": {
+              "live_feed": 832
+            },
+            "opportunity_kind": {
+              "live_posting": 832
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:00:23+00:00",
+              "variants": 832,
+              "verified_at": "2026-09-23T06:00:23+00:00"
+            }
+          ],
+          "variants": 832
+        },
+        "mindrift": {
+          "canonical": 12,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 117
+            },
+            "include_in_live_market_estimate": {
+              "1": 117
+            },
+            "inventory_model": {
+              "live_feed": 117
+            },
+            "opportunity_kind": {
+              "live_posting": 117
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:00:36+00:00",
+              "variants": 117,
+              "verified_at": "2026-09-23T06:00:36+00:00"
+            }
+          ],
+          "variants": 117
+        },
+        "oneforma": {
+          "canonical": 32,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 457
+            },
+            "include_in_live_market_estimate": {
+              "1": 457
+            },
+            "inventory_model": {
+              "live_feed": 457
+            },
+            "opportunity_kind": {
+              "live_posting": 457
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:00:48+00:00",
+              "variants": 457,
+              "verified_at": "2026-09-23T06:00:48+00:00"
+            }
+          ],
+          "variants": 457
+        },
+        "rws": {
+          "canonical": 42,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 42
+            },
+            "include_in_live_market_estimate": {
+              "1": 42
+            },
+            "inventory_model": {
+              "live_feed": 42
+            },
+            "opportunity_kind": {
+              "live_posting": 42
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:00:52+00:00",
+              "variants": 42,
+              "verified_at": "2026-09-23T06:00:52+00:00"
+            }
+          ],
+          "variants": 42
+        },
+        "turing": {
+          "canonical": 223,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 247
+            },
+            "include_in_live_market_estimate": {
+              "1": 247
+            },
+            "inventory_model": {
+              "live_feed": 247
+            },
+            "opportunity_kind": {
+              "live_posting": 247
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:00:54+00:00",
+              "variants": 247,
+              "verified_at": "2026-09-23T06:00:54+00:00"
+            }
+          ],
+          "variants": 247
+        },
+        "welocalize": {
+          "canonical": 170,
+          "classifications": {
+            "availability_basis": {
+              "api_feed": 421
+            },
+            "include_in_live_market_estimate": {
+              "1": 421
+            },
+            "inventory_model": {
+              "live_feed": 421
+            },
+            "opportunity_kind": {
+              "live_posting": 421
+            }
+          },
+          "detail_browse_matches_consistent": true,
+          "fresh_cohorts": [
+            {
+              "expires_at": "2026-09-26T06:01:08+00:00",
+              "variants": 421,
+              "verified_at": "2026-09-23T06:01:08+00:00"
+            }
+          ],
+          "variants": 421
+        }
+      },
+      "variants_current": 8157
+    }
+  },
+  "protection": {
+    "files": 628,
+    "verified": true,
+    "worker_proof": {
+      "completed": true,
+      "protected_domains_unchanged": true
+    }
+  },
+  "deployment_backup": "/var/lib/wahojobs-beta/backups/daily-33262a4-predeploy-20260922",
+  "deployment_backup_manifest_sha256": "4762179adcdf04bc1d808d1b1cf94156d554a71e694212f9a7db34f174deb091",
+  "deployment_downtime_seconds": 27.302,
+  "email": {
+    "sender": "Wahojobs Operations <alerts@ops.wahojobs.com>",
+    "recipient": "danilo@wahojobs.com",
+    "transport": "Resend HTTPS API",
+    "domain_verified": true,
+    "free_plan": true,
+    "paid_overages": false,
+    "owner_receipt_confirmed": true,
+    "owner_reply": "Received",
+    "test_receipt": "activation-008.json",
+    "production_health_batch_accepted": true,
+    "unchanged_repeat_deduplicated": true
+  },
+  "first_run_alert_delivery": {
+    "attempts_by_day": {
+      "2026-09-22": 2,
+      "2026-09-23": 1
+    },
+    "batches": {
+      "01a0c95b-ab15-741a-905f-810f17060d0a": {
+        "at": "2026-09-22T13:43:42.995578+00:00",
+        "events": 1,
+        "status": "accepted_by_api"
+      },
+      "01a0c987-cbe6-705e-915f-9735a7812ac4": {
+        "at": "2026-09-22T14:31:54.977901+00:00",
+        "events": 20,
+        "status": "accepted_by_api"
+      },
+      "01a0ccfe-2698-76bc-83e5-5f3c24662a46": {
+        "at": "2026-09-23T06:40:02.734742+00:00",
+        "events": 25,
+        "status": "accepted_by_api"
+      }
+    }
+  },
+  "health": {
+    "checked_at": "2026-09-23T20:40:01.272308+00:00",
+    "active_issues": {
+      "dataannotation:collection": {
+        "reason": "blocked",
+        "severity": "error"
+      },
+      "dataannotation:coverage": {
+        "corrective_action": "Review canonical path and fixed page list, validate redirect destinations and evergreen page evidence; count every redirect hop.",
+        "readiness": "blocked",
+        "reason": "Retained /coding response redirects to /job-board/software-engineer outside the approved path contract.",
+        "severity": "warning"
+      },
+      "dataforce:collection": {
+        "reason": "blocked",
+        "severity": "error"
+      },
+      "dataforce:coverage": {
+        "corrective_action": "Capture and validate explicit inventory/empty-state structure; reject changed or challenge templates before lifecycle writes.",
+        "readiness": "blocked",
+        "reason": "Adapter treats any HTTP 200 without views-row as complete, allowing false absence closures; terminal HTML not retained.",
+        "severity": "warning"
+      },
+      "handshake:collection": {
+        "reason": "blocked",
+        "severity": "error"
+      },
+      "handshake:coverage": {
+        "corrective_action": "Constrain linked assets, account for all declared chunks and retain raw visibility/identity evidence; test individual public-inventory promotion.",
+        "readiness": "blocked",
+        "reason": "Unbounded module traversal, unvalidated CMS destination, chunk-0-only discovery and no qualifying record contract.",
+        "severity": "warning"
+      },
+      "mercor:age36": {
+        "oldest_verification": "2026-09-18T13:07:32+00:00",
+        "reason": "verification_cohort_age",
+        "records": 49,
+        "severity": "warning",
+        "threshold_hours": 36,
+        "unit": "exact posting records"
+      },
+      "mercor:age48": {
+        "oldest_verification": "2026-09-18T13:07:32+00:00",
+        "reason": "verification_cohort_age",
+        "records": 39,
+        "severity": "error",
+        "threshold_hours": 48,
+        "unit": "exact posting records"
+      },
+      "mercor:partial": {
+        "reason": "partial_catalog_individual_verification_only",
+        "severity": "info"
+      },
+      "micro1:collection": {
+        "reason": "collection_failed_or_interrupted",
+        "severity": "error"
+      },
+      "outlier:collection": {
+        "reason": "blocked",
+        "severity": "error"
+      },
+      "outlier:coverage": {
+        "corrective_action": "Remove daily sample fallback before tracking; retain real envelope and validate visibility, IDs and supported promotion contract.",
+        "readiness": "blocked",
+        "reason": "Legacy wrapper falls back to synthetic jobs on empty/error and lacks validated public record/snapshot authority.",
+        "severity": "warning"
+      },
+      "run:failed": {
+        "reason": "partial_or_failed",
+        "run_id": "20260923T060000Z",
+        "severity": "error"
+      },
+      "surge:collection": {
+        "reason": "blocked",
+        "severity": "error"
+      },
+      "surge:coverage": {
+        "corrective_action": "Require source title, role and application evidence; retain allowlisted page HTML, test exact individual public/evergreen promotion without absence closure.",
+        "readiness": "blocked",
+        "reason": "Slug-derived title fallback can accept generic HTTP 200 pages; no qualifying individual public-page contract or retained raw HTML replay.",
+        "severity": "warning"
+      }
+    },
+    "deduplicated_unchanged_hours": true
+  },
+  "units_at_read": {
+    "wahojobs-beta.service": {
+      "ActiveState": "active",
+      "ExecMainExitTimestamp": "",
+      "ExecMainStartTimestamp": "Wed 2026-09-23 06:04:16 UTC",
+      "ExecMainStatus": "0",
+      "LoadState": "loaded",
+      "MainPID": "54414",
+      "Result": "success",
+      "SubState": "running",
+      "UnitFileState": "enabled",
+      "User": "wahojobs-beta"
+    },
+    "wahojobs-inventory-health.service": {
+      "ActiveState": "inactive",
+      "ExecMainExitTimestamp": "Wed 2026-09-23 20:40:01 UTC",
+      "ExecMainStartTimestamp": "Wed 2026-09-23 20:40:00 UTC",
+      "ExecMainStatus": "0",
+      "LoadState": "loaded",
+      "MainPID": "0",
+      "Result": "success",
+      "SubState": "dead",
+      "UnitFileState": "static",
+      "User": "wahojobs-beta"
+    },
+    "wahojobs-inventory-health.timer": {
+      "ActiveState": "active",
+      "LastTriggerUSec": "Wed 2026-09-23 20:40:00 UTC",
+      "LoadState": "loaded",
+      "NextElapseUSecRealtime": "Wed 2026-09-23 21:40:00 UTC",
+      "Result": "success",
+      "SubState": "waiting",
+      "UnitFileState": "enabled"
+    },
+    "wahojobs-inventory-recovery.service": {
+      "ActiveState": "inactive",
+      "ExecMainExitTimestamp": "",
+      "ExecMainStartTimestamp": "",
+      "ExecMainStatus": "0",
+      "LoadState": "loaded",
+      "MainPID": "0",
+      "Result": "success",
+      "SubState": "dead",
+      "UnitFileState": "enabled",
+      "User": "root"
+    },
+    "wahojobs-inventory.service": {
+      "ActiveState": "failed",
+      "ExecMainExitTimestamp": "Wed 2026-09-23 06:04:23 UTC",
+      "ExecMainStartTimestamp": "Wed 2026-09-23 06:00:00 UTC",
+      "ExecMainStatus": "2",
+      "LoadState": "loaded",
+      "MainPID": "0",
+      "Result": "exit-code",
+      "SubState": "failed",
+      "UnitFileState": "static",
+      "User": "root"
+    },
+    "wahojobs-inventory.timer": {
+      "ActiveState": "active",
+      "LastTriggerUSec": "Wed 2026-09-23 06:00:00 UTC",
+      "LoadState": "loaded",
+      "NextElapseUSecRealtime": "Thu 2026-09-24 06:00:00 UTC",
+      "Result": "success",
+      "SubState": "waiting",
+      "UnitFileState": "enabled"
+    }
+  },
+  "units_after_policy_reduction": {
+    "wahojobs-inventory-health.timer": {
+      "ActiveState": "active",
+      "LastTriggerUSec": "Wed 2026-09-23 20:40:00 UTC",
+      "NextElapseUSecRealtime": "Wed 2026-09-23 21:40:00 UTC",
+      "UnitFileState": "enabled"
+    },
+    "wahojobs-inventory.timer": {
+      "ActiveState": "active",
+      "LastTriggerUSec": "Wed 2026-09-23 06:00:00 UTC",
+      "NextElapseUSecRealtime": "Thu 2026-09-24 06:00:00 UTC",
+      "UnitFileState": "enabled"
+    }
+  },
+  "final_native_verification": {
+    "at": "2026-09-23T21:25:06.556414+00:00",
+    "effective_policy_verified": true,
+    "employer_requests": 0,
+    "normal_beta_readiness_verified": true,
+    "run_ids": [
+      "20260923T060000Z"
+    ],
+    "runtime": {
+      "app_active": true,
+      "app_expected_owner_command_cgroup": true,
+      "caddy_active": true,
+      "caddy_expected_owner_command_cgroup": true,
+      "current_release_matches": true,
+      "effective_load_credential_config_002": true,
+      "effective_private_runtime_matches": true,
+      "public_caddy_hash_match": true,
+      "public_origin_callback_match": true,
+      "public_runtime_dropin_hash_match": true,
+      "recovered_database_selected": true,
+      "selected_config_002": true,
+      "selected_configuration_dropin_exact": true,
+      "staging_manual_only": true
+    },
+    "units": {
+      "wahojobs-beta.service": {
+        "ActiveState": "active",
+        "ExecMainStatus": "0",
+        "SubState": "running",
+        "UnitFileState": "enabled"
+      },
+      "wahojobs-inventory-health.timer": {
+        "ActiveState": "active",
+        "LastTriggerUSec": "Wed 2026-09-23 20:40:00 UTC",
+        "NextElapseUSecRealtime": "Wed 2026-09-23 21:40:00 UTC",
+        "SubState": "waiting",
+        "UnitFileState": "enabled"
+      },
+      "wahojobs-inventory.timer": {
+        "ActiveState": "active",
+        "LastTriggerUSec": "Wed 2026-09-23 06:00:00 UTC",
+        "NextElapseUSecRealtime": "Thu 2026-09-24 06:00:00 UTC",
+        "SubState": "waiting",
+        "UnitFileState": "enabled"
+      }
+    }
+  },
+  "validation": {
+    "prior": {
+      "prior_native_tests": 140,
+      "changed_native_tests": 71,
+      "weighted_local_tests": 47,
+      "weighted_native_publication_seconds": 119.175,
+      "review": "Focused independent review complete; all identified findings resolved.",
+      "native_receipt": "activation-010.json",
+      "hosted_read_receipt": "activation-011.json",
+      "operator_control_fault_checks": 9
+    },
+    "real_stored_journals_verified": true,
+    "publication_http_requests": 0,
+    "per_source_presentation_checked": true,
+    "protected_user_domains_unchanged_at_worker_finish": true,
+    "original_mercor_compensation_timestamp_preserved": true,
+    "policy_only_reduction_validated": true,
+    "policy_aggregate_mismatch_rejected": true,
+    "independent_reduction_review": "See commissioning receipt markdown; completed before execution."
+  },
+  "manual_employer_requests_during_commissioning_verification": 0,
+  "no_duplicate_collection": true,
+  "retained_evidence": {
+    "commission-001.json": "cc53b8c0a62998d4fa2272e3ebed23f9281f19d54b13b0e634a7de3d2e458455",
+    "commission-004.json": "40f406ce49801b3a3a5606ecd1ced00f831edf368facd54f7eb573cd02712a36",
+    "commission-005.json": "9d7df7b89045a45e4c7a4320f4bed10404f6beab61f307156ccfe65c26281382",
+    "commission-006.json": "48fc2057258fb3176808f9c9d73207e9b60309a0cd88ef42b88d46f78a8c3c77",
+    "commission-007.json": "a0d2a8cc08b0dbafd9d62f5dddde517a24d68bda747f4e0f0b745b1486996064"
+  }
+}

@@ -1,5 +1,10 @@
 # Daily Inventory Operations V1 — all-source activation package
 
+Current operating status: the [September 23 commissioning receipt](daily_inventory_commissioning_20260923.md)
+records the actual first automatic cycle, nine active sources, micro1 disabled
+after HTTP 403, and the five unchanged blockers. It supersedes pending-first-run
+status while preserving this reviewed activation procedure and original manifest.
+
 Prepared 2026-09-22 UTC. **Deployment, live delivery and recurring status are recorded
 in the separately dated activation receipt; this document does not activate them.** This file
 and the [consolidated manifest](../deploy/private-beta/daily-inventory-activation-manifest.json)
