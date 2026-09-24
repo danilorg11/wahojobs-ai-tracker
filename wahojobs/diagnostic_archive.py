@@ -62,6 +62,13 @@ def _validate_parent(parent):
     return parent
 
 
+def _run_age(path):
+    """Age a run by its evidence, not by a manifest written during recovery."""
+    evidence = [entry.lstat().st_mtime_ns for entry in path.iterdir()
+                if entry.name != '.archive-manifest.json']
+    return max(evidence, default=path.stat().st_mtime_ns)
+
+
 def archive_preflight(parent, *, active_runs=(), keep_recent=KEEP_RECENT):
     """Archive oldest closed runs without deleting data or breaking old paths.
 
@@ -82,7 +89,7 @@ def archive_preflight(parent, *, active_runs=(), keep_recent=KEEP_RECENT):
     if stat.S_IMODE(archive.stat().st_mode) != 0o700:
         raise ValueError("diagnostic_archive_permissions")
     names = set(active_runs) | _open_run_names(parent)
-    entries = sorted(parent.glob("run-*"), key=lambda path: (path.stat().st_mtime_ns, path.name))
+    entries = list(parent.glob("run-*"))
     for path in entries:
         if not RUN_NAME.fullmatch(path.name):
             raise ValueError("unrecognized_diagnostic_run")
@@ -92,6 +99,10 @@ def archive_preflight(parent, *, active_runs=(), keep_recent=KEEP_RECENT):
                 raise ValueError("diagnostic_archive_reference_invalid")
         elif not path.is_dir() or path.resolve() != path:
             raise ValueError("unsafe_diagnostic_run")
+        else:
+            # Check retained runs too: a recent or active run must not hide an
+            # unsafe entry that becomes eligible on the next preflight.
+            _regular_files(path)
     # Recover a move interrupted before the reference link was created.
     for target in archive.iterdir():
         if not RUN_NAME.fullmatch(target.name) or target.is_symlink() or not target.is_dir():
@@ -107,7 +118,8 @@ def archive_preflight(parent, *, active_runs=(), keep_recent=KEEP_RECENT):
             link.symlink_to(Path("archive") / target.name, target_is_directory=True)
         if not link.is_symlink() or link.resolve(strict=True) != target:
             raise ValueError("diagnostic_archive_reference_invalid")
-    live = [path for path in entries if not path.is_symlink()]
+    live = sorted((path for path in entries if not path.is_symlink()),
+                  key=lambda path: (_run_age(path), path.name))
     protected = {path.name for path in live[-keep_recent:]} | names
     moved = []
     for path in live:
