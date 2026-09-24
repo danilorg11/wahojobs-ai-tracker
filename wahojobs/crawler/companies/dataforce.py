@@ -1,9 +1,11 @@
-from wahojobs.crawler.providers.dataforce import fetch_dataforce_jobs
+from wahojobs.crawler.providers.dataforce import fetch_dataforce_jobs, collect_index_linked_details
 from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
+from wahojobs.daily_source_policy import controlled_validation_active
 
 
 def crawl_dataforce(projects_url):
     observed = fetch_dataforce_jobs(projects_url)
+    detail_count = collect_index_linked_details(observed) if controlled_validation_active() else 0
     # Index cards expose a preview URL, not a verified application action.
     # Keep them as source observations until a source-specific record contract
     # can attest application authority; passing them to tracking can reactivate
@@ -12,7 +14,8 @@ def crawl_dataforce(projects_url):
         jobs=[],
         used_sample_data=False,
         source_type="dataforce-community-html",
-        source_message=f"Observed DataForce index rows; application and publication authority remain unverified: {projects_url}",
+        source_message=(f"Observed DataForce index rows and retained {detail_count} exact linked pages; "
+                        f"application and publication authority remain unverified: {projects_url}"),
         outcome=ProviderOutcome.PARTIAL,
         snapshot_complete=False,
         pagination_complete=False,

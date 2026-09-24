@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from contextlib import nullcontext
 import hashlib
 import html
 import re
@@ -6,7 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from wahojobs.crawler.local_inventory import open_catalog
-from wahojobs.daily_source_policy import current_source
+from wahojobs.daily_source_policy import current_source, observed_dataannotation_redirect
 
 from wahojobs.classification import (
     AVAILABILITY_BASIS_EVERGREEN_PAGE,
@@ -99,27 +100,26 @@ def fetch_dataannotation_jobs(base_url):
         try:
             page = fetch_page(url)
         except ValueError as exc:
-            if not jobs:
-                raise
-            # A later unsupported canonical redirect stops traversal. Earlier
-            # exact pages remain individually observed, with no completeness.
-            skipped.append(f"{domain.slug} (collection stopped: {exc})")
-            break
+            # A rejected route has no record authority, but independent fixed
+            # pages can still be observed. The result remains partial.
+            skipped.append(f"{domain.slug} (unsupported route: {exc})")
+            continue
         if not page["ok"]:
             skipped.append(f"{domain.slug} ({page['reason']})")
             if page["outcome"] == "network_or_site_error":
-                raise RuntimeError(f"DataAnnotation access failed at {domain.slug}: {page['reason']}")
+                network_or_site_errors.append(domain.slug)
             continue
 
         if not has_application_surface(page["text"], domain.slug):
-            if not jobs:
-                raise ValueError(f"DataAnnotation generic or unsupported page: {domain.slug}")
-            skipped.append(f"{domain.slug} (generic page; collection stopped)")
-            break
+            skipped.append(f"{domain.slug} (generic or unsupported page)")
+            continue
 
-        jobs.append(parse_domain_page(domain, page["url"], page["text"]))
+        try:
+            jobs.append(parse_domain_page(domain, page["url"], page["text"]))
+        except ValueError as exc:
+            skipped.append(f"{domain.slug} (unsupported role evidence: {exc})")
 
-    if network_or_site_errors:
+    if network_or_site_errors and not jobs:
         raise RuntimeError(
             "DataAnnotation crawl failed: "
             f"{len(network_or_site_errors)} allowlisted page(s) had "
@@ -135,6 +135,7 @@ def build_domain_url(base_url, slug):
 
 CANONICAL_REDIRECTS = {
     "/coding": "/job-board/software-engineer",
+    "/generalist": "/job-board/generalist",
 }
 
 
@@ -143,7 +144,7 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def _allowed_destination(start_url, destination):
+def _allowed_destination(start_url, destination, *, observed=False):
     start = urlsplit(start_url)
     target = urlsplit(destination)
     return (
@@ -151,22 +152,27 @@ def _allowed_destination(start_url, destination):
         and target.netloc == "www.dataannotation.tech"
         and not target.query and not target.fragment
         and (target.path == start.path or
-             target.path == CANONICAL_REDIRECTS.get(start.path))
+             target.path == CANONICAL_REDIRECTS.get(start.path) or
+             observed and re.fullmatch(r'/job-board/[a-z0-9-]+', target.path))
     )
 
 
 def fetch_page(url):
     current = url
+    observed_redirect = None
     for hop in range(2):
         request = Request(current, headers=REQUEST_HEADERS)
         try:
-            if current_source() is None:
-                response = build_opener(_NoRedirect()).open(request, timeout=30)
-            else:
-                response = open_catalog(request, timeout=30)
+            scope = (observed_dataannotation_redirect(url, observed_redirect)
+                     if observed_redirect is not None else nullcontext())
+            with scope:
+                if current_source() is None:
+                    response = build_opener(_NoRedirect()).open(request, timeout=30)
+                else:
+                    response = open_catalog(request, timeout=30)
             with response:
                 final_url = response.geturl()
-                if not _allowed_destination(url, final_url):
+                if not _allowed_destination(url, final_url, observed=observed_redirect == final_url):
                     raise ValueError("DataAnnotation response left canonical scope.")
                 charset = response.headers.get_content_charset() or "utf-8"
                 text = response.read().decode(charset, errors="replace")
@@ -177,7 +183,12 @@ def fetch_page(url):
         except HTTPError as exc:
             if exc.code in (301, 302, 303, 307, 308):
                 destination = urljoin(current, exc.headers.get("Location", ""))
-                if hop == 0 and _allowed_destination(url, destination) and destination != current:
+                if hop == 0 and _allowed_destination(url, destination, observed=True) and destination != current:
+                    # The context manager checks exact fixed-origin and destination
+                    # conditions before the audited second request is dispatched.
+                    with observed_dataannotation_redirect(url, destination):
+                        pass
+                    observed_redirect = destination
                     current = destination
                     continue
                 raise ValueError("DataAnnotation redirect left canonical scope or exceeded hop limit.") from exc

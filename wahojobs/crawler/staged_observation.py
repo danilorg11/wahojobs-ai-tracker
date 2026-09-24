@@ -26,6 +26,7 @@ class Observation:
     collection_plan_id: str
     journal_hash: str
     request_usage: dict
+    controlled_validation: bool = False
 
 
 def timestamp():
@@ -43,10 +44,16 @@ def validate_observation(value, source):
     if type(value) is not Observation or value.source != source or source not in POLICY:
         raise ValueError('bound_source_observation_required')
     start, end, at = _aware(value.started_at), _aware(value.completed_at), _aware(timestamp())
-    if (not 0 <= (end-start).total_seconds() <= POLICY[source]['seconds_max']
+    if type(value.controlled_validation) is not bool:
+        raise ValueError('invalid_observation_scope')
+    controlled = value.controlled_validation and source in ('dataannotation', 'dataforce')
+    http_max = (32 if source == 'dataannotation' else 100) if controlled else POLICY[source]['http_max']
+    seconds_max = 900 if controlled else POLICY[source]['seconds_max']
+    if (value.controlled_validation and not controlled
+            or not 0 <= (end-start).total_seconds() <= seconds_max
             or not 0 <= (at-end).total_seconds() <= 3600
             or value.result.used_sample_data is not False
-            or not 0 < value.request_usage['http_transactions'] <= POLICY[source]['http_max']
+            or not 0 < value.request_usage['http_transactions'] <= http_max
             or value.request_usage['detail_requests'] != 0):
         raise ValueError('staged_observation_not_admissible')
     return value
@@ -88,7 +95,7 @@ def collect(source, careers_url, directory, *, run_id, code_commit, http_max, jo
     from wahojobs.crawler.pipeline import CRAWLERS
     from wahojobs.crawler.source_registry import assert_production_dispatch_allowed
     assert_production_dispatch_allowed(source)
-    permitted = (12 if source == 'dataannotation' else 20) if controlled_validation else POLICY[source]['http_max']
+    permitted = (32 if source == 'dataannotation' else 100) if controlled_validation else POLICY[source]['http_max']
     if not 0 < http_max <= permitted: raise ValueError('invalid_collection_budget')
     if controlled_validation and (source, careers_url) not in {
         ('dataannotation', 'https://www.dataannotation.tech'),
@@ -138,7 +145,8 @@ def load(directory, source, *, run_id, code_commit, journal_root, consume=False)
     finished = report['events'][-1]
     if len(collected) != 1 or finished['event'] != 'finished': raise ValueError('single_collection_result_required')
     value = Observation(source, plan['careers_url'], plan['started_at'], collected[0]['completed_at'],
-        decode_result(collected[0]['result']), plan_id, finished['hash'], finished['data']['request_usage'])
+        decode_result(collected[0]['result']), plan_id, finished['hash'], finished['data']['request_usage'],
+        bool(plan.get('controlled_validation', False)))
     validate_observation(value, source)
     if consume:
         with (Path(journal_root)/plan_id/'publication.claim').open('x') as stream:

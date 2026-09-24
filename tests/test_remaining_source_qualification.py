@@ -70,15 +70,15 @@ class DataAnnotationContractTests(unittest.TestCase):
                 conn.close()
 
     @patch("wahojobs.crawler.providers.dataannotation.fetch_page")
-    def test_unsupported_later_redirect_stops_and_retains_only_prior_page(self, fetch_page):
+    def test_unsupported_later_redirect_skips_route_and_retains_prior_page(self, fetch_page):
         fetch_page.side_effect = [
             {"ok": True, "text": ROLE_BODY, "url": ROLE_URL},
             ValueError("redirect left canonical scope"),
-        ]
+        ] + [{"ok": False, "reason": "HTTP 404", "outcome": "not_found"}] * (len(DOMAIN_PAGES)-2)
         jobs, skipped = fetch_dataannotation_jobs("https://www.dataannotation.tech")
         self.assertEqual([job.external_id for job in jobs], ["dataannotation::coding"])
-        self.assertEqual(fetch_page.call_count, 2)
-        self.assertIn("collection stopped", skipped[0])
+        self.assertEqual(fetch_page.call_count, len(DOMAIN_PAGES))
+        self.assertIn("unsupported route", skipped[0])
 
     def test_role_specific_application_and_negative_pages(self):
         candidate = parse_domain_page(DOMAIN_PAGES[0], ROLE_URL, ROLE_BODY)

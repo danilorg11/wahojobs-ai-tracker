@@ -73,6 +73,8 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
         if db_path is None or ownership is None or details is not None:
             raise ValueError('staged_publication_requires_owned_catalog_only')
         validate_observation(observation, company_slug)
+        if observation.controlled_validation:
+            raise ValueError('controlled_validation_requires_explicit_publication_authorization')
     from wahojobs.crawler.local_inventory import local_inventory_connection
     connection = get_connection() if db_path is None else local_inventory_connection(db_path, ownership=ownership)
     with connection as conn:

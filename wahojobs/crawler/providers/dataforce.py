@@ -3,6 +3,7 @@ import re
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request
 from wahojobs.crawler.local_inventory import open_public as urlopen
+from wahojobs.daily_source_policy import observed_dataforce_details
 
 from wahojobs.crawler.types import JobCandidate
 
@@ -12,6 +13,7 @@ REQUEST_HEADERS = {
     "Accept": "text/html,application/xhtml+xml",
 }
 MAX_PAGES = 20
+MAX_DETAIL_PAGES = 50
 
 
 def fetch_dataforce_jobs(projects_url):
@@ -62,6 +64,26 @@ def fetch_page(url):
         if response.status != 200:
             raise RuntimeError(f"DataForce returned HTTP {response.status}.")
         return response.read().decode(charset, errors="replace")
+
+
+def collect_index_linked_details(jobs):
+    """Retain bounded exact index-linked pages during controlled observation.
+
+    The transport journal owns raw bytes and metadata. This read-only capture
+    does not claim that a 200 detail is a qualified application opportunity.
+    """
+    ordered = sorted(jobs, key=lambda job: (
+        job.commitment != 'Remote',
+        'minor' in job.title.casefold() or 'menor' in job.title.casefold(),
+    ))[:MAX_DETAIL_PAGES]
+    urls = tuple(job.url for job in ordered)
+    with observed_dataforce_details(urls):
+        for url in urls:
+            page = fetch_page(url)
+            if any(marker in page.casefold() for marker in
+                   ('captcha', 'access denied', '403 forbidden', 'verify you are human')):
+                raise ValueError('DataForce detail access or challenge page.')
+    return len(urls)
 
 
 def validate_inventory_page(html_text):
@@ -150,7 +172,7 @@ def extract_title(block):
 
 def extract_project_href(block):
     match = re.search(
-        r'href="(/(?:project|study)/[^"]+)"',
+        r'href="(/(?:project|study)/[A-Za-z0-9-]+)"',
         block,
         flags=re.IGNORECASE,
     )

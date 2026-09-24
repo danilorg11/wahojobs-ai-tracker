@@ -7,6 +7,7 @@ The September 4 execution receipts establish access, not provider-wide coverage.
 from contextlib import contextmanager
 from contextvars import ContextVar
 import json
+import re
 from urllib.parse import parse_qs, urlsplit
 
 CORE_SOURCES = ('alignerr', 'appen', 'dataannotation', 'dataforce', 'handshake',
@@ -14,6 +15,9 @@ CORE_SOURCES = ('alignerr', 'appen', 'dataannotation', 'dataforce', 'handshake',
     'surge', 'turing', 'welocalize')
 ALERT_RECIPIENT = 'danilo@wahojobs.com'
 _DAILY_SOURCE = ContextVar('daily_inventory_source', default=None)
+_CONTROLLED_VALIDATION = ContextVar('controlled_source_validation', default=False)
+_DATAANNOTATION_OBSERVED_REDIRECT = ContextVar('dataannotation_observed_redirect', default=None)
+_DATAFORCE_OBSERVED_DETAILS = ContextVar('dataforce_observed_details', default=frozenset())
 
 
 def entry(requests, seconds, expected, scope, rule, *, blocker=None, correction=None, cooldown=0):
@@ -122,6 +126,43 @@ def aggregate(configured):
 
 
 def current_source():return _DAILY_SOURCE.get()
+def controlled_validation_active():return _CONTROLLED_VALIDATION.get()
+
+
+@contextmanager
+def observed_dataannotation_redirect(requested_url, destination):
+    """Admit one exact same-site Location observed from a fixed source page."""
+    start, target = urlsplit(requested_url), urlsplit(destination)
+    fixed = {'/'+name for name in ('coding','generalist','law','math','medicine',
+        'physics','finance','accounting','bilingual','chemistry','biology')}
+    known = {'/coding': '/job-board/software-engineer',
+             '/generalist': '/job-board/generalist'}
+    if (start.scheme != 'https' or start.netloc != 'www.dataannotation.tech'
+            or start.path not in fixed or start.query or start.fragment
+            or target.scheme != 'https' or target.netloc != start.netloc
+            or target.query or target.fragment
+            or re.fullmatch(r'/job-board/[a-z0-9-]+', target.path) is None
+            or (start.path in known and target.path != known[start.path])):
+        raise ValueError('dataannotation_observed_redirect_out_of_scope')
+    token = _DATAANNOTATION_OBSERVED_REDIRECT.set(destination)
+    try: yield
+    finally: _DATAANNOTATION_OBSERVED_REDIRECT.reset(token)
+
+
+@contextmanager
+def observed_dataforce_details(urls):
+    """Admit only exact project/study URLs already parsed from this index."""
+    if type(urls) not in (tuple, list) or len(urls) > 50 or len(urls) != len(set(urls)):
+        raise ValueError('dataforce_detail_scope_invalid')
+    for url in urls:
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'https' or parsed.netloc != 'dataforcecommunity.transperfect.com'
+                or parsed.query or parsed.fragment
+                or re.fullmatch(r'/(?:project|study)/[A-Za-z0-9-]+', parsed.path) is None):
+            raise ValueError('dataforce_detail_scope_invalid')
+    token = _DATAFORCE_OBSERVED_DETAILS.set(frozenset(urls))
+    try: yield
+    finally: _DATAFORCE_OBSERVED_DETAILS.reset(token)
 
 
 @contextmanager
@@ -138,8 +179,11 @@ def controlled_validation_source(source):
     if source not in ('dataannotation', 'dataforce'):
         raise ValueError('controlled_validation_source_out_of_scope')
     token = _DAILY_SOURCE.set(source)
+    validation_token = _CONTROLLED_VALIDATION.set(True)
     try: yield
-    finally: _DAILY_SOURCE.reset(token)
+    finally:
+        _CONTROLLED_VALIDATION.reset(validation_token)
+        _DAILY_SOURCE.reset(token)
 
 
 def validate_request(request):
@@ -168,12 +212,16 @@ def validate_request(request):
             'coding','generalist','law','math','medicine','physics',
             'finance','accounting','bilingual','chemistry','biology')}
         paths.add('/job-board/software-engineer')
+        observed = _DATAANNOTATION_OBSERVED_REDIRECT.get()
+        if observed is not None:
+            paths.add(urlsplit(observed).path)
         ok = p.netloc == 'www.dataannotation.tech' and p.path in paths and method == 'GET' and not query
     elif source == 'dataforce':
         ok = p.netloc == 'dataforcecommunity.transperfect.com' and method == 'GET' and (
             p.path == '/projects' and not query or
             p.path == '/projects' and set(query) == {'project_type','page'}
-            and query['project_type'] == ['All'] and integer('page',1,19))
+            and query['project_type'] == ['All'] and integer('page',1,19) or
+            request.full_url in _DATAFORCE_OBSERVED_DETAILS.get())
     elif source == 'meridial':
         ok = (at('boards-api.greenhouse.io','/v1/boards/agency/jobs') and query=={'content':['true']} or
               at('boards-api.greenhouse.io','/v1/boards/agency/departments/4012485101') and query=={'render_as':['tree']})
