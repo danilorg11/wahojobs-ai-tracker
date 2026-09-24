@@ -90,6 +90,31 @@ class DailyPolicyTests(unittest.TestCase):
         self.assertEqual(result['outcome'],'partial_or_failed')
         self.assertTrue(result['normal_service_resumed'])
 
+    def test_phase_timings_survive_maintenance_and_final_receipt_writes(self):
+        operations=Mock()
+        def collect(run_id, remaining):
+            target=self.root/'runs'/run_id/'run.json'
+            receipt=d.read_json(target)
+            receipt['phase_timings_seconds']={'prepare':1.25,'collect-alignerr':2.5}
+            d.write_json(target,receipt)
+            return True
+        def publish(run_id, remaining):
+            target=self.root/'runs'/run_id
+            receipt=d.read_json(target/'run.json')
+            receipt['phase_timings_seconds']['backup']=3.75
+            d.write_json(target/'run.json',receipt)
+            d.write_json(target/'worker.json',dict(completed=True,protected_domains_unchanged=True))
+            for source in d.SOURCES:
+                d.write_json(target/(source+'.json'),dict(qualifying_observation=source=='mercor'))
+        operations.collect.side_effect=collect
+        operations.publish.side_effect=publish
+        with patch.object(d,'now',return_value=self.at):
+            result=cli.supervise(self.config,self.root/'policy','timer',operations=operations)
+        self.assertEqual(result['phase_timings_seconds'],
+                         {'prepare':1.25,'collect-alignerr':2.5,'backup':3.75})
+        stored=d.read_json(self.root/'runs'/result['run_id']/'run.json')
+        self.assertEqual(stored['phase_timings_seconds'],result['phase_timings_seconds'])
+
     def test_process_timeout_kills_worker_group_before_return(self):
         proc=Mock(pid=123);proc.wait.side_effect=[subprocess.TimeoutExpired('worker',1),-9]
         with patch.object(cli.subprocess,'Popen',return_value=proc),patch.object(cli.os,'killpg',create=True) as kill,patch.object(cli.signal,'SIGKILL',9,create=True):

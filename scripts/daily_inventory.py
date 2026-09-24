@@ -170,8 +170,14 @@ class NativeOperations:
         receipt=daily.read_json(target)
         receipt['active_phase']=dict(name=phase,deadline=deadline)
         daily.write_json(target,receipt)
-        bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'worker','--policy',str(self.policy),
-            '--run-id',run_id,'--phase',phase],timeout=deadline-time.monotonic(),user='wahojobs-beta')
+        started=time.monotonic()
+        try:
+            bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'worker','--policy',str(self.policy),
+                '--run-id',run_id,'--phase',phase],timeout=deadline-time.monotonic(),user='wahojobs-beta')
+        finally:
+            receipt=daily.read_json(target)
+            receipt.setdefault('phase_timings_seconds',{})[phase]=round(time.monotonic()-started,3)
+            daily.write_json(target,receipt)
 
     def collect(self,run_id,remaining):
         deadline=time.monotonic()+remaining
@@ -262,11 +268,18 @@ def supervise(config,policy,trigger,*,operations=None):
             publication_deadline=min(deadline,time.monotonic()+daily.PUBLICATION_SECONDS)
             if publication_deadline<=time.monotonic():raise TimeoutError('publication_deadline_expired')
             # The online phase never creates a maintenance marker or stops beta.
+            measured=daily.read_json(target,{})
+            if measured.get('phase_timings_seconds'):
+                receipt['phase_timings_seconds']=measured['phase_timings_seconds']
             maintenance_start=time.monotonic()
             receipt.update(maintenance_started_at=daily.stamp(daily.now()),normal_service_resumed=False,
                 publication_deadline_monotonic=publication_deadline)
             daily.write_json(target,receipt)
-            operations.stop(publication_deadline-time.monotonic())
+            stop_started=time.monotonic()
+            try:
+                operations.stop(publication_deadline-time.monotonic())
+            finally:
+                receipt['stop_seconds']=round(time.monotonic()-stop_started,3)
             operations.publish(receipt['run_id'],publication_deadline-time.monotonic())
             worker=daily.read_json(target.parent/'worker.json')
             summaries={source:daily.read_json(target.parent/(source+'.json')) for source in daily.SOURCES}
@@ -281,13 +294,20 @@ def supervise(config,policy,trigger,*,operations=None):
             # Reporting and alert delivery happen only after this recovery block.
             recovery_started=time.monotonic()
             if maintenance_start is not None:
+                measured=daily.read_json(target,{})
+                if measured.get('phase_timings_seconds'):
+                    receipt['phase_timings_seconds']=measured['phase_timings_seconds']
                 receipt['recovery_started_at']=daily.stamp(daily.now())
                 with suppress(OSError):daily.write_json(target,receipt)
                 try:
                     operations.restore(daily.RECOVERY_SECONDS)
+                    receipt['restore_and_readiness_seconds']=round(time.monotonic()-recovery_started,3)
                     receipt.update(normal_service_resumed=True,maintenance_finished_at=daily.stamp(daily.now()))
                 except BaseException as error:
                     receipt.update(outcome='recovery_failed',recovery_error_type=type(error).__name__)
+            measured=daily.read_json(target,{})
+            if measured.get('phase_timings_seconds'):
+                receipt['phase_timings_seconds']=measured['phase_timings_seconds']
             receipt.update(ended_at=daily.stamp(daily.now()),total_runtime_seconds=round(time.monotonic()-start,3),
                 maintenance_seconds=round(time.monotonic()-maintenance_start,3) if maintenance_start is not None else 0,
                 recovery_seconds=round(time.monotonic()-recovery_started,3) if maintenance_start is not None else 0)
