@@ -44,6 +44,16 @@ class RemainingSourceBoundaries(unittest.TestCase):
         self.assertEqual(len(handshake.extract_collection_chunk_urls(module)), 2)
         self.assertEqual(len(handshake.extract_collection_chunk_urls(
             module, linked_module_url="https://framerusercontent.com/sites/site/file.hash.mjs")), 2)
+        self.assertEqual(len(handshake.extract_collection_chunk_urls(
+            module, linked_module_url="https://framerusercontent.com/sites/site/CMS_Cleaning.hash.mjs")), 2)
+        unrelated = ('new URL(`./other-chunk-default-0.framercms`,'
+                     '`https://framerusercontent.com/modules/site/hash/other.js`)'
+                     '.href.replace(`/modules/`,`/cms/`)')
+        self.assertEqual(len(handshake.extract_collection_chunk_urls(
+            module + unrelated,
+            linked_module_url="https://framerusercontent.com/sites/site/file.hash.mjs")), 2)
+        with self.assertRaises(ValueError):
+            handshake.extract_collection_chunk_urls(module + unrelated)
         with self.assertRaises(ValueError):
             handshake.extract_collection_chunk_urls(
                 module, linked_module_url="https://evil.example/sites/other/other.hash.mjs")

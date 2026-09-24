@@ -157,6 +157,17 @@ def extract_collection_chunk_urls(module_text, *, linked_module_url=None):
     )
     if not declarations:
         raise ValueError("Handshake module has no declared CMS chunks.")
+    prefixes = {name.rsplit("-chunk-default-", 1)[0]
+                for name, _, _ in declarations}
+    if len(prefixes) > 1:
+        if linked_module_url is None:
+            raise ValueError("Handshake module has ambiguous CMS collections.")
+        filename = urlsplit(linked_module_url).path.rsplit('/', 1)[-1]
+        linked_prefix = filename.split('.', 1)[0]
+        if linked_prefix not in prefixes:
+            raise ValueError("Handshake linked CMS collection identity is ambiguous.")
+        declarations = [row for row in declarations
+                        if row[0].rsplit("-chunk-default-", 1)[0] == linked_prefix]
     if len(declarations) > MAX_CHUNKS_PER_COLLECTION:
         raise ValueError("Handshake CMS chunk count exceeds bound.")
     chunks = {}
