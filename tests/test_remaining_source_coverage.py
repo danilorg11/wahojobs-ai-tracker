@@ -46,7 +46,7 @@ class RemainingSourceBoundaries(unittest.TestCase):
             module, linked_module_url="https://framerusercontent.com/sites/site/file.hash.mjs")), 2)
         with self.assertRaises(ValueError):
             handshake.extract_collection_chunk_urls(
-                module, linked_module_url="https://framerusercontent.com/sites/other/other.hash.mjs")
+                module, linked_module_url="https://evil.example/sites/other/other.hash.mjs")
         with self.assertRaises(ValueError):
             handshake.extract_collection_chunk_urls(module.replace("-default-1", "-default-2"))
         with self.assertRaises(ValueError):
