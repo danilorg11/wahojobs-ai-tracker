@@ -7,7 +7,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from wahojobs.crawler.local_inventory import open_catalog
-from wahojobs.daily_source_policy import current_source, observed_dataannotation_redirect
+from wahojobs.daily_source_policy import (current_source, observed_dataannotation_redirect,
+    controlled_dataannotation_domains)
 
 from wahojobs.classification import (
     AVAILABILITY_BASIS_EVERGREEN_PAGE,
@@ -95,7 +96,10 @@ def fetch_dataannotation_jobs(base_url):
     skipped = []
     network_or_site_errors = []
 
+    selected = controlled_dataannotation_domains()
     for domain in DOMAIN_PAGES:
+        if selected is not None and domain.slug not in selected:
+            continue
         url = build_domain_url(base_url, domain.slug)
         try:
             page = fetch_page(url)
@@ -136,6 +140,14 @@ def build_domain_url(base_url, slug):
 CANONICAL_REDIRECTS = {
     "/coding": "/job-board/software-engineer",
     "/generalist": "/job-board/generalist",
+    "/law": "/job-board/legal-expert",
+    "/math": "/job-board/mathematician",
+    "/medicine": "/job-board/medical-expert",
+    "/physics": "/job-board/physicist",
+    "/finance": "/job-board/finance-expert",
+    "/accounting": "/job-board/accountant",
+    "/chemistry": "/job-board/chemist",
+    "/biology": "/job-board/biologist",
 }
 
 

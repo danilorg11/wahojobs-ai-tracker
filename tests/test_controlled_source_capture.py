@@ -49,6 +49,21 @@ class ControlledObservationScope(unittest.TestCase):
                             "https://www.dataannotation.tech/law", destination):
                         pass
 
+    def test_followup_capture_narrows_only_existing_fixed_pages(self):
+        no_page = {"ok": False, "reason": "HTTP 404", "outcome": "not_found"}
+        with patch.object(da, 'fetch_page', return_value=no_page) as fetch:
+            with policy.controlled_dataannotation_domain_subset(('law', 'biology')):
+                with policy.controlled_validation_source('dataannotation'):
+                    jobs, skipped = da.fetch_dataannotation_jobs('https://www.dataannotation.tech')
+        self.assertEqual(jobs, [])
+        self.assertEqual(len(skipped), 2)
+        self.assertEqual([call.args[0] for call in fetch.call_args_list], [
+            'https://www.dataannotation.tech/law',
+            'https://www.dataannotation.tech/biology'])
+        with self.assertRaises(ValueError):
+            with policy.controlled_dataannotation_domain_subset(('law', 'unknown')):
+                pass
+
     def test_dataforce_exact_ordered_page_scope(self):
         with policy.controlled_validation_source("dataforce"):
             for url in ("https://dataforcecommunity.transperfect.com/projects",

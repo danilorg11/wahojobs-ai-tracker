@@ -11,6 +11,9 @@ class RemainingSourceBoundaries(unittest.TestCase):
         start = "https://www.dataannotation.tech/coding"
         self.assertTrue(dataannotation._allowed_destination(
             start, "https://www.dataannotation.tech/job-board/software-engineer"))
+        self.assertTrue(dataannotation._allowed_destination(
+            "https://www.dataannotation.tech/law",
+            "https://www.dataannotation.tech/job-board/legal-expert"))
         for target in ("https://evil.example/job-board/software-engineer",
                        "https://www.dataannotation.tech/job-board/other",
                        "https://www.dataannotation.tech/job-board/software-engineer?next=1"):

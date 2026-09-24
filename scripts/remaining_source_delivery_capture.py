@@ -6,7 +6,7 @@ until its attempted requests have been independently reconciled.
 """
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wahojobs import evidence_maintenance as maintenance
 from wahojobs.crawler import staged_observation as staged
 from wahojobs.crawler.local_inventory import request_deadline
+from wahojobs.daily_source_policy import controlled_dataannotation_domain_subset
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,7 +130,13 @@ def main():
     parser.add_argument("--source", choices=tuple(SOURCE_LIMITS), required=True)
     parser.add_argument("--phase", choices=("validation", "commissioning"), required=True)
     parser.add_argument("--code-commit", required=True)
+    parser.add_argument("--da-domain", action="append", choices=("coding", "generalist",
+        "law", "math", "medicine", "physics", "finance", "accounting",
+        "bilingual", "chemistry", "biology"))
     args = parser.parse_args()
+    if (args.da_domain and (args.source != "dataannotation"
+            or len(args.da_domain) != len(set(args.da_domain)))):
+        raise ValueError("dataannotation_capture_subset_invalid")
     if socket.gethostname() != EXPECTED_HOST:
         raise ValueError("beta_execution_host_mismatch")
     commit = args.code_commit
@@ -174,6 +181,7 @@ def run_locked(root, args, commit):
     run.mkdir()
     write_once(run / "plan.json", {"version": VERSION, "source": args.source,
         "phase": args.phase, "started_at": stamp(), "execution_host": socket.gethostname(),
+        "dataannotation_domains": args.da_domain,
         "code_commit": commit, "http_limit": http_remaining,
         "seconds_limit": seconds_remaining, "aggregate_prior_http": sum(used.values()),
         "aggregate_prior_seconds": seconds_used,
@@ -182,7 +190,9 @@ def run_locked(root, args, commit):
     started = time.monotonic()
     status, error = "collected_unpublished", None
     try:
-        with request_deadline(started + seconds_remaining):
+        scope = (controlled_dataannotation_domain_subset(args.da_domain)
+                 if args.da_domain else nullcontext())
+        with request_deadline(started + seconds_remaining), scope:
             staged.collect(args.source, source_url, run / "captures", run_id=run_id,
                            code_commit=commit, http_max=http_remaining,
                            journal_root=run / "journal", controlled_validation=True)

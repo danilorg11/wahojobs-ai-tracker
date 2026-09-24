@@ -17,6 +17,7 @@ ALERT_RECIPIENT = 'danilo@wahojobs.com'
 _DAILY_SOURCE = ContextVar('daily_inventory_source', default=None)
 _CONTROLLED_VALIDATION = ContextVar('controlled_source_validation', default=False)
 _DATAANNOTATION_OBSERVED_REDIRECT = ContextVar('dataannotation_observed_redirect', default=None)
+_DATAANNOTATION_DOMAINS = ContextVar('dataannotation_controlled_domains', default=None)
 _DATAFORCE_OBSERVED_DETAILS = ContextVar('dataforce_observed_details', default=frozenset())
 
 
@@ -127,6 +128,21 @@ def aggregate(configured):
 
 def current_source():return _DAILY_SOURCE.get()
 def controlled_validation_active():return _CONTROLLED_VALIDATION.get()
+def controlled_dataannotation_domains():
+    return (_DATAANNOTATION_DOMAINS.get() if current_source() == 'dataannotation'
+            and controlled_validation_active() else None)
+
+
+@contextmanager
+def controlled_dataannotation_domain_subset(domains):
+    """Narrow one controlled run to fixed pages already in the source plan."""
+    allowed = {'coding','generalist','law','math','medicine','physics','finance',
+        'accounting','bilingual','chemistry','biology'}
+    if not domains or len(domains) != len(set(domains)) or set(domains) - allowed:
+        raise ValueError('dataannotation_controlled_subset_invalid')
+    token = _DATAANNOTATION_DOMAINS.set(frozenset(domains))
+    try:yield
+    finally:_DATAANNOTATION_DOMAINS.reset(token)
 
 
 @contextmanager
@@ -136,7 +152,15 @@ def observed_dataannotation_redirect(requested_url, destination):
     fixed = {'/'+name for name in ('coding','generalist','law','math','medicine',
         'physics','finance','accounting','bilingual','chemistry','biology')}
     known = {'/coding': '/job-board/software-engineer',
-             '/generalist': '/job-board/generalist'}
+             '/generalist': '/job-board/generalist',
+             '/law': '/job-board/legal-expert',
+             '/math': '/job-board/mathematician',
+             '/medicine': '/job-board/medical-expert',
+             '/physics': '/job-board/physicist',
+             '/finance': '/job-board/finance-expert',
+             '/accounting': '/job-board/accountant',
+             '/chemistry': '/job-board/chemist',
+             '/biology': '/job-board/biologist'}
     if (start.scheme != 'https' or start.netloc != 'www.dataannotation.tech'
             or start.path not in fixed or start.query or start.fragment
             or target.scheme != 'https' or target.netloc != start.netloc
