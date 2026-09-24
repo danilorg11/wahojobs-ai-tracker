@@ -158,7 +158,15 @@ def claim_worker(config,run_id,phase):
 
 class NativeOperations:
     def __init__(self,config,policy):self.config=config;self.policy=policy
-    def preflight(self):verify_runtime(self.config)
+    def preflight(self):
+        verify_runtime(self.config)
+        from wahojobs.diagnostic_archive import archive_preflight
+        try:
+            archive_preflight('/var/log/wahojobs-beta')
+        except (OSError, ValueError) as error:
+            # Request diagnostics are optional to collection. The strict
+            # deployment preflight still blocks a planned maintenance entry.
+            print('diagnostic_archive_warning:' + type(error).__name__, file=sys.stderr, flush=True)
     def recovery_preflight(self):verify_release_configuration(self.config,require_effective=False)
     def stop(self,remaining):
         bounded_process(['/usr/bin/systemctl','stop',daily.SERVICE],timeout=min(90,remaining))

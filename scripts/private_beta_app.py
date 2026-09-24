@@ -109,8 +109,13 @@ def main(argv=None):
         parent = Path(args.logs)
         if not parent.is_absolute() or not parent.is_dir() or parent != parent.resolve():
             raise ValueError('invalid_log_parent')
-        if len(list(parent.glob('run-*'))) >= 32:
-            raise ValueError('log_archive_required')
+        from wahojobs.diagnostic_archive import archive_preflight
+        try:
+            archive_preflight(parent)
+        except (OSError, ValueError) as exc:
+            # Request diagnostics are optional. A housekeeping fault must not
+            # turn an otherwise healthy recovery into an application outage.
+            print('diagnostic_archive_warning:' + type(exc).__name__, file=sys.stderr, flush=True)
         directory = parent / ('run-' + uuid.uuid4().hex)
         directory.mkdir(mode=0o700)
         with diagnostic_log(str(directory)) as diagnostics:
