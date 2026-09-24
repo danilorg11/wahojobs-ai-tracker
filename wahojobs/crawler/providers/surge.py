@@ -196,7 +196,7 @@ def parse_workforce_detail(record, html_text):
     title = clean_value(detail_fields.get("title"))
     if not title or clean_value(fields.get("title")) not in (None, title):
         raise RuntimeError(f"Surge crawl failed: detail title missing or mismatched for {record.url}.")
-    if not has_workforce_application(html_text, record.url):
+    if not has_workforce_application(html_text, record.url, title):
         raise RuntimeError(f"Surge crawl failed: application evidence missing for {record.url}.")
     if not title:
         raise RuntimeError(f"Surge crawl failed: missing title for {record.url}.")
@@ -227,7 +227,7 @@ def parse_workforce_detail(record, html_text):
     )
 
 
-def has_workforce_application(html_text, url):
+def has_workforce_application(html_text, url, title):
     # Require a role-level call to action; ordinary site navigation is insufficient.
     slug = slug_from_url(url).lower()
     for href, label in re.findall(
@@ -244,7 +244,34 @@ def has_workforce_application(html_text, url):
                 and ("/apply" in parsed.path.lower() or "application" in parsed.path.lower())
                 and slug in parsed.path.lower()):
             return True
-    return False
+    # The public page also offers a role-specific email action. The address is
+    # shared, but the named role's own application instructions require its
+    # title in the message. Bind that action to the exact indexed slug and
+    # title; a general footer email or site signup is insufficient.
+    canonical_tags = [tag for tag in re.findall(r'<link\b[^>]*>', html_text, re.I)
+                      if re.search(r'\brel="canonical"', tag, re.I)]
+    if len(canonical_tags) != 1:
+        return False
+    canonical = re.search(r'\bhref="([^"]+)"', canonical_tags[0], re.I)
+    if canonical is None or html.unescape(canonical.group(1)) != url:
+        return False
+    match = re.search(
+        r'<div\s+data-slug="' + re.escape(slug) +
+        r'"\s+class="workforce-popup"', html_text, re.I,
+    )
+    if match is None:
+        return False
+    next_role = re.search(r'<div\s+data-slug="[^"]+"[^>]*role="listitem"',
+                          html_text[match.end():], re.I)
+    if next_role is None:
+        return False
+    block = html_text[match.start():match.end() + next_role.start()]
+    fields = extract_data_job_fields(block)
+    if clean_value(fields.get("title")) != title:
+        return False
+    instructions = normalize_text(fields.get("apply"))
+    return ("name of the role" in instructions
+            and re.search(r'href="mailto:talent@surgehq\.ai"', block, re.I) is not None)
 
 
 def parse_fellowship_page(url, html_text):

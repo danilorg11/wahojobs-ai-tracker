@@ -84,7 +84,7 @@ def _validate_asset_url(url):
     if parsed.netloc == "joinhandshake.com" and parsed.path == "/ai/opportunities/":
         return
     if parsed.netloc == "framerusercontent.com" and (
-        re.fullmatch(r"/sites/[A-Za-z0-9_./-]+\.mjs", parsed.path)
+        re.fullmatch(r"/sites/[A-Za-z0-9_./@-]+\.mjs", parsed.path)
         or re.fullmatch(r"/cms/[A-Za-z0-9_./-]+-chunk-default-\d+\.framercms", parsed.path)
     ):
         return
@@ -142,7 +142,7 @@ def extract_framer_module_urls(html_text):
     for match in re.finditer(r'(?:href|src)="(https://framerusercontent\.com/sites/[^"]+\.mjs)"', html_text):
         url = unescape(match.group(1))
         parsed = urlsplit(url)
-        if parsed.query or parsed.fragment or not re.fullmatch(r"/sites/[A-Za-z0-9_./-]+\.mjs", parsed.path):
+        if parsed.query or parsed.fragment or not re.fullmatch(r"/sites/[A-Za-z0-9_./@-]+\.mjs", parsed.path):
             raise ValueError("Handshake module destination outside linked asset scope.")
         if url not in urls:
             urls.append(url)

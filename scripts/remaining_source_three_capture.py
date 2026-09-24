@@ -64,7 +64,8 @@ def exact_url(url, source, *, modules=(), chunks=(), details=()):
         return (url == 'https://joinhandshake.com/ai/opportunities/'
                 or url in modules or url in chunks)
     if source == 'outlier':
-        return url == 'https://app.outlier.ai/internal/experts/job-board/jobs'
+        return (url == 'https://app.outlier.ai/internal/experts/job-board/jobs'
+                or url in details)
     if source == 'surge':
         return (url in ('https://surgehq.ai/workforce', 'https://surgehq.ai/fellowship')
                 or url in details)
@@ -96,6 +97,27 @@ def attempts_used():
     return used
 
 
+def retained_responses(source, run_name):
+    if not re.fullmatch(r'\d{8}T\d{12}Z-' + source, run_name):
+        raise ValueError('capture_resume_run_invalid')
+    run = LEDGER / 'runs' / run_name
+    plan = json.loads((run / 'plan.json').read_text())
+    receipt = json.loads((run / 'receipt.json').read_text())
+    if (plan['source'] != source or plan['version'] != VERSION
+            or receipt['source'] != source):
+        raise ValueError('capture_resume_source_mismatch')
+    retained = {}
+    for completion in sorted(run.glob('completion-*.json')):
+        row = json.loads(completion.read_text())
+        if row['status'] != 200 or row['final_url'] != row['requested_url'] or not row['complete']:
+            continue
+        body = (run / row['body_file']).read_bytes()
+        if sha256(body).hexdigest() != row['body_sha256']:
+            raise ValueError('capture_resume_hash_mismatch')
+        retained[row['requested_url']] = body
+    return retained
+
+
 @contextmanager
 def task_lock():
     import fcntl
@@ -113,8 +135,10 @@ def task_lock():
 
 
 class Recorder:
-    def __init__(self, source, run, prior):
+    def __init__(self, source, run, prior, retained=None):
         self.source, self.run, self.prior = source, run, prior
+        self.retained = retained or {}
+        self.reused = []
         self.started = time.monotonic()
         self.ordinal = 0
         self.modules = set()
@@ -125,10 +149,14 @@ class Recorder:
         if not exact_url(url, self.source, modules=self.modules, chunks=self.chunks,
                          details=self.details):
             raise ValueError('capture_url_out_of_scope')
-        if method != ('POST' if self.source == 'outlier' else 'GET'):
+        expected_method = ('POST' if self.source == 'outlier' and not self.details else 'GET')
+        if method != expected_method:
             raise ValueError('capture_method_out_of_scope')
-        if body != (b'{}' if self.source == 'outlier' else None):
+        if body != (b'{}' if method == 'POST' else None):
             raise ValueError('capture_body_out_of_scope')
+        if url in self.retained:
+            self.reused.append(url)
+            return self.retained[url]
         if (self.prior[self.source] + self.ordinal >= LIMITS[self.source]
                 or sum(self.prior.values()) + self.ordinal >= AGGREGATE):
             raise ValueError('capture_request_cap_reached')
@@ -225,7 +253,22 @@ def capture_outlier(recorder):
         'Accept':'application/json','Content-Type':'application/json',
         'Origin':'https://app.outlier.ai','Referer':'https://app.outlier.ai/opportunities'})
     value = json.loads(raw)
-    return {'root_type':type(value).__name__, 'keys':sorted(value) if type(value) is dict else []}
+    if (type(value) is not dict or type(value.get('jobs')) is not list
+            or value.get('page') != 1 or value.get('totalPages') != 1
+            or value.get('totalCount') != len(value['jobs']) or not value['jobs']):
+        raise ValueError('outlier_envelope_incomplete')
+    for job in value['jobs']:
+        identity = str(job.get('id')) if type(job) is dict else ''
+        url = job.get('absolute_url') if type(job) is dict else None
+        if (type(url) is not str or not identity.isdecimal()
+                or url != 'https://app.outlier.ai/en/expert/opportunities/'+identity):
+            raise ValueError('outlier_record_url_out_of_scope')
+        recorder.details.add(url)
+    for url in sorted(recorder.details):
+        recorder.request(url, headers={'User-Agent':'Mozilla/5.0 (compatible; WahojobsTracker/0.1)',
+                                       'Accept':'text/html,application/xhtml+xml'})
+    return {'root_type':'dict','keys':sorted(value), 'jobs':len(value['jobs']),
+            'detail_responses':len(recorder.details)}
 
 
 def capture_surge(recorder):
@@ -245,10 +288,16 @@ def capture_surge(recorder):
     fellowship = recorder.request(base+'/fellowship',headers=surge.REQUEST_HEADERS).decode('utf-8','replace')
     surge.parse_fellowship_page(base+'/fellowship',fellowship)
     accepted = []
+    rejected = {}
     for record in records:
         page = recorder.request(record.url,headers=surge.REQUEST_HEADERS).decode('utf-8','replace')
-        job = surge.parse_workforce_detail(record,page)
-        accepted.append(job.external_id)
+        try:
+            job = surge.parse_workforce_detail(record,page)
+            accepted.append(job.external_id)
+        except (ValueError, RuntimeError) as exc:
+            rejected[record.slug] = type(exc).__name__+':'+str(exc)[:120]
+    if rejected:
+        raise ValueError('surge_detail_contract_rejected:'+str(len(rejected)))
     return {'index_roles':len(records),'parsed_role_ids':accepted,'fellowship_observed':True}
 
 
@@ -256,6 +305,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',choices=tuple(LIMITS),required=True)
     parser.add_argument('--commit',required=True)
+    parser.add_argument('--resume-run')
     args = parser.parse_args()
     if (os.geteuid() != 0 or socket.gethostname() != HOST
             or not re.fullmatch(r'[a-f0-9]{40}',args.commit)
@@ -267,6 +317,7 @@ def main():
         runs = LEDGER/'runs'
         runs.mkdir(mode=0o700,exist_ok=True)
         prior = attempts_used()
+        retained = retained_responses(args.source, args.resume_run) if args.resume_run else {}
         if prior[args.source] >= LIMITS[args.source] or sum(prior.values()) >= AGGREGATE:
             raise ValueError('task_capture_budget_exhausted')
         run = runs/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'-'+args.source)
@@ -278,8 +329,9 @@ def main():
             prior_attempts=prior,parser_sha256={name:sha256((ROOT/name).read_bytes()).hexdigest()
                 for name in ('wahojobs/crawler/providers/handshake.py',
                              'wahojobs/crawler/providers/outlier.py',
-                             'wahojobs/crawler/providers/surge.py')}))
-        recorder=Recorder(args.source,run,prior)
+                             'wahojobs/crawler/providers/surge.py')},
+            resumed_run=args.resume_run))
+        recorder=Recorder(args.source,run,prior,retained)
         result,error=None,None
         previous_alarm = signal.signal(signal.SIGALRM, source_deadline)
         signal.setitimer(signal.ITIMER_REAL, SOURCE_SECONDS[args.source])
@@ -294,7 +346,8 @@ def main():
         receipt=dict(version=VERSION,source=args.source,code_commit=args.commit,
             finished_at=stamp(),elapsed_seconds=round(time.monotonic()-recorder.started,3),
             http_attempts=recorder.ordinal,status='captured' if error is None else 'partial_or_failed',
-            parse_summary=result,error=error,no_publication=True)
+            parse_summary=result,error=error,no_publication=True,
+            reused_prior_response_urls=recorder.reused)
         write_once(run/'receipt.json',receipt)
         print(json.dumps(receipt,sort_keys=True))
         return 0 if error is None else 1
