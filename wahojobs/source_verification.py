@@ -31,6 +31,10 @@ LEFT JOIN job_source_content_captures record_observation
       OR (c.slug = 'surge' AND sc.source_type = 'public-worker-pages'
         AND sc.record_promotion_contract_id = 'surge_remote_workforce_record_v1'
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
+        AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
+      OR (c.slug = 'handshake' AND sc.source_type = 'framer-public-inventory'
+        AND sc.record_promotion_contract_id = 'handshake_public_cms_record_v1'
+        AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial'))
       AND sc.used_sample_data = 0
       AND sc.provider_outcome IN ('success', 'partial')

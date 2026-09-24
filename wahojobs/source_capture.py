@@ -30,6 +30,7 @@ DATAANNOTATION_ROLE_RECORD_CONTRACT_ID = "dataannotation_evergreen_role_record_v
 DATAANNOTATION_ROLES_SHAPE = "dataannotation_evergreen_roles_v2"
 DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID = "dataforce_index_detail_record_v1"
 SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID = "surge_remote_workforce_record_v1"
+HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID = "handshake_public_cms_record_v1"
 PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
 MERCOR_DETAIL_PROMOTION_POLICY_VERSION = "mercor_detail_content_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
@@ -715,6 +716,110 @@ def _validate_surge_remote_workforce_record_v1(
         raise ValueError('Surge indexed role and captured record disagree.')
 
 
+def _validate_handshake_public_cms_record_v1(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    from wahojobs.classification import (
+        AVAILABILITY_BASIS_PUBLIC_CMS, OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
+    )
+    from wahojobs.crawler.providers.handshake import (
+        FIELD_ID, FIELD_SLUG, FIELD_SALARY, FIELD_APPLICATION, DETAIL_URL_PREFIX, _validate_asset_url,
+        FIELD_SUBJECT_FILTERS, FIELD_DEGREE_FILTERS, SUBJECT_TITLE_FIELD, DEGREE_TITLE_FIELD,
+        build_commitment,
+        parse_opportunity_record, qualified_public_record,
+    )
+    evidence = json.loads(attestation.authority_evidence_json)
+    metadata = json.loads(prepared.metadata_json)
+    record = metadata.get('cms_record')
+    required = {'cms_id', 'slug', 'title', 'application_url',
+                'application_job_id', 'cms_chunk_url', 'cms_chunk_sha256'}
+    metadata_keys = {'salary', 'subjects', 'degrees', 'application_url',
+                     'cms_record', 'cms_chunk_url', 'cms_chunk_sha256', 'application_job_id',
+                     'subject_label_evidence', 'degree_label_evidence'}
+    subjects, degrees = metadata.get('subjects'), metadata.get('degrees')
+    if (set(evidence) != required or set(metadata) != metadata_keys
+            or type(subjects) is not list or type(degrees) is not list
+            or any(type(value) is not str or not value for value in subjects + degrees)
+            or type(record) is not dict
+            or provider != 'handshake' or source_type != 'framer-public-inventory'
+            or attestation.body_observation != BODY_OBSERVATION_PRESENT
+            or prepared.body_format != 'text/plain' or not prepared.body
+            or context.provider_outcome != ProviderOutcome.PARTIAL.value
+            or context.used_sample_data or context.snapshot_complete or context.pagination_complete
+            or context.crawl_run_id is None or context.candidate_count < 1
+            or context.normalized_record_count != context.candidate_count
+            or context.raw_record_count < context.candidate_count
+            or context.payload_shape != HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID
+            or context.schema_fingerprint != HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID
+            or candidate.opportunity_kind != OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY
+            or candidate.availability_basis != AVAILABILITY_BASIS_PUBLIC_CMS
+            or candidate.include_in_live_market_estimate is not False
+            or candidate.source_updated_at is not None
+            or candidate.location != 'Remote'
+            or evidence['cms_id'] != record.get(FIELD_ID)
+            or candidate.external_id != 'handshake::' + str(evidence['cms_id'])
+            or evidence['slug'] != record.get(FIELD_SLUG)
+            or candidate.url != DETAIL_URL_PREFIX + '/' + str(evidence['slug'])
+            or evidence['title'] != candidate.title
+            or evidence['application_url'] != metadata.get('application_url')
+            or evidence['application_url'] != record.get(FIELD_APPLICATION)
+            or evidence['application_job_id'] != metadata.get('application_job_id')
+            or evidence['cms_chunk_url'] != metadata.get('cms_chunk_url')
+            or evidence['cms_chunk_sha256'] != metadata.get('cms_chunk_sha256')
+            or metadata['salary'] != record.get(FIELD_SALARY)
+            or re.fullmatch(r'[a-f0-9]{64}', str(evidence['cms_chunk_sha256'])) is None
+            or not qualified_public_record(record)):
+        raise ValueError('Handshake public CMS record authority is inconsistent.')
+    _validate_asset_url(evidence['cms_chunk_url'])
+    if '/cms/' not in evidence['cms_chunk_url']:
+        raise ValueError('Handshake record must come from a CMS chunk.')
+    from urllib.parse import parse_qs, urlsplit
+    job_id = parse_qs(urlsplit(evidence['application_url']).query)['hai_job_id'][0]
+    if evidence['application_job_id'] != job_id:
+        raise ValueError('Handshake signup identity is inconsistent.')
+    def validated_label_map(field, title_field, key):
+        ids = record.get(field)
+        ids = [] if ids is None else ids
+        proofs = metadata.get(key)
+        if (type(ids) is not list or type(proofs) is not dict
+                or set(proofs) != set(ids) or len(ids) != len(set(ids))):
+            raise ValueError('Handshake CMS facet references are inconsistent.')
+        labels = {}
+        for item_id, proof in proofs.items():
+            if type(item_id) is not str or not item_id or type(proof) is not dict or set(proof) != {
+                    'cms_record', 'cms_chunk_url', 'cms_chunk_sha256'}:
+                raise ValueError('Handshake CMS facet evidence is invalid.')
+            label_record = proof['cms_record']
+            if (type(label_record) is not dict or label_record.get(FIELD_ID) != item_id
+                    or type(label_record.get(title_field)) is not str
+                    or not label_record[title_field].strip()
+                    or type(proof['cms_chunk_url']) is not str
+                    or re.fullmatch(r'[a-f0-9]{64}', str(proof['cms_chunk_sha256'])) is None):
+                raise ValueError('Handshake CMS facet evidence disagrees with its identity.')
+            _validate_asset_url(proof['cms_chunk_url'])
+            if '/cms/' not in proof['cms_chunk_url']:
+                raise ValueError('Handshake facet evidence is not a CMS chunk.')
+            labels[item_id] = ' '.join(label_record[title_field].split())
+        return labels
+    subject_map = validated_label_map(FIELD_SUBJECT_FILTERS, SUBJECT_TITLE_FIELD,
+                                      'subject_label_evidence')
+    degree_map = validated_label_map(FIELD_DEGREE_FILTERS, DEGREE_TITLE_FIELD,
+                                     'degree_label_evidence')
+    parsed = parse_opportunity_record(record, subject_map, degree_map,
+        subject_label_evidence=metadata['subject_label_evidence'],
+        degree_label_evidence=metadata['degree_label_evidence'])
+    fields = ('external_id', 'title', 'location', 'url', 'opportunity_kind',
+              'availability_basis', 'include_in_live_market_estimate')
+    if (any(getattr(parsed, field) != getattr(candidate, field) for field in fields)
+            or normalize_source_body(parsed.source_body) != prepared.body
+            or subjects != parsed.source_metadata['subjects']
+            or degrees != parsed.source_metadata['degrees']
+            or candidate.department != ('; '.join(subjects) if subjects else 'Unknown')
+            or candidate.expertise != candidate.department
+            or candidate.commitment != build_commitment(record.get(FIELD_SALARY), degrees)):
+        raise ValueError('Handshake CMS record and candidate disagree.')
+
+
 def _validate_provider_detail_content_v1(attestation, candidate, prepared, context, *, provider, source_type):
     from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
     evidence = json.loads(attestation.authority_evidence_json)
@@ -1066,6 +1171,7 @@ def decide_source_promotion_v2(
         DATAANNOTATION_CODING_RECORD_CONTRACT_ID, DATAANNOTATION_ROLE_RECORD_CONTRACT_ID,
         DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID,
         SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID,
+        HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID,
     }:
         reasons = []
         if context.used_sample_data:
@@ -1314,6 +1420,7 @@ RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     DATAANNOTATION_ROLE_RECORD_CONTRACT_ID: _validate_dataannotation_role_record_v2,
     DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_dataforce_index_detail_record_v1,
     SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID: _validate_surge_remote_workforce_record_v1,
+    HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID: _validate_handshake_public_cms_record_v1,
     SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,

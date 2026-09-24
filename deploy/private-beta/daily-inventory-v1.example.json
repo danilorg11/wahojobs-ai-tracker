@@ -34,7 +34,7 @@
     "handshake": {
       "enabled": false,
       "http_max": 40,
-      "seconds_max": 360
+      "seconds_max": 120
     },
     "meridial": {
       "enabled": true,

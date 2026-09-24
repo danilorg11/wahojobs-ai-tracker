@@ -1,17 +1,19 @@
 import json
+import hashlib
 import re
 import struct
 from html import unescape
 from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from wahojobs.crawler.local_inventory import open_catalog
-from wahojobs.daily_source_policy import current_source
+from wahojobs.daily_source_policy import current_source, observed_handshake_assets
 
 from wahojobs.classification import (
     AVAILABILITY_BASIS_PUBLIC_CMS,
     OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
 )
-from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.types import BODY_OBSERVATION_PRESENT, JobCandidate, RecordPromotionAttestation
+from wahojobs.matching.locations import countries_in_location, regions_in_location
 
 
 REQUEST_HEADERS = {
@@ -43,32 +45,54 @@ SUBJECT_TITLE_FIELD = "E5JNxEx4j"
 DEGREE_TITLE_FIELD = "q0zDwflPE"
 
 
+class UnresolvedHandshakeFacet(ValueError):
+    pass
+
+
 def fetch_handshake_jobs(opportunities_url):
     html_text = fetch_text(ensure_trailing_slash(opportunities_url))
-    cms_urls = discover_cms_urls(html_text)
+    modules = extract_framer_module_urls(html_text)
+    with observed_handshake_assets(modules):
+        cms_urls = discover_cms_urls(html_text)
+    chunks = [url for urls in cms_urls.values() for url in urls]
 
-    opportunity_records = read_framercms_records(
-        cms_urls[OPPORTUNITIES_COLLECTION]
-    )
-    subject_labels = read_label_map(
-        cms_urls.get(SUBJECT_FILTERS_COLLECTION),
-        SUBJECT_TITLE_FIELD,
-    )
-    degree_labels = read_label_map(
-        cms_urls.get(DEGREE_FILTERS_COLLECTION),
-        DEGREE_TITLE_FIELD,
-    )
+    with observed_handshake_assets(chunks):
+        opportunity_rows = read_framercms_rows(
+            cms_urls[OPPORTUNITIES_COLLECTION]
+        )
+        opportunity_records = [record for record, _, _ in opportunity_rows]
+        try:
+            subject_labels, subject_label_evidence = read_label_map(
+                cms_urls.get(SUBJECT_FILTERS_COLLECTION), SUBJECT_TITLE_FIELD)
+        except (OSError, ValueError, IndexError, struct.error, UnicodeError):
+            subject_labels, subject_label_evidence = {}, {}
+        try:
+            degree_labels, degree_label_evidence = read_label_map(
+                cms_urls.get(DEGREE_FILTERS_COLLECTION), DEGREE_TITLE_FIELD)
+        except (OSError, ValueError, IndexError, struct.error, UnicodeError):
+            degree_labels, degree_label_evidence = {}, {}
 
     visible = [record for record in opportunity_records if record.get(FIELD_SHOW_JOB) is True]
     structurally_valid = [record for record in visible if should_include_record(record)]
-    included = [record for record in structurally_valid if qualified_public_record(record)]
-    ids = [clean_value(record[FIELD_ID]) for record in included]
-    slugs = [clean_value(record[FIELD_SLUG]) for record in included]
-    if len(ids) != len(set(ids)) or len(slugs) != len(set(slugs)):
-        raise ValueError("Handshake public CMS has duplicate identity or slug.")
-    return ([parse_opportunity_record(record, subject_labels, degree_labels)
-             for record in included], len(opportunity_records),
-            len(visible)-len(structurally_valid))
+    # Even a hidden or out-of-scope record can make a promoted identity ambiguous.
+    for field in (FIELD_ID, FIELD_SLUG):
+        values = [clean_value(record.get(field)) for record in opportunity_records]
+        values = [value for value in values if value]
+        if len(values) != len(set(values)):
+            raise ValueError("Handshake public CMS has duplicate identity or slug.")
+    included = [row for row in opportunity_rows if qualified_public_record(row[0])]
+    qualified = []
+    unresolved = 0
+    for record, chunk_url, chunk_sha in included:
+        try:
+            qualified.append(parse_opportunity_record(
+                record, subject_labels, degree_labels,
+                chunk_url=chunk_url, chunk_sha256=chunk_sha,
+                subject_label_evidence=subject_label_evidence,
+                degree_label_evidence=degree_label_evidence))
+        except UnresolvedHandshakeFacet:
+            unresolved += 1
+    return qualified, len(opportunity_records), len(visible)-len(structurally_valid)+unresolved
 
 
 def ensure_trailing_slash(url):
@@ -87,8 +111,8 @@ def _validate_asset_url(url):
     if parsed.netloc == "joinhandshake.com" and parsed.path == "/ai/opportunities/":
         return
     if parsed.netloc == "framerusercontent.com" and (
-        re.fullmatch(r"/sites/[A-Za-z0-9_./@-]+\.mjs", parsed.path)
-        or re.fullmatch(r"/cms/[A-Za-z0-9_./-]+-chunk-default-\d+\.framercms", parsed.path)
+        re.fullmatch(r"/sites/[A-Za-z0-9_-]+/[A-Za-z0-9_.@-]+\.mjs", parsed.path)
+        or re.fullmatch(r"/cms/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+-chunk-default-\d+\.framercms", parsed.path)
     ):
         return
     raise ValueError("Handshake asset destination is outside scope.")
@@ -134,7 +158,8 @@ def discover_cms_urls(html_text):
         name = declared[0]
         if name in cms_urls:
             raise ValueError("Handshake CMS collection declared twice.")
-        cms_urls[name] = extract_collection_chunk_urls(module_text, linked_module_url=url)
+        cms_urls[name] = extract_collection_chunk_urls(
+            module_text, linked_module_url=url, collection_name=name)
     if OPPORTUNITIES_COLLECTION not in cms_urls:
         raise ValueError("Could not find Handshake Opportunities Framer CMS chunks.")
     return cms_urls
@@ -145,14 +170,25 @@ def extract_framer_module_urls(html_text):
     for match in re.finditer(r'(?:href|src)="(https://framerusercontent\.com/sites/[^"]+\.mjs)"', html_text):
         url = unescape(match.group(1))
         parsed = urlsplit(url)
-        if parsed.query or parsed.fragment or not re.fullmatch(r"/sites/[A-Za-z0-9_./@-]+\.mjs", parsed.path):
+        if parsed.query or parsed.fragment or not re.fullmatch(r"/sites/[A-Za-z0-9_-]+/[A-Za-z0-9_.@-]+\.mjs", parsed.path):
             raise ValueError("Handshake module destination outside linked asset scope.")
         if url not in urls:
             urls.append(url)
     return urls
 
 
-def extract_collection_chunk_urls(module_text, *, linked_module_url=None):
+def extract_collection_chunk_urls(module_text, *, linked_module_url=None, collection_name=None):
+    if collection_name is not None:
+        marker = f'displayName:`{collection_name}`'
+        if module_text.count(marker) != 1:
+            raise ValueError('Handshake CMS collection declaration is ambiguous.')
+        end = module_text.index(marker)
+        start = module_text.rfind('collectionByLocaleId:{default:', 0, end)
+        if start < 0 or 'displayName:`' in module_text[start:end]:
+            raise ValueError('Handshake CMS collection has no bounded declaration.')
+        # A linked module can contain other collections. Only the chunk list
+        # attached to this exact displayName supplies its records.
+        module_text = module_text[start:end]
     declarations = re.findall(
         r"new URL\(`\./([^`]+-chunk-default-(\d+)\.framercms)`,`([^`]+)`\)"
         r"\.href\.replace\(`/modules/`,`/cms/`\)",
@@ -163,6 +199,8 @@ def extract_collection_chunk_urls(module_text, *, linked_module_url=None):
     prefixes = {name.rsplit("-chunk-default-", 1)[0]
                 for name, _, _ in declarations}
     if len(prefixes) > 1:
+        if collection_name is not None:
+            raise ValueError('Handshake CMS collection has mixed chunk identities.')
         if linked_module_url is None:
             raise ValueError("Handshake module has ambiguous CMS collections.")
         filename = urlsplit(linked_module_url).path.rsplit('/', 1)[-1]
@@ -202,12 +240,12 @@ def extract_collection_chunk_urls(module_text, *, linked_module_url=None):
         destination = urljoin(module_url, chunk_name).replace("/modules/", "/cms/")
         parsed = urlsplit(destination)
         if parsed.scheme != "https" or parsed.netloc != "framerusercontent.com" or not re.fullmatch(
-            r"/cms/[A-Za-z0-9_./-]+-chunk-default-\d+\.framercms", parsed.path
+            r"/cms/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+-chunk-default-\d+\.framercms", parsed.path
         ) or parsed.query or parsed.fragment:
             raise ValueError("Handshake CMS destination outside collection scope.")
         index = int(number)
-        if index in chunks and chunks[index] != destination:
-            raise ValueError("Handshake CMS chunk index has conflicting destinations.")
+        if index in chunks:
+            raise ValueError("Handshake CMS chunk index is repeated.")
         chunks[index] = destination
     if set(chunks) != set(range(len(chunks))):
         raise ValueError("Handshake CMS chunk coverage has a gap.")
@@ -220,29 +258,41 @@ def extract_collection_chunk_url(module_text):
 
 def read_label_map(cms_url, title_field):
     if not cms_url:
-        return {}
-    return {
-        record.get(FIELD_ID): clean_value(record.get(title_field))
-        for record in read_framercms_records(cms_url)
-        if clean_value(record.get(FIELD_ID)) and clean_value(record.get(title_field))
-    }
+        return {}, {}
+    labels = {}
+    evidence = {}
+    for record, chunk_url, chunk_sha256 in read_framercms_rows(cms_url):
+        record_id = clean_value(record.get(FIELD_ID))
+        title = clean_value(record.get(title_field))
+        if not record_id or not title or record_id in labels:
+            raise ValueError('Handshake CMS filter label is missing or duplicated.')
+        labels[record_id] = title
+        evidence[record_id] = dict(cms_record=record, cms_chunk_url=chunk_url,
+                                   cms_chunk_sha256=chunk_sha256)
+    return labels, evidence
 
 
 def read_framercms_records(cms_urls):
+    return [record for record, _, _ in read_framercms_rows(cms_urls)]
+
+
+def read_framercms_rows(cms_urls):
     if not isinstance(cms_urls, list) or not cms_urls or len(cms_urls) > MAX_CHUNKS_PER_COLLECTION:
         raise ValueError("Handshake CMS requires a bounded declared chunk set.")
     records = []
     for cms_url in cms_urls:
         parsed = urlsplit(cms_url)
         if parsed.scheme != "https" or parsed.netloc != "framerusercontent.com" or not re.fullmatch(
-            r"/cms/[A-Za-z0-9_./-]+-chunk-default-\d+\.framercms", parsed.path
+            r"/cms/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+-chunk-default-\d+\.framercms", parsed.path
         ) or parsed.query or parsed.fragment:
             raise ValueError("Handshake CMS destination outside collection scope.")
-        decoder = FramerCmsDecoder(fetch_bytes(cms_url))
+        raw = fetch_bytes(cms_url)
+        decoder = FramerCmsDecoder(raw)
         chunk_records = decoder.read_records()
         if decoder.offset != len(decoder.data):
             raise ValueError("Handshake CMS chunk has trailing unsupported data.")
-        records.extend(chunk_records)
+        digest = hashlib.sha256(raw).hexdigest()
+        records.extend((record, cms_url, digest) for record in chunk_records)
     return records
 
 
@@ -257,14 +307,25 @@ def should_include_record(record):
 
 
 def qualified_public_record(record):
-    if not should_include_record(record) or record.get(FIELD_WORK_LOCATION) != 'Remote':
+    description = clean_value(record.get(FIELD_DESCRIPTION)) or ''
+    # The public Remote field alone does not encode residency, citizenship or
+    # country limits in the prose. Hold such rows until a source-specific
+    # geographic contract can preserve the actual condition in matching.
+    if (countries_in_location(description) or regions_in_location(description)
+            or re.search(r'\b(?:resid(?:e|ing|ency)|citizen(?:ship)?|work authorization|'
+                         r'based in|located in|living in|north america|europe|asia|'
+                         r'eligible countr(?:y|ies))\b', description, re.I)):
+        return False
+    if (not should_include_record(record) or record.get(FIELD_WORK_LOCATION) != 'Remote'
+            or not re.search(r'\b(?:AI|LLM|large language models?|machine learning)\b',
+                             description, re.I)):
         return False
     application = record.get(FIELD_APPLICATION)
     if type(application) is not str:
         return False
     parsed = urlsplit(application)
     try:
-        query = parse_qs(parsed.query, strict_parsing=True)
+        query = parse_qs(parsed.query, strict_parsing=True, keep_blank_values=True)
     except ValueError:
         return False
     return (parsed.scheme == 'https' and parsed.netloc == 'app.joinhandshake.com'
@@ -275,7 +336,9 @@ def qualified_public_record(record):
             and query['hai_job_id'][0].isdecimal())
 
 
-def parse_opportunity_record(record, subject_labels, degree_labels):
+def parse_opportunity_record(record, subject_labels, degree_labels, *,
+                             chunk_url=None, chunk_sha256=None,
+                             subject_label_evidence=None, degree_label_evidence=None):
     record_id = clean_value(record.get(FIELD_ID))
     title = clean_value(record.get(FIELD_TITLE))
     slug = clean_value(record.get(FIELD_SLUG))
@@ -283,6 +346,31 @@ def parse_opportunity_record(record, subject_labels, degree_labels):
     degrees = resolve_labels(record.get(FIELD_DEGREE_FILTERS), degree_labels)
     expertise = "; ".join(subjects) if subjects else "Unknown"
 
+    application = record.get(FIELD_APPLICATION)
+    metadata = {
+        "salary": record.get(FIELD_SALARY),
+        "subjects": subjects,
+        "degrees": degrees,
+        "application_url": application,
+        "subject_label_evidence": select_label_evidence(
+            record.get(FIELD_SUBJECT_FILTERS), subject_label_evidence),
+        "degree_label_evidence": select_label_evidence(
+            record.get(FIELD_DEGREE_FILTERS), degree_label_evidence),
+    }
+    attestation = None
+    if chunk_url is not None:
+        if (not qualified_public_record(record) or type(chunk_sha256) is not str
+                or re.fullmatch(r'[a-f0-9]{64}', chunk_sha256) is None):
+            raise ValueError("Handshake record has no qualified chunk evidence.")
+        job_id = parse_qs(urlsplit(application).query)['hai_job_id'][0]
+        metadata.update(cms_record=record, cms_chunk_url=chunk_url,
+                        cms_chunk_sha256=chunk_sha256, application_job_id=job_id)
+        attestation = RecordPromotionAttestation(
+            contract_id='handshake_public_cms_record_v1',
+            body_observation=BODY_OBSERVATION_PRESENT,
+            authority_evidence=dict(cms_id=record_id, slug=slug, title=title,
+                application_url=application, application_job_id=job_id,
+                cms_chunk_url=chunk_url, cms_chunk_sha256=chunk_sha256))
     return JobCandidate(
         external_id=f"handshake::{record_id}",
         title=title,
@@ -296,23 +384,29 @@ def parse_opportunity_record(record, subject_labels, degree_labels):
         include_in_live_market_estimate=False,
         source_body=clean_value(record.get(FIELD_DESCRIPTION)),
         source_body_format='text/plain' if clean_value(record.get(FIELD_DESCRIPTION)) else None,
-        source_metadata={
-            "salary": record.get(FIELD_SALARY),
-            "subjects": subjects,
-            "degrees": degrees,
-            "application_url": record.get(FIELD_APPLICATION),
-        },
+        source_metadata=metadata,
+        record_promotion_attestation=attestation,
     )
 
 
 def resolve_labels(ids, labels):
-    if not ids:
+    if ids is None or ids == []:
         return []
-    return [
-        labels[item_id]
-        for item_id in ids
-        if item_id in labels and labels[item_id]
-    ]
+    if (type(ids) not in (list, tuple) or any(type(item) is not str or not item
+            or item not in labels for item in ids)):
+        raise UnresolvedHandshakeFacet('Handshake CMS record has an unresolved filter reference.')
+    return [labels[item_id] for item_id in ids]
+
+
+def select_label_evidence(ids, evidence):
+    if ids is None or ids == []:
+        return {}
+    if type(ids) not in (list, tuple) or evidence is None or any(
+            item not in evidence for item in ids):
+        # Unattested parser calls may inspect a record, but an attested
+        # publication cannot silently drop its referenced condition labels.
+        raise UnresolvedHandshakeFacet('Handshake CMS label evidence is incomplete.')
+    return {item: evidence[item] for item in ids}
 
 
 def build_commitment(salary, degrees):

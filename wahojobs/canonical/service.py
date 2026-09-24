@@ -1,3 +1,4 @@
+import json
 import re
 
 from wahojobs.canonical.alignerr import canonicalize_job
@@ -16,6 +17,44 @@ def sync_alignerr_canonical_opportunities(conn, company_id):
 
 def sync_dataforce_canonical_opportunities(conn, company_id):
     sync_canonical_opportunities(conn, company_id, canonicalize_dataforce_job)
+
+
+def sync_handshake_canonical_opportunities(conn, company_id):
+    """Group attested CMS variants by their exact shared application job ID."""
+    rows = conn.execute(
+        """
+        SELECT j.*, cap.authority_evidence_json
+        FROM jobs j
+        JOIN job_source_content_acceptances a ON a.job_id = j.id
+        JOIN job_source_content_captures cap ON cap.id = a.accepted_capture_id
+        WHERE j.company_id = ? AND j.semantic_authority_state = 'versioned_accepted'
+          AND cap.provider = 'handshake'
+          AND cap.record_promotion_contract_id = 'handshake_public_cms_record_v1'
+          AND cap.promotion_decision IN ('promoted', 'confirmed')
+          AND j.title NOT LIKE '[SIMULATION]%'
+        ORDER BY j.first_seen_at, j.id
+        """, (company_id,)).fetchall()
+    first_by_application = {}
+    for row in rows:
+        evidence = json.loads(row['authority_evidence_json'])
+        application_id = evidence.get('application_job_id')
+        if (type(application_id) is not str or not application_id.isdecimal()
+                or evidence.get('cms_id') != row['external_id'].removeprefix('handshake::')):
+            raise ValueError('Handshake accepted canonical evidence is inconsistent.')
+        first = first_by_application.setdefault(application_id, row)
+        canonical_title = normalize_fallback_text(first['title'])
+        canonical = dict(
+            canonical_key=f'handshake::hai_job::{application_id}',
+            canonical_title=canonical_title,
+            normalized_title=canonical_title.casefold(),
+            source_category=normalize_fallback_text(first['expertise'] or first['department'] or 'Unknown'),
+            language=None, language_locale=None,
+        )
+        canonical_id = upsert_canonical_opportunity(conn, company_id, canonical, row)
+        conn.execute('UPDATE jobs SET canonical_opportunity_id = ? WHERE id = ?',
+                     (canonical_id, row['id']))
+    refresh_canonical_rollups(conn, company_id)
+    return len(rows)
 
 
 def sync_oneforma_canonical_opportunities(conn, company_id):

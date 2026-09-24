@@ -20,6 +20,7 @@ _DATAANNOTATION_OBSERVED_REDIRECT = ContextVar('dataannotation_observed_redirect
 _DATAANNOTATION_DOMAINS = ContextVar('dataannotation_controlled_domains', default=None)
 _DATAFORCE_OBSERVED_DETAILS = ContextVar('dataforce_observed_details', default=frozenset())
 _SURGE_OBSERVED_DETAILS = ContextVar('surge_observed_details', default=frozenset())
+_HANDSHAKE_OBSERVED_ASSETS = ContextVar('handshake_observed_assets', default=frozenset())
 
 
 def entry(requests, seconds, expected, scope, rule, *, blocker=None, correction=None, cooldown=0):
@@ -47,13 +48,11 @@ POLICY = {
          'GET https://dataforcecommunity.transperfect.com/projects?project_type=All&page=<1..19>',
          'GET up to remaining cap of exact index-linked https://dataforcecommunity.transperfect.com/(project|study)/<slug>'],
         'Eight exact individually attested remote Thyme roles; remaining daily request slots rotate other remote index cards for inspection only. Partial source, no absence closure.'),
-    'handshake': entry(40, 360, 29,
+    'handshake': entry(40, 120, 29,
         ['GET https://joinhandshake.com/ai/opportunities[/]',
          'GET page-linked https://framerusercontent.com/sites/<public module>.mjs',
          'GET module-linked https://framerusercontent.com/cms/<public collection>.framercms'],
-        'Public inventory, not guaranteed active projects; module/chunk coverage is unproven.',
-        blocker='Unbounded module traversal, unvalidated CMS destination, chunk-0-only discovery and no qualifying record contract.',
-        correction='Constrain linked assets, account for all declared chunks and retain raw visibility/identity evidence; test individual public-inventory promotion.'),
+        'Individually attested remote AI public CMS records only; bounded linked modules and complete declared chunk coverage per observation. Partial individual authority, no absence closure or active-project claim.'),
     'meridial': entry(2, 150, 2,
         ['GET https://boards-api.greenhouse.io/v1/boards/agency/jobs?content=true',
          'GET https://boards-api.greenhouse.io/v1/boards/agency/departments/4012485101?render_as=tree'],
@@ -93,7 +92,7 @@ POLICY = {
         'Complete validated Lever list, exact Welo Data - AI Services filter; excluded board records are neither rejected nor variants.'),
 }
 READY_SOURCES = tuple(s for s in CORE_SOURCES if POLICY[s]['readiness'] == 'ready')
-NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'surge'})
+NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'handshake', 'surge'})
 OVERHEAD_SECONDS = 240  # stop/preflight queries, one backup, final integrity, process cleanup
 MAX_EXECUTION_SECONDS = 2520  # installed daily service and approved collection ceiling
 
@@ -128,6 +127,23 @@ def aggregate(configured):
 
 
 def current_source():return _DAILY_SOURCE.get()
+
+
+@contextmanager
+def observed_handshake_assets(urls):
+    """Admit only exact assets extracted from the current public page/module."""
+    if type(urls) not in (tuple, list) or len(urls) > 64 or len(urls) != len(set(urls)):
+        raise ValueError('handshake_asset_scope_invalid')
+    for url in urls:
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'https' or parsed.netloc != 'framerusercontent.com'
+                or parsed.query or parsed.fragment or parsed.port
+                or not (re.fullmatch(r'/sites/[A-Za-z0-9_-]+/[A-Za-z0-9_.@-]+\.mjs', parsed.path)
+                        or re.fullmatch(r'/cms/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+-chunk-default-\d+\.framercms', parsed.path))):
+            raise ValueError('handshake_asset_scope_invalid')
+    token = _HANDSHAKE_OBSERVED_ASSETS.set(frozenset(urls))
+    try: yield
+    finally: _HANDSHAKE_OBSERVED_ASSETS.reset(token)
 def controlled_validation_active():return _CONTROLLED_VALIDATION.get()
 def controlled_dataannotation_domains():
     return (_DATAANNOTATION_DOMAINS.get() if current_source() == 'dataannotation'
@@ -267,6 +283,10 @@ def validate_request(request):
         ok = (p.netloc == 'surgehq.ai' and method == 'GET' and not query
               and (p.path in ('/workforce','/fellowship')
                    or request.full_url in _SURGE_OBSERVED_DETAILS.get()))
+    elif source == 'handshake':
+        ok = (method == 'GET' and not query and (
+            p.netloc == 'joinhandshake.com' and p.path == '/ai/opportunities/'
+            or request.full_url in _HANDSHAKE_OBSERVED_ASSETS.get()))
     elif source == 'meridial':
         ok = (at('boards-api.greenhouse.io','/v1/boards/agency/jobs') and query=={'content':['true']} or
               at('boards-api.greenhouse.io','/v1/boards/agency/departments/4012485101') and query=={'render_as':['tree']})

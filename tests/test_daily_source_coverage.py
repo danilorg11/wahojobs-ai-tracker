@@ -202,7 +202,7 @@ class CoveragePolicyTests(unittest.TestCase):
         manifest=json.loads((root/'daily-inventory-activation-manifest.json').read_text())
         example=json.loads((root/'daily-inventory-v1.example.json').read_text())
         for row in manifest['sources']:
-            if row['source'] not in ('dataannotation','dataforce','surge'):
+            if row['source'] not in ('dataannotation','dataforce','handshake','surge'):
                 self.assertEqual({k:row[k] for k in policy.POLICY[row['source']]},policy.POLICY[row['source']])
         policy.validate_sources(example['sources'])
         self.assertFalse(example['enabled']);self.assertFalse(example['alert_delivery']['approved'])
@@ -214,7 +214,7 @@ class CoveragePolicyTests(unittest.TestCase):
 
     def test_policy_accounts_for_every_source_and_rejects_widening_or_blocked_activation(self):
         settings=policy.default_sources();policy.validate_sources(settings)
-        self.assertEqual(len(settings),15);self.assertEqual(len(policy.READY_SOURCES),13)
+        self.assertEqual(len(settings),15);self.assertEqual(len(policy.READY_SOURCES),14)
         self.assertEqual(policy.aggregate(settings),dict(http_max=232,execution_seconds=2040))
         at_ceiling=json.loads((Path(__file__).parents[1]/'deploy/private-beta/daily-inventory-v1.example.json').read_text())['sources']
         changed=deepcopy(at_ceiling);changed['surge']['enabled']=True
@@ -228,6 +228,14 @@ class CoveragePolicyTests(unittest.TestCase):
         policy.validate_sources(changed)
         self.assertEqual(policy.aggregate(changed),
                          dict(http_max=237, execution_seconds=2520))
+        # The retained targeted Alignerr 47-request capture completed in 8 s.
+        # A 240 s Alignerr source ceiling retains broad headroom while a 120 s
+        # Handshake discovery fits the unchanged overall execution limit.
+        changed['alignerr']['seconds_max']=240
+        changed['handshake'].update(enabled=True,seconds_max=120)
+        policy.validate_sources(changed)
+        self.assertEqual(policy.aggregate(changed),
+                         dict(http_max=277, execution_seconds=2520))
         for source in settings:
             changed=deepcopy(settings);changed[source]['http_max']+=1
             with self.assertRaises(ValueError):policy.validate_sources(changed)

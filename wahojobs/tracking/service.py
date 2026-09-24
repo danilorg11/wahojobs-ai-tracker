@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
+    sync_handshake_canonical_opportunities,
     sync_fallback_canonical_opportunities,
     sync_meridial_canonical_opportunities,
     sync_micro1_canonical_opportunities,
@@ -156,6 +157,8 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
         sync_alignerr_canonical_opportunities(conn, company_id)
     elif company["slug"] == "dataforce":
         sync_dataforce_canonical_opportunities(conn, company_id)
+    elif company["slug"] == "handshake":
+        sync_handshake_canonical_opportunities(conn, company_id)
     elif company["slug"] == "meridial":
         sync_meridial_canonical_opportunities(conn, company_id)
     elif company["slug"] == "mindrift":

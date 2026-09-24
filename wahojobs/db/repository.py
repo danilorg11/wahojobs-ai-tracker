@@ -26,6 +26,7 @@ from wahojobs.crawler.types import MERCOR_RECORD_CONTRACT_ID, PROVIDER_DETAIL_RE
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
     sync_dataforce_canonical_opportunities,
+    sync_handshake_canonical_opportunities,
     sync_fallback_canonical_opportunities,
     sync_meridial_canonical_opportunities,
     sync_micro1_canonical_opportunities,
@@ -235,6 +236,9 @@ def initialize_database(db_path=DB_PATH):
         dataforce = get_company_by_slug(conn, "dataforce")
         if dataforce is not None:
             sync_dataforce_canonical_opportunities(conn, dataforce["id"])
+        handshake = get_company_by_slug(conn, "handshake")
+        if handshake is not None:
+            sync_handshake_canonical_opportunities(conn, handshake["id"])
         meridial = get_company_by_slug(conn, "meridial")
         if meridial is not None:
             sync_meridial_canonical_opportunities(conn, meridial["id"])

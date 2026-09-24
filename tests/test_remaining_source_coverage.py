@@ -125,6 +125,7 @@ class RemainingSourceBoundaries(unittest.TestCase):
         visible = {handshake.FIELD_ID: 'cms-1', handshake.FIELD_TITLE: 'AI Evaluator',
                    handshake.FIELD_SLUG: 'ai-evaluator', handshake.FIELD_SHOW_JOB: True,
                    handshake.FIELD_WORK_LOCATION: 'Remote',
+                   handshake.FIELD_DESCRIPTION: 'Remote AI evaluation of language models.',
                    handshake.FIELD_APPLICATION:
                        'https://app.joinhandshake.com/signup?destination_hai_path=%2Fauth&hai_job_id=123'}
         self.assertTrue(handshake.qualified_public_record(visible))
