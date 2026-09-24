@@ -26,6 +26,9 @@ SOURCE_CAPTURE_CONTRACT_VERSION = "job_source_capture_v1"
 SOURCE_PROMOTION_POLICY_VERSION = "job_source_promotion_v2"
 MERCOR_PROMOTION_POLICY_VERSION = "mercor_record_promotion_v2"
 DATAANNOTATION_CODING_RECORD_CONTRACT_ID = "dataannotation_coding_evergreen_record_v1"
+DATAANNOTATION_ROLE_RECORD_CONTRACT_ID = "dataannotation_evergreen_role_record_v2"
+DATAANNOTATION_ROLES_SHAPE = "dataannotation_evergreen_roles_v2"
+DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID = "dataforce_index_detail_record_v1"
 PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
 MERCOR_DETAIL_PROMOTION_POLICY_VERSION = "mercor_detail_content_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
@@ -547,8 +550,8 @@ def _validate_dataannotation_coding_record_v1(
             or context.crawl_run_id is None
             or context.candidate_count < 1 or context.normalized_record_count != context.candidate_count
             or context.raw_record_count < context.normalized_record_count
-            or context.payload_shape != DATAANNOTATION_CODING_RECORD_CONTRACT_ID
-            or context.schema_fingerprint != DATAANNOTATION_CODING_RECORD_CONTRACT_ID):
+            or context.payload_shape not in {DATAANNOTATION_CODING_RECORD_CONTRACT_ID, DATAANNOTATION_ROLES_SHAPE}
+            or context.schema_fingerprint != context.payload_shape):
         raise ValueError("DataAnnotation coding record authority is inconsistent.")
     title, application_url = coding_role_evidence(prepared.body, candidate.url)
     metadata = json.loads(prepared.metadata_json)
@@ -557,6 +560,96 @@ def _validate_dataannotation_coding_record_v1(
             or evidence["application_url"] != application_url
             or evidence["body_sha256"] != hashlib.sha256(prepared.body.encode("utf-8")).hexdigest()):
         raise ValueError("DataAnnotation coding body and authority disagree.")
+
+
+def _validate_dataannotation_role_record_v2(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    from wahojobs.classification import (
+        AVAILABILITY_BASIS_EVERGREEN_PAGE, OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
+    )
+    from wahojobs.crawler.providers.dataannotation import ROLE_IDENTITIES, evergreen_role_evidence
+    evidence = json.loads(attestation.authority_evidence_json)
+    domain = candidate.external_id.removeprefix("dataannotation::")
+    identity = ROLE_IDENTITIES.get(domain)
+    expected = {"requested_url", "final_url", "role_slug", "title", "application_url", "body_sha256"}
+    if (set(evidence) != expected or identity is None
+            or candidate.external_id != "dataannotation::" + domain
+            or provider != "dataannotation" or source_type != "evergreen-application-pages"
+            or attestation.body_observation != BODY_OBSERVATION_PRESENT
+            or prepared.body_format != "text/html" or not prepared.body
+            or candidate.url != evidence["final_url"]
+            or evidence["requested_url"] != f"https://www.dataannotation.tech/{domain}"
+            or evidence["role_slug"] != identity[0]
+            or candidate.location != "Remote"
+            or candidate.opportunity_kind != OPPORTUNITY_KIND_EVERGREEN_APPLICATION
+            or candidate.availability_basis != AVAILABILITY_BASIS_EVERGREEN_PAGE
+            or candidate.include_in_live_market_estimate is not False
+            or context.provider_outcome not in {ProviderOutcome.SUCCESS.value, ProviderOutcome.PARTIAL.value}
+            or context.used_sample_data or context.snapshot_complete or context.pagination_complete
+            or context.crawl_run_id is None or context.candidate_count < 1
+            or context.normalized_record_count != context.candidate_count
+            or context.raw_record_count < context.normalized_record_count
+            or context.payload_shape != DATAANNOTATION_ROLES_SHAPE
+            or context.schema_fingerprint != DATAANNOTATION_ROLES_SHAPE):
+        raise ValueError("DataAnnotation role authority is inconsistent.")
+    title, application_url = evergreen_role_evidence(domain, prepared.body, candidate.url)
+    if (candidate.title != title or evidence["title"] != title
+            or json.loads(prepared.metadata_json) != {"application_url": application_url}
+            or evidence["application_url"] != application_url
+            or evidence["body_sha256"] != hashlib.sha256(prepared.body.encode("utf-8")).hexdigest()):
+        raise ValueError("DataAnnotation role body and authority disagree.")
+
+
+def _validate_dataforce_index_detail_record_v1(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    from wahojobs.classification import AVAILABILITY_BASIS_PUBLIC_PAGE, OPPORTUNITY_KIND_LIVE_POSTING
+    from wahojobs.crawler.providers.dataforce import (
+        parse_job_block, detail_role_evidence, QUALIFIED_DETAIL_PATHS,
+    )
+    evidence = json.loads(attestation.authority_evidence_json)
+    metadata = json.loads(prepared.metadata_json)
+    expected = {"external_id", "index_page_url", "index_page_sha256",
+                "index_card_sha256", "detail_url", "detail_sha256", "title", "application_url"}
+    required_meta = {"index_card_html", "index_page_url", "index_page_sha256", "application_url"}
+    if (set(evidence) != expected or not required_meta <= set(metadata)
+            or provider != "dataforce" or source_type != "dataforce-community-html"
+            or attestation.body_observation != BODY_OBSERVATION_PRESENT
+            or prepared.body_format != "text/html" or not prepared.body
+            or context.provider_outcome != ProviderOutcome.PARTIAL.value
+            or context.used_sample_data or context.snapshot_complete or context.pagination_complete
+            or context.crawl_run_id is None or context.candidate_count < 1
+            or context.normalized_record_count != context.candidate_count
+            or context.raw_record_count < context.normalized_record_count
+            or context.payload_shape != DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID
+            or context.schema_fingerprint != DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID
+            or candidate.opportunity_kind != OPPORTUNITY_KIND_LIVE_POSTING
+            or candidate.availability_basis != AVAILABILITY_BASIS_PUBLIC_PAGE
+            or candidate.include_in_live_market_estimate is not True
+            or evidence["external_id"] != candidate.external_id
+            or evidence["detail_url"] != candidate.url
+            or evidence["title"] != candidate.title
+            or evidence["index_page_url"] != metadata["index_page_url"]
+            or evidence["index_page_sha256"] != metadata["index_page_sha256"]
+            or evidence["application_url"] != metadata["application_url"]
+            or not re.fullmatch(r"[a-f0-9]{64}", str(evidence["index_page_sha256"]))
+            or urlparse(candidate.url).path not in QUALIFIED_DETAIL_PATHS):
+        raise ValueError("DataForce index/detail record authority is inconsistent.")
+    card = metadata["index_card_html"]
+    if (not isinstance(card, str) or not card
+            or evidence["index_card_sha256"] != hashlib.sha256(card.encode()).hexdigest()
+            or evidence["detail_sha256"] != hashlib.sha256(prepared.body.encode()).hexdigest()):
+        raise ValueError("DataForce index/detail source body changed.")
+    index = parse_job_block(card, metadata["index_page_url"])
+    if (index is None or (index.external_id, index.url, index.title,
+            index.location, index.commitment, index.department, index.expertise)
+            != (candidate.external_id, candidate.url, candidate.title,
+                candidate.location, candidate.commitment, candidate.department, candidate.expertise)
+            or not set((index.source_metadata or {}).items()) <= set(metadata.items())):
+        raise ValueError("DataForce exact index card disagrees with the record.")
+    if detail_role_evidence(index, prepared.body) != evidence["application_url"]:
+        raise ValueError("DataForce detail and application authority disagree.")
 
 
 def _validate_provider_detail_content_v1(attestation, candidate, prepared, context, *, provider, source_type):
@@ -906,7 +999,10 @@ def decide_source_promotion_v2(
             accepted_row,
             same_accepted_semantic_material=same_accepted_semantic_material,
         )
-    if record_attestation.contract_id == DATAANNOTATION_CODING_RECORD_CONTRACT_ID:
+    if record_attestation.contract_id in {
+        DATAANNOTATION_CODING_RECORD_CONTRACT_ID, DATAANNOTATION_ROLE_RECORD_CONTRACT_ID,
+        DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID,
+    }:
         reasons = []
         if context.used_sample_data:
             reasons.append(REASON_SAMPLE_DATA)
@@ -1151,6 +1247,8 @@ SOURCE_CAPTURE_CONTRACT_PREPARERS = {
 }
 RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     DATAANNOTATION_CODING_RECORD_CONTRACT_ID: _validate_dataannotation_coding_record_v1,
+    DATAANNOTATION_ROLE_RECORD_CONTRACT_ID: _validate_dataannotation_role_record_v2,
+    DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_dataforce_index_detail_record_v1,
     SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,

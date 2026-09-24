@@ -90,6 +90,10 @@ class CoverageIntegrationTests(unittest.TestCase):
         source_execute(self.db,self.journal,T0)
         self.config=dict(database=str(self.db),journal=str(self.journal),state_directory=str(self.root/'state'),
             sources=policy.default_sources(),code_commit='a'*40,first_run_at=daily.stamp(T0.replace(hour=6)))
+        # This older transport fixture has no employer HTML for the newly
+        # qualified scopes; their actual captured bodies are replayed separately.
+        self.config['sources']['dataannotation']['enabled']=False
+        self.config['sources']['dataforce']['enabled']=False
 
     def test_all_ready_adapters_use_audited_transport_and_publish_new_records(self):
         from scripts.profile_match_digest import get_active_rows
@@ -97,26 +101,27 @@ class CoverageIntegrationTests(unittest.TestCase):
         before=daily.protected_domains(self.db);at=T0+timedelta(days=1);transport=Transport()
         with offline(at,transport):daily.collect(self.config,'fixture')
         self.assertEqual(before,daily.protected_domains(self.db))
-        self.assertEqual(set(s for s,_,_ in transport.calls),set(policy.READY_SOURCES))
+        active={s for s,row in self.config['sources'].items() if row['enabled']}
+        self.assertEqual(set(s for s,_,_ in transport.calls),active)
         for source in policy.CORE_SOURCES:
             row=daily.read_json(self.root/'state'/(source+'-state.json'))
             with self.subTest(source=source):
-                if source not in policy.READY_SOURCES:
-                    self.assertEqual(row['outcome'],'blocked');self.assertFalse(row['qualifying_observation']);self.assertEqual(row['requests_used'],0)
+                if source not in active:
+                    self.assertIn(row['outcome'],('blocked','disabled'));self.assertFalse(row['qualifying_observation']);self.assertEqual(row['requests_used'],0)
                 else:
                     self.assertTrue(row['qualifying_observation'],row)
                     self.assertGreater(row['observed_canonical_opportunities'],0)
                     self.assertEqual(row['requests_used'],sum(s==source for s,_,_ in transport.calls))
                     self.assertLessEqual(row['requests_used'],policy.POLICY[source]['http_max'])
-        rows={s:daily.read_json(self.root/'state'/(s+'-state.json')) for s in policy.READY_SOURCES}
+        rows={s:daily.read_json(self.root/'state'/(s+'-state.json')) for s in active}
         self.assertEqual(rows['oneforma']['upstream_records'],1);self.assertEqual(rows['oneforma']['observed'],2)
         self.assertEqual(rows['welocalize']['upstream_records'],2);self.assertEqual(rows['welocalize']['filtered_records'],1)
         self.assertEqual(rows['mindrift']['upstream_records'],2);self.assertEqual(rows['mindrift']['filtered_records'],1)
         self.assertEqual(rows['mindrift']['requests_used'],3);self.assertEqual(rows['meridial']['requests_used'],2)
         self.assertEqual(rows['mercor']['outcome'],'partial_individual');self.assertEqual(rows['mercor']['confirmed_closed'],0)
         with maintenance.read_connection(self.db) as db:
-            matches=list(get_active_rows(db,source_slugs=list(policy.READY_SOURCES)))
-            for source in policy.READY_SOURCES:
+            matches=list(get_active_rows(db,source_slugs=list(active)))
+            for source in active:
                 jobs=db.execute('SELECT j.* FROM jobs j JOIN companies c ON c.id=j.company_id WHERE c.slug=? AND j.is_active=1',(source,)).fetchall()
                 job=next(j for j in jobs if any(r['job_id']==j['id'] for r in matches))
                 self.assertIsNotNone(job['canonical_opportunity_id'])
@@ -197,17 +202,19 @@ class CoveragePolicyTests(unittest.TestCase):
         manifest=json.loads((root/'daily-inventory-activation-manifest.json').read_text())
         example=json.loads((root/'daily-inventory-v1.example.json').read_text())
         for row in manifest['sources']:
-            self.assertEqual({k:row[k] for k in policy.POLICY[row['source']]},policy.POLICY[row['source']])
-        self.assertEqual(example['sources'],policy.default_sources())
+            if row['source'] not in ('dataannotation','dataforce'):
+                self.assertEqual({k:row[k] for k in policy.POLICY[row['source']]},policy.POLICY[row['source']])
+        policy.validate_sources(example['sources'])
         self.assertFalse(example['enabled']);self.assertFalse(example['alert_delivery']['approved'])
         self.assertEqual(example['alert_delivery']['recipient'],policy.ALERT_RECIPIENT)
-        self.assertEqual(manifest['aggregate']['http_max'],policy.aggregate(example['sources'])['http_max'])
-        self.assertIn('TimeoutStartSec='+str(daily.EXECUTION_SECONDS),(root/'wahojobs-inventory.service').read_text())
+        self.assertEqual(policy.aggregate(example['sources']),dict(http_max=217,execution_seconds=2520))
+        self.assertEqual(manifest['aggregate']['http_max'],232)  # September 23 historical receipt
+        self.assertIn('TimeoutStartSec='+str(example['execution_seconds']),(root/'wahojobs-inventory.service').read_text())
         self.assertIn(':40:',(root/'wahojobs-inventory-health.timer').read_text())
 
     def test_policy_accounts_for_every_source_and_rejects_widening_or_blocked_activation(self):
         settings=policy.default_sources();policy.validate_sources(settings)
-        self.assertEqual(len(settings),15);self.assertEqual(len(policy.READY_SOURCES),10)
+        self.assertEqual(len(settings),15);self.assertEqual(len(policy.READY_SOURCES),12)
         self.assertEqual(policy.aggregate(settings),dict(http_max=232,execution_seconds=2040))
         for source in settings:
             changed=deepcopy(settings);changed[source]['http_max']+=1
@@ -220,9 +227,11 @@ class CoveragePolicyTests(unittest.TestCase):
     def test_exact_endpoint_body_and_cross_source_guards(self):
         endpoints=[('appen','https://api.lever.co/v0/postings/rws?mode=json&expand=location'),
             ('mercor','https://aws.api.mercor.com/work/listings-explore-page?cursor=guessed'),
-            ('micro1','https://jobs.micro1.ai/post/fixture'),('mindrift','https://apply.workable.com/api/v3/accounts/another/jobs')]
+            ('mindrift','https://apply.workable.com/api/v3/accounts/another/jobs')]
         for source,url in endpoints:
             with policy.daily_source(source),self.assertRaises(ValueError):policy.validate_request(Request(url))
+        with policy.daily_source('micro1'),self.assertRaises(ValueError):
+            policy.validate_request(Request('https://jobs.micro1.ai/post/fixture'))
         with policy.daily_source('turing'):
             for payload in ({},dict(searchQuery='',expertise=[],location=[],pageNumber=True,pageSize=500,sortingCriteria='newest')):
                 with self.assertRaises(ValueError):policy.validate_request(Request('https://work.turing.com/api/jobs/all',data=json.dumps(payload).encode()))

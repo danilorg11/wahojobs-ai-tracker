@@ -1,11 +1,14 @@
 import html
+import hashlib
 import re
+from dataclasses import replace
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request
 from wahojobs.crawler.local_inventory import open_public as urlopen
-from wahojobs.daily_source_policy import observed_dataforce_details
+from wahojobs.daily_source_policy import observed_dataforce_details, controlled_validation_active
 
-from wahojobs.crawler.types import JobCandidate
+from wahojobs.classification import AVAILABILITY_BASIS_PUBLIC_PAGE, OPPORTUNITY_KIND_LIVE_POSTING
+from wahojobs.crawler.types import JobCandidate, RecordPromotionAttestation, BODY_OBSERVATION_PRESENT
 
 
 REQUEST_HEADERS = {
@@ -14,6 +17,27 @@ REQUEST_HEADERS = {
 }
 MAX_PAGES = 20
 MAX_DETAIL_PAGES = 50
+_THYME_APPLICATION_TOKENS = {
+    '/project/thyme-freelance-writer-spanish-us': 'aL6jslPVXS',
+    '/project/thyme-freelance-writer-korean': 'nUhPxBHO_h',
+    '/project/thyme-freelance-writer-chinese': 'oiKoZRdJVb',
+    '/project/thyme-freelance-writer-polish': 'Xsluc2L17F',
+    '/project/thyme-freelance-writer-afrikaans': '90yLNrzcei',
+    '/project/thyme-freelance-writer-turkish': 'w_7NPxgBaJ',
+    '/project/thyme-freelance-writer-hindi': '9ki119d56_',
+    '/project/thyme-freelance-writer-english-us': 'VYqE5ySEMk',
+}
+QUALIFIED_DETAIL_PATHS = frozenset(_THYME_APPLICATION_TOKENS)
+_THYME_IDENTITIES = {
+    '/project/thyme-freelance-writer-spanish-us': ('Thyme Freelance Writer - Spanish (US)', 'United States'),
+    '/project/thyme-freelance-writer-korean': ('Thyme Freelance Writer - Korean (South Korea)', 'Korea Republic'),
+    '/project/thyme-freelance-writer-chinese': ('Thyme Freelance Writer - Simplified Chinese (China)', 'China'),
+    '/project/thyme-freelance-writer-polish': ('Thyme Freelance Writer - Polish (Poland)', 'Poland'),
+    '/project/thyme-freelance-writer-afrikaans': ('Thyme Freelance Writer - Afrikaans (South Africa)', 'South Africa'),
+    '/project/thyme-freelance-writer-turkish': ('Thyme Freelance Writer - Turkish (Turkey)', 'Turkey'),
+    '/project/thyme-freelance-writer-hindi': ('Thyme Freelance Writer - Hindi (India)', 'India'),
+    '/project/thyme-freelance-writer-english-us': ('Thyme Freelance Writer - English (US)', 'United States'),
+}
 
 
 def fetch_dataforce_jobs(projects_url):
@@ -67,23 +91,96 @@ def fetch_page(url):
 
 
 def collect_index_linked_details(jobs):
-    """Retain bounded exact index-linked pages during controlled observation.
-
-    The transport journal owns raw bytes and metadata. This read-only capture
-    does not claim that a 200 detail is a qualified application opportunity.
-    """
-    ordered = sorted(jobs, key=lambda job: (
-        job.commitment != 'Remote',
-        'minor' in job.title.casefold() or 'menor' in job.title.casefold(),
-    ))[:MAX_DETAIL_PAGES]
+    """Verify only exact index-linked detail pages, retaining a partial source."""
+    if controlled_validation_active():
+        ordered = sorted(jobs, key=lambda job: (
+            job.commitment != 'Remote',
+            'minor' in job.title.casefold() or 'menor' in job.title.casefold(),
+        ))[:MAX_DETAIL_PAGES]
+    else:
+        ordered = [job for job in jobs if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS]
     urls = tuple(job.url for job in ordered)
+    qualified = []
     with observed_dataforce_details(urls):
-        for url in urls:
-            page = fetch_page(url)
+        for job in ordered:
+            page = fetch_page(job.url)
             if any(marker in page.casefold() for marker in
                    ('captcha', 'access denied', '403 forbidden', 'verify you are human')):
                 raise ValueError('DataForce detail access or challenge page.')
-    return len(urls)
+            if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS:
+                qualified.append(qualify_detail_record(job, page))
+    return qualified, len(urls)
+
+
+def detail_role_evidence(index_job, detail_html):
+    """Match an indexed Thyme writing role to its public application page."""
+    parsed = urlparse(index_job.url)
+    if (parsed.scheme != 'https' or parsed.netloc != 'dataforcecommunity.transperfect.com'
+            or parsed.path not in QUALIFIED_DETAIL_PATHS or parsed.query or parsed.fragment
+            or index_job.external_id != 'dataforce::' + parsed.path.lstrip('/')
+            or index_job.commitment != 'Remote'
+            or (index_job.title, index_job.location) != _THYME_IDENTITIES.get(parsed.path)
+            or index_job.department != 'Text' or index_job.expertise != 'Text'
+            or 'minor' in index_job.title.casefold()):
+        raise ValueError('DataForce index role is outside the qualified scope.')
+    if not re.search(r'<link rel="canonical" href="' + re.escape(index_job.url) + r'"', detail_html):
+        raise ValueError('DataForce detail canonical identity disagrees with the index.')
+    match = re.search(r'field--name-body.*?</h1>', detail_html, re.I | re.S)
+    if match is None:
+        raise ValueError('DataForce detail body and heading are missing.')
+    headings = re.findall(r'<h1[^>]*>(.*?)</h1>', match.group(0), re.I | re.S)
+    if not headings or clean_html_text(headings[-1]) != index_job.title:
+        raise ValueError('DataForce detail title disagrees with the index.')
+    body = re.sub(r'<style.*?</style>|<script.*?</script>', ' ', detail_html, flags=re.I | re.S)
+    body_text = clean_html_text(body)
+    if ('machine translation technology' not in body_text.casefold()
+            or 'this is a fully remote project' not in body_text.casefold()
+            or 'seeking freelance short story writers' not in body_text.casefold()):
+        raise ValueError('DataForce remote AI writing work is unproven.')
+    links = []
+    for href in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>\s*Apply Here\s*</a>', detail_html, re.I | re.S):
+        application = ''.join(html.unescape(href).split())
+        target = urlparse(application)
+        query = parse_qs(target.query)
+        token = query.get('registration-type', [])
+        if (target.scheme == 'https' and target.netloc == 'hub.transperfect.com'
+                and target.path in ('/', '/registration') and not target.fragment
+                and set(query) == {'registration-type'} and len(token) == 1
+                and token[0] == _THYME_APPLICATION_TOKENS[parsed.path]):
+            links.append(application.rstrip('&'))
+    if not links or len(set(links)) != 1:
+        raise ValueError('DataForce role-bound application action is missing or conflicting.')
+    return links[0]
+
+
+def qualify_detail_record(index_job, detail_html):
+    application = detail_role_evidence(index_job, detail_html)
+    metadata = dict(index_job.source_metadata or {})
+    required = {'index_card_html', 'index_page_url', 'index_page_sha256'}
+    if not required <= set(metadata):
+        raise ValueError('DataForce exact index card evidence is missing.')
+    metadata['application_url'] = application
+    return replace(index_job,
+        source_body=detail_html, source_body_format='text/html',
+        source_metadata=metadata,
+        opportunity_kind=OPPORTUNITY_KIND_LIVE_POSTING,
+        availability_basis=AVAILABILITY_BASIS_PUBLIC_PAGE,
+        include_in_live_market_estimate=True,
+        record_promotion_attestation=RecordPromotionAttestation(
+            contract_id='dataforce_index_detail_record_v1',
+            body_observation=BODY_OBSERVATION_PRESENT,
+            authority_evidence={
+                'external_id': index_job.external_id,
+                'index_page_url': metadata['index_page_url'],
+                'index_page_sha256': metadata['index_page_sha256'],
+                'index_card_sha256': hashlib.sha256(metadata['index_card_html'].encode()).hexdigest(),
+                'detail_url': index_job.url,
+                'detail_sha256': hashlib.sha256(
+                    detail_html.replace('\r\n', '\n').replace('\r', '\n').strip().encode()).hexdigest(),
+                'title': index_job.title,
+                'application_url': application,
+            },
+        ))
 
 
 def validate_inventory_page(html_text):
@@ -123,11 +220,14 @@ def validate_pagination(html_text, page):
 
 def parse_jobs_page(html_text, page_url):
     jobs = []
+    page_sha256 = hashlib.sha256(html_text.encode('utf-8')).hexdigest()
     for block in html_text.split('<div class="views-row">')[1:]:
         job = parse_job_block(block, page_url)
         if job is None:
             raise ValueError("DataForce returned a project row without required fields.")
-        jobs.append(job)
+        jobs.append(replace(job, source_metadata={**(job.source_metadata or {}),
+            'index_card_html': block, 'index_page_url': page_url,
+            'index_page_sha256': page_sha256}))
     return jobs
 
 

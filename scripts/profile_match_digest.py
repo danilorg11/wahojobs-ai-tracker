@@ -729,7 +729,6 @@ def select_profiles(profiles, profile_id):
 
 from wahojobs.source_verification import (
     SOURCE_VERIFICATION_FIELDS, SOURCE_VERIFICATION_JOINS,
-    MERCOR_OBSERVATION_IS_NEWER, MERCOR_OBSERVATION_JOIN,
 )
 
 

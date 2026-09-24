@@ -38,3 +38,27 @@ DataAnnotation domains. Their record contracts and any source activation must
 be based on the new beta-host bodies and an isolated lifecycle replay. The
 prior local DataAnnotation collection failure remains failed; its offline
 coding replay is not a fresh live observation.
+
+## Reusable public SSH host identity
+
+The established September 17 sign-in operator pinned DigitalOcean Droplet
+`601554729` in NYC3, name `wahojobs-private-beta-rehearsal-20260917`, public
+IPv4 `174.138.50.176`, to the ED25519 host key in
+`deploy/private-beta/remaining-source-known_hosts`. Its SHA-256 fingerprint is
+`SHA256:+WNJeN0W2bPuRuR21SddoYAw5Fx247VefFmwsoGOOYM`. Provenance is the
+earlier `signin-correction/OPERATOR-PATH.md`, `private_signin_operator.py` and
+`initial-administration-receipt.json` in the September 17 operating evidence;
+that receipt records an actual pinned-host verification. The September 24
+authenticated DigitalOcean account again identified the same active Droplet ID,
+name and IP. The running Droplet's Recovery Console login banner displayed
+the same fingerprint. This public trust reference is separate from private
+owner login material.
+
+Use the scoped known-hosts file with `StrictHostKeyChecking=yes` for future
+administrative SSH. Stop on a presented key mismatch; do not replace the pin
+from a network scan. A trusted pin does not establish current TCP reachability
+or authentication. On September 24, this workspace's egress IP was
+`152.245.124.87`, while the Droplet's DigitalOcean Cloud Firewall allowed
+SSH/TCP 22 only from `152.245.126.80/32`. A TCP check from this workspace
+failed; no SSH authentication occurred. Recheck the effective egress IP and
+firewall before any narrow access adjustment, and record the actual decision.

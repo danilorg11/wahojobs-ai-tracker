@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from wahojobs.crawler.local_inventory import open_catalog
 from wahojobs.daily_source_policy import (current_source, observed_dataannotation_redirect,
-    controlled_dataannotation_domains)
+    controlled_dataannotation_domains, controlled_validation_active)
 
 from wahojobs.classification import (
     AVAILABILITY_BASIS_EVERGREEN_PAGE,
@@ -97,6 +97,8 @@ def fetch_dataannotation_jobs(base_url):
     network_or_site_errors = []
 
     selected = controlled_dataannotation_domains()
+    if selected is None and current_source() == "dataannotation" and not controlled_validation_active():
+        selected = frozenset(("coding", *ROLE_IDENTITIES))
     for domain in DOMAIN_PAGES:
         if selected is not None and domain.slug not in selected:
             continue
@@ -148,6 +150,20 @@ CANONICAL_REDIRECTS = {
     "/accounting": "/job-board/accountant",
     "/chemistry": "/job-board/chemist",
     "/biology": "/job-board/biologist",
+}
+
+# These exact identities were observed in the two September 24 beta-host
+# capture journals. A new path/title is a new qualification decision.
+ROLE_IDENTITIES = {
+    "generalist": ("generalist", "Generalist"),
+    "law": ("legal-expert", "Legal Expert"),
+    "math": ("mathematician", "Mathematician"),
+    "medicine": ("medical-expert", "Health/Medical Expert"),
+    "physics": ("physicist", "Physicist"),
+    "finance": ("finance-expert", "Finance Expert"),
+    "accounting": ("accountant", "Accountant"),
+    "chemistry": ("chemist", "Chemist"),
+    "biology": ("biologist", "Biologist"),
 }
 
 
@@ -253,6 +269,37 @@ def coding_role_evidence(text, url):
     raise ValueError("DataAnnotation role-bound application link is missing.")
 
 
+def evergreen_role_evidence(domain_slug, text, url):
+    """Verify one exact observed role, its remote condition and signup action."""
+    identity = ROLE_IDENTITIES.get(domain_slug)
+    if identity is None:
+        raise ValueError("DataAnnotation role lacks a reviewed identity.")
+    role_slug, expected_title = identity
+    if url != f"https://www.dataannotation.tech/job-board/{role_slug}":
+        raise ValueError("DataAnnotation role destination is not canonical.")
+    if not re.search(r'data-wf-item-slug=["\']' + re.escape(role_slug) + r'["\']', text):
+        raise ValueError("DataAnnotation role slug is missing.")
+    decoded = html.unescape(text)
+    heading = re.search(r'<div class="rd-title">\s*<h1>([^<]+)</h1>', decoded)
+    if not heading or heading.group(1).strip() != expected_title:
+        raise ValueError("DataAnnotation role heading disagrees with the observed identity.")
+    if (not re.search(r'<div class="rail-row"><span>Location</span><span>Remote</span></div>', decoded)
+            or not re.search(r'<section class="rd-section"><h2>Overview</h2>', decoded)
+            or not re.search(r'\b(?:AI|models)\b', decoded, re.I)):
+        raise ValueError("DataAnnotation remote AI role evidence is missing.")
+    for href in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>\s*Apply now\s*</a>', decoded):
+        application = html.unescape(href)
+        parsed = urlsplit(application)
+        query = parse_qs(parsed.query)
+        if (parsed.scheme == "https" and parsed.netloc == "app.dataannotation.tech"
+                and parsed.path == "/worker_signup" and not parsed.fragment
+                and query.get("utm_role") == [role_slug]
+                and any(value.startswith("role_") and value.endswith(role_slug)
+                        for value in query.get("utm_content", []))):
+            return expected_title, application
+    raise ValueError("DataAnnotation role-bound application link is missing.")
+
+
 def parse_domain_page(domain, url, text):
     if domain.slug == "coding":
         title, application_url = coding_role_evidence(text, url)
@@ -278,10 +325,11 @@ def parse_domain_page(domain, url, text):
                 },
             ),
         )
+    title, application_url = evergreen_role_evidence(domain.slug, text, url)
     return JobCandidate(
         external_id=f"dataannotation::{domain.slug}",
-        title=domain.title,
-        location=resolve_location(text),
+        title=title,
+        location="Remote",
         url=url,
         department=domain.category,
         expertise=domain.category,
@@ -290,6 +338,19 @@ def parse_domain_page(domain, url, text):
         include_in_live_market_estimate=False,
         source_body=text if text.strip() else None,
         source_body_format="text/html" if text.strip() else None,
+        source_metadata={"application_url": application_url},
+        record_promotion_attestation=RecordPromotionAttestation(
+            contract_id="dataannotation_evergreen_role_record_v2",
+            body_observation=BODY_OBSERVATION_PRESENT,
+            authority_evidence={
+                "requested_url": build_domain_url("https://www.dataannotation.tech", domain.slug),
+                "final_url": url,
+                "role_slug": ROLE_IDENTITIES[domain.slug][0],
+                "title": title,
+                "application_url": application_url,
+                "body_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            },
+        ),
     )
 
 

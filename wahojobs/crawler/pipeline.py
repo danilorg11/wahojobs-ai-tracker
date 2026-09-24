@@ -60,7 +60,8 @@ CRAWLERS = {
 }
 
 
-def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=None, observation=None):
+def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=None, observation=None,
+              authorize_controlled_publication=False):
     if ownership is not None and db_path is None:
         raise ValueError("Owned crawl requires an explicit local database")
     if details not in (None, "needed", "all"):
@@ -73,7 +74,8 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
         if db_path is None or ownership is None or details is not None:
             raise ValueError('staged_publication_requires_owned_catalog_only')
         validate_observation(observation, company_slug)
-        if observation.controlled_validation:
+        if observation.controlled_validation and not (authorize_controlled_publication
+                and company_slug in ('dataannotation', 'dataforce')):
             raise ValueError('controlled_validation_requires_explicit_publication_authorization')
     from wahojobs.crawler.local_inventory import local_inventory_connection
     connection = get_connection() if db_path is None else local_inventory_connection(db_path, ownership=ownership)

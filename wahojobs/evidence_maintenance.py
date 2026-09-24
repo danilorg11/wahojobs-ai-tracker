@@ -372,7 +372,7 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
                 contract = dict(source=slug, unavailable='source_configuration_unavailable')
             contracts.append(contract)
             failed = state.get('latest_run') and state['latest_run']['status'] not in (
-                ('success', 'partial') if slug == 'mercor' else ('success',))
+                ('success', 'partial') if slug in ('mercor', 'dataannotation', 'dataforce') else ('success',))
             stale = [j['job_id'] for j in state['jobs'] if j['verification']['status'] in ('stale_source','unverified_source','unavailable')]
             missing = [j['job_id'] for j in state['jobs'] if j['verification']['status'] != 'inactive'
                        and j['description'] in ('missing_accepted_body', 'catalog_only_not_full_detail')]
@@ -557,8 +557,11 @@ def _validate_plan(plan):
 def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                  authorize_derived=False, authorize_preparation=False, owner=None, now=None,
                  transport_binding='production', enrichment=None, authorize_enrichment=False, ownership=None,
-                 observation=None):
+                 observation=None, authorize_controlled_publication=False):
     _validate_plan(plan)
+    if authorize_controlled_publication and (observation is None or not observation.controlled_validation
+            or plan['config']['providers'][0] not in ('dataannotation', 'dataforce')):
+        raise ValueError('controlled_publication_requires_exact_source_observation')
     if observation is not None:
         from wahojobs.crawler.staged_observation import validate_observation
         if (len(plan['config']['providers']) != 1 or ownership is None or not authorize_sources
@@ -645,7 +648,10 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                     if kind == 'catalog_observation':
                         with daily_source(operation['provider']):
                             _, summary = run_crawl(operation['provider'], db_path=target,
-                                details=operation['details'], ownership=lease, **({'observation': observation} if observation is not None else {}))
+                                details=operation['details'], ownership=lease,
+                                **({'observation': observation,
+                                    'authorize_controlled_publication': authorize_controlled_publication}
+                                   if observation is not None else {}))
                         budget.finish_source(operation['provider'])
                         with read_connection(target) as connection:
                             after = inspect_source(connection, operation['provider'], now)

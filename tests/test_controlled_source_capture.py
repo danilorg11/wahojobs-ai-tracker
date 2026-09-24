@@ -9,12 +9,11 @@ from wahojobs.crawler.providers import dataannotation as da
 
 
 class ControlledObservationScope(unittest.TestCase):
-    def test_only_two_blocked_sources_are_observable_without_activation(self):
+    def test_only_two_sources_are_available_for_controlled_observation(self):
         for source in ("dataannotation", "dataforce"):
-            with self.assertRaises(ValueError):
-                with policy.daily_source(source):
-                    pass
-            self.assertNotIn(source, policy.READY_SOURCES)
+            with policy.daily_source(source):
+                pass
+            self.assertIn(source, policy.READY_SOURCES)
         with self.assertRaises(ValueError):
             with policy.controlled_validation_source("handshake"):
                 pass
@@ -29,7 +28,7 @@ class ControlledObservationScope(unittest.TestCase):
                         "http://www.dataannotation.tech/coding"):
                 with self.assertRaises(ValueError):
                     policy.validate_request(Request(url))
-        self.assertEqual(policy.POLICY["dataannotation"]["http_max"],11)
+        self.assertEqual(policy.POLICY["dataannotation"]["http_max"],20)
 
     def test_observed_dataannotation_redirect_is_one_exact_scoped_destination(self):
         target = "https://www.dataannotation.tech/job-board/generalist"

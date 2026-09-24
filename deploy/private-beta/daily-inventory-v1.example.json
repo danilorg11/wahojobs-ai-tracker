@@ -22,13 +22,13 @@
       "seconds_max": 60
     },
     "dataannotation": {
-      "enabled": false,
-      "http_max": 11,
+      "enabled": true,
+      "http_max": 20,
       "seconds_max": 360
     },
     "dataforce": {
-      "enabled": false,
-      "http_max": 20,
+      "enabled": true,
+      "http_max": 15,
       "seconds_max": 360
     },
     "handshake": {
@@ -47,7 +47,7 @@
       "seconds_max": 60
     },
     "micro1": {
-      "enabled": true,
+      "enabled": false,
       "http_max": 50,
       "seconds_max": 240
     },
@@ -87,7 +87,7 @@
       "seconds_max": 90
     }
   },
-  "execution_seconds": 2040,
+  "execution_seconds": 2520,
   "recovery_seconds": 120,
   "catch_up_seconds": 3600,
   "details": 0,

@@ -37,18 +37,15 @@ POLICY = {
     'appen': entry(1, 60, 1,
         ['GET https://api.lever.co/v0/postings/appen?mode=json&expand=location'],
         'Complete public board list with required fields and unique IDs; no authenticated or corporate search.'),
-    'dataannotation': entry(11, 360, 1,
+    'dataannotation': entry(20, 360, 20,
         ['GET https://www.dataannotation.tech/'+p for p in
-         ('coding','generalist','law','math','medicine','physics','finance','accounting','bilingual','chemistry','biology')],
-        'Evergreen application pages; not active-project inventory.',
-        blocker='Retained /coding response redirects to /job-board/software-engineer outside the approved path contract.',
-        correction='Review canonical path and fixed page list, validate redirect destinations and evergreen page evidence; count every redirect hop.'),
-    'dataforce': entry(20, 360, 3,
+         ('coding','generalist','law','math','medicine','physics','finance','accounting','chemistry','biology')],
+        'Ten exact evergreen role routes and individually attested canonical pages; no absence closure or active-project claim.'),
+    'dataforce': entry(15, 360, 11,
         ['GET https://dataforcecommunity.transperfect.com/projects',
-         'GET https://dataforcecommunity.transperfect.com/projects?project_type=All&page=<1..19>'],
-        'Pagination must prove a genuine empty terminal page, not merely absence of views-row markup.',
-        blocker='Adapter treats any HTTP 200 without views-row as complete, allowing false absence closures; terminal HTML not retained.',
-        correction='Capture and validate explicit inventory/empty-state structure; reject changed or challenge templates before lifecycle writes.'),
+         'GET https://dataforcecommunity.transperfect.com/projects?project_type=All&page=<1..19>',
+         'GET index-linked https://dataforcecommunity.transperfect.com/project/thyme-freelance-writer-<one of eight observed language paths>'],
+        'Only eight exact index-linked, individually attested remote Thyme roles; partial source, no absence closure.'),
     'handshake': entry(40, 360, 29,
         ['GET https://joinhandshake.com/ai/opportunities[/]',
          'GET page-linked https://framerusercontent.com/sites/<public module>.mjs',
@@ -97,11 +94,13 @@ POLICY = {
         'Complete validated Lever list, exact Welo Data - AI Services filter; excluded board records are neither rejected nor variants.'),
 }
 READY_SOURCES = tuple(s for s in CORE_SOURCES if POLICY[s]['readiness'] == 'ready')
+NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce'})
 OVERHEAD_SECONDS = 240  # stop/preflight queries, one backup, final integrity, process cleanup
 
 
 def default_sources():
-    return {s: dict(enabled=s in READY_SOURCES, http_max=POLICY[s]['http_max'],
+    return {s: dict(enabled=s in READY_SOURCES and s not in NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION,
+        http_max=POLICY[s]['http_max'],
         seconds_max=POLICY[s]['seconds_max']) for s in CORE_SOURCES}
 
 
@@ -233,7 +232,9 @@ def validate_request(request):
     elif source == 'dataannotation':
         paths = {'/'+name for name in (
             'coding','generalist','law','math','medicine','physics',
-            'finance','accounting','bilingual','chemistry','biology')}
+            'finance','accounting','chemistry','biology')}
+        if controlled_validation_active():
+            paths.add('/bilingual')
         paths.add('/job-board/software-engineer')
         observed = _DATAANNOTATION_OBSERVED_REDIRECT.get()
         if observed is not None:

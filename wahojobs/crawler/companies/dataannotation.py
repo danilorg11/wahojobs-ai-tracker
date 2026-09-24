@@ -22,6 +22,6 @@ def crawl_dataannotation(base_url):
         raw_record_count=len(observed),
         normalized_record_count=len(jobs),
         filtered_record_count=len(observed) - len(jobs),
-        payload_shape="dataannotation_coding_evergreen_record_v1",
-        schema_fingerprint="dataannotation_coding_evergreen_record_v1",
+        payload_shape="dataannotation_evergreen_roles_v2",
+        schema_fingerprint="dataannotation_evergreen_roles_v2",
     )

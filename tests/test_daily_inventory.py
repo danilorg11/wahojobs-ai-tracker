@@ -127,7 +127,8 @@ class DailyPolicyTests(unittest.TestCase):
             dict(verified_at=d.stamp(self.at),records=90),dict(verified_at=d.stamp(self.at-timedelta(hours=35)),records=10)])
         for name in d.SOURCES:d.write_json(self.root/(name+'-state.json'),source)
         initial=d.health(self.config,self.at)
-        self.assertEqual(set(initial['active']),{s+':coverage' for s in d.SOURCES if d.POLICY[s]['readiness']=='blocked'})
+        self.assertEqual(set(initial['active']),{s+':coverage' for s in d.SOURCES
+            if d.POLICY[s]['readiness']=='blocked' or not d.default_sources()[s]['enabled']})
         warning=d.health(self.config,self.at+timedelta(hours=1))
         cohort=d._cohort_key('mercor',d.stamp(self.at-timedelta(hours=35)))
         self.assertEqual(warning['active'][cohort]['records'],10)

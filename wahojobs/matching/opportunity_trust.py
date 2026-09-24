@@ -100,6 +100,16 @@ def assess_opportunity_trust(
             source_run_qualifies,
         )
 
+    # DataAnnotation is evergreen, so it has no 72-hour live-feed deadline.
+    # Its public role still requires an exact accepted record observation.
+    if clean(value(row, "company_slug")) == "dataannotation" and not source_run_qualifies:
+        return assessment(
+            UNVERIFIED_SOURCE,
+            ["No accepted DataAnnotation role observation is available."],
+            row, job_is_active, canonical_is_active, source_age_hours,
+            source_run_id, source_run_qualifies,
+        )
+
     max_age_hours = freshness_max_age_hours(inventory_model, market_count_policy)
     if max_age_hours is not None:
         if not source_run_qualifies or source_run_id is None or not run_at_text:

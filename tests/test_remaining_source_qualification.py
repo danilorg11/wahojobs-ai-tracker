@@ -2,6 +2,7 @@
 
 import tempfile
 import unittest
+from datetime import datetime
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -11,10 +12,10 @@ from wahojobs.crawler.companies.dataforce import crawl_dataforce
 from wahojobs.crawler.providers.dataannotation import (
     DOMAIN_PAGES, coding_role_evidence, fetch_dataannotation_jobs, parse_domain_page,
 )
-from wahojobs.crawler.providers.dataforce import validate_pagination
+from wahojobs.crawler.providers.dataforce import validate_pagination, detail_role_evidence
 from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, ProviderOutcome
 from wahojobs.db.connection import get_connection
-from wahojobs.db.repository import create_crawl_run, insert_job, install_base_schema
+from wahojobs.db.repository import create_crawl_run, finish_crawl_run, insert_job, install_base_schema
 from wahojobs.source_capture import (
     SourceCaptureContext, prepare_record_promotion_attestation, prepare_source_capture,
 )
@@ -184,6 +185,79 @@ class DataForcePagerTests(unittest.TestCase):
                             '<li class="page-item active"><span class="page-link">2</span></li></ul>')
         with self.assertRaisesRegex(ValueError, "does not match"):
             validate_pagination(page_two_clamped, 2)
+
+
+class ExactRoleEvidenceTests(unittest.TestCase):
+    """Synthetic contract fixtures; real beta-host proof stays in its private journal."""
+
+    def test_dataforce_cross_role_application_and_variant_drift_fail_closed(self):
+        path = '/project/thyme-freelance-writer-korean'
+        title = 'Thyme Freelance Writer - Korean (South Korea)'
+        url = 'https://dataforcecommunity.transperfect.com' + path
+        index = JobCandidate(external_id='dataforce::' + path.lstrip('/'), title=title,
+            location='Korea Republic', url=url, department='Text', expertise='Text',
+            commitment='Remote')
+        detail = ('<link rel="canonical" href="' + url + '">'
+            '<div class="field--name-body"><h1>' + title + '</h1>'
+            'Seeking freelance short story writers. This is a fully remote project '
+            'using machine translation technology.'
+            '<a href="https://hub.transperfect.com/?registration-type=nUhPxBHO_h">Apply Here</a>')
+        self.assertIn('nUhPxBHO_h', detail_role_evidence(index, detail))
+        with self.assertRaises(ValueError):
+            detail_role_evidence(index, detail.replace('nUhPxBHO_h', 'aL6jslPVXS'))
+        with self.assertRaises(ValueError):
+            detail_role_evidence(replace(index, location='United States'), detail)
+        with self.assertRaises(ValueError):
+            detail_role_evidence(replace(index, title='Thyme Freelance Writer - English (US)'), detail)
+
+    def test_dataannotation_new_role_requires_its_own_canonical_evidence(self):
+        domain = next(page for page in DOMAIN_PAGES if page.slug == 'generalist')
+        url = 'https://www.dataannotation.tech/job-board/generalist'
+        body = (ROLE_BODY.replace('software-engineer', 'generalist')
+                 .replace('Software Engineer', 'Generalist')
+                 .replace('</div>', '</div><div class="rail-row"><span>Location</span><span>Remote</span></div><section class="rd-section"><h2>Overview</h2>AI tasks</section>', 1))
+        candidate = parse_domain_page(domain, url, body)
+        self.assertEqual(candidate.record_promotion_attestation.contract_id,
+                         'dataannotation_evergreen_role_record_v2')
+        result = CompanyCrawlResult([candidate], False, 'synthetic contract fixture',
+            'evergreen-application-pages', outcome=ProviderOutcome.PARTIAL,
+            raw_record_count=1, normalized_record_count=1,
+            payload_shape='dataannotation_evergreen_roles_v2',
+            schema_fingerprint='dataannotation_evergreen_roles_v2')
+        context = SourceCaptureContext.from_crawl_result(1, result)
+        prepared = prepare_source_capture(candidate)
+        prepare_record_promotion_attestation(candidate, prepared, context,
+            provider='dataannotation', source_type=result.source_type)
+        with self.assertRaises(ValueError):
+            prepare_record_promotion_attestation(replace(candidate, title='Other'),
+                prepared, context, provider='dataannotation', source_type=result.source_type)
+
+    def test_dataannotation_partial_capture_controls_public_catalog(self):
+        from wahojobs.public_jobs_catalog import load_public_jobs
+        domain = next(page for page in DOMAIN_PAGES if page.slug == 'generalist')
+        body = (ROLE_BODY.replace('software-engineer', 'generalist')
+                .replace('Software Engineer', 'Generalist')
+                .replace('</div>', '</div><div class="rail-row"><span>Location</span><span>Remote</span></div><section class="rd-section"><h2>Overview</h2>AI tasks</section>', 1))
+        candidate = parse_domain_page(domain,
+            'https://www.dataannotation.tech/job-board/generalist', body)
+        result = CompanyCrawlResult([candidate], False, 'synthetic contract fixture',
+            'evergreen-application-pages', outcome=ProviderOutcome.PARTIAL,
+            raw_record_count=1, normalized_record_count=1,
+            payload_shape='dataannotation_evergreen_roles_v2',
+            schema_fingerprint='dataannotation_evergreen_roles_v2')
+        with tempfile.TemporaryDirectory() as directory:
+            conn = get_connection(Path(directory) / 'role.sqlite3')
+            try:
+                install_base_schema(conn)
+                company = conn.execute("INSERT INTO companies(name,slug,careers_url,source_tier,inventory_model,market_count_policy) VALUES('DataAnnotation','dataannotation','https://www.dataannotation.tech','core','evergreen_application','report_separately')").lastrowid
+                run = create_crawl_run(conn, company, AT)
+                summary = track_crawl_result(conn, company, run, result, AT, model_enrichment=False)
+                finish_crawl_run(conn, run, summary, AT, status='partial', error_message='partial')
+                self.assertEqual(len(load_public_jobs(conn, now=datetime.fromisoformat(AT))), 1)
+                conn.execute("UPDATE job_source_content_captures SET promotion_decision='held_non_authoritative'")
+                self.assertEqual(load_public_jobs(conn, now=datetime.fromisoformat(AT)), [])
+            finally:
+                conn.close()
 
 
 if __name__ == "__main__":

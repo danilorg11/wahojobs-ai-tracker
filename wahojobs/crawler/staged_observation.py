@@ -49,9 +49,12 @@ def validate_observation(value, source):
     controlled = value.controlled_validation and source in ('dataannotation', 'dataforce')
     http_max = (32 if source == 'dataannotation' else 100) if controlled else POLICY[source]['http_max']
     seconds_max = 900 if controlled else POLICY[source]['seconds_max']
+    # Controlled public captures have a bounded same-day handoff window. This
+    # limits publication of retained evidence; it does not renew its timestamp.
+    max_age_seconds = 21600 if controlled else 3600
     if (value.controlled_validation and not controlled
             or not 0 <= (end-start).total_seconds() <= seconds_max
-            or not 0 <= (at-end).total_seconds() <= 3600
+            or not 0 <= (at-end).total_seconds() <= max_age_seconds
             or value.result.used_sample_data is not False
             or not 0 < value.request_usage['http_transactions'] <= http_max
             or value.request_usage['detail_requests'] != 0):
