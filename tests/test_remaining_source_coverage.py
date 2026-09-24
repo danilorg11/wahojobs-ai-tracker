@@ -36,17 +36,17 @@ class RemainingSourceBoundaries(unittest.TestCase):
 
     def test_handshake_chunk_scope_and_coverage(self):
         module = ('new URL(`./Opportunities-chunk-default-0.framercms`,'
-                  '`https://framerusercontent.com/modules/site/file.mjs`)'
+                  '`https://framerusercontent.com/modules/site/hash/file.js`)'
                   '.href.replace(`/modules/`,`/cms/`)'
                   'new URL(`./Opportunities-chunk-default-1.framercms`,'
-                  '`https://framerusercontent.com/modules/site/file.mjs`)'
+                  '`https://framerusercontent.com/modules/site/hash/file.js`)'
                   '.href.replace(`/modules/`,`/cms/`)')
         self.assertEqual(len(handshake.extract_collection_chunk_urls(module)), 2)
         self.assertEqual(len(handshake.extract_collection_chunk_urls(
-            module, linked_module_url="https://framerusercontent.com/sites/site/file.mjs")), 2)
+            module, linked_module_url="https://framerusercontent.com/sites/site/file.hash.mjs")), 2)
         with self.assertRaises(ValueError):
             handshake.extract_collection_chunk_urls(
-                module, linked_module_url="https://framerusercontent.com/sites/other/file.mjs")
+                module, linked_module_url="https://framerusercontent.com/sites/other/other.hash.mjs")
         with self.assertRaises(ValueError):
             handshake.extract_collection_chunk_urls(module.replace("-default-1", "-default-2"))
         with self.assertRaises(ValueError):

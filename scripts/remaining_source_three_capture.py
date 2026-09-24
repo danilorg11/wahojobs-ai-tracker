@@ -195,6 +195,14 @@ class Recorder:
             body_file=body_name, body_bytes=len(raw), body_sha256=sha256(raw).hexdigest(),
             complete=len(raw) <= MAX_BODY, completed_at=stamp(),
             elapsed_seconds=round(time.monotonic()-started,3)))
+        if self.source == 'outlier' and method == 'GET' and status == 302:
+            old = re.fullmatch(
+                r'https://app\.outlier\.ai/en/expert/opportunities/(\d+)', url)
+            target = response_headers.get('Location') if response_headers else None
+            if (old is not None and target ==
+                    'https://app.outlier.ai/opportunities/'+old.group(1)):
+                self.details.add(target)
+                return self.request(target, headers=headers)
         if (error or status != 200 or final_url != url or len(raw) > MAX_BODY):
             raise ValueError(f'capture_response_not_qualified:{status}:{error}')
         return raw

@@ -173,8 +173,15 @@ def extract_collection_chunk_urls(module_text, *, linked_module_url=None):
         origin = urlsplit(module_url)
         if linked_module_url is not None:
             linked = urlsplit(linked_module_url)
+            linked_identity = re.fullmatch(
+                r"/sites/[A-Za-z0-9_-]+/([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+\.mjs",
+                linked.path,
+            )
             if (linked.scheme != "https" or linked.netloc != "framerusercontent.com"
-                    or origin.path.removeprefix("/modules/") != linked.path.removeprefix("/sites/")):
+                    or linked_identity is None
+                    or not re.fullmatch(
+                        r"/modules/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/"
+                        + re.escape(linked_identity.group(1)) + r"\.js", origin.path)):
                 raise ValueError("Handshake CMS chunk is not bound to its linked module.")
         if origin.scheme != "https" or origin.netloc != "framerusercontent.com" or not origin.path.startswith("/modules/"):
             raise ValueError("Handshake CMS module origin invalid.")
