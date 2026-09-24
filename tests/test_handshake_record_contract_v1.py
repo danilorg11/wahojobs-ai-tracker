@@ -1,5 +1,6 @@
 """Synthetic contract negatives. Real beta-host CMS bodies are replayed separately."""
 from dataclasses import replace
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from urllib.request import Request
@@ -8,7 +9,8 @@ from wahojobs.crawler.providers import handshake as h
 from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
 from wahojobs.source_capture import (
     SourceCaptureContext, prepare_record_promotion_attestation,
-    prepare_source_capture_v1,
+    prepare_source_capture_v1, prepare_stored_record_promotion_attestation,
+    semantic_job_fields,
 )
 from wahojobs.daily_source_policy import (
     daily_source, default_sources, observed_handshake_assets, validate_request,
@@ -67,6 +69,24 @@ class HandshakeRecordContractV1Tests(unittest.TestCase):
         metadata = dict(candidate.source_metadata, application_job_id='999')
         with self.assertRaises(ValueError):
             self.validate(replace(candidate, source_metadata=metadata), context)
+
+    def test_stored_acceptance_revalidates_with_persisted_semantic_fields(self):
+        candidate, context = self.candidate_and_context()
+        prepared = prepare_source_capture_v1(candidate)
+        attestation = self.validate(candidate, context)
+        stored = SimpleNamespace(**semantic_job_fields(candidate, dict(
+            opportunity_kind=candidate.opportunity_kind,
+            availability_basis=candidate.availability_basis,
+            include_in_live_market_estimate=candidate.include_in_live_market_estimate,
+        )))
+        self.assertFalse(hasattr(stored, 'source_updated_at'))
+        replayed = prepare_stored_record_promotion_attestation(
+            contract_id=attestation.contract_id,
+            body_observation=attestation.body_observation,
+            authority_evidence_json=attestation.authority_evidence_json,
+            candidate=stored, prepared=prepared, context=context,
+            provider='handshake', source_type='framer-public-inventory')
+        self.assertEqual(replayed, attestation)
         metadata = dict(candidate.source_metadata, cms_record={**RECORD, h.FIELD_SHOW_JOB: False})
         with self.assertRaises(ValueError):
             self.validate(replace(candidate, source_metadata=metadata), context)

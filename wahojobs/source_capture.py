@@ -754,7 +754,7 @@ def _validate_handshake_public_cms_record_v1(
             or candidate.opportunity_kind != OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY
             or candidate.availability_basis != AVAILABILITY_BASIS_PUBLIC_CMS
             or candidate.include_in_live_market_estimate is not False
-            or candidate.source_updated_at is not None
+            or prepared.source_updated_at is not None
             or candidate.location != 'Remote'
             or evidence['cms_id'] != record.get(FIELD_ID)
             or candidate.external_id != 'handshake::' + str(evidence['cms_id'])
