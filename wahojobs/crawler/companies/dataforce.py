@@ -5,8 +5,9 @@ from wahojobs.daily_source_policy import current_source
 
 def crawl_dataforce(projects_url):
     observed = fetch_dataforce_jobs(projects_url)
-    qualified, detail_count = (collect_index_linked_details(observed)
-                               if current_source() == 'dataforce' else ([], 0))
+    qualified, detail_count, inspection_failures, verification_failures = (
+        collect_index_linked_details(observed)
+        if current_source() == 'dataforce' else ([], 0, 0, 0))
     # Index cards expose a preview URL, not a verified application action.
     # Keep them as source observations until a source-specific record contract
     # can attest application authority; passing them to tracking can reactivate
@@ -15,8 +16,10 @@ def crawl_dataforce(projects_url):
         jobs=qualified,
         used_sample_data=False,
         source_type="dataforce-community-html",
-        source_message=(f"Observed DataForce index rows and checked {detail_count} exact linked pages; "
-                        f"qualified {len(qualified)} individually attested roles: {projects_url}"),
+        source_message=(f"Observed DataForce index rows and requested {detail_count} exact linked pages; "
+                        f"qualified {len(qualified)} individually attested roles; "
+                        f"known-role verification failures={verification_failures}; "
+                        f"exploratory inspection failures={inspection_failures}: {projects_url}"),
         outcome=ProviderOutcome.PARTIAL,
         snapshot_complete=False,
         pagination_complete=False,

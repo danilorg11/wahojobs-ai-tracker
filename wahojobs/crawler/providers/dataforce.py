@@ -2,9 +2,11 @@ import html
 import hashlib
 import re
 from dataclasses import replace
+from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request
-from wahojobs.crawler.local_inventory import open_public as urlopen
+from wahojobs.crawler.local_inventory import open_public as urlopen, remaining_http_requests
 from wahojobs.daily_source_policy import observed_dataforce_details, controlled_validation_active
 
 from wahojobs.classification import AVAILABILITY_BASIS_PUBLIC_PAGE, OPPORTUNITY_KIND_LIVE_POSTING
@@ -98,18 +100,72 @@ def collect_index_linked_details(jobs):
             'minor' in job.title.casefold() or 'menor' in job.title.casefold(),
         ))[:MAX_DETAIL_PAGES]
     else:
-        ordered = [job for job in jobs if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS]
+        remaining = remaining_http_requests()
+        slots = min(MAX_DETAIL_PAGES, remaining if remaining is not None else MAX_DETAIL_PAGES)
+        ordered = select_daily_detail_pages(jobs, slots, datetime.now(timezone.utc).date().toordinal())
     urls = tuple(job.url for job in ordered)
     qualified = []
+    inspection_failures = 0
+    verification_failures = 0
     with observed_dataforce_details(urls):
         for job in ordered:
-            page = fetch_page(job.url)
-            if any(marker in page.casefold() for marker in
-                   ('captcha', 'access denied', '403 forbidden', 'verify you are human')):
-                raise ValueError('DataForce detail access or challenge page.')
-            if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS:
-                qualified.append(qualify_detail_record(job, page))
-    return qualified, len(urls)
+            known = urlparse(job.url).path in QUALIFIED_DETAIL_PATHS
+            try:
+                page = fetch_page(job.url)
+                if any(marker in page.casefold() for marker in
+                       ('captcha', 'access denied', '403 forbidden', 'verify you are human')):
+                    raise ValueError('DataForce detail access or challenge page.')
+                if not known and not inspection_detail_matches_index(job, page):
+                    raise ValueError('DataForce inspection detail is unrelated to index.')
+                if known:
+                    qualified.append(qualify_detail_record(job, page))
+            except (HTTPError, URLError, TimeoutError, RuntimeError, ValueError):
+                if known:
+                    verification_failures += 1
+                else:
+                    inspection_failures += 1
+                continue
+    return qualified, len(urls), inspection_failures, verification_failures
+
+
+def inspection_detail_matches_index(job, detail_html):
+    """Count an exploratory detail only when its identity matches the card."""
+    canonical = re.search(r'<link\b[^>]*rel="canonical"[^>]*href="([^"]+)"',
+                          detail_html, re.I)
+    if canonical is None or html.unescape(canonical.group(1)) != job.url:
+        return False
+    headings = [clean_html_text(value) for value in re.findall(
+        r'<h1\b[^>]*>(.*?)</h1>', detail_html, re.I | re.S)]
+    return job.title in headings
+
+
+def select_daily_detail_pages(jobs, slots, day_ordinal):
+    """Refresh attested roles, then rotate other remote cards for review only.
+
+    The rotation is deterministic for a UTC day and uses no new queue or
+    unseen endpoint. An inspected card gains no publication authority until
+    its own source-specific contract is implemented and accepted.
+    """
+    if type(slots) is not int or slots < 0 or type(day_ordinal) is not int:
+        raise ValueError('DataForce detail rotation bounds are invalid.')
+    known = [job for job in jobs if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS]
+    if slots < len(known):
+        start = (day_ordinal * slots) % len(known)
+        selected = [known[(start + offset) % len(known)] for offset in range(slots)]
+    else:
+        selected = known[:]
+    spaces = slots - len(selected)
+    backlog = [job for job in jobs if job not in known
+        and job.commitment == 'Remote'
+        and 'minor' not in job.title.casefold()
+        and 'menor' not in job.title.casefold()
+        and 'onsite' not in job.title.casefold()
+        and 'on site' not in job.title.casefold()]
+    if spaces and backlog:
+        start = (day_ordinal * spaces) % len(backlog)
+        selected.extend(backlog[(start + offset) % len(backlog)]
+                        for offset in range(min(spaces, len(backlog))))
+    return selected
 
 
 def detail_role_evidence(index_job, detail_html):

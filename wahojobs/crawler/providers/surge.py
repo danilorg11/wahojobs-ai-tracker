@@ -1,10 +1,14 @@
 import html
+import hashlib
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_public as urlopen
+from wahojobs.daily_source_policy import observed_surge_details
+from wahojobs.crawler.types import RecordPromotionAttestation, BODY_OBSERVATION_PRESENT
 
 from wahojobs.classification import (
     AVAILABILITY_BASIS_PUBLIC_PAGE,
@@ -45,13 +49,15 @@ def fetch_surge_jobs(base_url):
 
     workforce_page = fetch_required_page(workforce_url, "workforce index")
     workforce_records = extract_workforce_records(workforce_page.text, workforce_url)
-    if not workforce_records:
+    if not workforce_records or len(workforce_records) > 18:
         raise RuntimeError("Surge crawl failed: no workforce links found.")
 
     jobs = []
-    for record in workforce_records:
-        detail_page = fetch_required_page(record.url, f"workforce detail {record.url}")
-        jobs.append(parse_workforce_detail(record, detail_page.text))
+    with observed_surge_details(tuple(record.url for record in workforce_records)):
+        for record in workforce_records:
+            detail_page = fetch_required_page(record.url, f"workforce detail {record.url}")
+            jobs.append(parse_workforce_detail(record, detail_page.text,
+                                               index_page_html=workforce_page.text))
 
     fellowship_page = fetch_required_page(fellowship_url, "fellowship page")
     fellowship_job = parse_fellowship_page(fellowship_url, fellowship_page.text)
@@ -188,7 +194,7 @@ class WorkforceLinkParser(HTMLParser):
         self.urls.append(normalized)
 
 
-def parse_workforce_detail(record, html_text):
+def parse_workforce_detail(record, html_text, *, index_page_html=None):
     fields = dict(record.fields)
     if not fields:
         fields = extract_data_job_fields(html_text)
@@ -200,6 +206,10 @@ def parse_workforce_detail(record, html_text):
         raise RuntimeError(f"Surge crawl failed: application evidence missing for {record.url}.")
     if not title:
         raise RuntimeError(f"Surge crawl failed: missing title for {record.url}.")
+    if (not re.search(r'\bRemote\b', record.index_text, re.I)
+            or not re.search(r'\b(?:AI|models?|datasets?|training|train)\b',
+                ' '.join(fields.get(key, '') for key in ('the-role', 'might-do')), re.I)):
+        raise RuntimeError(f"Surge crawl failed: remote AI work is unproven for {record.url}.")
 
     text = " ".join(
         value
@@ -210,10 +220,34 @@ def parse_workforce_detail(record, html_text):
         if value
     )
     department = infer_department(title, text)
+    role_body = '\n\n'.join(value for value in
+        (title, fields.get('the-role'), fields.get('looking-for'),
+         fields.get('might-do'), fields.get('apply')) if value)
+    metadata = dict(fields)
+    attestation = None
+    if index_page_html is not None:
+        if type(index_page_html) is not str:
+            raise ValueError('Surge index page evidence must be text.')
+        matching = [item for item in extract_workforce_records(
+            index_page_html, 'https://surgehq.ai/workforce') if item.slug == record.slug]
+        if len(matching) != 1 or matching[0] != record:
+            raise ValueError('Surge indexed role evidence disagrees with detail.')
+        index_page_sha256 = hashlib.sha256(index_page_html.encode()).hexdigest()
+        metadata.update(index_record=dict(slug=record.slug, url=record.url,
+            fields=record.fields, index_text=record.index_text),
+            index_page_sha256=index_page_sha256, index_page_html=index_page_html,
+            detail_page_html=html_text)
+        attestation = RecordPromotionAttestation(
+            contract_id='surge_remote_workforce_record_v1',
+            body_observation=BODY_OBSERVATION_PRESENT,
+            authority_evidence=dict(external_id=f"surge::workforce::{record.slug}",
+                url=record.url, title=title, index_page_sha256=index_page_sha256,
+                detail_page_sha256=hashlib.sha256(html_text.encode()).hexdigest(),
+                application_email='talent@surgehq.ai'))
     return JobCandidate(
         external_id=f"surge::workforce::{record.slug}",
         title=title,
-        location=infer_location(text),
+        location="Remote",
         url=record.url,
         department=department,
         expertise=department,
@@ -221,15 +255,23 @@ def parse_workforce_detail(record, html_text):
         opportunity_kind=OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
         availability_basis=AVAILABILITY_BASIS_PUBLIC_PAGE,
         include_in_live_market_estimate=False,
-        source_body=text or None,
+        source_body=role_body,
         source_body_format="text/plain" if text else None,
-        source_metadata=fields or None,
+        source_metadata=metadata,
+        record_promotion_attestation=attestation,
     )
 
 
 def has_workforce_application(html_text, url, title):
     # Require a role-level call to action; ordinary site navigation is insufficient.
     slug = slug_from_url(url).lower()
+    canonical_tags = [tag for tag in re.findall(r'<link\b[^>]*>', html_text, re.I)
+                      if re.search(r'\brel="canonical"', tag, re.I)]
+    if len(canonical_tags) != 1:
+        return False
+    canonical = re.search(r'\bhref="([^"]+)"', canonical_tags[0], re.I)
+    if canonical is None or html.unescape(canonical.group(1)) != url:
+        return False
     for href, label in re.findall(
         r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
         html_text, re.I | re.S
@@ -248,13 +290,6 @@ def has_workforce_application(html_text, url, title):
     # shared, but the named role's own application instructions require its
     # title in the message. Bind that action to the exact indexed slug and
     # title; a general footer email or site signup is insufficient.
-    canonical_tags = [tag for tag in re.findall(r'<link\b[^>]*>', html_text, re.I)
-                      if re.search(r'\brel="canonical"', tag, re.I)]
-    if len(canonical_tags) != 1:
-        return False
-    canonical = re.search(r'\bhref="([^"]+)"', canonical_tags[0], re.I)
-    if canonical is None or html.unescape(canonical.group(1)) != url:
-        return False
     match = re.search(
         r'<div\s+data-slug="' + re.escape(slug) +
         r'"\s+class="workforce-popup"', html_text, re.I,

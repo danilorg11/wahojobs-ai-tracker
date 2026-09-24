@@ -29,6 +29,7 @@ DATAANNOTATION_CODING_RECORD_CONTRACT_ID = "dataannotation_coding_evergreen_reco
 DATAANNOTATION_ROLE_RECORD_CONTRACT_ID = "dataannotation_evergreen_role_record_v2"
 DATAANNOTATION_ROLES_SHAPE = "dataannotation_evergreen_roles_v2"
 DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID = "dataforce_index_detail_record_v1"
+SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID = "surge_remote_workforce_record_v1"
 PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
 MERCOR_DETAIL_PROMOTION_POLICY_VERSION = "mercor_detail_content_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
@@ -652,6 +653,68 @@ def _validate_dataforce_index_detail_record_v1(
         raise ValueError("DataForce detail and application authority disagree.")
 
 
+def _validate_surge_remote_workforce_record_v1(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    from wahojobs.crawler.providers.surge import (
+        WorkforceRecord, extract_workforce_records, parse_workforce_detail,
+    )
+    from wahojobs.classification import (
+        AVAILABILITY_BASIS_PUBLIC_PAGE, OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
+    )
+
+    evidence = json.loads(attestation.authority_evidence_json)
+    metadata = json.loads(prepared.metadata_json)
+    required = {'external_id', 'url', 'title', 'index_page_sha256',
+                'detail_page_sha256', 'application_email'}
+    record_data = metadata.get('index_record')
+    index_html = metadata.get('index_page_html')
+    detail_html = metadata.get('detail_page_html')
+    if (set(evidence) != required or type(record_data) is not dict
+            or set(record_data) != {'slug', 'url', 'fields', 'index_text'}
+            or type(record_data['fields']) is not dict
+            or type(index_html) is not str or not index_html
+            or type(detail_html) is not str or not detail_html
+            or provider != 'surge' or source_type != 'public-worker-pages'
+            or attestation.body_observation != BODY_OBSERVATION_PRESENT
+            or prepared.body_format != 'text/plain' or not prepared.body
+            or context.provider_outcome != ProviderOutcome.PARTIAL.value
+            or context.used_sample_data or context.snapshot_complete
+            or context.pagination_complete or context.crawl_run_id is None
+            or context.candidate_count < 1
+            or context.normalized_record_count != context.candidate_count
+            or context.raw_record_count < context.candidate_count
+            or context.payload_shape != SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID
+            or context.schema_fingerprint != SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID
+            or candidate.opportunity_kind != OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY
+            or candidate.availability_basis != AVAILABILITY_BASIS_PUBLIC_PAGE
+            or candidate.include_in_live_market_estimate is not False
+            or candidate.location != 'Remote'
+            or evidence['external_id'] != candidate.external_id
+            or evidence['url'] != candidate.url or evidence['title'] != candidate.title
+            or evidence['index_page_sha256'] != metadata.get('index_page_sha256')
+            or evidence['index_page_sha256'] != hashlib.sha256(index_html.encode()).hexdigest()
+            or evidence['application_email'] != 'talent@surgehq.ai'
+            or not re.fullmatch(r'[a-f0-9]{64}', str(evidence['index_page_sha256']))
+            or evidence['detail_page_sha256'] != hashlib.sha256(detail_html.encode()).hexdigest()):
+        raise ValueError('Surge public workforce record authority is inconsistent.')
+    record = WorkforceRecord(**record_data)
+    indexed = [item for item in extract_workforce_records(
+        index_html, 'https://surgehq.ai/workforce') if item.slug == record.slug]
+    if len(indexed) != 1 or indexed[0] != record:
+        raise ValueError('Surge exact index record is not attested.')
+    try:
+        parsed = parse_workforce_detail(record, detail_html)
+    except (RuntimeError, ValueError) as exc:
+        raise ValueError('Surge role/application evidence is invalid.') from exc
+    keys = ('external_id', 'url', 'title', 'location', 'department', 'expertise',
+            'commitment', 'opportunity_kind', 'availability_basis',
+            'include_in_live_market_estimate')
+    if (any(getattr(parsed, key) != getattr(candidate, key) for key in keys)
+            or normalize_source_body(parsed.source_body) != prepared.body):
+        raise ValueError('Surge indexed role and captured record disagree.')
+
+
 def _validate_provider_detail_content_v1(attestation, candidate, prepared, context, *, provider, source_type):
     from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
     evidence = json.loads(attestation.authority_evidence_json)
@@ -1002,6 +1065,7 @@ def decide_source_promotion_v2(
     if record_attestation.contract_id in {
         DATAANNOTATION_CODING_RECORD_CONTRACT_ID, DATAANNOTATION_ROLE_RECORD_CONTRACT_ID,
         DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID,
+        SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID,
     }:
         reasons = []
         if context.used_sample_data:
@@ -1249,6 +1313,7 @@ RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     DATAANNOTATION_CODING_RECORD_CONTRACT_ID: _validate_dataannotation_coding_record_v1,
     DATAANNOTATION_ROLE_RECORD_CONTRACT_ID: _validate_dataannotation_role_record_v2,
     DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_dataforce_index_detail_record_v1,
+    SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID: _validate_surge_remote_workforce_record_v1,
     SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,

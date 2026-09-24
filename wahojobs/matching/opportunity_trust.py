@@ -100,12 +100,18 @@ def assess_opportunity_trust(
             source_run_qualifies,
         )
 
-    # DataAnnotation is evergreen, so it has no 72-hour live-feed deadline.
-    # Its public role still requires an exact accepted record observation.
-    if clean(value(row, "company_slug")) == "dataannotation" and not source_run_qualifies:
+    # These partial/public inventories require exact accepted records. A
+    # successful source run alone cannot admit an old or unqualified variant.
+    individually_verified = {
+        "dataannotation": "DataAnnotation role",
+        "handshake": "Handshake opportunity",
+        "surge": "Surge role",
+    }
+    source_label = individually_verified.get(clean(value(row, "company_slug")))
+    if source_label and not source_run_qualifies:
         return assessment(
             UNVERIFIED_SOURCE,
-            ["No accepted DataAnnotation role observation is available."],
+            [f"No accepted {source_label} observation is available."],
             row, job_is_active, canonical_is_active, source_age_hours,
             source_run_id, source_run_qualifies,
         )

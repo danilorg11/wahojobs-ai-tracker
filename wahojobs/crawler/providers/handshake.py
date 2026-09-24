@@ -2,7 +2,7 @@ import json
 import re
 import struct
 from html import unescape
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from wahojobs.crawler.local_inventory import open_catalog
 from wahojobs.daily_source_policy import current_source
@@ -35,6 +35,9 @@ FIELD_SHOW_JOB = "hwOeBJbXG"
 FIELD_SALARY = "WFQUwsB06"
 FIELD_SUBJECT_FILTERS = "qlLuhSKj_"
 FIELD_DEGREE_FILTERS = "L64oFuWs0"
+FIELD_WORK_LOCATION = "Sw8QukdCp"
+FIELD_APPLICATION = "YP6SW58rm"
+FIELD_DESCRIPTION = "y2vadTbOm"
 
 SUBJECT_TITLE_FIELD = "E5JNxEx4j"
 DEGREE_TITLE_FIELD = "q0zDwflPE"
@@ -56,16 +59,16 @@ def fetch_handshake_jobs(opportunities_url):
         DEGREE_TITLE_FIELD,
     )
 
-    for record in opportunity_records:
-        if record.get(FIELD_SHOW_JOB) is True and not should_include_record(record):
-            raise ValueError("Handshake visible CMS record lacks supported identity or title.")
-    included = [record for record in opportunity_records if should_include_record(record)]
+    visible = [record for record in opportunity_records if record.get(FIELD_SHOW_JOB) is True]
+    structurally_valid = [record for record in visible if should_include_record(record)]
+    included = [record for record in structurally_valid if qualified_public_record(record)]
     ids = [clean_value(record[FIELD_ID]) for record in included]
     slugs = [clean_value(record[FIELD_SLUG]) for record in included]
     if len(ids) != len(set(ids)) or len(slugs) != len(set(slugs)):
         raise ValueError("Handshake public CMS has duplicate identity or slug.")
-    return [parse_opportunity_record(record, subject_labels, degree_labels)
-            for record in included]
+    return ([parse_opportunity_record(record, subject_labels, degree_labels)
+             for record in included], len(opportunity_records),
+            len(visible)-len(structurally_valid))
 
 
 def ensure_trailing_slash(url):
@@ -253,6 +256,25 @@ def should_include_record(record):
     )
 
 
+def qualified_public_record(record):
+    if not should_include_record(record) or record.get(FIELD_WORK_LOCATION) != 'Remote':
+        return False
+    application = record.get(FIELD_APPLICATION)
+    if type(application) is not str:
+        return False
+    parsed = urlsplit(application)
+    try:
+        query = parse_qs(parsed.query, strict_parsing=True)
+    except ValueError:
+        return False
+    return (parsed.scheme == 'https' and parsed.netloc == 'app.joinhandshake.com'
+            and parsed.path == '/signup' and not parsed.fragment
+            and set(query) == {'destination_hai_path', 'hai_job_id'}
+            and query['destination_hai_path'] == ['/auth']
+            and len(query['hai_job_id']) == 1
+            and query['hai_job_id'][0].isdecimal())
+
+
 def parse_opportunity_record(record, subject_labels, degree_labels):
     record_id = clean_value(record.get(FIELD_ID))
     title = clean_value(record.get(FIELD_TITLE))
@@ -264,7 +286,7 @@ def parse_opportunity_record(record, subject_labels, degree_labels):
     return JobCandidate(
         external_id=f"handshake::{record_id}",
         title=title,
-        location="Unknown",
+        location=clean_value(record.get(FIELD_WORK_LOCATION)) or "Unknown",
         url=f"{DETAIL_URL_PREFIX}/{slug}",
         department=expertise,
         expertise=expertise,
@@ -272,10 +294,13 @@ def parse_opportunity_record(record, subject_labels, degree_labels):
         opportunity_kind=OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
         availability_basis=AVAILABILITY_BASIS_PUBLIC_CMS,
         include_in_live_market_estimate=False,
+        source_body=clean_value(record.get(FIELD_DESCRIPTION)),
+        source_body_format='text/plain' if clean_value(record.get(FIELD_DESCRIPTION)) else None,
         source_metadata={
             "salary": record.get(FIELD_SALARY),
             "subjects": subjects,
             "degrees": degrees,
+            "application_url": record.get(FIELD_APPLICATION),
         },
     )
 

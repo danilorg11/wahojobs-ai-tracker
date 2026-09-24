@@ -372,7 +372,7 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
                 contract = dict(source=slug, unavailable='source_configuration_unavailable')
             contracts.append(contract)
             failed = state.get('latest_run') and state['latest_run']['status'] not in (
-                ('success', 'partial') if slug in ('mercor', 'dataannotation', 'dataforce') else ('success',))
+                ('success', 'partial') if slug in ('mercor', 'dataannotation', 'dataforce', 'surge') else ('success',))
             stale = [j['job_id'] for j in state['jobs'] if j['verification']['status'] in ('stale_source','unverified_source','unavailable')]
             missing = [j['job_id'] for j in state['jobs'] if j['verification']['status'] != 'inactive'
                        and j['description'] in ('missing_accepted_body', 'catalog_only_not_full_detail')]

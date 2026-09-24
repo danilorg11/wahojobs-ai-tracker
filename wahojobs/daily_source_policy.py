@@ -19,6 +19,7 @@ _CONTROLLED_VALIDATION = ContextVar('controlled_source_validation', default=Fals
 _DATAANNOTATION_OBSERVED_REDIRECT = ContextVar('dataannotation_observed_redirect', default=None)
 _DATAANNOTATION_DOMAINS = ContextVar('dataannotation_controlled_domains', default=None)
 _DATAFORCE_OBSERVED_DETAILS = ContextVar('dataforce_observed_details', default=frozenset())
+_SURGE_OBSERVED_DETAILS = ContextVar('surge_observed_details', default=frozenset())
 
 
 def entry(requests, seconds, expected, scope, rule, *, blocker=None, correction=None, cooldown=0):
@@ -44,8 +45,8 @@ POLICY = {
     'dataforce': entry(15, 360, 11,
         ['GET https://dataforcecommunity.transperfect.com/projects',
          'GET https://dataforcecommunity.transperfect.com/projects?project_type=All&page=<1..19>',
-         'GET index-linked https://dataforcecommunity.transperfect.com/project/thyme-freelance-writer-<one of eight observed language paths>'],
-        'Only eight exact index-linked, individually attested remote Thyme roles; partial source, no absence closure.'),
+         'GET up to remaining cap of exact index-linked https://dataforcecommunity.transperfect.com/(project|study)/<slug>'],
+        'Eight exact individually attested remote Thyme roles; remaining daily request slots rotate other remote index cards for inspection only. Partial source, no absence closure.'),
     'handshake': entry(40, 360, 29,
         ['GET https://joinhandshake.com/ai/opportunities[/]',
          'GET page-linked https://framerusercontent.com/sites/<public module>.mjs',
@@ -83,9 +84,7 @@ POLICY = {
         ['GET https://surgehq.ai/workforce',
          'GET index-linked https://surgehq.ai/workforce/<slug> (at most 18)',
          'GET https://surgehq.ai/fellowship'],
-        'Public inventory plus evergreen fellowship, excluded from live-market estimate; inherent page discovery is not optional detail enrichment.',
-        blocker='Slug-derived title fallback can accept generic HTTP 200 pages; no qualifying individual public-page contract or retained raw HTML replay.',
-        correction='Require source title, role and application evidence; retain allowlisted page HTML, test exact individual public/evergreen promotion without absence closure.'),
+        'Seven index-linked remote AI workforce roles with canonical detail and role-bound application evidence; individual public-inventory record authority only, no absence closure. Fellowship remains excluded until separately attested.'),
     'turing': entry(3, 210, 1,
         ['POST https://work.turing.com/api/jobs/all ; body {"searchQuery":"","expertise":[],"location":[],"pageNumber":<1..3>,"pageSize":500,"sortingCriteria":"newest"}'],
         'success plus stable totalCount, unique IDs and exact pagination; at most 1500 returned rows under this policy, not provider-wide completeness.'),
@@ -94,8 +93,9 @@ POLICY = {
         'Complete validated Lever list, exact Welo Data - AI Services filter; excluded board records are neither rejected nor variants.'),
 }
 READY_SOURCES = tuple(s for s in CORE_SOURCES if POLICY[s]['readiness'] == 'ready')
-NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce'})
+NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'surge'})
 OVERHEAD_SECONDS = 240  # stop/preflight queries, one backup, final integrity, process cleanup
+MAX_EXECUTION_SECONDS = 2520  # installed daily service and approved collection ceiling
 
 
 def default_sources():
@@ -116,6 +116,8 @@ def validate_sources(configured):
             if type(row[field]) is not int or not 0 < row[field] <= POLICY[source][field]:
                 raise ValueError('incompatible_source_budget:'+source)
     if not any(r['enabled'] for r in configured.values()):raise ValueError('no_daily_sources_enabled')
+    if aggregate(configured)['execution_seconds'] > MAX_EXECUTION_SECONDS:
+        raise ValueError('daily_execution_ceiling_exceeded')
     return configured
 
 
@@ -188,6 +190,21 @@ def observed_dataforce_details(urls):
 
 
 @contextmanager
+def observed_surge_details(urls):
+    if type(urls) not in (tuple, list) or not 0 < len(urls) <= 18 or len(urls) != len(set(urls)):
+        raise ValueError('surge_detail_scope_invalid')
+    for url in urls:
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'https' or parsed.netloc != 'surgehq.ai'
+                or parsed.query or parsed.fragment
+                or re.fullmatch(r'/workforce/[A-Za-z0-9-]+', parsed.path) is None):
+            raise ValueError('surge_detail_scope_invalid')
+    token = _SURGE_OBSERVED_DETAILS.set(frozenset(urls))
+    try: yield
+    finally: _SURGE_OBSERVED_DETAILS.reset(token)
+
+
+@contextmanager
 def daily_source(source):
     if source not in READY_SOURCES:raise ValueError('source_not_ready_for_daily:'+source)
     token = _DAILY_SOURCE.set(source)
@@ -246,6 +263,10 @@ def validate_request(request):
             p.path == '/projects' and set(query) == {'project_type','page'}
             and query['project_type'] == ['All'] and integer('page',1,19) or
             request.full_url in _DATAFORCE_OBSERVED_DETAILS.get())
+    elif source == 'surge':
+        ok = (p.netloc == 'surgehq.ai' and method == 'GET' and not query
+              and (p.path in ('/workforce','/fellowship')
+                   or request.full_url in _SURGE_OBSERVED_DETAILS.get()))
     elif source == 'meridial':
         ok = (at('boards-api.greenhouse.io','/v1/boards/agency/jobs') and query=={'content':['true']} or
               at('boards-api.greenhouse.io','/v1/boards/agency/departments/4012485101') and query=={'render_as':['tree']})

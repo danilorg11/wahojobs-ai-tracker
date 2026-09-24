@@ -104,6 +104,12 @@ def reserve_http_request(request, *, detail=False):
     return budget.reserve(request, detail=detail) if budget is not None else None
 
 
+def remaining_http_requests():
+    """Remaining audited requests in the current source collection."""
+    budget = _REQUEST_BUDGET.get()
+    return None if budget is None else max(0, budget.http_limit - len(budget.transactions))
+
+
 def remaining_request_seconds():
     deadline = _REQUEST_DEADLINE.get()
     remaining = deadline - time.monotonic() if deadline is not None else None
