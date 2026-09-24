@@ -35,10 +35,10 @@ class RemainingSourceBoundaries(unittest.TestCase):
                 dataforce.validate_inventory_page(invalid)
 
     def test_handshake_chunk_scope_and_coverage(self):
-        module = ('new URL(`./Opportunities-chunk-default-0.framercms`,'
+        module = ('new URL(`./file-chunk-default-0.framercms`,'
                   '`https://framerusercontent.com/modules/site/hash/file.js`)'
                   '.href.replace(`/modules/`,`/cms/`)'
-                  'new URL(`./Opportunities-chunk-default-1.framercms`,'
+                  'new URL(`./file-chunk-default-1.framercms`,'
                   '`https://framerusercontent.com/modules/site/hash/file.js`)'
                   '.href.replace(`/modules/`,`/cms/`)')
         self.assertEqual(len(handshake.extract_collection_chunk_urls(module)), 2)
