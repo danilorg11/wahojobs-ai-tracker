@@ -132,6 +132,16 @@ def daily_source(source):
     finally:_DAILY_SOURCE.reset(token)
 
 
+@contextmanager
+def controlled_validation_source(source):
+    # An isolated read-only observation, never daily activation.
+    if source not in ('dataannotation', 'dataforce'):
+        raise ValueError('controlled_validation_source_out_of_scope')
+    token = _DAILY_SOURCE.set(source)
+    try: yield
+    finally: _DAILY_SOURCE.reset(token)
+
+
 def validate_request(request):
     """No redirect, credentials, alternate query/body, detail or cross-source dispatch."""
     source = current_source()
@@ -153,6 +163,17 @@ def validate_request(request):
     elif source in ('appen','rws','welocalize'):
         board = 'weloglobal' if source == 'welocalize' else source
         ok = at('api.lever.co','/v0/postings/'+board) and query == {'mode':['json'],'expand':['location']}
+    elif source == 'dataannotation':
+        paths = {'/'+name for name in (
+            'coding','generalist','law','math','medicine','physics',
+            'finance','accounting','bilingual','chemistry','biology')}
+        paths.add('/job-board/software-engineer')
+        ok = p.netloc == 'www.dataannotation.tech' and p.path in paths and method == 'GET' and not query
+    elif source == 'dataforce':
+        ok = p.netloc == 'dataforcecommunity.transperfect.com' and method == 'GET' and (
+            p.path == '/projects' and not query or
+            p.path == '/projects' and set(query) == {'project_type','page'}
+            and query['project_type'] == ['All'] and integer('page',1,19))
     elif source == 'meridial':
         ok = (at('boards-api.greenhouse.io','/v1/boards/agency/jobs') and query=={'content':['true']} or
               at('boards-api.greenhouse.io','/v1/boards/agency/departments/4012485101') and query=={'render_as':['tree']})

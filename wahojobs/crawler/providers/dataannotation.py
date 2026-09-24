@@ -97,12 +97,11 @@ def fetch_dataannotation_jobs(base_url):
         if not page["ok"]:
             skipped.append(f"{domain.slug} ({page['reason']})")
             if page["outcome"] == "network_or_site_error":
-                network_or_site_errors.append(domain.slug)
+                raise RuntimeError(f"DataAnnotation access failed at {domain.slug}: {page['reason']}")
             continue
 
         if not has_application_surface(page["text"], domain.slug):
-            skipped.append(f"{domain.slug} (missing apply surface)")
-            continue
+            raise ValueError(f"DataAnnotation generic or unsupported page: {domain.slug}")
 
         jobs.append(parse_domain_page(domain, page["url"], page["text"]))
 

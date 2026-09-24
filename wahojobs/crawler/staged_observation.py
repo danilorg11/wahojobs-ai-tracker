@@ -11,7 +11,7 @@ import os
 
 from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, RecordPromotionAttestation
 from wahojobs.crawler.local_inventory import refresh_request_budget
-from wahojobs.daily_source_policy import POLICY, daily_source
+from wahojobs.daily_source_policy import POLICY, daily_source, controlled_validation_source
 
 VERSION = 'daily_collected_observation_v1'
 
@@ -83,22 +83,30 @@ def decode_result(document):
     return result
 
 
-def collect(source, careers_url, directory, *, run_id, code_commit, http_max, journal_root):
+def collect(source, careers_url, directory, *, run_id, code_commit, http_max, journal_root, controlled_validation=False):
     from wahojobs import evidence_maintenance as maintenance
     from wahojobs.crawler.pipeline import CRAWLERS
     from wahojobs.crawler.source_registry import assert_production_dispatch_allowed
     assert_production_dispatch_allowed(source)
-    if not 0 < http_max <= POLICY[source]['http_max']: raise ValueError('invalid_collection_budget')
+    permitted = (12 if source == 'dataannotation' else 20) if controlled_validation else POLICY[source]['http_max']
+    if not 0 < http_max <= permitted: raise ValueError('invalid_collection_budget')
+    if controlled_validation and (source, careers_url) not in {
+        ('dataannotation', 'https://www.dataannotation.tech'),
+        ('dataforce', 'https://dataforcecommunity.transperfect.com/projects'),
+    }:
+        raise ValueError('controlled_validation_endpoint_out_of_scope')
     plan = dict(version=maintenance.VERSION, kind=VERSION, run_id=run_id, source=source,
         careers_url=careers_url, code_commit=code_commit, contract_fingerprint=maintenance.contract_fingerprint(),
-        started_at=timestamp(), http_max=http_max)
+        started_at=timestamp(), http_max=http_max,
+        controlled_validation=controlled_validation)
     plan['plan_id'] = maintenance.digest(plan)
     root = Path(directory); root.mkdir(parents=True, exist_ok=True)
     maintenance.save_json(root/(source+'-collection.json'), dict(plan_id=plan['plan_id']))
     # The established snapshot procedure already preserves this pinned root.
     # Collection writes evidence only; the product database remains online.
     journal = maintenance.Journal(journal_root, plan)
-    with daily_source(source), refresh_request_budget(http_limit=http_max, detail_limit=0,
+    source_context = controlled_validation_source(source) if controlled_validation else daily_source(source)
+    with source_context, refresh_request_budget(http_limit=http_max, detail_limit=0,
             audit_sink=lambda event: journal.append('source_transport', event)) as budget:
         journal.append('started', dict(operation='collect:'+source))
         try:

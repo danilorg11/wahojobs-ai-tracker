@@ -135,6 +135,13 @@ def audit_http_error(entry, exc):
     """Retain bounded HTTP error material without another request or retry."""
     from urllib.error import HTTPError
     if isinstance(exc, HTTPError):
+        if entry is not None:
+            entry['status'] = exc.code
+            entry['final_url'] = exc.geturl()
+            entry['response_headers'] = {
+                name: exc.headers[name] for name in ('Location', 'Content-Type')
+                if exc.headers.get(name) is not None
+            }
         try:
             body = exc.read(2_000_001)
             audit_http_response(entry, body=body, capture_complete=len(body) < 2_000_001)
@@ -203,6 +210,11 @@ def open_catalog(request, *, timeout):
         raise
     if entry is not None:
         entry['status'] = response.status
+        entry['final_url'] = response.geturl()
+        entry['response_headers'] = {
+            name: response.headers[name] for name in ('Content-Type', 'Content-Length')
+            if response.headers.get(name) is not None
+        }
         entry['contract_headers'] = {name: response.headers[name] for name in
             ('X-WP-TotalPages', 'X-WP-Total') if response.headers.get(name) is not None}
     return _AuditedResponse(response, entry) if entry is not None else response

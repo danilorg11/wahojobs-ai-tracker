@@ -1,7 +1,8 @@
 import html
 import re
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from wahojobs.crawler.local_inventory import open_public as urlopen
 
 from wahojobs.crawler.types import JobCandidate
 
