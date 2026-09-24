@@ -243,13 +243,14 @@ def capture_handshake(recorder):
         counts[name] = len(records)
         if name == handshake.OPPORTUNITIES_COLLECTION:
             visible = [r for r in records if r.get(handshake.FIELD_SHOW_JOB) is True]
-            if any(not handshake.should_include_record(r) for r in visible):
-                raise ValueError('handshake_visible_record_invalid')
-            ids = [str(r[handshake.FIELD_ID]) for r in visible]
-            slugs = [str(r[handshake.FIELD_SLUG]) for r in visible]
+            qualified = [r for r in visible if handshake.should_include_record(r)]
+            ids = [str(r[handshake.FIELD_ID]) for r in qualified]
+            slugs = [str(r[handshake.FIELD_SLUG]) for r in qualified]
             if len(ids) != len(set(ids)) or len(slugs) != len(set(slugs)):
                 raise ValueError('handshake_visible_duplicate')
             counts['visible_opportunities'] = len(visible)
+            counts['qualified_visible_opportunities'] = len(qualified)
+            counts['visible_missing_required_fields'] = len(visible)-len(qualified)
     return {'modules':len(modules),'collections':{k:len(v) for k,v in collections.items()},
             'record_counts':counts}
 
@@ -313,7 +314,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',choices=tuple(LIMITS),required=True)
     parser.add_argument('--commit',required=True)
-    parser.add_argument('--resume-run')
+    parser.add_argument('--resume-run',action='append')
     args = parser.parse_args()
     if (os.geteuid() != 0 or socket.gethostname() != HOST
             or not re.fullmatch(r'[a-f0-9]{40}',args.commit)
@@ -325,7 +326,9 @@ def main():
         runs = LEDGER/'runs'
         runs.mkdir(mode=0o700,exist_ok=True)
         prior = attempts_used()
-        retained = retained_responses(args.source, args.resume_run) if args.resume_run else {}
+        retained = {}
+        for run_name in args.resume_run or ():
+            retained.update(retained_responses(args.source, run_name))
         if prior[args.source] >= LIMITS[args.source] or sum(prior.values()) >= AGGREGATE:
             raise ValueError('task_capture_budget_exhausted')
         run = runs/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')+'-'+args.source)
@@ -338,7 +341,7 @@ def main():
                 for name in ('wahojobs/crawler/providers/handshake.py',
                              'wahojobs/crawler/providers/outlier.py',
                              'wahojobs/crawler/providers/surge.py')},
-            resumed_run=args.resume_run))
+            resumed_runs=args.resume_run or []))
         recorder=Recorder(args.source,run,prior,retained)
         result,error=None,None
         previous_alarm = signal.signal(signal.SIGALRM, source_deadline)
