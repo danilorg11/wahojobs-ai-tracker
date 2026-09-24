@@ -73,10 +73,6 @@ class AuthoritativeCompanyContractTests(unittest.TestCase):
                 "wahojobs.crawler.companies.oneforma.fetch_oneforma_jobs",
                 crawl_oneforma,
             ),
-            (
-                "wahojobs.crawler.companies.dataforce.fetch_dataforce_jobs",
-                crawl_dataforce,
-            ),
         )
         for patch_target, crawler in cases:
             with self.subTest(provider=patch_target), patch(
@@ -86,6 +82,14 @@ class AuthoritativeCompanyContractTests(unittest.TestCase):
                 result = crawler("https://example.test/source")
                 self.assert_authoritative(result, 2)
                 self.assertEqual(result.raw_record_count, 2)
+
+    @patch("wahojobs.crawler.companies.dataforce.fetch_dataforce_jobs")
+    def test_dataforce_rows_remain_individual_pending_terminal_authority(self, fetch_jobs):
+        fetch_jobs.return_value = [candidate("one")]
+        result = crawl_dataforce("https://example.test/source")
+        self.assertEqual(result.outcome, ProviderOutcome.PARTIAL)
+        self.assertFalse(result.snapshot_complete)
+        self.assertFalse(evaluate_removal_authorization(result).authorized)
 
     @patch("wahojobs.crawler.companies.turing.fetch_turing_jobs", return_value=[])
     def test_empty_snapshot_is_not_implicitly_authorized(self, _fetch_jobs):
@@ -153,7 +157,7 @@ class ProviderPaginationSafetyTests(unittest.TestCase):
             oneforma.fetch_all_posts("https://example.test/oneforma")
 
     @patch("wahojobs.crawler.providers.dataforce.parse_jobs_page")
-    @patch("wahojobs.crawler.providers.dataforce.fetch_page", return_value="page")
+    @patch("wahojobs.crawler.providers.dataforce.fetch_page", return_value='<div class="view view-projects"><div class="views-row"></div><div class="view-empty"></div></div>')
     def test_dataforce_requires_empty_end_page(self, _fetch_page, parse_page):
         parse_page.side_effect = [[candidate("one")], []]
 
@@ -162,7 +166,7 @@ class ProviderPaginationSafetyTests(unittest.TestCase):
         self.assertEqual([job.external_id for job in jobs], ["one"])
 
     @patch("wahojobs.crawler.providers.dataforce.parse_jobs_page")
-    @patch("wahojobs.crawler.providers.dataforce.fetch_page", return_value="page")
+    @patch("wahojobs.crawler.providers.dataforce.fetch_page", return_value='<div class="view view-projects"><div class="views-row"></div><div class="view-empty"></div></div>')
     def test_dataforce_cap_exhaustion_is_not_complete(self, _fetch_page, parse_page):
         parse_page.side_effect = [
             [candidate(f"job-{index}")] for index in range(dataforce.MAX_PAGES)

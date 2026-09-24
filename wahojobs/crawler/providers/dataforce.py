@@ -20,6 +20,7 @@ def fetch_dataforce_jobs(projects_url):
     for page in range(MAX_PAGES):
         page_url = build_page_url(projects_url, page)
         html_text = fetch_page(page_url)
+        validate_inventory_page(html_text)
         page_jobs = parse_jobs_page(html_text, page_url)
         if not page_jobs:
             break
@@ -52,7 +53,22 @@ def fetch_page(url):
     request = Request(url, headers=REQUEST_HEADERS)
     with urlopen(request, timeout=45) as response:
         charset = response.headers.get_content_charset() or "utf-8"
+        if response.status != 200:
+            raise RuntimeError(f"DataForce returned HTTP {response.status}.")
         return response.read().decode(charset, errors="replace")
+
+
+def validate_inventory_page(html_text):
+    """Only recognizable Drupal project views can declare rows or an empty page."""
+    lowered = html_text.lower()
+    if any(marker in lowered for marker in ("captcha", "access denied", "forbidden", "challenge")):
+        raise ValueError("DataForce access or challenge page is not inventory.")
+    if not re.search(r'class=["\'][^"\']*\bview-projects\b', html_text, re.I):
+        raise ValueError("DataForce project view marker missing.")
+    if '<div class="views-row">' not in html_text and not re.search(
+        r'class=["\'][^"\']*\bview-empty\b', html_text, re.I
+    ):
+        raise ValueError("DataForce page has neither project rows nor explicit empty state.")
 
 
 def parse_jobs_page(html_text, page_url):

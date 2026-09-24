@@ -192,7 +192,12 @@ def parse_workforce_detail(record, html_text):
     fields = dict(record.fields)
     if not fields:
         fields = extract_data_job_fields(html_text)
-    title = clean_value(fields.get("title")) or title_from_slug(record.url)
+    detail_fields = extract_data_job_fields(html_text)
+    title = clean_value(detail_fields.get("title"))
+    if not title or clean_value(fields.get("title")) not in (None, title):
+        raise RuntimeError(f"Surge crawl failed: detail title missing or mismatched for {record.url}.")
+    if not has_workforce_application(html_text, record.url):
+        raise RuntimeError(f"Surge crawl failed: application evidence missing for {record.url}.")
     if not title:
         raise RuntimeError(f"Surge crawl failed: missing title for {record.url}.")
 
@@ -222,17 +227,38 @@ def parse_workforce_detail(record, html_text):
     )
 
 
+def has_workforce_application(html_text, url):
+    # Require a role-level call to action; ordinary site navigation is insufficient.
+    slug = slug_from_url(url).lower()
+    for href, label in re.findall(
+        r'<a\b[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        html_text, re.I | re.S
+    ):
+        if "apply" not in normalize_text(clean_html_text(label)):
+            continue
+        absolute = urljoin(url, html.unescape(href))
+        parsed = urlparse(absolute)
+        if parsed.scheme == "mailto" and parsed.path and slug in parsed.path.lower():
+            return True
+        if (parsed.scheme == "https" and parsed.netloc in ("surgehq.ai", "www.surgehq.ai")
+                and ("/apply" in parsed.path.lower() or "application" in parsed.path.lower())
+                and slug in parsed.path.lower()):
+            return True
+    return False
+
+
 def parse_fellowship_page(url, html_text):
     text = clean_html_text(html_text)
     normalized = normalize_text(text)
-    if "researchfellows@surgehq.ai" not in normalized:
+    if "researchfellows@surgehq.ai" not in normalized or "mailto:researchfellows@surgehq.ai" not in html_text.lower():
         raise RuntimeError("Surge crawl failed: fellowship page missing apply email.")
-    if "fellowship" not in normalized:
-        return None
-
+    heading = re.search(r"<h1\b[^>]*>(.*?)</h1>", html_text, re.I | re.S)
+    title = clean_html_text(heading.group(1)) if heading else ""
+    if "research fellowship" not in normalize_text(title):
+        raise RuntimeError("Surge crawl failed: fellowship role title missing.")
     return JobCandidate(
         external_id="surge::fellowship::research-fellowship",
-        title="Surge AI Research Fellowship",
+        title=title,
         location=infer_location(text),
         url=url,
         department="STEM Experts",

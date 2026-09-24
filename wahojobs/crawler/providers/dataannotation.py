@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+from wahojobs.crawler.local_inventory import open_catalog
+from wahojobs.daily_source_policy import current_source
 
 from wahojobs.classification import (
     AVAILABILITY_BASIS_EVERGREEN_PAGE,
@@ -97,11 +100,11 @@ def fetch_dataannotation_jobs(base_url):
                 network_or_site_errors.append(domain.slug)
             continue
 
-        if not has_application_surface(page["text"]):
+        if not has_application_surface(page["text"], domain.slug):
             skipped.append(f"{domain.slug} (missing apply surface)")
             continue
 
-        jobs.append(parse_domain_page(domain, url, page["text"]))
+        jobs.append(parse_domain_page(domain, page["url"], page["text"]))
 
     if network_or_site_errors:
         raise RuntimeError(
@@ -117,49 +120,78 @@ def build_domain_url(base_url, slug):
     return f"{base_url.rstrip('/')}/{slug}"
 
 
-def fetch_page(url):
-    request = Request(url, headers=REQUEST_HEADERS)
-    try:
-        with urlopen(request, timeout=30) as response:
-            charset = response.headers.get_content_charset() or "utf-8"
-            text = response.read().decode(charset, errors="replace")
-            if response.status == 200:
-                return {
-                    "ok": True,
-                    "text": text,
-                    "reason": response.status,
-                    "outcome": "success",
-                }
-            return {
-                "ok": False,
-                "text": text,
-                "reason": f"HTTP {response.status}",
-                "outcome": "network_or_site_error",
-            }
-    except HTTPError as exc:
-        outcome = "not_found" if exc.code == 404 else "network_or_site_error"
-        return {"ok": False, "text": "", "reason": f"HTTP {exc.code}", "outcome": outcome}
-    except URLError as exc:
-        return {
-            "ok": False,
-            "text": "",
-            "reason": str(exc.reason),
-            "outcome": "network_or_site_error",
-        }
-    except TimeoutError:
-        return {
-            "ok": False,
-            "text": "",
-            "reason": "timeout",
-            "outcome": "network_or_site_error",
-        }
+CANONICAL_REDIRECTS = {
+    "/coding": "/job-board/software-engineer",
+}
 
 
-def has_application_surface(text):
-    normalized = text.lower()
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+def _allowed_destination(start_url, destination):
+    start = urlsplit(start_url)
+    target = urlsplit(destination)
     return (
-        "app.dataannotation.tech" in normalized
-        or ("apply" in normalized and "dataannotation" in normalized)
+        target.scheme == "https"
+        and target.netloc == "www.dataannotation.tech"
+        and not target.query and not target.fragment
+        and (target.path == start.path or
+             target.path == CANONICAL_REDIRECTS.get(start.path))
+    )
+
+
+def fetch_page(url):
+    current = url
+    for hop in range(2):
+        request = Request(current, headers=REQUEST_HEADERS)
+        try:
+            if current_source() is None:
+                response = build_opener(_NoRedirect()).open(request, timeout=30)
+            else:
+                response = open_catalog(request, timeout=30)
+            with response:
+                final_url = response.geturl()
+                if not _allowed_destination(url, final_url):
+                    raise ValueError("DataAnnotation response left canonical scope.")
+                charset = response.headers.get_content_charset() or "utf-8"
+                text = response.read().decode(charset, errors="replace")
+                if response.status != 200:
+                    raise RuntimeError(f"DataAnnotation returned HTTP {response.status}.")
+                return {"ok": True, "text": text, "url": final_url,
+                        "reason": "HTTP 200", "outcome": "success"}
+        except HTTPError as exc:
+            if exc.code in (301, 302, 303, 307, 308):
+                destination = urljoin(current, exc.headers.get("Location", ""))
+                if hop == 0 and _allowed_destination(url, destination) and destination != current:
+                    current = destination
+                    continue
+                raise ValueError("DataAnnotation redirect left canonical scope or exceeded hop limit.") from exc
+            outcome = "not_found" if exc.code == 404 else "network_or_site_error"
+            return {"ok": False, "text": "", "reason": f"HTTP {exc.code}", "outcome": outcome}
+        except (URLError, TimeoutError) as exc:
+            return {"ok": False, "text": "", "reason": str(exc), "outcome": "network_or_site_error"}
+    raise ValueError("DataAnnotation redirect exceeded hop limit.")
+
+
+def has_application_surface(text, slug):
+    normalized = text.lower()
+    if any(token in normalized for token in ("403 forbidden", "access denied", "captcha", "page not found")):
+        return False
+    role_terms = {
+        "coding": ("coding", "software engineer"),
+        "generalist": ("generalist",), "law": ("law", "legal"),
+        "math": ("math",), "medicine": ("medicine", "medical"),
+        "physics": ("physics",), "finance": ("finance",),
+        "accounting": ("accounting",), "bilingual": ("bilingual",),
+        "chemistry": ("chemistry",), "biology": ("biology",),
+    }
+    return (
+        any(term in normalized for term in role_terms[slug])
+        and "dataannotation" in normalized
+        and "app.dataannotation.tech" in normalized
+        and ("apply" in normalized or "sign up" in normalized)
     )
 
 

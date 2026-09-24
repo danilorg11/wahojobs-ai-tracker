@@ -2,8 +2,10 @@ import json
 import re
 import struct
 from html import unescape
-from urllib.parse import urljoin
-from urllib.request import Request, urlopen
+from urllib.parse import urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+from wahojobs.crawler.local_inventory import open_catalog
+from wahojobs.daily_source_policy import current_source
 
 from wahojobs.classification import (
     AVAILABILITY_BASIS_PUBLIC_CMS,
@@ -17,6 +19,8 @@ REQUEST_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/json",
 }
 DETAIL_URL_PREFIX = "https://joinhandshake.com/ai/opportunities"
+MAX_MODULES = 32
+MAX_CHUNKS_PER_COLLECTION = 8
 
 OPPORTUNITIES_COLLECTION = "Opportunities"
 SUBJECT_FILTERS_COLLECTION = "Subject Filters"
@@ -52,80 +56,145 @@ def fetch_handshake_jobs(opportunities_url):
         DEGREE_TITLE_FIELD,
     )
 
-    return [
-        parse_opportunity_record(record, subject_labels, degree_labels)
-        for record in opportunity_records
-        if should_include_record(record)
-    ]
+    for record in opportunity_records:
+        if record.get(FIELD_SHOW_JOB) is True and not should_include_record(record):
+            raise ValueError("Handshake visible CMS record lacks supported identity or title.")
+    included = [record for record in opportunity_records if should_include_record(record)]
+    ids = [clean_value(record[FIELD_ID]) for record in included]
+    slugs = [clean_value(record[FIELD_SLUG]) for record in included]
+    if len(ids) != len(set(ids)) or len(slugs) != len(set(slugs)):
+        raise ValueError("Handshake public CMS has duplicate identity or slug.")
+    return [parse_opportunity_record(record, subject_labels, degree_labels)
+            for record in included]
 
 
 def ensure_trailing_slash(url):
     return url if url.endswith("/") else f"{url}/"
 
 
-def fetch_text(url):
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+def _validate_asset_url(url):
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.query or parsed.fragment or parsed.username or parsed.password or parsed.port:
+        raise ValueError("Handshake asset destination is outside scope.")
+    if parsed.netloc == "joinhandshake.com" and parsed.path == "/ai/opportunities/":
+        return
+    if parsed.netloc == "framerusercontent.com" and (
+        re.fullmatch(r"/sites/[A-Za-z0-9_./-]+\.mjs", parsed.path)
+        or re.fullmatch(r"/cms/[A-Za-z0-9_./-]+-chunk-default-\d+\.framercms", parsed.path)
+    ):
+        return
+    raise ValueError("Handshake asset destination is outside scope.")
+
+
+def _open_asset(url):
+    _validate_asset_url(url)
     request = Request(url, headers=REQUEST_HEADERS)
-    with urlopen(request, timeout=60) as response:
+    if current_source() is None:
+        return build_opener(_NoRedirect()).open(request, timeout=60)
+    return open_catalog(request, timeout=60)
+
+
+def fetch_text(url):
+    with _open_asset(url) as response:
+        if response.status != 200 or response.geturl() != url:
+            raise ValueError("Handshake asset response left exact scope.")
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
 
 
 def fetch_bytes(url):
-    request = Request(url, headers=REQUEST_HEADERS)
-    with urlopen(request, timeout=60) as response:
+    with _open_asset(url) as response:
+        if response.status != 200 or response.geturl() != url:
+            raise ValueError("Handshake asset response left exact scope.")
         return response.read()
 
 
 def discover_cms_urls(html_text):
     urls = extract_framer_module_urls(html_text)
+    if not urls or len(urls) > MAX_MODULES:
+        raise ValueError("Handshake linked module count is absent or exceeds the bound.")
     cms_urls = {}
-
+    names = (OPPORTUNITIES_COLLECTION, SUBJECT_FILTERS_COLLECTION,
+             DEGREE_FILTERS_COLLECTION)
     for url in urls:
         module_text = fetch_text(url)
-        for collection_name in (
-            OPPORTUNITIES_COLLECTION,
-            SUBJECT_FILTERS_COLLECTION,
-            DEGREE_FILTERS_COLLECTION,
-        ):
-            if collection_name in cms_urls:
-                continue
-            if f"displayName:`{collection_name}`" not in module_text:
-                continue
-
-            cms_url = extract_collection_chunk_url(module_text)
-            if cms_url:
-                cms_urls[collection_name] = cms_url
-
+        declared = [name for name in names if f"displayName:`{name}`" in module_text]
+        if len(declared) > 1:
+            raise ValueError("Handshake module declares ambiguous CMS collections.")
+        if not declared:
+            continue
+        name = declared[0]
+        if name in cms_urls:
+            raise ValueError("Handshake CMS collection declared twice.")
+        cms_urls[name] = extract_collection_chunk_urls(module_text, linked_module_url=url)
     if OPPORTUNITIES_COLLECTION not in cms_urls:
-        raise ValueError("Could not find Handshake Opportunities Framer CMS chunk.")
+        raise ValueError("Could not find Handshake Opportunities Framer CMS chunks.")
     return cms_urls
 
 
 def extract_framer_module_urls(html_text):
     urls = []
-    patterns = (
-        r'href="(https://framerusercontent\.com/sites/[^"]+\.mjs)"',
-        r'src="(https://framerusercontent\.com/sites/[^"]+\.mjs)"',
-    )
-    for pattern in patterns:
-        for match in re.finditer(pattern, html_text):
-            url = unescape(match.group(1))
-            if url not in urls:
-                urls.append(url)
+    for match in re.finditer(r'(?:href|src)="(https://framerusercontent\.com/sites/[^"]+\.mjs)"', html_text):
+        url = unescape(match.group(1))
+        parsed = urlsplit(url)
+        if parsed.query or parsed.fragment or not re.fullmatch(r"/sites/[A-Za-z0-9_./-]+\.mjs", parsed.path):
+            raise ValueError("Handshake module destination outside linked asset scope.")
+        if url not in urls:
+            urls.append(url)
     return urls
 
 
-def extract_collection_chunk_url(module_text):
-    match = re.search(
-        r"new URL\(`\./([^`]+-chunk-default-0\.framercms)`,`([^`]+)`\)"
+def extract_collection_chunk_urls(module_text, *, linked_module_url=None):
+    declarations = re.findall(
+        r"new URL\(`\./([^`]+-chunk-default-(\d+)\.framercms)`,`([^`]+)`\)"
         r"\.href\.replace\(`/modules/`,`/cms/`\)",
         module_text,
     )
-    if not match:
-        return None
+    if not declarations:
+        raise ValueError("Handshake module has no declared CMS chunks.")
+    if len(declarations) > MAX_CHUNKS_PER_COLLECTION:
+        raise ValueError("Handshake CMS chunk count exceeds bound.")
+    chunks = {}
+    collection_prefix = None
+    collection_module = None
+    for chunk_name, number, module_url in declarations:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+-chunk-default-\d+\.framercms", chunk_name):
+            raise ValueError("Handshake CMS chunk identity invalid.")
+        prefix = chunk_name.rsplit("-chunk-default-", 1)[0]
+        if collection_prefix is None:
+            collection_prefix, collection_module = prefix, module_url
+        elif (prefix, module_url) != (collection_prefix, collection_module):
+            raise ValueError("Handshake CMS chunks do not share collection identity.")
+        origin = urlsplit(module_url)
+        if linked_module_url is not None:
+            linked = urlsplit(linked_module_url)
+            if (linked.scheme != "https" or linked.netloc != "framerusercontent.com"
+                    or origin.path.removeprefix("/modules/") != linked.path.removeprefix("/sites/")):
+                raise ValueError("Handshake CMS chunk is not bound to its linked module.")
+        if origin.scheme != "https" or origin.netloc != "framerusercontent.com" or not origin.path.startswith("/modules/"):
+            raise ValueError("Handshake CMS module origin invalid.")
+        destination = urljoin(module_url, chunk_name).replace("/modules/", "/cms/")
+        parsed = urlsplit(destination)
+        if parsed.scheme != "https" or parsed.netloc != "framerusercontent.com" or not re.fullmatch(
+            r"/cms/[A-Za-z0-9_./-]+-chunk-default-\d+\.framercms", parsed.path
+        ) or parsed.query or parsed.fragment:
+            raise ValueError("Handshake CMS destination outside collection scope.")
+        index = int(number)
+        if index in chunks and chunks[index] != destination:
+            raise ValueError("Handshake CMS chunk index has conflicting destinations.")
+        chunks[index] = destination
+    if set(chunks) != set(range(len(chunks))):
+        raise ValueError("Handshake CMS chunk coverage has a gap.")
+    return [chunks[index] for index in range(len(chunks))]
 
-    chunk_name, module_url = match.groups()
-    return urljoin(module_url, chunk_name).replace("/modules/", "/cms/")
+
+def extract_collection_chunk_url(module_text):
+    return extract_collection_chunk_urls(module_text)[0]
 
 
 def read_label_map(cms_url, title_field):
@@ -138,9 +207,22 @@ def read_label_map(cms_url, title_field):
     }
 
 
-def read_framercms_records(cms_url):
-    decoder = FramerCmsDecoder(fetch_bytes(cms_url))
-    return decoder.read_records()
+def read_framercms_records(cms_urls):
+    if not isinstance(cms_urls, list) or not cms_urls or len(cms_urls) > MAX_CHUNKS_PER_COLLECTION:
+        raise ValueError("Handshake CMS requires a bounded declared chunk set.")
+    records = []
+    for cms_url in cms_urls:
+        parsed = urlsplit(cms_url)
+        if parsed.scheme != "https" or parsed.netloc != "framerusercontent.com" or not re.fullmatch(
+            r"/cms/[A-Za-z0-9_./-]+-chunk-default-\d+\.framercms", parsed.path
+        ) or parsed.query or parsed.fragment:
+            raise ValueError("Handshake CMS destination outside collection scope.")
+        decoder = FramerCmsDecoder(fetch_bytes(cms_url))
+        chunk_records = decoder.read_records()
+        if decoder.offset != len(decoder.data):
+            raise ValueError("Handshake CMS chunk has trailing unsupported data.")
+        records.extend(chunk_records)
+    return records
 
 
 def should_include_record(record):
@@ -148,6 +230,7 @@ def should_include_record(record):
         record.get(FIELD_SHOW_JOB) is True
         and bool(clean_value(record.get(FIELD_TITLE)))
         and bool(clean_value(record.get(FIELD_SLUG)))
+        and bool(re.fullmatch(r"[A-Za-z0-9-]+", clean_value(record.get(FIELD_SLUG)) or ""))
         and bool(clean_value(record.get(FIELD_ID)))
     )
 
@@ -191,17 +274,9 @@ def resolve_labels(ids, labels):
 
 def build_commitment(salary, degrees):
     parts = []
-    if isinstance(salary, (int, float)) and salary > 0:
-        parts.append(f"Rate: {format_rate(salary)}/hr")
     if degrees:
         parts.append(f"Degree filters: {', '.join(degrees)}")
     return "; ".join(parts) or None
-
-
-def format_rate(value):
-    if float(value).is_integer():
-        return f"${int(value)}"
-    return f"${value:.2f}"
 
 
 def clean_value(value):
