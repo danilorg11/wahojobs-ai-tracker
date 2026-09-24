@@ -152,8 +152,7 @@ def _allowed_destination(start_url, destination, *, observed=False):
         and target.netloc == "www.dataannotation.tech"
         and not target.query and not target.fragment
         and (target.path == start.path or
-             target.path == CANONICAL_REDIRECTS.get(start.path) or
-             observed and re.fullmatch(r'/job-board/[a-z0-9-]+', target.path))
+             target.path == CANONICAL_REDIRECTS.get(start.path))
     )
 
 

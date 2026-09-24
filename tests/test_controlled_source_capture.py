@@ -32,15 +32,16 @@ class ControlledObservationScope(unittest.TestCase):
         self.assertEqual(policy.POLICY["dataannotation"]["http_max"],11)
 
     def test_observed_dataannotation_redirect_is_one_exact_scoped_destination(self):
-        target = "https://www.dataannotation.tech/job-board/law-expert"
+        target = "https://www.dataannotation.tech/job-board/generalist"
         with policy.controlled_validation_source("dataannotation"):
-            with policy.observed_dataannotation_redirect("https://www.dataannotation.tech/law", target):
+            with policy.observed_dataannotation_redirect("https://www.dataannotation.tech/generalist", target):
                 policy.validate_request(Request(target))
                 with self.assertRaises(ValueError):
                     policy.validate_request(Request("https://www.dataannotation.tech/job-board/other"))
             with self.assertRaises(ValueError):
                 policy.validate_request(Request(target))
             for destination in ("https://evil.example/job-board/law-expert",
+                                "https://www.dataannotation.tech/job-board/law-expert",
                                 "https://www.dataannotation.tech/job-board/law-expert?next=1",
                                 "https://www.dataannotation.tech/jobs/law-expert"):
                 with self.assertRaises(ValueError):

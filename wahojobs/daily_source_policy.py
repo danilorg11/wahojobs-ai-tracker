@@ -141,8 +141,7 @@ def observed_dataannotation_redirect(requested_url, destination):
             or start.path not in fixed or start.query or start.fragment
             or target.scheme != 'https' or target.netloc != start.netloc
             or target.query or target.fragment
-            or re.fullmatch(r'/job-board/[a-z0-9-]+', target.path) is None
-            or (start.path in known and target.path != known[start.path])):
+            or target.path != known.get(start.path)):
         raise ValueError('dataannotation_observed_redirect_out_of_scope')
     token = _DATAANNOTATION_OBSERVED_REDIRECT.set(destination)
     try: yield

@@ -15,6 +15,9 @@ class RemainingSourceBoundaries(unittest.TestCase):
                        "https://www.dataannotation.tech/job-board/other",
                        "https://www.dataannotation.tech/job-board/software-engineer?next=1"):
             self.assertFalse(dataannotation._allowed_destination(start, target))
+        self.assertFalse(dataannotation._allowed_destination(
+            "https://www.dataannotation.tech/law",
+            "https://www.dataannotation.tech/job-board/law-expert", observed=True))
         self.assertFalse(dataannotation.has_application_surface(
             "<title>403 Forbidden</title> Apply DataAnnotation coding app.dataannotation.tech", "coding"))
         self.assertTrue(dataannotation.has_application_surface(
