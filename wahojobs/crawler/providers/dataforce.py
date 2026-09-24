@@ -22,8 +22,11 @@ def fetch_dataforce_jobs(projects_url):
         page_url = build_page_url(projects_url, page)
         html_text = fetch_page(page_url)
         validate_inventory_page(html_text)
+        has_next = validate_pagination(html_text, page)
         page_jobs = parse_jobs_page(html_text, page_url)
         if not page_jobs:
+            if page != 0:
+                raise ValueError("DataForce empty page does not prove prior pagination complete.")
             break
 
         for job in page_jobs:
@@ -31,6 +34,8 @@ def fetch_dataforce_jobs(projects_url):
                 raise ValueError("DataForce returned a duplicate project identifier.")
             seen_external_ids.add(job.external_id)
             jobs.append(job)
+        if not has_next:
+            break
     else:
         raise RuntimeError(
             "DataForce pagination reached the safety cap before an empty final page."
@@ -70,6 +75,28 @@ def validate_inventory_page(html_text):
         r'class=["\'][^"\']*\bview-empty\b', html_text, re.I
     ):
         raise ValueError("DataForce page has neither project rows nor explicit empty state.")
+
+
+def validate_pagination(html_text, page):
+    """Use the actual view pager, not a generic 200 or an out-of-range empty page."""
+    if not re.search(r'<option value="All" selected="selected">', html_text):
+        raise ValueError("DataForce all-project filter is not selected.")
+    pager = re.search(r'<ul class="pagination js-pager__items">(.*?)</ul>', html_text, re.S)
+    if pager is None:
+        if page == 0 and '<div class="view-empty">' in html_text:
+            return False
+        raise ValueError("DataForce pager is missing.")
+    active = re.search(r'<li class="page-item active">\s*<span class="page-link">(\d+)</span>', pager.group(1))
+    if active is None or int(active.group(1)) != page + 1:
+        raise ValueError("DataForce pager does not match requested page.")
+    next_link = re.search(r'<a href="([^"]+)"[^>]*rel="next"', pager.group(1))
+    if next_link is None:
+        return False
+    query = parse_qs(urlparse(html.unescape(next_link.group(1))).query)
+    if query not in ({"page": [str(page + 1)]},
+                     {"project_type": ["All"], "page": [str(page + 1)]}):
+        raise ValueError("DataForce next page left the ordered all-project scope.")
+    return True
 
 
 def parse_jobs_page(html_text, page_url):

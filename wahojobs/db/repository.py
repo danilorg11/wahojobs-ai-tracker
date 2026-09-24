@@ -1330,9 +1330,7 @@ def _validated_record_attestation_from_row(row, prepared, context):
             body_observation=row["body_observation"],
             authority_evidence_json=row["authority_evidence_json"],
             candidate=SimpleNamespace(
-                external_id=row["external_id"],
-                title=captured_job_fields["title"],
-                url=row["source_url"],
+                **captured_job_fields,
             ),
             prepared=prepared,
             context=context,

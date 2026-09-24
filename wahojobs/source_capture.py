@@ -25,6 +25,7 @@ from wahojobs.crawler.types import (
 SOURCE_CAPTURE_CONTRACT_VERSION = "job_source_capture_v1"
 SOURCE_PROMOTION_POLICY_VERSION = "job_source_promotion_v2"
 MERCOR_PROMOTION_POLICY_VERSION = "mercor_record_promotion_v2"
+DATAANNOTATION_CODING_RECORD_CONTRACT_ID = "dataannotation_coding_evergreen_record_v1"
 PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
 MERCOR_DETAIL_PROMOTION_POLICY_VERSION = "mercor_detail_content_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
@@ -521,6 +522,43 @@ def _validate_mercor_public_active_record_v1(
         raise ValueError("Mercor public active record evidence is inconsistent.")
 
 
+def _validate_dataannotation_coding_record_v1(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    from wahojobs.classification import (
+        AVAILABILITY_BASIS_EVERGREEN_PAGE, OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
+    )
+    from wahojobs.crawler.providers.dataannotation import coding_role_evidence
+    evidence = json.loads(attestation.authority_evidence_json)
+    expected = {"requested_url", "final_url", "role_slug", "title", "application_url", "body_sha256"}
+    if (set(evidence) != expected or provider != "dataannotation"
+            or source_type != "evergreen-application-pages"
+            or attestation.body_observation != BODY_OBSERVATION_PRESENT
+            or prepared.body_format != "text/html" or not prepared.body
+            or candidate.external_id != "dataannotation::coding"
+            or candidate.url != evidence["final_url"]
+            or evidence["requested_url"] != "https://www.dataannotation.tech/coding"
+            or evidence["role_slug"] != "software-engineer"
+            or candidate.opportunity_kind != OPPORTUNITY_KIND_EVERGREEN_APPLICATION
+            or candidate.availability_basis != AVAILABILITY_BASIS_EVERGREEN_PAGE
+            or candidate.include_in_live_market_estimate is not False
+            or context.provider_outcome not in {ProviderOutcome.SUCCESS.value, ProviderOutcome.PARTIAL.value}
+            or context.used_sample_data or context.snapshot_complete or context.pagination_complete
+            or context.crawl_run_id is None
+            or context.candidate_count < 1 or context.normalized_record_count != context.candidate_count
+            or context.raw_record_count < context.normalized_record_count
+            or context.payload_shape != DATAANNOTATION_CODING_RECORD_CONTRACT_ID
+            or context.schema_fingerprint != DATAANNOTATION_CODING_RECORD_CONTRACT_ID):
+        raise ValueError("DataAnnotation coding record authority is inconsistent.")
+    title, application_url = coding_role_evidence(prepared.body, candidate.url)
+    metadata = json.loads(prepared.metadata_json)
+    if (candidate.title != title or evidence["title"] != title
+            or metadata != {"application_url": application_url}
+            or evidence["application_url"] != application_url
+            or evidence["body_sha256"] != hashlib.sha256(prepared.body.encode("utf-8")).hexdigest()):
+        raise ValueError("DataAnnotation coding body and authority disagree.")
+
+
 def _validate_provider_detail_content_v1(attestation, candidate, prepared, context, *, provider, source_type):
     from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
     evidence = json.loads(attestation.authority_evidence_json)
@@ -868,6 +906,19 @@ def decide_source_promotion_v2(
             accepted_row,
             same_accepted_semantic_material=same_accepted_semantic_material,
         )
+    if record_attestation.contract_id == DATAANNOTATION_CODING_RECORD_CONTRACT_ID:
+        reasons = []
+        if context.used_sample_data:
+            reasons.append(REASON_SAMPLE_DATA)
+        if context.provider_outcome not in {ProviderOutcome.SUCCESS.value, ProviderOutcome.PARTIAL.value}:
+            reasons.append(REASON_PROVIDER_OUTCOME_NOT_SUCCESS)
+        if context.normalized_record_count != context.candidate_count:
+            reasons.append(REASON_RECORD_COUNT_MISMATCH)
+        return _decide_source_material_promotion(
+            prepared, accepted_row,
+            same_accepted_semantic_material=same_accepted_semantic_material,
+            authority_reasons=tuple(reasons),
+        )
     if record_attestation.contract_id != MERIDIAL_GREENHOUSE_RECORD_CONTRACT_ID:
         raise ValueError("Promotion policy received an unsupported contract_id.")
 
@@ -1099,6 +1150,7 @@ SOURCE_CAPTURE_CONTRACT_PREPARERS = {
     "job_source_capture_v1": prepare_source_capture_v1,
 }
 RECORD_PROMOTION_CONTRACT_VALIDATORS = {
+    DATAANNOTATION_CODING_RECORD_CONTRACT_ID: _validate_dataannotation_coding_record_v1,
     SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,

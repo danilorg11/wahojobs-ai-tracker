@@ -89,6 +89,8 @@ class AuthoritativeCompanyContractTests(unittest.TestCase):
         result = crawl_dataforce("https://example.test/source")
         self.assertEqual(result.outcome, ProviderOutcome.PARTIAL)
         self.assertFalse(result.snapshot_complete)
+        self.assertEqual(result.jobs, [])
+        self.assertEqual((result.raw_record_count, result.filtered_record_count), (1, 1))
         self.assertFalse(evaluate_removal_authorization(result).authorized)
 
     @patch("wahojobs.crawler.companies.turing.fetch_turing_jobs", return_value=[])
@@ -157,17 +159,25 @@ class ProviderPaginationSafetyTests(unittest.TestCase):
             oneforma.fetch_all_posts("https://example.test/oneforma")
 
     @patch("wahojobs.crawler.providers.dataforce.parse_jobs_page")
-    @patch("wahojobs.crawler.providers.dataforce.fetch_page", return_value='<div class="view view-projects"><div class="views-row"></div><div class="view-empty"></div></div>')
-    def test_dataforce_requires_empty_end_page(self, _fetch_page, parse_page):
-        parse_page.side_effect = [[candidate("one")], []]
-
+    @patch("wahojobs.crawler.providers.dataforce.fetch_page")
+    def test_dataforce_stops_at_explicit_last_pager(self, fetch_page, parse_page):
+        common = ('<div class="view view-projects"><option value="All" selected="selected">'
+                  '<div class="views-row"></div><ul class="pagination js-pager__items">')
+        fetch_page.side_effect = [
+            common + '<li class="page-item active"><span class="page-link">1</span></li>'
+            '<a href="?page=1" rel="next">Next</a></ul>',
+            common + '<li class="page-item active"><span class="page-link">2</span></li></ul>',
+        ]
+        parse_page.side_effect = [[candidate("one")], [candidate("two")]]
         jobs = dataforce.fetch_dataforce_jobs("https://example.test/dataforce")
-
-        self.assertEqual([job.external_id for job in jobs], ["one"])
+        self.assertEqual([job.external_id for job in jobs], ["one", "two"])
+        self.assertEqual(fetch_page.call_count, 2)
 
     @patch("wahojobs.crawler.providers.dataforce.parse_jobs_page")
-    @patch("wahojobs.crawler.providers.dataforce.fetch_page", return_value='<div class="view view-projects"><div class="views-row"></div><div class="view-empty"></div></div>')
-    def test_dataforce_cap_exhaustion_is_not_complete(self, _fetch_page, parse_page):
+    @patch("wahojobs.crawler.providers.dataforce.fetch_page")
+    @patch("wahojobs.crawler.providers.dataforce.validate_pagination", return_value=True)
+    def test_dataforce_cap_exhaustion_is_not_complete(self, _pager, fetch_page, parse_page):
+        fetch_page.return_value = '<div class="view view-projects"><div class="views-row"></div></div>'
         parse_page.side_effect = [
             [candidate(f"job-{index}")] for index in range(dataforce.MAX_PAGES)
         ]

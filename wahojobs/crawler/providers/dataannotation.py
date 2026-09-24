@@ -1,6 +1,9 @@
 from dataclasses import dataclass
+import hashlib
+import html
+import re
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from wahojobs.crawler.local_inventory import open_catalog
 from wahojobs.daily_source_policy import current_source
@@ -9,7 +12,7 @@ from wahojobs.classification import (
     AVAILABILITY_BASIS_EVERGREEN_PAGE,
     OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
 )
-from wahojobs.crawler.types import JobCandidate
+from wahojobs.crawler.types import JobCandidate, RecordPromotionAttestation, BODY_OBSERVATION_PRESENT
 
 
 REQUEST_HEADERS = {
@@ -93,7 +96,15 @@ def fetch_dataannotation_jobs(base_url):
 
     for domain in DOMAIN_PAGES:
         url = build_domain_url(base_url, domain.slug)
-        page = fetch_page(url)
+        try:
+            page = fetch_page(url)
+        except ValueError as exc:
+            if not jobs:
+                raise
+            # A later unsupported canonical redirect stops traversal. Earlier
+            # exact pages remain individually observed, with no completeness.
+            skipped.append(f"{domain.slug} (collection stopped: {exc})")
+            break
         if not page["ok"]:
             skipped.append(f"{domain.slug} ({page['reason']})")
             if page["outcome"] == "network_or_site_error":
@@ -101,7 +112,10 @@ def fetch_dataannotation_jobs(base_url):
             continue
 
         if not has_application_surface(page["text"], domain.slug):
-            raise ValueError(f"DataAnnotation generic or unsupported page: {domain.slug}")
+            if not jobs:
+                raise ValueError(f"DataAnnotation generic or unsupported page: {domain.slug}")
+            skipped.append(f"{domain.slug} (generic page; collection stopped)")
+            break
 
         jobs.append(parse_domain_page(domain, page["url"], page["text"]))
 
@@ -194,7 +208,54 @@ def has_application_surface(text, slug):
     )
 
 
+def coding_role_evidence(text, url):
+    """Require the role body and role-bound signup in the observed Webflow page."""
+    if url != "https://www.dataannotation.tech/job-board/software-engineer":
+        raise ValueError("DataAnnotation coding destination is not canonical.")
+    if not re.search(r'data-wf-item-slug=["\']software-engineer["\']', text):
+        raise ValueError("DataAnnotation coding role slug is missing.")
+    decoded = html.unescape(text)
+    title = re.search(r'<div class="rd-title">\s*<h1>([^<]+)</h1>', decoded)
+    if not title or title.group(1).strip() != "Software Engineer":
+        raise ValueError("DataAnnotation coding role title is missing.")
+    for href in re.findall(r'href="([^"]+)"', decoded):
+        application = html.unescape(href)
+        parsed = urlsplit(application)
+        query = parse_qs(parsed.query)
+        if (parsed.scheme == "https" and parsed.netloc == "app.dataannotation.tech"
+                and parsed.path == "/worker_signup" and not parsed.fragment
+                and query.get("utm_role") == ["software-engineer"]
+                and any(value.startswith("role_") and value.endswith("software-engineer")
+                        for value in query.get("utm_content", []))):
+            return title.group(1).strip(), application
+    raise ValueError("DataAnnotation role-bound application link is missing.")
+
+
 def parse_domain_page(domain, url, text):
+    if domain.slug == "coding":
+        title, application_url = coding_role_evidence(text, url)
+        return JobCandidate(
+            external_id="dataannotation::coding", title=title,
+            location=resolve_location(text), url=url,
+            department=domain.category, expertise=domain.category,
+            opportunity_kind=OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
+            availability_basis=AVAILABILITY_BASIS_EVERGREEN_PAGE,
+            include_in_live_market_estimate=False,
+            source_body=text, source_body_format="text/html",
+            source_metadata={"application_url": application_url},
+            record_promotion_attestation=RecordPromotionAttestation(
+                contract_id="dataannotation_coding_evergreen_record_v1",
+                body_observation=BODY_OBSERVATION_PRESENT,
+                authority_evidence={
+                    "requested_url": "https://www.dataannotation.tech/coding",
+                    "final_url": url,
+                    "role_slug": "software-engineer",
+                    "title": title,
+                    "application_url": application_url,
+                    "body_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                },
+            ),
+        )
     return JobCandidate(
         external_id=f"dataannotation::{domain.slug}",
         title=domain.title,
