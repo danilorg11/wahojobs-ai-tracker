@@ -19,7 +19,6 @@ from wahojobs.crawler.providers.handshake import (
 from wahojobs.crawler.providers.lever import parse_lever_posting
 from wahojobs.crawler.providers.mercor import parse_mercor_listing
 from wahojobs.crawler.providers.oneforma import parse_oneforma_post
-from wahojobs.crawler.providers.outlier import parse_outlier_job
 from wahojobs.crawler.providers.surge import WorkforceRecord, parse_workforce_detail
 from wahojobs.crawler.providers.turing import parse_turing_job
 from wahojobs.crawler.providers.workable_markdown import parse_workable_row
@@ -142,14 +141,6 @@ class RichSourceProviderContentTests(unittest.TestCase):
                     "updatedAt": "2026-08-16",
                 }
             ),
-            parse_outlier_job(
-                {
-                    "id": "outlier-1",
-                    "title": "AI Code Evaluator",
-                    "description": "Evaluate model-generated code.",
-                    "skillNames": ["Python"],
-                }
-            ),
             parse_turing_job(
                 {
                     "id": "turing-1",
@@ -175,15 +166,13 @@ class RichSourceProviderContentTests(unittest.TestCase):
             [item.source_body for item in records],
             [
                 "Review production Python services.",
-                "Evaluate model-generated code.",
                 "Build and test Python APIs.",
                 "Review AI answers against written criteria.",
             ],
         )
         self.assertEqual(records[0].source_metadata["skills"], ["Python"])
-        self.assertEqual(records[1].source_metadata["skillNames"], ["Python"])
-        self.assertEqual(records[2].source_metadata["skills"], ["Python"])
-        self.assertEqual(records[3].source_metadata["skills"], ["Critical thinking"])
+        self.assertEqual(records[1].source_metadata["skills"], ["Python"])
+        self.assertEqual(records[2].source_metadata["skills"], ["Critical thinking"])
 
     def test_handshake_preserves_available_cms_metadata_without_making_a_description(self):
         candidate = parse_opportunity_record(

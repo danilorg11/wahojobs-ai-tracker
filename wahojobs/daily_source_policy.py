@@ -21,6 +21,9 @@ _DATAANNOTATION_DOMAINS = ContextVar('dataannotation_controlled_domains', defaul
 _DATAFORCE_OBSERVED_DETAILS = ContextVar('dataforce_observed_details', default=frozenset())
 _SURGE_OBSERVED_DETAILS = ContextVar('surge_observed_details', default=frozenset())
 _HANDSHAKE_OBSERVED_ASSETS = ContextVar('handshake_observed_assets', default=frozenset())
+_OUTLIER_OBSERVED_DETAILS = ContextVar('outlier_observed_details', default=frozenset())
+OUTLIER_V1_IDS = frozenset({4729394005, 4729399005, 4729398005, 4729395005,
+                           4705643005, 4705636005, 4719499005, 4723202005})
 
 
 def entry(requests, seconds, expected, scope, rule, *, blocker=None, correction=None, cooldown=0):
@@ -71,11 +74,10 @@ POLICY = {
     'oneforma': entry(3, 210, 1,
         ['GET https://www.oneforma.com/wp-json/wp/v2/job?per_page=100&_embed=wp:term&page=<1..3>'],
         'Stable X-WP-TotalPages and unique post IDs; each post may emit many language/application variants; cap before final page is incomplete.'),
-    'outlier': entry(1, 60, 1,
-        ['POST https://app.outlier.ai/internal/experts/job-board/jobs ; body {}'],
-        'Existing unauthenticated public job board; no inference from endpoint path name.',
-        blocker='Legacy wrapper falls back to synthetic jobs on empty/error and lacks validated public record/snapshot authority.',
-        correction='Remove daily sample fallback before tracking; retain real envelope and validate visibility, IDs and supported promotion contract.'),
+    'outlier': entry(9, 60, 9,
+        ['POST https://app.outlier.ai/internal/experts/job-board/jobs ; body {}',
+         'GET eight exact index-linked https://app.outlier.ai/internal/experts/job-board/jobs/<id>'],
+        'Eight captured IDs only, individually matched board/detail and role-bound signupFlowId; partial only, no absence closure.'),
     'rws': entry(1, 60, 1,
         ['GET https://api.lever.co/v0/postings/rws?mode=json&expand=location'],
         'Complete validated Lever list with existing TrainAI keyword filter and category transformation; excluded corporate postings counted separately.'),
@@ -92,7 +94,7 @@ POLICY = {
         'Complete validated Lever list, exact Welo Data - AI Services filter; excluded board records are neither rejected nor variants.'),
 }
 READY_SOURCES = tuple(s for s in CORE_SOURCES if POLICY[s]['readiness'] == 'ready')
-NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'handshake', 'surge'})
+NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'handshake', 'surge', 'outlier'})
 OVERHEAD_SECONDS = 240  # stop/preflight queries, one backup, final integrity, process cleanup
 MAX_EXECUTION_SECONDS = 2520  # installed daily service and approved collection ceiling
 
@@ -127,6 +129,22 @@ def aggregate(configured):
 
 
 def current_source():return _DAILY_SOURCE.get()
+
+
+@contextmanager
+def observed_outlier_details(urls):
+    if type(urls) not in (tuple, list) or len(urls) > len(OUTLIER_V1_IDS) or len(urls) != len(set(urls)):
+        raise ValueError('outlier_detail_scope_invalid')
+    for url in urls:
+        parsed = urlsplit(url)
+        if (parsed.scheme != 'https' or parsed.netloc != 'app.outlier.ai'
+                or parsed.query or parsed.fragment or parsed.port
+                or re.fullmatch(r'/internal/experts/job-board/jobs/[1-9][0-9]*', parsed.path) is None
+                or int(parsed.path.rsplit('/', 1)[-1]) not in OUTLIER_V1_IDS):
+            raise ValueError('outlier_detail_scope_invalid')
+    token = _OUTLIER_OBSERVED_DETAILS.set(frozenset(urls))
+    try: yield
+    finally: _OUTLIER_OBSERVED_DETAILS.reset(token)
 
 
 @contextmanager
@@ -291,6 +309,11 @@ def validate_request(request):
         ok = (at('boards-api.greenhouse.io','/v1/boards/agency/jobs') and query=={'content':['true']} or
               at('boards-api.greenhouse.io','/v1/boards/agency/departments/4012485101') and query=={'render_as':['tree']})
     elif source == 'mercor':ok = at('aws.api.mercor.com','/work/listings-explore-page') and not query
+    elif source == 'outlier':
+        ok = (at('app.outlier.ai','/internal/experts/job-board/jobs','POST')
+              and not query and body == {}
+              or method == 'GET' and not query
+              and request.full_url in _OUTLIER_OBSERVED_DETAILS.get())
     elif source == 'micro1':
         ok = at('prod-api.micro1.ai','/api/v1/job/portal','POST') and set(query)=={'page','limit','keyword'} and integer('page',1,50) and query['limit']==['100'] and query['keyword']==[''] and body=={'action':'get_all_jobs','filters':{'type':['EXPERT']}}
     elif source == 'mindrift':

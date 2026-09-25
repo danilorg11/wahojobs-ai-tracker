@@ -6,7 +6,7 @@ requirements are introduced here. Existing trust evaluation remains the caller.
 
 # A partial response cannot certify a complete snapshot. Only the exact job's
 # accepted, versioned record capture can provide its availability clock.
-INDIVIDUAL_SOURCE = "c.slug IN ('dataannotation', 'dataforce', 'handshake', 'surge')"
+INDIVIDUAL_SOURCE = "c.slug IN ('dataannotation', 'dataforce', 'handshake', 'surge', 'outlier')"
 RECORD_OBSERVATION_IS_NEWER = f"""record_observation.id IS NOT NULL AND (
     {INDIVIDUAL_SOURCE} OR source_run.id IS NULL OR julianday(record_observation.observed_at) >=
     julianday(COALESCE(source_run.finished_at, source_run.started_at)))"""
@@ -34,6 +34,10 @@ LEFT JOIN job_source_content_captures record_observation
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
       OR (c.slug = 'handshake' AND sc.source_type = 'framer-public-inventory'
         AND sc.record_promotion_contract_id = 'handshake_public_cms_record_v1'
+        AND sc.promotion_policy_version = 'job_source_promotion_v2'
+        AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
+      OR (c.slug = 'outlier' AND sc.source_type = 'outlier-job-board'
+        AND sc.record_promotion_contract_id = 'outlier_index_detail_record_v1'
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial'))
       AND sc.used_sample_data = 0

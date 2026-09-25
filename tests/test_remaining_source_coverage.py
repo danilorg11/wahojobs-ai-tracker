@@ -144,21 +144,20 @@ class RemainingSourceBoundaries(unittest.TestCase):
         with patch.object(outlier_company, "fetch_outlier_jobs", side_effect=TimeoutError):
             with self.assertRaises(TimeoutError):
                 outlier_company.crawl_outlier(outlier_company.OUTLIER_API_URL)
-        with patch.object(outlier_company, "fetch_outlier_jobs", return_value=[]):
+        with patch.object(outlier_company, "fetch_outlier_jobs", return_value=([], 1, 1)):
             result = outlier_company.crawl_outlier(outlier_company.OUTLIER_API_URL)
         self.assertFalse(result.jobs)
         self.assertFalse(result.used_sample_data)
         self.assertFalse(result.snapshot_complete)
         self.assertFalse(outlier.should_include_job({"id": "1", "title": "Role"}))
         self.assertFalse(outlier.should_include_job({
-            "id": "1", "title": "Role", "isPublic": True,
+            "id": 1, "title": "Role",
             "absolute_url": "https://example.test/en/expert/opportunities/1"}))
-        fixture = {"id": "1", "title": "Role", "isPublic": True,
+        fixture = {"id": 1, "title": "Role",
                    "absolute_url": "https://app.outlier.ai/en/expert/opportunities/1"}
         self.assertTrue(outlier.should_include_job(fixture))
-        candidate = outlier.parse_outlier_job(fixture)
-        self.assertEqual(candidate.location, "Unknown")
-        self.assertFalse(candidate.include_in_live_market_estimate)
+        with self.assertRaises(ValueError):
+            outlier.qualify_index_detail(fixture, {}, '{}')
 
     def test_surge_generic_detail_and_fellowship_are_rejected(self):
         record = surge.WorkforceRecord("specialist", "https://surgehq.ai/workforce/specialist",

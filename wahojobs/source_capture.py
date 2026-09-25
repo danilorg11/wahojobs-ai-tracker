@@ -31,6 +31,7 @@ DATAANNOTATION_ROLES_SHAPE = "dataannotation_evergreen_roles_v2"
 DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID = "dataforce_index_detail_record_v1"
 SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID = "surge_remote_workforce_record_v1"
 HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID = "handshake_public_cms_record_v1"
+OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID = "outlier_index_detail_record_v1"
 PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
 MERCOR_DETAIL_PROMOTION_POLICY_VERSION = "mercor_detail_content_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
@@ -820,6 +821,58 @@ def _validate_handshake_public_cms_record_v1(
         raise ValueError('Handshake CMS record and candidate disagree.')
 
 
+def _validate_outlier_index_detail_record_v1(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    from wahojobs.crawler.providers.outlier import parse_index, qualify_index_detail, PUBLIC_PAGE_CHUNK_SHA256
+
+    evidence = json.loads(attestation.authority_evidence_json)
+    metadata = json.loads(prepared.metadata_json)
+    index_payload = metadata.get('index_payload')
+    row = metadata.get('index_row')
+    detail = metadata.get('detail_record')
+    if (set(evidence) != {'id', 'index_sha256', 'detail_sha256',
+                         'signup_flow_id', 'public_url', 'public_client_sha256'}
+            or set(metadata) != {'index_payload', 'index_row', 'detail_record',
+                                 'application_action', 'signup_flow_id', 'allowed_countries',
+                                 'source_location_label', 'location_display_contract',
+                                 'public_client_sha256'}
+            or type(index_payload) is not str or type(row) is not dict
+            or type(detail) is not dict
+            or provider != 'outlier' or source_type != 'outlier-job-board'
+            or attestation.body_observation != BODY_OBSERVATION_PRESENT
+            or prepared.body_format != 'text/html' or not prepared.body
+            or prepared.source_updated_at is not None
+            or context.provider_outcome != ProviderOutcome.PARTIAL.value
+            or context.used_sample_data or context.snapshot_complete or context.pagination_complete
+            or context.crawl_run_id is None or context.candidate_count < 1
+            or context.normalized_record_count != context.candidate_count
+            or context.raw_record_count < context.candidate_count
+            or context.payload_shape != OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID
+            or context.schema_fingerprint != OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID
+            or candidate.include_in_live_market_estimate is not False
+            or evidence['id'] != row.get('id')
+            or evidence['index_sha256'] != hashlib.sha256(index_payload.encode()).hexdigest()
+            or evidence['detail_sha256'] != hashlib.sha256(json.dumps(
+                detail, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+            or evidence['signup_flow_id'] != metadata['signup_flow_id']
+            or evidence['public_client_sha256'] != PUBLIC_PAGE_CHUNK_SHA256
+            or metadata['public_client_sha256'] != PUBLIC_PAGE_CHUNK_SHA256
+            or evidence['public_url'] != candidate.url):
+        raise ValueError('Outlier public record authority is inconsistent.')
+    indexed = [item for item in parse_index(index_payload) if item.get('id') == evidence['id']]
+    if len(indexed) != 1 or indexed[0] != row:
+        raise ValueError('Outlier exact index row is not attested.')
+    parsed = qualify_index_detail(row, detail, index_payload)
+    fields = ('external_id', 'title', 'location', 'url', 'department', 'expertise',
+              'opportunity_kind', 'availability_basis', 'include_in_live_market_estimate')
+    if (any(getattr(parsed, key) != getattr(candidate, key) for key in fields)
+            or normalize_source_body(parsed.source_body) != prepared.body
+            or parsed.source_metadata != metadata
+            or parsed.record_promotion_attestation.authority_evidence != evidence):
+        raise ValueError('Outlier source record and candidate disagree.')
+
+
 def _validate_provider_detail_content_v1(attestation, candidate, prepared, context, *, provider, source_type):
     from wahojobs.crawler.provider_details import DETAIL_KEY, validate_detail_url
     evidence = json.loads(attestation.authority_evidence_json)
@@ -1172,6 +1225,7 @@ def decide_source_promotion_v2(
         DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID,
         SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID,
         HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID,
+        OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID,
     }:
         reasons = []
         if context.used_sample_data:
@@ -1421,6 +1475,7 @@ RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_dataforce_index_detail_record_v1,
     SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID: _validate_surge_remote_workforce_record_v1,
     HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID: _validate_handshake_public_cms_record_v1,
+    OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_outlier_index_detail_record_v1,
     SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,

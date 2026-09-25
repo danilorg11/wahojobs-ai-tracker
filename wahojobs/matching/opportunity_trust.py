@@ -106,6 +106,7 @@ def assess_opportunity_trust(
         "dataannotation": "DataAnnotation role",
         "handshake": "Handshake opportunity",
         "surge": "Surge role",
+        "outlier": "Outlier role",
     }
     source_label = individually_verified.get(clean(value(row, "company_slug")))
     if source_label and not source_run_qualifies:

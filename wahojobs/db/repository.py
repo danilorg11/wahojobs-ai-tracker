@@ -85,6 +85,8 @@ OUTLIER_SEED = {
     "name": "Outlier",
     "slug": "outlier",
     "careers_url": "https://app.outlier.ai/internal/experts/job-board/jobs",
+    "inventory_model": INVENTORY_MODEL_MIXED,
+    "market_count_policy": MARKET_COUNT_POLICY_REPORT_SEPARATELY,
 }
 
 ALIGNERR_SEED = {

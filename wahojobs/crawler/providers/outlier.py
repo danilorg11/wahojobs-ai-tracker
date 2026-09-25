@@ -1,129 +1,180 @@
+"""Exact public Outlier board and role-detail evidence."""
+
+import hashlib
 import json
+import re
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
-from wahojobs.classification import (AVAILABILITY_BASIS_PUBLIC_FEED, OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY)
-from wahojobs.crawler.types import JobCandidate
-from wahojobs.crawler.source_content import first_text, nonempty_metadata, selected_metadata
+from wahojobs.classification import (
+    AVAILABILITY_BASIS_PUBLIC_FEED, OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
+    OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
+)
+from wahojobs.crawler.local_inventory import open_public, remaining_http_requests
+from wahojobs.crawler.types import BODY_OBSERVATION_PRESENT, JobCandidate, RecordPromotionAttestation
+from wahojobs.daily_source_policy import OUTLIER_V1_IDS, observed_outlier_details
 
-
+INDEX_URL = "https://app.outlier.ai/internal/experts/job-board/jobs"
+DETAIL_PREFIX = INDEX_URL + "/"
+PUBLIC_PREFIX = "https://app.outlier.ai/opportunities/"
+CONTRACT_ID = "outlier_index_detail_record_v1"
+# Retained beta-host response-003.raw, the page-linked public role client.
+# It renders allowedCountries before location.name and gates Apply on signupFlowId.
+PUBLIC_PAGE_CHUNK_SHA256 = "4502c226c3025b82a7e04c99035da0a384f44a588a825482e16a3e303001e1f2"
+# The eight IDs with matching public detail and role-bound signup in this
+# capture. Additional board rows remain inspection-only until reviewed.
+QUALIFIED_ROLE_PROOFS = {
+    4729394005: ("Android AI Evaluator - French", "evaluate mobile AI experiences"),
+    4729399005: ("Android AI Evaluator - Japanese", "evaluate mobile AI experiences"),
+    4729398005: ("Android AI Evaluator - Korean", "evaluate mobile AI experiences"),
+    4729395005: ("Android AI Evaluator - Spanish (Mexico)", "evaluate mobile AI experiences"),
+    4705643005: ("General Inbound (Coding) – Join the Outlier Expert Community", "AI-training tasks"),
+    4705636005: ("General Inbound – Join the Outlier Expert Community", "AI-training tasks"),
+    4719499005: ("Qatar Educators", "AI teaching assistant"),
+    4723202005: ("Voice Conversation Evaluator – English", "train generative AI voice models"),
+}
+assert frozenset(QUALIFIED_ROLE_PROOFS) == OUTLIER_V1_IDS
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; WahojobsTracker/0.1)",
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-    "Origin": "https://app.outlier.ai",
-    "Referer": "https://app.outlier.ai/opportunities",
+    "Accept": "application/json", "Content-Type": "application/json",
+    "Origin": "https://app.outlier.ai", "Referer": "https://app.outlier.ai/opportunities",
 }
 
 
-def fetch_outlier_jobs(api_url):
-    request = Request(
-        api_url,
-        data=b"{}",
-        headers=REQUEST_HEADERS,
-        method="POST",
-    )
-    with urlopen(request, timeout=30) as response:
-        if response.status != 200:
-            raise RuntimeError(f"Outlier returned HTTP {response.status}.")
-        charset = response.headers.get_content_charset() or "utf-8"
-        payload = response.read().decode(charset, errors="replace")
+def _read_json(request):
+    with open_public(request, timeout=30) as response:
+        if response.status != 200 or response.geturl() != request.full_url:
+            raise ValueError("Outlier response status or destination changed.")
+        if "application/json" not in response.headers.get("Content-Type", "").lower():
+            raise ValueError("Outlier returned a non-JSON page.")
+        return response.read().decode("utf-8")
 
+
+def parse_index(payload):
     data = json.loads(payload)
-    jobs = data.get("jobs") if isinstance(data, dict) else None
-    if not isinstance(jobs, list):
-        raise ValueError("Outlier response did not include a jobs list.")
-    if not jobs:
-        raise ValueError("Outlier empty list has no validated snapshot authority.")
-    if not all(should_include_job(job) for job in jobs):
-        raise ValueError("Outlier response contains unsupported or nonpublic records.")
-    ids = [clean_value(job["id"]) for job in jobs]
-    if len(ids) != len(set(ids)):
-        raise ValueError("Outlier response contains duplicate record IDs.")
-    return [parse_outlier_job(job) for job in jobs]
-
-
-def should_include_job(job):
-    return (
-        isinstance(job, dict)
-        and bool(clean_value(job.get("id")))
-        and bool(clean_value(job.get("title")))
-        and job.get("isPublic") is True
-        and valid_public_url(job.get("absolute_url"), clean_value(job.get("id")))
-    )
+    if (type(data) is not dict or type(data.get("jobs")) is not list
+            or type(data.get("totalCount")) is not int or type(data.get("page")) is not int
+            or type(data.get("totalPages")) is not int or data["page"] != 1
+            or data["totalPages"] < 1 or data["totalCount"] < len(data["jobs"])):
+        raise ValueError("Outlier board envelope changed.")
+    if not data["jobs"]:
+        raise ValueError("Outlier empty board has no validated snapshot authority.")
+    ids = [str(row.get("id")) for row in data["jobs"] if type(row) is dict]
+    if len(ids) != len(data["jobs"]) or len(ids) != len(set(ids)):
+        raise ValueError("Outlier board identities are invalid or duplicated.")
+    return data["jobs"]
 
 
 def valid_public_url(value, job_id):
-    if not isinstance(value, str) or not job_id:
+    if type(value) is not str or not re.fullmatch(r"[1-9][0-9]*", str(job_id)):
         return False
     parsed = urlsplit(value)
-    return (
-        parsed.scheme == "https"
-        and parsed.netloc == "app.outlier.ai"
-        and parsed.path == f"/en/expert/opportunities/{job_id}"
-        and not parsed.query and not parsed.fragment
-    )
+    return (parsed.scheme == "https" and parsed.netloc == "app.outlier.ai"
+            and parsed.path in (f"/en/expert/opportunities/{job_id}",
+                                f"/opportunities/{job_id}")
+            and not parsed.query and not parsed.fragment)
 
 
-def parse_outlier_job(job):
-    job_id = clean_value(job.get("id"))
-    skill_names = clean_list(job.get("skillNames"))
-    pod_group = clean_value(job.get("pod_group"))
-    source_body = first_text(
-        job,
-        ("description", "jobDescription", "descriptionText", "details"),
-    )
+def should_include_job(row):
+    """Index identity alone never qualifies a record for publication."""
+    return (type(row) is dict and type(row.get("id")) is int and row["id"] > 0
+            and type(row.get("title")) is str and bool(row["title"].strip())
+            and valid_public_url(row.get("absolute_url"), row["id"]))
 
+
+def _countries(value):
+    return (type(value) is list and bool(value)
+            and all(type(c) is str and c.strip() == c and 2 <= len(c) <= 80 for c in value)
+            and len(value) == len(set(value)))
+
+
+def qualify_index_detail(row, detail, index_payload):
+    """Match an indexed role to a public detail with a role-bound signup flow."""
+    if not should_include_job(row):
+        raise ValueError("Outlier exact public index identity is missing.")
+    identity = row["id"]
+    role_proof = QUALIFIED_ROLE_PROOFS.get(identity)
+    if (role_proof is None or row["title"].strip() != role_proof[0]
+            or role_proof[1].casefold() not in str(detail.get("content", "")).casefold()):
+        raise ValueError("Outlier role is outside the captured qualified scope.")
+    if (type(detail) is not dict or detail.get("id") != identity
+            or detail.get("title") != row["title"]
+            or detail.get("internal_job_id") != row.get("internal_job_id")
+            or not _countries(row.get("allowedCountries"))
+            or detail.get("allowedCountries") != row["allowedCountries"]
+            or detail.get("location") != row.get("location")
+            or type(detail.get("content")) is not str or not detail["content"].strip()
+            or detail.get("content") != row.get("content")
+            or type(detail.get("signupFlowId")) is not str
+            or not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", detail["signupFlowId"])):
+        raise ValueError("Outlier role, conditions, or application flow disagree.")
+    location = row.get("location")
+    if (type(location) is not dict or type(location.get("name")) is not str
+            or not location["name"].startswith("Remote - ")):
+        raise ValueError("Outlier remote work is not established.")
+    if not re.search(r"\b(?:AI|artificial intelligence|generative)\b", detail["content"], re.I):
+        raise ValueError("Outlier role is outside the AI work scope.")
+    title = row["title"].strip()
+    evergreen = title.startswith("General Inbound") and "Express Your Interest" in detail["content"]
+    if title.startswith("General Inbound") and not evergreen:
+        raise ValueError("Outlier general application type is unsupported.")
+    kind = (OPPORTUNITY_KIND_EVERGREEN_APPLICATION if evergreen
+            else OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY)
+    # The index URL is the exact employer-issued record link. Prior retained
+    # observations show its redirect, but this capture only visited one final
+    # page; do not claim every constructed destination was observed today.
+    public_url = row["absolute_url"]
+    # The retained public page client renders nonempty allowedCountries and
+    # only falls back to location.name when that list is empty. The latter is
+    # inconsistent for several captured roles, so retain both fields and use
+    # the actual displayed restriction; never infer worldwide eligibility.
+    metadata = {
+        "index_payload": index_payload, "index_row": row, "detail_record": detail,
+        "application_action": "public role page Apply starts source signup flow",
+        "signup_flow_id": detail["signupFlowId"],
+        "allowed_countries": row["allowedCountries"],
+        "source_location_label": location["name"],
+        "location_display_contract": "outlier-public-page-allowedCountries-first-20260924",
+        "public_client_sha256": PUBLIC_PAGE_CHUNK_SHA256,
+    }
     return JobCandidate(
-        external_id=job_id,
-        title=clean_value(job.get("title")),
-        location=extract_location(job) or "Unknown",
-        url=clean_value(job.get("absolute_url")),
-        department=pod_group,
-        opportunity_kind=OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
-        availability_basis=AVAILABILITY_BASIS_PUBLIC_FEED,
+        external_id=str(identity), title=title,
+        location="Remote - " + ", ".join(row["allowedCountries"]), url=public_url,
+        department=row.get("pod_group"),
+        expertise=", ".join(row.get("skillNames") or []),
+        opportunity_kind=kind, availability_basis=AVAILABILITY_BASIS_PUBLIC_FEED,
         include_in_live_market_estimate=False,
-        expertise=", ".join(skill_names) if skill_names else None,
-        source_body=source_body,
-        source_body_format="text/plain" if source_body else None,
-        source_metadata=nonempty_metadata(
-            selected_metadata(
-                job,
-                (
-                    "skillNames",
-                    "pod_group",
-                    "responsibilities",
-                    "requirements",
-                    "qualifications",
-                    "pay",
-                ),
-            )
-        ),
-        source_updated_at=clean_value(job.get("updatedAt")),
-    )
+        source_body=detail["content"], source_body_format="text/html",
+        source_metadata=metadata,
+        record_promotion_attestation=RecordPromotionAttestation(
+            contract_id=CONTRACT_ID, body_observation=BODY_OBSERVATION_PRESENT,
+            authority_evidence={
+                "id": identity, "index_sha256": hashlib.sha256(index_payload.encode()).hexdigest(),
+                "detail_sha256": hashlib.sha256(json.dumps(detail, sort_keys=True,
+                    ensure_ascii=False, separators=(",", ":")).encode()).hexdigest(),
+                "signup_flow_id": detail["signupFlowId"], "public_url": public_url,
+                "public_client_sha256": PUBLIC_PAGE_CHUNK_SHA256,
+            }))
 
 
-def extract_location(job):
-    location = job.get("location")
-    if isinstance(location, dict):
-        return clean_value(location.get("name"))
-    if isinstance(location, str):
-        return clean_value(location)
-    return None
-
-
-def clean_list(value):
-    if not isinstance(value, list):
-        return []
-    return [
-        cleaned
-        for cleaned in (clean_value(item) for item in value)
-        if cleaned
-    ]
-
-
-def clean_value(value):
-    if value is None:
-        return None
-    value = " ".join(str(value).split())
-    return value or None
+def fetch_outlier_jobs(api_url):
+    if api_url != INDEX_URL:
+        raise ValueError("Outlier endpoint differs from the reviewed public board.")
+    index_payload = _read_json(Request(api_url, data=b"{}", headers=REQUEST_HEADERS, method="POST"))
+    rows = parse_index(index_payload)
+    remaining = remaining_http_requests()
+    slots = min(len(OUTLIER_V1_IDS), len(rows),
+                remaining if remaining is not None else len(OUTLIER_V1_IDS))
+    selected = [row for row in rows if should_include_job(row)
+                and row["id"] in QUALIFIED_ROLE_PROOFS][:slots]
+    candidates = []
+    with observed_outlier_details(tuple(DETAIL_PREFIX + str(row["id"]) for row in selected)):
+        for row in selected:
+            try:
+                detail = json.loads(_read_json(Request(
+                    DETAIL_PREFIX + str(row["id"]), headers=REQUEST_HEADERS)))
+                candidates.append(qualify_index_detail(row, detail, index_payload))
+            except (ValueError, TypeError, KeyError, HTTPError, URLError, TimeoutError, OSError):
+                continue
+    return candidates, len(rows), len(selected)
