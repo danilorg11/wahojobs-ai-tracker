@@ -288,7 +288,7 @@ class NativeOperations:
             timeout=25,user='wahojobs-beta')
 
 
-def supervise(config,policy,trigger,*,operations=None):
+def supervise(config,policy,trigger,*,operations=None,availability_sources=None):
     operations=operations or NativeOperations(config,policy)
     directory=Path(config['state_directory'])
     with operation_gate(config['database'],require_existing=isinstance(operations,NativeOperations)):
@@ -296,7 +296,11 @@ def supervise(config,policy,trigger,*,operations=None):
         operations.preflight()
         trigger_evidence=native_trigger() if trigger=='auto' else dict(trigger=trigger,provenance='explicit_runner_argument')
         trigger=trigger_evidence['trigger']
-        receipt=daily.reserve_run(directory,daily.now(),daily.parse(config['first_run_at']),trigger)
+        if availability_sources is not None:
+            from wahojobs.availability_recovery import reserve
+            operations.ready()
+            receipt=reserve(config,daily.now(),availability_sources)
+        else:receipt=daily.reserve_run(directory,daily.now(),daily.parse(config['first_run_at']),trigger)
         if receipt is None:return {'outcome':'already_consumed_or_not_due'}
         receipt['trigger_evidence']=trigger_evidence
         target=directory/'runs'/receipt['run_id']/'run.json'
@@ -308,7 +312,10 @@ def supervise(config,policy,trigger,*,operations=None):
             import pwd
             account=pwd.getpwnam('wahojobs-beta')
             os.chown(target.parent,account.pw_uid,account.pw_gid)
-        start=time.monotonic();deadline=start+daily.execution_seconds(config)
+        allowance=daily.execution_seconds(config)
+        if availability_sources is not None:
+            allowance=min(allowance,20+daily.PUBLICATION_SECONDS+sum(daily.source_settings(config)[s]['seconds_max'] for s in availability_sources))
+        start=time.monotonic();deadline=start+allowance
         receipt.update(outcome='running',normal_service_resumed=True,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline)
         daily.write_json(target,receipt)
         maintenance_start=None
@@ -333,7 +340,7 @@ def supervise(config,policy,trigger,*,operations=None):
                 receipt['stop_seconds']=round(time.monotonic()-stop_started,3)
             operations.publish(receipt['run_id'],publication_deadline-time.monotonic())
             worker=daily.read_json(target.parent/'worker.json')
-            summaries={source:daily.read_json(target.parent/(source+'.json')) for source in daily.SOURCES}
+            summaries={source:daily.read_json(target.parent/(source+'.json')) for source in availability_sources or daily.SOURCES}
             receipt['sources']=summaries
             if not worker or worker.get('protected_domains_unchanged') is not True:
                 raise ValueError('worker_receipt_missing')
@@ -460,14 +467,21 @@ def deliver(config,state):
 
 def suspend_publication(config,receipt):
     try:
-        daily.write_json(Path(config['state_directory'])/'publication-hold.json',dict(
-            reason='unrecovered_application_failure',run_id=receipt.get('run_id'),at=daily.stamp(daily.now())))
+        try:
+            daily.record_availability_failure(config,reason='publication_recovery_failed',unit='wahojobs-inventory.service')
+        finally:
+            daily.write_json(Path(config['state_directory'])/'publication-hold.json',dict(
+                reason='unrecovered_application_failure',run_id=receipt.get('run_id'),at=daily.stamp(daily.now())))
     finally:
         if os.name=='posix' and os.geteuid()==0 and config.get('database')==daily.DATABASE:
-            subprocess.run(['systemctl','disable','--now','wahojobs-inventory.timer'],
-                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15,check=True)
-            subprocess.run(['systemctl','start','--no-block','wahojobs-inventory-health.service'],
-                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10,check=True)
+            try:
+                subprocess.run(['systemctl','disable','--now','wahojobs-inventory.timer'],
+                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15,check=True)
+            finally:
+                # A separate invocation cannot be swallowed by an active hourly
+                # health scan. Queue only: delivery never waits inside recovery.
+                subprocess.run(['systemctl','start','--no-block','wahojobs-inventory-urgent.service'],
+                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10,check=True)
 
 
 def verify_recovery_parent(config):
@@ -540,19 +554,76 @@ def application_ready():
     except Exception:return False
 
 
+def collection_observation(config):
+    """Observe effective schedule and known unit gates without changing them."""
+    def output(*args):
+        return subprocess.check_output(['systemctl',*args],text=True,timeout=5)
+    checked=daily.stamp(daily.now())
+    try:
+        timer=dict(line.split('=',1) for line in output('show','wahojobs-inventory.timer',
+            '-p','ActiveState','-p','UnitFileState','-p','NextElapseUSecRealtime').splitlines())
+        unit=output('cat','wahojobs-inventory.service')
+        reload_needed=output('show','wahojobs-inventory.service','-p','NeedDaemonReload','--value').strip()!='no'
+        conditions=[];unsupported=False
+        for line in unit.splitlines():
+            line=line.strip()
+            if line.startswith('ConditionPathExists='):
+                value=line.split('=',1)[1]
+                if not value:conditions=[]
+                else:conditions.append(value)
+            elif line.startswith(('Condition','Assert','ExecCondition=')):unsupported=True
+        blocked=unsupported or reload_needed
+        for value in conditions:
+            negate=value.startswith('!');path=value[1:] if negate else value
+            if not path.startswith('/') or any(c in path for c in ('%','|','"')):blocked=True
+            elif Path(path).exists()==negate:blocked=True
+        hold=(Path(config['state_directory'])/'publication-hold.json').exists()
+        if hold:state,reason='suspended','publication_hold'
+        elif not config.get('enabled'):state,reason='disabled','policy_disabled'
+        elif blocked:state,reason='blocked','effective_unit_condition'
+        elif timer.get('ActiveState')!='active':state,reason='suspended','timer_not_active'
+        elif timer.get('NextElapseUSecRealtime') in (None,'','n/a'):state,reason='blocked','next_execution_unavailable'
+        else:state,reason='enabled','schedule_and_publication_gates_verified'
+        return dict(state=state,reason=reason,checked_at=checked,
+            next_execution=timer.get('NextElapseUSecRealtime'),timer_state=timer.get('ActiveState'))
+    except (OSError,subprocess.SubprocessError,ValueError):
+        return dict(state='unknown',reason='effective_schedule_unavailable',checked_at=checked,next_execution=None)
+
+
+def operating_snapshot(config):
+    """Bound observations in one interval; never silently mix a changed gate."""
+    started=daily.stamp(daily.now());before=collection_observation(config)
+    available=application_ready();checked=daily.stamp(daily.now())
+    after=collection_observation(config)
+    coherent={k:v for k,v in before.items() if k!='checked_at'}=={k:v for k,v in after.items() if k!='checked_at'}
+    if not coherent:after.update(state='unknown',reason='collection_changed_during_readiness_observation')
+    elif available is False and after['state']=='enabled':after.update(state='blocked',reason='application_unavailable')
+    return dict(started_at=started,completed_at=daily.stamp(daily.now()),coherent=coherent,
+        application=dict(available=available,checked_at=checked),collection=after)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=('run','worker','recover','repair-storage','health','report'))
+    parser.add_argument('command',choices=('run','worker','recover','repair-storage','health','report','failure-signal'))
     parser.add_argument('--policy',type=Path,required=True)
     parser.add_argument('--trigger',choices=('auto','timer','manual','restart'),default='auto')
-    parser.add_argument('--phase',choices=('prepare','backup','finish',*('collect-'+s for s in daily.SOURCES),*('publish-'+s for s in daily.SOURCES)));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true')
+    parser.add_argument('--phase',choices=('prepare','backup','finish',*('collect-'+s for s in daily.SOURCES),*('publish-'+s for s in daily.SOURCES)));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true');parser.add_argument('--urgent',action='store_true')
+    parser.add_argument('--availability-recovery',action='store_true')
+    parser.add_argument('--source',action='append',choices=('alignerr','mercor'))
     args=parser.parse_args(argv)
+    if (args.availability_recovery or args.source) and (args.command!='run' or not args.availability_recovery or not args.source):
+        raise ValueError('explicit_targeted_run_required')
     config=private_policy(args.policy)
     daily.validate_policy(config,activation=args.command in ('run','worker') or args.deliver)
     os.umask(0o077)
-    if args.command=='worker':
+    if args.command=='failure-signal':
+        if '/system.slice/wahojobs-beta.service' not in Path('/proc/self/cgroup').read_text():
+            raise ValueError('native_application_failure_signal_required')
+        result=os.environ.get('SERVICE_RESULT')
+        if result and result!='success':daily.record_availability_failure(config,reason='application_service_'+result,unit=daily.SERVICE)
+    elif args.command=='worker':
         import re
-        if not args.run_id or not re.fullmatch(r'\d{8}T060000Z',args.run_id):raise ValueError('run_identity_required')
+        if not args.run_id or not re.fullmatch(r'\d{8}T060000Z(?:-availability)?',args.run_id):raise ValueError('run_identity_required')
         if args.phase is None:raise ValueError('worker_phase_required')
         deadline=claim_worker(config,args.run_id,args.phase)
         from wahojobs.crawler.local_inventory import request_deadline
@@ -562,12 +633,17 @@ def main(argv=None):
     elif args.command=='run':
         def interrupted(*_):raise InterruptedError('supervisor_terminated')
         signal.signal(signal.SIGTERM,interrupted)
-        result=supervise(config,args.policy,args.trigger)
+        result=supervise(config,args.policy,args.trigger,availability_sources=args.source if args.availability_recovery else None)
         print(json.dumps(result))
         return 0 if result['outcome'] in (*daily.SUCCESSFUL_RUN_OUTCOMES,'already_consumed_or_not_due') else 2
     elif args.command=='health':
         with operation_gate(str(Path(config['state_directory'])/'health')):
-            result=daily.health(config,application_ready=application_ready())
+            # Claim the wake-up before checking: a concurrent new failure writes
+            # another marker, and the path unit reruns after this service exits.
+            if args.urgent:
+                with suppress(FileNotFoundError):(Path(config['state_directory'])/'urgent-health-pending.json').unlink()
+            operating=operating_snapshot(config)
+            result=daily.health(config,application_ready=operating['application']['available'],operating=operating,urgent=args.urgent)
             if args.deliver:deliver(config,result)
             print(json.dumps(result))
     else:

@@ -1,0 +1,24 @@
+[Unit]
+Description=Wahojobs immediate application availability notification
+ConditionPathExists=/etc/wahojobs-inventory-v1.json
+StartLimitIntervalSec=300
+StartLimitBurst=90
+
+[Service]
+Type=oneshot
+User=wahojobs-beta
+Group=wahojobs-beta
+WorkingDirectory=/opt/wahojobs-beta/current
+ExecStart=/opt/wahojobs-beta/current/.venv/bin/python -B scripts/daily_inventory.py health --policy /etc/wahojobs-inventory-v1.json --urgent --deliver
+LoadCredential=resend-api-key:/etc/wahojobs-beta/operations/resend-api-key
+TimeoutStartSec=60
+Restart=on-failure
+RestartSec=2
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/wahojobs-beta/daily-inventory-v1
+Environment=PYTHONDONTWRITEBYTECODE=1
+StandardOutput=journal
+StandardError=journal

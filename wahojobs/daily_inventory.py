@@ -293,18 +293,25 @@ def collect_phase(config, run_id, phase):
     from wahojobs.beta_recovery import create_snapshot,verify_snapshot
     database=Path(config['database']);directory=Path(config['state_directory']);target=directory/'runs'/run_id
     from wahojobs.crawler import staged_observation as staged
+    from wahojobs import availability_recovery as targeted
+    selected=targeted.selected(read_json(target/'run.json',{}))
     if phase=='prepare':
         # Read-only source/configuration inspection is safe while beta owns the
         # database. No database copy or offline lifetime lease is taken here.
         plan=coverage_plan(config,database,now())
+        if selected is not None:
+            for source,row in plan.items():
+                if source not in selected:row.update(state='not_targeted',reason='outside_authorized_attempt')
         write_json(target/'coverage-plan.json',plan)
         for source,row in plan.items():
+            if selected is not None and source not in selected:continue
             if row['state']!='due':
                 summary=empty_source(source,now(),outcome=row['state'],reason=row['reason'])
                 summary['next_eligible_at']=row['next_eligible_at'];save_source(config,run_id,summary)
         return
     if phase.startswith('collect-'):
         source=phase.removeprefix('collect-')
+        if selected is not None and source not in selected:raise ValueError('source_outside_targeted_attempt')
         schedule=read_json(target/'coverage-plan.json')
         if source not in SOURCES or not schedule or schedule[source]['state']!='due' or not source_settings(config)[source]['enabled']:
             raise ValueError('source_not_due_in_reserved_plan')
@@ -314,7 +321,8 @@ def collect_phase(config, run_id, phase):
         binding=maintenance.journal_binding(database)
         if not binding or Path(binding['journal_root'])!=Path(config['journal']):raise ValueError('authoritative_journal_mismatch')
         staged.collect(source,company['careers_url'],target,run_id=run_id,code_commit=config['code_commit'],
-            http_max=source_settings(config)[source]['http_max'],journal_root=config['journal'])
+            http_max=min(source_settings(config)[source]['http_max'],targeted.CAPS[source]) if selected else source_settings(config)[source]['http_max'],
+            journal_root=config['journal'],**({'audit_sink':lambda event:targeted.audit(target,source,event)} if selected else {}))
         return
     publishing=phase.startswith('publish-')
     if publishing:phase=phase.removeprefix('publish-')
@@ -342,6 +350,7 @@ def collect_phase(config, run_id, phase):
             write_json(target/'worker.json',dict(completed=True,protected_domains_unchanged=True))
         else:
             source=phase
+            if selected is not None and source not in selected:raise ValueError('source_outside_targeted_attempt')
             schedule=read_json(target/'coverage-plan.json')
             if not schedule or schedule[source]['state']!='due' or not source_settings(config)[source]['enabled']:
                 raise ValueError('source_not_due_in_reserved_plan')
@@ -674,10 +683,32 @@ def _genuine_resolution(config,key,at,previous_check=None,application_ready=None
     return False
 
 
-def health(config,at=None,*,application_ready=None):
+def record_availability_failure(config,*,reason,unit,occurred_at=None):
+    """Persist before deferred observation/delivery; this is not a network call."""
+    directory=Path(config['state_directory']);signals=directory/'availability-signals'
+    signals.mkdir(mode=0o700,parents=True,exist_ok=True)
+    if os.name=='posix' and os.geteuid()==0:
+        owner=directory.stat();os.chown(signals,owner.st_uid,owner.st_gid)
+    identifier=uuid.uuid4().hex;observed=stamp(now())
+    signal=dict(id=identifier,reason=reason,unit=unit,occurred_at=occurred_at,
+        observed_at=observed,recorded_at=stamp(now()))
+    write_json(signals/(identifier+'.json'),signal)
+    write_json(directory/'urgent-health-pending.json',dict(signal_id=identifier,recorded_at=stamp(now())))
+    return signal
+
+
+def health(config,at=None,*,application_ready=None,operating=None,urgent=False):
     """Durable deduplicated outbox. No employer or delivery calls here."""
-    at=at or now();directory=Path(config['state_directory']);issues=health_issues(config,at,application_ready=application_ready)
+    at=at or now();directory=Path(config['state_directory'])
     previous=read_json(directory/'health.json',{'active':{},'events':[]})
+    if urgent:
+        # Urgent availability reporting must survive broken source receipts and
+        # never open product storage or wait for a full cohort inspection.
+        issues=dict(previous.get('active',{}))
+        if application_ready is False:
+            issues['application:unavailable']=dict(severity='critical',reason='application_readiness_failed',observed_at=stamp(at))
+        elif application_ready is True:issues.pop('application:unavailable',None)
+    else:issues=health_issues(config,at,application_ready=application_ready)
     old=previous.get('active',{});events=list(previous.get('events',[]));aligned={}
     transitions=[]
     def add(kind,key,*,issue=None,from_key=None,pending=True):
@@ -685,6 +716,22 @@ def health(config,at=None,*,application_ready=None):
         if issue is not None:item['issue']=issue
         if from_key is not None:item['from_key']=from_key
         events.append(item)
+    processed=list(previous.get('processed_availability_signals',[]))
+    signals=[read_json(p) for p in (directory/'availability-signals').glob('*.json')]
+    observed_through=(operating or {}).get('application',{}).get('checked_at') or stamp(at)
+    for signal in sorted(signals,key=lambda s:s['observed_at']):
+        if signal['id'] in processed:continue
+        # A failure newer than the readiness check must await another check.
+        # Its durable wake-up was written after urgent claimed the previous one.
+        if parse(signal['observed_at'])>parse(observed_through):continue
+        processed.append(signal['id'])
+        if 'application:unavailable' not in old:
+            issue=dict(severity='critical',reason=signal['reason'],failure_signal=signal['id'],
+                observed_at=signal['observed_at'],recorded_at=signal['recorded_at'],occurred_at=signal.get('occurred_at'))
+            old['application:unavailable']=issue
+            add('opened','application:unavailable',issue=issue)
+            events[-1]['at']=signal['observed_at']
+        if application_ready is not True:issues['application:unavailable']=old['application:unavailable']
     # Preserve sent event history. Align obsolete diagnostics in memory so a
     # changed key alone neither announces recovery nor creates a new incident.
     for key,value in old.items():
@@ -732,11 +779,28 @@ def health(config,at=None,*,application_ready=None):
                 or new_issue.get('records',0)>old_issue.get('records',0)):
             add('escalated',key,issue=new_issue)
     for key in sorted(set(aligned)-set(issues)):
-        if _genuine_resolution(config,key,at,previous.get('checked_at'),application_ready):add('recovered',key)
+        previous_check=(previous.get('context',{}).get('source_state_checked_at') or previous.get('checked_at')) if key.split(':',1)[0] in SOURCES else previous.get('checked_at')
+        if _genuine_resolution(config,key,at,previous_check,application_ready):add('recovered',key)
         else:add('reclassified',key,from_key=key,pending=False)
-    context=_health_context(config,issues,at)
+    if urgent:
+        context=dict(previous.get('context',{}))
+        context['source_state_checked_at']=context.get('source_state_checked_at') or context.get('checked_at')
+        context.update(checked_at=stamp(at),active_incidents=len(issues))
+        try:context['cycle']=_current_cycle(config,at)
+        except (OSError,ValueError):context['cycle']={'state':'unavailable'}
+    else:
+        context=_health_context(config,issues,at)
+        context['source_state_checked_at']=stamp(at)
     context['application_ready']=application_ready
     context['publication_paused']=(directory/'publication-hold.json').exists()
+    if operating is not None:
+        context['operating']=operating
+        context['publication_paused']=operating['collection']['state']!='enabled'
+        current=operating['collection']['state']
+        prior=previous.get('context',{}).get('operating',{}).get('collection',{}).get('state')
+        if operating.get('coherent') and current!=prior:
+            add('status_changed','collection:state',issue=dict(previous_state=prior,current_state=current,
+                observed_at=operating['collection']['checked_at'],reason=operating['collection'].get('reason')))
     before=previous.get('context',{}).get('qualified_sources')
     if before is not None:
         for source in sorted(set(context['qualified_sources'])-set(before)):
@@ -745,7 +809,7 @@ def health(config,at=None,*,application_ready=None):
                 continue
             add('first_verified',source+':verification',issue=dict(severity='info',reason='first_daily_qualifying_observation'))
     result=dict(checked_at=stamp(at),next_scheduled_execution=stamp(max(next_trigger(at),parse(config['first_run_at']))),
-        active=issues,events=events,context=context)
+        active=issues,events=events,context=context,processed_availability_signals=processed)
     write_json(directory/'health.json',result);return result
 
 
@@ -785,7 +849,8 @@ def finish_run_sources(config,receipt):
     """
     directory=Path(config['state_directory']);target=directory/'runs'/receipt['run_id']
     rows={}
-    for provider in SOURCES:
+    from wahojobs.availability_recovery import selected
+    for provider in selected(receipt) or SOURCES:
         plan=None
         previous=_retain_old_failure(config,provider,read_json(directory/(provider+'-state.json'),{}))
         newer_state=previous.get('run_id','')>receipt['run_id']

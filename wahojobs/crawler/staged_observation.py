@@ -93,7 +93,7 @@ def decode_result(document):
     return result
 
 
-def collect(source, careers_url, directory, *, run_id, code_commit, http_max, journal_root, controlled_validation=False):
+def collect(source, careers_url, directory, *, run_id, code_commit, http_max, journal_root, controlled_validation=False, audit_sink=None):
     from wahojobs import evidence_maintenance as maintenance
     from wahojobs.crawler.pipeline import CRAWLERS
     from wahojobs.crawler.source_registry import assert_production_dispatch_allowed
@@ -116,8 +116,11 @@ def collect(source, careers_url, directory, *, run_id, code_commit, http_max, jo
     # Collection writes evidence only; the product database remains online.
     journal = maintenance.Journal(journal_root, plan)
     source_context = controlled_validation_source(source) if controlled_validation else daily_source(source)
+    def audit(event):
+        if audit_sink is not None:audit_sink(event)
+        journal.append('source_transport', event)
     with source_context, refresh_request_budget(http_limit=http_max, detail_limit=0,
-            audit_sink=lambda event: journal.append('source_transport', event)) as budget:
+            audit_sink=audit) as budget:
         journal.append('started', dict(operation='collect:'+source))
         try:
             result = CRAWLERS[source](careers_url)

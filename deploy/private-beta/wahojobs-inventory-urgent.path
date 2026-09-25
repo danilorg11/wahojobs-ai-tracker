@@ -1,0 +1,9 @@
+[Unit]
+Description=Wahojobs durable availability notification wake-up
+
+[Path]
+PathExists=/var/lib/wahojobs-beta/daily-inventory-v1/urgent-health-pending.json
+Unit=wahojobs-inventory-urgent.service
+
+[Install]
+WantedBy=multi-user.target

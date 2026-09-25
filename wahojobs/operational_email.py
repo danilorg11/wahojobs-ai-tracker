@@ -63,11 +63,15 @@ def _name(key):
             'dataannotation':'DataAnnotation','dataforce':'DataForce'}.get(source,source.capitalize())
 
 
-def _event_line(event):
+def _event_line(event,*,resolved_application_at=None):
     key=event['key'];issue=event.get('issue') or {};name=_name(key)
     if key=='application:unavailable':
-        if event['kind']=='recovered':return 'Beta application restored: a fresh application readiness check passed. The failed inventory cycle remains failed.'
-        return 'CRITICAL: beta application unavailable. Publication is paused pending validated recovery.'
+        if event['kind']=='recovered':return 'Application recovery verified at '+_readable(event['at'])+'. The failed inventory cycle remains failed.'
+        if resolved_application_at:
+            return 'Historical application outage detected at '+_readable(event['at'])+'; recovery verified at '+_readable(resolved_application_at)+'.'
+        return 'Application-unavailable event detected at '+_readable(event['at'])+'. See the timestamped availability snapshot above for current status.'
+    if key=='collection:state':
+        return 'Collection verified '+issue.get('current_state','unknown')+' at '+_readable(issue.get('observed_at') or event['at'])+'.'
     if event['kind']=='first_verified':return f'{name}: first daily verification completed.'
     if event['kind']=='recovered':return f'{name}: the {key.split(":",1)[1].replace("_"," ")} problem resolved. Other open conditions remain separate.'
     if key.endswith(':coverage'):
@@ -102,13 +106,19 @@ def message(events,context=None):
                 'missed':'Daily check missed','partial':'Partial daily check','complete':'Daily check complete',
                 'failed':'Daily check failed'}.get(state,'Stored operational update')
     headline=state_text
-    application_events=[e for e in events if e['key']=='application:unavailable']
+    application_events=sorted((e for e in events if e['key']=='application:unavailable'),key=lambda e:parse(e['at']))
+    resolved_at=application_events[-1]['at'] if application_events and application_events[-1]['kind']=='recovered' else None
+    operating=context.get('operating') or {};application=operating.get('application') or {}
+    collection=operating.get('collection') or {}
     if application_events:
-        headline=('Beta application restored' if application_events[-1]['kind']=='recovered'
-                  else 'CRITICAL — beta application unavailable')
+        headline=('Beta application incident resolved' if resolved_at else 'Application availability incident')
+    if application.get('available') is False:headline='CRITICAL — beta application unavailable'
+    elif not application_events and any(e['key']=='collection:state' for e in events):
+        headline='Collection '+collection.get('state','state verified')
     if counts['status_changed'] and not counts['opened'] and any(
             e.get('issue',{}).get('reason')=='disabled_after_http_403' for e in events):
         headline='Source paused after HTTP 403'
+    if application.get('available') is False:headline='CRITICAL — beta application unavailable'
     change=[]
     for kind,label in (('opened','new alert'),('escalated','escalation'),('status_changed','status change'),
                        ('first_verified','first verification'),('recovered','resolved alert')):
@@ -116,7 +126,11 @@ def message(events,context=None):
     subject='Wahojobs inventory: '+headline+('; '+', '.join(change) if change else '')
     lines=['Wahojobs beta inventory operations','',
            'Checked: '+_readable(context.get('checked_at') or events[0]['at'])+'.',
-           'Current state: '+state_text+'.']
+           'State snapshot: '+_readable(context.get('checked_at'))+'.']
+    available=application.get('available',context.get('application_ready'))
+    label='available' if available is True else 'unavailable' if available is False else 'not verified'
+    lines.append('Application: '+label+'; last readiness observation '+_readable(application.get('checked_at'))+'.')
+    lines.append('Last cycle ('+_readable(cycle.get('scheduled_at'))+'): '+state_text+'.')
     if state=='partial':
         qualified=len(cycle.get('qualified_sources',[]));failed=len(cycle.get('failed_sources',[]))
         lines.append(f"Last cycle: {qualified} source{'s' if qualified!=1 else ''} verified and published; "
@@ -136,14 +150,21 @@ def message(events,context=None):
         lines.append(f"Currently open: {conditions} distinct condition{'s' if conditions!=1 else ''} across "
                      f"{sources} source{'s' if sources!=1 else ''}"+
                      ((' — '+', '.join(_name(s+':coverage') for s in affected)) if affected else '')+'.')
-    if context.get('publication_paused'):
+    if collection:
+        lines.append('Collection: '+collection.get('state','unknown')+'; observed '+_readable(collection.get('checked_at'))+'.')
+        if collection.get('reason'):lines.append('Collection status reason: '+collection['reason'].replace('_',' ')+'.')
+        if collection.get('next_execution'):lines.append('Actual next scheduled collection: '+collection['next_execution']+'.')
+    elif context.get('publication_paused'):
         lines.append('Collection is paused pending operator clearance; no catch-up run is scheduled.')
     elif context.get('next_scheduled_execution'):
         lines.append('Next scheduled collection: '+_readable(context['next_scheduled_execution'])+'.')
-    lines.extend(['','This notification: '+(', '.join(change) if change else 'no new change')+'.',''])
+    if context.get('source_state_checked_at'):
+        lines.append('Source/cohort issues last checked: '+_readable(context['source_state_checked_at'])+'.')
+    if resolved_at:lines.append('The application incident in this batch was resolved at '+_readable(resolved_at)+'. Both historical transitions are retained below.')
+    lines.extend(['','Events included in this notification: '+(', '.join(change) if change else 'no new change')+'.',''])
     for event in events:
         if event['kind']=='first_verified':continue
-        lines.append('- '+_event_line(event))
+        lines.append('- '+_event_line(event,resolved_application_at=resolved_at if event['key']=='application:unavailable' and parse(event['at'])<=parse(resolved_at or event['at']) else None))
     first=[_name(e['key']) for e in events if e['kind']=='first_verified']
     if first:lines.append('- First daily verification completed: '+', '.join(first)+'.')
     lines.extend(['','Technical references (retained in operational logs):'])
@@ -202,9 +223,15 @@ def send_packet(packet, credential, state_directory, *, transport=None, at=None)
         key = 'wahojobs-inventory-' + sha256('\n'.join(ids).encode()).hexdigest()
         payload = message(fresh,packet.get('context')); payload['from'] = payload.pop('from_')
         digest = sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+        batch=root/'delivery-batches'/(key+'.json')
+        if batch.exists():raise DeliveryUnavailable('existing_delivery_batch_requires_reconciliation')
+        # Retain the exact coherent observation and rendered text before sending.
+        write_json(batch,dict(rendered_at=at.isoformat(),context=packet.get('context',{}),
+            event_ids=ids,events=fresh,payload=payload,payload_sha256=digest))
         ledger['attempts_by_day'][day] = ledger['attempts_by_day'].get(day, 0) + 1
         for event_id in ids:
-            ledger['events'][event_id] = dict(status='attempted', at=at.isoformat(), payload_sha256=digest)
+            ledger['events'][event_id] = dict(status='attempted', at=at.isoformat(), payload_sha256=digest,
+                rendered_at=at.isoformat(),snapshot_checked_at=(packet.get('context') or {}).get('checked_at'),batch=str(batch))
         # Reserve before any transmission. A killed process leaves consumed IDs.
         write_json(path, ledger)
         try:
@@ -214,7 +241,8 @@ def send_packet(packet, credential, state_directory, *, transport=None, at=None)
             write_json(path, ledger)
             raise DeliveryUnavailable('operational_delivery_failed_or_uncertain') from None
         for event_id in ids:
-            ledger['events'][event_id].update(status='accepted_by_api', request_id=request_id)
+            ledger['events'][event_id].update(status='accepted_by_api', request_id=request_id,
+                accepted_at=datetime.now(timezone.utc).isoformat())
         write_json(path, ledger)
         if any(row.get('status') != 'accepted_by_api' for row in prior):
             raise DeliveryUnavailable('prior_delivery_uncertain_no_retry')
