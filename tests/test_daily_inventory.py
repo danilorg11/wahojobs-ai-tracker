@@ -119,7 +119,7 @@ class DailyPolicyTests(unittest.TestCase):
         proc=Mock(pid=123);proc.wait.side_effect=[subprocess.TimeoutExpired('worker',1),-9]
         with patch.object(cli.subprocess,'Popen',return_value=proc),patch.object(cli.os,'killpg',create=True) as kill,patch.object(cli.signal,'SIGKILL',9,create=True):
             with self.assertRaises(subprocess.TimeoutExpired):cli.bounded_process(['fixture'],timeout=1)
-        kill.assert_called_once_with(123,signal_value())
+        kill.assert_called_once_with(123,cli.signal.SIGTERM)
         self.assertEqual(proc.wait.call_count,2)
 
     def test_hourly_alert_threshold_cohorts_missed_run_dedup_and_recovery(self):
@@ -173,7 +173,7 @@ class DailyPolicyTests(unittest.TestCase):
         receipt=d.reserve_run(self.root,self.at,self.at,'timer')
         receipt.update(maintenance_started_at=d.stamp(self.at),recovery_started_at=d.stamp(self.at+timedelta(seconds=20)),normal_service_resumed=False,outcome='failed')
         target=self.root/'runs'/receipt['run_id']/'run.json';d.write_json(target,receipt)
-        with patch.object(d,'now',return_value=self.at+timedelta(seconds=50)),patch.object(cli,'NativeOperations') as native,patch.object(d,'write_json',side_effect=OSError('fixture disk full')):
+        with patch.object(d,'now',return_value=self.at+timedelta(seconds=50)),patch.object(cli,'NativeOperations') as native,patch.object(d,'write_json',side_effect=OSError('fixture disk full')),patch.object(cli.time,'monotonic',side_effect=[0,20]):
             with self.assertRaises(OSError):cli.recover(self.config,self.root/'policy')
         native.return_value.restore.assert_called_once_with(90)
 

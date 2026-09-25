@@ -100,7 +100,8 @@ class RemoteBetaIntegration:
         if path == '/_ops/ready' and target == path and method in ('GET', 'HEAD'):
             try:
                 with self.runtime._connections.read_only_connection_provider() as connection:
-                    connection.execute('SELECT 1').fetchone()
+                    connection.execute('SELECT id FROM canonical_opportunities LIMIT 1').fetchone()
+                    connection.execute('SELECT profile_id FROM user_profiles LIMIT 1').fetchone()
                 return response(200, 'ready\n')
             except Exception:
                 return response(503, 'unavailable\n')

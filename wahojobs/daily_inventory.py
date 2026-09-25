@@ -519,8 +519,14 @@ def _disabled_coverage(config,provider,source):
         corrective_action='Review the source operating decision before enabling collection.')
 
 
-def health_issues(config,at):
+def health_issues(config,at,*,application_ready=None):
     directory=Path(config['state_directory']);issues={}
+    previous=read_json(directory/'health.json',{'active':{}})
+    if application_ready is False:
+        issues['application:unavailable']=dict(severity='critical',reason='application_readiness_failed',
+            corrective_action='Restore validated storage and application readiness; keep publication paused.')
+    elif application_ready is None and 'application:unavailable' in previous.get('active',{}):
+        issues['application:unavailable']=previous['active']['application:unavailable']
     slot=slot_at(at);first=parse(config['first_run_at'])
     try:
         latest=read_json(directory/'runs'/slot.strftime('%Y%m%dT060000Z')/'run.json')
@@ -529,6 +535,8 @@ def health_issues(config,at):
         latest=None
         issues['run:unreadable']=dict(severity='error',reason='expected_run_receipt_unreadable')
     grace=timedelta(seconds=execution_seconds(config)+RECOVERY_SECONDS+60)
+    if latest and latest.get('outcome')=='recovery_failed':
+        issues['run:failed']=dict(severity='error',reason='recovery_failed',run_id=latest['run_id'])
     if slot>=first and at-slot<=grace and (not latest or latest.get('outcome') not in (*SUCCESSFUL_RUN_OUTCOMES,'partial_or_failed')):
         # Starting a new calendar day is not recovery from a missed/failed run.
         previous=read_json(directory/'health.json',{'active':{}})
@@ -649,7 +657,8 @@ def _health_context(config,issues,at):
         next_scheduled_execution=stamp(max(next_trigger(at),parse(config['first_run_at']))))
 
 
-def _genuine_resolution(config,key,at,previous_check=None):
+def _genuine_resolution(config,key,at,previous_check=None,application_ready=None):
+    if key=='application:unavailable':return application_ready is True
     provider,_,kind=key.partition(':')
     if provider in SOURCES:
         state=read_json(Path(config['state_directory'])/(provider+'-state.json')) or {}
@@ -665,9 +674,9 @@ def _genuine_resolution(config,key,at,previous_check=None):
     return False
 
 
-def health(config,at=None):
+def health(config,at=None,*,application_ready=None):
     """Durable deduplicated outbox. No employer or delivery calls here."""
-    at=at or now();directory=Path(config['state_directory']);issues=health_issues(config,at)
+    at=at or now();directory=Path(config['state_directory']);issues=health_issues(config,at,application_ready=application_ready)
     previous=read_json(directory/'health.json',{'active':{},'events':[]})
     old=previous.get('active',{});events=list(previous.get('events',[]));aligned={}
     transitions=[]
@@ -723,9 +732,11 @@ def health(config,at=None):
                 or new_issue.get('records',0)>old_issue.get('records',0)):
             add('escalated',key,issue=new_issue)
     for key in sorted(set(aligned)-set(issues)):
-        if _genuine_resolution(config,key,at,previous.get('checked_at')):add('recovered',key)
+        if _genuine_resolution(config,key,at,previous.get('checked_at'),application_ready):add('recovered',key)
         else:add('reclassified',key,from_key=key,pending=False)
     context=_health_context(config,issues,at)
+    context['application_ready']=application_ready
+    context['publication_paused']=(directory/'publication-hold.json').exists()
     before=previous.get('context',{}).get('qualified_sources')
     if before is not None:
         for source in sorted(set(context['qualified_sources'])-set(before)):

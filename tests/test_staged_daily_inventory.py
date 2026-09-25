@@ -113,8 +113,8 @@ class StagedSupervisorTests(unittest.TestCase):
                 if name=='publish-appen':clock[0]=deadline;raise TimeoutError()
                 clock[0]+=1
             with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
-                native.publish('fixture',240)
-            self.assertEqual(calls,['backup','publish-appen','publish-mercor','publish-rws','finish'])
+                with self.assertRaises(TimeoutError):native.publish('fixture',240)
+            self.assertEqual(calls,['backup','publish-appen'])
             self.assertLess(clock[0],240)
 
     def test_restart_closes_online_only_receipt_without_service_or_collection_actions(self):

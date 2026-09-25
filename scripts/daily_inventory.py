@@ -19,6 +19,33 @@ from wahojobs import daily_inventory as daily
 from wahojobs.maintenance_gate import operation_gate
 
 
+def _live_group(group):
+    """Linux process group, excluding zombies which cannot retain file locks."""
+    if not Path('/proc').is_dir():return []
+    result=[]
+    for proc in Path('/proc').iterdir():
+        if not proc.name.isdigit():continue
+        try:fields=(proc/'stat').read_text().rsplit(')',1)[1].split()
+        except (FileNotFoundError,ProcessLookupError):continue
+        if int(fields[2])==group and fields[0]!='Z':result.append(int(proc.name))
+    return result
+
+
+def _stop_group(proc,grace=3):
+    with suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGTERM)
+    until=time.monotonic()+grace
+    while time.monotonic()<until:
+        proc.poll()
+        if not _live_group(proc.pid):break
+        time.sleep(.05)
+    if _live_group(proc.pid):
+        with suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGKILL)
+    proc.wait(timeout=5)
+    until=time.monotonic()+2
+    while _live_group(proc.pid) and time.monotonic()<until:time.sleep(.05)
+    if _live_group(proc.pid):raise RuntimeError('worker_group_not_quiescent')
+
+
 def bounded_process(args,*,timeout,cwd=ROOT,user=None):
     """Terminate the entire worker group before attempting normal-service recovery."""
     if timeout<=0:raise TimeoutError('execution_deadline_expired')
@@ -32,9 +59,9 @@ def bounded_process(args,*,timeout,cwd=ROOT,user=None):
         start_new_session=True,**options)
     try:
         if proc.wait(timeout=max(.01,timeout))!=0:raise RuntimeError('bounded_process_failed')
+        if _live_group(proc.pid):raise RuntimeError('worker_left_live_child')
     except BaseException:
-        with suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGKILL)
-        proc.wait(timeout=5)
+        _stop_group(proc)
         raise
 
 
@@ -150,10 +177,16 @@ def claim_worker(config,run_id,phase):
     if parent.stat().st_uid!=0 or '/system.slice/wahojobs-inventory.service' not in (parent/'cgroup').read_text():
         raise ValueError('native_supervisor_required')
     remaining=claim_dispatch(config['state_directory'],run_id,os.getppid(),time.monotonic(),phase)
-    def expired(*_):raise TimeoutError('worker_execution_deadline_expired')
+    def expired(*_):
+        signal.setitimer(signal.ITIMER_REAL,0)
+        signal.signal(signal.SIGTERM,signal.SIG_IGN)
+        raise TimeoutError('worker_execution_deadline_expired')
     signal.signal(signal.SIGALRM,expired)
-    signal.setitimer(signal.ITIMER_REAL,remaining)
-    return time.monotonic()+remaining
+    signal.signal(signal.SIGTERM,expired)
+    # Leave rollback/close time before the parent's hard deadline.
+    useful=max(.01,remaining-min(3,remaining/4))
+    signal.setitimer(signal.ITIMER_REAL,useful)
+    return time.monotonic()+useful
 
 
 class NativeOperations:
@@ -235,10 +268,19 @@ class NativeOperations:
             except InterruptedError:raise
             except Exception as error:
                 daily.write_json(target/(source+'-failure.json'),dict(error_type=type(error).__name__))
+                # Never dispatch another publisher into uncertain storage.
+                if isinstance(error,(TimeoutError,subprocess.TimeoutExpired)) or any(
+                        os.path.lexists(str(self.config['database'])+suffix) for suffix in ('-journal','-wal','-shm')):
+                    raise
         self.phase(run_id,'finish',min(deadline,time.monotonic()+30))
     def restore(self,remaining):
         started=time.monotonic()
-        bounded_process(['/usr/bin/systemctl','start',daily.SERVICE],timeout=min(75,remaining))
+        database=Path(self.config['database'])
+        # A dedicated process bounds validation/recovery independently of the
+        # publication deadline. It acquires lifetime ownership before opening.
+        bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'repair-storage',
+            '--policy',str(self.policy)],timeout=max(.01,remaining-40))
+        bounded_process(['/usr/bin/systemctl','start',daily.SERVICE],timeout=max(.01,min(75,remaining-(time.monotonic()-started))))
         bounded_process([sys.executable,'-B','scripts/private_beta_health.py','--config','/run/wahojobs-beta/runtime.json'],
             timeout=max(.01,min(35,remaining-(time.monotonic()-started))),user='wahojobs-beta')
     def ready(self):
@@ -250,6 +292,7 @@ def supervise(config,policy,trigger,*,operations=None):
     operations=operations or NativeOperations(config,policy)
     directory=Path(config['state_directory'])
     with operation_gate(config['database'],require_existing=isinstance(operations,NativeOperations)):
+        if (directory/'publication-hold.json').exists():raise ValueError('publication_requires_operator_clearance')
         operations.preflight()
         trigger_evidence=native_trigger() if trigger=='auto' else dict(trigger=trigger,provenance='explicit_runner_argument')
         trigger=trigger_evidence['trigger']
@@ -313,6 +356,7 @@ def supervise(config,policy,trigger,*,operations=None):
                     receipt.update(normal_service_resumed=True,maintenance_finished_at=daily.stamp(daily.now()))
                 except BaseException as error:
                     receipt.update(outcome='recovery_failed',recovery_error_type=type(error).__name__)
+                    suspend_publication(config,receipt)
             measured=daily.read_json(target,{})
             if measured.get('phase_timings_seconds'):
                 receipt['phase_timings_seconds']=measured['phase_timings_seconds']
@@ -331,9 +375,33 @@ def supervise(config,policy,trigger,*,operations=None):
         return receipt
 
 
+def pending_recovery(directory):
+    from hashlib import sha256
+    result=[]
+    for path in sorted((directory/'runs').glob('*/run.json')):
+        receipt=daily.read_json(path)
+        if not receipt.get('maintenance_started_at') or receipt.get('normal_service_resumed'):continue
+        recovery=daily.read_json(path.parent/'application-recovery.json',{})
+        if recovery.get('application_ready') is True and recovery.get('run_sha256')==sha256(path.read_bytes()).hexdigest():continue
+        result.append(path)
+    return result
+
+
+def record_recovery(path,receipt):
+    from hashlib import sha256
+    # Terminal outcome and outage measurements remain byte-for-byte evidence.
+    if receipt.get('outcome') in ('running','reserved'):
+        receipt.update(outcome='interrupted',normal_service_resumed=True,ended_at=daily.stamp(daily.now()),
+            maintenance_seconds=None,recovery_seconds=None)
+        daily.write_json(path,receipt)
+    daily.write_json(path.parent/'application-recovery.json',dict(application_ready=True,
+        run_sha256=sha256(path.read_bytes()).hexdigest(),observed_at=daily.stamp(daily.now())))
+
+
 def recover(config,policy):
-    """systemd ExecStopPost/boot fallback after a killed supervisor; no collection."""
+    """Fresh bounded recovery window, independent of old publication deadlines."""
     directory=Path(config['state_directory'])
+    recovery_deadline=time.monotonic()+daily.RECOVERY_SECONDS-10
     with operation_gate(config['database'],require_existing=True):
         operations=NativeOperations(config,policy)
         operations.recovery_preflight()
@@ -341,46 +409,30 @@ def recover(config,policy):
             for path in sorted((directory/'runs').glob('*/run.json')):
                 interrupted=daily.read_json(path)
                 if interrupted.get('outcome') not in ('running','reserved') or interrupted.get('maintenance_started_at'):continue
-                # Reporting follows any necessary restoration, even if its
-                # persistence fails or an old collection journal is large.
                 interrupted.update(outcome='interrupted',normal_service_resumed=True,
                     ended_at=daily.stamp(daily.now()),maintenance_seconds=0,recovery_seconds=0)
                 daily.write_json(path,interrupted)
                 with suppress(OSError,ValueError):
                     daily.finish_run_sources(config,interrupted)
                     daily.write_json(path,interrupted)
-        pending=[p for p in sorted((directory/'runs').glob('*/run.json'))
-                 if (r:=daily.read_json(p)).get('maintenance_started_at') and not r.get('normal_service_resumed')]
+        pending=pending_recovery(directory)
         if not pending:
             finish_online();return
         p=pending[-1];receipt=daily.read_json(p)
-        # The parent cgroup is terminated by systemd before ExecStopPost.
-        recovery_start=receipt.get('recovery_started_at')
-        remaining=min(daily.RECOVERY_SECONDS, daily.PUBLICATION_SECONDS+daily.RECOVERY_SECONDS-(daily.now()-daily.parse(receipt['maintenance_started_at'])).total_seconds())
-        if recovery_start:remaining=min(remaining,daily.RECOVERY_SECONDS-(daily.now()-daily.parse(recovery_start)).total_seconds())
-        if remaining<=0:
-            # A reboot can already have restored the enabled beta service. Observe
-            # that recovery without opening another maintenance interval or retry.
-            operations.ready()
-            receipt.update(outcome='interrupted',normal_service_resumed=True,
-                recovery_observed_late_at=daily.stamp(daily.now()),maintenance_seconds=None,
-                maintenance_duration_status='unknown_after_restart')
-            daily.write_json(p,receipt)
-            with suppress(OSError,ValueError):
-                daily.finish_run_sources(config,receipt)
-                daily.write_json(p,receipt)
-            finish_online()
-            return
-        receipt['recovery_started_at']=recovery_start or daily.stamp(daily.now())
-        with suppress(OSError):daily.write_json(p,receipt)
-        operations.restore(remaining)
-        receipt.update(outcome='interrupted',normal_service_resumed=True,ended_at=daily.stamp(daily.now()),
-            maintenance_finished_at=daily.stamp(daily.now()),
-            maintenance_seconds=(daily.now()-daily.parse(receipt['maintenance_started_at'])).total_seconds())
-        daily.write_json(p,receipt)
-        with suppress(OSError,ValueError):
-            daily.finish_run_sources(config,receipt)
-            daily.write_json(p,receipt)
+        old=(daily.now()-daily.parse(receipt['maintenance_started_at'])).total_seconds()>daily.PUBLICATION_SECONDS+daily.RECOVERY_SECONDS
+        try:
+            online=False
+            if old:
+                try:operations.ready();online=True
+                except Exception:pass
+            if not online:
+                remaining=recovery_deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('recovery_deadline_expired')
+                operations.restore(remaining)
+        except BaseException:
+            suspend_publication(config,receipt)
+            raise
+        record_recovery(p,receipt)
         finish_online()
 
 
@@ -406,9 +458,91 @@ def deliver(config,state):
     daily.write_json(path,state)
 
 
+def suspend_publication(config,receipt):
+    try:
+        daily.write_json(Path(config['state_directory'])/'publication-hold.json',dict(
+            reason='unrecovered_application_failure',run_id=receipt.get('run_id'),at=daily.stamp(daily.now())))
+    finally:
+        if os.name=='posix' and os.geteuid()==0 and config.get('database')==daily.DATABASE:
+            subprocess.run(['systemctl','disable','--now','wahojobs-inventory.timer'],
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15,check=True)
+            subprocess.run(['systemctl','start','--no-block','wahojobs-inventory-health.service'],
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10,check=True)
+
+
+def verify_recovery_parent(config):
+    # Only the verified root supervisor may lend its operation gate to this
+    # short-lived child. Standalone repair is deliberately unavailable.
+    parent=Path('/proc')/str(os.getppid())
+    command=(parent/'cmdline').read_bytes().rstrip(b'\0').decode().split('\0')
+    if (parent.stat().st_uid!=0 or (parent/'cwd').resolve()!=ROOT
+            or len(command)<4 or command[1]!='-B' or command[3] not in ('run','recover')
+            or command[2] not in ('scripts/daily_inventory.py',str(ROOT/'scripts/daily_inventory.py'))):
+        raise ValueError('recovery_supervisor_required')
+    lock_path=str(config['database'])+'.wahojobs-maintenance.lock'
+    if not any(os.readlink(fd)==lock_path for fd in (parent/'fd').iterdir()):
+        raise ValueError('parent_operation_gate_required')
+    # A descriptor is not proof of ownership: prove the native gate is locked.
+    try:
+        with operation_gate(config['database'],require_existing=True):pass
+    except BlockingIOError:pass
+    else:raise ValueError('parent_operation_gate_not_locked')
+
+
+def repair_storage(config):
+    verify_release_configuration(config,require_effective=False)
+    verify_recovery_parent(config)
+    state=subprocess.check_output(['systemctl','show',daily.SERVICE,'-p','MainPID','-p','ControlPID'],text=True,timeout=5)
+    if any(row.split('=')[1]!='0' for row in state.splitlines()):raise ValueError('application_still_active')
+    for proc in Path('/proc').iterdir():
+        if not proc.name.isdigit() or int(proc.name)==os.getpid():continue
+        try:
+            for fd in (proc/'fd').iterdir():
+                try:target=os.readlink(fd)
+                except FileNotFoundError:continue
+                if target.startswith(config['database']) and target not in (
+                        config['database']+'.wahojobs-maintenance.lock',config['database']+'.wahojobs-lifetime.lock'):
+                    raise ValueError('database_process_still_active')
+        except (FileNotFoundError,ProcessLookupError):continue
+    from wahojobs.sqlite_recovery import recover_storage
+    from wahojobs.beta_recovery import _check_sqlite
+    directory=Path(config['state_directory'])
+    pending=pending_recovery(directory)
+    if not pending:raise ValueError('interrupted_run_required')
+    baseline=daily.read_json(pending[-1].parent/'backup.json')
+    interrupted=any(os.path.lexists(config['database']+suffix) for suffix in ('-journal','-wal','-shm'))
+    if interrupted and (not baseline or not baseline.get('verified')):
+        raise ValueError('verified_prepublication_baseline_required')
+    # The storage owner, never root, creates/reopens SQLite recovery files.
+    import pwd
+    account=pwd.getpwnam('wahojobs-beta')
+    os.setgroups([]);os.setgid(account.pw_gid);os.setuid(account.pw_uid)
+    if not baseline or not baseline.get('verified'):
+        # Stopped before backup/publication: strict validation can restore clean
+        # storage without pretending an absent backup was completed.
+        baseline={'protected_domains':None}
+    def validate(path):
+        import sqlite3
+        from contextlib import closing
+        _check_sqlite(path,product=True,read_only=False)
+        with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
+            if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:raise ValueError('full_integrity_failed')
+    result=recover_storage(Path(config['database']),directory/'native-recovery',
+        validate=validate,
+        protected=daily.protected_domains,expected_protected=baseline['protected_domains'])
+    daily.write_json(pending[-1].parent/'storage-recovery.json',result)
+
+
+def application_ready():
+    try:
+        bounded_process([sys.executable,'-B','scripts/private_beta_health.py','--config','/run/wahojobs-beta/runtime.json'],timeout=25)
+        return True
+    except Exception:return False
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=('run','worker','recover','health','report'))
+    parser.add_argument('command',choices=('run','worker','recover','repair-storage','health','report'))
     parser.add_argument('--policy',type=Path,required=True)
     parser.add_argument('--trigger',choices=('auto','timer','manual','restart'),default='auto')
     parser.add_argument('--phase',choices=('prepare','backup','finish',*('collect-'+s for s in daily.SOURCES),*('publish-'+s for s in daily.SOURCES)));parser.add_argument('--run-id');parser.add_argument('--deliver',action='store_true')
@@ -423,6 +557,7 @@ def main(argv=None):
         deadline=claim_worker(config,args.run_id,args.phase)
         from wahojobs.crawler.local_inventory import request_deadline
         with request_deadline(deadline):daily.collect_phase(config,args.run_id,args.phase)
+    elif args.command=='repair-storage':repair_storage(config)
     elif args.command=='recover':recover(config,args.policy)
     elif args.command=='run':
         def interrupted(*_):raise InterruptedError('supervisor_terminated')
@@ -432,7 +567,7 @@ def main(argv=None):
         return 0 if result['outcome'] in (*daily.SUCCESSFUL_RUN_OUTCOMES,'already_consumed_or_not_due') else 2
     elif args.command=='health':
         with operation_gate(str(Path(config['state_directory'])/'health')):
-            result=daily.health(config)
+            result=daily.health(config,application_ready=application_ready())
             if args.deliver:deliver(config,result)
             print(json.dumps(result))
     else:

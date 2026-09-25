@@ -65,6 +65,9 @@ def _name(key):
 
 def _event_line(event):
     key=event['key'];issue=event.get('issue') or {};name=_name(key)
+    if key=='application:unavailable':
+        if event['kind']=='recovered':return 'Beta application restored: a fresh application readiness check passed. The failed inventory cycle remains failed.'
+        return 'CRITICAL: beta application unavailable. Publication is paused pending validated recovery.'
     if event['kind']=='first_verified':return f'{name}: first daily verification completed.'
     if event['kind']=='recovered':return f'{name}: the {key.split(":",1)[1].replace("_"," ")} problem resolved. Other open conditions remain separate.'
     if key.endswith(':coverage'):
@@ -99,6 +102,10 @@ def message(events,context=None):
                 'missed':'Daily check missed','partial':'Partial daily check','complete':'Daily check complete',
                 'failed':'Daily check failed'}.get(state,'Stored operational update')
     headline=state_text
+    application_events=[e for e in events if e['key']=='application:unavailable']
+    if application_events:
+        headline=('Beta application restored' if application_events[-1]['kind']=='recovered'
+                  else 'CRITICAL — beta application unavailable')
     if counts['status_changed'] and not counts['opened'] and any(
             e.get('issue',{}).get('reason')=='disabled_after_http_403' for e in events):
         headline='Source paused after HTTP 403'
@@ -129,7 +136,9 @@ def message(events,context=None):
         lines.append(f"Currently open: {conditions} distinct condition{'s' if conditions!=1 else ''} across "
                      f"{sources} source{'s' if sources!=1 else ''}"+
                      ((' — '+', '.join(_name(s+':coverage') for s in affected)) if affected else '')+'.')
-    if context.get('next_scheduled_execution'):
+    if context.get('publication_paused'):
+        lines.append('Collection is paused pending operator clearance; no catch-up run is scheduled.')
+    elif context.get('next_scheduled_execution'):
         lines.append('Next scheduled collection: '+_readable(context['next_scheduled_execution'])+'.')
     lines.extend(['','This notification: '+(', '.join(change) if change else 'no new change')+'.',''])
     for event in events:
