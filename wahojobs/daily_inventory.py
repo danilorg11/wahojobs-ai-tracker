@@ -792,6 +792,7 @@ def health(config,at=None,*,application_ready=None,operating=None,urgent=False):
         context=_health_context(config,issues,at)
         context['source_state_checked_at']=stamp(at)
     context['application_ready']=application_ready
+    context['source_issues']={key:value for key,value in issues.items() if key.split(':',1)[0] in SOURCES}
     context['publication_paused']=(directory/'publication-hold.json').exists()
     if operating is not None:
         context['operating']=operating

@@ -160,6 +160,10 @@ def message(events,context=None):
         lines.append('Next scheduled collection: '+_readable(context['next_scheduled_execution'])+'.')
     if context.get('source_state_checked_at'):
         lines.append('Source/cohort issues last checked: '+_readable(context['source_state_checked_at'])+'.')
+    if context.get('source_issues'):
+        lines.extend(['','Open source/cohort issues as of '+_readable(context.get('source_state_checked_at'))+':'])
+        for key,issue in sorted(context['source_issues'].items()):
+            lines.append('- '+_event_line(dict(key=key,kind='status_changed',issue=issue)))
     if resolved_at:lines.append('The application incident in this batch was resolved at '+_readable(resolved_at)+'. Both historical transitions are retained below.')
     lines.extend(['','Events included in this notification: '+(', '.join(change) if change else 'no new change')+'.',''])
     for event in events:

@@ -96,6 +96,16 @@ class SnapshotTests(unittest.TestCase):
     def test_specific_coverage_resolution_keeps_global_cycle_failed(self):
         result=email.message([event(3,'recovered',AT,'dataforce:coverage')],self.context)
         self.assertIn('Daily check failed',result['text']);self.assertIn('DataForce: the coverage problem resolved',result['text'])
+    def test_unchanged_mercor_deadline_visible_when_only_alignerr_recovers(self):
+        key='mercor:cohort_fixture';issue=dict(state='escalated',records=11,expires_at='2026-09-26T06:00:27+00:00')
+        d.write_json(self.root/'health.json',dict(active={key:issue},events=[],context=self.context))
+        state=d.health(self.config,AT,application_ready=True,operating=operating('enabled'),urgent=True)
+        self.assertEqual(state['context']['source_issues'],{key:issue})
+        rendered=email.message([event(7,'recovered',AT,'alignerr:collection')],state['context'])['text']
+        self.assertIn('Open source/cohort issues as of',rendered)
+        self.assertIn('Mercor: 11 exact posting records',rendered)
+        self.assertIn('Deadline: 26 Sep 2026 06:00 UTC',rendered)
+        self.assertLess(rendered.index('Mercor: 11'),rendered.index('Events included in this notification'))
     def test_failure_is_retained_if_recovered_before_urgent_observation(self):
         with operation_gate(self.root/'health'):
             with patch.object(d,'now',return_value=AT-timedelta(minutes=2)):
