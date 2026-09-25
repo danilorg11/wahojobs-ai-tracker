@@ -53,6 +53,17 @@ class CatalogPreparationTests(unittest.TestCase):
         self.write("UPDATE jobs SET is_active=0")
         self.assertEqual(self.load(cache), [])
 
+    def test_unchanged_refresh_keeps_shared_evidence_instead_of_duplicate_sql_strings(self):
+        cache = catalog.CatalogPreparation()
+        self.load(cache)
+        original_rows = {key: value[0] for key, value in cache.variants.items()}
+        self.load(cache, NOW + timedelta(seconds=301))
+        for key, rows in original_rows.items():
+            self.assertIs(cache.variants[key][0], rows)
+        self.write("UPDATE job_source_contents SET body=body || ' Changed stored evidence.'")
+        refreshed = self.load(cache, NOW + timedelta(seconds=302))
+        self.assertEqual(refreshed, self.load(None, NOW + timedelta(seconds=302)))
+
     def test_override_add_delete_and_enrichment_delete_have_cold_parity(self):
         cache = catalog.CatalogPreparation()
         original = self.load(cache)
@@ -139,6 +150,20 @@ class RetainedMatchesTests(unittest.TestCase):
             self.assertEqual(self.f.get().status, 200)
             self.f.update_inventory('UPDATE crawl_runs SET status="success"')
             self.assertEqual(self.f.get().status, 503)
+
+    def test_tracker_and_history_contexts_do_not_displace_reusable_matches(self):
+        self.assertEqual(self.f.get().status, 200)
+        matched = self.f.last_run()
+        registry = self.f.integration._registry
+        for context in (None, {'matches': {}, '_workflow_return': '/tracker/item'}):
+            registry.create(owner_profile_id=matched.owner_profile_id,
+                raw_input='', input_style='short_paragraph',
+                recommendation_context=context, profile_confirmed=True)
+        self.f.now += timedelta(seconds=301)
+        with patch.object(type(self.f.integration), '_load_inventory', side_effect=AssertionError('recomputed')):
+            self.assertEqual(self.f.get().status, 200)
+        self.assertEqual(registry.latest_for_owner(matched.owner_profile_id).match_run_id,
+                         matched.match_run_id)
 
 
 class StartupAndMemoTests(unittest.TestCase):

@@ -181,7 +181,7 @@ def load_public_jobs(connection, *, now=None, preparation=None):
         evidence = dict(rows=rows, effective=effective_by_canonical.get(canonical_id))
         eligible = tuple(row['job_id'] for row in rows
                          if public_job_page.public_opportunity_is_eligible(row, now=now))
-        previous = preparation.variants.get(canonical_id) if preparation is not None else None
+        previous = preparation.variants.pop(canonical_id, None) if preparation is not None else None
         if (previous is not None and previous[0] == rows
                 and previous[1] is evidence['effective'] and previous[2] == eligible):
             # Re-evaluate all temporal fields. Expiry may remove a variant and
@@ -191,6 +191,10 @@ def load_public_jobs(connection, *, now=None, preparation=None):
                 availability_trust=assess_opportunity_trust(job, 'unknown', now=now).as_dict(),
                 jobposting_evidence=public_job_page.truthful_jobposting_evidence(job, now=now))
                 for job in previous[3]]
+            # These variants still share the old evidence strings. Keep their
+            # equal row objects too, instead of retaining a second SQL copy of
+            # every source body after each refresh.
+            rows = previous[0]
         else:
             variants = []
             for job in public_job_page.prepare_public_job_variants(evidence, now=now):

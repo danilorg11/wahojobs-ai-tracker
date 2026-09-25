@@ -1824,6 +1824,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 return cached[2]
 
             self._public_jobs_cache = None
+            cached = None  # Do not retain the expired response while rebuilding.
             connection = None
             with self._connection_provider() as connection:
                 if (

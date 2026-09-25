@@ -699,7 +699,9 @@ class MatchRunRegistry:
         with self._condition:
             self._purge_expired_confirmation_results_locked()
             for run in reversed(self._runs.values()):
-                if run.owner_profile_id == owner_profile_id and run.profile_confirmed:
+                if (run.owner_profile_id == owner_profile_id and run.profile_confirmed
+                        and type(run.recommendation_context) is dict
+                        and type(run.recommendation_context.get('_authenticated_reuse')) is dict):
                     return run
         return None
 

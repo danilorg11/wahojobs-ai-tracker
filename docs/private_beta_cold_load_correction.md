@@ -87,3 +87,22 @@ unfinished. micro1 remains disabled. This change neither completes downstream
 consumer validation nor changes Production authentication, invitations, public
 domains or indexing. Initial real-candidate launch still needs the existing
 separate Production/fresh-storage/reviewed-invitation approval after the gates.
+
+## Hosted follow-up findings
+
+The first promotion completed startup in approximately 55 seconds and preserved
+database bytes, protected domains, source state and timers. First Browse server
+time was 1.054 seconds. First account Matches completed with HTTP 200 in 23.524
+seconds; this remains a material first-use delay, despite three repeated browser
+entries taking 1.105–1.508 seconds. It is not a full performance-gate pass.
+
+The real idle/cross-section check exposed two additional issues. Tracker-only
+runs could displace the last reusable Matches run. Latest-run lookup now skips
+contexts without a recommendation proof; authorization and all proof validation
+remain in the caller. An unchanged Browse refresh also retained a new copy of
+source strings in row keys while variants still referenced the old strings.
+Exact cache hits now retain the original shared rows, consume old entries
+incrementally and release the expired response reference before reconstruction.
+This preserves actual-byte equality and cold-output parity. The first promotion
+hit its memory ceiling during refresh without an OOM kill; post-fix memory must
+be measured before asserting safe headroom.
