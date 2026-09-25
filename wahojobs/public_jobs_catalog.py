@@ -393,22 +393,36 @@ def catalog_job_matches(job, filters, resolved_filters):
 
 
 def catalog_facets(jobs, *, filters=None, resolved_filters=None):
-    counters = {key: Counter() for key in CATALOG_FACET_KEYS}
-    labels = {key: {} for key in counters}
+    labels = {key: {} for key in CATALOG_FACET_KEYS}
     for job in jobs:
-        for key in counters:
-            for token in job["_catalog_filter_values"][key]:
-                counters[key][token] += 1
+        for key in CATALOG_FACET_KEYS:
             labels[key].update(job["_catalog_filter_labels"][key])
     location_identities = {key: location_filter_identity(label) for key, label in labels["location"].items()}
+    counters = {key: Counter() for key in CATALOG_FACET_KEYS}
+    # Country and region options may match more than their literal source label.
+    # Resolve each distinct location model once, then count canonical identities
+    # over the entire applicable population, before result pagination.
+    location_matches = {}
     for key in counters:
         remaining = {k: v for k, v in (filters or {}).items() if k != key}
         resolved = {k: v for k, v in (resolved_filters or {}).items() if k != key}
-        matching_jobs = [job for job in jobs if catalog_job_matches(job, remaining, resolved)]
-        for candidate_key, label in labels[key].items():
-            counters[key][candidate_key] = len({job['canonical_opportunity_id'] for job in matching_jobs
-                if (location_model_matches(job['_catalog_location_model'], location_identities[candidate_key]) if key == 'location'
-                    else candidate_key in job['_catalog_filter_values'][key])})
+        identities = {candidate_key: set() for candidate_key in labels[key]}
+        for job in jobs:
+            if not catalog_job_matches(job, remaining, resolved):
+                continue
+            if key == 'location':
+                model = job['_catalog_location_model']
+                model_key = (model['scope'], model['mode'], model['countries'], model['regions'])
+                matching = location_matches.get(model_key)
+                if matching is None:
+                    matching = tuple(candidate_key for candidate_key, identity in location_identities.items()
+                                     if location_model_matches(model, identity))
+                    location_matches[model_key] = matching
+            else:
+                matching = job['_catalog_filter_values'][key]
+            for candidate_key in matching:
+                identities[candidate_key].add(job['canonical_opportunity_id'])
+        counters[key] = Counter({candidate_key: len(ids) for candidate_key, ids in identities.items()})
     return {
         key: [
             {

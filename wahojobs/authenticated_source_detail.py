@@ -110,24 +110,30 @@ def render_authenticated_job_page(job, *, profile, navigation, workflow_controls
     local = job.get('_authenticated_local_checks') or {}
     location = (local.get('match') or job.get('_authenticated_recommendation') or {}).get('location_eligibility_status')
     caveats = list(packet['caveats']) if packet else []
+    if not personalized:
+        caveats = [c for c in caveats if c != 'Applicant-location eligibility isn’t specified.']
     if not packet:
         if location == 'incompatible':
             caveats.append('The applicant-location restriction conflicts with your profile.')
-        elif location != 'eligible':
+        elif location != 'eligible' and personalized:
             country = profile.get('location', {}).get('country')
             caveats.append(f'Eligibility from {country} needs confirmation.' if country else 'Applicant-location eligibility isn’t specified.')
     caveat_html = ''.join('<li>' + escape(c) + '</li>' for c in caveats)
     blocks = _blocks(packet['text']) if packet else []
     qualification_block = next((i for i, block in enumerate(blocks)
                                 if block['heading'].casefold().rstrip(':') in _QUALIFICATION_HEADINGS), None)
-    checks = ("<section class='candidate-checks' id='before-apply'><h2>Before you apply</h2>"
-              + (render_material_warnings(packet) if packet and personalized else
-                 (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else ''))
-              + render_application_guidance(packet, employer_name=company,
-                    has_conflict=packet is None and location == 'incompatible') + '</section>') if personalized else (
-        "<section class='candidate-checks'><h2>Before you apply</h2>"
-        + (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else '')
-        + '<p>Review the employer’s requirements and confirm the terms before applying.</p></section>')
+    if personalized:
+        checks = ("<section class='candidate-checks' id='before-apply'><h2>Before you apply</h2>"
+                  + (render_material_warnings(packet) if packet else
+                     (f"<ul class='candidate-caveats'>{caveat_html}</ul>" if caveats else ''))
+                  + render_application_guidance(packet, employer_name=company,
+                        has_conflict=packet is None and location == 'incompatible') + '</section>')
+    elif caveats:
+        checks = ("<section class='candidate-checks'><h2>Before you apply</h2>"
+                  + f"<ul class='candidate-caveats'>{caveat_html}</ul>"
+                  + '<p>Review the employer’s requirements and confirm the terms before applying.</p></section>')
+    else:
+        checks = ''
     personalization = ("<section id='recommendation-personalization' aria-labelledby='personalization-heading'>"
         "<h2 id='personalization-heading'>Personalize your Wahojobs recommendations</h2>"
         + render_profile_update(packet, variant_detail_url(job, run_id=return_run_id),

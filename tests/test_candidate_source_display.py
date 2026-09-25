@@ -115,6 +115,17 @@ class CandidateSourceDisplayTests(unittest.TestCase):
         without_run = render_authenticated_job_page(job, profile=PROFILE, navigation='')
         self.assertIn("href='/find-matches#opportunity-11242'", without_run)
 
+    def test_browse_detail_omits_unknown_location_placeholder_and_empty_section(self):
+        source = deepcopy(SOURCES[11242])
+        job = detail(source)
+        browse = render_authenticated_job_page(job, profile=PROFILE, navigation='',
+                                                catalog_return_to='/jobs?page=2', personalized=False)
+        self.assertNotIn('Applicant-location eligibility isn’t specified.', browse)
+        self.assertNotIn('Before you apply', browse)
+        self.assertIn('Back to Browse jobs', browse)
+        personalized = render_authenticated_job_page(job, profile=PROFILE, navigation='')
+        self.assertIn('Before you apply', personalized)
+
     def test_contradictory_qualifiers_and_task_hourly_terms_are_not_silently_resolved(self):
         pay = pay_facts({'pay': '$35-55/hr'}, 'Earn up to $35+/hour.')
         self.assertTrue(pay['notes']); self.assertIn('up to $35+/hour', pay['wording'])

@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 from urllib.parse import urlencode
+from unittest.mock import patch
 
 from wahojobs import authenticated_profile_matches as matches_module
 from wahojobs import public_job_page, public_jobs_catalog
@@ -61,6 +62,18 @@ class PublicJobsCatalogTests(unittest.TestCase):
             return public_jobs_catalog.load_public_jobs(connection, now=now)
         finally:
             connection.close()
+
+    def test_location_facets_reuse_identical_models_without_losing_variant_counts(self):
+        jobs = self.load()
+        variant = jobs[0]['_catalog_variants'][0]
+        copies = [dict(variant, canonical_opportunity_id=10000 + i)
+                  for i in range(200)]
+        original = public_jobs_catalog.location_model_matches
+        with patch.object(public_jobs_catalog, 'location_model_matches', wraps=original) as measured:
+            facets = public_jobs_catalog.catalog_facets(copies)
+        self.assertLessEqual(measured.call_count, len(facets['location']) * 2)
+        for option in facets['location']:
+            self.assertEqual(option['count'], 200)
 
     def integration(self, *, connection_provider=None, now=None):
         service = object.__new__(AuthenticatedProfileMatchesService)
