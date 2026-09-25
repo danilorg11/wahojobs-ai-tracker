@@ -18,7 +18,10 @@ def main(argv=None):
     config=None
     try:
         config=load_workos_authkit_staging_configuration(args.config,remote_beta=True)
-        for attempt in range(20):
+        # Startup includes bounded stored-catalog/source preparation. The native
+        # recovery caller still enforces its unchanged 120-second total budget.
+        deadline=time.monotonic()+70
+        while time.monotonic()<deadline:
             client=HTTPConnection(*config.bind_address,timeout=1)
             try:
                 client.request('GET','/_ops/ready',headers={

@@ -57,6 +57,22 @@ class BetaServer(ThreadingHTTPServer):
         print('private_beta_request_failed', file=sys.stderr, flush=True)
 
 
+def prepare_runtime(runtime):
+    """The Linux hosted process gets a hard preparation deadline, not a worker."""
+    previous = None
+    if os.name == 'posix':
+        def expired(_signal, _frame):
+            raise WorkOSAuthKitStagingError('runtime_unavailable')
+        previous = signal.signal(signal.SIGALRM, expired)
+        signal.alarm(60)
+    try:
+        runtime.prepare_serving_inventory()
+    finally:
+        if os.name == 'posix':
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
+
+
 def run(configuration_path, *, diagnostics=None, runtime_builder=build_workos_authkit_staging_runtime,
         server_factory=BetaServer, ready=None):
     configuration = load_workos_authkit_staging_configuration(configuration_path, remote_beta=True)
@@ -65,6 +81,9 @@ def run(configuration_path, *, diagnostics=None, runtime_builder=build_workos_au
     try:
         proxy_secret = configuration.proxy_secret
         runtime = runtime_builder(configuration)
+        # No listener or readiness response exists until usable catalog/source
+        # projections have been prepared. Failure closes the runtime and lease.
+        prepare_runtime(runtime)
         handler = make_remote_handler(runtime, proxy_secret, diagnostics=diagnostics)
         server = server_factory(runtime.bind_address, handler)
         # signal handlers run in the serve_forever thread; shutdown must run in

@@ -4940,6 +4940,8 @@ def resolve_effective_enrichment(conn, canonical_opportunity_id: int) -> dict | 
 def resolve_effective_enrichments(
     conn,
     canonical_opportunity_ids,
+    *,
+    preparation_cache=None,
 ) -> dict[int, dict]:
     """Resolve effective enrichment for many canonicals without per-row queries."""
 
@@ -4967,13 +4969,25 @@ def resolve_effective_enrichments(
         ).fetchall():
             overrides[int(row["canonical_opportunity_id"])].append(row)
 
-    return {
-        canonical_id: _resolve_effective_enrichment_rows(
-            enrichment,
-            overrides.get(canonical_id, ()),
-        )
-        for canonical_id, enrichment in enrichments.items()
-    }
+    results = {}
+    prepared = {}
+    for canonical_id, enrichment in enrichments.items():
+        edits = overrides.get(canonical_id, ())
+        # Compare the actual stored bytes, not a producer-supplied digest or
+        # timestamp. This optional catalog-owned cache contains no account data.
+        key = (tuple(enrichment), tuple(tuple(row) for row in edits))
+        previous = preparation_cache.get(canonical_id) if preparation_cache is not None else None
+        result = (previous[1] if previous is not None and previous[0] == key
+                  else _resolve_effective_enrichment_rows(enrichment, edits))
+        results[canonical_id] = result
+        prepared[canonical_id] = (key, result)
+    if preparation_cache is not None:
+        preparation_cache.clear()
+        # Retain at most one bounded inventory generation. Returned documents
+        # are read-only to this opt-in consumer, just like catalog projections.
+        if len(prepared) <= 8192:
+            preparation_cache.update(prepared)
+    return results
 
 
 def _resolve_effective_enrichment_rows(enrichment, overrides) -> dict:

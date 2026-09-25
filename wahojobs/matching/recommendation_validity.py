@@ -65,8 +65,10 @@ def inventory_deadline(rows, evaluated_at, *, recent_cache_hours):
             continue
         observed = parse_utc(row.get("latest_successful_source_run_at"))
         if observed is None:
-            # Missing temporal evidence is not a proof of indefinitely valid reuse.
-            return evaluated_at
+            # Missing/invalid source time stays unverified as time advances.
+            # Only an inventory commit can add it; that invalidates the proof.
+            # Do not let one static unknown row disable reuse of all matches.
+            continue
         for hours in (maximum, recent_cache_hours):
             boundary = observed + timedelta(hours=hours)
             if boundary >= evaluated_at:

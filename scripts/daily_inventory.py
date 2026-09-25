@@ -279,10 +279,10 @@ class NativeOperations:
         # A dedicated process bounds validation/recovery independently of the
         # publication deadline. It acquires lifetime ownership before opening.
         bounded_process([sys.executable,'-B',str(Path(__file__).resolve()),'repair-storage',
-            '--policy',str(self.policy)],timeout=max(.01,remaining-40))
+            '--policy',str(self.policy)],timeout=max(.01,remaining-80))
         bounded_process(['/usr/bin/systemctl','start',daily.SERVICE],timeout=max(.01,min(75,remaining-(time.monotonic()-started))))
         bounded_process([sys.executable,'-B','scripts/private_beta_health.py','--config','/run/wahojobs-beta/runtime.json'],
-            timeout=max(.01,min(35,remaining-(time.monotonic()-started))),user='wahojobs-beta')
+            timeout=max(.01,min(75,remaining-(time.monotonic()-started))),user='wahojobs-beta')
     def ready(self):
         bounded_process([sys.executable,'-B','scripts/private_beta_health.py','--config','/run/wahojobs-beta/runtime.json'],
             timeout=25,user='wahojobs-beta')

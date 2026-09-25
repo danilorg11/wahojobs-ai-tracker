@@ -82,7 +82,19 @@ class CatalogPageOutOfRange(ValueError):
     pass
 
 
-def load_public_jobs(connection, *, now=None):
+class CatalogPreparation:
+    """One integration's bounded, source-only preparation; externally locked."""
+
+    def __init__(self):
+        self.effective = {}
+        self.variants = {}
+
+    def clear(self):
+        self.effective.clear()
+        self.variants.clear()
+
+
+def load_public_jobs(connection, *, now=None, preparation=None):
     """Keep eligible variants until all catalog predicates can be applied.
 
     The default representative remains compatible with existing company pages.
@@ -160,28 +172,65 @@ def load_public_jobs(connection, *, now=None):
     effective_by_canonical = resolve_effective_enrichments(
         connection,
         grouped,
+        preparation_cache=preparation.effective if preparation is not None else None,
     )
 
     jobs = []
+    prepared = {}
     for canonical_id, rows in grouped.items():
         evidence = dict(rows=rows, effective=effective_by_canonical.get(canonical_id))
-        variants = []
-        for job in public_job_page.prepare_public_job_variants(evidence, now=now):
-            if len(rows) > 1:
-                job['canonical_title'] = job['source_title']
-                job['canonical_language'] = None
-                job['source_category'] = None
-            prepare_catalog_presentation(job)
-            variants.append(job)
+        eligible = tuple(row['job_id'] for row in rows
+                         if public_job_page.public_opportunity_is_eligible(row, now=now))
+        previous = preparation.variants.get(canonical_id) if preparation is not None else None
+        if (previous is not None and previous[0] == rows
+                and previous[1] is evidence['effective'] and previous[2] == eligible):
+            # Re-evaluate all temporal fields. Expiry may remove a variant and
+            # select another representative; it never extends source trust.
+            from wahojobs.matching.opportunity_trust import assess_opportunity_trust
+            variants = [dict(job,
+                availability_trust=assess_opportunity_trust(job, 'unknown', now=now).as_dict(),
+                jobposting_evidence=public_job_page.truthful_jobposting_evidence(job, now=now))
+                for job in previous[3]]
+        else:
+            variants = []
+            for job in public_job_page.prepare_public_job_variants(evidence, now=now):
+                if len(rows) > 1:
+                    job['canonical_title'] = job['source_title']
+                    job['canonical_language'] = None
+                    job['source_category'] = None
+                prepare_catalog_presentation(job)
+                variants.append(job)
+        prepared[canonical_id] = (rows, evidence['effective'], eligible, variants)
         if variants:
             representative = dict(max(variants, key=representative_variant_rank))
             representative['_catalog_variants'] = tuple(variants)
             jobs.append(representative)
+    if preparation is not None:
+        preparation.variants.clear()
+        if len(prepared) <= 8192:
+            preparation.variants.update(prepared)
     return jobs
 
 
 def representative_variant_rank(row):
     return public_job_page.representative_variant_rank(row)
+
+
+def refresh_catalog_time(jobs, *, now):
+    """Advance a prepared snapshot without extending any source's trust."""
+    from wahojobs.matching.opportunity_trust import assess_opportunity_trust
+    refreshed = []
+    for group in jobs:
+        variants = [dict(job,
+            availability_trust=assess_opportunity_trust(job, 'unknown', now=now).as_dict(),
+            jobposting_evidence=public_job_page.truthful_jobposting_evidence(job, now=now))
+            for job in group.get('_catalog_variants', (group,))
+            if public_job_page.public_opportunity_is_eligible(job, now=now)]
+        if variants:
+            representative = dict(max(variants, key=representative_variant_rank))
+            representative['_catalog_variants'] = tuple(variants)
+            refreshed.append(representative)
+    return refreshed
 
 
 def prepare_catalog_presentation(job):

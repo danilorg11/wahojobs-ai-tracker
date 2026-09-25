@@ -100,6 +100,9 @@ class PublicJobsCatalogTests(unittest.TestCase):
             connection_provider=provider,
             now=lambda: current[0],
         )
+        loader = patch.object(public_jobs_catalog, 'load_public_jobs', wraps=public_jobs_catalog.load_public_jobs)
+        measured_load = loader.start()
+        self.addCleanup(loader.stop)
 
         first = integration.handle("GET", "/jobs", (("Host", "app.test"),))
         next_page = integration.handle(
@@ -110,12 +113,12 @@ class PublicJobsCatalogTests(unittest.TestCase):
         back = integration.handle("GET", "/jobs", (("Host", "app.test"),))
 
         self.assertEqual([first.status, next_page.status, back.status], [200, 303, 200])
-        self.assertEqual(provider.calls, 1)
+        self.assertEqual(measured_load.call_count, 1)
 
         current[0] += timedelta(seconds=301)
         refreshed = integration.handle("GET", "/jobs", (("Host", "app.test"),))
         self.assertEqual(refreshed.status, 200)
-        self.assertEqual(provider.calls, 2)
+        self.assertEqual(measured_load.call_count, 2)
 
     def test_inventory_is_canonical_deduplicated_and_links_to_stable_internal_page(self):
         connection = sqlite3.connect(self.path)

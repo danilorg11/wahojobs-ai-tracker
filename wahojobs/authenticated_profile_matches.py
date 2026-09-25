@@ -626,6 +626,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         "_public_job_canary_gate",
         "_public_jobs_cache",
         "_public_jobs_cache_lock",
+        "_catalog_preparation",
         "_public_origin",
         "_public_seo_policy",
         "_registry",
@@ -724,6 +725,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         )
         self._public_jobs_cache = None
         self._public_jobs_cache_lock = threading.Lock()
+        self._catalog_preparation = public_jobs_catalog.CatalogPreparation()
         self._now = now
         self._ephemeral_identity_factory = ephemeral_identity_factory
         self._registry = registry
@@ -1796,17 +1798,32 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 "This SEO document cannot be generated safely right now.",
             )
 
+    def prepare_serving_inventory(self):
+        """Bounded startup preparation from stored evidence, before listening.
+
+        No profile, account, workflow, model or source request participates.
+        Loading Matches inventory prepares its existing exact-material caches;
+        account-specific scoring still happens only after authentication.
+        """
+        if self._closed:
+            raise ValueError('inventory_preparation_closed')
+        self._load_public_jobs_inventory()
+        self._load_inventory()
+
     def _load_public_jobs_inventory(self):
-        now = _trusted_utc(self._now())
         with self._public_jobs_cache_lock:
+            token = self._inventory_commit_token()
+            now = _trusted_utc(self._now())
             cached = self._public_jobs_cache
             if (
                 cached is not None
+                and token is not None and cached[3] == token
                 and cached[0] <= now
                 and now < cached[1]
             ):
                 return cached[2]
 
+            self._public_jobs_cache = None
             connection = None
             with self._connection_provider() as connection:
                 if (
@@ -1821,6 +1838,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                     jobs = public_jobs_catalog.load_public_jobs(
                         connection,
                         now=now,
+                        preparation=self._catalog_preparation,
                     )
                     if self._public_job_canary_gate.enabled:
                         for job in (variant for group in jobs for variant in (group, *group.get("_catalog_variants", ()))):
@@ -1843,10 +1861,23 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 for job in jobs
                 if self._public_seo_policy.resolve_path(job["path"]) is None
             )
+            if token is not None and token != self._inventory_commit_token():
+                raise ValueError('public_jobs_inventory_changed_during_preparation')
+            completed_at = _trusted_utc(self._now())
+            if completed_at < now:
+                raise ValueError('public_jobs_clock_changed_during_preparation')
+            deadline = public_jobs_catalog.catalog_cache_deadline(snapshot, now)
+            if completed_at >= deadline:
+                snapshot = tuple(public_jobs_catalog.refresh_catalog_time(snapshot, now=completed_at))
+                now = completed_at
+                deadline = public_jobs_catalog.catalog_cache_deadline(snapshot, now)
+                if _trusted_utc(self._now()) > deadline:
+                    raise ValueError('public_jobs_expired_during_preparation')
             self._public_jobs_cache = (
                 now,
-                public_jobs_catalog.catalog_cache_deadline(snapshot, now),
+                deadline,
                 snapshot,
+                token,
             )
             return snapshot
 
@@ -2028,6 +2059,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             before = self._inventory_commit_token() if self._write_connection_provider is not None else None
             records = self._load_pipeline_records(authority) if self._write_connection_provider is not None else []
             hidden_ids = pipeline_postings.hidden_job_ids(records)
+            if run is None and self._write_connection_provider is not None:
+                run = self._registry.latest_for_owner(authority.candidate_workflow_authority()[4])
             if run is not None:
                 expected_owner = authority.candidate_workflow_authority()[4]
                 if not hmac.compare_digest(run.owner_profile_id, expected_owner):
@@ -2466,6 +2499,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         self._criteria_shadow_sink = None
         self._ephemeral_identity_factory = None
         self._public_jobs_cache = None
+        self._catalog_preparation.clear()
         self._public_jobs_cache_lock = None
         self._now = None
         return True

@@ -26,6 +26,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import profile_match_digest as matcher  # noqa: E402
+from wahojobs.matching.evaluation_memo import evaluation_scope, memoized_text
 from wahojobs.classification import (  # noqa: E402
     INVENTORY_MODEL_EVERGREEN_APPLICATION,
     INVENTORY_MODEL_MIXED,
@@ -577,6 +578,7 @@ def build_grouped_matches(profile: dict, limit: int, use_overlay: bool = True) -
     )
 
 
+@evaluation_scope
 def build_grouped_matches_from_rows(
     profile: dict,
     rows: list[dict],
@@ -883,7 +885,7 @@ def preview_diagnostics_for_match(
     detected_languages = set(match.get("detected_languages") or [])
     for term, canonical_language in sorted(UNCONFIRMED_LANGUAGE_TERMS.items()):
         if (
-            re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", title_text)
+            preview_term_pattern(term).search(title_text)
             and canonical_language not in detected_languages
             and canonical_language not in profile_languages
         ):
@@ -1036,10 +1038,11 @@ def language_locale_requirements_for_match(match: dict) -> list[dict]:
     return unique_locale_requirements(requirements)
 
 
+@memoized_text
 def title_only_language_requirement_labels(title_text: str, profile_languages: set[str]) -> list[str]:
     labels = []
     for label, aliases in TITLE_ONLY_LANGUAGE_REQUIREMENTS:
-        if any(re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", title_text) for alias in aliases):
+        if any(preview_term_pattern(alias).search(title_text) for alias in aliases):
             labels.append(label)
     generic = re.search(
         r"\b([a-z][a-z\s]{2,40})\s+(language|dialect|audio)\s+(specialist|expert|evaluator|trainer)\b",
@@ -1055,26 +1058,31 @@ def title_only_language_requirement_labels(title_text: str, profile_languages: s
     return unique_list(labels)
 
 
+@memoized_text
 def language_locale_requirements_from_text(value: str) -> list[dict]:
     text = normalize_text(value)
     if not text:
         return []
     requirements = []
     for language in LANGUAGE_LOCALE_BASES:
-        language_pattern = re.escape(language)
-        for match in re.finditer(rf"(?<![a-z0-9]){language_pattern}\s*\(([^)]{{1,80}})\)", text):
-            requirements.extend(locale_requirements_for_piece(language, match.group(1)))
-        for match in re.finditer(rf"(?<![a-z0-9]){language_pattern}\s*[-–—]\s*([a-z][a-z\s]{{1,35}})", text):
-            requirements.extend(locale_requirements_for_piece(language, match.group(1)))
-        role_terms = (
-            r"(?:language|audio)\s+"
-            r"(?:data\s+contributor|specialist|expert|evaluator|trainer|rater|reviewer|annotator)"
-        )
-        for match in re.finditer(rf"(?<![a-z0-9]){language_pattern}\s+{role_terms}\s*\(([^)]{{1,80}})\)", text):
-            requirements.extend(locale_requirements_for_piece(language, match.group(1)))
+        for pattern in _language_locale_patterns(language):
+            for match in pattern.finditer(text):
+                requirements.extend(locale_requirements_for_piece(language, match.group(1)))
     for match in re.finditer(r"(?<![a-z0-9])espa.{0,3}ol\s*\(([^)]{1,80})\)", text):
         requirements.extend(locale_requirements_for_piece("spanish", match.group(1)))
     return requirements
+
+
+@lru_cache(maxsize=128)
+def _language_locale_patterns(language):
+    language_pattern = re.escape(language)
+    role_terms = (r"(?:language|audio)\s+"
+                  r"(?:data\s+contributor|specialist|expert|evaluator|trainer|rater|reviewer|annotator)")
+    return tuple(re.compile(pattern) for pattern in (
+        rf"(?<![a-z0-9]){language_pattern}\s*\(([^)]{{1,80}})\)",
+        rf"(?<![a-z0-9]){language_pattern}\s*[-–—]\s*([a-z][a-z\s]{{1,35}})",
+        rf"(?<![a-z0-9]){language_pattern}\s+{role_terms}\s*\(([^)]{{1,80}})\)",
+    ))
 
 
 def locale_requirements_for_piece(language: str, piece: str) -> list[dict]:
@@ -1088,7 +1096,7 @@ def locale_tokens_from_text(value: str) -> list[str]:
     text = normalize_text(value)
     tokens = []
     for canonical, aliases in LANGUAGE_LOCALE_TERMS:
-        if any(re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", text) for alias in aliases):
+        if any(preview_term_pattern(alias).search(text) for alias in aliases):
             tokens.append(canonical)
     return unique_list(tokens)
 
@@ -1329,6 +1337,7 @@ def licensed_medical_row(row_text: str) -> bool:
     return contains_preview_term(row_text, LICENSED_MEDICAL_PREVIEW_TERMS)
 
 
+@memoized_text
 def contains_preview_term(text: str, terms: tuple[str, ...]) -> bool:
     return any(preview_term_pattern(term).search(text) for term in terms)
 

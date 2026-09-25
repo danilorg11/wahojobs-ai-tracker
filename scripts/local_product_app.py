@@ -694,6 +694,15 @@ class MatchRunRegistry:
             self._purge_expired_confirmation_results_locked()
             return len(self._runs)
 
+    def latest_for_owner(self, owner_profile_id):
+        """Find a retained run; callers must still validate all reuse proofs."""
+        with self._condition:
+            self._purge_expired_confirmation_results_locked()
+            for run in reversed(self._runs.values()):
+                if run.owner_profile_id == owner_profile_id and run.profile_confirmed:
+                    return run
+        return None
+
 
 class ActionError(Exception):
     def __init__(self, message, status=HTTPStatus.BAD_REQUEST):
