@@ -16,6 +16,7 @@ from wahojobs.classification import (
     SOURCE_TIER_EXPERIMENTAL,
 )
 from wahojobs.db.connection import get_connection
+from wahojobs.matching.evaluation_memo import memoized_profile
 from wahojobs.matching.languages import (
     detect_explicit_languages as detect_explicit_languages_for_text,
     language_eligibility,
@@ -990,6 +991,8 @@ def score_opportunity(profile, row):
         profile,
         row,
         quality_gate_text(row, title, expertise),
+        accepted_fit=task_fit,
+        confirmed_task_fit=confirmed_task_fit,
     )
     for reason, penalty in quality_penalties:
         score -= penalty
@@ -1282,6 +1285,7 @@ def first_missing_subtype(profile_text, structured_text, subtype_terms):
     return ""
 
 
+@memoized_profile
 def profile_match_text(profile):
     # Display names and storage identifiers identify a person; they are never
     # evidence of a language, tool, professional domain or task capability.
@@ -1371,7 +1375,12 @@ def keyword_match_pattern(keyword):
     return re.compile(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])")
 
 
-def match_quality_gate_penalties(profile, row, text=None):
+_TASK_FIT_NOT_PROVIDED = object()
+
+
+def match_quality_gate_penalties(profile, row, text=None, *,
+                                accepted_fit=_TASK_FIT_NOT_PROVIDED,
+                                confirmed_task_fit=_TASK_FIT_NOT_PROVIDED):
     title = row["title"] or row["canonical_title"] or "Untitled opportunity"
     expertise = row["source_category"] or row["expertise"] or row["department"] or "Unknown"
     text = text or quality_gate_text(row, title, expertise)
@@ -1416,11 +1425,13 @@ def match_quality_gate_penalties(profile, row, text=None):
             penalties.append(("Finance or accounting role does not match this profile", 28))
 
     from wahojobs.matching.accepted_tasks import matched_accepted_tasks
-    accepted_fit = matched_accepted_tasks(profile, row)
+    if accepted_fit is _TASK_FIT_NOT_PROVIDED:
+        accepted_fit = matched_accepted_tasks(profile, row)
     beginner_task_relevance = bool(accepted_fit and accepted_fit.get('basis') == 'beginner_interest')
     if (not has_meaningful_positive_evidence(profile_features, role_features)
             and has_generic_only_evidence(text)
-            and not matched_accepted_tasks(profile, row, include_transferable=False)
+            and not (matched_accepted_tasks(profile, row, include_transferable=False)
+                     if confirmed_task_fit is _TASK_FIT_NOT_PROVIDED else confirmed_task_fit)
             and not beginner_task_relevance):
         # Complete accepted beginner scope plus an actual duty/interest link
         # is source-grounded relevance, not generic title wording alone. It
@@ -1551,6 +1562,7 @@ def language_variants(language):
     return language_variants_for_name(language)
 
 
+@memoized_profile
 def wants_remote(profile):
     return any(pref in {"remote", "flexible"} for pref in profile["work_preferences"])
 

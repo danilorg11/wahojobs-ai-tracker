@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from wahojobs.classification import (
@@ -43,7 +43,9 @@ class OpportunityTrustAssessment:
     selected_variant_id: int | None
 
     def as_dict(self) -> dict:
-        return asdict(self)
+        # Every field is a primitive or a tuple of strings. Preserve the
+        # existing tuple shape without recursively copying immutable values.
+        return {name: getattr(self, name) for name in self.__dataclass_fields__}
 
 
 def assess_opportunity_trust(

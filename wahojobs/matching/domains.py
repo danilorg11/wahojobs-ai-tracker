@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 import re
+from wahojobs.matching.evaluation_memo import memoized_profile
 
 
 CORE_DOMAIN_ALIGNMENT_BONUS = 12
@@ -197,6 +198,7 @@ def assess_domain_alignment(profile, row):
     )
 
 
+@memoized_profile
 def detect_profile_domains(profile):
     values = []
     for field in ("degrees_or_domains", "skills", "target_opportunity_types"):

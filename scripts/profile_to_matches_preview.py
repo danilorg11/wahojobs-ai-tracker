@@ -26,7 +26,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import profile_match_digest as matcher  # noqa: E402
-from wahojobs.matching.evaluation_memo import evaluation_scope, memoized_text
+from wahojobs.matching.evaluation_memo import evaluation_scope, memoized_text, memoized_profile
 from wahojobs.classification import (  # noqa: E402
     INVENTORY_MODEL_EVERGREEN_APPLICATION,
     INVENTORY_MODEL_MIXED,
@@ -1167,6 +1167,7 @@ def regional_location_restriction_label(row: dict, match: dict) -> str:
     return ""
 
 
+@memoized_profile
 def profile_location_known(profile: dict) -> bool:
     return any(
         normalize_text(profile.get(field))
@@ -1209,6 +1210,7 @@ def credential_requirement_label(row_text: str, profile: dict) -> str:
     return ""
 
 
+@memoized_profile
 def profile_confirms_credential(profile: dict, label: str) -> bool:
     text = profile_specificity_text(profile)
     education = normalize_text(profile.get("education_level"))
@@ -1240,6 +1242,7 @@ def profile_confirms_credential(profile: dict, label: str) -> bool:
     return False
 
 
+@memoized_profile
 def credential_requirement_conflicts(profile: dict, label: str) -> bool:
     text = profile_specificity_text(profile)
     education = normalize_text(profile.get("education_level"))
@@ -1257,16 +1260,19 @@ def credential_requirement_conflicts(profile: dict, label: str) -> bool:
     return False
 
 
+@memoized_profile
 def profile_has_term(profile: dict, terms: tuple[str, ...]) -> bool:
     text = profile_specificity_text(profile)
     return contains_preview_term(text, terms)
 
 
+@memoized_profile
 def profile_positive_text_has_term(profile: dict, terms: tuple[str, ...]) -> bool:
     text = profile_positive_specificity_text(profile)
     return contains_preview_term(text, terms)
 
 
+@memoized_profile
 def profile_positive_specificity_text(profile: dict) -> str:
     values = [
         profile.get("notes"),
@@ -1278,6 +1284,7 @@ def profile_positive_specificity_text(profile: dict) -> str:
     return normalize_text(" ".join(str(value or "") for value in values))
 
 
+@memoized_profile
 def profile_specificity_text(profile: dict) -> str:
     values = [
         profile.get("summary"),
@@ -1291,6 +1298,7 @@ def profile_specificity_text(profile: dict) -> str:
     return normalize_text(" ".join(str(value or "") for value in values))
 
 
+@memoized_profile
 def profile_has_no_biology_medical_credentials(profile: dict) -> bool:
     text = normalize_text(
         " ".join(
@@ -1309,6 +1317,7 @@ def profile_has_no_biology_medical_credentials(profile: dict) -> bool:
     )
 
 
+@memoized_profile
 def profile_has_no_medical_license(profile: dict) -> bool:
     text = normalize_text(
         " ".join(

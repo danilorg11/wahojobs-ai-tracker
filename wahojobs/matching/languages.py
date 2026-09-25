@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import re
 import unicodedata
+from wahojobs.matching.evaluation_memo import memoized_profile
 
 
 REQUIREMENT_NONE = "none"
@@ -320,6 +321,7 @@ def normalize_language_name(value: str | None) -> str:
     return _NORMALIZED_LANGUAGE_ALIASES.get(normalized, normalized)
 
 
+@memoized_profile
 def profile_language_set(profile: dict) -> set[str]:
     values = tuple(str(value) for value in (profile.get("languages", []) or []))
     return set(_profile_language_set_cached(values))

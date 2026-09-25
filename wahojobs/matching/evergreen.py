@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import re
 import unicodedata
+from wahojobs.matching.evaluation_memo import memoized_profile
 
 from wahojobs.classification import (
     INVENTORY_MODEL_EVERGREEN_APPLICATION,
@@ -95,6 +96,7 @@ def evergreen_opportunity_kind(row: dict) -> str:
     return EVERGREEN_KIND_SPECIALIST
 
 
+@memoized_profile
 def evergreen_profile_kind(profile: dict) -> str:
     signature = (
         str(profile.get("profile_id", "")),
@@ -204,6 +206,7 @@ def structured_language_text(row: dict) -> str:
     return " ".join(str(value or "") for value in values)
 
 
+@lru_cache(maxsize=16384)
 def normalize(value: str | None) -> str:
     text = str(value or "").strip().lower()
     text = unicodedata.normalize("NFKD", text)

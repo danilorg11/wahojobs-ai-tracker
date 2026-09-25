@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from functools import lru_cache
 
 from wahojobs.profiles.normalizer import term_is_negated
+from wahojobs.matching.evaluation_memo import memoized_profile
 
 
 SUPPORTED = "supported"
@@ -50,7 +51,14 @@ class AffirmativeFitAssessment:
     why_fit_statements: tuple[str, ...]
 
     def as_dict(self) -> dict:
-        return asdict(self)
+        result = {name: getattr(self, name) for name in self.__dataclass_fields__}
+        result['supported_evidence'] = tuple(
+            dict(requirement=item.requirement, profile_evidence=item.profile_evidence,
+                 source=item.source) for item in self.supported_evidence)
+        result['required_groups'] = tuple(
+            dict(key=item.key, label=item.label, mode=item.mode, concepts=item.concepts,
+                 source=item.source) for item in self.required_groups)
+        return result
 
 
 @dataclass(frozen=True)
@@ -670,6 +678,7 @@ def _role_mentions(title: str) -> tuple[tuple[int, int, str], ...]:
     return tuple(result)
 
 
+@memoized_profile
 def _profile_requests_general_ai_work(profile: dict) -> bool:
     text = normalize_text(
         " ".join(
@@ -686,6 +695,7 @@ def _profile_requests_general_ai_work(profile: dict) -> bool:
     )
 
 
+@memoized_profile
 def _profile_has_software_evidence(profile: dict) -> bool:
     domains = normalize_text(" ".join(str(value) for value in profile.get("degrees_or_domains") or []))
     skills = normalize_text(" ".join(str(value) for value in profile.get("skills") or []))
