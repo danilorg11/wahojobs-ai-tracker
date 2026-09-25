@@ -211,7 +211,9 @@ class CoveragePolicyTests(unittest.TestCase):
         self.assertEqual(example['alert_delivery']['recipient'],policy.ALERT_RECIPIENT)
         self.assertEqual(policy.aggregate(example['sources']),dict(http_max=217,execution_seconds=2520))
         self.assertEqual(manifest['aggregate']['http_max'],232)  # September 23 historical receipt
-        self.assertIn('TimeoutStartSec='+str(example['execution_seconds']),(root/'wahojobs-inventory.service').read_text())
+        self.assertIn('TimeoutStartSec='+str(policy.MAX_EXECUTION_SECONDS),(root/'wahojobs-inventory.service').read_text())
+        self.assertIn('TimeoutStopSec='+str(daily.RECOVERY_SECONDS),(root/'wahojobs-inventory.service').read_text())
+        self.assertEqual(daily.PUBLICATION_SECONDS,240)
         self.assertIn(':40:',(root/'wahojobs-inventory-health.timer').read_text())
 
     def test_policy_accounts_for_every_source_and_rejects_widening_or_blocked_activation(self):
@@ -238,6 +240,13 @@ class CoveragePolicyTests(unittest.TestCase):
         policy.validate_sources(changed)
         self.assertEqual(policy.aggregate(changed),
                          dict(http_max=277, execution_seconds=2520))
+        before=deepcopy(changed)
+        changed['outlier'].update(enabled=True,http_max=9,seconds_max=60)
+        policy.validate_sources(changed)
+        self.assertEqual(policy.aggregate(changed),
+                         dict(http_max=286, execution_seconds=2580))
+        self.assertEqual({name:row for name,row in changed.items() if name!='outlier'},
+                         {name:row for name,row in before.items() if name!='outlier'})
         for source in settings:
             changed=deepcopy(settings);changed[source]['http_max']+=1
             with self.assertRaises(ValueError):policy.validate_sources(changed)

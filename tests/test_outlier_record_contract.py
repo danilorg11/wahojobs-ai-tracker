@@ -28,6 +28,8 @@ from wahojobs.db.repository import (
 from wahojobs.tracking.service import track_crawl_result
 from wahojobs.public_jobs_catalog import load_public_jobs
 from wahojobs.daily_source_policy import daily_source, observed_outlier_details, validate_request
+from wahojobs.crawler.local_inventory import refresh_request_budget
+from wahojobs import daily_inventory
 
 
 class OutlierRecordContractTests(unittest.TestCase):
@@ -109,6 +111,34 @@ class OutlierRecordContractTests(unittest.TestCase):
             outlier.parse_index('<html>Opportunity</html>')
         with self.assertRaises(ValueError):
             outlier.parse_index('{"jobs":[],"error":"access denied"}')
+
+    def test_unreviewed_board_identity_is_journaled_but_never_qualified(self):
+        index=json.loads(self.index)
+        unseen=dict(index['jobs'][0], id=9999999999,
+                    absolute_url='https://app.outlier.ai/opportunities/9999999999')
+        index['jobs'].append(unseen)
+        index['totalCount']+=1
+        payload=json.dumps(index)
+        events=[]
+        def read(request):
+            return payload if request.full_url==OUTLIER_API_URL else json.dumps(
+                self.details[int(request.full_url.rsplit('/',1)[-1])])
+        with refresh_request_budget(http_limit=9,audit_sink=events.append), patch.object(
+                outlier,'_read_json',side_effect=read):
+            result=crawl_outlier(OUTLIER_API_URL)
+        self.assertEqual(len(result.jobs),8)
+        self.assertEqual(result.raw_record_count,9)
+        self.assertFalse(any(job.external_id=='9999999999' for job in result.jobs))
+        pending=[event for event in events if event['event']=='pending_qualification']
+        self.assertEqual(len(pending),1)
+        self.assertEqual(pending[0]['identities'],[9999999999])
+        self.assertEqual(pending[0]['index_sha256'],hashlib.sha256(payload.encode()).hexdigest())
+        at=datetime.fromisoformat('2026-09-24T23:14:40+00:00')
+        report={'events':[{'event':'source_transport','data':event} for event in events]}
+        row=daily_inventory.summarize_source(dict(plan_id='fixture',
+            config=dict(providers=['outlier']),sources=[dict(jobs=[])]),report,at,at)
+        self.assertEqual(row['pending_qualification_ids'],[9999999999])
+        self.assertEqual(row['pending_qualification_count'],1)
 
     def test_real_capture_to_isolated_catalog_and_repeat(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -96,7 +96,7 @@ POLICY = {
 READY_SOURCES = tuple(s for s in CORE_SOURCES if POLICY[s]['readiness'] == 'ready')
 NEW_SCOPES_REQUIRE_EXPLICIT_CONFIGURATION = frozenset({'dataannotation', 'dataforce', 'handshake', 'surge', 'outlier'})
 OVERHEAD_SECONDS = 240  # stop/preflight queries, one backup, final integrity, process cleanup
-MAX_EXECUTION_SECONDS = 2520  # installed daily service and approved collection ceiling
+MAX_EXECUTION_SECONDS = 2580  # approved Outlier ceiling; recovery and maintenance remain separate
 
 
 def default_sources():

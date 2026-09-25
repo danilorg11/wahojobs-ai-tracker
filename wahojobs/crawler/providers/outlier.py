@@ -11,7 +11,8 @@ from wahojobs.classification import (
     AVAILABILITY_BASIS_PUBLIC_FEED, OPPORTUNITY_KIND_PUBLIC_INVENTORY_OPPORTUNITY,
     OPPORTUNITY_KIND_EVERGREEN_APPLICATION,
 )
-from wahojobs.crawler.local_inventory import open_public, remaining_http_requests
+from wahojobs.crawler.local_inventory import (open_public, remaining_http_requests,
+    record_pending_qualification_ids)
 from wahojobs.crawler.types import BODY_OBSERVATION_PRESENT, JobCandidate, RecordPromotionAttestation
 from wahojobs.daily_source_policy import OUTLIER_V1_IDS, observed_outlier_details
 
@@ -163,6 +164,10 @@ def fetch_outlier_jobs(api_url):
         raise ValueError("Outlier endpoint differs from the reviewed public board.")
     index_payload = _read_json(Request(api_url, data=b"{}", headers=REQUEST_HEADERS, method="POST"))
     rows = parse_index(index_payload)
+    record_pending_qualification_ids(source='outlier',
+        identities={row['id'] for row in rows if type(row.get('id')) is int
+                    and row['id'] > 0 and row['id'] not in OUTLIER_V1_IDS},
+        index_sha256=hashlib.sha256(index_payload.encode()).hexdigest())
     remaining = remaining_http_requests()
     slots = min(len(OUTLIER_V1_IDS), len(rows),
                 remaining if remaining is not None else len(OUTLIER_V1_IDS))

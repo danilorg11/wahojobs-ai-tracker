@@ -243,6 +243,14 @@ def record_surface_counts(*, upstream_records, upstream_unit, variants, filtered
             upstream_unit=upstream_unit, variants=variants, filtered_records=filtered))
 
 
+def record_pending_qualification_ids(*, source, identities, index_sha256):
+    """Retain unsupported public-board identities in the existing source journal."""
+    budget = _REQUEST_BUDGET.get()
+    if budget is not None and budget.audit_sink is not None:
+        budget.audit_sink(dict(event='pending_qualification', source=source,
+            identities=sorted(identities), index_sha256=index_sha256))
+
+
 def record_envelope_shape(payload):
     budget = _REQUEST_BUDGET.get()
     if budget is not None and budget.audit_sink is not None and isinstance(payload, dict):

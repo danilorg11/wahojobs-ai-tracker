@@ -171,6 +171,14 @@ def summarize_source(plan,report,started,ended):
         request_cap_reached=row['requests_used']>=plan['config'].get('http_limit',POLICY[provider]['http_max']))
     envelopes=[e['data'] for e in events if e['event']=='source_transport' and e['data'].get('event')=='envelope_shape']
     if envelopes:row['listing_envelope_shape']=envelopes[-1]
+    pending=[e['data'] for e in events if e['event']=='source_transport'
+             and e['data'].get('event')=='pending_qualification'
+             and e['data'].get('source')==provider]
+    if provider=='outlier':
+        row['pending_qualification_ids']=pending[-1]['identities'] if pending else []
+        row['pending_qualification_count']=len(row['pending_qualification_ids'])
+        row['pending_qualification_index_sha256']=pending[-1]['index_sha256'] if pending else None
+        row['discovery_scope']='observed public board; only versioned, individually attested IDs can publish'
     before={j['job_id']:j for j in plan['sources'][0]['jobs']}
     if not results or 'summary' not in results[-1].get('result',{}):return row
     result=results[-1]['result'];summary=result['summary'];state=result['after'];run=state.get('latest_run') or {}
@@ -180,9 +188,9 @@ def summarize_source(plan,report,started,ended):
     valid=(row['requests_used']>0 and not summary['used_sample_data'] and run.get('status') in ('success','partial')
         and summary['normalized_record_count']==summary['jobs_found']
         and summary['raw_record_count']==summary['normalized_record_count']+summary['rejected_record_count']+summary.get('filtered_record_count',0))
-    qualifies=valid and (bool(good) if provider in ('mercor','dataannotation','dataforce','handshake','surge') else
+    qualifies=valid and (bool(good) if provider in ('mercor','dataannotation','dataforce','handshake','surge','outlier') else
         summary['snapshot_complete'] and summary['pagination_complete'] and run.get('status')=='success')
-    row.update(qualifying_observation=bool(qualifies),outcome=('partial_individual' if provider in ('mercor','dataannotation','dataforce','handshake','surge') else 'complete') if qualifies else 'partial_or_failed',
+    row.update(qualifying_observation=bool(qualifies),outcome=('partial_individual' if provider in ('mercor','dataannotation','dataforce','handshake','surge','outlier') else 'complete') if qualifies else 'partial_or_failed',
         observed=summary['jobs_found'],new=summary['jobs_new'],confirmed_closed=summary['jobs_removed'])
     surfaces=[e['data'] for e in events if e['event']=='source_transport' and e['data'].get('event')=='surface_counts']
     surface=surfaces[-1] if surfaces else {}
