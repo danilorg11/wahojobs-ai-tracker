@@ -92,6 +92,18 @@ class ControlledObservationScope(unittest.TestCase):
                     with policy.observed_dataforce_details((bad,)):
                         pass
 
+    def test_outlier_new_detail_scope_requires_current_index_identity(self):
+        url='https://app.outlier.ai/internal/experts/job-board/jobs/9999999999'
+        with policy.observed_outlier_details((url,),index_ids={9999999999}):
+            with policy.daily_source('outlier'):
+                policy.validate_request(Request(url))
+        for bad in (url+'?next=1',
+                    'https://example.org/internal/experts/job-board/jobs/9999999999',
+                    'https://app.outlier.ai/internal/experts/job-board/jobs/9999999998'):
+            with self.assertRaises(ValueError):
+                with policy.observed_outlier_details((bad,),index_ids={9999999999}):
+                    pass
+
     def test_rejected_dataannotation_route_does_not_skip_independent_fixed_page(self):
         pages = (da.DataAnnotationDomain('generalist', 'Generalist', 'Generalist'),
                  da.DataAnnotationDomain('coding', 'Coding', 'Coding'))

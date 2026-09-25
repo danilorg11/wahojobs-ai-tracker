@@ -244,7 +244,7 @@ def record_surface_counts(*, upstream_records, upstream_unit, variants, filtered
 
 
 def record_pending_qualification_ids(*, source, identities, index_sha256):
-    """Retain unsupported public-board identities in the existing source journal."""
+    """Retain identities without a qualifying detail in this run's source journal."""
     budget = _REQUEST_BUDGET.get()
     if budget is not None and budget.audit_sink is not None:
         budget.audit_sink(dict(event='pending_qualification', source=source,

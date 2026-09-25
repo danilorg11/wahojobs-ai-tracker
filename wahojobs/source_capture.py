@@ -29,9 +29,11 @@ DATAANNOTATION_CODING_RECORD_CONTRACT_ID = "dataannotation_coding_evergreen_reco
 DATAANNOTATION_ROLE_RECORD_CONTRACT_ID = "dataannotation_evergreen_role_record_v2"
 DATAANNOTATION_ROLES_SHAPE = "dataannotation_evergreen_roles_v2"
 DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID = "dataforce_index_detail_record_v1"
+DATAFORCE_THYME_FAMILY_RECORD_CONTRACT_ID = "dataforce_thyme_index_detail_family_v2"
 SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID = "surge_remote_workforce_record_v1"
 HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID = "handshake_public_cms_record_v1"
 OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID = "outlier_index_detail_record_v1"
+OUTLIER_ROLE_FAMILY_RECORD_CONTRACT_ID = "outlier_index_detail_role_family_v2"
 PROVIDER_DETAIL_PROMOTION_POLICY_VERSION = "provider_detail_content_promotion_v1"
 MERCOR_DETAIL_PROMOTION_POLICY_VERSION = "mercor_detail_content_promotion_v2"
 SOURCE_CAPTURE_EVIDENCE_VERSION = "job_source_capture_evidence_v1"
@@ -605,11 +607,12 @@ def _validate_dataannotation_role_record_v2(
 
 
 def _validate_dataforce_index_detail_record_v1(
-    attestation, candidate, prepared, context, *, provider, source_type,
+    attestation, candidate, prepared, context, *, provider, source_type, general=False,
 ):
     from wahojobs.classification import AVAILABILITY_BASIS_PUBLIC_PAGE, OPPORTUNITY_KIND_LIVE_POSTING
     from wahojobs.crawler.providers.dataforce import (
         parse_job_block, detail_role_evidence, QUALIFIED_DETAIL_PATHS,
+        supported_thyme_family,
     )
     evidence = json.loads(attestation.authority_evidence_json)
     metadata = json.loads(prepared.metadata_json)
@@ -637,7 +640,9 @@ def _validate_dataforce_index_detail_record_v1(
             or evidence["index_page_sha256"] != metadata["index_page_sha256"]
             or evidence["application_url"] != metadata["application_url"]
             or not re.fullmatch(r"[a-f0-9]{64}", str(evidence["index_page_sha256"]))
-            or urlparse(candidate.url).path not in QUALIFIED_DETAIL_PATHS):
+            or (general and (attestation.contract_id!=DATAFORCE_THYME_FAMILY_RECORD_CONTRACT_ID
+                or urlparse(candidate.url).path in QUALIFIED_DETAIL_PATHS))
+            or (not general and urlparse(candidate.url).path not in QUALIFIED_DETAIL_PATHS)):
         raise ValueError("DataForce index/detail record authority is inconsistent.")
     card = metadata["index_card_html"]
     if (not isinstance(card, str) or not card
@@ -651,8 +656,16 @@ def _validate_dataforce_index_detail_record_v1(
                 candidate.location, candidate.commitment, candidate.department, candidate.expertise)
             or not set((index.source_metadata or {}).items()) <= set(metadata.items())):
         raise ValueError("DataForce exact index card disagrees with the record.")
-    if detail_role_evidence(index, prepared.body) != evidence["application_url"]:
+    if (general and not supported_thyme_family(index)
+            or detail_role_evidence(index, prepared.body, general=general) != evidence["application_url"]):
         raise ValueError("DataForce detail and application authority disagree.")
+
+
+def _validate_dataforce_thyme_family_record_v2(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    return _validate_dataforce_index_detail_record_v1(attestation,candidate,prepared,
+        context,provider=provider,source_type=source_type,general=True)
 
 
 def _validate_surge_remote_workforce_record_v1(
@@ -822,9 +835,11 @@ def _validate_handshake_public_cms_record_v1(
 
 
 def _validate_outlier_index_detail_record_v1(
-    attestation, candidate, prepared, context, *, provider, source_type,
+    attestation, candidate, prepared, context, *, provider, source_type, general=False,
 ):
-    from wahojobs.crawler.providers.outlier import parse_index, qualify_index_detail, PUBLIC_PAGE_CHUNK_SHA256
+    from wahojobs.crawler.providers.outlier import (parse_index, qualify_index_detail,
+        PUBLIC_PAGE_CHUNK_SHA256, GENERAL_CONTRACT_ID)
+    from wahojobs.daily_source_policy import OUTLIER_V1_IDS
 
     evidence = json.loads(attestation.authority_evidence_json)
     metadata = json.loads(prepared.metadata_json)
@@ -850,6 +865,8 @@ def _validate_outlier_index_detail_record_v1(
             or context.raw_record_count < context.candidate_count
             or context.payload_shape != OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID
             or context.schema_fingerprint != OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID
+            or (general and (attestation.contract_id != GENERAL_CONTRACT_ID
+                             or int(candidate.external_id) in OUTLIER_V1_IDS))
             or candidate.include_in_live_market_estimate is not False
             or evidence['id'] != row.get('id')
             or evidence['index_sha256'] != hashlib.sha256(index_payload.encode()).hexdigest()
@@ -863,7 +880,7 @@ def _validate_outlier_index_detail_record_v1(
     indexed = [item for item in parse_index(index_payload) if item.get('id') == evidence['id']]
     if len(indexed) != 1 or indexed[0] != row:
         raise ValueError('Outlier exact index row is not attested.')
-    parsed = qualify_index_detail(row, detail, index_payload)
+    parsed = qualify_index_detail(row, detail, index_payload, general=general)
     fields = ('external_id', 'title', 'location', 'url', 'department', 'expertise',
               'opportunity_kind', 'availability_basis', 'include_in_live_market_estimate')
     if (any(getattr(parsed, key) != getattr(candidate, key) for key in fields)
@@ -871,6 +888,13 @@ def _validate_outlier_index_detail_record_v1(
             or parsed.source_metadata != metadata
             or parsed.record_promotion_attestation.authority_evidence != evidence):
         raise ValueError('Outlier source record and candidate disagree.')
+
+
+def _validate_outlier_index_detail_record_v2(
+    attestation, candidate, prepared, context, *, provider, source_type,
+):
+    return _validate_outlier_index_detail_record_v1(attestation, candidate, prepared,
+        context, provider=provider, source_type=source_type, general=True)
 
 
 def _validate_provider_detail_content_v1(attestation, candidate, prepared, context, *, provider, source_type):
@@ -1223,9 +1247,11 @@ def decide_source_promotion_v2(
     if record_attestation.contract_id in {
         DATAANNOTATION_CODING_RECORD_CONTRACT_ID, DATAANNOTATION_ROLE_RECORD_CONTRACT_ID,
         DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID,
+        DATAFORCE_THYME_FAMILY_RECORD_CONTRACT_ID,
         SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID,
         HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID,
         OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID,
+        OUTLIER_ROLE_FAMILY_RECORD_CONTRACT_ID,
     }:
         reasons = []
         if context.used_sample_data:
@@ -1473,9 +1499,11 @@ RECORD_PROMOTION_CONTRACT_VALIDATORS = {
     DATAANNOTATION_CODING_RECORD_CONTRACT_ID: _validate_dataannotation_coding_record_v1,
     DATAANNOTATION_ROLE_RECORD_CONTRACT_ID: _validate_dataannotation_role_record_v2,
     DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_dataforce_index_detail_record_v1,
+    DATAFORCE_THYME_FAMILY_RECORD_CONTRACT_ID: _validate_dataforce_thyme_family_record_v2,
     SURGE_REMOTE_WORKFORCE_RECORD_CONTRACT_ID: _validate_surge_remote_workforce_record_v1,
     HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID: _validate_handshake_public_cms_record_v1,
     OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_outlier_index_detail_record_v1,
+    OUTLIER_ROLE_FAMILY_RECORD_CONTRACT_ID: _validate_outlier_index_detail_record_v2,
     SUPPLEMENTAL_CONTRACT: validate_supplemental,
     "meridial_greenhouse_record_v1": _validate_meridial_greenhouse_record_v1,
     "mercor_public_active_record_v1": _validate_mercor_public_active_record_v1,

@@ -174,11 +174,14 @@ def summarize_source(plan,report,started,ended):
     pending=[e['data'] for e in events if e['event']=='source_transport'
              and e['data'].get('event')=='pending_qualification'
              and e['data'].get('source')==provider]
-    if provider=='outlier':
+    if provider in ('outlier','dataforce'):
         row['pending_qualification_ids']=pending[-1]['identities'] if pending else []
         row['pending_qualification_count']=len(row['pending_qualification_ids'])
         row['pending_qualification_index_sha256']=pending[-1]['index_sha256'] if pending else None
-        row['discovery_scope']='observed public board; only versioned, individually attested IDs can publish'
+        row['pending_qualification_scope']='identities without a qualifying detail in this run; prior qualification is not inferred'
+        row['discovery_scope']=('observed public board; only versioned, individually attested IDs can publish'
+            if provider=='outlier' else
+            'observed public project index; only exact remote Thyme AI-writing family records with attested details can publish')
     before={j['job_id']:j for j in plan['sources'][0]['jobs']}
     if not results or 'summary' not in results[-1].get('result',{}):return row
     result=results[-1]['result'];summary=result['summary'];state=result['after'];run=state.get('latest_run') or {}

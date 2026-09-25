@@ -25,7 +25,7 @@ LEFT JOIN job_source_content_captures record_observation
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
       OR (c.slug = 'dataforce' AND sc.source_type = 'dataforce-community-html'
-        AND sc.record_promotion_contract_id = 'dataforce_index_detail_record_v1'
+        AND sc.record_promotion_contract_id IN ('dataforce_index_detail_record_v1', 'dataforce_thyme_index_detail_family_v2')
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
       OR (c.slug = 'surge' AND sc.source_type = 'public-worker-pages'
@@ -37,7 +37,7 @@ LEFT JOIN job_source_content_captures record_observation
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial')
       OR (c.slug = 'outlier' AND sc.source_type = 'outlier-job-board'
-        AND sc.record_promotion_contract_id = 'outlier_index_detail_record_v1'
+        AND sc.record_promotion_contract_id IN ('outlier_index_detail_record_v1', 'outlier_index_detail_role_family_v2')
         AND sc.promotion_policy_version = 'job_source_promotion_v2'
         AND sc.promotion_decision IN ('promoted', 'confirmed') AND sc.provider_outcome = 'partial'))
       AND sc.used_sample_data = 0

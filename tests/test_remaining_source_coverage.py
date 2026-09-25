@@ -1,5 +1,6 @@
 """Isolated contract fixtures. These are not retained employer responses."""
 import unittest
+from http.client import IncompleteRead
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -38,11 +39,13 @@ class RemainingSourceBoundaries(unittest.TestCase):
 
     def test_dataforce_daily_rotation_stays_in_index_and_does_not_starve_known_roles(self):
         known = [SimpleNamespace(url='https://dataforcecommunity.transperfect.com'+path,
-                    title='Thyme', commitment='Remote')
+                    title='Thyme', commitment='Remote',
+                    external_id='dataforce::'+path.lstrip('/'), source_metadata={})
                  for path in sorted(dataforce.QUALIFIED_DETAIL_PATHS)]
         backlog = [SimpleNamespace(
             url=f'https://dataforcecommunity.transperfect.com/project/other-{i}',
-            title=f'Other {i}', commitment='Remote') for i in range(12)]
+            title=f'Other {i}', commitment='Remote',
+            external_id=f'dataforce::project/other-{i}', source_metadata={}) for i in range(12)]
         excluded = SimpleNamespace(
             url='https://dataforcecommunity.transperfect.com/study/onsite',
             title='Onsite collection', commitment='On Site')
@@ -54,16 +57,19 @@ class RemainingSourceBoundaries(unittest.TestCase):
                          set(map(id, backlog)))
         reduced = [dataforce.select_daily_detail_pages(jobs, 7, 739883+i)
                    for i in range(8)]
-        self.assertEqual(set(map(id, sum(reduced, []))), set(map(id, known)))
+        self.assertTrue(set(map(id, known)) <= set(map(id, sum(reduced, []))))
+        self.assertTrue(all(any(job in backlog for job in day) for day in reduced))
         self.assertEqual(dataforce.select_daily_detail_pages(jobs, 0, 739883), [])
 
     def test_dataforce_failed_exploratory_detail_keeps_known_records(self):
         known = [SimpleNamespace(url='https://dataforcecommunity.transperfect.com'+path,
-                    title='Thyme', commitment='Remote')
+                    title='Thyme', commitment='Remote',
+                    external_id='dataforce::'+path.lstrip('/'), source_metadata={})
                  for path in sorted(dataforce.QUALIFIED_DETAIL_PATHS)]
         extra = SimpleNamespace(
             url='https://dataforcecommunity.transperfect.com/project/new-remote',
-            title='New remote', commitment='Remote')
+            title='New remote', commitment='Remote',
+            external_id='dataforce::project/new-remote', source_metadata={})
         def fetch(url):
             if url == extra.url:
                 raise TimeoutError('inspection-only timeout')
@@ -75,9 +81,26 @@ class RemainingSourceBoundaries(unittest.TestCase):
         self.assertEqual(qualified, known)
         self.assertEqual((requested, failures, known_failures), (9, 1, 0))
 
+    def test_dataforce_truncated_detail_keeps_sibling_records(self):
+        known = [SimpleNamespace(url='https://dataforcecommunity.transperfect.com'+path,
+                    title='Thyme', commitment='Remote',
+                    external_id='dataforce::'+path.lstrip('/'), source_metadata={})
+                 for path in sorted(dataforce.QUALIFIED_DETAIL_PATHS)]
+        def fetch(url):
+            if url==known[2].url:
+                raise IncompleteRead(b'partial')
+            return '<html>known detail</html>'
+        with patch.object(dataforce,'remaining_http_requests',return_value=8), \
+                patch.object(dataforce,'fetch_page',side_effect=fetch), \
+                patch.object(dataforce,'qualify_detail_record',side_effect=lambda job,page:job):
+            qualified,requested,inspections,verifications=dataforce.collect_index_linked_details(known)
+        self.assertEqual(len(qualified),7)
+        self.assertEqual((requested,inspections,verifications),(8,0,1))
+
     def test_dataforce_failed_known_detail_does_not_renew_its_variant_or_siblings_absence(self):
         known = [SimpleNamespace(url='https://dataforcecommunity.transperfect.com'+path,
-                    title='Thyme', commitment='Remote')
+                    title='Thyme', commitment='Remote',
+                    external_id='dataforce::'+path.lstrip('/'), source_metadata={})
                  for path in sorted(dataforce.QUALIFIED_DETAIL_PATHS)]
         failed = known[3]
         def fetch(url):

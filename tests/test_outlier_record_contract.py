@@ -112,7 +112,7 @@ class OutlierRecordContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             outlier.parse_index('{"jobs":[],"error":"access denied"}')
 
-    def test_unreviewed_board_identity_is_journaled_but_never_qualified(self):
+    def test_unverified_new_board_identity_stays_pending(self):
         index=json.loads(self.index)
         unseen=dict(index['jobs'][0], id=9999999999,
                     absolute_url='https://app.outlier.ai/opportunities/9999999999')
@@ -126,7 +126,7 @@ class OutlierRecordContractTests(unittest.TestCase):
         with refresh_request_budget(http_limit=9,audit_sink=events.append), patch.object(
                 outlier,'_read_json',side_effect=read):
             result=crawl_outlier(OUTLIER_API_URL)
-        self.assertEqual(len(result.jobs),8)
+        self.assertEqual(len(result.jobs),7)
         self.assertEqual(result.raw_record_count,9)
         self.assertFalse(any(job.external_id=='9999999999' for job in result.jobs))
         pending=[event for event in events if event['event']=='pending_qualification']
@@ -139,6 +139,56 @@ class OutlierRecordContractTests(unittest.TestCase):
             config=dict(providers=['outlier']),sources=[dict(jobs=[])]),report,at,at)
         self.assertEqual(row['pending_qualification_ids'],[9999999999])
         self.assertEqual(row['pending_qualification_count'],1)
+
+    def test_fixture_new_evidenced_family_promotes_and_later_rechecks(self):
+        # Synthetic extension of the captured Android family; it is not a
+        # claim that this new language is currently offered by the employer.
+        index=json.loads(self.index)
+        fresh=dict(index['jobs'][0],id=9999999999,
+            title='Android AI Evaluator - German',
+            absolute_url='https://app.outlier.ai/opportunities/9999999999')
+        index['jobs'].append(fresh);index['totalCount']+=1
+        source_detail=self.details[index['jobs'][0]['id']]
+        detail=dict(source_detail,id=fresh['id'],title=fresh['title'],
+            absolute_url=fresh['absolute_url'],signupFlowId='newGermanFlow001')
+        payload=json.dumps(index)
+        events=[]
+        def read(request):
+            if request.full_url==OUTLIER_API_URL:return payload
+            identity=int(request.full_url.rsplit('/',1)[-1])
+            return json.dumps(detail if identity==fresh['id'] else self.details[identity])
+        with refresh_request_budget(http_limit=9,audit_sink=events.append), patch.object(
+                outlier,'_read_json',side_effect=read):
+            result=crawl_outlier(OUTLIER_API_URL)
+        self.assertEqual(len(result.jobs),8)
+        new=next(job for job in result.jobs if job.external_id==str(fresh['id']))
+        self.assertEqual(new.record_promotion_attestation.contract_id,
+            outlier.GENERAL_CONTRACT_ID)
+        self.assertEqual([e['identities'] for e in events if e['event']=='pending_qualification'],[[]])
+        context=SourceCaptureContext.from_crawl_result(1,result)
+        prepared=prepare_source_capture(new)
+        attested=prepare_record_promotion_attestation(new,prepared,context,
+            provider='outlier',source_type=result.source_type)
+        self.assertEqual(decide_source_promotion_v2(prepared,context,None,
+            record_attestation=attested).decision,PROMOTION_DECISION_PROMOTED)
+        tampered=replace(new,source_metadata={**new.source_metadata,
+            'detail_record':{**detail,'signupFlowId':None}})
+        with self.assertRaises(ValueError):
+            prepare_record_promotion_attestation(tampered,prepare_source_capture(tampered),
+                context,provider='outlier',source_type=result.source_type)
+
+    def test_new_detail_slot_rotates_without_starving_known_ids(self):
+        rows=json.loads(self.index)['jobs']
+        extras=[dict(rows[0],id=9999999990+i,
+            absolute_url=f'https://app.outlier.ai/opportunities/{9999999990+i}')
+            for i in range(3)]
+        covered=set()
+        for day in range(8):
+            chosen=outlier.select_daily_rows(rows+extras,8,day)
+            self.assertEqual(len(chosen),8)
+            self.assertEqual(sum(row['id'] in outlier.OUTLIER_V1_IDS for row in chosen),7)
+            covered.update(row['id'] for row in chosen)
+        self.assertEqual(covered,{row['id'] for row in rows+extras})
 
     def test_real_capture_to_isolated_catalog_and_repeat(self):
         with tempfile.TemporaryDirectory() as temp:

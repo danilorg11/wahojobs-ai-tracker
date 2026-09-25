@@ -12,7 +12,8 @@ from wahojobs.crawler.companies.dataforce import crawl_dataforce
 from wahojobs.crawler.providers.dataannotation import (
     DOMAIN_PAGES, coding_role_evidence, fetch_dataannotation_jobs, parse_domain_page,
 )
-from wahojobs.crawler.providers.dataforce import validate_pagination, detail_role_evidence
+from wahojobs.crawler.providers.dataforce import (validate_pagination, detail_role_evidence,
+    parse_jobs_page, qualify_detail_record, GENERAL_CONTRACT_ID)
 from wahojobs.crawler.types import CompanyCrawlResult, JobCandidate, ProviderOutcome
 from wahojobs.db.connection import get_connection
 from wahojobs.db.repository import create_crawl_run, finish_crawl_run, insert_job, install_base_schema
@@ -209,6 +210,60 @@ class ExactRoleEvidenceTests(unittest.TestCase):
             detail_role_evidence(replace(index, location='United States'), detail)
         with self.assertRaises(ValueError):
             detail_role_evidence(replace(index, title='Thyme Freelance Writer - English (US)'), detail)
+
+    def test_dataforce_new_thyme_family_requires_exact_card_detail_and_application(self):
+        # Labelled synthetic extension of the retained Thyme card/detail structure.
+        slug='thyme-freelance-writer-portuguese-brazil'
+        title='Thyme Freelance Writer - Portuguese (Brazil)'
+        url='https://dataforcecommunity.transperfect.com/project/'+slug
+        card=(f'<div class="views-field views-field-title"><h2 class="field-content">{title}</h2></div>'
+              '<div class="views-field views-field-nothing"><span class="field-content">'
+              '<P><strong>Category</strong><br>text</p>'
+              '<P><strong>Type</strong><br>Remote</p>'
+              '<P><strong>Country</strong><br>Brazil</p>'
+              '<P><strong>City</strong><br></p></span></div>'
+              f'<a href="/project/{slug}">Preview Job</a>')
+        page='<div class="views-row">'+card
+        index=parse_jobs_page(page,'https://dataforcecommunity.transperfect.com/projects')[0]
+        self.assertEqual((index.location,index.commitment,index.department),('Brazil','Remote','Text'))
+        detail=(f'<link rel="canonical" href="{url}"><div class="field--name-body">'
+                f'<h1>{title}</h1>Seeking freelance short story writers. '
+                'This is a fully remote project using machine translation technology. '
+                '<a href="https://hub.transperfect.com/?registration-type=PortBR1234">Apply Here</a>')
+        candidate=qualify_detail_record(index,detail,general=True)
+        self.assertEqual(candidate.record_promotion_attestation.contract_id,GENERAL_CONTRACT_ID)
+        result=CompanyCrawlResult([candidate],False,'synthetic extension','dataforce-community-html',
+            outcome=ProviderOutcome.PARTIAL,raw_record_count=1,normalized_record_count=1,
+            payload_shape='dataforce_index_detail_record_v1',
+            schema_fingerprint='dataforce_index_detail_record_v1')
+        context=SourceCaptureContext.from_crawl_result(1,result)
+        prepared=prepare_source_capture(candidate)
+        prepare_record_promotion_attestation(candidate,prepared,context,
+            provider='dataforce',source_type=result.source_type)
+        from wahojobs.public_jobs_catalog import load_public_jobs
+        with tempfile.TemporaryDirectory() as directory:
+            conn=get_connection(Path(directory)/'new-thyme.sqlite3')
+            try:
+                install_base_schema(conn)
+                company=conn.execute("INSERT INTO companies(name,slug,careers_url,source_tier,inventory_model,market_count_policy) "
+                    "VALUES('DataForce','dataforce','https://dataforcecommunity.transperfect.com/projects',"
+                    "'core','live_feed','count_live')").lastrowid
+                for _ in range(2):
+                    run=create_crawl_run(conn,company,AT)
+                    summary=track_crawl_result(conn,company,run,result,AT,model_enrichment=False)
+                    finish_crawl_run(conn,run,summary,AT,status='partial',error_message='partial')
+                catalog=[row for row in load_public_jobs(conn,now=datetime.fromisoformat(AT))
+                    if row['company_slug']=='dataforce']
+                self.assertEqual(len(catalog),1)
+                self.assertEqual(catalog[0]['official_url'],url)
+                self.assertEqual(conn.execute("SELECT count(*) FROM jobs WHERE company_id=?",(company,)).fetchone()[0],1)
+            finally:
+                conn.close()
+        for changed in (detail.replace('PortBR1234',''),detail.replace(title,'Unrelated role'),
+                        detail.replace(url,'https://example.org/other'),
+                        detail.replace('PortBR1234','PortBR1234&amp;redirect=')):
+            with self.assertRaises(ValueError):
+                qualify_detail_record(index,changed,general=True)
 
     def test_dataannotation_new_role_requires_its_own_canonical_evidence(self):
         domain = next(page for page in DOMAIN_PAGES if page.slug == 'generalist')

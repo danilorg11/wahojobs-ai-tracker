@@ -1,12 +1,14 @@
 import html
 import hashlib
+from http.client import HTTPException
 import re
 from dataclasses import replace
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request
-from wahojobs.crawler.local_inventory import open_public as urlopen, remaining_http_requests
+from wahojobs.crawler.local_inventory import (open_public as urlopen,
+    remaining_http_requests, record_pending_qualification_ids)
 from wahojobs.daily_source_policy import observed_dataforce_details, controlled_validation_active
 
 from wahojobs.classification import AVAILABILITY_BASIS_PUBLIC_PAGE, OPPORTUNITY_KIND_LIVE_POSTING
@@ -30,6 +32,7 @@ _THYME_APPLICATION_TOKENS = {
     '/project/thyme-freelance-writer-english-us': 'VYqE5ySEMk',
 }
 QUALIFIED_DETAIL_PATHS = frozenset(_THYME_APPLICATION_TOKENS)
+GENERAL_CONTRACT_ID = 'dataforce_thyme_index_detail_family_v2'
 _THYME_IDENTITIES = {
     '/project/thyme-freelance-writer-spanish-us': ('Thyme Freelance Writer - Spanish (US)', 'United States'),
     '/project/thyme-freelance-writer-korean': ('Thyme Freelance Writer - Korean (South Korea)', 'Korea Republic'),
@@ -119,13 +122,42 @@ def collect_index_linked_details(jobs):
                     raise ValueError('DataForce inspection detail is unrelated to index.')
                 if known:
                     qualified.append(qualify_detail_record(job, page))
-            except (HTTPError, URLError, TimeoutError, RuntimeError, ValueError):
+                elif supported_thyme_family(job):
+                    qualified.append(qualify_detail_record(job, page, general=True))
+            except (HTTPError, URLError, TimeoutError, RuntimeError, ValueError,
+                    OSError, HTTPException):
                 if known:
                     verification_failures += 1
                 else:
                     inspection_failures += 1
                 continue
+    accepted={job.external_id for job in qualified}
+    pending={job.external_id for job in jobs if job.external_id not in accepted
+        and urlparse(job.url).path not in QUALIFIED_DETAIL_PATHS
+        and job.commitment == 'Remote'
+        and 'minor' not in job.title.casefold() and 'menor' not in job.title.casefold()}
+    pages=sorted({(job.source_metadata or {}).get('index_page_url','')+'|'+
+                  (job.source_metadata or {}).get('index_page_sha256','') for job in jobs})
+    record_pending_qualification_ids(source='dataforce',identities=pending,
+        index_sha256=hashlib.sha256('\n'.join(pages).encode()).hexdigest())
     return qualified, len(urls), inspection_failures, verification_failures
+
+
+def supported_thyme_family(index_job):
+    """Only the evidenced remote Thyme AI-writing family can gain V2 authority."""
+    path=urlparse(index_job.url)
+    return (path.scheme=='https' and path.netloc=='dataforcecommunity.transperfect.com'
+        and re.fullmatch(r'/project/thyme-freelance-writer-[a-z0-9-]+',path.path) is not None
+        and not path.query and not path.fragment
+        and index_job.external_id=='dataforce::'+path.path.lstrip('/')
+        and index_job.title.startswith('Thyme Freelance Writer - ')
+        and index_job.commitment=='Remote'
+        and index_job.department=='Text' and index_job.expertise=='Text'
+        and isinstance(index_job.location,str) and bool(index_job.location.strip())
+        and (index_job.source_metadata or {}).get('Country') == index_job.location
+        and (index_job.source_metadata or {}).get('Type') == 'Remote'
+        and 'minor' not in index_job.title.casefold()
+        and 'menor' not in index_job.title.casefold())
 
 
 def inspection_detail_matches_index(job, detail_html):
@@ -140,42 +172,60 @@ def inspection_detail_matches_index(job, detail_html):
 
 
 def select_daily_detail_pages(jobs, slots, day_ordinal):
-    """Refresh attested roles, then rotate other remote cards for review only.
+    """Refresh historical roles and rotate new Thyme and exploratory cards.
 
     The rotation is deterministic for a UTC day and uses no new queue or
-    unseen endpoint. An inspected card gains no publication authority until
-    its own source-specific contract is implemented and accepted.
+    unseen endpoint. Non-Thyme inspected cards remain pending only.
     """
     if type(slots) is not int or slots < 0 or type(day_ordinal) is not int:
         raise ValueError('DataForce detail rotation bounds are invalid.')
     known = [job for job in jobs if urlparse(job.url).path in QUALIFIED_DETAIL_PATHS]
-    if slots < len(known):
-        start = (day_ordinal * slots) % len(known)
-        selected = [known[(start + offset) % len(known)] for offset in range(slots)]
-    else:
-        selected = known[:]
-    spaces = slots - len(selected)
     backlog = [job for job in jobs if job not in known
         and job.commitment == 'Remote'
         and 'minor' not in job.title.casefold()
         and 'menor' not in job.title.casefold()
         and 'onsite' not in job.title.casefold()
         and 'on site' not in job.title.casefold()]
-    if spaces and backlog:
-        start = (day_ordinal * spaces) % len(backlog)
-        selected.extend(backlog[(start + offset) % len(backlog)]
-                        for offset in range(min(spaces, len(backlog))))
+    reserve=1 if backlog and (slots>1 or slots==1 and day_ordinal%2==1) else 0
+    known_slots=min(len(known),slots-reserve)
+    selected=([known[(day_ordinal*known_slots+offset)%len(known)] for offset in range(known_slots)]
+              if known_slots<len(known) else known[:])
+    spaces=slots-len(selected)
+    family=[job for job in backlog if supported_thyme_family(job)]
+    other=[job for job in backlog if job not in family]
+    def add_rotated(pool,count):
+        if not pool or count<=0:return
+        start=(day_ordinal*count) % len(pool)
+        for offset in range(len(pool)):
+            job=pool[(start+offset)%len(pool)]
+            if job not in selected:
+                selected.append(job)
+                count-=1
+            if count<=0 or len(selected)>=slots:return
+    if family and other:
+        if spaces==1:
+            add_rotated(family if day_ordinal%2==0 else other,1)
+        else:
+            add_rotated(family,(spaces+1)//2)
+            add_rotated(other,spaces//2)
+            add_rotated(family,slots-len(selected))
+            add_rotated(other,slots-len(selected))
+    else:
+        add_rotated(family or other,spaces)
     return selected
 
 
-def detail_role_evidence(index_job, detail_html):
+def detail_role_evidence(index_job, detail_html, *, general=False):
     """Match an indexed Thyme writing role to its public application page."""
     parsed = urlparse(index_job.url)
     if (parsed.scheme != 'https' or parsed.netloc != 'dataforcecommunity.transperfect.com'
-            or parsed.path not in QUALIFIED_DETAIL_PATHS or parsed.query or parsed.fragment
+            or (not general and parsed.path not in QUALIFIED_DETAIL_PATHS)
+            or (general and (parsed.path in QUALIFIED_DETAIL_PATHS
+                or not supported_thyme_family(index_job)))
+            or parsed.query or parsed.fragment
             or index_job.external_id != 'dataforce::' + parsed.path.lstrip('/')
             or index_job.commitment != 'Remote'
-            or (index_job.title, index_job.location) != _THYME_IDENTITIES.get(parsed.path)
+            or (not general and (index_job.title, index_job.location) != _THYME_IDENTITIES.get(parsed.path))
             or index_job.department != 'Text' or index_job.expertise != 'Text'
             or 'minor' in index_job.title.casefold()):
         raise ValueError('DataForce index role is outside the qualified scope.')
@@ -197,20 +247,21 @@ def detail_role_evidence(index_job, detail_html):
     for href in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>\s*Apply Here\s*</a>', detail_html, re.I | re.S):
         application = ''.join(html.unescape(href).split())
         target = urlparse(application)
-        query = parse_qs(target.query)
+        query = parse_qs(target.query, keep_blank_values=True)
         token = query.get('registration-type', [])
         if (target.scheme == 'https' and target.netloc == 'hub.transperfect.com'
                 and target.path in ('/', '/registration') and not target.fragment
                 and set(query) == {'registration-type'} and len(token) == 1
-                and token[0] == _THYME_APPLICATION_TOKENS[parsed.path]):
+                and (re.fullmatch(r'[A-Za-z0-9_-]{8,80}',token[0]) if general
+                     else token[0] == _THYME_APPLICATION_TOKENS[parsed.path])):
             links.append(application.rstrip('&'))
     if not links or len(set(links)) != 1:
         raise ValueError('DataForce role-bound application action is missing or conflicting.')
     return links[0]
 
 
-def qualify_detail_record(index_job, detail_html):
-    application = detail_role_evidence(index_job, detail_html)
+def qualify_detail_record(index_job, detail_html, *, general=False):
+    application = detail_role_evidence(index_job, detail_html, general=general)
     metadata = dict(index_job.source_metadata or {})
     required = {'index_card_html', 'index_page_url', 'index_page_sha256'}
     if not required <= set(metadata):
@@ -223,7 +274,7 @@ def qualify_detail_record(index_job, detail_html):
         availability_basis=AVAILABILITY_BASIS_PUBLIC_PAGE,
         include_in_live_market_estimate=True,
         record_promotion_attestation=RecordPromotionAttestation(
-            contract_id='dataforce_index_detail_record_v1',
+            contract_id=GENERAL_CONTRACT_ID if general else 'dataforce_index_detail_record_v1',
             body_observation=BODY_OBSERVATION_PRESENT,
             authority_evidence={
                 'external_id': index_job.external_id,

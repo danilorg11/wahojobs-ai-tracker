@@ -50,7 +50,7 @@ POLICY = {
         ['GET https://dataforcecommunity.transperfect.com/projects',
          'GET https://dataforcecommunity.transperfect.com/projects?project_type=All&page=<1..19>',
          'GET up to remaining cap of exact index-linked https://dataforcecommunity.transperfect.com/(project|study)/<slug>'],
-        'Eight exact individually attested remote Thyme roles; remaining daily request slots rotate other remote index cards for inspection only. Partial source, no absence closure.'),
+        'Eight historical exact Thyme roles plus new remote Thyme AI-writing family records only when exact index/detail/application evidence attests each record; remaining slots rotate other remote index cards for inspection. Partial source, no absence closure.'),
     'handshake': entry(40, 120, 29,
         ['GET https://joinhandshake.com/ai/opportunities[/]',
          'GET page-linked https://framerusercontent.com/sites/<public module>.mjs',
@@ -76,8 +76,8 @@ POLICY = {
         'Stable X-WP-TotalPages and unique post IDs; each post may emit many language/application variants; cap before final page is incomplete.'),
     'outlier': entry(9, 60, 9,
         ['POST https://app.outlier.ai/internal/experts/job-board/jobs ; body {}',
-         'GET eight exact index-linked https://app.outlier.ai/internal/experts/job-board/jobs/<id>'],
-        'Eight captured IDs only, individually matched board/detail and role-bound signupFlowId; partial only, no absence closure.'),
+         'GET up to eight exact current-index-linked https://app.outlier.ai/internal/experts/job-board/jobs/<id>'],
+        'Individual board/detail and role-bound signupFlowId; four evidenced role families can admit new IDs, one rotating new-ID detail slot per cycle. Partial only, no absence closure.'),
     'rws': entry(1, 60, 1,
         ['GET https://api.lever.co/v0/postings/rws?mode=json&expand=location'],
         'Complete validated Lever list with existing TrainAI keyword filter and category transformation; excluded corporate postings counted separately.'),
@@ -132,15 +132,22 @@ def current_source():return _DAILY_SOURCE.get()
 
 
 @contextmanager
-def observed_outlier_details(urls):
+def observed_outlier_details(urls, *, index_ids=None):
     if type(urls) not in (tuple, list) or len(urls) > len(OUTLIER_V1_IDS) or len(urls) != len(set(urls)):
         raise ValueError('outlier_detail_scope_invalid')
+    if index_ids is None:
+        allowed = OUTLIER_V1_IDS
+    elif (type(index_ids) not in (set, frozenset, tuple, list) or len(index_ids)>1000
+            or any(type(identity) is not int or identity<=0 for identity in index_ids)):
+        raise ValueError('outlier_index_identity_scope_invalid')
+    else:
+        allowed = frozenset(index_ids)
     for url in urls:
         parsed = urlsplit(url)
         if (parsed.scheme != 'https' or parsed.netloc != 'app.outlier.ai'
                 or parsed.query or parsed.fragment or parsed.port
                 or re.fullmatch(r'/internal/experts/job-board/jobs/[1-9][0-9]*', parsed.path) is None
-                or int(parsed.path.rsplit('/', 1)[-1]) not in OUTLIER_V1_IDS):
+                or int(parsed.path.rsplit('/', 1)[-1]) not in allowed):
             raise ValueError('outlier_detail_scope_invalid')
     token = _OUTLIER_OBSERVED_DETAILS.set(frozenset(urls))
     try: yield

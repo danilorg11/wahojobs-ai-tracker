@@ -1,8 +1,10 @@
 """Exact public Outlier board and role-detail evidence."""
 
 import hashlib
+from http.client import HTTPException
 import json
 import re
+from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request
@@ -20,6 +22,7 @@ INDEX_URL = "https://app.outlier.ai/internal/experts/job-board/jobs"
 DETAIL_PREFIX = INDEX_URL + "/"
 PUBLIC_PREFIX = "https://app.outlier.ai/opportunities/"
 CONTRACT_ID = "outlier_index_detail_record_v1"
+GENERAL_CONTRACT_ID = "outlier_index_detail_role_family_v2"
 # Retained beta-host response-003.raw, the page-linked public role client.
 # It renders allowedCountries before location.name and gates Apply on signupFlowId.
 PUBLIC_PAGE_CHUNK_SHA256 = "4502c226c3025b82a7e04c99035da0a384f44a588a825482e16a3e303001e1f2"
@@ -90,13 +93,33 @@ def _countries(value):
             and len(value) == len(set(value)))
 
 
-def qualify_index_detail(row, detail, index_payload):
+def _supported_role_family(title, content):
+    """Families evidenced by the eight real index/detail pairs, not arbitrary AI text."""
+    body = content.casefold()
+    if title.startswith("Android AI Evaluator - "):
+        return "evaluate mobile ai experiences" in body
+    if title.startswith("Voice Conversation Evaluator"):
+        return "train generative ai voice models" in body
+    if title.endswith(" Educators"):
+        return "ai teaching assistant" in body
+    if title.startswith("General Inbound"):
+        return "express your interest" in body and "ai-training tasks" in body
+    return False
+
+
+def qualify_index_detail(row, detail, index_payload, *, general=False):
     """Match an indexed role to a public detail with a role-bound signup flow."""
     if not should_include_job(row):
         raise ValueError("Outlier exact public index identity is missing.")
+    if type(detail) is not dict:
+        raise ValueError("Outlier detail is not a record.")
     identity = row["id"]
     role_proof = QUALIFIED_ROLE_PROOFS.get(identity)
-    if (role_proof is None or row["title"].strip() != role_proof[0]
+    if general:
+        if role_proof is not None or not _supported_role_family(
+                row["title"].strip(), str(detail.get("content", ""))):
+            raise ValueError("Outlier role is outside the evidenced role families.")
+    elif (role_proof is None or row["title"].strip() != role_proof[0]
             or role_proof[1].casefold() not in str(detail.get("content", "")).casefold()):
         raise ValueError("Outlier role is outside the captured qualified scope.")
     if (type(detail) is not dict or detail.get("id") != identity
@@ -149,7 +172,8 @@ def qualify_index_detail(row, detail, index_payload):
         source_body=detail["content"], source_body_format="text/html",
         source_metadata=metadata,
         record_promotion_attestation=RecordPromotionAttestation(
-            contract_id=CONTRACT_ID, body_observation=BODY_OBSERVATION_PRESENT,
+            contract_id=GENERAL_CONTRACT_ID if general else CONTRACT_ID,
+            body_observation=BODY_OBSERVATION_PRESENT,
             authority_evidence={
                 "id": identity, "index_sha256": hashlib.sha256(index_payload.encode()).hexdigest(),
                 "detail_sha256": hashlib.sha256(json.dumps(detail, sort_keys=True,
@@ -159,27 +183,48 @@ def qualify_index_detail(row, detail, index_payload):
             }))
 
 
+def select_daily_rows(rows, slots, day_ordinal):
+    """Recheck seven established records and rotate one new board ID each day."""
+    if type(slots) is not int or not 0 <= slots <= 8 or type(day_ordinal) is not int:
+        raise ValueError("Outlier detail rotation bounds are invalid.")
+    eligible = [row for row in rows if should_include_job(row)]
+    known = [row for row in eligible if row['id'] in OUTLIER_V1_IDS]
+    unseen = [row for row in eligible if row['id'] not in OUTLIER_V1_IDS]
+    known.sort(key=lambda row: row['id'])
+    unseen.sort(key=lambda row: row['id'])
+    reserve = 1 if unseen and slots else 0
+    known_slots = min(len(known), slots-reserve)
+    selected = [known[(day_ordinal+offset) % len(known)] for offset in range(known_slots)]
+    remaining = slots-len(selected)
+    selected.extend(unseen[(day_ordinal+offset) % len(unseen)]
+                    for offset in range(min(remaining,len(unseen))))
+    return selected
+
+
 def fetch_outlier_jobs(api_url):
     if api_url != INDEX_URL:
         raise ValueError("Outlier endpoint differs from the reviewed public board.")
     index_payload = _read_json(Request(api_url, data=b"{}", headers=REQUEST_HEADERS, method="POST"))
     rows = parse_index(index_payload)
-    record_pending_qualification_ids(source='outlier',
-        identities={row['id'] for row in rows if type(row.get('id')) is int
-                    and row['id'] > 0 and row['id'] not in OUTLIER_V1_IDS},
-        index_sha256=hashlib.sha256(index_payload.encode()).hexdigest())
     remaining = remaining_http_requests()
-    slots = min(len(OUTLIER_V1_IDS), len(rows),
-                remaining if remaining is not None else len(OUTLIER_V1_IDS))
-    selected = [row for row in rows if should_include_job(row)
-                and row["id"] in QUALIFIED_ROLE_PROOFS][:slots]
+    slots = min(8, len(rows), remaining if remaining is not None else 8)
+    selected = select_daily_rows(rows, slots, datetime.now(timezone.utc).date().toordinal())
     candidates = []
-    with observed_outlier_details(tuple(DETAIL_PREFIX + str(row["id"]) for row in selected)):
+    with observed_outlier_details(tuple(DETAIL_PREFIX + str(row["id"]) for row in selected),
+                                  index_ids={row['id'] for row in rows}):
         for row in selected:
             try:
                 detail = json.loads(_read_json(Request(
                     DETAIL_PREFIX + str(row["id"]), headers=REQUEST_HEADERS)))
-                candidates.append(qualify_index_detail(row, detail, index_payload))
-            except (ValueError, TypeError, KeyError, HTTPError, URLError, TimeoutError, OSError):
+                candidates.append(qualify_index_detail(row, detail, index_payload,
+                    general=row['id'] not in OUTLIER_V1_IDS))
+            except (ValueError, TypeError, KeyError, HTTPError, URLError, TimeoutError,
+                    OSError, HTTPException):
                 continue
+    accepted = {int(job.external_id) for job in candidates}
+    record_pending_qualification_ids(source='outlier',
+        identities={row['id'] for row in rows if type(row.get('id')) is int
+                    and row['id'] > 0 and row['id'] not in OUTLIER_V1_IDS
+                    and row['id'] not in accepted},
+        index_sha256=hashlib.sha256(index_payload.encode()).hexdigest())
     return candidates, len(rows), len(selected)
