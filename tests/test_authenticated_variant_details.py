@@ -231,11 +231,11 @@ class AuthenticatedVariantDetailsTests(unittest.TestCase):
                     connections.remove(conn)
         self.f.integration._connection_provider = traced
         score = browser.profile_preview.matcher.score_opportunity
-        def scoped(profile, row):
+        def scoped(profile, row, **kwargs):
             self.assertEqual(row['canonical_opportunity_id'], 7002)
             self.assertFalse(any(c.in_transaction for c in connections))
             calls.append(row['job_id'])
-            return score(profile, row)
+            return score(profile, row, **kwargs)
         for target in ('/job/opportunity-7002?variant=7006', '/job/opportunity-7002'):
             calls.clear(); queries.clear()
             with (patch.object(browser.AuthenticatedProfileMatchesBrowserIntegration, '_load_inventory', side_effect=AssertionError('full catalog')),

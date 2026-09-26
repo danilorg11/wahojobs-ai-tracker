@@ -1808,7 +1808,8 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         if self._closed:
             raise ValueError('inventory_preparation_closed')
         self._load_public_jobs_inventory()
-        self._load_inventory()
+        rows, _ = self._load_inventory()
+        profile_preview.prepare_matching_features(rows)
 
     def _load_public_jobs_inventory(self):
         with self._public_jobs_cache_lock:
@@ -2418,6 +2419,14 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             return False
 
     def _load_inventory(self):
+        # Source preparation temporarily reads retained bodies for the whole
+        # inventory. Share the existing catalog lock so concurrent cold owners
+        # cannot materialize several copies beside the prepared catalog.
+        # Profile scoring stays outside this source-only critical section.
+        with self._public_jobs_cache_lock:
+            return self._read_matching_inventory()
+
+    def _read_matching_inventory(self):
         connection = None
         try:
             with self._connection_provider() as connection:

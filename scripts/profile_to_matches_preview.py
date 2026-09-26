@@ -596,17 +596,16 @@ def build_grouped_matches_from_rows(
     supported_specializations = specialization_evidence(profile)
     profile_fit_evidence = build_profile_fit_evidence(profile)
     evaluated_at = evaluated_at or datetime.now(timezone.utc)
+    from wahojobs.matching.evaluation_memo import VariantEvaluationMemo
+    evaluation = VariantEvaluationMemo(profile)
     scored = []
     for row in rows:
-        match = matcher.score_opportunity(profile, row)
-        match = apply_preview_guardrails(
-            profile,
-            row,
-            match,
+        match = evaluation.evaluate(
+            profile, row, matcher.score_opportunity, apply_semantic_guardrails,
             supported_specializations=supported_specializations,
             profile_fit_evidence=profile_fit_evidence,
-            evaluated_at=evaluated_at,
         )
+        match = complete_variant_guardrails(profile, row, match, evaluated_at=evaluated_at)
         if evaluated_match_sink is not None:
             try:
                 evaluated_match_sink(deepcopy(match))
@@ -632,6 +631,25 @@ def build_grouped_matches_from_rows(
             continue
         groups[section].append(match)
     return groups
+
+
+def prepare_matching_features(rows):
+    """Populate bounded, text-keyed role parsers before serving any account.
+
+    This contains no profile decisions or trust receipts. Changed text misses
+    the existing parser caches; expiry is still checked per variant/request.
+    """
+    from wahojobs.matching.domains import detect_role_domains
+    from wahojobs.matching.languages import find_language_mentions
+    from wahojobs.matching.specializations import specialization_requirements
+    for row in rows:
+        title = row['title'] or row['canonical_title'] or 'Untitled opportunity'
+        expertise = row['source_category'] or row['expertise'] or row['department'] or 'Unknown'
+        matcher.detect_role_match_features(matcher.quality_gate_text(row, title, expertise))
+        matcher.detect_role_match_features(matcher.structured_actionability_text(row))
+        detect_role_domains(row)
+        find_language_mentions(matcher.row_language_text(row))
+        specialization_requirements(title)
 
 
 def load_preview_rows(use_overlay: bool = True) -> tuple[list[dict], dict]:
@@ -691,6 +709,15 @@ def apply_preview_guardrails(
     profile_fit_evidence=None,
     evaluated_at: datetime | None = None,
 ) -> dict:
+    match = apply_semantic_guardrails(
+        profile, row, match, supported_specializations=supported_specializations,
+        profile_fit_evidence=profile_fit_evidence)
+    return complete_variant_guardrails(profile, row, match, evaluated_at=evaluated_at)
+
+
+def apply_semantic_guardrails(profile, row, match, *, supported_specializations=None,
+                              profile_fit_evidence=None):
+    """Profile/role comparisons, before exact-variant trust and source checks."""
     match = dict(match)
     match = apply_domain_relevance_projection(profile, row, match)
     base_section = preview_section_for_match(match)
@@ -720,14 +747,6 @@ def apply_preview_guardrails(
     credential_label = match.get("preview_credential_requirement") or ""
     if credential_label and credential_requirement_conflicts(profile, credential_label):
         cap_reasons.append("explicit_credential_incompatibility")
-    trust = assess_opportunity_trust(
-        {**dict(row), **match},
-        match.get("location_eligibility_status") or "unknown",
-        now=evaluated_at,
-    )
-    match["opportunity_trust"] = trust.as_dict()
-    match["opportunity_trust_status"] = trust.status
-    match["opportunity_trust_reasons"] = list(trust.reasons)
     match["preview_section"] = capped_section
     match["preview_diagnostics"] = diagnostics
     match["actionability_cap_reasons"] = unique_list(cap_reasons)
@@ -753,16 +772,30 @@ def apply_preview_guardrails(
         row,
         match,
     )
+    return match
+
+
+def complete_variant_guardrails(profile, row, match, *, evaluated_at=None):
+    """Every variant keeps its own identity, temporal trust and accepted source."""
+    cap_reasons = list(match["actionability_cap_reasons"])
+    trust = assess_opportunity_trust(
+        {**dict(row), **match},
+        match.get("location_eligibility_status") or "unknown",
+        now=evaluated_at,
+    )
+    match["opportunity_trust"] = trust.as_dict()
+    match["opportunity_trust_status"] = trust.status
+    match["opportunity_trust_reasons"] = list(trust.reasons)
     if trust.status != OPPORTUNITY_TRUSTED:
         cap_reasons.append(f"opportunity_trust_{trust.status}")
     match["actionability_cap_reasons"] = unique_list(cap_reasons)
     admission_reasons = list(match["actionability_cap_reasons"])
-    if assessment.status != AFFIRMATIVE_FIT_SUPPORTED:
-        admission_reasons.append(f"affirmative_fit_{assessment.status}")
+    if match["affirmative_fit_status"] != AFFIRMATIVE_FIT_SUPPORTED:
+        admission_reasons.append(f"affirmative_fit_{match['affirmative_fit_status']}")
     match["primary_admission_reasons"] = unique_list(admission_reasons)
     match["primary_recommendation_eligible"] = (
         not match["actionability_cap_reasons"]
-        and assessment.status == AFFIRMATIVE_FIT_SUPPORTED
+        and match["affirmative_fit_status"] == AFFIRMATIVE_FIT_SUPPORTED
         and trust.status == OPPORTUNITY_TRUSTED
     )
     if match["primary_recommendation_eligible"]:
@@ -770,7 +803,7 @@ def apply_preview_guardrails(
     elif match["actionability_cap_reasons"]:
         match["primary_admission_source"] = "guardrail_demoted"
     else:
-        match["primary_admission_source"] = f"affirmative_fit_{assessment.status}"
+        match["primary_admission_source"] = f"affirmative_fit_{match['affirmative_fit_status']}"
     from wahojobs.matching.accepted_tasks import apply_task_section_admission, apply_accepted_eligibility
     return apply_accepted_eligibility(profile, row, apply_task_section_admission(match))
 
@@ -1360,7 +1393,7 @@ def licensed_medical_row(row_text: str) -> bool:
 
 @memoized_text
 def contains_preview_term(text: str, terms: tuple[str, ...]) -> bool:
-    return any(preview_term_pattern(term).search(text) for term in terms)
+    return any(term in text and preview_term_pattern(term).search(text) for term in terms)
 
 
 @lru_cache(maxsize=512)

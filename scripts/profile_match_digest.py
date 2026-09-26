@@ -920,12 +920,18 @@ def opportunity_key(row, group_canonical):
     return ("job", row["job_id"])
 
 
-def score_opportunity(profile, row):
+_TASK_FIT_NOT_PROVIDED = object()
+
+
+def score_opportunity(profile, row, *, task_fit=_TASK_FIT_NOT_PROVIDED,
+                      confirmed_task_fit=_TASK_FIT_NOT_PROVIDED):
     from wahojobs.matching.accepted_tasks import matched_accepted_tasks
-    task_fit = matched_accepted_tasks(profile, row)
+    if task_fit is _TASK_FIT_NOT_PROVIDED:
+        task_fit = matched_accepted_tasks(profile, row)
     # Relevance through an interest is not confirmed practice. Preserve the
     # existing AI-work scoring path even when beginner access leads the reason.
-    confirmed_task_fit = matched_accepted_tasks(profile, row, include_transferable=False)
+    if confirmed_task_fit is _TASK_FIT_NOT_PROVIDED:
+        confirmed_task_fit = matched_accepted_tasks(profile, row, include_transferable=False)
     title = row["title"] or row["canonical_title"] or "Untitled opportunity"
     expertise = row["source_category"] or row["expertise"] or row["department"] or "Unknown"
     text = searchable_text(row, title, expertise)
@@ -1358,7 +1364,14 @@ def keyword_matches(text, keyword):
     pattern = keyword_match_pattern(keyword)
     if pattern is None:
         return False
-    return pattern.search(text) is not None
+    return keyword_required_literal(keyword) in text and pattern.search(text) is not None
+
+
+@lru_cache(maxsize=4096)
+def keyword_required_literal(keyword):
+    normalized = normalize_text(keyword)
+    parts = re.findall(r"[a-z0-9+#.]+", normalized)
+    return max(parts, key=len) if parts else normalized
 
 
 @lru_cache(maxsize=4096)
@@ -1373,9 +1386,6 @@ def keyword_match_pattern(keyword):
     separator = r"[\s\-/&()+.,:]+"
     pattern = separator.join(re.escape(part) for part in parts)
     return re.compile(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])")
-
-
-_TASK_FIT_NOT_PROVIDED = object()
 
 
 def match_quality_gate_penalties(profile, row, text=None, *,
@@ -1535,7 +1545,7 @@ def contains_any(text, terms):
     text = normalize_text(text)
     for term in terms:
         pattern = keyword_match_pattern(term)
-        if pattern is not None and pattern.search(text):
+        if pattern is not None and keyword_required_literal(term) in text and pattern.search(text):
             return True
     return False
 

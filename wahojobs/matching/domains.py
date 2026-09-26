@@ -241,7 +241,14 @@ def detect_domains(text, aliases_by_domain):
 
 def contains_alias(text, alias):
     pattern = alias_pattern(alias)
-    return pattern.search(text) is not None if pattern else False
+    return bool(pattern and alias_required_literal(alias) in text and pattern.search(text))
+
+
+@lru_cache(maxsize=256)
+def alias_required_literal(alias):
+    normalized = normalize_text(alias)
+    parts = re.findall(r"[a-z0-9+#.]+", normalized)
+    return max(parts, key=len) if parts else normalized
 
 
 @lru_cache(maxsize=256)
