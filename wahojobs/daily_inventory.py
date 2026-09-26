@@ -183,6 +183,8 @@ def summarize_source(plan,report,started,ended):
             if provider=='outlier' else
             'observed public project index; only exact remote Thyme AI-writing family records with attested details can publish')
     before={j['job_id']:j for j in plan['sources'][0]['jobs']}
+    if results and results[-1].get('failure_diagnostic'):
+        row['failure_diagnostic']=results[-1]['failure_diagnostic']
     if not results or 'summary' not in results[-1].get('result',{}):return row
     result=results[-1]['result'];summary=result['summary'];state=result['after'];run=state.get('latest_run') or {}
     run_id=run.get('id')
@@ -232,6 +234,44 @@ def summarize_source(plan,report,started,ended):
     deadlines=[c['expires_at'] for c in row['cohorts'] if c['expires_at']]
     row['next_verification_deadline']=min(deadlines,default=None)
     return row
+
+
+def publication_fields(summary, publication):
+    """Classify retained outcomes without granting authority to diagnostics."""
+    failure=summary.get('failure_diagnostic') or {}
+    rejected=(summary['observed'] is not None or
+        failure.get('phase')=='qualification' and failure.get('reason')=='mindrift_count_drop'
+        and failure.get('error_type')=='MindriftCountDropRejected')
+    fields=dict(publication_outcome=publication['status'],publication_requests_used=0,
+        qualification_outcome='accepted' if summary['qualifying_observation'] else
+            'rejected' if rejected else 'not_established')
+    if not summary['qualifying_observation'] and publication['status']=='failed':
+        fields['outcome']='qualification_failed' if rejected else 'publication_failed'
+    if publication.get('reconciliation_proof'):fields['reconciliation_proof']=publication['reconciliation_proof']
+    return fields
+
+
+def retained_worker_diagnostic(target, run_id, provider):
+    """Use only the exact current run/phase; retain no arbitrary failure values."""
+    import re
+    for phase in ('publish-'+provider,'collect-'+provider):
+        try:value=read_json(target/(phase+'-failure.json'),{})
+        except (OSError,ValueError):continue
+        if (type(value) is not dict or value.get('phase')!=phase or value.get('run_id')!=run_id
+                or not isinstance(value.get('error_type'),str)
+                or not re.fullmatch('[A-Za-z_][A-Za-z_0-9]{0,89}',value['error_type'])):continue
+        frames=value.get('frames',[])
+        if type(frames) is not list:continue
+        kept=[]
+        for frame in frames[-8:]:
+            if (type(frame) is dict and type(frame.get('line')) is int and frame['line']>0
+                    and all(isinstance(frame.get(k),str) and len(frame[k])<=120 for k in ('file','function'))
+                    and Path(frame['file']).name==frame['file']):
+                kept.append({k:frame[k] for k in ('file','function','line')})
+        return dict(phase=phase,error_type=value['error_type'],frames=kept,
+            reason=value.get('reason') if value.get('reason') in
+                ('worker_execution_deadline_expired','mindrift_count_drop') else None)
+    return None
 
 
 def source_settings(config):
@@ -383,11 +423,8 @@ def collect_phase(config, run_id, phase):
                 summary.update(collection_plan_id=observation.collection_plan_id,collection_completed_at=observation.completed_at,
                     publication_completed_at=stamp(now()),publication_requests_used=0,
                     attempt_started='yes',attempt_started_at=observation.started_at,
-                    capture_outcome=collection_report['status'],publication_outcome=publication['status'],
-                    accounting_status='complete',qualification_outcome='accepted' if summary['qualifying_observation'] else 'rejected'
-                        if summary['observed'] is not None else 'not_established')
-                if publication.get('reconciliation_proof'):summary['reconciliation_proof']=publication['reconciliation_proof']
-                if publication['status']=='failed' and summary['observed'] is None:summary['outcome']='publication_failed'
+                    capture_outcome=collection_report['status'],accounting_status='complete')
+                summary.update(publication_fields(summary,publication))
             if summary['requests_used']>cap:raise ValueError('daily_request_limit_violated')
             save_source(config,run_id,summary)
     finally:release_database_lifetime_ownership(lease,role=ROLE_OFFLINE_OPERATOR,database_path=database)
@@ -944,11 +981,7 @@ def reconstruct_source_receipt(config,receipt,provider):
             from wahojobs.crawler.staged_observation import publication_report
             report=publication_report(collection,publication)
             summary=summarize_source(plan,report,parse(row['started_at']),ended)
-            row.update(summary,publication_outcome=publication['status'],publication_requests_used=0,
-                qualification_outcome='accepted' if summary['qualifying_observation'] else 'rejected'
-                    if summary['observed'] is not None else 'not_established')
-            if publication.get('reconciliation_proof'):row['reconciliation_proof']=publication['reconciliation_proof']
-            if publication['status']=='failed' and summary['observed'] is None:row['outcome']='publication_failed'
+            row.update(summary,**publication_fields(summary,publication))
         elif collection and collection['status']=='collected_unpublished':
             row.update(publication_outcome='not_started',outcome='collected_unpublished')
     except (OSError,ValueError,KeyError,TypeError) as error:
@@ -956,6 +989,8 @@ def reconstruct_source_receipt(config,receipt,provider):
             accounting_status='publication_receipt_unavailable',accounting_error_type=type(error).__name__)
     failure=read_json(target/(provider+'-failure.json'))
     if failure:row['worker_error_type']=failure.get('error_type')
+    diagnostic=retained_worker_diagnostic(target,receipt['run_id'],provider)
+    if diagnostic:row['worker_failure_diagnostic']=diagnostic
     row.update(run_id=receipt['run_id'],trigger=receipt['trigger'],maintenance_seconds=receipt.get('maintenance_seconds'))
     return row
 

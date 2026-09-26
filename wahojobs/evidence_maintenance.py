@@ -43,6 +43,18 @@ def clock_now():
     return datetime.now(timezone.utc)
 
 
+def failure_diagnostic(error, *, phase):
+    """Bounded locations and known reasons only; no exception/response contents."""
+    import traceback
+    from wahojobs.tracking.service import MindriftCountDropRejected
+    reason = ('mindrift_count_drop' if isinstance(error, MindriftCountDropRejected) else
+        'worker_execution_deadline_expired' if isinstance(error, TimeoutError)
+            and str(error) == 'worker_execution_deadline_expired' else None)
+    return dict(phase=phase, error_type=type(error).__name__, reason=reason,
+        frames=[dict(file=Path(frame.filename).name, function=frame.name, line=frame.lineno)
+            for frame in traceback.extract_tb(error.__traceback__)[-8:]])
+
+
 def utc(value):
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError('maintenance_aware_clock_required')
@@ -696,10 +708,12 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                     continue
                 journal.append('started', dict(operation=oid, kind=kind))
                 prepared=None
+                failure_stage='lifecycle' if kind=='catalog_observation' else kind
                 try:
                     if kind == 'catalog_observation':
                         def prepare_commit(connection, company, crawl_run_id, summary):
-                            nonlocal prepared
+                            nonlocal prepared, failure_stage
+                            failure_stage='receipt_preparation'
                             after=inspect_source(connection,operation['provider'],now,
                                 catalog_only=plan['config'].get('daily_discovery') is True
                                     and plan['config']['phase']=='source' and plan['config']['details'] is None
@@ -710,6 +724,7 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                                 collection_plan_id=observation.collection_plan_id,
                                 collection_journal_hash=observation.journal_hash)
                             journal.append('catalog_commit_prepared',prepared)
+                            failure_stage='transaction_commit'
                         with daily_source(operation['provider']):
                             _, summary = run_crawl(operation['provider'], db_path=target,
                                 details=operation['details'], ownership=lease,
@@ -717,6 +732,7 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                                     'authorize_controlled_publication': authorize_controlled_publication,
                                     'before_lifecycle_commit':prepare_commit}
                                    if observation is not None else {}))
+                        failure_stage='receipt_finalization'
                         budget.finish_source(operation['provider'])
                         if prepared is not None:after=prepared['result']['after']
                         else:
@@ -751,7 +767,11 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                     journal.append('operation_result', outcomes[-1])
                 except Exception as exc:
                     # Preserve uncertainty; never retry. Do not log credential-bearing exceptions.
+                    diagnostic=failure_diagnostic(exc,phase=failure_stage)
+                    if kind=='catalog_observation' and diagnostic['reason']=='mindrift_count_drop':
+                        diagnostic['phase']='qualification'
                     outcomes.append(dict(operation=oid, status='failed', error_type=type(exc).__name__,
+                        failure_diagnostic=diagnostic,
                         **({'stage':'publication_receipt','prepared_crawl_run_id':prepared['crawl_run']['id']}
                            if prepared is not None else {})))
                     journal.append('operation_result', outcomes[-1])

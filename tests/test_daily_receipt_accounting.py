@@ -151,15 +151,54 @@ class ReceiptClassificationTests(unittest.TestCase):
         daily.write_json(self.root/'dataforce-state.json',newer)
         self.assertEqual(daily.read_source_state(self.config,'dataforce'),newer)
 
+    def test_collection_start_and_failed_publication_do_not_renew_expiring_cohorts(self):
+        self.install()
+        boundaries={'meridial':(16,832),'mercor':(19,10),'mindrift':(26,117),'turing':(44,247)}
+        start=daily.parse('2026-09-27T06:00:00Z')
+        for provider,(second,count) in boundaries.items():
+            row=self.row(provider,'publication_failed',1,publication_outcome='failed')
+            verified=daily.stamp(start+timedelta(seconds=second)-timedelta(hours=72))
+            row['cohorts']=[dict(verified_at=verified,records=count)]
+            if provider=='mercor':
+                row['cohorts'] += [dict(verified_at=date,records=count) for date,count in
+                    [('2026-09-18T13:07:32Z',38),('2026-09-21T23:00:39Z',10),('2026-09-23T06:00:27Z',11)]]
+            daily.write_json(self.root/(provider+'-state.json'),row)
+        next_run='20260927T060000Z';target=self.root/'runs'/next_run
+        daily.write_json(target/'run.json',dict(run_id=next_run,outcome='running',scheduled_at=daily.stamp(start)))
+        with patch.object(daily,'_baseline_cohorts',return_value={}):
+            previous=daily.health(self.config,start-timedelta(seconds=1))
+            event_count=len(previous['events'])
+            for provider,(second,count) in boundaries.items():
+                deadline=start+timedelta(seconds=second)
+                old=daily.read_source_state(self.config,provider)
+                # A new capture has completed, but cannot replace source verification.
+                daily.write_json(target/(provider+'-collection.json'),{'capture_status':'collected_unpublished'})
+                for delta,expected in [(-1,'escalated'),(0,'expired'),(1,'expired')]:
+                    at=deadline+timedelta(seconds=delta)
+                    state=daily.health(self.config,at)
+                    key=daily._cohort_key(provider,old['cohorts'][0]['verified_at'])
+                    self.assertEqual(state['active'][key]['state'],expected)
+                    self.assertEqual(state['active'][key]['records'],count)
+                    self.assertFalse(state['active'][key]['closure_confirmed'])
+                    self.assertEqual(daily.read_source_state(self.config,provider),old)
+                    self.assertEqual(state['context']['cycle']['state'],'running')
+                    self.assertEqual(daily.health(self.config,at)['events'],state['events'])
+                failed=self.row(provider,'publication_failed',1,publication_outcome='failed')
+                daily.save_source(self.config,next_run,failed)
+                self.assertEqual(daily.read_source_state(self.config,provider)['cohorts'],old['cohorts'])
+            self.assertFalse(any(e['kind'] in ('recovered','first_verified') for e in state['events'][event_count:]))
+            expired=[v for k,v in state['active'].items() if k.startswith('mercor:cohort_') and v['state']=='expired']
+            self.assertEqual(sum(v['records'] for v in expired),69)
+
 
 class CommitReceiptTests(unittest.TestCase):
     setUp=coverage.CoverageIntegrationTests.setUp
 
-    def captured(self,name):
+    def captured(self,name,source='appen'):
         at=T0+timedelta(days=1)
         with coverage.offline(at,coverage.Transport()):
             daily.collect_phase(self.config,name,'prepare')
-            daily.collect_phase(self.config,name,'collect-appen')
+            daily.collect_phase(self.config,name,'collect-'+source)
             daily.collect_phase(self.config,name,'backup')
         return at,self.root/'state/runs'/name
 
@@ -195,8 +234,103 @@ class CommitReceiptTests(unittest.TestCase):
         row=daily.reconstruct_source_receipt(self.config,self.receipt('uncommitted',at),'appen')
         self.assertFalse(row['qualifying_observation'])
         self.assertEqual(row['publication_outcome'],'failed')
+        self.assertEqual(row['failure_diagnostic']['phase'],'receipt_preparation')
         with closing(sqlite3.connect(self.db)) as db:
             self.assertEqual(db.execute('SELECT status FROM crawl_runs ORDER BY id DESC LIMIT 1').fetchone()[0],'failed')
+
+    def test_handled_qualification_rejection_reaches_receipt_health_and_email(self):
+        from wahojobs.tracking.service import MindriftCountDropRejected
+        at,target=self.captured('guard','mindrift')
+        hidden='private exception contents must not enter the reporting journal'
+        with coverage.offline(at,coverage.Transport()),patch.object(maintenance,'run_crawl',
+                side_effect=MindriftCountDropRejected(hidden)):
+            daily.collect_phase(self.config,'guard','publish-mindrift')
+        stored=daily.read_json(target/'mindrift.json')
+        recovered=daily.reconstruct_source_receipt(self.config,self.receipt('guard',at),'mindrift')
+        for row in (stored,recovered):
+            self.assertFalse(row['qualifying_observation'])
+            self.assertEqual(row['qualification_outcome'],'rejected')
+            self.assertEqual(row['outcome'],'qualification_failed')
+            self.assertEqual(daily.source_condition(row),'qualification')
+            self.assertEqual(row['failure_diagnostic']['reason'],'mindrift_count_drop')
+            self.assertLessEqual(len(row['failure_diagnostic']['frames']),8)
+            self.assertNotIn(hidden,json.dumps(row))
+        with patch.object(daily,'_baseline_cohorts',return_value={}):
+            state=daily.health(self.config,at)
+            again=daily.health(self.config,at+timedelta(minutes=1))
+        self.assertIn('mindrift:qualification',state['active'])
+        self.assertNotIn('mindrift:publication',state['active'])
+        self.assertEqual(state['events'],again['events'])
+        rendered=email.message([e for e in state['events'] if e['delivery']=='pending'],state['context'])['text']
+        self.assertIn('Mindrift: observation failed qualification; verification was not renewed.',rendered)
+        self.assertNotIn('Mindrift: collection failed',rendered)
+        self.assertNotIn(hidden,json.dumps(maintenance.report(self.journal,stored['plan_id'])))
+
+    def test_handled_deadline_preserves_publication_stage_without_qualifying(self):
+        at,target=self.captured('deadline')
+        with coverage.offline(at,coverage.Transport()),patch.object(maintenance,'run_crawl',
+                side_effect=TimeoutError('worker_execution_deadline_expired')):
+            daily.collect_phase(self.config,'deadline','publish-appen')
+        row=daily.reconstruct_source_receipt(self.config,self.receipt('deadline',at),'appen')
+        self.assertFalse(row['qualifying_observation'])
+        self.assertEqual(row['qualification_outcome'],'not_established')
+        self.assertEqual(daily.source_condition(row),'publication')
+        self.assertEqual(row['failure_diagnostic']['phase'],'lifecycle')
+        self.assertEqual(row['failure_diagnostic']['reason'],'worker_execution_deadline_expired')
+
+    def test_exact_worker_diagnostic_is_retained_without_upgrading_missing_journal(self):
+        at,target=self.captured('phase')
+        with coverage.offline(at,coverage.Transport()):
+            plan=maintenance.build_plan(self.db,['appen'],http_limit=1,detail_limit=0,details=None,phase='source',daily_discovery=True)
+        daily.write_json(target/'appen-plan.json',plan)
+        try:raise TimeoutError('worker_execution_deadline_expired')
+        except TimeoutError as error:diagnostic=maintenance.failure_diagnostic(error,phase='publish-appen')
+        diagnostic['run_id']='older-run'
+        daily.write_json(target/'publish-appen-failure.json',diagnostic)
+        row=daily.reconstruct_source_receipt(self.config,self.receipt('phase',at),'appen')
+        self.assertNotIn('worker_failure_diagnostic',row)
+        diagnostic['run_id']='phase'
+        daily.write_json(target/'publish-appen-failure.json',diagnostic)
+        row=daily.reconstruct_source_receipt(self.config,self.receipt('phase',at),'appen')
+        self.assertEqual(row['worker_failure_diagnostic']['phase'],'publish-appen')
+        self.assertEqual(row['requests_used'],1)
+        self.assertEqual(row['outcome'],'accounting_unavailable')
+        self.assertFalse(row['qualifying_observation'])
+
+    def test_receipt_error_after_commit_still_recovers_exact_qualified_transaction(self):
+        at,target=self.captured('receipt-error');original=maintenance.Journal.append
+        failed=[]
+        def fail_once(journal,event,data):
+            if event=='operation_result' and not failed:
+                failed.append(True)
+                raise OSError('private exception value')
+            return original(journal,event,data)
+        with coverage.offline(at,coverage.Transport()),patch.object(maintenance.Journal,'append',fail_once):
+            daily.collect_phase(self.config,'receipt-error','publish-appen')
+        row=daily.reconstruct_source_receipt(self.config,self.receipt('receipt-error',at),'appen')
+        self.assertTrue(row['qualifying_observation'],row)
+        self.assertEqual(row['qualification_outcome'],'accepted')
+        self.assertIsNone(daily.source_condition(row))
+        original_report=maintenance.report(self.journal,row['plan_id'])
+        failure=next(e['data']['failure_diagnostic'] for e in original_report['events']
+            if e['event']=='operation_result' and e['data']['status']=='failed')
+        self.assertEqual(failure['phase'],'receipt_finalization')
+        self.assertIsNone(failure['reason'])
+
+    def test_unreadable_optional_diagnostic_cannot_erase_a_committed_receipt(self):
+        at,target=self.captured('bad-diagnostic')
+        with coverage.offline(at,coverage.Transport()):
+            daily.collect_phase(self.config,'bad-diagnostic','publish-appen')
+        receipt=self.receipt('bad-diagnostic',at)
+        expected=daily.reconstruct_source_receipt(self.config,receipt,'appen')
+        path=target/'publish-appen-failure.json';path.write_text('{unfinished',encoding='utf-8')
+        self.assertEqual(daily.reconstruct_source_receipt(self.config,receipt,'appen'),expected)
+        read=daily.read_json
+        def unavailable(p,*args):
+            if p==path:raise PermissionError('fixture unreadable diagnostic')
+            return read(p,*args)
+        with patch.object(daily,'read_json',side_effect=unavailable):
+            self.assertEqual(daily.reconstruct_source_receipt(self.config,receipt,'appen'),expected)
 
     def test_missing_publication_journal_preserves_bound_collection(self):
         at,target=self.captured('missing')

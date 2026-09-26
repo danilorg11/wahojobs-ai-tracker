@@ -630,13 +630,10 @@ def main(argv=None):
         try:
             with request_deadline(deadline):daily.collect_phase(config,args.run_id,args.phase)
         except Exception as error:
-            import traceback
             # Bound diagnostics persist even before a publication journal can
             # be created. Never retain exception values or response contents.
-            diagnostic=dict(phase=args.phase,error_type=type(error).__name__,at=daily.stamp(daily.now()),
-                reason=str(error) if re.fullmatch('[a-z_]{1,90}',str(error)) else None,
-                frames=[dict(file=Path(frame.filename).name,function=frame.name,line=frame.lineno)
-                    for frame in traceback.extract_tb(error.__traceback__)[-8:]])
+            diagnostic=dict(daily.maintenance.failure_diagnostic(error,phase=args.phase),
+                at=daily.stamp(daily.now()),run_id=args.run_id)
             daily.write_json(Path(config['state_directory'])/'runs'/args.run_id/(args.phase+'-failure.json'),diagnostic)
             raise
     elif args.command=='repair-storage':repair_storage(config)

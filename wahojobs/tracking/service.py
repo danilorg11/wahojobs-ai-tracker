@@ -46,6 +46,10 @@ MINDRIFT_MIN_REMOVALS_FOR_GUARD = 50
 MINDRIFT_BASELINE_SUCCESS_RUNS = 3
 
 
+class MindriftCountDropRejected(RuntimeError):
+    """An unchanged qualification guard, distinguishable without parsing its text."""
+
+
 def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCrawlResult, now, *, model_enrichment=True):
     ensure_opportunity_enrichment_schema(conn)
     company = conn.execute(
@@ -306,7 +310,7 @@ def guard_suspicious_mindrift_partial_crawl(
         and missing_count >= MINDRIFT_MIN_REMOVALS_FOR_GUARD
     ):
         drop_percent = round(drop_fraction * 100, 1)
-        raise RuntimeError(
+        raise MindriftCountDropRejected(
             "Suspicious Mindrift partial crawl: "
             f"fetched {fetched_count} jobs vs {baseline_count} recent baseline "
             f"({drop_percent}% drop), with {missing_count} active jobs missing. "
