@@ -1437,15 +1437,16 @@ def match_quality_gate_penalties(profile, row, text=None, *,
     from wahojobs.matching.accepted_tasks import matched_accepted_tasks
     if accepted_fit is _TASK_FIT_NOT_PROVIDED:
         accepted_fit = matched_accepted_tasks(profile, row)
-    beginner_task_relevance = bool(accepted_fit and accepted_fit.get('basis') == 'beginner_interest')
+    source_grounded_task_relevance = bool(accepted_fit and accepted_fit.get('basis') in
+                                         {'beginner_interest', 'transferable_activity'})
     if (not has_meaningful_positive_evidence(profile_features, role_features)
             and has_generic_only_evidence(text)
             and not (matched_accepted_tasks(profile, row, include_transferable=False)
                      if confirmed_task_fit is _TASK_FIT_NOT_PROVIDED else confirmed_task_fit)
-            and not beginner_task_relevance):
-        # Complete accepted beginner scope plus an actual duty/interest link
-        # is source-grounded relevance, not generic title wording alone. It
-        # does not award the confirmed-AI-work signal or waive other penalties.
+            and not source_grounded_task_relevance):
+        # Accepted scope plus a confirmed activity/duty or beginner-interest
+        # link is source-grounded relevance, not generic title wording alone.
+        # It awards no confirmed-AI-work signal and waives no other penalty.
         penalties.append(("Match is based mostly on generic AI-work terms", 10))
 
     return unique_penalties(penalties)

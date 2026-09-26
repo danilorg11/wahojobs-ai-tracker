@@ -42,7 +42,10 @@ class TransferableTaskMatchingTests(unittest.TestCase):
     def shown(self, context):
         return browser._primary_presentation_matches(context) + browser._conditional_presentation_matches(context)
 
-    def test_preserved_generalist_gets_related_activity_and_remaining_conditions_without_score_change(self):
+    @patch.object(browser.AuthenticatedProfileMatchesBrowserIntegration, '_can_reuse_recommendations', return_value=False)
+    def test_preserved_generalist_gets_related_activity_and_remaining_conditions_without_score_change(self, _uncached):
+        # A mocked interpretation is not an input/version change. Compute both
+        # counterfactuals instead of legitimately reusing the first saved result.
         body = (Path(__file__).parent/'fixtures/source_requirement_fidelity/accepted-generalist.txt').read_text(encoding='utf-8')
         self.base.source(body)
         with patch('wahojobs.matching.transferable_tasks.confirmed_activities', return_value=[]):

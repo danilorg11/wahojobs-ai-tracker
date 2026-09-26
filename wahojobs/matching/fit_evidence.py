@@ -722,7 +722,7 @@ def _professional_language_modifier(title: str) -> bool:
 def _why_fit_statements(title: str, evidence: list[FitEvidence], adjacencies: list[str]) -> list[str]:
     by_requirement = {item.requirement: item for item in evidence}
     if 'Transferable activity for entry-level tasks' in by_requirement:
-        return ['Your confirmed activities are relevant to these entry-level tasks; this does not establish prior professional AI work.']
+        return ['Your confirmed activities are relevant to these tasks; this does not establish prior professional AI work.']
     if 'AI evaluation or annotation tasks' in by_requirement:
         return ['Your confirmed evaluation or annotation work relates to these tasks. Check the other requirements before applying.']
     if "Frontend Development" in by_requirement:

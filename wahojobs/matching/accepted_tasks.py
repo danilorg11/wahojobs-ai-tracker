@@ -13,18 +13,18 @@ from wahojobs.authenticated_card_evidence import _source_text, load_card_sources
 from wahojobs.profiles.normalizer import term_is_negated
 
 
-TASK_PROJECTION_VERSION = 6
-SOURCE_ELIGIBILITY_VERSION = 5
-TASK_ADMISSION_VERSION = 12
+TASK_PROJECTION_VERSION = 7
+SOURCE_ELIGIBILITY_VERSION = 6
+TASK_ADMISSION_VERSION = 13
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
-    r"role overview|what the work looks like|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
+    r"role overview|what the work looks like|what you(?:'ll| will) (?:actually )?(?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
 _OTHER_HEADING = re.compile(
     r"^(?:(?:minimum|required|preferred|ideal|additional|key) )?(?:qualifications|requirements)$|"
     r"^education & experience$|"
     r"^(?:about(?: .+)?|benefits|compensation(?: structure)?|(?:project )?timeline|"
     r"onboarding|application(?: & onboarding| screening questions)?|more details|perks|"
-    r"why join(?: .+)?|who you are|what we(?:'re| are) looking for|nice to have|"
+    r"why join(?: .+)?|who you are|what we(?:'re| are) looking for|what we look for|what we offer|roles this fits|how it works|similar roles|related roles|other openings|nice to have|"
     r"project details|start timeline & availability|other published fields(?: .+)?)$", re.I)
 _APPLICANT = re.compile(
     r"\b(?:you(?:['’]ll| will)|your (?:tasks|work|responsibilities)|"
@@ -134,6 +134,8 @@ def _prepare(material_hash, provider, external_id, url, body, body_format, metad
     for reference, paragraph in paragraphs:
         quote = paragraph.strip()
         heading = quote.strip("#*: \n").strip().replace('’', "'")
+        if heading.casefold() in {'similar roles', 'related roles', 'other openings'}:
+            break
         if _DUTY_HEADING.fullmatch(heading):
             duties = True
             excluded_block = False
@@ -221,7 +223,8 @@ def _prepare_beginner_scope(material_hash, provider, external_id, url, body, bod
     from wahojobs.matching.beginner_access import source_scope
     try:
         return tuple(source_scope(dict(source_slug=provider, external_id=external_id,
-            url=url, body=body, body_format=body_format, metadata_json=metadata_json)))
+            url=url, body=body, body_format=body_format, metadata_json=metadata_json,
+            material_content_sha256=material_hash)))
     except (ValueError, TypeError, KeyError):
         return ()
 
@@ -231,7 +234,8 @@ def _prepare_transferable_scope(material_hash, provider, external_id, url, body,
     from wahojobs.matching.transferable_tasks import source_scope
     try:
         return tuple(source_scope(dict(source_slug=provider, external_id=external_id,
-            url=url, body=body, body_format=body_format, metadata_json=metadata_json)))
+            url=url, body=body, body_format=body_format, metadata_json=metadata_json,
+            material_content_sha256=material_hash)))
     except (ValueError, TypeError, KeyError):
         return ()
 
@@ -243,18 +247,19 @@ def _prepare_eligibility(material_hash, provider, external_id, url, body, body_f
     No request-time fetch and no repeated description parsing for unchanged
     evidence. Main/conditional/fallback and scoped details share these facts.
     """
-    from wahojobs.authenticated_card_evidence import _blocks, _QUALIFICATION_HEADINGS
+    from wahojobs.authenticated_card_evidence import _QUALIFICATION_HEADINGS
+    from wahojobs.matching.transferable_tasks import current_role_blocks
     from wahojobs.candidate_condition_comparisons import _condition_lines, _modality
     from wahojobs.matching.languages import prepare_language_conditions
     from wahojobs.matching.source_geography import prepare_applicant_residence_clause
     source = dict(body=body, body_format=body_format, metadata_json=metadata_json,
                   source_slug=provider, external_id=external_id, url=url)
     try:
-        blocks = _blocks(_source_text(source))
+        blocks = current_role_blocks(_source_text(source))
     except (ValueError, TypeError, KeyError):
         return (), ()
     languages, countries = [], []
-    applicant_headings = {'who you are', "what we're looking for", 'what we are looking for', 'what we’re looking for'}
+    applicant_headings = {'who you are', "what we're looking for", 'what we are looking for', 'what we’re looking for', 'what we look for'}
     for block in blocks:
         heading = block['heading'].casefold().rstrip(':')
         if heading not in _QUALIFICATION_HEADINGS:
@@ -594,7 +599,7 @@ def apply_task_condition_review(match, source, profile, *, background_context=No
     note = ('Your confirmed evaluation or annotation work matches these tasks. '
             'Check the source conditions below before applying.')
     if transferable:
-        note = ('Your confirmed activities are relevant to these entry-level tasks. '
+        note = ('Your confirmed activities are relevant to these tasks. '
                 'This does not establish prior professional AI work. Check the remaining source conditions.')
     if beginner:
         note = ('The source establishes beginner access, and its tasks align with your stated work interests. '

@@ -19,6 +19,7 @@ _QUALIFICATION_HEADINGS = {
     'ideal qualifications', 'preferred', 'preferred qualifications',
     'nice to have', 'who you are', "what we're looking for", 'what we are looking for',
     'what we’re looking for',
+    'what we look for',
 }
 _TERMS_HEADINGS = {'engagement', 'role details', 'more about the opportunity',
                    'commitment', 'equipment', 'equipment requirements',
@@ -26,6 +27,9 @@ _TERMS_HEADINGS = {'engagement', 'role details', 'more about the opportunity',
 # Plain headings retained by the accepted detail formatter. Formatting only:
 # boundaries prevent later compensation/screening text inheriting a qualification label.
 _SOURCE_HEADINGS = {'scope of work', 'compensation structure',
+                    'overview', 'what you’ll actually do', "what you'll actually do",
+                    'what you’ll do', "what you'll do", 'what we offer', 'roles this fits',
+                    'how it works', 'compensation', 'similar roles', 'related roles', 'other openings',
                     'start timeline & availability', 'application screening questions',
                     'other published fields (read alongside the description)',
                     'other published fields (not additional applicant requirements)'}

@@ -14,13 +14,14 @@ REQUIREMENT = 'Beginner-accessible tasks aligned with stated interests'
 
 def source_scope(source):
     """A beginner interest cannot replace a separate prior-work prerequisite."""
-    from wahojobs.matching.transferable_tasks import source_scope as general_scope, candidate_directed_prerequisite
-    from wahojobs.authenticated_card_evidence import _blocks, _source_text, _QUALIFICATION_HEADINGS
+    from wahojobs.matching.transferable_tasks import source_scope as general_scope, candidate_directed_prerequisite, current_role_blocks
+    from wahojobs.authenticated_card_evidence import _source_text, _QUALIFICATION_HEADINGS
     from wahojobs.candidate_condition_comparisons import _condition_lines, _modality
-    scope = general_scope(source)
+    scope = [proof for proof in general_scope(source)
+             if proof.get('scope_kind') != 'any_field_transferable_only']
     if not scope:
         return []
-    for block in _blocks(_source_text(source)):
+    for block in current_role_blocks(_source_text(source)):
         heading = block['heading'].casefold().rstrip(':')
         for _, quote in _condition_lines(block):
             for clause in re.split(r'(?<=[.!?;])\s+|[—–]', re.sub(r'[*#]', '', quote)):

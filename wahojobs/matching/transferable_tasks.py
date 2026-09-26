@@ -9,8 +9,8 @@ import re
 
 BASIS = 'transferable_activity'
 REQUIREMENT = 'Transferable activity for entry-level tasks'
-_ACTION = r'(?:review|evaluat|assess|compar|check|verif|validat)\w*'
-_OBJECT = r'(?:written\s+)?(?:responses?|answers?|text|content|documents?|information|facts?)'
+_ACTION = r'(?:(?:review|evaluat|assess|compar|check|verif|validat)\w*|rat(?:e|es|ed|ing)|grad(?:e|es|ed|ing))'
+_OBJECT = r'(?:written\s+)?(?:responses?|answers?|outputs?|text|content|documents?|information|facts?)'
 _UNOWNED = re.compile(r"\b(?:not|never|no|without|interested|interest|want|wish|hope|plan|would|could|will|learn|learning|their|his|her|friend|colleague|said|says|reported|example)\b", re.I)
 _SCOPE = (
     r'(?:no (?:specialized|specialist|professional) background(?: or prior AI experience)? (?:is )?(?:required|needed|necessary)'
@@ -31,6 +31,102 @@ _GENERIC_ROLE_CONTEXT = (r'(?:this is|(?:this|the) (?:role|position|opportunity|
     r'(?:role|position|opportunity|job)(?: open to anyone(?: with ' + _QUALITIES + r')?)?[.!]?')
 _SCOPE_UNCERTAINTY = re.compile(r'\b(?:but|unless|except|however|if|no longer|used to|formerly|previously|hope|wish|future|will|would|could|may|might|intend|planned|not|never|other (?:role|team|program|opening))\b', re.I)
 _CONTINUATION = re.compile(r'^(?:for|who|which|with|only|unless|except|if|but|however|provided|assuming|in our other)\b', re.I)
+
+
+def _availability_notice(quote):
+    """A complete standing-pool notice is availability, not an entry waiver."""
+    return bool(re.fullmatch(
+        r'This is a standing listing for (?:generalists|contributors) who want AI training and evaluation work, '
+        r'not a specific job opening\. It stays open whether or not a matching project is running this week\.',
+        quote, re.I))
+
+
+def _paired_generalist_scope(source, blocks):
+    """Bind affirmative non-specialist scope to actual duties in this source.
+
+    A missing degree or AI-experience prerequisite alone supplies no proof.
+    Any-field background supports transferable work, never interest-only entry.
+    """
+    from wahojobs.matching.accepted_tasks import _prepare, _DUTY_HEADING, _OTHER_HEADING
+    from wahojobs.authenticated_card_evidence import _QUALIFICATION_HEADINGS
+    from wahojobs.profiles.normalizer import term_is_negated
+    duties = _prepare(source.get('material_content_sha256'), source.get('source_slug'), source.get('external_id'), source.get('url'),
+                      source.get('body'), source.get('body_format'), source.get('metadata_json'))
+    current_text = '\n'.join(block['text'] for block in blocks)
+    duties = [fact for fact in duties if fact[0].lstrip('-* ').strip() in current_text]
+    everyday = []
+    for quote, domains, _ in duties:
+        scope = re.search(r'\b(?:on|across)\s+(?:(?:a )?wide (?:range|variety) of )?'
+                          r'(?:everyday (?:questions|topics|tasks)|general reasoning)\b', quote, re.I)
+        if (scope and not domains and quote.lstrip('-* ').strip() in current_text
+                and not term_is_negated(quote.lower(), scope.start(), scope.end())
+                and not re.search(r'\b(?:not|never|no|without|rather than|instead of)(?:\s+\w+){0,3}\s*$',
+                                  quote[:scope.start()], re.I)
+                and not re.search(r'\b(?:other role|another role|previously|formerly|hypothetically)\b', quote, re.I)):
+            everyday.append(quote)
+    guided = []
+    for block in blocks:
+        in_duties = bool(_DUTY_HEADING.fullmatch(block['heading'].replace('’', "'")))
+        for number, raw in enumerate(block['text'].splitlines(), 1):
+            line = re.sub(r'[*#]', '', raw).strip().lstrip('- ')
+            if _DUTY_HEADING.fullmatch(line.replace('’', "'")):
+                in_duties = True
+            elif _OTHER_HEADING.fullmatch(line.replace('’', "'")):
+                in_duties = False
+            elif in_duties and re.fullmatch(
+                    r'Follow provided (?:scenarios and prompts|instructions and guidelines) during interactions\.', line, re.I):
+                guided.append(dict(quote=line, block_reference=block['reference'], line=number))
+    proofs = []
+    from wahojobs.candidate_condition_comparisons import _lines
+    for block in blocks:
+        if block['heading'].casefold().rstrip(':') not in _QUALIFICATION_HEADINGS | {
+                'source wording', 'overview', 'about the role', 'about the opportunity', 'who this is for'}:
+            continue
+        lines = list(_lines(block))
+        for index, (number, quote) in enumerate(lines):
+            plain = re.sub(r'[*#]', '', quote).strip()
+            following = lines[index + 1][1] if index + 1 < len(lines) else ''
+            if _CONTINUATION.match(re.sub(r'[*#]', '', following).strip()):
+                continue
+            kind = None
+            any_field = re.fullmatch(
+                r'(?:(?:Careful|Strong) reading and (?:sound|good) judgment, from a |A )'
+                r'professional or academic background in any field[.!]?', plain, re.I)
+            nontechnical = re.fullmatch(
+                r"(?:(?:As an? [\w -]{1,60} you(?:[’']ll| will) [^.!?]{1,240}\.\s+))?"
+                r'No technical background (?:is )?(?:needed|required|necessary)'
+                r'(?:;\s*(?:strong|good) (?:reasoning and writing|writing and reasoning) are (?:the whole job|what matters))?[.!]?',
+                plain, re.I)
+            if everyday and any_field:
+                kind = 'any_field_transferable_only'
+            elif everyday and nontechnical:
+                kind = 'nontechnical_everyday_duties'
+            elif guided and duties:
+                # Invitation wording is a bounded positive audience statement.
+                # Keep its original paragraph and any adjacent restrictions.
+                invitation = re.search(
+                    r'Are you a (?P<audience>student(?:, (?:recent graduate|stay-at-home parent|gig worker)){1,3}'
+                    r', or professional) seeking flexible remote work\?'
+                    r"(?: Are you interested in shaping the development and safety of today[’']s AI models\?)?$",
+                    plain, re.I)
+                if invitation and plain[:invitation.start()].strip() in ('', 'Help Shape the Future of AI'):
+                    kind = 'guided_broad_entry_audience'
+            if kind:
+                proofs.append(dict(quote=quote, block_reference=block['reference'], line=number,
+                    scope_kind=kind, supporting_duty_quotes=everyday if everyday else [q for q, _, _ in duties],
+                    guidance_evidence=guided if kind == 'guided_broad_entry_audience' else []))
+    return proofs
+
+
+def current_role_blocks(text):
+    """Related listings cannot supply this role's scope or prerequisites."""
+    from wahojobs.authenticated_card_evidence import _blocks
+    result = []
+    for block in _blocks(text):
+        if block['heading'].casefold() in {'similar roles', 'related roles', 'other openings'}:
+            break
+        result.append(block)
+    return result
 
 
 def _complete_scope_proof(quote):
@@ -56,11 +152,13 @@ def _unresolved_audience_context(quote):
     """
     plain = re.sub(r'[*#]', '', quote).strip()
     plain = re.sub(r'^(?:[-+]\s+|\d+[.)]\s+)', '', plain)
+    plain = re.sub(r'^[\w &()-]{1,60}:\s*(?=(?:for|only|unless|except|if|but|however)\b)', '', plain, flags=re.I)
     audience = (_CONTINUATION.match(plain)
                 or re.match(r'^(?:(?:this|the) (?:role|position|opportunity|job)\b|this is\b)', plain, re.I)
                 or re.match(_SCOPE, plain, re.I))
     return bool(audience and not (_complete_scope_proof(plain)
-                                or re.fullmatch(_GENERIC_ROLE_CONTEXT, plain, re.I)))
+                                or re.fullmatch(_GENERIC_ROLE_CONTEXT, plain, re.I)
+                                or _availability_notice(plain)))
 
 
 def activity_families(text, *, source=False):
@@ -77,7 +175,7 @@ def activity_families(text, *, source=False):
         # Adjacency is intentional: a subordinate clause or a different work
         # object cannot lend its later text/content noun to the first action.
         obj = re.match(r'(?:\s*(?:,|and)\s+' + _ACTION + r')*\s+'
-            r'(?:(?:the|written|textual)\s+|(?:AI|LLM|model)[ -](?:generated|produced)\s+)*'
+            r'(?:(?:the|written|textual)\s+|(?:AI|LLM|model)(?:[ -](?:generated|produced))?\s+)*'
             + _OBJECT + r'\b', plain[action.end():], re.I)
         if obj and not term_is_negated(plain.lower(), action.start(), action.end()):
             families.append('written_content_review')
@@ -112,16 +210,17 @@ def source_scope(source):
     A no-AI waiver alone never proves non-specialist scope. Unknown scope stays
     unavailable; preferred qualifications do not become mandatory restrictions.
     """
-    from wahojobs.authenticated_card_evidence import _blocks, _source_text, _QUALIFICATION_HEADINGS
+    from wahojobs.authenticated_card_evidence import _source_text, _QUALIFICATION_HEADINGS
     from wahojobs.candidate_condition_comparisons import _condition_lines, _lines, _modality
     from scripts.profile_match_digest import detect_role_match_features
     from wahojobs.matching.source_task_fit import _task
     text = _source_text(source)
-    blocks = _blocks(text)
+    blocks = current_role_blocks(text)
+    text = '\n\n'.join(block['heading'] + '\n' + block['text'] for block in blocks)
     # Established specialist linguistic/teaching duties remain their own route.
     if _task(text) is not None:
         return []
-    scope = []
+    scope = _paired_generalist_scope(source, blocks)
     for block in blocks:
         heading = block['heading'].casefold().rstrip(':')
         # Proof uses unsplit source paragraphs. _condition_lines may split an
@@ -156,6 +255,9 @@ def source_scope(source):
                         or re.search(r'\b(?:licen[cs]ed?|certified|doctorate|doctoral|Ph\.?D|clinical|linguistic analysis|professional experience|subject[- ]matter expertise)\b', clause, re.I)
                         or re.search(r'\b(?:AI|LLM|model evaluation|annotation)\b[^.;]{0,45}\b(?:experience|work|background)\b|\b(?:experience|work|background)\s+(?:in|with|of)\s+(?:AI|LLM|model evaluation|annotation|Python|programming|software)\b', clause, re.I)):
                     return []
+    # Written task history cannot establish speech/listening competence.
+    if re.search(r'\b(?:voice conversations|spoken responses|speech evaluation|listening tasks)\b', text, re.I):
+        scope = [dict(proof, task_modality='spoken') for proof in scope]
     return scope
 
 
@@ -163,6 +265,8 @@ def match_activities(profile, evidence):
     activities = profile.get('confirmed_transferable_activity_evidence') or []
     scope = evidence.get('transferable_scope') or []
     if not activities or not scope:
+        return None
+    if any(proof.get('task_modality') == 'spoken' for proof in scope):
         return None
     links = []
     for fact in evidence.get('facts') or []:

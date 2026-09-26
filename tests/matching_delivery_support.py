@@ -126,8 +126,8 @@ class DeliveryFixture:
     def detail(self,run,job_id=JOB):
         from wahojobs import authenticated_source_detail as detail
         observed=[];original=detail.prepare_detail_display
-        def observe(job,p):
-            result=original(job,p);observed.append(deepcopy(result));return result
+        def observe(job,p,**kwargs):
+            result=original(job,p,**kwargs);observed.append(deepcopy(result));return result
         with patch.object(detail,'prepare_detail_display',side_effect=observe):
             response=self.get(variant_detail_url(dict(job_id=job_id,canonical_opportunity_id=900002),run_id=run.match_run_id))
         assert response.status==200,response.body

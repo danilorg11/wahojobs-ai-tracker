@@ -65,6 +65,8 @@ def _modality(heading, quote):
     label = heading.casefold().rstrip(':')
     mode = 'required' if label in _REQUIRED else 'preferred' if label in _PREFERRED else 'unspecified'
     inline = re.search(r'\b(required|preferred)\.?$', quote, re.I)
+    if not inline:
+        inline = re.match(r'[^:\n]{1,100}\((required|preferred)\)\s*:', quote, re.I)
     if inline:
         if mode != 'unspecified' and mode != inline[1].lower():
             return 'conflicting'
@@ -72,7 +74,7 @@ def _modality(heading, quote):
     return mode
 
 
-def _lines(block):
+def _lines(block, *, split_labeled_conditions=False):
     # Join wrapped bullets, not separate alternatives or paragraphs.
     current, start = '', 0
     for number, line in enumerate(block['text'].splitlines(), 1):
@@ -80,7 +82,9 @@ def _lines(block):
             if current:
                 yield start, current
             current = ''
-        elif re.match(r'^\s*(?:[-*+]|\d+[.)])\s+', line) or not current:
+        elif (re.match(r'^\s*(?:[-*+]|\d+[.)])\s+', line) or not current
+              or (split_labeled_conditions and not line[:1].isspace()
+                  and re.match(r'^[A-Z][^:\n.!?]{1,100}:\s*\S', line))):
             if current:
                 yield start, current
             current, start = re.sub(r'^\s*(?:[-*+]|\d+[.)])\s+', '', line).strip(), number
@@ -524,7 +528,7 @@ def _condition_lines(block):
     block/line reference. Exceptions and ambiguous relations are not split.
     """
     from wahojobs.professional_background_duration import requirement
-    for line, original in _lines(block):
+    for line, original in _lines(block, split_labeled_conditions=True):
         waiver_parts = re.split(r';\s+|(?<=\.)\s+|,\s+but\s+', original, maxsplit=1, flags=re.I)
         if (len(waiver_parts) == 2 and _waiver_modality(waiver_parts[0]) == 'not_required'
                 and not re.match(r'(?:unless|except|if|only if)\b', waiver_parts[1], re.I)):

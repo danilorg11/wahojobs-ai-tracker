@@ -1,0 +1,47 @@
+The research teams behind the best-known AI models come to Mercor for careful human judgment they can't generate on their own. Your standards and attention become the rubric that frontier AI is graded against.
+
+This is a standing listing for generalists who want AI training and evaluation work, not a specific job opening. It stays open whether or not a matching project is running this week.
+
+New projects start on short notice, so instead of posting and pulling a listing each time, we keep one open per field and draw from it when one begins.
+
+**What the work looks like**
+
+We match generalists in the network to projects like:
+
+- Writing prompts and reference answers on everyday questions that have a right answer, with the context a good response has to account for
+    
+- Grading model output on general reasoning: whether the answer is correct, whether it follows the instruction actually given, whether it is complete without padding
+    
+- Flagging where a model is confidently wrong, contradicts itself earlier in the same answer, or answers a question that was not asked
+    
+
+Most contracts in this field have paid $40 to $70 an hour, set per project by scope and depth.
+
+**What we're looking for**
+
+- Careful reading and sound judgment, from a professional or academic background in any field
+    
+- Clear written communication, since most of the work involves explaining your reasoning
+    
+- Comfort with ambiguous tasks, and willingness to flag unclear instructions
+    
+
+**Who this is for**
+
+This pool is for people whose work does not fit neatly into one of our specialist networks, or who work across several of them. If you looked through our other listings and none of them quite described you, this is the one.
+
+No particular credential is required. What matters is that you read carefully and can say precisely why an answer is wrong.
+
+**How it works**
+
+Apply here with your resume and confirm where you work from, then take a short AI interview, about 20 minutes total.
+
+We verify your background and add you to the generalist pool.
+
+When a project needs general reasoning work, we invite matching people from the pool to that specific listing. It names the rate, the hours, and the client, and any hiring decision is made there.
+
+**What to expect**
+
+This listing does not accept or reject candidates, so you will not get a decision on it. We reach out when a project matches your background. Depending on what our clients are running, that can be within a week or several months.
+
+Finishing the domain expert interview and joining every network you qualify for both improve your odds of being matched. You only need to sign up once to be eligible across all of them.

@@ -1,0 +1,23 @@
+{
+  "any-field-generalist": {
+    "variant": 5644,
+    "canonical": 511,
+    "material_content_sha256": "c441f70731ccf292e68e11c9adf52653d55820855260cdf41b66fe544b9d9dfb",
+    "source_url": "https://work.mercor.com/jobs/list_AAABoKORCF2dakrez4FCAo_G",
+    "note": "Retained accepted source; no fetch or collection. Full source text preserved for regression only."
+  },
+  "nontechnical-generalist": {
+    "variant": 8228,
+    "canonical": 2001,
+    "material_content_sha256": "ba6a59ccc636d477655478068eeaef691901e6f594d7ce9dd4d1a50073c810cd",
+    "source_url": "https://www.dataannotation.tech/job-board/generalist",
+    "note": "Retained accepted source; no fetch or collection. Full source text preserved for regression only."
+  },
+  "guided-speech-evaluation": {
+    "variant": 7525,
+    "canonical": 1599,
+    "material_content_sha256": "189335cdabc39e351b6ac9e6d35263dea522c82bcdab8a20c2491b84391b9e3f",
+    "source_url": "https://jobs.lever.co/rws/ecabff98-a1e1-40eb-9ca3-ffb7a1681ebc",
+    "note": "Retained accepted source; no fetch or collection. Full source text preserved for regression only."
+  }
+}

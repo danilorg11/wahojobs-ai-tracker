@@ -358,7 +358,7 @@ def prepare_language_conditions(quote: str, modality: str, *, include_ungraded=F
     scope stays unresolved; no CEFR equivalences or inferred expertise.
     """
     text = re.sub(r'[*#]', '', quote).replace('\u2011', '-').replace('\u2010', '-')
-    levels = (r'native(?:-level)?(?: or near-native)?|near-native|fluent|'
+    levels = (r'native(?:-level)?(?: or near-native)?|near-native|fluent(?: or advanced)?|advanced|'
               r'bilingual|working fluency|working proficiency')
     if include_ungraded:
         # Required communication in a named human language establishes its
@@ -419,8 +419,7 @@ def prepare_language_conditions(quote: str, modality: str, *, include_ungraded=F
             mode = 'unresolved'  # an unnamed alternative cannot become a hard language gate
         results.append(dict(languages=sorted({m['language'] for m in group}),
                             levels=['unspecified'] if ungraded else
-                            ['native', 'near-native'] if ' or ' in found['level'].lower()
-                            else [found['level'].lower().replace('-level', '')],
+                            found['level'].lower().replace('-level', '').split(' or '),
                             operator=operator, modality=mode, quote=quote))
     return results
 
@@ -452,11 +451,11 @@ def compare_language_condition(profile: dict, requirement: dict) -> dict:
         elif len(levels) != 1:
             status = 'unresolved'
         elif next(iter(levels)) in requirement['levels'] or (
-                levels == {'native'} and requirement['levels'] in
-                (['fluent'], ['bilingual'], ['working fluency'], ['working proficiency'])):
+                levels == {'native'} and set(requirement['levels']) <=
+                {'fluent', 'advanced', 'bilingual', 'working fluency', 'working proficiency'}):
             status = 'supported'
         elif levels == {'basic'} and set(requirement['levels']) <= {
-                'native', 'near-native', 'fluent', 'bilingual', 'working fluency', 'working proficiency'}:
+                'native', 'near-native', 'fluent', 'advanced', 'bilingual', 'working fluency', 'working proficiency'}:
             status = 'contradicted'
         else:
             status = 'unresolved'  # advanced/fluent is not equated with near-native
