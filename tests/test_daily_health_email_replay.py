@@ -181,7 +181,7 @@ class HistoricalAlertReplay(unittest.TestCase):
         self.assertIn('delivery:uncertain',crashed['active'])
 
     def test_real_journal_status_survives_later_disabled_cycle(self):
-        plan=dict(version=maintenance.VERSION,source='micro1')
+        plan=dict(version=maintenance.VERSION,source='micro1',run_id=EVIDENCE['source_states']['micro1']['run_id'])
         plan['plan_id']=maintenance.digest(plan)
         journal=maintenance.Journal(self.config['journal'],plan)
         journal.append('source_transport',dict(event='request',observed_at=EVIDENCE['micro1_attempt']['at']))
@@ -241,6 +241,7 @@ class HistoricalAlertReplay(unittest.TestCase):
         cohort=daily._baseline_cohorts(self.config,['mercor'])['mercor']
         self.assertEqual(cohort,[dict(verified_at='2026-09-18T13:07:32+00:00',records=1)])
         failed=daily.empty_source('mercor',self.when('B'),outcome='collection_failed_or_interrupted')
+        failed['requests_used']=1  # This scenario includes one dispatched attempt.
         daily.write_json(self.root/'mercor-state.json',failed)
         issues=daily.health_issues(self.config,self.when('B'))
         self.assertIn('mercor:collection',issues)

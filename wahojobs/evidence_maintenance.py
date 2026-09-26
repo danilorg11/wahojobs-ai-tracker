@@ -125,7 +125,7 @@ def source_fingerprint(connection, slug):
     return digest(material)
 
 
-def inspect_source(connection, slug, now):
+def inspect_source(connection, slug, now, *, catalog_only=False):
     from scripts.profile_match_digest import get_active_rows
     from wahojobs.matching.opportunity_trust import assess_opportunity_trust
     from wahojobs.crawler.provider_details import DETAIL_KEY
@@ -153,7 +153,9 @@ def inspect_source(connection, slug, now):
         jobs.append(dict(job_id=row['id'], canonical_id=row['canonical_opportunity_id'],
             external_id=row['external_id'], url=row['url'], verification=trust,
             description=description, evidence=evidence))
-    for canonical in sorted({r['canonical_opportunity_id'] for r in rows if r['canonical_opportunity_id']}):
+    # Daily catalog publication does not inspect or repair derived matching
+    # material. Keep the same source authority checks and semantic hashes.
+    for canonical in ([] if catalog_only else sorted({r['canonical_opportunity_id'] for r in rows if r['canonical_opportunity_id']})):
         semantic = load_semantic_input(connection, canonical)
         stored = connection.execute('SELECT * FROM opportunity_enrichments WHERE canonical_opportunity_id=?',
                                     (canonical,)).fetchone()
@@ -364,7 +366,9 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
         connection.execute('BEGIN')
         schema = schema_fingerprint(connection)
         for slug in providers:
-            state = inspect_source(connection, slug, now)
+            state = inspect_source(connection, slug, now,
+                catalog_only=daily_discovery and phase=='source' and details is None
+                    and owner is None and enrichment is None)
             states.append(state)
             try:
                 contract = inspect_refresh(target, [slug], details=details)['sources'][0]
@@ -493,11 +497,22 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
 
 
 def save_json(path, value):
+    import tempfile
     path = Path(path)
-    with path.open('xb') as stream:
-        stream.write(encoded(value) + b'\n')
-        stream.flush()
-        os.fsync(stream.fileno())
+    # Never expose a partly written numbered journal entry. Hard-link creation
+    # is atomic and preserves exclusive/no-overwrite semantics on both hosts.
+    descriptor,pending=tempfile.mkstemp(prefix='.'+path.name+'.',suffix='.pending',dir=path.parent)
+    try:
+        with os.fdopen(descriptor,'wb') as stream:
+            stream.write(encoded(value) + b'\n')
+            stream.flush();os.fsync(stream.fileno())
+        os.link(pending,path)
+        if os.name=='posix':
+            directory=os.open(path.parent,os.O_RDONLY)
+            try:os.fsync(directory)
+            finally:os.close(directory)
+    finally:
+        os.unlink(pending)
 
 
 class Journal:
@@ -547,6 +562,42 @@ def report(root, plan_id):
         recovery=('No replay. Inspect current inputs and create a new explicitly authorized plan. '
                   'A started catalog requires a fresh observation; retain every original run/response. '
                   'Durable preparation attempts remain consumed; invalid/attempted results are limitations.'))
+
+
+def committed_publication_report(publication, database):
+    """Read-only reporting view of an exact prepared, committed transaction.
+
+    Original journals remain immutable. A prepared file alone is never proof
+    of commit; the exact terminal crawl row is part of the SQLite transaction.
+    """
+    prepared=[e for e in publication['events'] if e['event']=='catalog_commit_prepared']
+    if not prepared:return publication
+    if len(prepared)!=1:raise ValueError('single_prepared_catalog_receipt_required')
+    entry=prepared[0];proof=entry['data'];plan=publication['plan'];provider=proof['provider']
+    links=[e['data'] for e in publication['events'] if e['event']=='staged_observation']
+    if (plan['database']!=database_identity(Path(database)) or plan['config']['providers']!=[provider]
+            or proof['operation']!='catalog:'+provider or len(links)!=1
+            or links[0]['collection_plan_id']!=proof['collection_plan_id']
+            or links[0]['collection_journal_hash']!=proof['collection_journal_hash']
+            or proof['result']['after']['provider']!=provider
+            or proof['result']['after']['latest_run']!=proof['crawl_run']
+            or proof['crawl_run']['status'] not in ('success','partial','contract_drift')):
+        raise ValueError('prepared_catalog_receipt_binding_invalid')
+    with read_connection(database) as connection:
+        row=connection.execute('SELECT * FROM crawl_runs WHERE id=?',(proof['crawl_run']['id'],)).fetchone()
+        company=connection.execute('SELECT id FROM companies WHERE slug=?',(provider,)).fetchone()
+    if row is None or company is None or dict(row)!=proof['crawl_run'] or row['company_id']!=company['id']:
+        return dict(publication,prepared_commit_verified=False)
+    # Build a reporting view, never append a forged historical journal event.
+    result=dict(operation=proof['operation'],status='completed' if row['status']=='success' else 'partially_completed',
+        result=proof['result'])
+    events=[e for e in publication['events'] if e['event']!='finished' and not (
+        e['event']=='operation_result' and e['data'].get('operation')==proof['operation'])]
+    events.extend([dict(event='operation_result',data=result),dict(event='finished',data=dict(
+        status=result['status'],request_usage=dict(http_transactions=0)))])
+    return dict(publication,events=events,status=result['status'],prepared_commit_verified=True,
+        reconciliation_proof=dict(prepared_event_hash=entry['hash'],crawl_run_id=row['id'],
+            terminal_crawl_row_sha256=digest(dict(row))))
 
 
 def _validate_plan(plan):
@@ -644,17 +695,33 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                     journal.append('blocked', outcomes[-1])
                     continue
                 journal.append('started', dict(operation=oid, kind=kind))
+                prepared=None
                 try:
                     if kind == 'catalog_observation':
+                        def prepare_commit(connection, company, crawl_run_id, summary):
+                            nonlocal prepared
+                            after=inspect_source(connection,operation['provider'],now,
+                                catalog_only=plan['config'].get('daily_discovery') is True
+                                    and plan['config']['phase']=='source' and plan['config']['details'] is None
+                                    and plan['owner_scope'] is None and plan['enrichment_scope'] is None)
+                            terminal=dict(connection.execute('SELECT * FROM crawl_runs WHERE id=?',(crawl_run_id,)).fetchone())
+                            prepared=dict(operation=oid,provider=operation['provider'],crawl_run=terminal,
+                                result=dict(summary=asdict(summary),after=after,detail_counts={}),
+                                collection_plan_id=observation.collection_plan_id,
+                                collection_journal_hash=observation.journal_hash)
+                            journal.append('catalog_commit_prepared',prepared)
                         with daily_source(operation['provider']):
                             _, summary = run_crawl(operation['provider'], db_path=target,
                                 details=operation['details'], ownership=lease,
                                 **({'observation': observation,
-                                    'authorize_controlled_publication': authorize_controlled_publication}
+                                    'authorize_controlled_publication': authorize_controlled_publication,
+                                    'before_lifecycle_commit':prepare_commit}
                                    if observation is not None else {}))
                         budget.finish_source(operation['provider'])
-                        with read_connection(target) as connection:
-                            after = inspect_source(connection, operation['provider'], now)
+                        if prepared is not None:after=prepared['result']['after']
+                        else:
+                            with read_connection(target) as connection:
+                                after = inspect_source(connection, operation['provider'], now)
                         status = 'completed' if summary.snapshot_complete else 'partially_completed'
                         if after['latest_run']['status'] == 'failed':
                             status = 'failed'
@@ -684,7 +751,9 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                     journal.append('operation_result', outcomes[-1])
                 except Exception as exc:
                     # Preserve uncertainty; never retry. Do not log credential-bearing exceptions.
-                    outcomes.append(dict(operation=oid, status='failed', error_type=type(exc).__name__))
+                    outcomes.append(dict(operation=oid, status='failed', error_type=type(exc).__name__,
+                        **({'stage':'publication_receipt','prepared_crawl_run_id':prepared['crawl_run']['id']}
+                           if prepared is not None else {})))
                     journal.append('operation_result', outcomes[-1])
                     if operation.get('provider'):
                         budget.finish_source(operation['provider'])

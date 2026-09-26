@@ -72,6 +72,8 @@ def _event_line(event,*,resolved_application_at=None):
         return 'Application-unavailable event detected at '+_readable(event['at'])+'. See the timestamped availability snapshot above for current status.'
     if key=='collection:state':
         return 'Collection verified '+issue.get('current_state','unknown')+' at '+_readable(issue.get('observed_at') or event['at'])+'.'
+    if key=='run:accounting_reconciled':
+        return 'Retained cycle '+issue['run_id']+' accounting corrected from original capture and transaction evidence. No new collection or verification renewal occurred.'
     if event['kind']=='first_verified':return f'{name}: first daily verification completed.'
     if event['kind']=='recovered':return f'{name}: the {key.split(":",1)[1].replace("_"," ")} problem resolved. Other open conditions remain separate.'
     if key.endswith(':coverage'):
@@ -89,6 +91,13 @@ def _event_line(event,*,resolved_application_at=None):
         status=issue.get('http_status')
         line=f'{name}: collection failed'+(f' (HTTP {status})' if status else '')+'.'
         if issue.get('last_attempt_at'):line+=' Last attempt: '+_readable(issue['last_attempt_at'])+'.'
+    elif key.endswith(':accounting'):
+        line=f'{name}: source accounting unavailable; '+('an attempt is evidenced, but its final outcome is unavailable.'
+            if issue.get('attempt_started')=='yes' else 'attempt status is unavailable.')
+    elif key.endswith(':qualification'):
+        line=f'{name}: observation failed qualification; verification was not renewed.'
+    elif key.endswith(':publication'):
+        line=f'{name}: captured observation was not successfully published; inspect the publication receipt.'
     elif key.startswith('run:'):
         line='Daily cycle: '+issue.get('reason','execution problem').replace('_',' ')+'.'
     elif key=='delivery:uncertain':line='Operational email delivery failed or is uncertain; the original message was not retried.'
@@ -136,6 +145,12 @@ def message(events,context=None):
         lines.append(f"Last cycle: {qualified} source{'s' if qualified!=1 else ''} verified and published; "
                      f"{failed} attempted source{'s' if failed!=1 else ''} failed. "
                      'Publication succeeded for the verified sources; the daily check was incomplete.')
+        for field,label in (('accounting_unavailable_sources','source accounting unavailable'),
+                            ('qualification_failed_sources','observations failed qualification'),
+                            ('publication_failed_sources','publication incomplete or failed'),
+                            ('not_attempted_sources','sources blocked, skipped or disabled')):
+            names=cycle.get(field,[])
+            if names:lines.append(f"{len(names)} {label}: "+', '.join(_name(name+':coverage') for name in names)+'.')
     elif state=='complete':lines.append('Last cycle completed its qualifying source checks.')
     if cycle.get('new_opportunities') is not None and state in ('partial','complete'):
         lines.append(f"Catalog impact: {cycle['new_opportunities']:,} newly published opportunities "

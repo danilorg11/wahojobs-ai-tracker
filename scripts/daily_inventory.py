@@ -627,7 +627,18 @@ def main(argv=None):
         if args.phase is None:raise ValueError('worker_phase_required')
         deadline=claim_worker(config,args.run_id,args.phase)
         from wahojobs.crawler.local_inventory import request_deadline
-        with request_deadline(deadline):daily.collect_phase(config,args.run_id,args.phase)
+        try:
+            with request_deadline(deadline):daily.collect_phase(config,args.run_id,args.phase)
+        except Exception as error:
+            import traceback
+            # Bound diagnostics persist even before a publication journal can
+            # be created. Never retain exception values or response contents.
+            diagnostic=dict(phase=args.phase,error_type=type(error).__name__,at=daily.stamp(daily.now()),
+                reason=str(error) if re.fullmatch('[a-z_]{1,90}',str(error)) else None,
+                frames=[dict(file=Path(frame.filename).name,function=frame.name,line=frame.lineno)
+                    for frame in traceback.extract_tb(error.__traceback__)[-8:]])
+            daily.write_json(Path(config['state_directory'])/'runs'/args.run_id/(args.phase+'-failure.json'),diagnostic)
+            raise
     elif args.command=='repair-storage':repair_storage(config)
     elif args.command=='recover':recover(config,args.policy)
     elif args.command=='run':

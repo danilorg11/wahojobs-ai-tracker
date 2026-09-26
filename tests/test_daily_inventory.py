@@ -259,9 +259,10 @@ class DailyPolicyTests(unittest.TestCase):
 
     def test_interrupted_source_reporting_counts_durable_attempts_without_collection(self):
         receipt=d.reserve_run(self.root,self.at,self.at,'timer');receipt['maintenance_seconds']=12
-        plan=dict(plan_id='a'*64,config=dict(providers=['alignerr']),sources=[dict(jobs=[])])
-        d.write_json(self.root/'runs'/receipt['run_id']/'alignerr-plan.json',plan)
-        journal=dict(status='interrupted',events=[dict(event='source_transport',data=dict(event='request'))]*7)
+        identifier='a'*64
+        d.write_json(self.root/'runs'/receipt['run_id']/'alignerr-collection.json',dict(plan_id=identifier))
+        plan=dict(plan_id=identifier,source='alignerr',run_id=receipt['run_id'],started_at=d.stamp(self.at))
+        journal=dict(plan_id=identifier,plan=plan,status='interrupted',events=[dict(event='source_transport',data=dict(event='request'))]*7)
         with patch.object(m,'report',return_value=journal),patch.object(d,'now',return_value=self.at):
             d.finish_run_sources(dict(self.config,journal=str(self.root/'journal')),receipt)
         self.assertEqual(receipt['sources']['alignerr']['requests_used'],7)

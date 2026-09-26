@@ -61,7 +61,7 @@ CRAWLERS = {
 
 
 def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=None, observation=None,
-              authorize_controlled_publication=False):
+              authorize_controlled_publication=False, before_lifecycle_commit=None):
     if ownership is not None and db_path is None:
         raise ValueError("Owned crawl requires an explicit local database")
     if details not in (None, "needed", "all"):
@@ -95,6 +95,7 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
 
         savepoint_name = None
         savepoint_active = False
+        prepared_terminal = None
         try:
             crawler = CRAWLERS.get(company_slug)
             if crawler is None:
@@ -151,8 +152,17 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
                 status=crawl_run_status,
                 error_message=non_success_diagnostic(crawl_run_status, summary),
             )
+            if before_lifecycle_commit is not None:
+                prepared_terminal=dict(conn.execute('SELECT * FROM crawl_runs WHERE id=?',(crawl_run_id,)).fetchone())
+                before_lifecycle_commit(conn,company,crawl_run_id,summary)
             conn.commit()
         except Exception as exc:
+            # A signal after SQLite's commit must not relabel committed catalog
+            # changes as a failed observation. The prepared receipt names this
+            # exact terminal row; reporting can verify it without replay.
+            if prepared_terminal is not None and not conn.in_transaction:
+                terminal=conn.execute('SELECT * FROM crawl_runs WHERE id=?',(crawl_run_id,)).fetchone()
+                if terminal is not None and dict(terminal)==prepared_terminal:raise
             if savepoint_active and savepoint_name:
                 try:
                     conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")

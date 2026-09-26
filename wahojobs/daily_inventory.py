@@ -275,11 +275,16 @@ def empty_source(source, at, *, outcome, reason=None):
 
 def save_source(config, run_id, summary):
     directory=Path(config['state_directory']);source=summary['provider'];target=directory/'runs'/run_id
-    previous=_retain_old_failure(config,source,read_json(directory/(source+'-state.json'),{}))
+    previous=_retain_old_failure(config,source,read_source_state(config,source) or {})
     summary=merge_source_history(summary,previous)
     summary.update(run_id=run_id,trigger=read_json(target/'run.json',{}).get('trigger','isolated_worker'))
     write_json(target/(source+'.json'),summary)
     write_json(directory/(source+'-state.json'),summary)
+
+
+def read_source_state(config,source):
+    from wahojobs.daily_receipt_reconciliation import source_state
+    return source_state(config,source)
 
 
 def collect_phase(config, run_id, phase):
@@ -371,11 +376,18 @@ def collect_phase(config, run_id, phase):
                 # Collection accounting stays in its original retained journal.
                 # Combine evidence for the report without inventing HTTP attempts
                 # in the authoritative publication journal (which must use zero).
-                result=staged.publication_report(collection_report,result)
+                publication=maintenance.committed_publication_report(result,database)
+                result=staged.publication_report(collection_report,publication)
             summary=summarize_source(plan,result,started,now())
             if observation is not None:
                 summary.update(collection_plan_id=observation.collection_plan_id,collection_completed_at=observation.completed_at,
-                    publication_completed_at=stamp(now()),publication_requests_used=0)
+                    publication_completed_at=stamp(now()),publication_requests_used=0,
+                    attempt_started='yes',attempt_started_at=observation.started_at,
+                    capture_outcome=collection_report['status'],publication_outcome=publication['status'],
+                    accounting_status='complete',qualification_outcome='accepted' if summary['qualifying_observation'] else 'rejected'
+                        if summary['observed'] is not None else 'not_established')
+                if publication.get('reconciliation_proof'):summary['reconciliation_proof']=publication['reconciliation_proof']
+                if publication['status']=='failed' and summary['observed'] is None:summary['outcome']='publication_failed'
             if summary['requests_used']>cap:raise ValueError('daily_request_limit_violated')
             save_source(config,run_id,summary)
     finally:release_database_lifetime_ownership(lease,role=ROLE_OFFLINE_OPERATOR,database_path=database)
@@ -465,18 +477,21 @@ def _baseline_cohorts(config,providers):
     return result
 
 
-def _source_attempt(config,source):
-    plan_id=source.get('last_failed_collection_plan_id') or source.get('collection_plan_id')
+def _source_attempt(config,source,*,historical=False):
+    # An older failure is useful for an explicitly disabled source, but cannot
+    # establish that the current scheduled run dispatched a request.
+    plan_id=(source.get('last_failed_collection_plan_id') if historical else None) or source.get('collection_plan_id')
     if not plan_id:return {}
     try:
         report=maintenance.report(config['journal'],plan_id)
         if report['plan'].get('source')!=source['provider']:return {}
+        if not historical and source.get('run_id') and report['plan'].get('run_id')!=source['run_id']:return {}
         requests=[e['data'] for e in report['events'] if e['event']=='source_transport'
                   and e['data'].get('event')=='request']
         errors=[e['data'] for e in report['events'] if e['event']=='source_transport'
                 and e['data'].get('event')=='transport_error']
-        return dict(at=requests[-1].get('observed_at') if requests else None,
-                    status=errors[-1].get('status') if errors else None)
+        return dict(at=requests[0].get('observed_at') if requests else None,
+                    status=errors[-1].get('status') if errors and report['status']=='collection_failed' else None)
     except (OSError,ValueError,KeyError,TypeError):return {}
 
 
@@ -515,7 +530,7 @@ def _disabled_coverage(config,provider,source):
     failed=bool(source and (source.get('last_failed_collection_plan_id') or
                 (source.get('qualifying_observation') is False and
                  source.get('outcome') in ('collection_failed_or_interrupted','interrupted_or_failed','failed','partial_or_failed'))))
-    attempt=_source_attempt(config,source) if failed else {}
+    attempt=_source_attempt(config,source,historical=True) if failed else {}
     if attempt.get('status')==403:
         return dict(severity='warning',reason='disabled_after_http_403',readiness='ready',enabled=False,
             http_status=403,last_attempt_at=attempt.get('at'),
@@ -528,6 +543,23 @@ def _disabled_coverage(config,provider,source):
         corrective_action='Review the source operating decision before enabling collection.')
 
 
+def source_condition(source):
+    """One reporting boundary for receipt states, never an evidence upgrade."""
+    if source.get('qualifying_observation') is True:return None
+    outcome=source.get('outcome')
+    if outcome in ('blocked','disabled','not_started','cooldown','not_targeted'):return 'coverage'
+    if outcome in ('accounting_unavailable','receipt_finalization_failed'):return 'accounting'
+    if source.get('qualification_outcome')=='rejected':return 'qualification'
+    if source.get('publication_outcome') in ('failed','interrupted','blocked') or outcome in ('collected_unpublished','publication_failed'):
+        return 'publication'
+    if outcome=='partial_or_failed' and source.get('observed') is not None:return 'qualification'
+    used=source.get('requests_used')
+    if type(used) is int and used>0:return 'collection'
+    if type(used) is int and used==0 and outcome in ('failed','interrupted_or_failed','collection_failed_or_interrupted'):
+        return 'coverage'
+    return 'accounting'
+
+
 def health_issues(config,at,*,application_ready=None):
     directory=Path(config['state_directory']);issues={}
     previous=read_json(directory/'health.json',{'active':{}})
@@ -538,7 +570,8 @@ def health_issues(config,at,*,application_ready=None):
         issues['application:unavailable']=previous['active']['application:unavailable']
     slot=slot_at(at);first=parse(config['first_run_at'])
     try:
-        latest=read_json(directory/'runs'/slot.strftime('%Y%m%dT060000Z')/'run.json')
+        from wahojobs.daily_receipt_reconciliation import read_current
+        latest=read_current(directory/'runs'/slot.strftime('%Y%m%dT060000Z')/'run.json')
         if latest is not None and type(latest) is not dict:raise ValueError('invalid_run_receipt_shape')
     except (OSError,ValueError):
         latest=None
@@ -571,7 +604,7 @@ def health_issues(config,at,*,application_ready=None):
         policy=POLICY[provider]
         enabled=source_settings(config)[provider]['enabled']
         try:
-            source=read_json(directory/(provider+'-state.json'))
+            source=read_source_state(config,provider)
         except (OSError,ValueError):
             source=None
         if policy['readiness']=='blocked':
@@ -586,17 +619,24 @@ def health_issues(config,at,*,application_ready=None):
             missing.append(provider)
         elif not source.get('qualifying_observation'):
             if policy['readiness']=='ready' and not source.get('cohorts'):missing.append(provider)
-            if source.get('outcome') in ('blocked','disabled','not_started','cooldown'):
+            kind=source_condition(source)
+            if kind=='coverage':
                 issues[provider+':coverage']=dict(severity='warning',reason=source['outcome'],
                     corrective_action='Resolve the recorded eligibility or source blocker before claiming a check.',
                     readiness=policy['readiness'],enabled=enabled)
             else:
                 attempt=_source_attempt(config,source)
-                issues[provider+':collection']=dict(severity='error',reason=source.get('outcome','unknown'),
-                    last_attempt_at=attempt.get('at'),http_status=attempt.get('status'),
-                    corrective_action=('Resolve authorized access to the existing endpoint, then perform bounded validation.'
+                actions={
+                    'accounting':'Inspect retained run and source receipts; attempt status must not be inferred from missing accounting.',
+                    'qualification':'Inspect retained observation and qualification decisions; no freshness or closure may be inferred from a rejected observation.',
+                    'publication':'Inspect retained publication evidence and the original capture; do not replay it to renew verification.',
+                    'collection':('Resolve authorized access to the existing endpoint, then perform bounded validation.'
                         if attempt.get('status')==403 else
-                        'Inspect the retained failed collection before a bounded authorized validation.'))
+                        'Inspect the retained failed collection before a bounded authorized validation.')}
+                issues[provider+':'+kind]=dict(severity='error',reason=source.get('outcome','unknown'),
+                    last_attempt_at=attempt.get('at'),http_status=attempt.get('status'),
+                    attempt_started=source.get('attempt_started','yes' if attempt.get('at') else 'unknown'),
+                    corrective_action=actions[kind])
         if source and source.get('abnormal_count_drop'):
             issues[provider+':count_drop']=dict(severity='error',reason='observed_record_count_dropped',observed=source['observed'])
         for cohort in (source or {}).get('cohorts',[]):
@@ -618,7 +658,8 @@ def _current_cycle(config,at):
     first=parse(config['first_run_at'])
     if at<first:return dict(state='scheduled',scheduled_at=stamp(first))
     slot=slot_at(at);path=Path(config['state_directory'])/'runs'/slot.strftime('%Y%m%dT060000Z')/'run.json'
-    try:receipt=read_json(path)
+    from wahojobs.daily_receipt_reconciliation import read_current
+    try:receipt=read_current(path)
     except (OSError,ValueError):receipt=None
     if receipt is not None and type(receipt) is not dict:receipt=None
     if receipt is None:
@@ -632,15 +673,22 @@ def _current_cycle(config,at):
         return dict(state='failed',scheduled_at=receipt.get('scheduled_at',stamp(slot)),
             run_id=receipt.get('run_id'),outcome=outcome,qualified_sources=[],failed_sources=[])
     qualified=sorted(source for source,row in sources.items() if row.get('qualifying_observation') is True)
-    failed=sorted(source for source,row in sources.items() if (row.get('requests_used') or 0)>0
-                  and row.get('qualifying_observation') is not True)
-    if outcome in SUCCESSFUL_RUN_OUTCOMES:state='complete' if not failed else 'partial'
+    groups={kind:sorted(source for source,row in sources.items() if source_condition(row)==kind)
+            for kind in ('collection','accounting','qualification','publication','coverage')}
+    failed=groups['collection']
+    if outcome in SUCCESSFUL_RUN_OUTCOMES:
+        state='partial' if any(groups[k] for k in ('collection','accounting','qualification','publication')) else 'complete'
     elif _published_partial_cycle(config,receipt):state='partial'
     elif outcome in ('running','reserved'):state='running'
     else:state='failed'
     return dict(state=state,scheduled_at=receipt.get('scheduled_at',stamp(slot)),run_id=receipt.get('run_id'),
         outcome=outcome,qualified_sources=qualified,failed_sources=failed,
-        requests_used=sum((row.get('requests_used') or 0) for row in sources.values()) if sources else None,
+        reporting_reconciliation=receipt.get('reporting_reconciliation'),
+        accounting_unavailable_sources=groups['accounting'],qualification_failed_sources=groups['qualification'],
+        publication_failed_sources=groups['publication'],not_attempted_sources=groups['coverage'],
+        requests_used=(sum(row['requests_used'] for row in sources.values())
+            if sources and all(type(row.get('requests_used')) is int for row in sources.values()) else None),
+        known_requests_used=sum((row.get('requests_used') or 0) for row in sources.values()),
         new_opportunities=sum((row.get('new_canonical_opportunities') or 0) for row in sources.values() if row.get('qualifying_observation')),
         new_variants=sum((row.get('new') or 0) for row in sources.values() if row.get('qualifying_observation')),
         changed_variants=sum((row.get('changed') or 0) for row in sources.values() if row.get('qualifying_observation')),
@@ -651,7 +699,7 @@ def _health_context(config,issues,at):
     directory=Path(config['state_directory'])
     qualified=[]
     for source in SOURCES:
-        try:row=read_json(directory/(source+'-state.json'))
+        try:row=read_source_state(config,source)
         except (OSError,ValueError):row=None
         if row and row.get('qualifying_observation') is True and source_settings(config)[source]['enabled']:
             qualified.append(source)
@@ -670,8 +718,8 @@ def _genuine_resolution(config,key,at,previous_check=None,application_ready=None
     if key=='application:unavailable':return application_ready is True
     provider,_,kind=key.partition(':')
     if provider in SOURCES:
-        state=read_json(Path(config['state_directory'])/(provider+'-state.json')) or {}
-        if kind in ('collection','coverage','count_drop') or kind.startswith('cohort_'):
+        state=read_source_state(config,provider) or {}
+        if kind in ('collection','coverage','accounting','qualification','publication','count_drop') or kind.startswith('cohort_'):
             verified=state.get('ended_at')
             return bool(source_settings(config)[provider]['enabled'] and state.get('qualifying_observation') is True
                 and verified and previous_check and parse(verified)>parse(previous_check))
@@ -743,8 +791,10 @@ def health(config,at=None,*,application_ready=None,operating=None,urgent=False):
                 aligned[target]=issues[target]
                 add('reclassified',target,from_key=key,pending=False)
                 continue
-        if kind=='collection' and provider+':coverage' in issues and key not in issues:
-            target=provider+':coverage'
+        if kind in ('collection','coverage','accounting','qualification','publication') and key not in issues and any(
+                provider+':'+stage in issues for stage in ('collection','coverage','accounting','qualification','publication')):
+            target=next(provider+':'+stage for stage in ('collection','coverage','accounting','qualification','publication')
+                        if provider+':'+stage in issues)
             if target not in old:
                 transitions.append(target)
                 add('status_changed',target,issue=issues[target],from_key=key)
@@ -802,11 +852,21 @@ def health(config,at=None,*,application_ready=None,operating=None,urgent=False):
         if operating.get('coherent') and current!=prior:
             add('status_changed','collection:state',issue=dict(previous_state=prior,current_state=current,
                 observed_at=operating['collection']['checked_at'],reason=operating['collection'].get('reason')))
+    reconciliation=context.get('cycle',{}).get('reporting_reconciliation')
+    if not urgent and reconciliation and not any(
+            e['key']=='run:accounting_reconciled' and e.get('issue',{}).get('report_id')==reconciliation for e in events):
+        add('status_changed','run:accounting_reconciled',issue=dict(report_id=reconciliation,
+            run_id=context['cycle']['run_id'],reason='retained_cycle_accounting_reconciled'))
     before=previous.get('context',{}).get('qualified_sources')
     if before is not None:
         for source in sorted(set(context['qualified_sources'])-set(before)):
+            source_state=read_source_state(config,source) or {}
+            previous_check=previous.get('context',{}).get('source_state_checked_at') or previous.get('checked_at')
+            if source_state.get('reconciliation_proof') and previous_check and (
+                    not source_state.get('ended_at') or parse(source_state['ended_at'])<=parse(previous_check)):
+                continue
             if any(event['kind']=='recovered' and event['at']==stamp(at) and
-                   event['key'] in (source+':collection',source+':coverage') for event in events):
+                   event['key'] in tuple(source+':'+kind for kind in ('collection','coverage','accounting','qualification','publication')) for event in events):
                 continue
             add('first_verified',source+':verification',issue=dict(severity='info',reason='first_daily_qualifying_observation'))
     result=dict(checked_at=stamp(at),next_scheduled_execution=stamp(max(next_trigger(at),parse(config['first_run_at']))),
@@ -842,52 +902,81 @@ def merge_source_history(summary,previous):
     return summary
 
 
+def reconstruct_source_receipt(config,receipt,provider):
+    """Read collection and publication independently; never replay a capture."""
+    target=Path(config['state_directory'])/'runs'/receipt['run_id']
+    started=parse(receipt.get('started_at') or receipt['scheduled_at'])
+    ended=parse(receipt['ended_at']) if receipt.get('ended_at') else now()
+    row=empty_source(provider,started,outcome='not_started');row['ended_at']=stamp(ended)
+    schedule=read_json(target/'coverage-plan.json',{}).get(provider,{})
+    row.update(outcome=schedule.get('state','not_started'),reason=schedule.get('reason'),
+        attempt_started='no' if schedule.get('state') in ('disabled','blocked','cooldown','not_targeted') else 'unknown',
+        capture_outcome='not_recorded',publication_outcome='not_recorded',accounting_status='complete')
+    if row['outcome']=='due':row['outcome']='not_started'
+    collection=None
+    try:
+        ref=read_json(target/(provider+'-collection.json'))
+        if ref:
+            collection=maintenance.report(config['journal'],ref['plan_id'])
+            if collection['plan'].get('source')!=provider or collection['plan'].get('run_id')!=receipt['run_id']:
+                raise ValueError('collection_run_binding_invalid')
+            requests=[e['data'] for e in collection['events'] if e['event']=='source_transport' and e['data'].get('event')=='request']
+            measured=summarize_source(dict(plan_id=None,config=dict(providers=[provider]),sources=[dict(jobs=[])]),collection,started,ended)
+            for field in ('requests_used','http_responses_received','pages_fetched','request_cap_reached','listing_envelope_shape'):
+                if field in measured:row[field]=measured[field]
+            row.update(collection_plan_id=ref['plan_id'],capture_outcome=collection['status'],
+                attempt_started='yes' if requests else 'no',attempt_started_at=requests[0].get('observed_at') if requests else None,
+                started_at=collection['plan']['started_at'],outcome='collected_unpublished'
+                    if collection['status']=='collected_unpublished' else 'collection_failed_or_interrupted')
+    except (OSError,ValueError,KeyError,TypeError) as error:
+        collection=None
+        row.update(outcome='accounting_unavailable',requests_used=None,http_responses_received=None,pages_fetched=None,
+            attempt_started='unknown',accounting_status='collection_receipt_unavailable',accounting_error_type=type(error).__name__)
+    try:
+        plan=read_json(target/(provider+'-plan.json'))
+        if plan:
+            maintenance._validate_plan(plan)
+            publication=maintenance.report(config['journal'],plan['plan_id'])
+            if plan!=publication['plan'] or plan['config']['providers']!=[provider]:
+                raise ValueError('publication_plan_binding_invalid')
+            publication=maintenance.committed_publication_report(publication,config['database'])
+            if collection is None:raise ValueError('bound_collection_accounting_required')
+            from wahojobs.crawler.staged_observation import publication_report
+            report=publication_report(collection,publication)
+            summary=summarize_source(plan,report,parse(row['started_at']),ended)
+            row.update(summary,publication_outcome=publication['status'],publication_requests_used=0,
+                qualification_outcome='accepted' if summary['qualifying_observation'] else 'rejected'
+                    if summary['observed'] is not None else 'not_established')
+            if publication.get('reconciliation_proof'):row['reconciliation_proof']=publication['reconciliation_proof']
+            if publication['status']=='failed' and summary['observed'] is None:row['outcome']='publication_failed'
+        elif collection and collection['status']=='collected_unpublished':
+            row.update(publication_outcome='not_started',outcome='collected_unpublished')
+    except (OSError,ValueError,KeyError,TypeError) as error:
+        row.update(outcome='accounting_unavailable',publication_outcome='unknown',
+            accounting_status='publication_receipt_unavailable',accounting_error_type=type(error).__name__)
+    failure=read_json(target/(provider+'-failure.json'))
+    if failure:row['worker_error_type']=failure.get('error_type')
+    row.update(run_id=receipt['run_id'],trigger=receipt['trigger'],maintenance_seconds=receipt.get('maintenance_seconds'))
+    return row
+
+
 def finish_run_sources(config,receipt):
     """Complete timeout/undispatched summaries using retained records after restore.
 
-    No database or employer access. An interrupted journal's reservations count
-    as consumed requests; missing/corrupt accounting is unknown, never zero.
+    Read-only transaction verification is permitted for prepared receipts. An
+    interrupted journal's reservations count; missing accounting stays unknown.
     """
     directory=Path(config['state_directory']);target=directory/'runs'/receipt['run_id']
     rows={}
     from wahojobs.availability_recovery import selected
     for provider in selected(receipt) or SOURCES:
-        plan=None
-        previous=_retain_old_failure(config,provider,read_json(directory/(provider+'-state.json'),{}))
+        previous=_retain_old_failure(config,provider,read_source_state(config,provider) or {})
         newer_state=previous.get('run_id','')>receipt['run_id']
         history={} if newer_state else previous
         try:
             row=read_json(target/(provider+'.json'))
             if row is None:
-                plan=read_json(target/(provider+'-plan.json'))
-                scaffold=plan or dict(plan_id=None,config=dict(providers=[provider],http_limit=source_settings(config)[provider]['http_max']),sources=[dict(jobs=[])])
-                report=maintenance.report(config['journal'],plan['plan_id']) if plan else {}
-                collection=read_json(target/(provider+'-collection.json'))
-                retained=maintenance.report(config['journal'],collection['plan_id']) if collection else None
-                if retained and report.get('events') and report['events'][-1]['event']=='finished':
-                    from wahojobs.crawler.staged_observation import publication_report
-                    report=publication_report(retained,report)
-                row=summarize_source(scaffold,report,parse(receipt['started_at']),now())
-                if not plan:
-                    schedule=read_json(target/'coverage-plan.json',{})
-                    policy=POLICY[provider];scheduled=schedule.get(provider,{})
-                    row.update(outcome=scheduled.get('state','blocked' if policy['readiness']=='blocked' else 'not_started'),reason=scheduled.get('reason',policy['blocker']))
-                    if row['outcome']=='due':row['outcome']='not_started'
-                failure=read_json(target/(provider+'-failure.json'))
-                if failure:
-                    row['worker_error_type']=failure['error_type']
-                    if not row['qualifying_observation']:row.update(outcome='interrupted_or_failed',error_type=failure['error_type'])
-                elif report.get('status')=='interrupted':row.update(outcome='interrupted',qualifying_observation=False)
-                if collection:
-                    measured=summarize_source(scaffold,retained,parse(receipt['started_at']),now())
-                    for field in ('requests_used','http_responses_received','pages_fetched','request_cap_reached','listing_envelope_shape'):
-                        if field in measured:row[field]=measured[field]
-                    row['collection_plan_id']=collection['plan_id']
-                    row['publication_requests_used']=0
-                    if not plan:
-                        row.update(outcome='collected_unpublished' if retained['status']=='collected_unpublished' else 'collection_failed_or_interrupted',
-                            qualifying_observation=False)
-                row=merge_source_history(row,history)
+                row=merge_source_history(reconstruct_source_receipt(config,receipt,provider),history)
         except (OSError,ValueError,KeyError,TypeError):
             row=summarize_source(dict(plan_id=None,config=dict(providers=[provider]),sources=[dict(jobs=[])]),{},parse(receipt['started_at']),now())
             row.update(outcome='accounting_unavailable',requests_used=None)
