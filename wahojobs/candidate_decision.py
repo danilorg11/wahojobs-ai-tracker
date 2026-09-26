@@ -47,16 +47,54 @@ def _transferable_links(accepted):
 def _beginner_access(accepted, packet):
     """Present the recorded interest route, never infer it from a waiver/title."""
     from wahojobs.candidate_condition_comparisons import _lines
+    from wahojobs.matching.accepted_tasks import _DUTY_HEADING, _OTHER_HEADING, _APPLICANT
+    blocks = []
+    duty_quotes, duty_locations = set(), set()
+    for block in packet.get('blocks') or []:
+        if block['heading'].casefold() in {'similar roles', 'related roles', 'other openings'}:
+            break
+        blocks.append(block)
+        in_duties = bool(_DUTY_HEADING.fullmatch(block['heading'].replace('’', "'")))
+        assigned_lines = []
+        for number, raw in enumerate(block['text'].splitlines(), 1):
+            line = re.sub(r'[*#]', '', raw).strip().lstrip('- ')
+            if _DUTY_HEADING.fullmatch(line.replace('’', "'")):
+                in_duties = True
+                assigned_lines.append('')
+            elif _OTHER_HEADING.fullmatch(line.replace('’', "'")):
+                in_duties = False
+                assigned_lines.append('')
+            elif in_duties:
+                duty_locations.add((block['reference'], number, line))
+                assigned_lines.append(raw)
+        # Physical wrapping is not a new source clause. Keep paragraph and
+        # bullet boundaries while checking the already-recorded source text.
+        paragraphs = [quote for _, quote in _lines(dict(text='\n'.join(assigned_lines)))]
+        paragraphs.extend(quote for _, quote in _lines(block) if _APPLICANT.search(quote))
+        duty_quotes.update(' '.join(part.strip().lstrip('-* ').split())
+            for quote in paragraphs for part in re.split(r'(?<=[.!?;])\s+', quote))
     values = [accepted.get(key) for key in ('facts', 'profile_facts', 'scope_evidence', 'interest_links')]
     if not all(isinstance(value, (list, tuple)) and value for value in values):
         return None
     facts, profile_facts, scope, links = values
     for proof in scope:
-        if (not isinstance(proof, dict) or proof.get('scope_kind') != 'explicit_entry_level_or_non_specialized'
+        if (not isinstance(proof, dict) or proof.get('scope_kind') not in {
+                    'explicit_entry_level_or_non_specialized', 'nontechnical_everyday_duties', 'guided_broad_entry_audience'}
                 or not any(proof.get('block_reference') == block.get('reference')
                     and proof.get('line') == number and proof.get('quote') == quote
-                    for block in packet.get('blocks') or [] for number, quote in _lines(block))):
+                    for block in blocks for number, quote in _lines(block))):
             return None
+        if proof['scope_kind'] != 'explicit_entry_level_or_non_specialized':
+            supporting = proof.get('supporting_duty_quotes')
+            if (not isinstance(supporting, list) or not supporting
+                    or any(not isinstance(q, str) or ' '.join(q.strip().lstrip('-* ').split()) not in duty_quotes for q in supporting)):
+                return None
+            guidance = proof.get('guidance_evidence')
+            if (not isinstance(guidance, list)
+                    or (proof['scope_kind'] == 'guided_broad_entry_audience' and not guidance)
+                    or any(not isinstance(g, dict) or (g.get('block_reference'), g.get('line'), g.get('quote'))
+                           not in duty_locations for g in guidance)):
+                return None
     displayed = []
     for link in links:
         if not isinstance(link, dict):

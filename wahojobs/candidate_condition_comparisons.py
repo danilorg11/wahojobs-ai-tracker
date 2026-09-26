@@ -94,6 +94,46 @@ def _lines(block, *, split_labeled_conditions=False):
         yield start, current
 
 
+def _language(quote, profile):
+    """Compare one complete proficiency clause, never a compound's substring."""
+    from wahojobs.matching.languages import (LANGUAGE_ALIASES, normalize_language_text,
+        prepare_language_conditions, compare_language_condition)
+    from wahojobs.professional_background_duration import confirmed_fact
+    found = re.fullmatch(
+        r'(?:(?P<label>[\w -]+) Proficiency:\s*)?'
+        r'(?:native(?:-level)?(?: or near-native)?|near-native|fluent(?: or advanced)?|advanced|'
+        r'bilingual|working fluency|working proficiency)'
+        r'(?:\s+(?:fluency|proficiency|command))?(?:\s+(?:in|of))?\s+'
+        r'(?P<language>[\w -]+?(?: \([\w -]+\))?)'
+        r'(?: \(levels [ABC][12][–-][ABC][12]\))?\.?', quote, re.I)
+    if not found:
+        return None
+    language = LANGUAGE_ALIASES.get(normalize_language_text(found['language']))
+    if not language or (found['label'] and
+            LANGUAGE_ALIASES.get(normalize_language_text(found['label'])) != language):
+        return None
+    requirements = prepare_language_conditions(quote, 'unspecified')
+    if len(requirements) != 1 or requirements[0]['languages'] != [language]:
+        return None
+    result = compare_language_condition(profile, requirements[0])
+    facts = []
+    confirmed = True
+    for item in result['profile_facts']:
+        path = item['path']
+        value = item.get('proficiency', item.get('text'))
+        fact = confirmed_fact(profile, path, value)
+        if re.fullmatch(r'languages\[\d+\]\.proficiency', path):
+            identity = confirmed_fact(profile, path.rsplit('.', 1)[0] + '.language', item['language'])
+            confirmed = confirmed and bool(identity)
+            if identity:
+                facts.append(identity)
+        confirmed = confirmed and bool(fact)
+        facts.append(fact or _fact(profile, path, value))
+    if result['status'] in ('supported', 'contradicted') and not confirmed:
+        return 'unresolved', 'Confirm your saved language level before relying on this comparison.', facts, []
+    return result['status'], result['message'], facts, ['language proficiency'] if result['status'] == 'supported' else []
+
+
 def _education(quote, profile, *, generic_degree=False):
     from wahojobs.professional_background_duration import confirmed_fact
     pattern = 'degree' if generic_degree else _LEVEL
@@ -456,7 +496,7 @@ def compare_conditions(packet, profile, *, include_item_experience=False, backgr
             clean = re.sub(r'\s+(?:required|preferred)\.?$', '', quote, flags=re.I)
             result, kind = None, 'unassessed'
             comparators = () if mode in ('not_required', 'unresolved') else (
-                ('education', _education), ('tools', _tools), ('workload', _workload),
+                ('language', _language), ('education', _education), ('tools', _tools), ('workload', _workload),
                 ('professional_background', _professional_background))
             for name, compare in comparators:
                 # Workload is a stated term, not an inferred qualification.
@@ -467,6 +507,11 @@ def compare_conditions(packet, profile, *, include_item_experience=False, backgr
             if (kind == 'professional_background' and mode == 'unspecified'
                     and block['heading'].casefold().rstrip(':') in
                     {'qualifications','key qualifications','who you are',"what we're looking for",'what we are looking for'}):
+                mode = 'required'
+            if (kind == 'language' and mode == 'unspecified'
+                    and block['heading'].casefold().rstrip(':') in
+                    {'who you are', "what we're looking for", 'what we are looking for',
+                     'what we’re looking for', 'what we look for'}):
                 mode = 'required'
             if result:
                 status, message, facts, supported_parts = result
@@ -494,6 +539,12 @@ def compare_conditions(packet, profile, *, include_item_experience=False, backgr
     # Preserve uncertainty instead of attempting to interpret that second clause.
     qualified = [r for r in results if re.search(r'\b(?:not|no|unless|except|only if)\b', r['source']['quote'], re.I)]
     for row in results:
+        if row['kind'] == 'language':
+            from wahojobs.matching.languages import detect_explicit_languages
+            languages = detect_explicit_languages(row['source']['quote'])
+            if any(languages & detect_explicit_languages(q['source']['quote']) for q in qualified):
+                row.update(status='unresolved', message='The source qualifies or contradicts this condition elsewhere. Review the original wording before relying on it.')
+            continue
         if row['kind'] not in ('education', 'tools'):
             continue
         pattern = _LEVEL if row['kind'] == 'education' else _TOOLS

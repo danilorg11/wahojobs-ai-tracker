@@ -51,7 +51,7 @@ score is not evidence of qualification. Existing account authority and current
 saved/applied state remain separate from reusable catalog data.
 
 Projection versions advance to task projection 7, source eligibility 6 and task
-admission 13, invalidating obsolete derived recommendations through the established
+admission 14, invalidating obsolete derived recommendations through the established
 signature. No candidate storage or history is reset.
 
 ## Validation and remaining operational gates
@@ -79,15 +79,29 @@ signature. No candidate storage or history is reset.
   impact sample does not establish a hosted speedup or a capacity guarantee.
 
 The old temporary firewall rule was removed and its original rule preserved.
-Fresh private handoff, temporary narrow access approval and Sam sign-in are pending.
-The relevant saved profile and reviewed input/source path must be inspected read-only
-before classifying Sam's three results or making a profile-normalization change.
-Do not equate an empty structured activity field with absent reviewed input.
+Fresh authorized access subsequently verified the current saved profile and both
+the original reviewed input and later correction. No relevant normalization loss
+was found, and no profile, preference or application history was changed.
+The retained DataAnnotation and RWS cases use the supported conditional beginner
+route; the Mercor case still lacks confirmed transferable review activity.
+
+Hosted verification of the first correction found two shared explanation gaps.
+The follow-up presents the two paired beginner scope proofs after checking their
+source quotations, supporting duties and guidance. It also compares complete
+standalone language clauses in the shared condition path, so a supported English
+level does not remain an unresolved admission question. Native Portuguese remains
+separate. Compound clauses, ambiguous logic and unconfirmed provenance stay
+unresolved; no proficiency or CEFR equivalence is inferred. Wrapped clauses retain
+their source authority. Required/preferred defaults agree with the existing
+language projection. Focused list/detail tests and independent review cover these
+boundaries; task admission version 14 invalidates obsolete derived results.
 
 Deployment remains gated on actual host ancestry, protected-state comparison,
 scheduled-operation coordination, backup/rollback and hosted owner verification.
-The September 26 06:00 UTC cycle requires actual execution evidence; it is not
-established by this local work. Do not force a cycle or alter timers.
+The September 26 06:00 UTC cycle executed and restored service with protected data
+unchanged, but its result was partial_or_failed: only Appen, Outlier and RWS had
+qualifying source completion. This daily-cycle launch gate has not passed.
+No cycle was forced and no timer was altered.
 
 Previously reported first Matches computation around 12 seconds, Browse natural
 expiry delay and unproven multi-user memory margin remain launch limitations.
