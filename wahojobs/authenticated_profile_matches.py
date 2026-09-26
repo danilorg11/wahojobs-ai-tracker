@@ -2090,6 +2090,27 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                 authoritative_matches = (
                     [] if self._criteria_shadow_sink is not None else None
                 )
+                effective_enrichments = {}
+                enrichment_read_succeeded = True
+                def prepare_variants(matches):
+                    nonlocal effective_enrichments, enrichment_read_succeeded
+                    source_context = self._with_source_task_fit(
+                        {'matches': {'variants': matches}}, profile_v2,
+                        background_context=background_context, all_variants=True)
+                    matches = source_context['matches']['variants']
+                    if not _has_authoritative_preference_model(profile_v2):
+                        return matches
+                    candidates = _variant_preference_candidate_pool(matches)
+                    candidate_ids = {m['job_id'] for m in candidates}
+                    try:
+                        effective_enrichments = self._load_shadow_enrichments(
+                            rows if self._criteria_shadow_sink is not None else
+                            [row for row in rows if row['job_id'] in candidate_ids])
+                    except Exception:
+                        enrichment_read_succeeded = False
+                    return _mark_variant_preference_admission(
+                        matches, profile_v2, rows, effective_enrichments,
+                        candidates=candidates)
                 context = profile_preview.build_preview_context_from_canonical_rows(
                     projected,
                     inventory_rows=rows,
@@ -2104,19 +2125,17 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                         if authoritative_matches is not None
                         else None
                     ),
+                    prepare_variants=prepare_variants,
                 )
-                context = self._with_source_task_fit(context, profile_v2, background_context=background_context)
                 context['_hidden_posting_ids'] = sorted(hidden_ids)
-                effective_enrichments = {}
-                enrichment_read_succeeded = True
-                if (_has_authoritative_preference_model(profile_v2)
-                        or self._criteria_shadow_sink is not None):
+                if (self._criteria_shadow_sink is not None
+                        and not _has_authoritative_preference_model(profile_v2)):
                     try:
                         enrichment_rows = (
                             rows if self._criteria_shadow_sink is not None
                             else _typed_preference_candidate_rows(context, rows)
                         )
-                        effective_enrichments = self._load_shadow_enrichments(enrichment_rows)
+                        effective_enrichments.update(self._load_shadow_enrichments(enrichment_rows))
                     except Exception:
                         effective_enrichments = {}
                         enrichment_read_succeeded = False
@@ -2256,16 +2275,20 @@ class AuthenticatedProfileMatchesBrowserIntegration:
                                                if k not in ('basis', 'recipe', 'model')}))
         return tuple(dependencies)
 
-    def _with_source_task_fit(self, context, profile_v2, *, background_context=None):
+    def _with_source_task_fit(self, context, profile_v2, *, background_context=None, all_variants=False):
         from wahojobs.authenticated_card_evidence import load_card_sources
         from wahojobs.matching.source_task_fit import apply_source_task_fit
         from wahojobs.matching.accepted_tasks import needs_accepted_task_comparison
-        # Existing pre-admission representatives, including those below the UI
-        # limit. No catalog re-scoring or inference from another variant.
-        candidates = [m for m in _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context)
+        # Exact-source checks precede representative selection in Matches.
+        # Scoped/legacy callers can retain the existing presentation pool.
+        pool = (_variant_preference_candidate_pool(
+                    [m for values in context['matches'].values() for m in values])
+                if all_variants else
+                _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context))
+        candidates = [m for m in pool
                       if m.get("matched_languages") or m.get("accepted_task_fit")]
-        # Inspect existing bounded representatives excluded only by an
-        # unmodeled title. Neither canonical choice nor section limits change.
+        # Also inspect exact variants excluded only by an unmodeled title.
+        # This uses retained evidence and does not relax substantive fit.
         candidates += [m for values in context['matches'].values() for m in values
                        if needs_accepted_task_comparison(m)]
         if not candidates:
@@ -2345,6 +2368,7 @@ class AuthenticatedProfileMatchesBrowserIntegration:
             "presentation_limit": MATCH_PRESENTATION_LIMIT,
             "recent_cache_hours": local_product.RECENT_CACHED_MATCH_MAX_AGE_HOURS,
             "source_task_fit_version": 3,
+            "variant_admission_version": 1,
             "confirmed_activity_signal_version": 1,
             "accepted_task_projection_version": TASK_PROJECTION_VERSION,
             "accepted_task_admission_version": TASK_ADMISSION_VERSION,
@@ -3139,13 +3163,15 @@ def _apply_typed_preference_enforcement_v1(
     context,
     inventory_rows,
     effective_enrichments,
+    *, candidate_matches=None, include_relaxations=True,
 ):
     """Remove disallowed items before the ranked pool receives its UI limit."""
     from wahojobs.profiles.preference_model import effective_preference_authority
     criteria = match_criteria_v1_from_profile(profile_v2)
     if criteria.source_status != "present":
         return context
-    ranked_pool = _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context)
+    ranked_pool = (candidate_matches if candidate_matches is not None else
+                   _ranked_presentation_eligible_pool(context) + _conditional_presentation_pool(context))
     rows_by_job_id = _unique_inventory_rows_by_job_id(inventory_rows)
     candidate_references = []
     surviving_references = []
@@ -3193,7 +3219,8 @@ def _apply_typed_preference_enforcement_v1(
             # The existing matcher result remains the eligibility authority.
             # A bridge diagnostic failure must not invent a new gate.
             pass
-        if opportunity is not None and eligibility_outcomes and not match.get("conditional_task_fit"):
+        if (include_relaxations and opportunity is not None and eligibility_outcomes
+                and not match.get("conditional_task_fit")):
             try:
                 relaxation_candidates.extend(
                     evaluate_single_criterion_relaxations_v1(
@@ -3249,6 +3276,46 @@ def _apply_typed_preference_enforcement_v1(
         },
     }
     return updated
+
+
+def _variant_preference_candidate_pool(matches):
+    """Check exact variants before deduplication, without granting admission.
+
+    A supported low-score variant may later receive the existing safe fallback,
+    so section placement is not a preference-evaluation prerequisite here.
+    All trust, substantive fit and other hard gates retain their force.
+    """
+    from wahojobs.matching.source_task_fit import is_conditional_task_fit
+    result = []
+    for match in matches:
+        conditional = is_conditional_task_fit(match)
+        if (_typed_presentation_reference(match) is None
+                or local_product.browser_match_rejection_reasons(
+                    match, allow_conditional_task_fit=conditional)):
+            continue
+        if (match.get('opportunity_trust_status') == 'trusted'
+                and (conditional or match.get('primary_recommendation_eligible'))
+                or local_product.recent_cached_match_is_usable(
+                    match, allow_conditional_task_fit=conditional)):
+            result.append(match)
+    return sorted(result, key=profile_preview.match_sort_key)
+
+
+def _mark_variant_preference_admission(matches, profile_v2, rows, effective, *, candidates=None):
+    """Keep each variant's preference outcome separate from its canonical ID."""
+    if not _has_authoritative_preference_model(profile_v2):
+        return matches
+    candidates = _variant_preference_candidate_pool(matches) if candidates is None else candidates
+    checked = _apply_typed_preference_enforcement_v1(
+        profile_v2, {'matches': {}}, rows, effective,
+        candidate_matches=candidates, include_relaxations=False)
+    evaluations = checked.get('_typed_preference_enforcement', {}).get('evaluations', [])
+    if len(evaluations) != len(candidates):
+        raise ValueError('variant_preference_evaluation_unavailable')
+    admitted = {match['job_id']: evaluation['admission']['status'] == 'keep'
+                for match, evaluation in zip(candidates, evaluations)}
+    return [dict(match, _variant_preference_admitted=admitted[match['job_id']])
+            if match['job_id'] in admitted else match for match in matches]
 
 
 def _unique_inventory_rows_by_job_id(rows):

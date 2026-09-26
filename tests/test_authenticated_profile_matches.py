@@ -603,7 +603,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
                 self.assertEqual(
                     re.findall(r"href='([^']+)'", body),
                     [
-                        "/find-matches",
+                        "/jobs",
+                        "/jobs",
                         "/find-matches",
                         "/tracker",
                         "/account/profile",
@@ -738,7 +739,8 @@ class AuthenticatedProfileMatchesTests(unittest.TestCase):
         self.assertEqual(
             re.findall(r"href='([^']+)'", body),
             [
-                "/find-matches",
+                "/jobs",
+                "/jobs",
                 "/find-matches",
                 "/tracker",
                 "/account/profile",

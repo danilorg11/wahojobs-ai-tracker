@@ -433,6 +433,7 @@ def build_preview_context_from_canonical_rows(
     extraction_quality: str = "reviewed",
     evaluated_at: datetime | None = None,
     evaluated_match_sink=None,
+    prepare_variants=None,
 ) -> dict:
     """Match a canonical profile against explicit, already-loaded inventory rows.
 
@@ -450,6 +451,7 @@ def build_preview_context_from_canonical_rows(
         limit,
         evaluated_at=evaluated_at,
         evaluated_match_sink=evaluated_match_sink,
+        prepare_variants=prepare_variants,
     )
     canonical_summary = canonical_profile_debug_summary(canonical)
     normalization_warnings = list(normalization_warnings or [])
@@ -586,6 +588,7 @@ def build_grouped_matches_from_rows(
     *,
     evaluated_at: datetime | None = None,
     evaluated_match_sink=None,
+    prepare_variants=None,
 ) -> dict:
     """Score preloaded rows through the production preview projection."""
     if evaluated_match_sink is not None and not callable(evaluated_match_sink):
@@ -611,10 +614,19 @@ def build_grouped_matches_from_rows(
                 pass
         scored.append(match)
 
+    # Admission checks that depend on the exact source variant must precede
+    # representative selection and section bounds. Legacy preview callers
+    # retain their existing projection when no authenticated preparer is given.
+    if prepare_variants is not None:
+        scored = prepare_variants(scored)
     deduped = dedupe_matches(scored)
     deduped = ensure_safe_do_these_first(deduped, profile)
     groups = {section: [] for section in SECTION_ORDER}
-    for match in sorted(deduped, key=match_sort_key):
+    # Non-survivors remain available for bounded exclusion and relaxation
+    # diagnostics, but cannot consume the capacity of admitted variants.
+    # The accepted score/order is unchanged among surviving recommendations.
+    for match in sorted(deduped, key=lambda m: (
+            m.get('_variant_preference_admitted') is not True, match_sort_key(m))):
         section = match["preview_section"]
         if len(groups[section]) >= limit:
             continue
@@ -1414,14 +1426,20 @@ def dedupe_matches(matches: list[dict]) -> list[dict]:
             if match.get("opportunity_trust_status") == OPPORTUNITY_TRUSTED
             and match.get("primary_recommendation_eligible")
         ]
-        selected = choose_representative(eligible) if eligible else None
+        admitted = [m for m in eligible if m.get('_variant_preference_admitted', True)]
+        # If every variant fails preferences, retain the old representative for
+        # exclusion/relaxation diagnostics. Final admission still rejects it.
+        admitted_fallback = [m for m in variants if m.get('_variant_preference_admitted') is True]
+        selected = choose_representative(admitted) if admitted else None
+        if selected is None and not admitted_fallback and eligible:
+            selected = choose_representative(eligible)
         # A proven conflict must not hide a genuinely unknown alternative.
         # Keep the existing ordering within each class; never borrow evidence.
         has_source_conflict = any(m.get('primary_admission_source') == 'accepted_source_eligibility' for m in variants)
         nonconflicting = [m for m in variants if m.get('affirmative_fit_status') != 'conflicting'
                           and m.get('eligible_for_personalized', True)
                           and m.get('location_eligibility_status') != 'incompatible'] if has_source_conflict else []
-        representative = dict(selected or choose_representative(nonconflicting or variants))
+        representative = dict(selected or choose_representative(admitted_fallback or nonconflicting or variants))
         representative["variant_count"] = len(variants)
         representative["considered_canonical_variants"] = [
             canonical_variant_diagnostic(match)

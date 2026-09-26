@@ -110,6 +110,40 @@ class AcceptedTaskMatchingTests(unittest.TestCase):
                 self.assertEqual(m['score_components']['quality_gate_penalty'], 10)
                 self.assertFalse(browser._primary_presentation_matches(c))
 
+    def test_retained_generalist_duties_heading_and_grading_use_existing_task_contract(self):
+        # Retained Mercor Generalist Expert wording, material hash c441f707...
+        # A standing project pool is not represented as an immediate opening.
+        self.role('Generalist Expert')
+        self.source('This is a standing listing for generalists who want AI training and evaluation work, not a specific job opening.\n\n'
+                    '**What the work looks like**\n\n'
+                    '- Grading model output on general reasoning: whether the answer is correct, whether it follows the instruction actually given, whether it is complete without padding\n\n'
+                    '**What we\'re looking for**\n\n'
+                    '- Careful reading and sound judgment, from a professional or academic background in any field')
+        _, _, context = self.current()
+        m = self.match(context)
+        self.assertIsNotNone(m['accepted_task_fit'])
+        self.assertIn('Grading model output', m['accepted_task_fit']['facts'][0]['quote'])
+        self.assertEqual(m['accepted_task_fit']['source_reference']['job_id'], 7003)
+        self.assertIsNone(self.match(context, 7006)['accepted_task_fit'])
+        self.f.profile = v2(candidate([]))
+        _, _, context = self.current()
+        self.assertIsNone(self.match(context)['accepted_task_fit'])
+        self.assertFalse(browser._primary_presentation_matches(context))
+
+    def test_grading_vocabulary_keeps_marketing_requirements_negation_and_classroom_boundaries(self):
+        for body in ('About us\n\nOur platform grades AI outputs.',
+                     'Preferred Qualifications\n\nExperience grading AI outputs is preferred.',
+                     'What the work looks like\n\nYou will not grade AI outputs.',
+                     'What the work looks like\n\nYou will grade student answers in a classroom.',
+                     'About us\n\nOur school uses AI scheduling tools.\n\n'
+                     'What the work looks like\n\nYou will grade student answers in a classroom.',
+                     'What the work looks like\n\nGrade student answers, not AI outputs.',
+                     'What the work looks like\n\nGrade student answers rather than AI outputs.'):
+            with self.subTest(body=body):
+                self.source(body)
+                _, _, context = self.current()
+                self.assertIsNone(self.match(context)['accepted_task_fit'])
+
     def test_marketing_preference_and_negated_duties_do_not_become_task_facts(self):
         for body in ("Our company evaluates AI outputs for leading laboratories.",
                      "About us\n\nWe evaluate AI outputs.",

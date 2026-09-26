@@ -139,6 +139,8 @@ def resolve_scoped_variant(snapshot, profile_v2, overlay, requested_id, *, now, 
     evaluated = [apply_source_task_fit(m, snapshot.get("task_sources", {}).get(m["job_id"]), profile_v2,
                                        background_context=background_context)
                  for m in evaluated]
+    evaluated = browser._mark_variant_preference_admission(
+        evaluated, profile_v2, rows, snapshot['effective'])
     by_id = {match["job_id"]: match for match in evaluated}
     if len(by_id) != len(evaluated):
         raise ValueError("ambiguous_scoped_variant")

@@ -13,12 +13,12 @@ from wahojobs.authenticated_card_evidence import _source_text, load_card_sources
 from wahojobs.profiles.normalizer import term_is_negated
 
 
-TASK_PROJECTION_VERSION = 5
+TASK_PROJECTION_VERSION = 6
 SOURCE_ELIGIBILITY_VERSION = 5
 TASK_ADMISSION_VERSION = 12
 _DUTY_HEADING = re.compile(
     r"^(?:key |main |core )?(?:responsibilities|duties|scope of work|job details|"
-    r"role overview|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
+    r"role overview|what the work looks like|what you(?:'ll| will) (?:do|work on)|your (?:work|tasks|responsibilities))$", re.I)
 _OTHER_HEADING = re.compile(
     r"^(?:(?:minimum|required|preferred|ideal|additional|key) )?(?:qualifications|requirements)$|"
     r"^education & experience$|"
@@ -31,7 +31,7 @@ _APPLICANT = re.compile(
     r"(?:the )?(?:successful )?candidate will)\b", re.I)
 # Match a task's action and object separately, rather than requiring one exact
 # phrase such as "model outputs". This is still a bounded task vocabulary.
-_EVALUATE = r"evaluat\w*|review\w*|assess\w*|compar\w*|rat(?:e|ing)|scor\w*|validat\w*|check\w*"
+_EVALUATE = r"evaluat\w*|review\w*|assess\w*|compar\w*|rat(?:e|ing)|grad(?:e|es|ed|ing)|scor\w*|validat\w*|check\w*"
 _ANNOTATE = r"annotat\w*|label\w*|tag(?:s|ging)?|curat\w*"
 _AUTHOR = r"writ\w*|creat\w*|draft\w*|design\w*|develop\w*|refin\w*|improv\w*"
 _EVALUATION_OBJECT = re.compile(
@@ -83,6 +83,16 @@ def _task_action(clause, *, ai_context):
             obj = objects.search(clause)
             if not obj or abs(obj.start() - action.start()) > 180:
                 continue
+            if action.group().casefold().startswith('grad'):
+                # Classroom grading is not AI evaluation merely because a
+                # company paragraph elsewhere mentions AI. This newly supported
+                # action needs its own explicit model-output object.
+                # Keep the demonstrated action directly bound to its object;
+                # a contrast such as "grade essays, not AI outputs" is no duty.
+                obj = re.match(r'\s+(?:the\s+)?(?:model|AI(?:[- ](?:generated|produced))?|LLM|language model)\s+'
+                               r'(?:responses?|outputs?|answers?)\b', clause[action.end():], re.I)
+                if not obj:
+                    continue
             # Content review also describes ordinary editorial work. The new
             # object needs AI linkage in the duty itself, not an optional tool
             # or company paragraph elsewhere in the accepted source.
