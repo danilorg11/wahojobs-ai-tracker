@@ -40,6 +40,7 @@ def fetch_oneforma_jobs(api_url):
     jobs = []
     seen_external_ids = set()
     for post in posts:
+        validate_application_rows(post)
         candidates = parse_oneforma_post(post)
         if not candidates:
             raise ValueError("OneForma returned a job post without required fields.")
@@ -54,13 +55,15 @@ def fetch_oneforma_jobs(api_url):
 
 
 def fetch_all_posts(api_url):
-    first_page, total_pages = fetch_page(api_url, 1)
+    first_page, total_pages, total_records = fetch_page(api_url, 1)
     posts = list(first_page)
     seen_post_ids = validated_post_ids(first_page)
     for page in range(2, total_pages + 1):
-        page_posts, page_total_pages = fetch_page(api_url, page)
+        page_posts, page_total_pages, page_total_records = fetch_page(api_url, page)
         if page_total_pages != total_pages:
             raise ValueError("OneForma total page count changed during pagination.")
+        if page_total_records != total_records:
+            raise ValueError("OneForma total record count changed during pagination.")
         if not page_posts:
             raise ValueError("OneForma pagination ended before the final page.")
         page_ids = validated_post_ids(page_posts)
@@ -68,13 +71,15 @@ def fetch_all_posts(api_url):
             raise ValueError("OneForma returned a duplicate post identifier.")
         seen_post_ids.update(page_ids)
         posts.extend(page_posts)
+    if len(posts) != total_records:
+        raise ValueError("OneForma returned a different record count than X-WP-Total declared.")
     return posts
 
 
 def validated_post_ids(posts):
     post_ids = set()
     for post in posts:
-        if not isinstance(post, dict) or not post.get("id"):
+        if not isinstance(post, dict) or type(post.get("id")) is not int or post["id"] <= 0:
             raise ValueError("OneForma returned a post without an identifier.")
         post_id = str(post["id"])
         if post_id in post_ids:
@@ -88,21 +93,45 @@ def fetch_page(api_url, page):
     with urlopen(request, timeout=60) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         payload = response.read().decode(charset, errors="replace")
-        total_pages_header = response.headers.get("X-WP-TotalPages")
+        total_pages = validated_count_header(response.headers, "X-WP-TotalPages")
+        total_records = validated_count_header(response.headers, "X-WP-Total")
 
-    if total_pages_header is None:
-        raise ValueError("OneForma response omitted X-WP-TotalPages.")
-    try:
-        total_pages = int(total_pages_header)
-    except (TypeError, ValueError):
-        raise ValueError("OneForma X-WP-TotalPages was invalid.") from None
-    if total_pages < 1:
-        raise ValueError("OneForma X-WP-TotalPages was invalid.")
-
+    per_page_values = parse_qs(urlparse(request.full_url).query).get("per_page", ["10"])
+    if (len(per_page_values) != 1 or not per_page_values[0].isdecimal()
+            or not 1 <= int(per_page_values[0]) <= 100):
+        raise ValueError("OneForma per_page must be a supported WordPress page size.")
+    per_page = int(per_page_values[0])
+    if total_pages != (total_records + per_page - 1) // per_page:
+        raise ValueError("OneForma total page count disagrees with X-WP-Total and per_page.")
     data = json.loads(payload)
     if not isinstance(data, list):
         raise ValueError("OneForma response was not a job list.")
-    return data, total_pages
+    expected_count = max(0, min(per_page, total_records - (page - 1) * per_page))
+    if len(data) != expected_count:
+        raise ValueError("OneForma page record count disagrees with X-WP-Total.")
+    return data, total_pages, total_records
+
+
+def validated_count_header(headers, name):
+    value = headers.get(name)
+    if value is None:
+        raise ValueError(f"OneForma response omitted {name}.")
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]+", value) is None:
+        raise ValueError(f"OneForma {name} was invalid.")
+    return int(value)
+
+
+def validate_application_rows(post):
+    """Missing variant fields cannot prove that previously seen variants closed."""
+    acf = post.get("acf")
+    rows = acf.get("apply_job") if isinstance(acf, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("OneForma job post omitted a nonempty application variant list.")
+    for row in rows:
+        if (not isinstance(row, dict) or "language" not in row
+                or (row["language"] is not None and not isinstance(row["language"], str))
+                or not isinstance(row.get("apply_url"), str) or not row["apply_url"].strip()):
+            raise ValueError("OneForma returned an invalid application variant row.")
 
 
 def add_query_params(url, params):

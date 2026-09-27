@@ -19,6 +19,9 @@ MAX_RETRIES = 3
 
 
 def fetch_workable_jobs(api_url, account_slug):
+    from wahojobs.mindrift_observation import ACCOUNT, ENDPOINT, attest
+    if api_url != ENDPOINT or account_slug != ACCOUNT:
+        raise ValueError("Mindrift observations require the configured public Workable endpoint.")
     verify_public_markdown_feeds(account_slug)
     rows = fetch_all_api_rows(api_url)
     jobs = []
@@ -32,7 +35,7 @@ def fetch_workable_jobs(api_url, account_slug):
         if candidate.external_id in seen_external_ids:
             raise ValueError("Workable returned a duplicate job shortcode.")
         seen_external_ids.add(candidate.external_id)
-        jobs.append(candidate)
+        jobs.append(attest(candidate, row))
     from wahojobs.crawler.local_inventory import record_surface_counts
     record_surface_counts(upstream_records=len(rows), upstream_unit="Workable rows", variants=len(jobs), filtered=len(rows)-len(jobs))
     return jobs
@@ -156,6 +159,9 @@ def parse_workable_row(account_slug, row):
         department=department,
         expertise=department,
         commitment=commitment,
+        opportunity_kind="live_posting",
+        availability_basis="api_feed",
+        include_in_live_market_estimate=True,
         source_body=source_body,
         source_body_format="text/plain" if source_body else None,
         source_metadata=nonempty_metadata(

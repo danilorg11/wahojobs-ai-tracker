@@ -193,10 +193,16 @@ def summarize_source(plan,report,started,ended):
     valid=(row['requests_used']>0 and not summary['used_sample_data'] and run.get('status') in ('success','partial')
         and summary['normalized_record_count']==summary['jobs_found']
         and summary['raw_record_count']==summary['normalized_record_count']+summary['rejected_record_count']+summary.get('filtered_record_count',0))
-    qualifies=valid and (bool(good) if provider in ('mercor','dataannotation','dataforce','handshake','surge','outlier') else
+    from wahojobs.mindrift_observation import COUNT_DROP_WARNING
+    individual=(provider in ('mercor','dataannotation','dataforce','handshake','surge','outlier')
+        or provider=='mindrift' and run.get('status')=='partial'
+            and COUNT_DROP_WARNING in summary.get('warnings',[]))
+    qualifies=valid and (bool(good) if individual else
         summary['snapshot_complete'] and summary['pagination_complete'] and run.get('status')=='success')
-    row.update(qualifying_observation=bool(qualifies),outcome=('partial_individual' if provider in ('mercor','dataannotation','dataforce','handshake','surge','outlier') else 'complete') if qualifies else 'partial_or_failed',
+    row.update(qualifying_observation=bool(qualifies),outcome=('partial_individual' if individual else 'complete') if qualifies else 'partial_or_failed',
         observed=summary['jobs_found'],new=summary['jobs_new'],confirmed_closed=summary['jobs_removed'])
+    if provider=='mindrift' and COUNT_DROP_WARNING in summary.get('warnings',[]):
+        row['coverage_warnings']=[COUNT_DROP_WARNING]
     surfaces=[e['data'] for e in events if e['event']=='source_transport' and e['data'].get('event')=='surface_counts']
     surface=surfaces[-1] if surfaces else {}
     row.update(upstream_records=surface.get('upstream_records',summary['raw_record_count']),
@@ -252,9 +258,13 @@ def publication_fields(summary, publication):
 
 
 def retained_worker_diagnostic(target, run_id, provider):
+    return retained_phase_diagnostic(target,run_id,('publish-'+provider,'collect-'+provider))
+
+
+def retained_phase_diagnostic(target, run_id, phases):
     """Use only the exact current run/phase; retain no arbitrary failure values."""
     import re
-    for phase in ('publish-'+provider,'collect-'+provider):
+    for phase in phases:
         try:value=read_json(target/(phase+'-failure.json'),{})
         except (OSError,ValueError):continue
         if (type(value) is not dict or value.get('phase')!=phase or value.get('run_id')!=run_id
@@ -270,8 +280,21 @@ def retained_worker_diagnostic(target, run_id, provider):
                 kept.append({k:frame[k] for k in ('file','function','line')})
         return dict(phase=phase,error_type=value['error_type'],frames=kept,
             reason=value.get('reason') if value.get('reason') in
-                ('worker_execution_deadline_expired','mindrift_count_drop') else None)
+                maintenance.FAILURE_REASONS else None)
     return None
+
+
+def cycle_failure(receipt):
+    """A bounded explanation only; this never establishes source qualification."""
+    failure=(receipt.get('recovery_failure_diagnostic') if receipt.get('outcome')=='recovery_failed'
+        else receipt.get('failure_diagnostic')) or {}
+    phase=failure.get('phase')
+    phases={'collection','publication','prepare','backup','finish','stop','restore',
+        *('collect-'+source for source in SOURCES),*('publish-'+source for source in SOURCES)}
+    if phase not in phases:return None
+    return dict(phase=phase,reason=failure.get('reason') if failure.get('reason') in maintenance.FAILURE_REASONS else None,
+        timed_out=failure.get('error_type') in ('TimeoutError','TimeoutExpired') or failure.get('reason') in
+            ('worker_execution_deadline_expired','execution_deadline_expired','publication_deadline_expired'))
 
 
 def source_settings(config):
@@ -708,7 +731,7 @@ def _current_cycle(config,at):
             run_id=receipt.get('run_id'),outcome=outcome,qualified_sources=[],failed_sources=[])
     if not _valid_source_rows(receipt):
         return dict(state='failed',scheduled_at=receipt.get('scheduled_at',stamp(slot)),
-            run_id=receipt.get('run_id'),outcome=outcome,qualified_sources=[],failed_sources=[])
+            run_id=receipt.get('run_id'),outcome=outcome,qualified_sources=[],failed_sources=[],failure=cycle_failure(receipt))
     qualified=sorted(source for source,row in sources.items() if row.get('qualifying_observation') is True)
     groups={kind:sorted(source for source,row in sources.items() if source_condition(row)==kind)
             for kind in ('collection','accounting','qualification','publication','coverage')}
@@ -719,7 +742,7 @@ def _current_cycle(config,at):
     elif outcome in ('running','reserved'):state='running'
     else:state='failed'
     return dict(state=state,scheduled_at=receipt.get('scheduled_at',stamp(slot)),run_id=receipt.get('run_id'),
-        outcome=outcome,qualified_sources=qualified,failed_sources=failed,
+        outcome=outcome,qualified_sources=qualified,failed_sources=failed,failure=cycle_failure(receipt),
         reporting_reconciliation=receipt.get('reporting_reconciliation'),
         accounting_unavailable_sources=groups['accounting'],qualification_failed_sources=groups['qualification'],
         publication_failed_sources=groups['publication'],not_attempted_sources=groups['coverage'],

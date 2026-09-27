@@ -228,14 +228,15 @@ class HistoricalAlertReplay(unittest.TestCase):
                     crawl_run_id INTEGER,provider TEXT,source_type TEXT,record_promotion_contract_id TEXT,
                     promotion_policy_version TEXT,promotion_decision TEXT,decision_reasons_json TEXT,
                     used_sample_data INTEGER,provider_outcome TEXT,normalized_record_count INTEGER,
-                    candidate_count INTEGER,observed_at TEXT);''')
+                    candidate_count INTEGER,observed_at TEXT,
+                    pagination_complete INTEGER,rejected_record_count INTEGER);''')
             db.execute("INSERT INTO companies VALUES(1,'mercor')")
             db.execute('INSERT INTO jobs VALUES(1,1,1)')
             db.execute("INSERT INTO crawl_runs VALUES(1,1,'partial',0,NULL,?,?)",
                 ('2026-09-18T13:07:32+00:00',)*2)
             db.execute('''INSERT INTO job_source_content_captures VALUES
                 (1,1,1,'mercor','mercor-marketplace','mercor_public_active_record_v1',
-                 'mercor_record_promotion_v1','promoted',NULL,0,'partial',1,1,?)''',
+                 'mercor_record_promotion_v1','promoted',NULL,0,'partial',1,1,?,0,0)''',
                  ('2026-09-18T13:07:32+00:00',))
             db.commit()
         cohort=daily._baseline_cohorts(self.config,['mercor'])['mercor']

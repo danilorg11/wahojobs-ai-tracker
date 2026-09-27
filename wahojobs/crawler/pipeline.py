@@ -140,10 +140,14 @@ def run_crawl(company_slug="appen", *, db_path=None, details=None, ownership=Non
                 conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
                 savepoint_active = False
 
+            # Qualification can withhold snapshot authority while publishing
+            # attested positives. Never label that transaction a full success
+            # using the original collector's completeness claim.
+            publication_result = replace(crawl_result, outcome=summary.provider_outcome,
+                snapshot_complete=summary.snapshot_complete,
+                pagination_complete=summary.pagination_complete)
             crawl_run_status = crawl_run_status_for_result(
-                crawl_result,
-                removal_authorization,
-            )
+                publication_result, evaluate_removal_authorization(publication_result))
             finish_crawl_run(
                 conn,
                 crawl_run_id,

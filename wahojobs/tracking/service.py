@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from dataclasses import replace
 
 from wahojobs.canonical.service import (
     sync_alignerr_canonical_opportunities,
@@ -73,15 +74,25 @@ def track_crawl_result(conn, company_id, crawl_run_id, crawl_result: CompanyCraw
     seen_hashes = [candidate.source_hash for candidate in candidates]
     removal_authorization = evaluate_removal_authorization(crawl_result)
     if removal_authorization.authorized:
-        guard_suspicious_mindrift_partial_crawl(
-            conn,
-            company["slug"],
-            company_id,
-            len(candidates),
-            seen_hashes,
-            crawl_result.used_sample_data,
-            now,
-        )
+        try:
+            guard_suspicious_mindrift_partial_crawl(
+                conn, company["slug"], company_id, len(candidates), seen_hashes,
+                crawl_result.used_sample_data, now,
+            )
+        except MindriftCountDropRejected:
+            from wahojobs.mindrift_observation import CONTRACT, SHAPE, COUNT_DROP_WARNING
+            if (crawl_result.payload_shape != SHAPE or crawl_result.schema_fingerprint != CONTRACT
+                    or not candidates or not all(candidate.record_promotion_attestation is not None
+                        and candidate.record_promotion_attestation.contract_id == CONTRACT
+                        for candidate in candidates)):
+                raise
+            # Collection completeness remains in the sealed original capture.
+            # A population anomaly removes absence authority, not the exact
+            # positive evidence. Each attestation is validated before promotion.
+            crawl_result = replace(crawl_result, outcome=ProviderOutcome.PARTIAL,
+                snapshot_complete=False,
+                warnings=(*crawl_result.warnings, COUNT_DROP_WARNING))
+            removal_authorization = evaluate_removal_authorization(crawl_result)
 
     jobs_new = 0
     jobs_reactivated = 0

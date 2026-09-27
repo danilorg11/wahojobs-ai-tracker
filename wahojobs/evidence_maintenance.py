@@ -43,13 +43,18 @@ def clock_now():
     return datetime.now(timezone.utc)
 
 
+FAILURE_REASONS = frozenset({'worker_execution_deadline_expired','execution_deadline_expired',
+    'publication_deadline_expired','mindrift_count_drop','recovery_snapshot_file_limit',
+    'recovery_source_changed','recovery_snapshot_integrity_failed','recovery_journal_unavailable',
+    'no_completed_observations_to_publish'})
+
+
 def failure_diagnostic(error, *, phase):
     """Bounded locations and known reasons only; no exception/response contents."""
     import traceback
     from wahojobs.tracking.service import MindriftCountDropRejected
     reason = ('mindrift_count_drop' if isinstance(error, MindriftCountDropRejected) else
-        'worker_execution_deadline_expired' if isinstance(error, TimeoutError)
-            and str(error) == 'worker_execution_deadline_expired' else None)
+        str(error) if isinstance(error,(TimeoutError,ValueError)) and str(error) in FAILURE_REASONS else None)
     return dict(phase=phase, error_type=type(error).__name__, reason=reason,
         frames=[dict(file=Path(frame.filename).name, function=frame.name, line=frame.lineno)
             for frame in traceback.extract_tb(error.__traceback__)[-8:]])

@@ -140,11 +140,30 @@ def message(events,context=None):
     label='available' if available is True else 'unavailable' if available is False else 'not verified'
     lines.append('Application: '+label+'; last readiness observation '+_readable(application.get('checked_at'))+'.')
     lines.append('Last cycle ('+_readable(cycle.get('scheduled_at'))+'): '+state_text+'.')
-    if state=='partial':
+    failure=cycle.get('failure') or {}
+    if failure:
+        phase=failure.get('phase','')
+        label={'backup':'pre-publication backup','prepare':'collection preparation','collection':'source collection',
+            'publication':'source publication','stop':'application shutdown','finish':'final integrity checks',
+            'restore':'application restoration'}.get(phase)
+        if phase.startswith(('collect-','publish-')):
+            label=('collection of ' if phase.startswith('collect-') else 'publication of ')+_name(phase.split('-',1)[1]+':coverage')
+        if label:
+            reason=('allotted execution time expired' if failure.get('timed_out') else
+                {'recovery_snapshot_file_limit':'retained backup history exceeded its file limit',
+                 'recovery_source_changed':'backup inputs changed during verification',
+                 'recovery_snapshot_integrity_failed':'backup verification failed',
+                 'recovery_journal_unavailable':'retained collection evidence was unavailable',
+                 'no_completed_observations_to_publish':'no completed observations were available for publication'}.get(failure.get('reason'),
+                    'the operation failed; inspect the retained diagnostic'))
+            lines.append('Failure stage: '+label+'. Reason: '+reason+'.')
+            if phase=='backup':lines.append('Publication did not start; captured observations did not renew verification.')
+    if state in ('partial','failed'):
         qualified=len(cycle.get('qualified_sources',[]));failed=len(cycle.get('failed_sources',[]))
         lines.append(f"Last cycle: {qualified} source{'s' if qualified!=1 else ''} verified and published; "
-                     f"{failed} attempted source{'s' if failed!=1 else ''} failed. "
-                     'Publication succeeded for the verified sources; the daily check was incomplete.')
+                     f"{failed} attempted source{'s' if failed!=1 else ''} failed. "+
+                     ('Publication succeeded for the verified sources; the daily check was incomplete.' if qualified else
+                      'No source publication was verified for this cycle.'))
         for field,label in (('accounting_unavailable_sources','source accounting unavailable'),
                             ('qualification_failed_sources','observations failed qualification'),
                             ('publication_failed_sources','publication incomplete or failed'),

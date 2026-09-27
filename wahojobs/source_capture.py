@@ -1252,6 +1252,7 @@ def decide_source_promotion_v2(
         HANDSHAKE_PUBLIC_CMS_RECORD_CONTRACT_ID,
         OUTLIER_INDEX_DETAIL_RECORD_CONTRACT_ID,
         OUTLIER_ROLE_FAMILY_RECORD_CONTRACT_ID,
+        "mindrift_workable_public_record_v1",
     }:
         reasons = []
         if context.used_sample_data:
@@ -1491,11 +1492,13 @@ def decide_mercor_detail_content_promotion_v2(prepared, context, accepted_row, *
 # future current-version bump must add a new literal mapping rather than making
 # old captures follow mutable current behavior.
 from wahojobs.mercor_supplemental import CONTRACT as SUPPLEMENTAL_CONTRACT, validate as validate_supplemental, decide as decide_supplemental
+from wahojobs.mindrift_observation import CONTRACT as MINDRIFT_CONTRACT, validate as validate_mindrift
 
 SOURCE_CAPTURE_CONTRACT_PREPARERS = {
     "job_source_capture_v1": prepare_source_capture_v1,
 }
 RECORD_PROMOTION_CONTRACT_VALIDATORS = {
+    MINDRIFT_CONTRACT: validate_mindrift,
     DATAANNOTATION_CODING_RECORD_CONTRACT_ID: _validate_dataannotation_coding_record_v1,
     DATAANNOTATION_ROLE_RECORD_CONTRACT_ID: _validate_dataannotation_role_record_v2,
     DATAFORCE_INDEX_DETAIL_RECORD_CONTRACT_ID: _validate_dataforce_index_detail_record_v1,

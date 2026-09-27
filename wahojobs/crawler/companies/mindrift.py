@@ -1,5 +1,6 @@
 from wahojobs.crawler.providers.workable_markdown import fetch_workable_jobs
 from wahojobs.crawler.types import CompanyCrawlResult, ProviderOutcome
+from wahojobs.mindrift_observation import CONTRACT, SHAPE
 
 
 ACCOUNT_SLUG = "toloka-ai"
@@ -15,6 +16,8 @@ def crawl_mindrift(api_url):
         outcome=ProviderOutcome.SUCCESS,
         snapshot_complete=True,
         pagination_complete=True,
+        payload_shape=SHAPE,
+        schema_fingerprint=CONTRACT,
         raw_record_count=len(jobs),
         normalized_record_count=len(jobs),
     )

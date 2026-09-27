@@ -112,7 +112,7 @@ def _check_sqlite(path, *, product=False, companion=False, read_only=True):
             _attest(connection)
 
 
-def _inventory(database, companion):
+def _inventory(database, companion, *, validate_journal=True):
     files = {'product.sqlite3': database}
     from wahojobs.storage_relocation import LINEAGE, HOLD, sidecar, relocation_binding
     if sidecar(database, LINEAGE).exists():
@@ -150,12 +150,17 @@ def _inventory(database, companion):
             if path.is_file():
                 files['journal/' + path.relative_to(root).as_posix()] = _file(path)
         # Validate existing complete and interrupted chains, not just their file bytes.
-        for path in root.iterdir():
-            if path.is_dir() and (path / 'plan.json').exists():
-                report(root, path.name)
+        if validate_journal:
+            _validate_journal(root)
     if len(files) > MAX_FILES:
         raise ValueError('recovery_snapshot_file_limit')
     return files
+
+
+def _validate_journal(root):
+    for path in root.iterdir():
+        if path.is_dir() and (path / 'plan.json').exists():
+            report(root, path.name)
 
 
 def _create_snapshot(database, destination, *, companion=None, code_commit, configuration_revision, ownership=None):
@@ -175,7 +180,7 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
     require_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
     cold_connections = []
     try:
-        sources = _inventory(database, companion)
+        sources = _inventory(database, companion, validate_journal=False)
         before = {name: dict(identity=database_identity(path), sha256=_hash(path))
                   for name, path in sources.items()}
         for name, path in sources.items():
@@ -194,7 +199,14 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
                 os.fsync(dst.fileno())
             if _hash(output) != before[name]['sha256']:
                 raise ValueError('recovery_source_changed')
-        after_sources = _inventory(database, companion)
+        # Validate the actual copied journal once, before declaring a snapshot
+        # complete. Its bytes already match the initial source hashes; the final
+        # inventory below still checks all paths, membership, identities and
+        # hashes. This binds the chain proof to the backup without decoding the
+        # growing historical chains twice during the unavailable interval.
+        if any(name.startswith('journal/') for name in sources):
+            _validate_journal(target / 'journal')
+        after_sources = _inventory(database, companion, validate_journal=False)
         after = {name: dict(identity=database_identity(path), sha256=_hash(path))
                  for name, path in after_sources.items()}
         if before != after:

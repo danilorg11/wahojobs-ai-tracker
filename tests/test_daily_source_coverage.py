@@ -63,7 +63,7 @@ class Transport:
             else:payload=dict(total=2,results=[dict(shortcode='M1',title='AI Reviewer',state='published',isInternal=False,
                 description='Review AI answers in Portuguese.',location={'country':'Brazil'}),
                 dict(shortcode='PRIVATE',title='Private job',state='published',isInternal=True)],nextPage=None)
-        elif source=='oneforma':payload=[oneforma()];headers={'X-WP-TotalPages':'1'}
+        elif source=='oneforma':payload=[oneforma()];headers={'X-WP-TotalPages':'1','X-WP-Total':'1'}
         elif source=='turing':payload=dict(success=True,totalCount=1,jobs=[dict(id='fixture-turing',jobCode='FT1',title='AI Evaluator',description='Review AI-generated code.')])
         else:raise AssertionError('Unexpected fixture source '+str(source))
         response=BytesResponse(json.dumps(payload).encode(),url)
@@ -164,6 +164,8 @@ class CoverageIntegrationTests(unittest.TestCase):
             def open(self,request,timeout):
                 response=super().open(request,timeout)
                 response.headers.replace_header('X-WP-TotalPages','2')
+                response.headers.replace_header('X-WP-Total','101')
+                response.stream=io.BytesIO(json.dumps([dict(oneforma(),id=index) for index in range(1,101)]).encode())
                 return response
         transport=TwoPages();at+=timedelta(days=1)
         plan=maintenance.build_plan(self.db,['oneforma'],now=at,http_limit=1,details=None,phase='source')
@@ -176,7 +178,7 @@ class CoverageIntegrationTests(unittest.TestCase):
         self.assertEqual(len(transport.calls),1);self.assertFalse(summary['qualifying_observation'])
         self.assertTrue(summary['request_cap_reached'])
         responses=[e['data'] for e in result['events'] if e['event']=='source_transport' and e['data'].get('event')=='response']
-        self.assertEqual(responses[0]['contract_headers'],{'X-WP-TotalPages':'2'})
+        self.assertEqual(responses[0]['contract_headers'],{'X-WP-TotalPages':'2','X-WP-Total':'101'})
         with maintenance.read_connection(self.db) as db:
             current=[tuple(r) for r in db.execute("SELECT j.* FROM jobs j JOIN companies c ON c.id=j.company_id WHERE c.slug='oneforma' ORDER BY j.id")]
         self.assertEqual(old,current);self.assertEqual(before,daily.protected_domains(self.db))

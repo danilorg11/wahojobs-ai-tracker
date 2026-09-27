@@ -115,6 +115,31 @@ class DailyPolicyTests(unittest.TestCase):
         stored=d.read_json(self.root/'runs'/result['run_id']/'run.json')
         self.assertEqual(stored['phase_timings_seconds'],result['phase_timings_seconds'])
 
+    def test_backup_worker_diagnostic_survives_generic_parent_failure(self):
+        operations=Mock()
+        def fail_backup(run_id,remaining):
+            target=self.root/'runs'/run_id
+            receipt=d.read_json(target/'run.json')
+            receipt['active_phase']=dict(name='backup',deadline=99)
+            d.write_json(target/'run.json',receipt)
+            d.write_json(target/'backup-failure.json',dict(run_id=run_id,phase='backup',
+                error_type='TimeoutError',reason='worker_execution_deadline_expired',frames=[]))
+            raise RuntimeError('private worker stderr must not be included')
+        operations.publish.side_effect=fail_backup
+        with patch.object(d,'now',return_value=self.at):
+            result=cli.supervise(self.config,self.root/'policy','timer',operations=operations)
+        self.assertEqual(result['error_type'],'RuntimeError')
+        self.assertEqual(result['failure_diagnostic']['error_type'],'TimeoutError')
+        self.assertEqual(result['failure_diagnostic']['phase'],'backup')
+        cycle=d._current_cycle(self.config,self.at)
+        self.assertEqual(cycle['failure'],dict(phase='backup',reason='worker_execution_deadline_expired',timed_out=True))
+        self.assertNotIn('private worker stderr',json.dumps(result))
+        operations.restore.assert_called_once_with(d.RECOVERY_SECONDS)
+
+    def test_allowlisted_deadline_reason_does_not_depend_on_wrapper_exception_class(self):
+        failure=dict(phase='backup',error_type='ValueError',reason='worker_execution_deadline_expired')
+        self.assertTrue(d.cycle_failure(dict(outcome='failed',failure_diagnostic=failure))['timed_out'])
+
     def test_process_timeout_kills_worker_group_before_return(self):
         proc=Mock(pid=123);proc.wait.side_effect=[subprocess.TimeoutExpired('worker',1),-9]
         with patch.object(cli.subprocess,'Popen',return_value=proc),patch.object(cli.os,'killpg',create=True) as kill,patch.object(cli.signal,'SIGKILL',9,create=True):

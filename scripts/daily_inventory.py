@@ -318,7 +318,7 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None)
         start=time.monotonic();deadline=start+allowance
         receipt.update(outcome='running',normal_service_resumed=True,supervisor_pid=os.getpid(),execution_deadline_monotonic=deadline)
         daily.write_json(target,receipt)
-        maintenance_start=None
+        maintenance_start=None;stage='collection'
         try:
             available=operations.collect(receipt['run_id'],deadline-time.monotonic())
             receipt['collection_finished_at']=daily.stamp(daily.now())
@@ -333,11 +333,12 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None)
             receipt.update(maintenance_started_at=daily.stamp(daily.now()),normal_service_resumed=False,
                 publication_deadline_monotonic=publication_deadline)
             daily.write_json(target,receipt)
-            stop_started=time.monotonic()
+            stop_started=time.monotonic();stage='stop'
             try:
                 operations.stop(publication_deadline-time.monotonic())
             finally:
                 receipt['stop_seconds']=round(time.monotonic()-stop_started,3)
+            stage='publication'
             operations.publish(receipt['run_id'],publication_deadline-time.monotonic())
             worker=daily.read_json(target.parent/'worker.json')
             summaries={source:daily.read_json(target.parent/(source+'.json')) for source in availability_sources or daily.SOURCES}
@@ -348,6 +349,13 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None)
             receipt['outcome']='complete_with_coverage_gaps' if all(s and s['qualifying_observation'] for s in enabled) else 'partial_or_failed'
         except BaseException as error:
             receipt.update(outcome='failed',error_type=type(error).__name__)
+            receipt['failure_diagnostic']=daily.maintenance.failure_diagnostic(error,phase=stage)
+            with suppress(OSError,ValueError,KeyError,TypeError):
+                measured=daily.read_json(target,{})
+                phase=measured.get('active_phase',{}).get('name') if stage in ('collection','publication') else stage
+                phase=phase or stage
+                receipt['failure_diagnostic']=(daily.retained_phase_diagnostic(target.parent,receipt['run_id'],(phase,))
+                    or daily.maintenance.failure_diagnostic(error,phase=phase))
         finally:
             # Reporting and alert delivery happen only after this recovery block.
             recovery_started=time.monotonic()
@@ -363,6 +371,7 @@ def supervise(config,policy,trigger,*,operations=None,availability_sources=None)
                     receipt.update(normal_service_resumed=True,maintenance_finished_at=daily.stamp(daily.now()))
                 except BaseException as error:
                     receipt.update(outcome='recovery_failed',recovery_error_type=type(error).__name__)
+                    receipt['recovery_failure_diagnostic']=daily.maintenance.failure_diagnostic(error,phase='restore')
                     suspend_publication(config,receipt)
             measured=daily.read_json(target,{})
             if measured.get('phase_timings_seconds'):

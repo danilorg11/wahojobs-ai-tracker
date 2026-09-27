@@ -64,6 +64,25 @@ class ReceiptClassificationTests(unittest.TestCase):
         self.assertNotIn('Alignerr: collection failed',rendered)
         self.assertNotIn('micro1: collection failed',rendered)
 
+    def test_failed_backup_email_names_shared_failure_and_preserves_source_stages(self):
+        rows=self.install()
+        for provider in daily.SOURCES:
+            if provider=='micro1':continue
+            rows[provider]=self.row(provider,'collected_unpublished',1,
+                capture_outcome='collected_unpublished',publication_outcome='not_started',attempt_started='yes')
+            daily.write_json(self.root/(provider+'-state.json'),rows[provider])
+        receipt=daily.read_json(self.target/'run.json')
+        receipt.update(outcome='failed',sources=rows,failure_diagnostic=dict(phase='backup',
+            error_type='TimeoutError',reason='worker_execution_deadline_expired',frames=[]))
+        daily.write_json(self.target/'run.json',receipt)
+        with patch.object(daily,'_baseline_cohorts',return_value={}):state=daily.health(self.config,self.at)
+        rendered=email.message([e for e in state['events'] if e['delivery']=='pending'],state['context'])['text']
+        self.assertIn('Failure stage: pre-publication backup. Reason: allotted execution time expired.',rendered)
+        self.assertIn('Publication did not start; captured observations did not renew verification.',rendered)
+        self.assertIn('0 sources verified and published; 0 attempted sources failed.',rendered)
+        self.assertIn('14 publication incomplete or failed:',rendered)
+        self.assertEqual(state['context']['cycle']['failed_sources'],[])
+
     def test_supported_stages_are_not_all_crawler_failures(self):
         cases=[('failed',2,{},'collection'),('failed',0,{},'coverage'),
             ('blocked',0,{},'coverage'),('not_started',0,{},'coverage'),

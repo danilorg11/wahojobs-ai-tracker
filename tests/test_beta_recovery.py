@@ -179,6 +179,50 @@ class BetaRecoveryTests(unittest.TestCase):
                 self.backup()
         self.assertFalse((self.snapshot / 'COMPLETE.sha256').exists())
 
+    def test_journal_chains_are_validated_once_and_later_byte_changes_still_fail(self):
+        journal = self.directory / 'journal'
+        source_execute(self.database, journal, T0)
+        plans = list(journal.glob('*/plan.json'))
+        original_copy = recovery.shutil.copyfileobj
+        changed = []
+        def changing_copy(source, target, *args, **kwargs):
+            original_copy(source, target, *args, **kwargs)
+            if not changed and source.name.endswith('.raw'):
+                changed.append(source.name)
+                with Path(source.name).open('ab') as stream:
+                    stream.write(b'changed after chain validation')
+        with patch.object(recovery, 'report', wraps=recovery.report) as reports:
+            with patch.object(recovery.shutil, 'copyfileobj', side_effect=changing_copy):
+                with self.assertRaisesRegex(ValueError, 'recovery_source_changed'):
+                    self.backup()
+            self.assertEqual(reports.call_count, len(plans))
+        self.assertTrue(changed)
+        self.assertFalse((self.snapshot / 'COMPLETE.sha256').exists())
+
+    def test_unchanged_journal_snapshot_retains_verified_chains_without_duplicate_work(self):
+        journal = self.directory / 'journal'
+        source_execute(self.database, journal, T0)
+        plans = list(journal.glob('*/plan.json'))
+        with patch.object(recovery, 'report', wraps=recovery.report) as reports:
+            manifest = self.backup()
+            self.assertEqual(reports.call_count, len(plans))
+        self.assertEqual(recovery.verify_snapshot(self.snapshot), manifest)
+        for plan in plans:
+            self.assertEqual(recovery.report(journal, plan.parent.name),
+                recovery.report(self.snapshot / 'journal', plan.parent.name))
+
+    def test_first_snapshot_of_pinned_empty_journal_is_valid(self):
+        from wahojobs.evidence_maintenance import pin_journal
+        journal = self.directory / 'journal'
+        journal.mkdir()
+        pin_journal(self.database, journal)
+        with patch.object(recovery, 'report', wraps=recovery.report) as reports:
+            manifest = self.backup()
+            reports.assert_not_called()
+        self.assertTrue(manifest['maintenance_pinned'])
+        self.assertFalse(any(name.startswith('journal/') for name in manifest['files']))
+        self.assertEqual(recovery.verify_snapshot(self.snapshot), manifest)
+
     def test_unconfigured_companion_is_explicit_and_config_secrets_not_copied(self):
         (self.directory / 'private-config.json').write_text('SYNTHETIC secret not selected')
         manifest = self.backup()

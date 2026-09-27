@@ -151,8 +151,8 @@ class ProviderPaginationSafetyTests(unittest.TestCase):
     @patch("wahojobs.crawler.providers.oneforma.fetch_page")
     def test_oneforma_requires_stable_declared_page_count(self, fetch_page):
         fetch_page.side_effect = [
-            ([{"id": 1}], 2),
-            ([{"id": 2}], 3),
+            ([{"id": 1}], 2, 2),
+            ([{"id": 2}], 3, 2),
         ]
 
         with self.assertRaisesRegex(ValueError, "page count changed"):
