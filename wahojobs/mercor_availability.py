@@ -19,6 +19,8 @@ from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 CONTRACT_ID = "mercor_public_page_availability_v1"
+NEGATIVE_CONTRACT_ID = "mercor_public_page_closed_record_v2"
+CLOSED_CONTRACTS = frozenset({CONTRACT_ID, NEGATIVE_CONTRACT_ID})
 POSITIVE_CONTRACT_ID = "mercor_public_page_active_record_v1"
 _KNOWN_JOBS = ContextVar("mercor_known_public_jobs", default=())
 MAX_MISSING_JOBS = 100
@@ -179,6 +181,111 @@ def inspect_public_page(raw, *, listing_id, final_url):
         return AvailabilityDecision("indeterminate", "page_contract_not_established")
 
 
+class _NegativePage(_PublicPage):
+    """Additional visible selectors for v2; the original v1 parser stays exact."""
+    def __init__(self):
+        super().__init__()
+        self.visible_nodes=[]
+        self.node_stack=[]
+
+    def handle_starttag(self,tag,attrs):
+        super().handle_starttag(tag,attrs)
+        values=dict(attrs);parent=self.node_stack[-1] if self.node_stack else None
+        style=re.sub(r"\s+", "", values.get('style','').casefold())
+        classes=set(values.get('class','').split())
+        hidden=bool(parent and parent[1] or tag in ('script','style','noscript','template')
+            or 'hidden' in values or 'inert' in values or values.get('aria-hidden','').casefold()=='true'
+            or 'display:none' in style or 'visibility:hidden' in style
+            # The retained sidebar is mobile-hidden and explicitly desktop flex.
+            or bool(classes & {'!hidden','md:hidden','md:!hidden','!md:hidden'})
+            or 'hidden' in classes and 'md:flex' not in classes)
+        notice=values.get('data-testid')=='closed-role-notice' or bool(parent and parent[3])
+        in_control=tag in ('a','button') or bool(parent and parent[4])
+        node=None
+        if not hidden and (tag in ('h1','h3','span','p','a','button') or values.get('data-testid')=='closed-role-notice'):
+            node=dict(tag=tag,attrs=values,parts=[],in_notice=notice,in_control=in_control)
+            self.visible_nodes.append(node)
+        if tag not in ('area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'):
+            self.node_stack.append((tag,hidden,node,notice,in_control))
+
+    def handle_endtag(self,tag):
+        super().handle_endtag(tag)
+        for index in range(len(self.node_stack)-1,-1,-1):
+            if self.node_stack[index][0]==tag:
+                del self.node_stack[index:];break
+
+    def handle_data(self,data):
+        super().handle_data(data)
+        if self.node_stack and self.node_stack[-1][1]:return
+        for _,_,node,_,_ in self.node_stack:
+            if node is not None:node['parts'].append(data)
+
+
+def inspect_closed_page_v2(raw, *, listing_id, final_url):
+    """Negative-only exact disabled/archived public-page shapes observed in v2.
+
+    Privacy or a missing explorer row never establishes closure. Archived pages
+    deliberately show another role's application form; the exact typed pool and
+    visible replacement title must agree with the original role's named notice.
+    """
+    public_job_url(listing_id,final_url)
+    if type(raw) is not bytes or len(raw)>MAX_BODY_BYTES:
+        return AvailabilityDecision('indeterminate','invalid_or_oversized_body')
+    try:
+        page=_NegativePage();page.feed(raw.decode('utf-8-sig'))
+        if len(page.next_data)!=1 or len(page.canonicals)!=1:raise ValueError('page_identity')
+        data=json.loads(''.join(page.next_data[0]),object_pairs_hook=_strict_object)
+        if (type(data) is not dict or data.get('page')!=PAGE_ROUTE or type(data.get('query')) is not dict
+                or data['query'].get('listingId')!=listing_id):raise ValueError('page_identity')
+        props=data['props']['pageProps'];role=props['role']
+        canonical=public_job_url(listing_id,props['nextSeoProps']['canonical'])
+        if (canonical!=final_url or page.canonicals!=[canonical]
+                or data['query'].get('slug',[])!=urlsplit(final_url).path.split('/')[3:]):raise ValueError('canonical_identity')
+        if (type(role) is not dict or not REQUIRED_ROLE_FIELDS<=set(role)
+                or role['listingId']!=listing_id or role['deletedAt'] is not None
+                or role['isPrivate'] is not True or role['disableApplications'] is not True
+                or type(role.get('title')) is not str or not role['title'].strip()
+                or 'candidateStatus' not in props or props['candidateStatus'] is not None):raise ValueError('role_state')
+        nodes=[dict(n,text=' '.join(' '.join(n['parts']).split())) for n in page.visible_nodes]
+        titles=[n['text'] for n in nodes if n['tag']=='h1' and n['attrs'].get('data-test')=='listing-description-title']
+        actions=[n for n in nodes if n['tag'] in ('a','button') and
+            n['text'].casefold() in ('apply','apply now','start application')]
+        disabled=[n for n in nodes if n['tag']=='span' and n['text']=='This listing is not accepting applications currently']
+        notices=[n for n in nodes if n['attrs'].get('data-testid')=='closed-role-notice']
+        fields={name:role[name] for name in sorted(REQUIRED_ROLE_FIELDS)}
+        if (role['status']=='active' and props.get('closedListing','missing') is None
+                and props.get('poolListing','missing') is None and titles==[role['title']]
+                and len(disabled)==1 and not disabled[0]['in_notice'] and not disabled[0]['in_control']
+                and not notices and not actions):
+            return AvailabilityDecision('closed','public_applications_disabled_v2',canonical,fields)
+        closed=props.get('closedListing');pool=props.get('poolListing')
+        if (role['status']!='archived' or type(closed) is not dict
+                or set(closed)!={'listingId','title','poolName','matchSource','reason'}
+                or closed['listingId']!=listing_id or closed['title']!=role['title']
+                or closed['reason']!='archived' or closed['matchSource'] not in ('domain','subdomain')
+                or type(pool) is not dict or set(pool)!={'role','candidateStatus'}
+                or pool['candidateStatus'] is not None or type(pool['role']) is not dict):raise ValueError('closed_pool_binding')
+        replacement=pool['role'];_identity(replacement['listingId'])
+        if (replacement['listingId']==listing_id or replacement.get('status')!='active'
+                or replacement.get('deletedAt','missing') is not None or replacement.get('isPrivate') is not False
+                or replacement.get('disableApplications') is not False or replacement.get('listingType')!='evergreen'
+                or type(replacement.get('title')) is not str or not replacement['title'].strip()
+                or closed['poolName']!=replacement['title'] or titles!=[replacement['title']]
+                or len(notices)!=1 or notices[0]['in_control'] or disabled):raise ValueError('replacement_state')
+        headings=[n['text'] for n in nodes if n['tag']=='h3' and n['in_notice']]
+        explanation=[n['text'] for n in nodes if n['tag']=='p' and n['in_notice']]
+        if (headings!=[role['title']+' is no longer accepting applications'] or explanation!=[
+                'This talent network covers the same expertise and is open, so you can apply here instead.']
+                or sorted(n['text'] for n in actions) not in (['Start application'],['Apply now','Start application'])
+                or any(n['tag']!='button' or n['in_notice'] or any(listing_id in str(v) for v in n['attrs'].values()) for n in actions)
+                or not any(n['text']=='Start application' and n['attrs'].get('data-test')=='start-application-button' for n in actions)):
+            raise ValueError('visible_closure_binding')
+        fields.update(closed_title=closed['title'],replacement_listing_id=replacement['listingId'],replacement_title=replacement['title'])
+        return AvailabilityDecision('closed','archived_role_replaced_by_talent_network_v2',canonical,fields)
+    except (ValueError,TypeError,KeyError,UnicodeError,RecursionError):
+        return AvailabilityDecision('indeterminate','closed_page_v2_contract_not_established')
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, message, headers, newurl):
         return None
@@ -205,6 +312,7 @@ def observe_public_job(listing_id, *, audit_sink, requested_url=None, http_limit
     final_url = None
     body_hash = None
     decision = AvailabilityDecision("indeterminate", "request_cap_reached")
+    contract_id = CONTRACT_ID
     opener = build_opener(_NoRedirect())
     for ordinal in range(1, http_limit+1):
         remaining = REQUEST_TIMEOUT_SECONDS if deadline is None else min(REQUEST_TIMEOUT_SECONDS, deadline-monotonic())
@@ -288,10 +396,13 @@ def observe_public_job(listing_id, *, audit_sink, requested_url=None, http_limit
             decision = AvailabilityDecision("indeterminate", "html_response_required")
             break
         decision = inspect_public_page(raw, listing_id=listing_id, final_url=final_url)
+        if decision.state=='indeterminate':
+            closed=inspect_closed_page_v2(raw,listing_id=listing_id,final_url=final_url)
+            if closed.state=='closed':decision=closed;contract_id=NEGATIVE_CONTRACT_ID
         break
-    result = AvailabilityObservation(CONTRACT_ID, listing_id, start_url, final_url,
+    result = AvailabilityObservation(contract_id, listing_id, start_url, final_url,
                                      started_at, clock(), requests_used, body_hash, decision)
-    audit_sink(dict(event="availability_decision", contract_id=CONTRACT_ID, listing_id=listing_id,
+    audit_sink(dict(event="availability_decision", contract_id=contract_id, listing_id=listing_id,
                     state=decision.state, reason=decision.reason, body_sha256=body_hash,
                     requests_used=requests_used, started_at=result.started_at,
                     completed_at=result.completed_at, final_url=final_url))
@@ -378,7 +489,7 @@ def augment_result(result):
                 continue
             responses = [event for event in events if event["event"] == "response"]
             raw = responses[-1]["raw_response"]
-            record = MercorPageRecord(CONTRACT_ID, row["external_id"], row["id"], row["source_hash"],
+            record = MercorPageRecord(observation.contract_id, row["external_id"], row["id"], row["source_hash"],
                 _fields(row), observation.started_at, _second(responses[-1]["observed_at"]),
                 observation.requested_url, observation.final_url, raw.decode("utf-8"),
                 observation.body_sha256, observation.decision.state,
@@ -433,7 +544,8 @@ def validate_record(record, *, body_is_normalized=False):
     if type(record) is not MercorPageRecord:
         raise ValueError("mercor_exact_record_type_invalid")
     _identity(record.listing_id)
-    if (record.contract_id != CONTRACT_ID
+    if (record.contract_id not in CLOSED_CONTRACTS
+            or record.contract_id == NEGATIVE_CONTRACT_ID and record.state != "closed"
             or type(record.known_job_id) is not int or record.known_job_id <= 0
             or record.known_source_hash != sha256(record.listing_id.encode()).hexdigest()
             or type(record.known_fields) is not dict or set(record.known_fields) != set(JOB_FIELDS)
@@ -446,8 +558,9 @@ def validate_record(record, *, body_is_normalized=False):
     if len(raw) > MAX_BODY_BYTES: raise ValueError("mercor_exact_body_oversized")
     public_job_url(record.listing_id, record.requested_url)
     public_job_url(record.listing_id, record.final_url)
+    inspector = inspect_public_page if record.contract_id == CONTRACT_ID else inspect_closed_page_v2
     if (not body_is_normalized and sha256(raw).hexdigest() != record.body_sha256
-            or inspect_public_page(raw, listing_id=record.listing_id, final_url=record.final_url).state != record.state
+            or inspector(raw, listing_id=record.listing_id, final_url=record.final_url).state != record.state
             or not 1 <= len(record.requests) <= 2):
         raise ValueError("mercor_exact_record_evidence_invalid")
     expected_url = record.requested_url

@@ -389,7 +389,7 @@ def summarize_source(plan,report,started,ended):
             if provider=='mercor' else
             'observed public workforce index; exact workforce records with attested details can publish'
             if provider=='surge' else
-            'observed public project index; only exact remote Thyme AI-writing family records with attested details can publish')
+            'observed public project index; exact supported paid remote contributor families require individual index/detail/application evidence; no absence closure')
     before={j['job_id']:j for j in plan['sources'][0]['jobs']}
     if results and results[-1].get('failure_diagnostic'):
         row['failure_diagnostic']=results[-1]['failure_diagnostic']
@@ -407,9 +407,10 @@ def summarize_source(plan,report,started,ended):
             and COUNT_DROP_WARNING in summary.get('warnings',[]))
     exact_closed=[]
     if provider=='mercor' and summary['jobs_removed']>0:
+        from wahojobs.mercor_availability import CLOSED_CONTRACTS
         collected=[event['data']['result'] for event in events if event['event']=='collected_result']
         records=collected[0].get('source_records',[]) if len(collected)==1 else []
-        closed=[record for record in records if record.get('contract_id')=='mercor_public_page_availability_v1'
+        closed=[record for record in records if record.get('contract_id') in CLOSED_CONTRACTS
             and record.get('state')=='closed' and type(record.get('known_job_id')) is int]
         changed={job['job_id'] for job in state['jobs'] if job['job_id'] in before
             and before[job['job_id']]['verification']['status']!='inactive'
