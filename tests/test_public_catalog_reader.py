@@ -7,6 +7,7 @@ from http.client import HTTPConnection
 from http.server import HTTPServer
 import json
 from pathlib import Path
+import shlex
 import sqlite3
 import tempfile
 import threading
@@ -138,6 +139,15 @@ class PublicCatalogReaderTests(unittest.TestCase):
             path.write_text(json.dumps(document)[:-1] + ',"indexable":true}', encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'duplicate_configuration_field'):
                 public_config.load_configuration(str(path))
+
+    def test_activation_template_matches_the_daily_process_pin(self):
+        template = Path(__file__).resolve().parents[1] / 'deploy/private-beta/70-public-catalog.conf'
+        commands = [line.partition('=')[2] for line in template.read_text().splitlines()
+                    if line.startswith('ExecStart=') and line != 'ExecStart=']
+        self.assertEqual(len(commands), 1)
+        with patch.object(public_config, 'load_configuration', return_value={}) as load:
+            daily_cli.verify_beta_process_command(shlex.split(commands[0]))
+            load.assert_called_once_with(public_config.OPERATING_CONFIGURATION_PATH)
 
     def test_private_routes_wrong_host_method_and_malformed_targets_are_denied(self):
         for path in ('/login', '/account/profile', '/find-matches', '/tracker', '/api/profile',
