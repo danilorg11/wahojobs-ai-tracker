@@ -805,11 +805,12 @@ def render_public_job_page(
         # intentionally omitted: source collection dates are not datePosted.
         jobposting_script, original_posted = '', None
         source_text = job.get('_public_source_text') or ''
-        source_description_section = (
-            "<section class='content-section source-description'><h2>Employer description and requirements</h2>"
-            + markdown(source_text) + '</section>' if source_text else
-            "<section class='content-section'><h2>Limited source information</h2>"
-            "<p>The saved listing has no complete description. Read the employer’s requirements before applying.</p></section>")
+        limited = job.get('_public_state') == 'limited' or not source_text
+        source_description_section = "<section class='content-section source-description'>"
+        source_description_section += ('<h2>Limited source information</h2>'
+            '<p>The saved listing has no complete description. Read the employer’s requirements before applying.</p>'
+            if limited else '<h2>Employer description and requirements</h2>')
+        source_description_section += markdown(source_text) + '</section>'
     page_title = clean(job["source_title"]) or clean(job["canonical_title"])
     company_name = clean(job["company_name"])
     catalog_return_to = safe_catalog_return_target(catalog_return_to)

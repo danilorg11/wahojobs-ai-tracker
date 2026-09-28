@@ -68,6 +68,12 @@ def publication_quality(job):
             or re.search(r'<(?:script|style)\b|__NEXT_DATA__|webpackChunk|access denied|'
                          r'verify (?:that )?you are human|enable javascript and cookies', text, re.I)):
         return 'withheld', 'unusable_description', ''
+    # Retained Romansh registration instructions ask for Italian proficiency.
+    # Hold that evidenced contradiction until the source wording is corrected.
+    if (job.get('company_slug') == 'welocalize'
+            and re.search(r'\btalent pool\s*:\s*romansh speakers\b', title, re.I)
+            and re.search(r'\byour italian proficiency\b', text, re.I)):
+        return 'withheld', 'known_language_body_conflict', ''
     # An explicit document title is an identity assertion, unlike incidental
     # professional-field words in qualifications. Retain unresolved cases for review.
     named = re.search(r'(?im)^\s*(?:#{1,6}\s*)?(?:job title|position title)\s*:\s*(.+)$', text)
@@ -75,16 +81,27 @@ def publication_quality(job):
         normalize = lambda value: re.sub(r'\W+', ' ', value).strip().casefold()
         stated, listed = normalize(named[1]), normalize(title)
         if stated not in listed and listed not in stated:
-            return 'withheld', 'explicit_title_body_conflict', ''
+            # Retained documents use the same role words followed by "AI
+            # Trainer"; listing titles add "Freelance" and "Project".
+            # Normalize only that suffix, retaining every role qualifier.
+            suffix = r'\b(?:freelance )?ai trainer(?: project)?$'
+            same_role_alias = (job.get('company_slug') == 'meridial'
+                and re.sub(suffix, 'ai trainer', stated) == re.sub(suffix, 'ai trainer', listed))
+            if not same_role_alias:
+                return 'withheld', 'unresolved_title_variation', ''
     if len(text.strip()) < 200:
         return 'limited', 'short_description', text
     return 'indexable', 'source_description_available', text
 
 
 def opportunity_label(job, text):
-    if re.search(r'\b(?:join|become part of) (?:our |an? )?(?:exclusive )?talent (?:pool|network)\b', text, re.I):
+    wording = (job.get('source_title') or '') + '\n' + text
+    if re.search(r'\b(?:join|become part of) (?:our |the |an? )?[^\n.!?]{0,60}\btalent (?:pool|network)\b|'
+                 r'\b(?:part of (?:this|our|the)|(?:opportunity|position|listing) is for (?:our|the|this|a)) '
+                 r'talent (?:pool|network)\b', wording, re.I):
         return 'Talent network — future consideration'
-    if job.get('opportunity_kind') == 'evergreen_application':
+    if (job.get('opportunity_kind') == 'evergreen_application'
+            or re.search(r'\bstanding listing\b|\bnot a specific job opening\b', text, re.I)):
         return 'Ongoing application opportunity'
     if job.get('opportunity_kind') == 'public_inventory_opportunity':
         return 'Public application opportunity'

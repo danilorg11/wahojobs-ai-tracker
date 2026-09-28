@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 from tests.test_public_job_page import seed_public_job, OBSERVED_AT
 from wahojobs import public_jobs_catalog as catalog
-from wahojobs.public_catalog_reader import PublicCatalogReader, publication_quality, preparation_metadata
+from wahojobs.public_catalog_reader import PublicCatalogReader, publication_quality, preparation_metadata, opportunity_label
 from wahojobs.remote_beta import RemoteBetaIntegration, make_remote_handler, PROXY_HEADER
 from wahojobs import public_catalog_configuration as public_config
 from scripts import daily_inventory as daily_cli
@@ -183,6 +183,25 @@ class PublicCatalogReaderTests(unittest.TestCase):
         self.assertEqual(dict(page.headers)['X-Robots-Tag'], 'noindex,follow')
         self.assertNotIn(b'opportunity-9002', self.get('/jobs/sitemap.xml', reader=reader).body)
 
+    def test_short_source_teaser_has_visible_limited_notice(self):
+        jobs = deepcopy(self.jobs)
+        jobs[0]['_catalog_variants'][0]['rich_body'] = 'Short retained employer teaser.'
+        reader = self.make_reader(jobs, indexable=True)
+        page = self.get('/jobs/opportunity-9002', reader=reader)
+        self.assertIn(b'Limited source information', page.body)
+        self.assertIn(b'Short retained employer teaser.', page.body)
+        self.assertNotIn(b'<h2>Employer description and requirements</h2>', page.body)
+        self.assertEqual(dict(page.headers)['X-Robots-Tag'], 'noindex,follow')
+
+    def test_known_language_conflict_is_held_until_source_corrects_it(self):
+        variant = dict(self.jobs[0]['_catalog_variants'][0],
+            company_slug='welocalize', rich_provider='welocalize',
+            source_title='Talent Pool: Romansh Speakers (Switzerland)',
+            rich_body=BODY+'\nTo Apply: Include a cover letter highlighting your Italian proficiency.')
+        self.assertEqual(publication_quality(variant)[:2], ('withheld', 'known_language_body_conflict'))
+        variant['rich_body'] = variant['rich_body'].replace('Italian', 'Romansh')
+        self.assertEqual(publication_quality(variant)[0], 'indexable')
+
     def test_source_identity_and_known_conflict_are_withheld(self):
         variant = self.jobs[0]['_catalog_variants'][0]
         for changes in ({'rich_external_id':'other'}, {'rich_source_url':'https://other.test'},
@@ -190,6 +209,31 @@ class PublicCatalogReaderTests(unittest.TestCase):
                         {'rich_body':'Job title: Unrelated bartender\n\n' + BODY}):
             state, _, _ = publication_quality(dict(variant, **changes))
             self.assertEqual(state, 'withheld', changes)
+
+    def test_meridial_suffix_alias_preserves_all_role_words(self):
+        variant = dict(self.jobs[0]['_catalog_variants'][0], company_slug='meridial', rich_provider='meridial')
+        for role in ('Afrikaans Language Specialist', 'Yoruba Language Specialist', 'Zulu Language Specialist'):
+            job = dict(variant, source_title=role+' - Freelance AI Trainer Project',
+                       rich_body='Job Title: '+role+' – AI Trainer\n\n'+BODY)
+            self.assertEqual(publication_quality(job)[0], 'indexable')
+        job = dict(variant, source_title='Graphic Designer Specialist - Freelance AI Trainer Project',
+                   rich_body='Job Title: Graphic Designer – AI Trainer\n\n'+BODY)
+        self.assertEqual(publication_quality(job)[:2], ('withheld', 'unresolved_title_variation'))
+        job = dict(variant, source_title='Language Specialist - Freelance AI Trainer Project',
+                   rich_body='Job Title: Master - Language Specialist – AI Trainer\n\n'+BODY)
+        self.assertEqual(publication_quality(job)[:2], ('withheld', 'unresolved_title_variation'))
+
+    def test_explicit_future_and_standing_applications_are_labeled_faithfully(self):
+        job = dict(source_title='Future Opportunities: Join our global TrainAI talent pool')
+        self.assertEqual(opportunity_label(job, 'Join Our Global TrainAI Talent Pool!'),
+                         'Talent network — future consideration')
+        for text in ('As part of this talent pool, you may be considered for future freelance projects.',
+                     'This opportunity is for our Talent Pool. We consider future projects and clients.'):
+            self.assertEqual(opportunity_label({}, text), 'Talent network — future consideration')
+        self.assertEqual(opportunity_label({}, 'This is a standing listing, not a specific job opening.'),
+                         'Ongoing application opportunity')
+        self.assertEqual(opportunity_label({}, 'Help recruiters maintain their talent pool records.'),
+                         'Advertised opportunity')
 
     def test_missing_description_never_bypasses_destination_or_source_identity(self):
         variant = self.jobs[0]['_catalog_variants'][0]
