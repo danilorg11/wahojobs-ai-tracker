@@ -42,6 +42,7 @@ class PublicAmendmentTests(unittest.TestCase):
         self.assertEqual(self.job,before)
         self.assertEqual(job['_public_kind'],'AI training & evaluation')
         self.assertIn('model-generated investment analyses',job['catalog_summary'])
+        self.assertFalse(job['catalog_summary'].startswith('- '))
         for page in (catalog.render_job_card(job,return_to='/jobs?q=vc',include_variant=True),
                      detail.render_public_job_page(job,public_origin='https://www.wahojobs.com',public_reader=True)):
             self.assertIn('$200–400 / hour',page)
@@ -73,6 +74,7 @@ class PublicAmendmentTests(unittest.TestCase):
             self.assertIn(value,text)
         for value in ('Apply Here','Share this job','Follow Us','Copyright','Opt Out','Data Privacy'):
             self.assertNotIn(value,text)
+        self.assertNotIn('\n\nImage\n\n',text)
         rendered=markdown(text)
         self.assertIn('<h3>',rendered);self.assertIn('<ul>',rendered);self.assertIn('<a href=',rendered)
         self.assertNotIn('<script',rendered)
@@ -88,6 +90,17 @@ class PublicAmendmentTests(unittest.TestCase):
         label,quote=contribution_context(self.job,'Our mission is to build AI for everyone.\n\nCompetitive pay.',None)
         self.assertEqual((label,quote),('',''))
         self.assertIsNone(advertised_compensation(self.job))
+
+    def test_explicit_source_discipline_conflict_is_held_until_corrected(self):
+        self.job.update(company_slug='turing',rich_provider='turing',source_title='Electrical Engineering',
+            rich_body='Role Overview:\n\nWe are seeking experienced Aerospace / Flight-Dynamics Engineer to author aero/flight tasks.\n\n'
+                'Key Requirements:\n\nCandidates must have a minimum of 5+ years of experience working in Aerospace / Flight-Dynamics. '+
+                'Validate designs and document methodologies. '*5)
+        prepared,decisions=prepare_publication([self.job])
+        self.assertFalse(prepared)
+        self.assertEqual(decisions[0]['reason'],'known_title_body_conflict')
+        self.job['rich_body']=self.job['rich_body'].replace('Aerospace / Flight-Dynamics','Electrical')
+        self.assertTrue(prepare_publication([self.job])[0])
 
     def test_role_and_future_project_headings_keep_explicit_ai_contributions(self):
         for text in ('## About Mercor projects\n\nTraining and evaluating AI models in Compliance & Risk.',

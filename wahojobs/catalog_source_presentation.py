@@ -62,6 +62,8 @@ def _markdown(node, depth=0):
         return re.sub(r'\s+', ' ', node)
     if node.tag in _OMIT:
         return ''
+    if {'field__label', 'visually-hidden'} <= set(node.attrs.get('class', '').split()):
+        return ''  # Drupal's decorative image-field label is not article copy.
     inner = ''.join(_markdown(child, depth + (node.tag in ('ul', 'ol'))) for child in node.children)
     if node.tag == 'br':
         return '\n'
@@ -206,6 +208,8 @@ def contribution_context(job, text, pay, surge_fields=None):
     else:
         label, quote = '', ''
     if quote:
+        if quote.startswith('- '):
+            quote = re.split(r'\s+-\s+', quote[2:], maxsplit=1)[0]
         # A verbatim excerpt, never a generated summary. Keep sentences when short.
         quote = re.split(r'(?<=[.!?])\s+(?=[A-Z])', quote)[0]
         if len(quote) > 210:
