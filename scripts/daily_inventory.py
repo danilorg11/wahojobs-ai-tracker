@@ -105,6 +105,20 @@ def verify_release_configuration(config, *, require_effective=True):
     if credential!={'type':'a(ss)','data':[['runtime.json',daily.RUNTIME]]}:raise ValueError('credential_selection_mismatch')
 
 
+def verify_beta_process_command(command):
+    """Retain the exact process pin with one explicit public-reader extension."""
+    expected=['/opt/wahojobs-beta/current/.venv/bin/python','-B','scripts/private_beta_app.py',
+        '--config','/run/wahojobs-beta/runtime.json','--logs','/var/log/wahojobs-beta']
+    if command==expected:return
+    from wahojobs.public_catalog_configuration import OPERATING_CONFIGURATION_PATH,load_configuration
+    if command!=expected+['--public-catalog-config',OPERATING_CONFIGURATION_PATH]:
+        raise ValueError('beta_process_mismatch')
+    # The optional reader must still use the protected, fixed operational file.
+    # Never admit arbitrary flags, paths, credentials or a different beta runtime.
+    document=load_configuration(OPERATING_CONFIGURATION_PATH)
+    document.clear()
+
+
 def verify_runtime(config):
     """Pin actual beta service/configuration before causing an unavailable interval."""
     verify_release_configuration(config)
@@ -116,9 +130,8 @@ def verify_runtime(config):
     if (state['ActiveState']!='active' or state['SubState']!='running' or state['User']!='wahojobs-beta'
             or state['ControlGroup']!='/system.slice/'+daily.SERVICE):raise ValueError('beta_not_in_normal_service')
     proc=Path('/proc')/state['MainPID']
-    expected_command=['/opt/wahojobs-beta/current/.venv/bin/python','-B','scripts/private_beta_app.py',
-        '--config','/run/wahojobs-beta/runtime.json','--logs','/var/log/wahojobs-beta']
-    if proc.joinpath('cmdline').read_bytes().rstrip(b'\0').decode().split('\0')!=expected_command or proc.joinpath('cwd').resolve()!=expected:
+    verify_beta_process_command(proc.joinpath('cmdline').read_bytes().rstrip(b'\0').decode().split('\0'))
+    if proc.joinpath('cwd').resolve()!=expected:
         raise ValueError('beta_process_mismatch')
 
 

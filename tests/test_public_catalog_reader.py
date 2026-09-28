@@ -6,7 +6,9 @@ from io import BytesIO
 from http.client import HTTPConnection
 from http.server import HTTPServer
 import json
+from pathlib import Path
 import sqlite3
+import tempfile
 import threading
 import unittest
 from unittest.mock import Mock, patch
@@ -16,6 +18,8 @@ from tests.test_public_job_page import seed_public_job, OBSERVED_AT
 from wahojobs import public_jobs_catalog as catalog
 from wahojobs.public_catalog_reader import PublicCatalogReader, publication_quality, preparation_metadata
 from wahojobs.remote_beta import RemoteBetaIntegration, make_remote_handler, PROXY_HEADER
+from wahojobs import public_catalog_configuration as public_config
+from scripts import daily_inventory as daily_cli
 
 NOW = datetime.fromisoformat(OBSERVED_AT)
 BODY = ('Evaluate model responses and build reliable evaluation systems.\n\n'
@@ -99,6 +103,41 @@ class PublicCatalogReaderTests(unittest.TestCase):
     def test_failed_public_preparation_prevents_readiness(self):
         with self.assertRaisesRegex(ValueError, 'public_catalog_not_ready'):
             self.make_reader(available=Mock(side_effect=ValueError('lease retired')))
+
+    def test_daily_process_pin_accepts_only_the_fixed_protected_public_configuration(self):
+        normal = ['/opt/wahojobs-beta/current/.venv/bin/python', '-B', 'scripts/private_beta_app.py',
+            '--config', '/run/wahojobs-beta/runtime.json', '--logs', '/var/log/wahojobs-beta']
+        enabled = normal + ['--public-catalog-config', public_config.OPERATING_CONFIGURATION_PATH]
+        with patch.object(public_config, 'load_configuration', return_value={'gateway_key': 'b'*64}) as load:
+            daily_cli.verify_beta_process_command(normal)
+            load.assert_not_called()
+            daily_cli.verify_beta_process_command(enabled)
+            load.assert_called_once_with(public_config.OPERATING_CONFIGURATION_PATH)
+            for command in (enabled + ['--debug'], normal + ['--public-catalog-config', '/tmp/other.json'],
+                            enabled + enabled[-2:], normal[:-1] + ['/tmp/other-logs'],
+                            normal[:4] + ['/tmp/other-runtime.json'] + normal[5:]):
+                with self.subTest(command=command), self.assertRaisesRegex(ValueError, 'beta_process_mismatch'):
+                    daily_cli.verify_beta_process_command(command)
+        with patch.object(public_config, 'load_configuration', side_effect=ValueError('invalid_configuration')):
+            with self.assertRaisesRegex(ValueError, 'invalid_configuration'):
+                daily_cli.verify_beta_process_command(enabled)
+
+    def test_public_configuration_requires_exact_origin_fields_and_private_file(self):
+        with tempfile.TemporaryDirectory(prefix='public-reader-config-') as directory:
+            path = Path(directory) / 'catalog.json'
+            document = dict(version=1, public_origin='https://www.wahojobs.com',
+                            gateway_key='b'*64, indexable=False)
+            path.write_text(json.dumps(document), encoding='utf-8')
+            path.chmod(0o600)
+            self.assertEqual(public_config.load_configuration(str(path)), document)
+            for changes in ({'public_origin': 'https://beta.wahojobs.com'}, {'gateway_key': 'short'},
+                            {'indexable': 1}, {'version': True}, {'unexpected': 'value'}):
+                path.write_text(json.dumps(dict(document, **changes)), encoding='utf-8')
+                with self.subTest(changes=changes), self.assertRaises(ValueError):
+                    public_config.load_configuration(str(path))
+            path.write_text(json.dumps(document)[:-1] + ',"indexable":true}', encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'duplicate_configuration_field'):
+                public_config.load_configuration(str(path))
 
     def test_private_routes_wrong_host_method_and_malformed_targets_are_denied(self):
         for path in ('/login', '/account/profile', '/find-matches', '/tracker', '/api/profile',

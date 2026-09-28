@@ -2,6 +2,8 @@
 import json
 import re
 
+OPERATING_CONFIGURATION_PATH = '/etc/wahojobs-beta/public-catalog-v1.json'
+
 
 def load_configuration(path):
     from wahojobs.workos_authkit_staging import (
