@@ -89,6 +89,14 @@ class PublicAmendmentTests(unittest.TestCase):
         self.assertEqual((label,quote),('',''))
         self.assertIsNone(advertised_compensation(self.job))
 
+    def test_role_and_future_project_headings_keep_explicit_ai_contributions(self):
+        for text in ('## About Mercor projects\n\nTraining and evaluating AI models in Compliance & Risk.',
+                     '## About the role\n\nHelp fine-tune large language models with your expertise.',
+                     '## Role overview\n\nAnalyze the AI work against production standards.'):
+            self.assertEqual(contribution_context(self.job,text,None)[0],'AI training & evaluation')
+        from wahojobs.public_catalog_reader import opportunity_label
+        self.assertEqual(opportunity_label(dict(source_title='Lawyer Talent Network'),''),'Talent network — future consideration')
+
     def test_retained_turing_voice_role_does_not_inherit_company_ai_mission(self):
         from wahojobs.authenticated_card_evidence import _source_text
         fixture=FIXTURE['turing_company_context']

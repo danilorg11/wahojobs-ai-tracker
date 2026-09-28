@@ -102,6 +102,8 @@ def publication_quality(job):
 
 def opportunity_label(job, text):
     wording = (job.get('source_title') or '') + '\n' + text
+    if re.search(r'\btalent (?:pool|network)\b', job.get('source_title') or '', re.I):
+        return 'Talent network — future consideration'
     if re.search(r'\b(?:join|become part of) (?:our |the |an? )?[^\n.!?]{0,60}\btalent (?:pool|network)\b|'
                  r'\b(?:part of (?:this|our|the)|(?:opportunity|position|listing) is for (?:our|the|this|a)) '
                  r'talent (?:pool|network)\b', wording, re.I):

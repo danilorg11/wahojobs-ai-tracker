@@ -168,6 +168,10 @@ def contribution_context(job, text, pay, surge_fields=None):
         value = plain(paragraph).strip('#: -')
         if not value:
             continue
+        if len(value) < 110 and re.match(r'about\b', value, re.I) and re.search(
+                r'\b(?:jobs?|roles?|projects?|opportunit(?:y|ies)|talent (?:network|pool))\b', value, re.I):
+            company_section = False
+            continue
         if (len(value) < 110 and re.match(r'about\b|who we are\b|our (?:company|mission)\b', value, re.I)
                 and not re.search(r'\b(?:job|role|project|opportunity)\b', value, re.I)):
             company_section = True
@@ -181,10 +185,10 @@ def contribution_context(job, text, pay, surge_fields=None):
                                        r'Our mission\b|About (?:us|the company)\b', value, re.I):
             continue
         blocks.append(value)
-    ai_action = re.compile(r'\b(?:evaluat\w*|train\w*|review\w*|refin\w*|annotat\w*|improv\w*|build\w*)\b'
-        r'.{0,160}\b(?:AI|artificial intelligence|machine learning|language models?|model-generated)\b|'
-        r'\b(?:AI|artificial intelligence|machine learning|language models?|model-generated)\b'
-        r'.{0,100}\b(?:evaluat\w*|train\w*|review\w*|refin\w*|annotat\w*)\b', re.I)
+    ai_action = re.compile(r'\b(?:evaluat\w*|train\w*|review\w*|refin\w*|annotat\w*|improv\w*|build\w*|fine[- ]tun\w*|analy[sz]\w*)\b'
+        r'.{0,160}\b(?:AI|artificial intelligence|machine learning|language models?|LLMs?|model-generated)\b|'
+        r'\b(?:AI|artificial intelligence|machine learning|language models?|LLMs?|model-generated)\b'
+        r'.{0,100}\b(?:evaluat\w*|train\w*|review\w*|refin\w*|annotat\w*|fine[- ]tun\w*)\b', re.I)
     # Do not interpret a company's mission or generic boilerplate as role duties.
     action = next((p for p in blocks if ai_action.search(p) and not re.match(
         r'about (?:us|the company)|our mission|[\w ]{0,25} is (?:a|the) (?:leading|global)', p, re.I)), '')
