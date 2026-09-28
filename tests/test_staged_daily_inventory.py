@@ -239,13 +239,82 @@ class StagedSupervisorTests(unittest.TestCase):
             native=cli.NativeOperations(dict(state_directory=temp),'fixture');clock=[0];calls=[]
             def phase(run_id,name,deadline):
                 self.assertGreater(deadline,clock[0]);calls.append(name)
-                if name=='publish-appen':self.assertGreater(deadline-clock[0],77)
-                if name=='publish-appen':clock[0]=deadline;raise TimeoutError()
+                if name=='publish-rws':self.assertGreaterEqual(deadline-clock[0],10)
+                if name=='publish-rws':clock[0]=deadline;raise TimeoutError()
                 clock[0]+=1
             with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
                 with self.assertRaises(TimeoutError):native.publish('fixture',240)
-            self.assertEqual(calls,['backup','publish-appen'])
+            self.assertEqual(calls,['backup','publish-rws'])
             self.assertLess(clock[0],240)
+
+    def test_actual_fourteen_source_weights_reclaim_small_source_time_within_same_cap(self):
+        # September 28's measured durations include six interrupted publishers;
+        # they test allocation only, not successful real publication throughput.
+        weights=dict(alignerr=5624,appen=32,dataannotation=10,dataforce=8,handshake=117,
+            mercor=439,meridial=832,mindrift=141,oneforma=457,outlier=8,rws=42,
+            surge=7,turing=251,welocalize=434)
+        elapsed=dict(alignerr=75.091,appen=3.397,dataannotation=4.244,dataforce=3.694,
+            handshake=5.5,mercor=9.822,meridial=15.084,mindrift=4.902,oneforma=9.564,
+            outlier=3.19,rws=2.689,surge=4.396,turing=8.31,welocalize=9.413)
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            daily.write_json(target/'publication-sources.json',list(reversed(weights)))
+            daily.write_json(target/'publication-weights.json',weights)
+            native=cli.NativeOperations(dict(state_directory=temp),'fixture')
+            clock=[0];caps={};order=[]
+            def phase(run_id,name,deadline):
+                self.assertLessEqual(deadline,240);self.assertGreater(deadline,clock[0])
+                if name=='backup':
+                    self.assertEqual(deadline,60);clock[0]+=30.877;return
+                if name=='finish':clock[0]+=2.286;return
+                source=name.removeprefix('publish-');order.append(source)
+                caps[source]=deadline-clock[0]
+                self.assertLessEqual(deadline,210)
+                self.assertGreaterEqual(caps[source],10)
+                clock[0]+=elapsed[source]
+            with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
+                native.publish('fixture',240)
+            self.assertEqual(order,sorted(weights,key=lambda source:(weights[source],source)))
+            self.assertEqual(len(set(order)),14)
+            self.assertGreater(caps['alignerr'],90)
+            self.assertGreater(caps['handshake'],11)
+            self.assertGreater(caps['mercor'],15)
+            self.assertGreater(caps['meridial'],21)
+            self.assertLess(clock[0],240)
+            recorded=daily.read_json(target/'publication-allocation.json')
+            self.assertEqual(recorded['ordered_sources'],order)
+            self.assertEqual(recorded['phase_caps_seconds'],{source:round(cap,3) for source,cap in caps.items()})
+
+    def test_publication_rejects_duplicate_or_invalid_source_allocations(self):
+        cases=[(['appen','appen'],dict(appen=1)),(['unknown'],dict(unknown=1)),
+            (['appen'],dict(rws=1)),(['appen'],dict(appen=True)),(['appen'],dict(appen=20_001))]
+        for sources,weights in cases:
+            with self.subTest(sources=sources,weights=weights),tempfile.TemporaryDirectory() as temp:
+                target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+                daily.write_json(target/'publication-sources.json',sources)
+                daily.write_json(target/'publication-weights.json',weights)
+                native=cli.NativeOperations(dict(state_directory=temp),'fixture')
+                with patch.object(native,'phase') as phase:
+                    with self.assertRaisesRegex(ValueError,'bounded_publication_weights_required'):
+                        native.publish('fixture',240)
+                self.assertEqual([call.args[1] for call in phase.call_args_list],['backup'])
+
+    def test_publication_uncertain_database_stops_before_next_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            database=Path(temp)/'fixture.sqlite3'
+            daily.write_json(target/'publication-sources.json',['appen','rws'])
+            daily.write_json(target/'publication-weights.json',dict(appen=1,rws=2))
+            native=cli.NativeOperations(dict(state_directory=temp,database=str(database)),'fixture')
+            calls=[]
+            def phase(run_id,name,deadline):
+                calls.append(name)
+                if name=='publish-appen':
+                    Path(str(database)+'-journal').touch()
+                    raise RuntimeError('bounded_process_failed')
+            with patch.object(native,'phase',side_effect=phase):
+                with self.assertRaises(RuntimeError):native.publish('fixture',240)
+            self.assertEqual(calls,['backup','publish-appen'])
 
     def test_restart_closes_online_only_receipt_without_service_or_collection_actions(self):
         from wahojobs.maintenance_gate import operation_gate

@@ -305,17 +305,24 @@ class NativeOperations:
         target=Path(self.config['state_directory'])/'runs'/run_id
         sources=daily.read_json(target/'publication-sources.json',[])
         weights=daily.read_json(target/'publication-weights.json',{s:1 for s in sources})
-        if set(weights)!=set(sources) or any(type(n) is not int or not 1<=n<=20_000 for n in weights.values()):
+        if (not isinstance(sources,list) or any(source not in daily.SOURCES for source in sources)
+                or len(set(sources))!=len(sources) or not isinstance(weights,dict) or set(weights)!=set(sources)
+                or any(type(n) is not int or not 1<=n<=20_000 for n in weights.values())):
             raise ValueError('bounded_publication_weights_required')
+        # Finish small inventories first so their unused allowance reaches the
+        # larger inventories. A worker's cap includes interpreter startup and
+        # up to three seconds reserved for rollback, not just publication work.
+        sources=sorted(sources,key=lambda source:(weights[source],source))
+        allocation=dict(ordered_sources=sources,minimum_worker_seconds=10,
+            finish_reservation_seconds=30,phase_caps_seconds={})
         for index,source in enumerate(sources):
-            # Full-size native evidence requires more time for 5,624 Alignerr
-            # variants than for a small source. Reserve each sibling's minimum,
-            # then allocate by existing/observed records inside the SAME cap.
             current=time.monotonic()
             remaining_sources=sources[index:];budget=max(0,deadline-30-current)
-            minimum=min(5,budget/len(remaining_sources))
+            minimum=min(10,budget/len(remaining_sources))
             extra=budget-minimum*len(remaining_sources)
             source_deadline=current+minimum+extra*weights[source]/sum(weights[s] for s in remaining_sources)
+            allocation['phase_caps_seconds'][source]=round(source_deadline-current,3)
+            daily.write_json(target/'publication-allocation.json',allocation)
             try:self.phase(run_id,'publish-'+source,source_deadline)
             except InterruptedError:raise
             except Exception as error:

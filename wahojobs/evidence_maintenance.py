@@ -658,8 +658,6 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
         with read_connection(target) as connection:
             if schema_fingerprint(connection) != plan['schema_fingerprint']:
                 raise ValueError('maintenance_plan_schema_changed')
-            if any(source_fingerprint(connection, s['provider']) != s['fingerprint'] for s in plan['sources']):
-                raise ValueError('maintenance_plan_source_changed')
         if authorize_preparation and plan['owner_scope'] is not None and owner is not None:
             if digest(owner.inspect()) != digest(plan['owner_scope']):
                 raise ValueError('maintenance_plan_owner_or_configuration_changed')
@@ -678,6 +676,26 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
         rebuilt = build_plan(target, now=datetime.fromisoformat(plan['created_at']),
             owner=owner if authorize_preparation else None,
             enrichment=enrichment if authorize_enrichment else None, **plan['config'])
+        # The independently rebuilt plan already scans every source row and all
+        # capture history in its read transaction. Bind that fresh full proof to
+        # the supplied plan instead of hashing the same growing history again
+        # immediately before rebuilding. The hash format and inspected material
+        # remain unchanged; malformed, missing or duplicate scopes fail closed.
+        if rebuilt['schema_fingerprint'] != plan['schema_fingerprint']:
+            raise ValueError('maintenance_plan_schema_changed')
+        supplied_sources = plan.get('sources')
+        rebuilt_sources = rebuilt['sources']
+        if (type(supplied_sources) is not list
+                or any(type(source) is not dict or not isinstance(source.get('provider'), str)
+                       or not isinstance(source.get('fingerprint'), str) for source in supplied_sources)):
+            raise ValueError('maintenance_plan_source_changed')
+        supplied_fingerprints = {source['provider']: source['fingerprint'] for source in supplied_sources}
+        rebuilt_fingerprints = {source['provider']: source['fingerprint'] for source in rebuilt_sources}
+        if (len(supplied_fingerprints) != len(supplied_sources)
+                or len(rebuilt_fingerprints) != len(rebuilt_sources)
+                or set(rebuilt_fingerprints) != set(plan['config']['providers'])
+                or supplied_fingerprints != rebuilt_fingerprints):
+            raise ValueError('maintenance_plan_source_changed')
         executable_kinds = set()
         if authorize_sources: executable_kinds.add('catalog_observation')
         if authorize_derived: executable_kinds.add('deterministic_repair')
