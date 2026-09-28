@@ -312,13 +312,17 @@ class NativeOperations:
         # Finish small inventories first so their unused allowance reaches the
         # larger inventories. A worker's cap includes interpreter startup and
         # up to three seconds reserved for rollback, not just publication work.
+        # Rich individual records (for example DataForce's 32 supported roles)
+        # need a useful-time floor even when record-count weighting is small.
+        # Fifteen seconds includes startup and rollback; unused time still
+        # reaches later sources inside the unchanged global deadline.
         sources=sorted(sources,key=lambda source:(weights[source],source))
-        allocation=dict(ordered_sources=sources,minimum_worker_seconds=10,
+        allocation=dict(ordered_sources=sources,minimum_worker_seconds=15,
             finish_reservation_seconds=30,phase_caps_seconds={})
         for index,source in enumerate(sources):
             current=time.monotonic()
             remaining_sources=sources[index:];budget=max(0,deadline-30-current)
-            minimum=min(10,budget/len(remaining_sources))
+            minimum=min(15,budget/len(remaining_sources))
             extra=budget-minimum*len(remaining_sources)
             source_deadline=current+minimum+extra*weights[source]/sum(weights[s] for s in remaining_sources)
             allocation['phase_caps_seconds'][source]=round(source_deadline-current,3)

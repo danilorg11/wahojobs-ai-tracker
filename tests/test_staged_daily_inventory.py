@@ -300,6 +300,42 @@ class StagedSupervisorTests(unittest.TestCase):
             self.assertEqual(recorded['ordered_sources'],order)
             self.assertEqual(recorded['phase_caps_seconds'],{source:round(cap,3) for source,cap in caps.items()})
 
+    def test_expanded_dataforce_has_useful_time_in_full_daily_publication_pool(self):
+        # The Sep 28 daily run gave 32 rich DataForce records only 10.283 s.
+        # Interpreter startup plus the rollback reserve left too little time
+        # for mandatory evidence replay. A targeted two-source run hid this.
+        weights=dict(alignerr=5624,appen=26,dataannotation=10,dataforce=32,handshake=117,
+            mercor=373,meridial=832,mindrift=92,oneforma=457,outlier=8,rws=42,
+            surge=7,turing=248,welocalize=390)
+        elapsed=dict(alignerr=71.512,appen=3.141,dataannotation=3.695,dataforce=9.5,
+            handshake=5.5,mercor=9.917,meridial=18.05,mindrift=4.902,oneforma=11.993,
+            outlier=4.448,rws=2.738,surge=6.457,turing=7.158,welocalize=9.664)
+        # Cover the observed 13-source run and tomorrow's 14-source run once
+        # Mindrift is eligible. Durations simulate allocation, not a live crawl.
+        for deferred in (True,False):
+            selected={s:n for s,n in weights.items() if not (deferred and s=='mindrift')}
+            with self.subTest(deferred=deferred),tempfile.TemporaryDirectory() as temp:
+                target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+                daily.write_json(target/'publication-sources.json',list(selected))
+                daily.write_json(target/'publication-weights.json',selected)
+                native=cli.NativeOperations(dict(state_directory=temp),'fixture')
+                clock=[0];caps={}
+                def phase(run_id,name,deadline):
+                    self.assertLessEqual(deadline,237.544)  # original 2.456 s stop deduction
+                    if name=='backup':clock[0]+=26.493;return
+                    if name=='finish':clock[0]+=3.696;return
+                    source=name.removeprefix('publish-');cap=deadline-clock[0]
+                    caps[source]=cap
+                    self.assertLess(elapsed[source],cap)
+                    clock[0]+=elapsed[source]
+                with patch.object(cli.time,'monotonic',side_effect=lambda:clock[0]),patch.object(native,'phase',side_effect=phase):
+                    native.publish('fixture',237.544)
+                self.assertEqual(set(caps),set(selected))
+                remaining=caps['dataforce']-1  # bounded interpreter/import allowance
+                self.assertGreaterEqual(remaining-min(3,remaining/4),10)
+                self.assertGreater(caps['alignerr'],elapsed['alignerr']+3)
+                self.assertLess(clock[0],237.544)
+
     def test_publication_rejects_duplicate_or_invalid_source_allocations(self):
         cases=[(['appen','appen'],dict(appen=1)),(['unknown'],dict(unknown=1)),
             (['appen'],dict(rws=1)),(['appen'],dict(appen=True)),(['appen'],dict(appen=20_001))]
