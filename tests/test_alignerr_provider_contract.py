@@ -3,6 +3,8 @@ import json
 import unittest
 from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
+from urllib.request import Request
 from unittest.mock import patch
 
 from wahojobs.crawler.providers import alignerr
@@ -118,6 +120,39 @@ class AlignerrProviderContractTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn("limit=2", calls[1])
         self.assertIn("offset=2", calls[1])
+
+    def test_each_complete_capture_has_a_fresh_shared_page_cache_identity(self):
+        first, first_calls = self.fetch_fixture('v2_multiple_pages')
+        second, second_calls = self.fetch_fixture('v2_multiple_pages')
+        def identities(calls):
+            return {parse_qs(urlsplit(url).query)['_waho_scan'][0] for url in calls}
+        first_ids, second_ids = identities(first_calls), identities(second_calls)
+        self.assertEqual(len(first_ids), 1)
+        self.assertEqual(len(second_ids), 1)
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+        self.assertRegex(next(iter(first_ids)), r'^[0-9a-f]{32}$')
+        self.assertEqual(first.jobs, second.jobs)
+        self.assertTrue(first.snapshot_complete and second.snapshot_complete)
+
+    def test_cache_identity_does_not_make_duplicate_pages_authoritative(self):
+        result, calls = self.fetch_fixture('duplicate_page')
+        self.assertEqual(result.outcome, ProviderOutcome.PARTIAL)
+        self.assertFalse(evaluate_removal_authorization(result).authorized)
+        self.assertEqual(len({parse_qs(urlsplit(url).query)['_waho_scan'][0] for url in calls}), 1)
+
+    def test_daily_cache_identity_has_a_closed_public_request_scope(self):
+        from wahojobs import daily_source_policy as policy
+        base = API_URL + '?limit=120&offset=0'
+        with policy.daily_source('alignerr'):
+            policy.validate_request(Request(base))
+            policy.validate_request(Request(base+'&_waho_scan='+'a'*32))
+            for suffix in ('&_waho_scan=', '&_waho_scan='+'g'*32, '&_waho_scan='+'a'*33,
+                    '&_waho_scan='+'a'*32+'&_waho_scan='+'b'*32,
+                    '&_waho_scan='+'a'*32+'&unknown=1'):
+                with self.subTest(suffix=suffix), self.assertRaises(ValueError):
+                    policy.validate_request(Request(base+suffix))
+            with self.assertRaises(ValueError):
+                policy.validate_request(Request(base+'&_waho_scan='+'a'*32, headers={'Authorization':'blocked'}))
 
     def test_schema_fingerprint_is_stable_and_versioned(self):
         single, _ = self.fetch_fixture("v2_single_page")

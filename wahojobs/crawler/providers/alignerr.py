@@ -1,5 +1,6 @@
 import hashlib
 import json
+from uuid import uuid4
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request
 from wahojobs.crawler.local_inventory import open_catalog as urlopen, RequestBudgetExceeded
@@ -66,6 +67,12 @@ SENSITIVE_ADDITIVE_RECORD_FIELDS = {
 
 
 def fetch_alignerr_snapshot(api_url):
+    # CDN entries for different offsets can have different ages. Bind every
+    # page to one fresh cache namespace without relaxing snapshot validation.
+    parsed = urlparse(api_url)
+    query = parse_qs(parsed.query)
+    query['_waho_scan'] = [uuid4().hex]
+    api_url = urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
     try:
         first_payload = request_json(add_pagination(api_url, MAX_PAGE_SIZE, 0))
     except RequestBudgetExceeded:

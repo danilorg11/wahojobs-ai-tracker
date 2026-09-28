@@ -39,7 +39,7 @@ def entry(requests, seconds, expected, scope, rule, *, blocker=None, correction=
 
 POLICY = {
     'alignerr': entry(100, 360, 47,
-        ['GET https://www.alignerr.com/api/jobs?limit=120&offset=<validated offset>'],
+        ['GET https://www.alignerr.com/api/jobs?limit=120&offset=<validated offset>&_waho_scan=<per-capture 32 lowercase hex ID>'],
         'Stable total, offset/limit, unique IDs, exact final count; no closure on cap/interruption.'),
     'appen': entry(1, 60, 1,
         ['GET https://api.lever.co/v0/postings/appen?mode=json&expand=location'],
@@ -298,7 +298,13 @@ def validate_request(request):
         return len(v)==1 and v[0].isdecimal() and minimum <= int(v[0]) <= maximum
     ok = False
     if source == 'alignerr':
-        ok = at('www.alignerr.com','/api/jobs') and set(query)=={'limit','offset'} and integer('limit',1,120) and integer('offset',0,19999)
+        fields=set(query)
+        scan=query.get('_waho_scan')
+        # The legacy shape remains readable in retained evidence. New captures
+        # use one non-secret cache identity across all their validated offsets.
+        cache_scope=(fields=={'limit','offset'} or fields=={'limit','offset','_waho_scan'}
+            and len(scan)==1 and re.fullmatch('[0-9a-f]{32}',scan[0]) is not None)
+        ok = at('www.alignerr.com','/api/jobs') and cache_scope and integer('limit',1,120) and integer('offset',0,19999)
     elif source in ('appen','rws','welocalize'):
         board = 'weloglobal' if source == 'welocalize' else source
         ok = at('api.lever.co','/v0/postings/'+board) and query == {'mode':['json'],'expand':['location']}
