@@ -95,6 +95,87 @@ class StagedIntegrationTests(unittest.TestCase):
 
 
 class StagedSupervisorTests(unittest.TestCase):
+    def test_production_policy_budget_accepts_online_preparation_after_fast_collection(self):
+        # Exact enabled-source budget of the September 28 operator repair.
+        budgets=dict(alignerr=(100,240),appen=(1,60),dataannotation=(20,180),dataforce=(15,180),
+            handshake=(40,120),mercor=(201,240),meridial=(2,150),micro1=(50,240),
+            mindrift=(70,360),oneforma=(3,210),outlier=(51,60),rws=(1,60),
+            surge=(20,180),turing=(3,210),welocalize=(1,90))
+        sources={source:dict(enabled=source!='micro1',http_max=requests,seconds_max=seconds)
+            for source,(requests,seconds) in budgets.items()}
+        daily.validate_sources(sources)
+        self.assertEqual(daily.aggregate(sources),dict(http_max=528,execution_seconds=2580))
+        with tempfile.TemporaryDirectory() as temp:
+            config=dict(state_directory=temp,sources=sources)
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            receipt=dict(run_id='fixture',outcome='running',supervisor_pid=123,
+                execution_deadline_monotonic=2580,active_phase=dict(name='prepare-backup',deadline=2340))
+            daily.write_json(target/'run.json',receipt)
+            # About 165 seconds of online collection has elapsed. The existing
+            # 240-second publication allowance remains reserved.
+            self.assertGreater(2340-165,daily.EXECUTION_SECONDS)
+            self.assertEqual(cli._claim_worker_deadline(config,'fixture','prepare-backup',123,165),2175)
+            self.assertTrue((target/'prepare-backup-dispatch.claim').exists())
+            with self.assertRaises(FileExistsError):
+                cli._claim_worker_deadline(config,'fixture','prepare-backup',123,165)
+            self.assertFalse((target/'prepare-backup-failure.json').exists())
+
+    def test_worker_dispatch_preserves_configured_and_hard_limits_and_preclaim_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            receipt=dict(run_id='fixture',outcome='running',supervisor_pid=123,
+                execution_deadline_monotonic=3000,active_phase=dict(name='prepare-backup',deadline=2175))
+            daily.write_json(target/'run.json',receipt)
+            for limit in (2040,2581):
+                with self.subTest(limit=limit),self.assertRaises(ValueError):
+                    cli.claim_dispatch(temp,'fixture',123,0,'prepare-backup',execution_limit=limit)
+                self.assertFalse((target/'prepare-backup-dispatch.claim').exists())
+            receipt['active_phase']['deadline']=2581
+            daily.write_json(target/'run.json',receipt)
+            with self.assertRaises(ValueError):
+                cli.claim_dispatch(temp,'fixture',123,0,'prepare-backup',execution_limit=2580)
+            receipt['active_phase']['deadline']=100
+            daily.write_json(target/'run.json',receipt)
+            with self.assertRaisesRegex(ValueError,'worker_execution_deadline_expired'):
+                cli._claim_worker_deadline(dict(state_directory=temp),'fixture','prepare-backup',123,100)
+            self.assertFalse((target/'prepare-backup-dispatch.claim').exists())
+            diagnostic=daily.read_json(target/'prepare-backup-failure.json')
+            self.assertEqual(diagnostic['phase'],'prepare-backup')
+            self.assertEqual(diagnostic['reason'],'worker_execution_deadline_expired')
+            self.assertEqual(diagnostic['run_id'],'fixture')
+            with patch.object(daily,'write_json',side_effect=OSError('fixture diagnostic storage failure')),\
+                    self.assertRaisesRegex(ValueError,'worker_execution_deadline_expired'):
+                cli._claim_worker_deadline(dict(state_directory=temp),'fixture','prepare-backup',123,100)
+
+    def test_wrong_worker_binding_or_duplicate_cannot_write_or_overwrite_phase_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target=Path(temp)/'runs/fixture';target.mkdir(parents=True)
+            receipt=dict(run_id='fixture',outcome='running',supervisor_pid=123,
+                execution_deadline_monotonic=100,active_phase=dict(name='prepare-backup',deadline=100))
+            daily.write_json(target/'run.json',receipt)
+            diagnostic=target/'prepare-backup-failure.json'
+            daily.write_json(diagnostic,dict(sentinel='retained actual phase failure'))
+            before=diagnostic.read_bytes();config=dict(state_directory=temp)
+            for run_id,phase,parent in (('fixture','prepare-backup',124),('other','prepare-backup',123),
+                    ('fixture','collect-appen',123)):
+                with self.subTest(run=run_id,phase=phase,parent=parent),self.assertRaises(ValueError):
+                    cli._claim_worker_deadline(config,run_id,phase,parent,1)
+                self.assertEqual(diagnostic.read_bytes(),before)
+            self.assertFalse((Path(temp)/'runs/other').exists())
+            self.assertFalse((target/'collect-appen-failure.json').exists())
+            receipt['outcome']='failed';daily.write_json(target/'run.json',receipt)
+            with self.assertRaises(ValueError):
+                cli._claim_worker_deadline(config,'fixture','prepare-backup',123,1)
+            self.assertEqual(diagnostic.read_bytes(),before)
+            receipt['outcome']='running';daily.write_json(target/'run.json',receipt)
+            self.assertEqual(cli._claim_worker_deadline(config,'fixture','prepare-backup',123,1),99)
+            with self.assertRaises(FileExistsError):
+                cli._claim_worker_deadline(config,'fixture','prepare-backup',123,1)
+            self.assertEqual(diagnostic.read_bytes(),before)
+            with self.assertRaisesRegex(ValueError,'worker_execution_deadline_expired'):
+                cli._claim_worker_deadline(config,'fixture','prepare-backup',123,100)
+            self.assertEqual(diagnostic.read_bytes(),before)
+
     def test_preparation_digest_crosses_only_the_direct_worker_channel(self):
         with tempfile.TemporaryDirectory() as temp:
             target=Path(temp)/'runs/fixture';target.mkdir(parents=True)

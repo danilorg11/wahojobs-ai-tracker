@@ -156,7 +156,11 @@ def native_trigger():
     return result
 
 
-def claim_dispatch(directory,run_id,parent_pid,monotonic,phase=None):
+def claim_dispatch(directory,run_id,parent_pid,monotonic,phase=None,*,execution_limit=None):
+    from wahojobs.daily_source_policy import MAX_EXECUTION_SECONDS
+    limit=daily.EXECUTION_SECONDS if execution_limit is None else execution_limit
+    if type(limit) is not int or not 0<limit<=MAX_EXECUTION_SECONDS:
+        raise ValueError('worker_execution_budget_invalid')
     target=Path(directory)/'runs'/run_id
     receipt=daily.read_json(target/'run.json')
     if (not receipt or receipt.get('run_id')!=run_id or receipt.get('outcome')!='running'
@@ -170,11 +174,29 @@ def claim_dispatch(directory,run_id,parent_pid,monotonic,phase=None):
             raise ValueError('active_phase_reservation_required')
         phase_deadline=min(phase_deadline,dispatch['deadline'])
     remaining=phase_deadline-monotonic
-    if not 0<remaining<=daily.EXECUTION_SECONDS:raise ValueError('worker_execution_deadline_expired')
+    if not 0<remaining<=limit:raise ValueError('worker_execution_deadline_expired')
     # Reservation precedes every possible provider request and survives crashes.
     with (target/((phase or 'worker')+'-dispatch.claim')).open('x') as stream:
         stream.write(str(os.getpid()));stream.flush();os.fsync(stream.fileno())
     return remaining
+
+
+def _claim_worker_deadline(config,run_id,phase,parent_pid,monotonic):
+    """Called only after native worker identity and root-parent validation."""
+    limit=daily.execution_seconds(config)
+    try:
+        return claim_dispatch(config['state_directory'],run_id,parent_pid,monotonic,phase,
+            execution_limit=limit)
+    except ValueError as error:
+        # This rejection is reached only after exact run, root-parent and phase
+        # binding. Unauthorized or duplicate dispatches must not write anything.
+        claim=Path(config['state_directory'])/'runs'/run_id/(phase+'-dispatch.claim')
+        if str(error)=='worker_execution_deadline_expired' and not os.path.lexists(claim):
+            with suppress(OSError):
+                diagnostic=dict(daily.maintenance.failure_diagnostic(error,phase=phase),
+                    at=daily.stamp(daily.now()),run_id=run_id)
+                daily.write_json(Path(config['state_directory'])/'runs'/run_id/(phase+'-failure.json'),diagnostic)
+        raise
 
 
 def claim_worker(config,run_id,phase):
@@ -185,7 +207,7 @@ def claim_worker(config,run_id,phase):
     parent=Path('/proc')/str(os.getppid())
     if parent.stat().st_uid!=0 or '/system.slice/wahojobs-inventory.service' not in (parent/'cgroup').read_text():
         raise ValueError('native_supervisor_required')
-    remaining=claim_dispatch(config['state_directory'],run_id,os.getppid(),time.monotonic(),phase)
+    remaining=_claim_worker_deadline(config,run_id,phase,os.getppid(),time.monotonic())
     def expired(*_):
         signal.setitimer(signal.ITIMER_REAL,0)
         signal.signal(signal.SIGTERM,signal.SIG_IGN)
