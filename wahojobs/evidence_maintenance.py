@@ -25,6 +25,7 @@ from wahojobs.opportunity_enrichment import (
 )
 
 VERSION = 'evidence_maintenance_v1'
+STAGED_BASELINE = 'staged_publication_baseline_v1'
 from wahojobs.daily_source_policy import CORE_SOURCES, POLICY, daily_source
 PROVIDERS = CORE_SOURCES
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,7 +154,30 @@ def _source_fingerprint_digest(material):
     return fingerprint.hexdigest()
 
 
-def inspect_source(connection, slug, now, *, catalog_only=False):
+def _staged_baseline_evidence(connection, job, source):
+    """Comparison fields only; never an accepted-history or freshness proof.
+
+    Current material is still canonical and hashed exactly as the full reader,
+    including legacy rows. Historical acceptance replay is deferred to the
+    mandatory all-row inspection inside the staged publication transaction.
+    """
+    from wahojobs.db.repository import _verify_stored_source_material, _semantic_material_hash_from_rows
+    semantic = None
+    if source is not None:
+        _, metadata = _verify_stored_source_material(source, 'Stored publication baseline')
+        semantic = _semantic_material_hash_from_rows(job, source, metadata)
+    acceptance = connection.execute('SELECT accepted_capture_id,last_confirmed_at '
+        'FROM job_source_content_acceptances WHERE job_id=?', (job['id'],)).fetchone()
+    latest = connection.execute('SELECT id FROM job_source_content_captures WHERE job_id=? '
+        'ORDER BY id DESC LIMIT 1', (job['id'],)).fetchone()
+    return dict(history_validation='deferred_until_atomic_publication',
+        accepted_semantic_material_sha256=semantic,
+        accepted_capture_id=acceptance['accepted_capture_id'] if acceptance else None,
+        last_confirmed_at=acceptance['last_confirmed_at'] if acceptance else None,
+        latest_capture_id=latest['id'] if latest else None)
+
+
+def inspect_source(connection, slug, now, *, catalog_only=False, staged_baseline=False):
     from scripts.profile_match_digest import get_active_rows
     from wahojobs.matching.opportunity_trust import assess_opportunity_trust
     from wahojobs.crawler.provider_details import DETAIL_KEY
@@ -165,8 +189,9 @@ def inspect_source(connection, slug, now, *, catalog_only=False):
     jobs, enrichments = [], []
     rows = connection.execute('SELECT * FROM jobs WHERE company_id=? ORDER BY id', (company['id'],)).fetchall()
     for row in rows:
-        evidence = get_job_source_capture_evidence(connection, row['id'])
         source = connection.execute('SELECT * FROM job_source_contents WHERE job_id=?', (row['id'],)).fetchone()
+        evidence = (_staged_baseline_evidence(connection, row, source) if staged_baseline else
+                    get_job_source_capture_evidence(connection, row['id']))
         detail = json.loads(source['metadata_json'] or '{}').get(DETAIL_KEY, {}) if source else {}
         if not source or not source['body']:
             description = 'missing_accepted_body'
@@ -190,8 +215,31 @@ def inspect_source(connection, slug, now, *, catalog_only=False):
         enrichments.append(dict(canonical_id=canonical, **classify_enrichment_freshness(semantic, stored)))
     latest = connection.execute('SELECT * FROM crawl_runs WHERE company_id=? ORDER BY id DESC LIMIT 1',
                                 (company['id'],)).fetchone()
-    return dict(provider=slug, input_status='available', jobs=jobs, enrichments=enrichments,
+    state = dict(provider=slug, input_status='available', jobs=jobs, enrichments=enrichments,
                 latest_run=dict(latest) if latest else None, fingerprint=source_fingerprint(connection, slug))
+    if staged_baseline:
+        state['inspection_mode'] = STAGED_BASELINE
+        state['history_validation'] = 'deferred_until_atomic_publication'
+    return state
+
+
+def _require_full_staged_inspection(connection, company_id, before, after):
+    """Refuse a partial/invalid receipt even if a future inspector filters rows."""
+    from wahojobs.source_capture import (EVIDENCE_STATE_ACCEPTED_CURRENT, EVIDENCE_STATE_STALE_LAST_KNOWN_GOOD,
+        EVIDENCE_STATE_DEGRADED_LATEST, EVIDENCE_STATE_LEGACY_ACCEPTED, EVIDENCE_STATE_MISSING)
+    expected = {row[0] for row in connection.execute('SELECT id FROM jobs WHERE company_id=?', (company_id,))}
+    actual = [job['job_id'] for job in after['jobs']]
+    allowed_evidence = {EVIDENCE_STATE_ACCEPTED_CURRENT, EVIDENCE_STATE_STALE_LAST_KNOWN_GOOD,
+        EVIDENCE_STATE_DEGRADED_LATEST, EVIDENCE_STATE_LEGACY_ACCEPTED, EVIDENCE_STATE_MISSING}
+    if (not connection.in_transaction or after.get('provider') != before['provider']
+            or after.get('input_status') != 'available'
+            or after.get('inspection_mode') == STAGED_BASELINE or after.get('history_validation')
+            or len(actual) != len(set(actual)) or set(actual) != expected
+            or not {job['job_id'] for job in before['jobs']} <= expected
+            or any(job['evidence'].get('state') not in allowed_evidence
+                   or job['evidence'].get('history_validation')
+                   or job['verification'].get('status', '').startswith('invalid') for job in after['jobs'])):
+        raise RuntimeError('staged_publication_full_semantic_validation_required')
 
 
 def coverage_summary(state, operations):
@@ -208,7 +256,7 @@ def coverage_summary(state, operations):
     known_ages = [a for a in ages if isinstance(a, (int, float))]
     dates = sorted({j['evidence']['last_confirmed_at'] for j in active if j['evidence'].get('last_confirmed_at')})
     relevant = [o for o in operations if o.get('provider') == state['provider']]
-    return dict(total_postings=len(jobs), active_postings=len(active),
+    result = dict(total_postings=len(jobs), active_postings=len(active),
         verification_counts=dict(sorted(Counter(j['verification']['status'] for j in jobs).items())),
         accepted_body_counts=dict(sorted(Counter(j['description'] for j in active).items())),
         derived_freshness_counts=dict(sorted(Counter(e['freshness'] for e in state['enrichments']).items())),
@@ -219,6 +267,9 @@ def coverage_summary(state, operations):
         next_operations=[dict(operation_id=o['id'], kind=o['kind'], blocked=o['blocked'],
             prerequisites=o.get('prerequisites',[]), writes=o.get('writes',[])) for o in relevant],
         availability_note='Source trust is availability evidence only; candidate eligibility and saved visibility are evaluated separately.')
+    if state.get('inspection_mode') == STAGED_BASELINE:
+        result.update(inspection_mode=STAGED_BASELINE, history_validation='deferred_until_atomic_publication')
+    return result
 
 
 class OwnerPreparation:
@@ -375,12 +426,16 @@ class EnrichmentRepair:
 
 
 def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0,
-               details='needed', phase='all', owner=None, transport_binding='production', enrichment=None, daily_discovery=False):
+               details='needed', phase='all', owner=None, transport_binding='production', enrichment=None,
+               daily_discovery=False, staged_baseline=False):
     if type(daily_discovery) is not bool:
         raise ValueError('invalid_daily_discovery')
     now = utc(now or clock_now())
     target = local_database_path(database)
     providers = list(dict.fromkeys(providers))
+    if (type(staged_baseline) is not bool or staged_baseline and (not daily_discovery or phase != 'source'
+            or details is not None or detail_limit != 0 or len(providers) != 1 or owner is not None or enrichment is not None)):
+        raise ValueError('staged_publication_baseline_scope_required')
     if (not providers or any(p not in PROVIDERS for p in providers)
             or details not in ('needed', 'all', None) or phase not in ('all', 'source', 'derived')):
         raise ValueError('invalid_maintenance_selection')
@@ -389,6 +444,8 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
         raise ValueError('invalid_refresh_budget')
     config = dict(providers=providers, http_limit=http_limit, detail_limit=detail_limit, details=details,
                   phase=phase, transport_binding=transport_binding, daily_discovery=daily_discovery)
+    if staged_baseline:
+        config['staged_baseline'] = True
     states, contracts, operations = [], [], []
     with read_connection(target) as connection:
         connection.execute('BEGIN')
@@ -396,7 +453,8 @@ def build_plan(database, providers, *, now=None, http_limit=None, detail_limit=0
         for slug in providers:
             state = inspect_source(connection, slug, now,
                 catalog_only=daily_discovery and phase=='source' and details is None
-                    and owner is None and enrichment is None)
+                    and owner is None and enrichment is None,
+                staged_baseline=staged_baseline)
             states.append(state)
             try:
                 contract = inspect_refresh(target, [slug], details=details)['sources'][0]
@@ -638,6 +696,13 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                  transport_binding='production', enrichment=None, authorize_enrichment=False, ownership=None,
                  observation=None, authorize_controlled_publication=False):
     _validate_plan(plan)
+    baseline = plan['config'].get('staged_baseline', False)
+    if (type(baseline) is not bool or baseline and (observation is None or ownership is None
+            or not authorize_sources or authorize_derived or authorize_preparation or authorize_enrichment
+            or owner is not None or enrichment is not None or plan['config'].get('daily_discovery') is not True
+            or plan['config'].get('phase') != 'source' or plan['config'].get('details') is not None
+            or plan['config'].get('detail_limit') != 0 or len(plan['config']['providers']) != 1)):
+        raise ValueError('staged_publication_baseline_requires_atomic_observation')
     if authorize_controlled_publication and (observation is None or not observation.controlled_validation
             or plan['config']['providers'][0] not in ('dataannotation', 'dataforce')):
         raise ValueError('controlled_publication_requires_exact_source_observation')
@@ -751,7 +816,10 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                             after=inspect_source(connection,operation['provider'],now,
                                 catalog_only=plan['config'].get('daily_discovery') is True
                                     and plan['config']['phase']=='source' and plan['config']['details'] is None
-                                    and plan['owner_scope'] is None and plan['enrichment_scope'] is None)
+                                    and plan['owner_scope'] is None and plan['enrichment_scope'] is None,
+                                staged_baseline=False)
+                            if baseline:
+                                _require_full_staged_inspection(connection, company['id'], plan['sources'][0], after)
                             terminal=dict(connection.execute('SELECT * FROM crawl_runs WHERE id=?',(crawl_run_id,)).fetchone())
                             prepared=dict(operation=oid,provider=operation['provider'],crawl_run=terminal,
                                 result=dict(summary=asdict(summary),after=after,detail_counts={}),
@@ -768,6 +836,8 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
                                    if observation is not None else {}))
                         failure_stage='receipt_finalization'
                         budget.finish_source(operation['provider'])
+                        if baseline and prepared is None:
+                            raise RuntimeError('staged_publication_atomic_receipt_required')
                         if prepared is not None:after=prepared['result']['after']
                         else:
                             with read_connection(target) as connection:
@@ -826,6 +896,12 @@ def _execute_plan(plan, root, *, authorized=False, authorize_sources=False,
 
 
 def execute_plan(plan, root, *, ownership=None, **options):
+    # A deferred baseline is not executable through the ordinary manual path.
+    # Refuse before creating even the supervisor gate's lock sidecar.
+    baseline = plan.get('config', {}).get('staged_baseline', False)
+    if type(baseline) is not bool or baseline and (ownership is None or options.get('observation') is None):
+        _validate_plan(plan)
+        raise ValueError('staged_publication_baseline_requires_atomic_observation')
     # A daily worker already holds lifetime ownership continuously across its
     # verified backup and both source plans. Ordinary manual operations also
     # share the supervisor gate, so they cannot enter its stop/start interval.

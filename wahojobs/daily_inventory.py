@@ -596,7 +596,7 @@ def collect_phase(config, run_id, phase, *, expected_preparation_sha256=None):
                 observation,collection_report=staged.load(target,source,run_id=run_id,code_commit=config['code_commit'],journal_root=config['journal'],consume=True)
                 started=parse(observation.started_at)
             plan=maintenance.build_plan(database,[source],http_limit=cap,detail_limit=0,
-                details=None,phase='source',daily_discovery=True)
+                details=None,phase='source',daily_discovery=True,staged_baseline=publishing)
             operations=[o for o in plan['operations'] if o['kind']=='catalog_observation']
             if len(operations)!=1 or operations[0]['blocked'] or operations[0]['details'] is not None:
                 raise ValueError('daily_catalog_contract_incompatible')

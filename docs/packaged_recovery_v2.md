@@ -31,7 +31,7 @@ file, command-line JSON, or an untrusted caller.
 ## Format and limits
 
 The ordinary `files` map contains SQLite, draft, pin, lineage and physical ZIP
-records. `journal_segments/000000.zip` and following segments each contain
+records. `journal-segments/000000.zip` and following segments each contain
 canonical `journal/<relative>` names and `JOURNAL-INDEX.json`. The index preserves
 each original identity (`path`, `device`, `inode`), byte count and SHA-256.
 Original absolute paths are metadata, never extraction targets. The outer

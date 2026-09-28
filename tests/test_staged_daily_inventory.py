@@ -49,6 +49,7 @@ class StagedIntegrationTests(unittest.TestCase):
                     **({'expected_preparation_sha256':prepared['prepared_sha256']} if phase=='backup' else {}))
         self.assertEqual(current,daily.protected_domains(self.db))
         row=daily.read_json(target/'appen.json')
+        self.assertIs(daily.read_json(target/'appen-plan.json')['config']['staged_baseline'],True)
         self.assertTrue(row['qualifying_observation']);self.assertEqual(row['publication_requests_used'],0)
         self.assertEqual(daily.parse(row['last_qualifying_verification']),at)
         with closing(sqlite3.connect(self.db)) as db:
@@ -59,6 +60,20 @@ class StagedIntegrationTests(unittest.TestCase):
         collection=daily.read_json(target/'appen-collection.json')['plan_id']
         self.assertEqual(manifest['version'],'private_beta_cold_snapshot_v2')
         self.assertTrue(any(name.startswith('journal/'+collection+'/') for name,_ in logical_snapshot_records(snapshot,manifest)))
+
+    def test_nonstaged_worker_still_rejects_corrupt_history_before_any_collection(self):
+        at,target=self.prepare('direct-history')
+        with closing(sqlite3.connect(self.db)) as connection,connection:
+            connection.execute("UPDATE job_source_content_captures SET body=body||' corrupted fixture' "
+                "WHERE id=(SELECT a.accepted_capture_id FROM job_source_content_acceptances a "
+                "JOIN jobs j ON j.id=a.job_id JOIN companies c ON c.id=j.company_id "
+                "WHERE c.slug='alignerr' LIMIT 1)")
+        before=self.db.read_bytes();transport=Transport()
+        with offline(at,transport),self.assertRaises(RuntimeError):
+            daily.collect_phase(self.config,'direct-history','alignerr')
+        self.assertEqual(transport.calls,[])
+        self.assertEqual(self.db.read_bytes(),before)
+        self.assertFalse((target/'alignerr-plan.json').exists())
 
     def test_post_commit_summary_failure_recovers_qualifying_evidence_without_network(self):
         at,target=self.prepare('reporting')
