@@ -266,7 +266,7 @@ class WorkOSAuthKitStagingRuntime:
             if self._closed or self._profile_integration is None:
                 raise WorkOSAuthKitStagingError('runtime_unavailable')
             integration = self._profile_integration
-        integration.prepare_serving_inventory()
+        return integration.prepare_serving_inventory()
 
     def close(self, *, retain_ownership=False):
         with self._close_lock:

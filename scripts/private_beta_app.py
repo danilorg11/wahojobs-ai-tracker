@@ -57,7 +57,7 @@ class BetaServer(ThreadingHTTPServer):
         print('private_beta_request_failed', file=sys.stderr, flush=True)
 
 
-def prepare_runtime(runtime):
+def prepare_runtime(runtime, *, catalog_configuration=None):
     """The Linux hosted process gets a hard preparation deadline, not a worker."""
     previous = None
     if os.name == 'posix':
@@ -66,7 +66,14 @@ def prepare_runtime(runtime):
         previous = signal.signal(signal.SIGALRM, expired)
         signal.alarm(60)
     try:
-        runtime.prepare_serving_inventory()
+        jobs = runtime.prepare_serving_inventory()
+        if catalog_configuration is not None:
+            from wahojobs.public_catalog_reader import PublicCatalogReader, preparation_metadata
+            with runtime._connections.read_only_connection_provider() as connection:
+                metadata, generation = preparation_metadata(connection)
+            return PublicCatalogReader(jobs, metadata=metadata, generation=generation,
+                indexable=catalog_configuration['indexable'],
+                available=runtime._connections.require_available)
     finally:
         if os.name == 'posix':
             signal.alarm(0)
@@ -74,6 +81,7 @@ def prepare_runtime(runtime):
 
 
 def run(configuration_path, *, diagnostics=None, runtime_builder=build_workos_authkit_staging_runtime,
+        public_catalog_configuration_path=None,
         server_factory=BetaServer, ready=None):
     configuration = load_workos_authkit_staging_configuration(configuration_path, remote_beta=True)
     runtime = server = None
@@ -83,8 +91,13 @@ def run(configuration_path, *, diagnostics=None, runtime_builder=build_workos_au
         runtime = runtime_builder(configuration)
         # No listener or readiness response exists until usable catalog/source
         # projections have been prepared. Failure closes the runtime and lease.
-        prepare_runtime(runtime)
-        handler = make_remote_handler(runtime, proxy_secret, diagnostics=diagnostics)
+        catalog_configuration = None
+        if public_catalog_configuration_path:
+            from wahojobs.public_catalog_configuration import load_configuration
+            catalog_configuration = load_configuration(public_catalog_configuration_path)
+        reader = prepare_runtime(runtime, catalog_configuration=catalog_configuration)
+        handler = make_remote_handler(runtime, proxy_secret, diagnostics=diagnostics,
+            public_catalog=reader, catalog_key=(catalog_configuration or {}).get('gateway_key'))
         server = server_factory(runtime.bind_address, handler)
         # signal handlers run in the serve_forever thread; shutdown must run in
         # another thread. The server then joins all request workers before close.
@@ -122,6 +135,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True)
     parser.add_argument('--logs', required=True, help='Existing private parent for bounded per-run logs.')
+    parser.add_argument('--public-catalog-config', help='Explicit optional protected public-reader configuration.')
     args = parser.parse_args(argv)
     try:
         from wahojobs.request_diagnostics import diagnostic_log
@@ -138,7 +152,7 @@ def main(argv=None):
         directory = parent / ('run-' + uuid.uuid4().hex)
         directory.mkdir(mode=0o700)
         with diagnostic_log(str(directory)) as diagnostics:
-            run(args.config, diagnostics=diagnostics)
+            run(args.config, diagnostics=diagnostics, public_catalog_configuration_path=args.public_catalog_config)
         print('private_beta_stopped', flush=True)
         return 0
     except WorkOSAuthKitStagingError as exc:

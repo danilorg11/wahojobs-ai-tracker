@@ -1807,9 +1807,10 @@ class AuthenticatedProfileMatchesBrowserIntegration:
         """
         if self._closed:
             raise ValueError('inventory_preparation_closed')
-        self._load_public_jobs_inventory()
+        public_jobs = self._load_public_jobs_inventory()
         rows, _ = self._load_inventory()
         profile_preview.prepare_matching_features(rows)
+        return public_jobs
 
     def _load_public_jobs_inventory(self):
         with self._public_jobs_cache_lock:

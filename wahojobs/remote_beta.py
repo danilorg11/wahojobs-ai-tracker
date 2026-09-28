@@ -89,14 +89,27 @@ real invitations. This page is a technical description, not a legal certificatio
 
 class RemoteBetaIntegration:
     """Gate every non-auth route using the existing durable session authority."""
-    def __init__(self, runtime, *, clock=None):
+    def __init__(self, runtime, *, clock=None, public_catalog=None, catalog_key=None):
         self.runtime = runtime
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.public_catalog = public_catalog
+        self.catalog_key = catalog_key
 
     def handle(self, method, target, headers, body_stream=None):
         # Handler already enforced trusted ingress. The underlying product still
         # enforces its exact Host/Origin/CSRF contract independently.
         path = urlsplit(target).path
+        if path == '/_catalog' or path.startswith('/_catalog/'):
+            from wahojobs.public_catalog_reader import KEY_HEADER, ORIGIN_PREFIX
+            items = headers.items() if hasattr(headers, 'items') else headers
+            keys = [v for k,v in items if k.lower() == KEY_HEADER.lower()]
+            if (self.public_catalog is None or not self.catalog_key or len(keys) != 1
+                    or not hmac.compare_digest(keys[0], self.catalog_key)):
+                return response(404, 'Page not found.\n')
+            # No browser cookie, account identity, forwarded host or request body
+            # enters the anonymous reader, even when supplied by the caller.
+            return self.public_catalog.handle(method, target[len(ORIGIN_PREFIX):],
+                                              (('Host', 'www.wahojobs.com'),))
         if path == '/_ops/ready' and target == path and method in ('GET', 'HEAD'):
             try:
                 with self.runtime._connections.read_only_connection_provider() as connection:
@@ -135,11 +148,15 @@ class RemoteBetaIntegration:
         return result
 
 
-def make_remote_handler(runtime, proxy_secret, *, diagnostics=None, clock=None):
+def make_remote_handler(runtime, proxy_secret, *, diagnostics=None, clock=None,
+                        public_catalog=None, catalog_key=None):
     from wahojobs.durable_product_browser_handler import make_durable_product_browser_handler
     if type(proxy_secret) is not str or not re.fullmatch('[0-9a-f]{64}', proxy_secret):
         raise WorkOSAuthKitStagingError('configuration_invalid')
-    base = make_durable_product_browser_handler(RemoteBetaIntegration(runtime, clock=clock), diagnostics=diagnostics)
+    if public_catalog is not None and (type(catalog_key) is not str or not re.fullmatch('[0-9a-f]{64}', catalog_key)):
+        raise WorkOSAuthKitStagingError('configuration_invalid')
+    base = make_durable_product_browser_handler(RemoteBetaIntegration(runtime, clock=clock,
+        public_catalog=public_catalog, catalog_key=catalog_key), diagnostics=diagnostics)
     authority = urlsplit(runtime.public_origin).netloc
 
     class RemoteHandler(base):

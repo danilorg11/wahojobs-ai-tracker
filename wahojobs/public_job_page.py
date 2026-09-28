@@ -777,6 +777,7 @@ def render_public_job_page(
     workflow_status="",
     workflow_script="",
     catalog_return_to=None,
+    public_reader=False,
 ):
     if job.get("public_state") != PUBLIC_JOB_STATE_LIVE:
         return render_unavailable_public_job_page(
@@ -798,19 +799,30 @@ def render_public_job_page(
     jobposting_script, source_description_section, original_posted = (
         jobposting_fragments(job, canonical_url)
     )
+    if public_reader:
+        from wahojobs.candidate_source_display import markdown
+        # The public reader supplies an already-bound source packet. Schema is
+        # intentionally omitted: source collection dates are not datePosted.
+        jobposting_script, original_posted = '', None
+        source_text = job.get('_public_source_text') or ''
+        source_description_section = (
+            "<section class='content-section source-description'><h2>Employer description and requirements</h2>"
+            + markdown(source_text) + '</section>' if source_text else
+            "<section class='content-section'><h2>Limited source information</h2>"
+            "<p>The saved listing has no complete description. Read the employer’s requirements before applying.</p></section>")
     page_title = clean(job["source_title"]) or clean(job["canonical_title"])
     company_name = clean(job["company_name"])
     catalog_return_to = safe_catalog_return_target(catalog_return_to)
     robots = (
         "<meta name='robots' content='noindex,follow'>"
-        if catalog_return_to
+        if catalog_return_to or public_reader and job.get('_public_state') != 'indexable'
         else ""
     )
     return_target = catalog_return_to or "/jobs"
     back_to_jobs = (
         f"<p class='back-to-jobs'><a href='{e(return_target)}'>← Back to jobs</a></p>"
     )
-    quick_take = as_sentence(content["quick_take"])
+    quick_take = '' if public_reader else as_sentence(content["quick_take"])
     description = quick_take or (
         f"Explore {page_title} at {company_name}, including source details, "
         "requirements, and the official application link."
@@ -918,6 +930,8 @@ def render_public_job_page(
         controls=workflow_controls,
         status=workflow_status,
     )
+    if public_reader:
+        workflow = ''
 
     requirement_blocks = []
     if content["candidate_profile"]:
@@ -969,8 +983,12 @@ def render_public_job_page(
         "What this opportunity is about",
         about_content,
     )
+    if public_reader:
+        about_section = requirements_section = ''
 
     caveats = candidate_facing_caveats(content["caveats"])
+    if public_reader:
+        caveats = []
 
     source_url = job["official_url"]
     source_link = (
@@ -1046,7 +1064,7 @@ def render_public_job_page(
     <article>
       <header class='hero'>
         <div class='hero-copy'>
-          <p class='eyebrow'>Job opportunity</p>
+          <p class='eyebrow'>{e(job.get('_public_kind', 'Job opportunity')) if public_reader else 'Job opportunity'}</p>
           <h1>{e(page_title)}</h1>
           <p class='company-line'>{company_link}</p>
           {facts}
@@ -1060,7 +1078,7 @@ def render_public_job_page(
       <div class='job-description'>
         {source_description_section}
         {about_section}
-        {render_list_section("What you'll do", content['responsibilities'])}
+        {'' if public_reader else render_list_section("What you'll do", content['responsibilities'])}
         {requirements_section}
         {render_list_section('Important things to know', caveats, css_class='caveats')}
       </div>
@@ -1083,6 +1101,7 @@ def render_public_job_page(
             workflow_status=workflow_status,
             workflow_script=workflow_script,
             catalog_return_to=catalog_return_to,
+            public_reader=public_reader,
         )
     return page
 
