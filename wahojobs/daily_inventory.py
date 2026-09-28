@@ -508,13 +508,17 @@ def collect_phase(config, run_id, phase, *, expected_preparation_sha256=None):
         # The native parent retains the operation gate while the application
         # remains online. Evidence preparation takes no SQLite lifetime lease.
         from wahojobs.beta_recovery import _prepare_snapshot_journal, _json
+        from wahojobs.recovery_archive import VERSION as snapshot_version
         prepared=directory/'backups'/(run_id+'.prepared')
         prepared.parent.mkdir(parents=True,exist_ok=True)
         result=_prepare_snapshot_journal(database,prepared,run_id=run_id,
-            code_commit=config['code_commit'],configuration_revision='config-002')
+            code_commit=config['code_commit'],configuration_revision='config-002',snapshot_version=snapshot_version)
+        if result.get('snapshot_version')!=snapshot_version:
+            raise ValueError('trusted_journal_preparation_required')
         write_json(target/'journal-preparation.json',dict(path=str(prepared),run_id=run_id,
-            code_commit=config['code_commit'],prepared_at=stamp(now()),files=len(result['files'])))
-        return dict(prepared_sha256=sha256(_json(result)).hexdigest())
+            code_commit=config['code_commit'],prepared_at=stamp(now()),files=len(result['files']),
+            snapshot_version=snapshot_version))
+        return dict(prepared_sha256=sha256(_json(result)).hexdigest(),snapshot_version=snapshot_version)
     if phase=='prepare':
         # Read-only source/configuration inspection is safe while beta owns the
         # database. No database copy or offline lifetime lease is taken here.
@@ -561,12 +565,15 @@ def collect_phase(config, run_id, phase, *, expected_preparation_sha256=None):
             snapshot=directory/'backups'/run_id
             snapshot.parent.mkdir(parents=True,exist_ok=True)
             prepared=directory/'backups'/(run_id+'.prepared')
-            create_snapshot(database,snapshot,code_commit=config['code_commit'],configuration_revision='config-002',ownership=lease,
+            created_manifest=create_snapshot(database,snapshot,code_commit=config['code_commit'],configuration_revision='config-002',ownership=lease,
                 **({'prepared_journal':prepared,'run_id':run_id,
                     'expected_preparation_sha256':expected_preparation_sha256}
                     if run_receipt.get('prepared_backup_required') is True or prepared.exists() else {}))
-            manifest=verify_snapshot(snapshot)
-            write_json(target/'backup.json',dict(verified=True,files=len(manifest['files']),protected_domains=before))
+            # The returned object is the proof from this creation call. A
+            # manifest reread from storage must never grant this authority.
+            manifest=verify_snapshot(snapshot,trusted_manifest=created_manifest)
+            write_json(target/'backup.json',dict(verified=True,files=len(manifest['files']),protected_domains=before,
+                snapshot_version=manifest['version']))
             if not read_json(target/'coverage-plan.json'):
                 collect_phase(config,run_id,'prepare')
         elif phase=='finish':

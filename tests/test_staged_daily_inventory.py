@@ -53,9 +53,12 @@ class StagedIntegrationTests(unittest.TestCase):
         self.assertEqual(daily.parse(row['last_qualifying_verification']),at)
         with closing(sqlite3.connect(self.db)) as db:
             self.assertEqual(db.execute('SELECT last_seen_at FROM account_sessions LIMIT 1').fetchone()[0],seen.isoformat())
-        manifest=json.loads((self.root/'state/backups/staged/manifest.json').read_text())
+        snapshot=self.root/'state/backups/staged'
+        manifest=json.loads((snapshot/'manifest.json').read_text())
+        from wahojobs.beta_recovery import logical_snapshot_records
         collection=daily.read_json(target/'appen-collection.json')['plan_id']
-        self.assertTrue(any('journal/'+collection+'/' in str(entry) for entry in manifest['files']))
+        self.assertEqual(manifest['version'],'private_beta_cold_snapshot_v2')
+        self.assertTrue(any(name.startswith('journal/'+collection+'/') for name,_ in logical_snapshot_records(snapshot,manifest)))
 
     def test_post_commit_summary_failure_recovers_qualifying_evidence_without_network(self):
         at,target=self.prepare('reporting')
@@ -182,7 +185,7 @@ class StagedSupervisorTests(unittest.TestCase):
             daily.write_json(target/'run.json',dict(prepared_sha256='f'*64))
             daily.write_json(target/'journal-preparation.json',dict(prepared_sha256='f'*64))
             native=cli.NativeOperations(dict(state_directory=temp),'fixture')
-            proof=json.dumps(dict(run_id='fixture',prepared_sha256='a'*64))
+            proof=json.dumps(dict(run_id='fixture',prepared_sha256='a'*64,snapshot_version='private_beta_cold_snapshot_v2'))
             with patch.object(cli,'bounded_process',return_value=proof) as process:
                 with self.assertRaisesRegex(ValueError,'trusted_journal_preparation_required'):
                     native.phase('fixture','backup',cli.time.monotonic()+60)
@@ -192,7 +195,9 @@ class StagedSupervisorTests(unittest.TestCase):
                 native.phase('fixture','backup',cli.time.monotonic()+60)
                 self.assertEqual(process.call_args.args[0][-2:],['--prepared-sha256','a'*64])
             self.assertNotIn('prepared_sha256',daily.read_json(target/'run.json').get('active_phase',{}))
-            for invalid in (dict(run_id='other',prepared_sha256='a'*64),dict(run_id='fixture',prepared_sha256='bad')):
+            for invalid in (dict(run_id='other',prepared_sha256='a'*64,snapshot_version='private_beta_cold_snapshot_v2'),
+                    dict(run_id='fixture',prepared_sha256='bad',snapshot_version='private_beta_cold_snapshot_v2'),
+                    dict(run_id='fixture',prepared_sha256='a'*64,snapshot_version='private_beta_cold_snapshot_v1')):
                 with patch.object(cli,'bounded_process',return_value=json.dumps(invalid)),\
                         self.assertRaisesRegex(ValueError,'trusted_journal_preparation_required'):
                     native.phase('fixture','prepare-backup',cli.time.monotonic()+60)

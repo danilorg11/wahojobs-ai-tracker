@@ -21,6 +21,7 @@ from wahojobs.database_lifetime_ownership import (
 )
 from wahojobs.evidence_maintenance import database_identity, journal_binding, report
 from wahojobs.workos_authkit_staging import validate_workos_authkit_staging_database
+from wahojobs import recovery_archive as archive
 
 VERSION = 'private_beta_cold_snapshot_v1'
 MAX_FILES = 10000
@@ -114,7 +115,7 @@ def _check_sqlite(path, *, product=False, companion=False, read_only=True):
             _attest(connection)
 
 
-def _inventory(database, companion, *, validate_journal=True, binding_output=None):
+def _inventory(database, companion, *, validate_journal=True, binding_output=None, snapshot_version=VERSION):
     files = {'product.sqlite3': database}
     from wahojobs.storage_relocation import LINEAGE, HOLD, sidecar, relocation_binding
     if sidecar(database, LINEAGE).exists():
@@ -154,8 +155,12 @@ def _inventory(database, companion, *, validate_journal=True, binding_output=Non
         # Validate existing complete and interrupted chains, not just their file bytes.
         if validate_journal:
             _validate_journal(root)
-    if len(files) > MAX_FILES:
+    logical_count = sum(name.startswith('journal/') for name in files)
+    physical_count = len(files) if snapshot_version == VERSION else len(files) - logical_count
+    if snapshot_version not in (VERSION, archive.VERSION) or physical_count > MAX_FILES:
         raise ValueError('recovery_snapshot_file_limit')
+    if snapshot_version == archive.VERSION and logical_count > archive.MAX_LOGICAL_FILES:
+        raise ValueError('recovery_archive_limit')
     if binding_output is not None:
         binding_output.append(binding)
     return files
@@ -188,13 +193,24 @@ def _records(files):
             for name, path in files.items()}
 
 
-def _bound_inventory(database, companion=None):
+def _bound_inventory(database, companion=None, *, snapshot_version=VERSION):
     binding = []
-    files = _inventory(database, companion, validate_journal=False, binding_output=binding)
+    files = _inventory(database, companion, validate_journal=False, binding_output=binding,
+                       snapshot_version=snapshot_version)
     return files, binding[0]
 
 
-def _prepare_snapshot_journal(database, destination, *, run_id, code_commit, configuration_revision):
+def _snapshot_records(files, version):
+    records = _records(files)
+    if version == archive.VERSION:
+        for name, record in records.items():
+            if name.startswith('journal/'):
+                record['bytes'] = files[name].stat().st_size
+    return records
+
+
+def _prepare_snapshot_journal(database, destination, *, run_id, code_commit, configuration_revision,
+                              snapshot_version=VERSION, companion=None):
     """Stage only immutable evidence while the caller holds the operation gate.
 
     The native supervisor lends its verified gate to its worker. Standalone
@@ -206,13 +222,22 @@ def _prepare_snapshot_journal(database, destination, *, run_id, code_commit, con
         raise ValueError('recovery_preparation_binding_invalid')
     database = local_database_path(database)
     identity = database_identity(database)
-    inventory, binding = _bound_inventory(database)
+    inventory, binding = _bound_inventory(database, companion, snapshot_version=snapshot_version)
     sources = _journal_files(inventory)
     if binding and Path(destination).is_relative_to(Path(binding['journal_root'])):
         raise ValueError('recovery_preparation_binding_invalid')
-    before = _records(sources)
+    before = _snapshot_records(sources, snapshot_version)
+    if snapshot_version == archive.VERSION:
+        archive.preflight(inventory, destination)
     target = _new_directory(destination)
+    packaged = None
+    if snapshot_version == archive.VERSION:
+        packaged = archive.pack_journal(sources, target,
+            records={name: record for name, record in before.items() if name.startswith('journal/')})
+        archive.validate_chains(target, packaged)
     for name, path in sources.items():
+        if packaged is not None and name.startswith('journal/'):
+            continue
         output = target / name
         output.parent.mkdir(parents=True, exist_ok=True)
         with path.open('rb') as src, output.open('xb') as dst:
@@ -221,15 +246,25 @@ def _prepare_snapshot_journal(database, destination, *, run_id, code_commit, con
             os.fsync(dst.fileno())
         if _hash(output) != before[name]['sha256']:
             raise ValueError('recovery_source_changed')
-    if any(name.startswith('journal/') for name in sources):
+    if packaged is None and any(name.startswith('journal/') for name in sources):
         _validate_journal(target / 'journal')
-    after_inventory, after_binding = _bound_inventory(database)
-    after = _records(_journal_files(after_inventory))
+    after_inventory, after_binding = _bound_inventory(database, companion, snapshot_version=snapshot_version)
+    after = _snapshot_records(_journal_files(after_inventory), snapshot_version)
     if before != after or identity != database_identity(database) or binding != after_binding:
         raise ValueError('recovery_source_changed')
     receipt = dict(version=PREPARATION_VERSION, run_id=run_id, code_commit=code_commit,
         configuration_revision=configuration_revision, database=identity,
         journal_binding=binding, files=before, created_at=datetime.now(timezone.utc).isoformat())
+    if packaged is not None:
+        # A compact receipt binds the full logical witness without embedding a
+        # million rows. Its digest travels through trusted worker stdout.
+        receipt.update(snapshot_version=snapshot_version, **packaged)
+        receipt['files'] = {name: record for name, record in before.items() if not name.startswith('journal/')}
+        receipt['segment_files'] = _records({name: target / name for name in packaged['journal_segments']})
+        if any(record['sha256'] != packaged['journal_segments'][name]['sha256']
+               for name, record in receipt['segment_files'].items()):
+            raise ValueError('recovery_source_changed')
+        archive.preflight(after_inventory, destination, prepared=True)
     raw = _json(receipt)
     if len(raw) > MAX_MANIFEST_BYTES:
         raise ValueError('recovery_manifest_limit')
@@ -245,8 +280,7 @@ def prepare_snapshot_journal(database, destination, **options):
         return _prepare_snapshot_journal(database, destination, **options)
 
 
-def _prepared_journal(prepared, database, sources, *, binding, run_id, code_commit, configuration_revision,
-                      expected_preparation_sha256):
+def _read_preparation(prepared, expected_preparation_sha256):
     prepared = Path(prepared)
     path = _file(prepared / 'PREPARED.json')
     if path.stat().st_size > MAX_MANIFEST_BYTES:
@@ -259,12 +293,26 @@ def _prepared_journal(prepared, database, sources, *, binding, run_id, code_comm
     if (digest != expected_preparation_sha256
             or digest != _file(prepared / 'PREPARED.sha256').read_text().strip()):
         raise ValueError('recovery_preparation_integrity_failed')
-    receipt = json.loads(raw)
+    return archive.load_json(raw)
+
+
+def _prepared_journal(prepared, database, sources, *, binding, run_id, code_commit, configuration_revision,
+                      expected_preparation_sha256):
+    prepared = Path(prepared)
+    receipt = _read_preparation(prepared, expected_preparation_sha256)
+    version = receipt.get('snapshot_version', VERSION)
+    expected_files = _journal_files(sources)
+    if version == archive.VERSION:
+        if receipt.get('journal_inventory') != archive.inventory_summary(
+                (name, record) for name, record in sorted(expected_files.items()) if name.startswith('journal/')):
+            raise ValueError('recovery_preparation_binding_invalid')
+        expected_files = {name: record for name, record in expected_files.items() if not name.startswith('journal/')}
     if (receipt.get('version') != PREPARATION_VERSION or receipt.get('run_id') != run_id or run_id is None
+            or version not in (VERSION, archive.VERSION)
             or receipt.get('code_commit') != code_commit or receipt.get('configuration_revision') != configuration_revision
             or receipt.get('database') != database_identity(database)
             or receipt.get('journal_binding') != binding
-            or receipt.get('files') != _journal_files(sources)):
+            or receipt.get('files') != expected_files):
         raise ValueError('recovery_preparation_binding_invalid')
     try:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(receipt['created_at'])).total_seconds()
@@ -279,16 +327,23 @@ def _prepared_journal(prepared, database, sources, *, binding, run_id, code_comm
         if member.is_file():
             actual.add(member.relative_to(prepared).as_posix())
             _file(member)
-    if actual != {*receipt['files'], 'PREPARED.json', 'PREPARED.sha256'}:
+    segments = receipt.get('segment_files', {}) if version == archive.VERSION else {}
+    if (type(segments) is not dict or len(segments) > archive.MAX_SEGMENTS
+            or version == archive.VERSION and set(segments) != set(receipt.get('journal_segments', {}))
+            or actual != {*receipt['files'], *segments, 'PREPARED.json', 'PREPARED.sha256'}):
         raise ValueError('recovery_preparation_integrity_failed')
-    for name, record in receipt['files'].items():
+    for name, record in {**receipt['files'], **segments}.items():
+        if name in segments and record['sha256'] != receipt['journal_segments'][name]['sha256']:
+            raise ValueError('recovery_preparation_integrity_failed')
+        if name in segments:
+            archive._structure(prepared / name)
         if _hash(prepared / name) != record['sha256']:
             raise ValueError('recovery_preparation_integrity_failed')
     return receipt
 
 
 def _create_snapshot(database, destination, *, companion=None, code_commit, configuration_revision, ownership=None,
-                     prepared_journal=None, run_id=None, expected_preparation_sha256=None):
+                     prepared_journal=None, run_id=None, expected_preparation_sha256=None, snapshot_version=VERSION):
     """Snapshot current quiescent storage, optionally adopting prepared evidence.
 
     Preparation never supplies a database or the protected-domain baseline.
@@ -301,14 +356,21 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
     require_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
     cold_connections = []
     try:
-        sources, binding = _bound_inventory(database, companion)
-        before = _records(sources)
         if prepared_journal is not None:
-            _prepared_journal(prepared_journal, database, before, binding=binding, run_id=run_id,
+            # Authenticate before a version from a mutable artifact can alter
+            # limits or choose the optimized v2 path.
+            snapshot_version = _read_preparation(prepared_journal, expected_preparation_sha256).get('snapshot_version', VERSION)
+        sources, binding = _bound_inventory(database, companion, snapshot_version=snapshot_version)
+        before = _snapshot_records(sources, snapshot_version)
+        preparation = None
+        if prepared_journal is not None:
+            preparation = _prepared_journal(prepared_journal, database, before, binding=binding, run_id=run_id,
                 code_commit=code_commit, configuration_revision=configuration_revision,
                 expected_preparation_sha256=expected_preparation_sha256)
             if Path(prepared_journal).stat().st_dev != Path(destination).parent.stat().st_dev:
                 raise ValueError('recovery_preparation_same_filesystem_required')
+        if snapshot_version == archive.VERSION:
+            archive.preflight(sources, destination, prepared=preparation is not None)
         for name, path in sources.items():
             if name.endswith('.sqlite3'):
                 _check_sqlite(path, product=name == 'product.sqlite3', companion=name == 'companion.sqlite3', read_only=False)
@@ -316,12 +378,22 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
                 cold_connections.append(cold)
                 cold.execute('BEGIN EXCLUSIVE')
         target = _new_directory(destination)
-        if prepared_journal is not None and any(name.startswith('journal/') for name in sources):
+        packaged = None
+        if snapshot_version == archive.VERSION:
+            if preparation is not None:
+                packaged = {key: preparation[key] for key in ('journal_segments', 'journal_inventory')}
+                if preparation['journal_segments']:
+                    (Path(prepared_journal) / 'journal-segments').rename(target / 'journal-segments')
+            else:
+                packaged = archive.pack_journal(sources, target,
+                    records={name: record for name, record in before.items() if name.startswith('journal/')})
+                archive.validate_chains(target, packaged)
+        elif prepared_journal is not None and any(name.startswith('journal/') for name in sources):
             # Atomic same-filesystem adoption keeps the validated artifact bytes
             # and avoids another full history copy while the app is unavailable.
             (Path(prepared_journal) / 'journal').rename(target / 'journal')
         for name, path in sources.items():
-            if prepared_journal is not None and name.startswith('journal/'):
+            if (prepared_journal is not None or packaged is not None) and name.startswith('journal/'):
                 continue
             output = target / name
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -336,17 +408,25 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
         # inventory below still checks all paths, membership, identities and
         # hashes. This binds the chain proof to the backup without decoding the
         # growing historical chains twice during the unavailable interval.
-        if prepared_journal is None and any(name.startswith('journal/') for name in sources):
+        if prepared_journal is None and packaged is None and any(name.startswith('journal/') for name in sources):
             _validate_journal(target / 'journal')
-        after_sources = _inventory(database, companion, validate_journal=False)
-        after = {name: dict(identity=database_identity(path), sha256=_hash(path))
-                 for name, path in after_sources.items()}
+        after_sources = _inventory(database, companion, validate_journal=False, snapshot_version=snapshot_version)
+        after = _snapshot_records(after_sources, snapshot_version)
         if before != after:
             raise ValueError('recovery_source_changed')
-        manifest = dict(version=VERSION, created_at=datetime.now(timezone.utc).isoformat(),
+        manifest = dict(version=snapshot_version, created_at=datetime.now(timezone.utc).isoformat(),
             code_commit=code_commit, configuration_revision=configuration_revision,
             files=before, companion_configured=companion is not None,
             maintenance_pinned='maintenance-pin.json' in sources)
+        if packaged is not None:
+            manifest.update(packaged)
+            manifest['files'] = {name: record for name, record in before.items() if not name.startswith('journal/')}
+            manifest['files'].update(_records({name: target / name for name in packaged['journal_segments']}))
+            if any(manifest['files'][name]['sha256'] != record['sha256']
+                   for name, record in packaged['journal_segments'].items()):
+                raise ValueError('recovery_source_changed')
+            if len(manifest['files']) > MAX_FILES:
+                raise ValueError('recovery_snapshot_file_limit')
         raw = _json(manifest)
         if len(raw) > MAX_MANIFEST_BYTES:
             raise ValueError('recovery_manifest_limit')
@@ -361,14 +441,27 @@ def _create_snapshot(database, destination, *, companion=None, code_commit, conf
             release_database_lifetime_ownership(lease, role=ROLE_OFFLINE_OPERATOR, database_path=database)
 
 
-def verify_snapshot(snapshot):
+def verify_snapshot(snapshot, *, trusted_manifest=None):
+    """Verify a retained artifact deeply by default.
+
+    trusted_manifest is an in-process capability: only the immediate return of
+    successful create_snapshot may be supplied, never a disk-loaded manifest.
+    The native cold worker retains that returned object itself. This skips only
+    v2 inflation/replay already proved online; hashes and SQLite still validate.
+    """
     snapshot = Path(snapshot)
-    raw = _file(snapshot / 'manifest.json').read_bytes()
+    manifest_path = _file(snapshot / 'manifest.json')
+    if manifest_path.stat().st_size > MAX_MANIFEST_BYTES:
+        raise ValueError('recovery_manifest_invalid')
+    raw = manifest_path.read_bytes()
     if len(raw) > MAX_MANIFEST_BYTES or sha256(raw).hexdigest() != _file(snapshot / 'COMPLETE.sha256').read_text().strip():
         raise ValueError('recovery_manifest_invalid')
-    manifest = json.loads(raw)
+    manifest = archive.load_json(raw)
+    trusted = trusted_manifest is not None
+    if trusted and _json(trusted_manifest) != raw:
+        raise ValueError('recovery_preparation_integrity_failed')
     files = manifest.get('files', {})
-    if (manifest.get('version') != VERSION or type(files) is not dict
+    if (manifest.get('version') not in (VERSION, archive.VERSION) or type(files) is not dict
             or not 1 <= len(files) <= MAX_FILES or 'product.sqlite3' not in files
             or type(manifest.get('companion_configured')) is not bool
             or type(manifest.get('maintenance_pinned')) is not bool
@@ -382,13 +475,41 @@ def verify_snapshot(snapshot):
                 or relative.as_posix() != name or name not in {
                     'product.sqlite3', 'companion.sqlite3', 'correction-drafts.sqlite3',
                     'maintenance-pin.json', 'maintenance-lineage.json', 'recovery-hold.json'}
-                and not name.startswith(('journal/', 'lineage-history/'))):
+                and not name.startswith(('journal/', 'lineage-history/', 'journal-segments/'))
+                or name.startswith('journal-segments/') and manifest['version'] != archive.VERSION
+                or name.startswith('journal/') and manifest['version'] == archive.VERSION):
             raise ValueError('recovery_manifest_invalid')
+        if name.startswith('journal-segments/'):
+            archive._structure(snapshot / name)
         if _hash(snapshot / name) != record.get('sha256'):
             raise ValueError('recovery_snapshot_integrity_failed')
         if name.endswith('.sqlite3') and '/' not in name:
             _check_sqlite(snapshot / name, product=name == 'product.sqlite3', companion=name == 'companion.sqlite3')
+    if manifest['version'] == archive.VERSION:
+        segments = manifest.get('journal_segments', {})
+        if (type(segments) is not dict or set(segments) != {name for name in files if name.startswith('journal-segments/')}
+                or any(files[name]['sha256'] != record.get('sha256') for name, record in segments.items())):
+            raise ValueError('recovery_manifest_invalid')
+        actual = set()
+        for path in snapshot.rglob('*'):
+            if path.is_file() or path.is_symlink():
+                _file(path)
+                actual.add(path.relative_to(snapshot).as_posix())
+        if actual != {*files, 'manifest.json', 'COMPLETE.sha256'}:
+            raise ValueError('recovery_snapshot_integrity_failed')
+        if not trusted:
+            for _ in archive.iter_journal(snapshot, manifest):
+                pass
+            archive.validate_chains(snapshot, manifest)
     return manifest
+
+
+def logical_snapshot_records(snapshot, manifest):
+    """One common logical view for v1 and v2 restore/relocation."""
+    yield from ((name, record) for name, record in manifest['files'].items()
+                if not name.startswith('journal-segments/'))
+    if manifest['version'] == archive.VERSION:
+        yield from archive.iter_journal(snapshot, manifest, verify_contents=False)
 
 
 def restored_name(name, record):
@@ -414,6 +535,8 @@ def restore_snapshot(snapshot, destination):
     _durable_write(sidecar(target / 'product.sqlite3', HOLD), dict(version=RELOCATION_VERSION,
         database_path=str(target / 'product.sqlite3'), snapshot_manifest_sha256=_hash(snapshot / 'manifest.json')))
     for name, record in manifest['files'].items():
+        if name.startswith('journal-segments/'):
+            continue
         output = target / restored_name(name, record)
         output.parent.mkdir(parents=True, exist_ok=True)
         with (snapshot / name).open('rb') as src, output.open('xb') as dst:
@@ -424,10 +547,14 @@ def restore_snapshot(snapshot, destination):
             raise ValueError('recovery_restore_integrity_failed')
         if name.endswith('.sqlite3') and '/' not in name:
             _check_sqlite(output, product=name == 'product.sqlite3', companion=name == 'companion.sqlite3')
+    if manifest['version'] == archive.VERSION:
+        archive.extract_journal(snapshot, manifest, target)
+    if manifest['maintenance_pinned']:
+        (target / 'journal').mkdir(mode=0o700, exist_ok=True)
     # Recheck the source snapshot as well; an interrupted restore has no READY receipt.
     verify_snapshot(snapshot)
-    receipt = dict(version=VERSION, snapshot_manifest_sha256=_hash(snapshot / 'manifest.json'),
-        file_count=len(manifest['files']), product_database='product.sqlite3',
+    receipt = dict(version=manifest['version'], snapshot_manifest_sha256=_hash(snapshot / 'manifest.json'),
+        file_count=len(manifest['files']) - len(manifest.get('journal_segments', {})) + manifest.get('journal_inventory', {}).get('files', 0), product_database='product.sqlite3',
         companion_database='companion.sqlite3' if manifest['companion_configured'] else None,
         maintenance='held_original_physical_identity' if manifest['maintenance_pinned'] else 'unconfigured',
         activation='blocked_until_lossless_authoritative_reconciliation', code_commit=manifest['code_commit'],

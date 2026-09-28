@@ -255,9 +255,11 @@ class NativeOperations:
                 **({'capture_output':True} if phase=='prepare-backup' else {}))
             if phase=='prepare-backup':
                 import re
+                from wahojobs.recovery_archive import VERSION as snapshot_version
                 proof=json.loads(output)
-                if (not isinstance(proof,dict) or set(proof)!={'run_id','prepared_sha256'}
+                if (not isinstance(proof,dict) or set(proof)!={'run_id','prepared_sha256','snapshot_version'}
                         or proof['run_id']!=run_id or not isinstance(proof['prepared_sha256'],str)
+                        or proof['snapshot_version']!=snapshot_version
                         or not re.fullmatch('[a-f0-9]{64}',proof['prepared_sha256'])):
                     raise ValueError('trusted_journal_preparation_required')
                 self.prepared_digests[run_id]=proof['prepared_sha256']
@@ -712,7 +714,8 @@ def main(argv=None):
                 result=daily.collect_phase(config,args.run_id,args.phase,
                     expected_preparation_sha256=args.prepared_sha256)
             if args.phase=='prepare-backup':
-                print(json.dumps(dict(run_id=args.run_id,prepared_sha256=result['prepared_sha256'])),flush=True)
+                print(json.dumps(dict(run_id=args.run_id,prepared_sha256=result['prepared_sha256'],
+                    snapshot_version=result['snapshot_version'])),flush=True)
         except Exception as error:
             # Bound diagnostics persist even before a publication journal can
             # be created. Never retain exception values or response contents.
