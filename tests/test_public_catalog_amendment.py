@@ -110,6 +110,22 @@ class PublicAmendmentTests(unittest.TestCase):
         from wahojobs.public_catalog_reader import opportunity_label
         self.assertEqual(opportunity_label(dict(source_title='Lawyer Talent Network'),''),'Talent network — future consideration')
 
+    def test_annotator_title_with_explicit_infrastructure_ownership_is_held(self):
+        self.job.update(company_slug='turing',rich_provider='turing',
+            source_title='Agentic Coding Annotator - Online / Offline Tasks',
+            rich_body='Role Overview\n\nWe are looking for an experienced DevOps Engineer to build and operate GPU infrastructure '
+                'and production LLM serving systems on Google Cloud Platform (GCP). '
+                'You will own infrastructure across the lifecycle—from GPU provisioning and container orchestration '
+                'to scalable model inference, observability, and cost optimization.')
+        prepared,decisions=prepare_publication([self.job])
+        self.assertFalse(prepared)
+        self.assertEqual(decisions[0]['reason'],'known_title_body_conflict')
+        self.job['source_title']='DevOps and Cloud Infrastructure Engineer'
+        self.assertTrue(prepare_publication([self.job])[0])
+        self.job['source_title']='Agentic Coding Annotator - Online / Offline Tasks'
+        self.job['rich_body']='Review coding tasks and annotate agent trajectories for AI evaluation. '*5
+        self.assertTrue(prepare_publication([self.job])[0])
+
     def test_retained_turing_voice_role_does_not_inherit_company_ai_mission(self):
         from wahojobs.authenticated_card_evidence import _source_text
         fixture=FIXTURE['turing_company_context']

@@ -84,6 +84,11 @@ def publication_quality(job):
             and re.search(r'We are seeking experienced Aerospace\s*/\s*Flight-Dynamics Engineer\b', text, re.I)
             and re.search(r'experience working in Aerospace\s*/\s*Flight-Dynamics\b', text, re.I)):
         return 'withheld', 'known_title_body_conflict', ''
+    if (job.get('company_slug') == 'turing'
+            and re.match(r'Agentic Coding Annotator\b', title, re.I)
+            and re.search(r'We are looking for an experienced DevOps Engineer to build and operate GPU infrastructure\b', text, re.I)
+            and re.search(r'You will own infrastructure across the lifecycle', text, re.I)):
+        return 'withheld', 'known_title_body_conflict', ''
     # An explicit document title is an identity assertion, unlike incidental
     # professional-field words in qualifications. Retain unresolved cases for review.
     named = re.search(r'(?im)^\s*(?:#{1,6}\s*)?(?:job title|position title)\s*:\s*(.+)$', text)
